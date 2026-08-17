@@ -2,17 +2,18 @@ workflows:
   android-debug:
     name: Antik Harita Türkiye APK
     max_build_duration: 60
-    instance_type: linux_x2
+    instance_type: mac_mini_m2
     scripts:
       - name: Set Android SDK location
         script: |
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
-      - name: Make Gradle executable
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "sdk.dir=$SDK_PATH" > "$CM_BUILD_DIR/local.properties"
+      - name: Check Gradle
         script: |
-          chmod +x gradlew
+          gradle --version
       - name: Build debug APK
         script: |
-          ./gradlew assembleDebug
+          gradle --no-daemon assembleDebug
     artifacts:
       - app/build/outputs/apk/debug/*.apk
       - app/build/outputs/**/*.apk
