@@ -5,8 +5,8 @@
     <application
         android:allowBackup="false"
         android:fullBackupContent="false"
-        android:icon="@drawable/ic_launcher"
-        android:roundIcon="@drawable/ic_launcher"
+        android:icon="@drawable/ic_launcher_pro"
+        android:roundIcon="@drawable/ic_launcher_pro"
         android:label="Antik Harita Türkiye"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
