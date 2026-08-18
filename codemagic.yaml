@@ -1,6 +1,6 @@
 workflows:
   android-debug:
-    name: Antik Harita Türkiye APK v15 RESEARCH
+    name: Antik Harita Türkiye APK v16 ATLAS
     max_build_duration: 60
     instance_type: mac_mini_m2
     scripts:
@@ -13,12 +13,16 @@ workflows:
           python3 tools/build_history_dataset.py
           python3 - <<'PY'
           import json
-          p='app/src/main/assets/data/history-corpus.json'
-          d=json.load(open(p,encoding='utf-8'))
+          from pathlib import Path
+          p=Path('app/src/main/assets/data/history-corpus.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
           n=len(d.get('records',[]))
           print(f'Historical corpus records: {n}')
           if n < 500:
               raise SystemExit('Historical corpus is unexpectedly small; refusing demo/empty APK')
+          ui=Path('app/src/main/assets/index-v16.html')
+          if not ui.exists() or ui.stat().st_size < 15000:
+              raise SystemExit('v16 atlas interface is missing or unexpectedly small')
           PY
       - name: Check Gradle
         script: |
