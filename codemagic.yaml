@@ -1,6 +1,6 @@
 workflows:
   android-debug:
-    name: Antik Harita Türkiye APK v14 MULTI
+    name: Antik Harita Türkiye APK v15 RESEARCH
     max_build_duration: 60
     instance_type: mac_mini_m2
     scripts:
@@ -8,6 +8,18 @@ workflows:
         script: |
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           echo "sdk.dir=$SDK_PATH" > "$CM_BUILD_DIR/local.properties"
+      - name: Build source-backed history corpus
+        script: |
+          python3 tools/build_history_dataset.py
+          python3 - <<'PY'
+          import json
+          p='app/src/main/assets/data/history-corpus.json'
+          d=json.load(open(p,encoding='utf-8'))
+          n=len(d.get('records',[]))
+          print(f'Historical corpus records: {n}')
+          if n < 500:
+              raise SystemExit('Historical corpus is unexpectedly small; refusing demo/empty APK')
+          PY
       - name: Check Gradle
         script: |
           gradle --version
