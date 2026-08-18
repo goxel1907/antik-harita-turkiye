@@ -22,11 +22,26 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MainActivity extends Activity {
     private static final int REQ_LOCATION = 7;
+    private static final long CACHE_TTL_MS = 10L * 60L * 1000L;
     private WebView webView;
     private LocationManager locationManager;
+    private final Map<String, CacheEntry> overpassCache = new ConcurrentHashMap<>();
+
+    private static class CacheEntry {
+        final String payload;
+        final String source;
+        final long time;
+        CacheEntry(String payload, String source) {
+            this.payload = payload;
+            this.source = source;
+            this.time = System.currentTimeMillis();
+        }
+    }
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -43,7 +58,7 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/8.0");
+        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/9.0");
 
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
@@ -60,22 +75,67 @@ public class MainActivity extends Activity {
     }
 
     public class AppBridge {
+        @JavascriptInterface public void fetchOverpassV2(String requestId, String query) {
+            if (query == null || query.trim().isEmpty()) return;
+            final String id = requestId == null ? "0" : requestId;
+            final String cacheKey = query;
+            CacheEntry cached = overpassCache.get(cacheKey);
+            if (cached != null && System.currentTimeMillis() - cached.time < CACHE_TTL_MS) {
+                runOnUiThread(() -> webView.evaluateJavascript(
+                        "window.onNativeOverpassV2(" + JSONObject.quote(id) + "," +
+                                JSONObject.quote(cached.payload) + "," + JSONObject.quote("önbellek / " + cached.source) + ")", null));
+                return;
+            }
+
+            new Thread(() -> {
+                String[] endpoints = {
+                        "https://overpass.private.coffee/api/interpreter",
+                        "https://overpass-api.de/api/interpreter"
+                };
+                String payload = null;
+                String source = null;
+                StringBuilder errors = new StringBuilder();
+                for (String endpoint : endpoints) {
+                    try {
+                        payload = postForm(endpoint, "data=" + URLEncoder.encode(query, "UTF-8"), 6000, 18000);
+                        if (payload != null && !payload.isEmpty()) {
+                            source = endpoint;
+                            break;
+                        }
+                    } catch (Exception e) {
+                        if (errors.length() > 0) errors.append(" | ");
+                        errors.append(hostLabel(endpoint)).append(": ")
+                                .append(e.getClass().getSimpleName()).append(" ")
+                                .append(String.valueOf(e.getMessage()));
+                    }
+                }
+                final String out = payload;
+                final String src = source;
+                final String error = errors.length() == 0 ? "Overpass bağlantısı kurulamadı" : errors.toString();
+                if (out != null && src != null) overpassCache.put(cacheKey, new CacheEntry(out, src));
+                runOnUiThread(() -> {
+                    if (out != null) webView.evaluateJavascript(
+                            "window.onNativeOverpassV2(" + JSONObject.quote(id) + "," + JSONObject.quote(out) + "," + JSONObject.quote(src) + ")", null);
+                    else webView.evaluateJavascript("window.onNativeOverpassError(" + JSONObject.quote(error) + ")", null);
+                });
+            }).start();
+        }
+
         @JavascriptInterface public void fetchOverpass(String query) {
             if (query == null || query.trim().isEmpty()) return;
             new Thread(() -> {
-                String[] endpoints = {
-                        "https://overpass-api.de/api/interpreter",
-                        "https://overpass.kumi.systems/api/interpreter",
-                        "https://overpass.nchc.org.tw/api/interpreter"
-                };
                 String payload = null;
                 String err = "Overpass bağlantısı kurulamadı";
+                String[] endpoints = {
+                        "https://overpass.private.coffee/api/interpreter",
+                        "https://overpass-api.de/api/interpreter"
+                };
                 for (String endpoint : endpoints) {
                     try {
-                        payload = postForm(endpoint, "data=" + URLEncoder.encode(query, "UTF-8"), 12000, 30000);
+                        payload = postForm(endpoint, "data=" + URLEncoder.encode(query, "UTF-8"), 6000, 18000);
                         if (payload != null && !payload.isEmpty()) break;
                     } catch (Exception e) {
-                        err = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
+                        err = hostLabel(endpoint) + ": " + e.getClass().getSimpleName() + " " + String.valueOf(e.getMessage());
                     }
                 }
                 final String out = payload;
@@ -120,6 +180,10 @@ public class MainActivity extends Activity {
         }
     }
 
+    private String hostLabel(String endpoint) {
+        try { return new URL(endpoint).getHost(); } catch (Exception e) { return endpoint; }
+    }
+
     private String getText(String address, int connectTimeout, int readTimeout) throws Exception {
         HttpURLConnection c = null;
         try {
@@ -128,7 +192,7 @@ public class MainActivity extends Activity {
             c.setReadTimeout(readTimeout);
             c.setRequestMethod("GET");
             c.setRequestProperty("Accept", "application/json");
-            c.setRequestProperty("User-Agent", "AntikHaritaTurkiye/8.0 heritage-protection-app");
+            c.setRequestProperty("User-Agent", "AntikHaritaTurkiye/9.0 heritage-protection-app");
             int code = c.getResponseCode();
             if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
             return read(c);
@@ -147,7 +211,7 @@ public class MainActivity extends Activity {
             c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
             c.setRequestProperty("Accept", "application/json");
-            c.setRequestProperty("User-Agent", "AntikHaritaTurkiye/8.0 heritage-protection-app");
+            c.setRequestProperty("User-Agent", "AntikHaritaTurkiye/9.0 heritage-protection-app");
             byte[] body = bodyText.getBytes(StandardCharsets.UTF_8);
             c.setFixedLengthStreamingMode(body.length);
             try (OutputStream out = c.getOutputStream()) { out.write(body); }
