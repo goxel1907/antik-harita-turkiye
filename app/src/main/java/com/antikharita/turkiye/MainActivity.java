@@ -32,6 +32,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         webView = new WebView(this);
         setContentView(webView);
+        locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -45,47 +46,43 @@ public class MainActivity extends Activity {
         s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/8.0");
 
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
-        locationManager = (LocationManager)getSystemService(LOCATION_SERVICE);
+        webView.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                String js = "(function(){if(document.getElementById('protection-module'))return;" +
+                        "var s=document.createElement('script');s.id='protection-module';" +
+                        "s.src='protection.js';document.body.appendChild(s);})()";
+                view.evaluateJavascript(js, null);
+            }
+        });
         webView.addJavascriptInterface(new AppBridge(), "AndroidApp");
         webView.loadUrl("file:///android_asset/index.html");
     }
 
     public class AppBridge {
-        @JavascriptInterface public void requestLocation() {
-            runOnUiThread(() -> {
-                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                    checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
-                    return;
-                }
-                fetchLocation();
-            });
-        }
-
         @JavascriptInterface public void fetchOverpass(String query) {
             if (query == null || query.trim().isEmpty()) return;
             new Thread(() -> {
                 String[] endpoints = {
-                    "https://overpass-api.de/api/interpreter",
-                    "https://overpass.kumi.systems/api/interpreter",
-                    "https://overpass.nchc.org.tw/api/interpreter"
+                        "https://overpass-api.de/api/interpreter",
+                        "https://overpass.kumi.systems/api/interpreter",
+                        "https://overpass.nchc.org.tw/api/interpreter"
                 };
-                String result = null;
-                String error = "Overpass bağlantısı kurulamadı";
+                String payload = null;
+                String err = "Overpass bağlantısı kurulamadı";
                 for (String endpoint : endpoints) {
                     try {
-                        result = postForm(endpoint, "data=" + URLEncoder.encode(query, "UTF-8"), 14000, 30000);
-                        if (result != null && !result.isEmpty()) break;
+                        payload = postForm(endpoint, "data=" + URLEncoder.encode(query, "UTF-8"), 12000, 30000);
+                        if (payload != null && !payload.isEmpty()) break;
                     } catch (Exception e) {
-                        error = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
+                        err = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
                     }
                 }
-                final String payload = result;
-                final String err = error;
+                final String out = payload;
+                final String error = err;
                 runOnUiThread(() -> {
-                    if (payload != null) js("window.onNativeOverpass(" + JSONObject.quote(payload) + ")");
-                    else js("window.onNativeOverpassError(" + JSONObject.quote(err) + ")");
+                    if (out != null) webView.evaluateJavascript("window.onNativeOverpass(" + JSONObject.quote(out) + ")", null);
+                    else webView.evaluateJavascript("window.onNativeOverpassError(" + JSONObject.quote(error) + ")", null);
                 });
             }).start();
         }
@@ -93,69 +90,82 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void geocode(String text) {
             if (text == null || text.trim().isEmpty()) return;
             new Thread(() -> {
+                String payload = null;
+                String err = "Yer araması yapılamadı";
                 try {
-                    String url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=12&countrycodes=tr&addressdetails=1&q=" + URLEncoder.encode(text.trim(), "UTF-8");
-                    String result = get(url, 12000, 22000);
-                    runOnUiThread(() -> js("window.onNativeGeocode(" + JSONObject.quote(result == null ? "[]" : result) + ")"));
+                    String q = URLEncoder.encode(text.trim(), "UTF-8");
+                    String u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=12&countrycodes=tr&q=" + q;
+                    payload = getText(u, 10000, 20000);
                 } catch (Exception e) {
-                    String msg = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
-                    runOnUiThread(() -> js("window.onNativeGeocodeError(" + JSONObject.quote(msg) + ")"));
+                    err = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
                 }
+                final String out = payload;
+                final String error = err;
+                runOnUiThread(() -> {
+                    if (out != null) webView.evaluateJavascript("window.onNativeGeocode(" + JSONObject.quote(out) + ")", null);
+                    else webView.evaluateJavascript("window.onNativeGeocodeError(" + JSONObject.quote(error) + ")", null);
+                });
             }).start();
         }
+
+        @JavascriptInterface public void requestLocation() {
+            runOnUiThread(() -> {
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                        checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+                    return;
+                }
+                fetchLocation();
+            });
+        }
     }
 
-    private String postForm(String endpoint, String bodyText, int connectTimeout, int readTimeout) throws Exception {
-        HttpURLConnection conn = null;
+    private String getText(String address, int connectTimeout, int readTimeout) throws Exception {
+        HttpURLConnection c = null;
         try {
-            conn = (HttpURLConnection)new URL(endpoint).openConnection();
-            conn.setConnectTimeout(connectTimeout);
-            conn.setReadTimeout(readTimeout);
-            conn.setRequestMethod("POST");
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("User-Agent", "AntikHaritaTurkiye/8.0 heritage-research-map");
+            c = (HttpURLConnection) new URL(address).openConnection();
+            c.setConnectTimeout(connectTimeout);
+            c.setReadTimeout(readTimeout);
+            c.setRequestMethod("GET");
+            c.setRequestProperty("Accept", "application/json");
+            c.setRequestProperty("User-Agent", "AntikHaritaTurkiye/8.0 heritage-protection-app");
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
+            return read(c);
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private String postForm(String address, String bodyText, int connectTimeout, int readTimeout) throws Exception {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(address).openConnection();
+            c.setConnectTimeout(connectTimeout);
+            c.setReadTimeout(readTimeout);
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+            c.setRequestProperty("Accept", "application/json");
+            c.setRequestProperty("User-Agent", "AntikHaritaTurkiye/8.0 heritage-protection-app");
             byte[] body = bodyText.getBytes(StandardCharsets.UTF_8);
-            conn.setFixedLengthStreamingMode(body.length);
-            try (OutputStream out = conn.getOutputStream()) { out.write(body); }
-            int code = conn.getResponseCode();
+            c.setFixedLengthStreamingMode(body.length);
+            try (OutputStream out = c.getOutputStream()) { out.write(body); }
+            int code = c.getResponseCode();
             if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
-            return readAll(conn);
+            return read(c);
         } finally {
-            if (conn != null) conn.disconnect();
+            if (c != null) c.disconnect();
         }
     }
 
-    private String get(String endpoint, int connectTimeout, int readTimeout) throws Exception {
-        HttpURLConnection conn = null;
-        try {
-            conn = (HttpURLConnection)new URL(endpoint).openConnection();
-            conn.setConnectTimeout(connectTimeout);
-            conn.setReadTimeout(readTimeout);
-            conn.setRequestMethod("GET");
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("Accept-Language", "tr");
-            conn.setRequestProperty("User-Agent", "AntikHaritaTurkiye/8.0 heritage-research-map");
-            int code = conn.getResponseCode();
-            if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
-            return readAll(conn);
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
-    }
-
-    private String readAll(HttpURLConnection conn) throws Exception {
+    private String read(HttpURLConnection c) throws Exception {
         StringBuilder sb = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
             while ((line = br.readLine()) != null) sb.append(line);
         }
         return sb.toString();
-    }
-
-    private void js(String script) {
-        if (webView != null) webView.evaluateJavascript(script, null);
     }
 
     private void fetchLocation() {
@@ -177,10 +187,8 @@ public class MainActivity extends Activity {
     }
 
     private void sendLocation(Location loc) {
-        final double la = loc.getLatitude();
-        final double lo = loc.getLongitude();
-        final float accuracy = loc.getAccuracy();
-        runOnUiThread(() -> js("window.onNativeLocation(" + la + "," + lo + "," + accuracy + ")"));
+        final double la = loc.getLatitude(), lo = loc.getLongitude();
+        runOnUiThread(() -> webView.evaluateJavascript("window.onNativeLocation(" + la + "," + lo + ")", null));
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
