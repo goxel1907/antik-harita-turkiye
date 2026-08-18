@@ -41,7 +41,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         webView = new WebView(this);
-        webView.setBackgroundColor(Color.rgb(191, 217, 229));
+        webView.setBackgroundColor(Color.rgb(189, 211, 221));
         webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
         setContentView(webView);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -58,7 +58,7 @@ public class MainActivity extends Activity {
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " AntikHaritaTurkiye/15.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " AntikHaritaTurkiye/16.0");
 
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
@@ -66,7 +66,9 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme();
-                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                if ("http".equalsIgnoreCase(scheme)
+                        || "https".equalsIgnoreCase(scheme)
+                        || "geo".equalsIgnoreCase(scheme)) {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, uri));
                         return true;
@@ -78,7 +80,7 @@ public class MainActivity extends Activity {
             }
         });
         webView.addJavascriptInterface(new Bridge(), "AndroidApp");
-        webView.loadUrl("file:///android_asset/index-v15.html");
+        webView.loadUrl("file:///android_asset/index-v16.html");
     }
 
     public class Bridge {
@@ -117,7 +119,7 @@ public class MainActivity extends Activity {
                     connection.setRequestMethod("GET");
                     connection.setRequestProperty("Accept", "application/json");
                     connection.setRequestProperty("Accept-Language", "tr,en;q=0.7");
-                    connection.setRequestProperty("User-Agent", "AntikHaritaTurkiye/15.0 public-historical-research-map contact:goxel1907");
+                    connection.setRequestProperty("User-Agent", "AntikHaritaTurkiye/16.0 public-historical-research-map contact:goxel1907");
                     int code = connection.getResponseCode();
                     if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
                     String raw = read(connection.getInputStream());
