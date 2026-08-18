@@ -28,10 +28,16 @@ import android.view.WindowManager;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
@@ -57,7 +63,7 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/6.0");
+        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/7.0");
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient());
         appBridge = new AppBridge(this);
@@ -66,11 +72,92 @@ public class MainActivity extends Activity {
     }
 
     public class AppBridge {
-        private final Context context; private final LocationManager locationManager; private final SharedPreferences prefs;
-        AppBridge(Context context){this.context=context;locationManager=(LocationManager)context.getSystemService(Context.LOCATION_SERVICE);prefs=getSharedPreferences("security",MODE_PRIVATE);}
-        @JavascriptInterface public void requestLocation(){runOnUiThread(() -> {if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},REQ_LOCATION);return;}fetchLocation();});}
-        void fetchLocation(){try{Location last=locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);if(last==null)last=locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);if(last!=null)sendLocation(last);LocationListener listener=new LocationListener(){@Override public void onLocationChanged(Location location){sendLocation(location);locationManager.removeUpdates(this);}};if(locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER))locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER,listener,null);else if(locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER,listener,null);}catch(SecurityException ignored){}}
-        void sendLocation(Location loc){final double lat=loc.getLatitude(),lon=loc.getLongitude();final float accuracy=loc.getAccuracy();runOnUiThread(() -> webView.evaluateJavascript("window.onNativeLocation("+lat+","+lon+","+accuracy+")",null));}
+        private final Context context;
+        private final LocationManager locationManager;
+        private final SharedPreferences prefs;
+
+        AppBridge(Context context){
+            this.context=context;
+            locationManager=(LocationManager)context.getSystemService(Context.LOCATION_SERVICE);
+            prefs=getSharedPreferences("security",MODE_PRIVATE);
+        }
+
+        @JavascriptInterface public void requestLocation(){
+            runOnUiThread(() -> {
+                if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED){
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},REQ_LOCATION);
+                    return;
+                }
+                fetchLocation();
+            });
+        }
+
+        void fetchLocation(){
+            try{
+                Location last=locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                if(last==null)last=locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+                if(last!=null)sendLocation(last);
+                LocationListener listener=new LocationListener(){
+                    @Override public void onLocationChanged(Location location){sendLocation(location);locationManager.removeUpdates(this);}
+                };
+                if(locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER))locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER,listener,null);
+                else if(locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER,listener,null);
+            }catch(SecurityException ignored){}
+        }
+
+        void sendLocation(Location loc){
+            final double la=loc.getLatitude(),lo=loc.getLongitude();
+            final float accuracy=loc.getAccuracy();
+            runOnUiThread(() -> webView.evaluateJavascript("window.onNativeLocation("+la+","+lo+","+accuracy+")",null));
+        }
+
+        @JavascriptInterface public void fetchOverpass(String query){
+            if(query==null || query.trim().isEmpty()) return;
+            new Thread(() -> {
+                String[] endpoints={
+                    "https://overpass-api.de/api/interpreter",
+                    "https://overpass.kumi.systems/api/interpreter",
+                    "https://overpass.nchc.org.tw/api/interpreter"
+                };
+                String result=null;
+                String lastError="Overpass bağlantısı kurulamadı";
+                for(String endpoint:endpoints){
+                    HttpURLConnection conn=null;
+                    try{
+                        URL url=new URL(endpoint);
+                        conn=(HttpURLConnection)url.openConnection();
+                        conn.setConnectTimeout(12000);
+                        conn.setReadTimeout(25000);
+                        conn.setRequestMethod("POST");
+                        conn.setDoOutput(true);
+                        conn.setRequestProperty("Content-Type","application/x-www-form-urlencoded; charset=UTF-8");
+                        conn.setRequestProperty("Accept","application/json");
+                        conn.setRequestProperty("User-Agent","AntikHaritaTurkiye/7.0");
+                        byte[] body=("data="+URLEncoder.encode(query,"UTF-8")).getBytes(StandardCharsets.UTF_8);
+                        conn.setFixedLengthStreamingMode(body.length);
+                        try(OutputStream out=conn.getOutputStream()){out.write(body);}
+                        int code=conn.getResponseCode();
+                        if(code<200 || code>=300){lastError="HTTP "+code;continue;}
+                        StringBuilder sb=new StringBuilder();
+                        try(BufferedReader br=new BufferedReader(new InputStreamReader(conn.getInputStream(),StandardCharsets.UTF_8))){
+                            String line; while((line=br.readLine())!=null)sb.append(line);
+                        }
+                        if(sb.length()>0){result=sb.toString();break;}
+                    }catch(Exception e){
+                        lastError=e.getClass().getSimpleName()+": "+String.valueOf(e.getMessage());
+                    }finally{
+                        if(conn!=null)conn.disconnect();
+                    }
+                }
+                final String payload=result;
+                final String err=lastError;
+                runOnUiThread(() -> {
+                    if(payload!=null) webView.evaluateJavascript("window.onNativeOverpass("+JSONObject.quote(payload)+")",null);
+                    else webView.evaluateJavascript("window.onNativeOverpassError("+JSONObject.quote(err)+")",null);
+                });
+            }).start();
+        }
+
         @JavascriptInterface public boolean hasPin(){return prefs.contains("pin_hash");}
         @JavascriptInterface public boolean setPin(String pin){if(pin==null||pin.length()<4||pin.length()>12)return false;prefs.edit().putString("pin_hash",sha256("AH4:"+pin)).apply();return true;}
         @JavascriptInterface public boolean verifyPin(String pin){String expected=prefs.getString("pin_hash","");return !expected.isEmpty()&&expected.equals(sha256("AH4:"+pin));}
@@ -79,7 +166,23 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void pickPhoto(){runOnUiThread(() -> {Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,REQ_PHOTO);});}
         @JavascriptInterface public void exportJson(String json){saveText("antik_harita_yedek_"+stamp()+".json",json);}
         @JavascriptInterface public void exportCsv(String csv){saveText("antik_harita_kayitlar_"+stamp()+".csv",csv);}
-        @JavascriptInterface public void exportReportPdf(String json){try{JSONObject o=new JSONObject(json);PdfDocument pdf=new PdfDocument();PdfDocument.PageInfo info=new PdfDocument.PageInfo.Builder(595,842,1).create();PdfDocument.Page page=pdf.startPage(info);Canvas c=page.getCanvas();Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setTextSize(20);p.setFakeBoldText(true);c.drawText("KÜLTÜR VARLIĞI GÖZLEM / BİLDİRİM TASLAĞI",40,55,p);p.setFakeBoldText(false);p.setTextSize(11);int y=90;String[] rows={"Tarih: "+o.optString("time","—"),"İl / ilçe / mevki: "+o.optString("place","—"),"Koordinat: "+o.optString("lat","—")+", "+o.optString("lon","—"),"GPS doğruluğu: ~"+o.optString("accuracy","—")+" m","Gözlem türü: "+o.optString("kind","—"),"Güven / durum: "+o.optString("confidence","Saha gözlemi"),"Not: "+o.optString("note","—")};for(String row:rows)y=drawWrapped(c,p,row,40,y,510,16);pdf.finishPage(page);File file=new File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),"kultur_varligi_bildirim_"+stamp()+".pdf");try(FileOutputStream out=new FileOutputStream(file)){pdf.writeTo(out);}pdf.close();notifySaved(file.getAbsolutePath());}catch(Exception e){notifyError("PDF oluşturulamadı: "+e.getMessage());}}
+        @JavascriptInterface public void exportReportPdf(String json){
+            try{
+                JSONObject o=new JSONObject(json);
+                PdfDocument pdf=new PdfDocument();
+                PdfDocument.PageInfo info=new PdfDocument.PageInfo.Builder(595,842,1).create();
+                PdfDocument.Page page=pdf.startPage(info);
+                Canvas c=page.getCanvas();
+                Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+                p.setTextSize(20);p.setFakeBoldText(true);c.drawText("KÜLTÜR VARLIĞI GÖZLEM / BİLDİRİM TASLAĞI",40,55,p);
+                p.setFakeBoldText(false);p.setTextSize(11);int y=90;
+                String[] rows={"Tarih: "+o.optString("time","—"),"İl / ilçe / mevki: "+o.optString("place","—"),"Koordinat: "+o.optString("lat","—")+", "+o.optString("lon","—"),"GPS doğruluğu: ~"+o.optString("accuracy","—")+" m","Gözlem türü: "+o.optString("kind","—"),"Güven / durum: "+o.optString("confidence","Saha gözlemi"),"Not: "+o.optString("note","—")};
+                for(String row:rows)y=drawWrapped(c,p,row,40,y,510,16);
+                pdf.finishPage(page);
+                File file=new File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),"kultur_varligi_bildirim_"+stamp()+".pdf");
+                try(FileOutputStream out=new FileOutputStream(file)){pdf.writeTo(out);}pdf.close();notifySaved(file.getAbsolutePath());
+            }catch(Exception e){notifyError("PDF oluşturulamadı: "+e.getMessage());}
+        }
         @JavascriptInterface public void openGeo(double lat,double lon,String label){runOnUiThread(() -> {Uri uri=Uri.parse("geo:"+lat+","+lon+"?q="+lat+","+lon+"("+Uri.encode(label)+")");try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){Toast.makeText(MainActivity.this,"Harita uygulaması bulunamadı.",Toast.LENGTH_SHORT).show();}});}
         private void saveText(String name,String text){try{File dir=getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);if(dir!=null&&!dir.exists())dir.mkdirs();File f=new File(dir,name);try(FileOutputStream out=new FileOutputStream(f)){out.write(text.getBytes(StandardCharsets.UTF_8));}notifySaved(f.getAbsolutePath());}catch(Exception e){notifyError("Dosya kaydedilemedi: "+e.getMessage());}}
         private void notifySaved(String path){runOnUiThread(() -> {Toast.makeText(MainActivity.this,"Kaydedildi",Toast.LENGTH_SHORT).show();webView.evaluateJavascript("window.onNativeSaved("+JSONObject.quote(path)+")",null);});}
@@ -89,7 +192,28 @@ public class MainActivity extends Activity {
     private static String stamp(){return new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date());}
     private static String sha256(String s){try{MessageDigest md=MessageDigest.getInstance("SHA-256");byte[] b=md.digest(s.getBytes(StandardCharsets.UTF_8));StringBuilder out=new StringBuilder();for(byte x:b)out.append(String.format(Locale.US,"%02x",x));return out.toString();}catch(Exception e){return "";}}
     private static int drawWrapped(Canvas c,Paint p,String text,int x,int y,int maxWidth,int lineHeight){String[] words=text.split("\\s+");StringBuilder line=new StringBuilder();for(String word:words){String test=line.length()==0?word:line+" "+word;if(p.measureText(test)>maxWidth&&line.length()>0){c.drawText(line.toString(),x,y,p);y+=lineHeight;line=new StringBuilder(word);}else line=new StringBuilder(test);}if(line.length()>0){c.drawText(line.toString(),x,y,p);y+=lineHeight;}return y;}
-    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode==REQ_PHOTO&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();try(InputStream in=getContentResolver().openInputStream(uri)){Bitmap src=BitmapFactory.decodeStream(in);if(src==null)throw new Exception("Görüntü okunamadı");int max=1280;float scale=Math.min(1f,Math.min((float)max/src.getWidth(),(float)max/src.getHeight()));Bitmap bmp=scale<1f?Bitmap.createScaledBitmap(src,Math.round(src.getWidth()*scale),Math.round(src.getHeight()*scale),true):src;ByteArrayOutputStream bos=new ByteArrayOutputStream();bmp.compress(Bitmap.CompressFormat.JPEG,78,bos);String b64=Base64.encodeToString(bos.toByteArray(),Base64.NO_WRAP);webView.evaluateJavascript("window.onNativePhoto("+JSONObject.quote("data:image/jpeg;base64,"+b64)+")",null);if(bmp!=src)bmp.recycle();src.recycle();}catch(Exception e){webView.evaluateJavascript("window.onNativeError("+JSONObject.quote("Fotoğraf alınamadı: "+e.getMessage())+")",null);}}}
-    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==REQ_LOCATION&&grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)appBridge.fetchLocation();}
+
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==REQ_PHOTO&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null){
+            Uri uri=data.getData();
+            try(InputStream in=getContentResolver().openInputStream(uri)){
+                Bitmap src=BitmapFactory.decodeStream(in);
+                if(src==null)throw new Exception("Görüntü okunamadı");
+                int max=1280;float scale=Math.min(1f,Math.min((float)max/src.getWidth(),(float)max/src.getHeight()));
+                Bitmap bmp=scale<1f?Bitmap.createScaledBitmap(src,Math.round(src.getWidth()*scale),Math.round(src.getHeight()*scale),true):src;
+                ByteArrayOutputStream bos=new ByteArrayOutputStream();bmp.compress(Bitmap.CompressFormat.JPEG,78,bos);
+                String b64=Base64.encodeToString(bos.toByteArray(),Base64.NO_WRAP);
+                webView.evaluateJavascript("window.onNativePhoto("+JSONObject.quote("data:image/jpeg;base64,"+b64)+")",null);
+                if(bmp!=src)bmp.recycle();src.recycle();
+            }catch(Exception e){webView.evaluateJavascript("window.onNativeError("+JSONObject.quote("Fotoğraf alınamadı: "+e.getMessage())+")",null);}
+        }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        if(requestCode==REQ_LOCATION&&grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)appBridge.fetchLocation();
+    }
+
     @Override public void onBackPressed(){if(webView.canGoBack())webView.goBack();else super.onBackPressed();}
 }
