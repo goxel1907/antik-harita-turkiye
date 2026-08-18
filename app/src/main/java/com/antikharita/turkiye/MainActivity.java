@@ -63,12 +63,47 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/7.0");
+        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/7.1");
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient(){
+            @Override public void onPageFinished(WebView view,String url){
+                super.onPageFinished(view,url);
+                view.evaluateJavascript(nativeBridgeScript(),null);
+            }
+        });
         appBridge = new AppBridge(this);
         webView.addJavascriptInterface(appBridge, "AndroidApp");
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    private static String nativeBridgeScript(){
+        return "(function(){try{"+
+            "window.onNativeOverpass=function(raw){try{"+
+            "var j=JSON.parse(raw);"+
+            "function cn(t){var h=(t.historic||'').toLowerCase();"+
+            "if(h==='archaeological_site'||h==='ruins'||t.archaeological_site||t.tourism==='archaeological_site')return['Arkeoloji/yerleşim',4];"+
+            "if(h==='caravanserai'||h==='inn')return['Han/konaklama',4];"+
+            "if(h==='bridge'||t.ford==='yes'||t.bridge==='yes')return['Geçiş/köprü',3];"+
+            "if(h==='aqueduct')return['Su yapısı/kemer',3];"+
+            "if(h==='monastery')return['Manastır/tarihî dini kompleks',3];"+
+            "if(h==='castle'||h==='fort'||h==='fortification'||h==='city_gate'||h==='citywalls'||t.fortification_type)return['Savunma yapısı',4];"+
+            "if(t.mountain_pass==='yes')return['Geçit',3];"+
+            "if(t.natural==='spring')return['Su kaynağı',2];"+
+            "if(t.natural==='cave_entrance')return['Yayımlanmış mağara',2];"+
+            "if(h==='road'||t['route:historic']==='yes')return['Tarihî yol',4];return['Tarihî bağlam',1];}"+
+            "publicItems=(j.elements||[]).map(function(el){var a=el.lat!=null?el.lat:(el.center&&el.center.lat),o=el.lon!=null?el.lon:(el.center&&el.center.lon),t=el.tags||{},cl=cn(t);if(a==null||o==null)return null;return{lat:a,lon:o,name:t.name||t['name:tr']||t.old_name||cl[0],kind:cl[0],weight:cl[1],src:'OSM '+el.type+' '+el.id,tags:t};}).filter(Boolean);"+
+            "buildPotential();loading.style.display='none';document.getElementById('zoomLabel').textContent=publicItems.length+' çevre kaydı';renderOverlay();"+
+            "}catch(e){window.onNativeOverpassError('Veri ayrıştırma: '+e.message);}};"+
+            "window.onNativeOverpassError=function(msg){loading.style.display='none';publicItems=[];potentialCells=[];document.getElementById('zoomLabel').textContent='Çevre verisi alınamadı';document.getElementById('counter').textContent='Zoom '+zoom+' • veri hatası';renderOverlay();console.log(msg);};"+
+            "loadNearby=function(){var b=bbox(),key=b.map(function(x){return x.toFixed(3)}).join(',')+':'+zoom;if(key===lastNearby)return;lastNearby=key;loading.style.display='block';var bb=b[2]+','+b[1]+','+b[0]+','+b[3];"+
+            "var q='[out:json][timeout:24];(' +"+
+            "'nwr[historic=archaeological_site]('+bb+');nwr[historic=ruins]('+bb+');nwr[archaeological_site]('+bb+');nwr[tourism=archaeological_site]('+bb+');' +"+
+            "'nwr[historic=road]('+bb+');nwr[route:historic=yes]('+bb+');nwr[historic=caravanserai]('+bb+');nwr[historic=inn]('+bb+');' +"+
+            "'nwr[historic=bridge]('+bb+');nwr[historic=aqueduct]('+bb+');nwr[historic=castle]('+bb+');nwr[historic=fort]('+bb+');nwr[historic=fortification]('+bb+');nwr[historic=city_gate]('+bb+');nwr[historic=citywalls]('+bb+');nwr[historic=monastery]('+bb+');' +"+
+            "'node[mountain_pass=yes]('+bb+');node[ford=yes]('+bb+');node[natural=spring]('+bb+');node[natural=cave_entrance]('+bb+'););out center tags 1000;';"+
+            "try{if(window.AndroidApp&&AndroidApp.fetchOverpass){AndroidApp.fetchOverpass(q);}else{window.onNativeOverpassError('Android ağ köprüsü yok');}}catch(e){window.onNativeOverpassError(e.message);}};"+
+            "if(zoom>=11){lastNearby='';scheduleNearby();}"+
+            "}catch(e){console.log('native bridge install',e);}})();";
     }
 
     public class AppBridge {
@@ -132,7 +167,7 @@ public class MainActivity extends Activity {
                         conn.setDoOutput(true);
                         conn.setRequestProperty("Content-Type","application/x-www-form-urlencoded; charset=UTF-8");
                         conn.setRequestProperty("Accept","application/json");
-                        conn.setRequestProperty("User-Agent","AntikHaritaTurkiye/7.0");
+                        conn.setRequestProperty("User-Agent","AntikHaritaTurkiye/7.1");
                         byte[] body=("data="+URLEncoder.encode(query,"UTF-8")).getBytes(StandardCharsets.UTF_8);
                         conn.setFixedLengthStreamingMode(body.length);
                         try(OutputStream out=conn.getOutputStream()){out.write(body);}
@@ -140,19 +175,17 @@ public class MainActivity extends Activity {
                         if(code<200 || code>=300){lastError="HTTP "+code;continue;}
                         StringBuilder sb=new StringBuilder();
                         try(BufferedReader br=new BufferedReader(new InputStreamReader(conn.getInputStream(),StandardCharsets.UTF_8))){
-                            String line; while((line=br.readLine())!=null)sb.append(line);
+                            String line;while((line=br.readLine())!=null)sb.append(line);
                         }
                         if(sb.length()>0){result=sb.toString();break;}
                     }catch(Exception e){
                         lastError=e.getClass().getSimpleName()+": "+String.valueOf(e.getMessage());
-                    }finally{
-                        if(conn!=null)conn.disconnect();
-                    }
+                    }finally{if(conn!=null)conn.disconnect();}
                 }
                 final String payload=result;
                 final String err=lastError;
                 runOnUiThread(() -> {
-                    if(payload!=null) webView.evaluateJavascript("window.onNativeOverpass("+JSONObject.quote(payload)+")",null);
+                    if(payload!=null)webView.evaluateJavascript("window.onNativeOverpass("+JSONObject.quote(payload)+")",null);
                     else webView.evaluateJavascript("window.onNativeOverpassError("+JSONObject.quote(err)+")",null);
                 });
             }).start();
@@ -166,23 +199,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void pickPhoto(){runOnUiThread(() -> {Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,REQ_PHOTO);});}
         @JavascriptInterface public void exportJson(String json){saveText("antik_harita_yedek_"+stamp()+".json",json);}
         @JavascriptInterface public void exportCsv(String csv){saveText("antik_harita_kayitlar_"+stamp()+".csv",csv);}
-        @JavascriptInterface public void exportReportPdf(String json){
-            try{
-                JSONObject o=new JSONObject(json);
-                PdfDocument pdf=new PdfDocument();
-                PdfDocument.PageInfo info=new PdfDocument.PageInfo.Builder(595,842,1).create();
-                PdfDocument.Page page=pdf.startPage(info);
-                Canvas c=page.getCanvas();
-                Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-                p.setTextSize(20);p.setFakeBoldText(true);c.drawText("KÜLTÜR VARLIĞI GÖZLEM / BİLDİRİM TASLAĞI",40,55,p);
-                p.setFakeBoldText(false);p.setTextSize(11);int y=90;
-                String[] rows={"Tarih: "+o.optString("time","—"),"İl / ilçe / mevki: "+o.optString("place","—"),"Koordinat: "+o.optString("lat","—")+", "+o.optString("lon","—"),"GPS doğruluğu: ~"+o.optString("accuracy","—")+" m","Gözlem türü: "+o.optString("kind","—"),"Güven / durum: "+o.optString("confidence","Saha gözlemi"),"Not: "+o.optString("note","—")};
-                for(String row:rows)y=drawWrapped(c,p,row,40,y,510,16);
-                pdf.finishPage(page);
-                File file=new File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),"kultur_varligi_bildirim_"+stamp()+".pdf");
-                try(FileOutputStream out=new FileOutputStream(file)){pdf.writeTo(out);}pdf.close();notifySaved(file.getAbsolutePath());
-            }catch(Exception e){notifyError("PDF oluşturulamadı: "+e.getMessage());}
-        }
+        @JavascriptInterface public void exportReportPdf(String json){try{JSONObject o=new JSONObject(json);PdfDocument pdf=new PdfDocument();PdfDocument.PageInfo info=new PdfDocument.PageInfo.Builder(595,842,1).create();PdfDocument.Page page=pdf.startPage(info);Canvas c=page.getCanvas();Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setTextSize(20);p.setFakeBoldText(true);c.drawText("KÜLTÜR VARLIĞI GÖZLEM / BİLDİRİM TASLAĞI",40,55,p);p.setFakeBoldText(false);p.setTextSize(11);int y=90;String[] rows={"Tarih: "+o.optString("time","—"),"İl / ilçe / mevki: "+o.optString("place","—"),"Koordinat: "+o.optString("lat","—")+", "+o.optString("lon","—"),"GPS doğruluğu: ~"+o.optString("accuracy","—")+" m","Gözlem türü: "+o.optString("kind","—"),"Güven / durum: "+o.optString("confidence","Saha gözlemi"),"Not: "+o.optString("note","—")};for(String row:rows)y=drawWrapped(c,p,row,40,y,510,16);pdf.finishPage(page);File file=new File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),"kultur_varligi_bildirim_"+stamp()+".pdf");try(FileOutputStream out=new FileOutputStream(file)){pdf.writeTo(out);}pdf.close();notifySaved(file.getAbsolutePath());}catch(Exception e){notifyError("PDF oluşturulamadı: "+e.getMessage());}}
         @JavascriptInterface public void openGeo(double lat,double lon,String label){runOnUiThread(() -> {Uri uri=Uri.parse("geo:"+lat+","+lon+"?q="+lat+","+lon+"("+Uri.encode(label)+")");try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){Toast.makeText(MainActivity.this,"Harita uygulaması bulunamadı.",Toast.LENGTH_SHORT).show();}});}
         private void saveText(String name,String text){try{File dir=getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);if(dir!=null&&!dir.exists())dir.mkdirs();File f=new File(dir,name);try(FileOutputStream out=new FileOutputStream(f)){out.write(text.getBytes(StandardCharsets.UTF_8));}notifySaved(f.getAbsolutePath());}catch(Exception e){notifyError("Dosya kaydedilemedi: "+e.getMessage());}}
         private void notifySaved(String path){runOnUiThread(() -> {Toast.makeText(MainActivity.this,"Kaydedildi",Toast.LENGTH_SHORT).show();webView.evaluateJavascript("window.onNativeSaved("+JSONObject.quote(path)+")",null);});}
@@ -193,27 +210,7 @@ public class MainActivity extends Activity {
     private static String sha256(String s){try{MessageDigest md=MessageDigest.getInstance("SHA-256");byte[] b=md.digest(s.getBytes(StandardCharsets.UTF_8));StringBuilder out=new StringBuilder();for(byte x:b)out.append(String.format(Locale.US,"%02x",x));return out.toString();}catch(Exception e){return "";}}
     private static int drawWrapped(Canvas c,Paint p,String text,int x,int y,int maxWidth,int lineHeight){String[] words=text.split("\\s+");StringBuilder line=new StringBuilder();for(String word:words){String test=line.length()==0?word:line+" "+word;if(p.measureText(test)>maxWidth&&line.length()>0){c.drawText(line.toString(),x,y,p);y+=lineHeight;line=new StringBuilder(word);}else line=new StringBuilder(test);}if(line.length()>0){c.drawText(line.toString(),x,y,p);y+=lineHeight;}return y;}
 
-    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
-        super.onActivityResult(requestCode,resultCode,data);
-        if(requestCode==REQ_PHOTO&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null){
-            Uri uri=data.getData();
-            try(InputStream in=getContentResolver().openInputStream(uri)){
-                Bitmap src=BitmapFactory.decodeStream(in);
-                if(src==null)throw new Exception("Görüntü okunamadı");
-                int max=1280;float scale=Math.min(1f,Math.min((float)max/src.getWidth(),(float)max/src.getHeight()));
-                Bitmap bmp=scale<1f?Bitmap.createScaledBitmap(src,Math.round(src.getWidth()*scale),Math.round(src.getHeight()*scale),true):src;
-                ByteArrayOutputStream bos=new ByteArrayOutputStream();bmp.compress(Bitmap.CompressFormat.JPEG,78,bos);
-                String b64=Base64.encodeToString(bos.toByteArray(),Base64.NO_WRAP);
-                webView.evaluateJavascript("window.onNativePhoto("+JSONObject.quote("data:image/jpeg;base64,"+b64)+")",null);
-                if(bmp!=src)bmp.recycle();src.recycle();
-            }catch(Exception e){webView.evaluateJavascript("window.onNativeError("+JSONObject.quote("Fotoğraf alınamadı: "+e.getMessage())+")",null);}
-        }
-    }
-
-    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
-        super.onRequestPermissionsResult(requestCode,permissions,grantResults);
-        if(requestCode==REQ_LOCATION&&grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)appBridge.fetchLocation();
-    }
-
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode==REQ_PHOTO&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();try(InputStream in=getContentResolver().openInputStream(uri)){Bitmap src=BitmapFactory.decodeStream(in);if(src==null)throw new Exception("Görüntü okunamadı");int max=1280;float scale=Math.min(1f,Math.min((float)max/src.getWidth(),(float)max/src.getHeight()));Bitmap bmp=scale<1f?Bitmap.createScaledBitmap(src,Math.round(src.getWidth()*scale),Math.round(src.getHeight()*scale),true):src;ByteArrayOutputStream bos=new ByteArrayOutputStream();bmp.compress(Bitmap.CompressFormat.JPEG,78,bos);String b64=Base64.encodeToString(bos.toByteArray(),Base64.NO_WRAP);webView.evaluateJavascript("window.onNativePhoto("+JSONObject.quote("data:image/jpeg;base64,"+b64)+")",null);if(bmp!=src)bmp.recycle();src.recycle();}catch(Exception e){webView.evaluateJavascript("window.onNativeError("+JSONObject.quote("Fotoğraf alınamadı: "+e.getMessage())+")",null);}}}
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==REQ_LOCATION&&grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)appBridge.fetchLocation();}
     @Override public void onBackPressed(){if(webView.canGoBack())webView.goBack();else super.onBackPressed();}
 }
