@@ -16,7 +16,6 @@ import csv
 import io
 import json
 import math
-import os
 import re
 import sys
 import time
@@ -202,7 +201,7 @@ def main():
     type_labels = {}
     for r in rows(data["place_types.csv"]):
         key = pick(r, "key", "id", "uri")
-        label = pick(r, "label", "title", "value", "description")
+        label = pick(r, "term", "label", "title", "value", "description")
         if key:
             type_labels[key] = clean_text(label, 120) or key
 
