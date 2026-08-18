@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
     private static final int REQ_PHOTO = 8;
     private WebView webView;
     private AppBridge appBridge;
-    private boolean fallbackAttempted = false;
+    private boolean analysisInjected = false;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -57,54 +57,45 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(true);
         s.setGeolocationEnabled(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/5.1");
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/5.2");
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view,String url){
                 super.onPageFinished(view,url);
-                if(url==null || !url.contains("index.html")) return;
-                ensureMapEngine();
+                waitForMap(0);
             }
         });
         appBridge = new AppBridge(this);
         webView.addJavascriptInterface(appBridge, "AndroidApp");
-        webView.loadUrl("file:///android_asset/index.html");
+        loadPatchedIndex();
     }
 
-    private void ensureMapEngine(){
-        String check="(function(){return (typeof L!=='undefined' && typeof map!=='undefined')?'READY':((typeof L!=='undefined')?'LEAFLET_ONLY':'MISSING');})()";
-        webView.evaluateJavascript(check, value -> {
-            String v=value==null?"":value.replace("\"","");
-            if("READY".equals(v)){
-                injectAssetScriptWhenReady("potential.js",0);
-                return;
-            }
-            if(!fallbackAttempted){
-                fallbackAttempted=true;
-                injectLeafletFallback();
-            }else{
-                Toast.makeText(MainActivity.this,"Harita motoru yüklenemedi. İnternet bağlantısını kontrol edip uygulamayı yeniden açın.",Toast.LENGTH_LONG).show();
-            }
-        });
+    private void loadPatchedIndex(){
+        try(InputStream in=getAssets().open("index.html")){
+            ByteArrayOutputStream out=new ByteArrayOutputStream();
+            byte[] buf=new byte[8192]; int n;
+            while((n=in.read(buf))!=-1) out.write(buf,0,n);
+            String html=new String(out.toByteArray(),StandardCharsets.UTF_8);
+            html=html.replace("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css","https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css");
+            html=html.replace("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js","https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js");
+            webView.loadDataWithBaseURL("file:///android_asset/",html,"text/html","UTF-8",null);
+        }catch(Exception e){
+            Toast.makeText(this,"Uygulama arayüzü yüklenemedi",Toast.LENGTH_LONG).show();
+        }
     }
 
-    private void injectLeafletFallback(){
-        String js="(function(){"+
-                "if(typeof L!=='undefined'){location.reload();return;}"+
-                "var css=document.createElement('link');css.rel='stylesheet';css.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';document.head.appendChild(css);"+
-                "var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';"+
-                "s.onload=function(){sessionStorage.setItem('leafletFallback','1');location.reload();};"+
-                "s.onerror=function(){var s2=document.createElement('script');s2.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';s2.onload=function(){location.reload();};document.head.appendChild(s2);};"+
-                "document.head.appendChild(s);"+
-                "})();";
-        webView.evaluateJavascript(js,null);
-    }
-
-    private void injectAssetScriptWhenReady(String assetName,int attempt){
-        if(attempt>20){Toast.makeText(this,"Analiz katmanı başlatılamadı",Toast.LENGTH_SHORT).show();return;}
+    private void waitForMap(int attempt){
+        if(attempt>30){
+            Toast.makeText(this,"Harita motoru yüklenemedi. İnternet bağlantısını kontrol edin.",Toast.LENGTH_LONG).show();
+            return;
+        }
         webView.evaluateJavascript("(typeof L!=='undefined' && typeof map!=='undefined')", value -> {
-            if("true".equals(value)) injectAssetScript(assetName);
-            else webView.postDelayed(() -> injectAssetScriptWhenReady(assetName,attempt+1),250);
+            if("true".equals(value)){
+                if(!analysisInjected){analysisInjected=true;injectAssetScript("potential.js");}
+            }else{
+                webView.postDelayed(() -> waitForMap(attempt+1),300);
+            }
         });
     }
 
