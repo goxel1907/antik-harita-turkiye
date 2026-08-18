@@ -20,8 +20,6 @@ import android.os.Environment;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -34,8 +32,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
@@ -47,7 +43,6 @@ public class MainActivity extends Activity {
     private static final int REQ_PHOTO = 8;
     private WebView webView;
     private AppBridge appBridge;
-    private boolean analysisInjected = false;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -62,65 +57,12 @@ public class MainActivity extends Activity {
         s.setGeolocationEnabled(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/5.3");
+        s.setUserAgentString(s.getUserAgentString() + " AntikHaritaTurkiye/6.0");
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient(){
-            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request){
-                WebResourceResponse r = interceptLeaflet(request.getUrl().toString());
-                return r != null ? r : super.shouldInterceptRequest(view, request);
-            }
-            @Override public void onPageFinished(WebView view,String url){
-                super.onPageFinished(view,url);
-                waitForMap(0);
-            }
-        });
+        webView.setWebViewClient(new WebViewClient());
         appBridge = new AppBridge(this);
         webView.addJavascriptInterface(appBridge, "AndroidApp");
         webView.loadUrl("file:///android_asset/index.html");
-    }
-
-    private WebResourceResponse interceptLeaflet(String requested){
-        if(requested==null || !requested.contains("leaflet") || !(requested.endsWith("leaflet.js") || requested.endsWith("leaflet.css"))) return null;
-        boolean css=requested.endsWith(".css");
-        String file=css?"leaflet.css":"leaflet.js";
-        String[] mirrors={
-                "https://unpkg.com/leaflet@1.9.4/dist/"+file,
-                "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/"+file,
-                "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/"+file
-        };
-        for(String u:mirrors){
-            try{
-                HttpURLConnection c=(HttpURLConnection)new URL(u).openConnection();
-                c.setConnectTimeout(5000); c.setReadTimeout(7000); c.setInstanceFollowRedirects(true);
-                c.setRequestProperty("User-Agent","AntikHaritaTurkiye/5.3");
-                if(c.getResponseCode()>=200 && c.getResponseCode()<300){
-                    return new WebResourceResponse(css?"text/css":"application/javascript","UTF-8",c.getInputStream());
-                }
-                c.disconnect();
-            }catch(Exception ignored){}
-        }
-        return null;
-    }
-
-    private void waitForMap(int attempt){
-        if(attempt>40){
-            Toast.makeText(this,"Harita motoru başlatılamadı. Bağlantıyı kontrol edip uygulamayı yeniden açın.",Toast.LENGTH_LONG).show();
-            return;
-        }
-        webView.evaluateJavascript("(function(){try{return (typeof L!=='undefined' && typeof map!=='undefined')}catch(e){return false}})()", value -> {
-            if("true".equals(value)){
-                if(!analysisInjected){analysisInjected=true;injectAssetScript("potential.js");}
-            }else webView.postDelayed(() -> waitForMap(attempt+1),250);
-        });
-    }
-
-    private void injectAssetScript(String assetName){
-        try(InputStream in=getAssets().open(assetName)){
-            ByteArrayOutputStream out=new ByteArrayOutputStream();
-            byte[] buf=new byte[8192]; int n;
-            while((n=in.read(buf))!=-1) out.write(buf,0,n);
-            webView.evaluateJavascript(new String(out.toByteArray(),StandardCharsets.UTF_8),null);
-        }catch(Exception e){ Toast.makeText(this,"Analiz katmanı yüklenemedi",Toast.LENGTH_SHORT).show(); }
     }
 
     public class AppBridge {
