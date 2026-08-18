@@ -23,45 +23,31 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
     private static final int REQ_LOCATION = 7;
-    private static final long CACHE_TTL_MS = 30L * 60L * 1000L;
+    private static final long CACHE_TTL_MS = 20L * 60L * 1000L;
     private WebView webView;
     private LocationManager locationManager;
-    private final Map<String, CacheEntry> overpassCache = new ConcurrentHashMap<>();
-    private final Map<String, CacheEntry> osmCache = new ConcurrentHashMap<>();
-    private final ExecutorService requestPool = Executors.newFixedThreadPool(2);
-    private final ExecutorService networkPool = Executors.newFixedThreadPool(6);
-    private volatile long latestOverpassRequest = 0L;
+    private final ExecutorService ioPool = Executors.newFixedThreadPool(4);
+    private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    private volatile long latestHeritageRequest = 0L;
 
     private static class CacheEntry {
         final String payload;
+        final String format;
         final String source;
         final long time;
-        CacheEntry(String payload, String source) {
+        CacheEntry(String payload, String format, String source) {
             this.payload = payload;
+            this.format = format;
             this.source = source;
             this.time = System.currentTimeMillis();
-        }
-    }
-
-    private static class FetchResult {
-        final String payload;
-        final String source;
-        final String error;
-        FetchResult(String payload, String source, String error) {
-            this.payload = payload;
-            this.source = source;
-            this.error = error;
         }
     }
 
@@ -75,72 +61,41 @@ public class MainActivity extends Activity {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
+        settings.setDatabaseEnabled(false);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setGeolocationEnabled(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        settings.setUserAgentString(settings.getUserAgentString() + " AntikHaritaTurkiye/12.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " AntikHaritaTurkiye/13.0");
         webView.clearCache(true);
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient());
         webView.addJavascriptInterface(new Bridge(), "AndroidApp");
-        webView.loadUrl("file:///android_asset/index-v12.html");
+        webView.loadUrl("file:///android_asset/index-v13.html");
     }
 
     public class Bridge {
         @JavascriptInterface
-        public void fetchOverpassV3(String requestId, String query) {
-            if (query == null || query.trim().isEmpty()) return;
+        public void fetchLocalHeritageV4(String requestId, double lat, double lon, int zoom) {
             final String id = requestId == null ? "0" : requestId;
             final long numericId = parseId(id);
-            latestOverpassRequest = Math.max(latestOverpassRequest, numericId);
-
-            CacheEntry cached = overpassCache.get(query);
-            if (cached != null && System.currentTimeMillis() - cached.time < CACHE_TTL_MS) {
-                if (numericId == latestOverpassRequest) {
-                    deliverOverpassV3(id, cached.payload, "önbellek • " + cached.source);
-                }
-                return;
-            }
-            requestPool.execute(() -> fetchOverpassParallel(id, numericId, query));
+            latestHeritageRequest = Math.max(latestHeritageRequest, numericId);
+            ioPool.execute(() -> fetchHeritage(id, numericId, lat, lon, zoom));
         }
 
         @JavascriptInterface
-        public void fetchOsmMapV2(String requestId, String bbox) {
-            if (bbox == null || bbox.trim().isEmpty()) return;
-            final String id = requestId == null ? "0" : requestId;
-            CacheEntry cached = osmCache.get(bbox);
-            if (cached != null && System.currentTimeMillis() - cached.time < CACHE_TTL_MS) {
-                deliverOsmMapV2(id, cached.payload);
-                return;
-            }
-            requestPool.execute(() -> {
-                try {
-                    String url = "https://api.openstreetmap.org/api/0.6/map?bbox=" + URLEncoder.encode(bbox, "UTF-8");
-                    String raw = getText(url, "application/xml,text/xml", 5000, 10000);
-                    osmCache.put(bbox, new CacheEntry(raw, "api.openstreetmap.org"));
-                    deliverOsmMapV2(id, raw);
-                } catch (Exception e) {
-                    deliverOsmMapErrorV2(id, shortError(e));
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void geocode(String text) {
+        public void geocodeV4(String text) {
             if (text == null || text.trim().isEmpty()) return;
-            requestPool.execute(() -> {
+            ioPool.execute(() -> {
                 try {
                     String q = URLEncoder.encode(text.trim(), "UTF-8");
                     String raw = getText(
-                        "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=12&countrycodes=tr&q=" + q,
-                        "application/json", 5000, 10000
-                    );
-                    runJs("window.onNativeGeocode(" + JSONObject.quote(raw) + ")");
+                            "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=10&countrycodes=tr&q=" + q,
+                            "application/json", 6000, 12000);
+                    runJs("window.onNativeGeocodeV4(" + JSONObject.quote(raw) + ")");
                 } catch (Exception e) {
-                    runJs("window.onNativeGeocodeError(" + JSONObject.quote(shortError(e)) + ")");
+                    runJs("window.onNativeGeocodeErrorV4(" + JSONObject.quote(shortError(e)) + ")");
                 }
             });
         }
@@ -158,85 +113,115 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void fetchOverpassParallel(String id, long numericId, String query) {
-        if (numericId != latestOverpassRequest) return;
-        String[] endpoints = {
-            "https://overpass.kumi.systems/api/interpreter",
-            "https://overpass.private.coffee/api/interpreter",
-            "https://overpass-api.de/api/interpreter"
-        };
-        CompletionService<FetchResult> completion = new ExecutorCompletionService<>(networkPool);
-        for (String endpoint : endpoints) {
-            completion.submit(() -> {
-                try {
-                    String body = "data=" + URLEncoder.encode(query, "UTF-8");
-                    String payload = postForm(endpoint, body, 3500, 8000);
-                    return new FetchResult(payload, host(endpoint), null);
-                } catch (Exception e) {
-                    return new FetchResult(null, host(endpoint), shortError(e));
-                }
-            });
+    private void fetchHeritage(String id, long numericId, double lat, double lon, int zoom) {
+        if (numericId != latestHeritageRequest) return;
+        int safeZoom = Math.max(13, Math.min(18, zoom));
+        String key = safeZoom + ":" + Math.round(lat * 250.0) + ":" + Math.round(lon * 250.0);
+        CacheEntry cached = cache.get(key);
+        if (cached != null && System.currentTimeMillis() - cached.time < CACHE_TTL_MS) {
+            if (numericId == latestHeritageRequest) deliverHeritage(id, cached.payload, cached.format, "önbellek • " + cached.source);
+            return;
         }
 
-        long deadline = System.currentTimeMillis() + 9000L;
+        double radiusKm;
+        if (safeZoom <= 13) radiusKm = 1.25;
+        else if (safeZoom == 14) radiusKm = 0.90;
+        else if (safeZoom == 15) radiusKm = 0.60;
+        else if (safeZoom == 16) radiusKm = 0.38;
+        else radiusKm = 0.25;
+
         StringBuilder errors = new StringBuilder();
-        for (int i = 0; i < endpoints.length; i++) {
-            if (numericId != latestOverpassRequest) return;
+
+        // Primary path: the standard OSM map API. It uses the same OpenStreetMap infrastructure
+        // that already serves the visible map and is more reliable on networks where Overpass DNS is blocked.
+        double[] scales = {1.0, 0.72, 0.50};
+        for (double scale : scales) {
+            if (numericId != latestHeritageRequest) return;
             try {
-                long remaining = deadline - System.currentTimeMillis();
-                if (remaining <= 0) break;
-                Future<FetchResult> future = completion.poll(remaining, TimeUnit.MILLISECONDS);
-                if (future == null) break;
-                FetchResult result = future.get();
-                if (result.payload != null && !result.payload.isEmpty()) {
-                    overpassCache.put(query, new CacheEntry(result.payload, result.source));
-                    if (numericId == latestOverpassRequest) {
-                        deliverOverpassV3(id, result.payload, result.source);
-                    }
+                String bbox = bbox(lat, lon, radiusKm * scale);
+                String raw = getText("https://api.openstreetmap.org/api/0.6/map?bbox=" + bbox,
+                        "application/xml,text/xml", 6000, 14000);
+                if (raw != null && raw.contains("<osm")) {
+                    CacheEntry entry = new CacheEntry(raw, "xml", "api.openstreetmap.org");
+                    cache.put(key, entry);
+                    if (numericId == latestHeritageRequest) deliverHeritage(id, raw, "xml", entry.source);
                     return;
                 }
-                if (result.error != null) {
-                    if (errors.length() > 0) errors.append(" | ");
-                    errors.append(result.source).append(": ").append(result.error);
-                }
             } catch (Exception e) {
-                if (errors.length() > 0) errors.append(" | ");
-                errors.append(shortError(e));
+                appendError(errors, "OSM API", e);
             }
         }
-        if (numericId == latestOverpassRequest) {
-            deliverOverpassErrorV3(id, errors.length() == 0 ? "Canlı veri sunucuları yanıt vermedi" : errors.toString());
+
+        // Secondary path: compact Overpass query. This is only a fallback now.
+        int radiusM = Math.max(300, (int) Math.round(radiusKm * 1000.0));
+        String query = buildOverpassQuery(lat, lon, radiusM);
+        String[] endpoints = {
+                "https://overpass-api.de/api/interpreter",
+                "https://overpass.kumi.systems/api/interpreter",
+                "https://overpass.private.coffee/api/interpreter"
+        };
+        for (String endpoint : endpoints) {
+            if (numericId != latestHeritageRequest) return;
+            try {
+                String body = "data=" + URLEncoder.encode(query, "UTF-8");
+                String raw = postForm(endpoint, body, 5000, 10000);
+                if (raw != null && raw.contains("\"elements\"")) {
+                    CacheEntry entry = new CacheEntry(raw, "json", new URL(endpoint).getHost());
+                    cache.put(key, entry);
+                    if (numericId == latestHeritageRequest) deliverHeritage(id, raw, "json", entry.source);
+                    return;
+                }
+            } catch (Exception e) {
+                appendError(errors, "Overpass", e);
+            }
         }
+
+        if (numericId == latestHeritageRequest) {
+            deliverHeritageError(id, errors.length() == 0 ? "Kaynaklar yanıt vermedi" : errors.toString());
+        }
+    }
+
+    private String bbox(double lat, double lon, double radiusKm) {
+        double dLat = radiusKm / 111.32;
+        double cos = Math.max(0.25, Math.cos(Math.toRadians(lat)));
+        double dLon = radiusKm / (111.32 * cos);
+        return String.format(Locale.US, "%.6f,%.6f,%.6f,%.6f", lon - dLon, lat - dLat, lon + dLon, lat + dLat);
+    }
+
+    private String buildOverpassQuery(double lat, double lon, int radiusM) {
+        String around = String.format(Locale.US, "(around:%d,%.6f,%.6f)", radiusM, lat, lon);
+        return "[out:json][timeout:12];(" +
+                "nwr" + around + "[historic];" +
+                "nwr" + around + "[heritage];" +
+                "nwr" + around + "[tourism=archaeological_site];" +
+                "nwr" + around + "[archaeological_site];" +
+                "nwr" + around + "[ruins=yes];" +
+                "nwr" + around + "[route:historic=yes];" +
+                ");out tags center geom;";
+    }
+
+    private void deliverHeritage(String id, String payload, String format, String source) {
+        runJs("window.onNativeHeritageV4(" + JSONObject.quote(id) + "," + JSONObject.quote(payload) + "," +
+                JSONObject.quote(format) + "," + JSONObject.quote(source) + ")");
+    }
+
+    private void deliverHeritageError(String id, String message) {
+        runJs("window.onNativeHeritageErrorV4(" + JSONObject.quote(id) + "," + JSONObject.quote(message) + ")");
+    }
+
+    private void appendError(StringBuilder sb, String prefix, Exception e) {
+        if (sb.length() > 0) sb.append(" | ");
+        sb.append(prefix).append(": ").append(shortError(e));
     }
 
     private long parseId(String id) {
         try { return Long.parseLong(id); } catch (Exception e) { return 0L; }
     }
 
-    private void deliverOverpassV3(String id, String payload, String source) {
-        runJs("window.onNativeOverpassV3(" + JSONObject.quote(id) + "," + JSONObject.quote(payload) + "," + JSONObject.quote(source == null ? "canlı" : source) + ")");
-    }
-
-    private void deliverOverpassErrorV3(String id, String message) {
-        runJs("window.onNativeOverpassErrorV3(" + JSONObject.quote(id) + "," + JSONObject.quote(message) + ")");
-    }
-
-    private void deliverOsmMapV2(String id, String payload) {
-        runJs("window.onNativeOsmMapV2(" + JSONObject.quote(id) + "," + JSONObject.quote(payload) + ")");
-    }
-
-    private void deliverOsmMapErrorV2(String id, String message) {
-        runJs("window.onNativeOsmMapErrorV2(" + JSONObject.quote(id) + "," + JSONObject.quote(message) + ")");
-    }
-
     private void runJs(String js) {
         runOnUiThread(() -> {
             if (webView != null) webView.evaluateJavascript(js, null);
         });
-    }
-
-    private String host(String address) {
-        try { return new URL(address).getHost(); } catch (Exception e) { return address; }
     }
 
     private String shortError(Exception e) {
@@ -247,11 +232,13 @@ public class MainActivity extends Activity {
     private String getText(String address, String accept, int connectTimeout, int readTimeout) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
         try {
+            connection.setUseCaches(false);
             connection.setConnectTimeout(connectTimeout);
             connection.setReadTimeout(readTimeout);
             connection.setRequestMethod("GET");
             connection.setRequestProperty("Accept", accept);
-            connection.setRequestProperty("User-Agent", "AntikHaritaTurkiye/12.0 heritage-protection-app");
+            connection.setRequestProperty("User-Agent", "AntikHaritaTurkiye/13.0 heritage-map contact:goxel1907");
+            connection.setRequestProperty("Connection", "close");
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
             return read(connection.getInputStream());
@@ -263,13 +250,15 @@ public class MainActivity extends Activity {
     private String postForm(String address, String bodyText, int connectTimeout, int readTimeout) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
         try {
+            connection.setUseCaches(false);
             connection.setConnectTimeout(connectTimeout);
             connection.setReadTimeout(readTimeout);
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
             connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "AntikHaritaTurkiye/12.0 heritage-protection-app");
+            connection.setRequestProperty("User-Agent", "AntikHaritaTurkiye/13.0 heritage-map contact:goxel1907");
+            connection.setRequestProperty("Connection", "close");
             byte[] bytes = bodyText.getBytes(StandardCharsets.UTF_8);
             connection.setFixedLengthStreamingMode(bytes.length);
             try (OutputStream output = connection.getOutputStream()) { output.write(bytes); }
@@ -284,8 +273,9 @@ public class MainActivity extends Activity {
     private String read(InputStream input) throws Exception {
         StringBuilder sb = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+            char[] buf = new char[8192];
+            int n;
+            while ((n = reader.read(buf)) >= 0) sb.append(buf, 0, n);
         }
         return sb.toString();
     }
@@ -310,8 +300,7 @@ public class MainActivity extends Activity {
     }
 
     private void sendLocation(Location location) {
-        double a = location.getLatitude(), o = location.getLongitude();
-        runJs("window.onNativeLocation(" + a + "," + o + ")");
+        runJs("window.onNativeLocationV4(" + location.getLatitude() + "," + location.getLongitude() + ")");
     }
 
     @Override
@@ -324,8 +313,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        requestPool.shutdownNow();
-        networkPool.shutdownNow();
+        ioPool.shutdownNow();
         if (webView != null) webView.destroy();
         super.onDestroy();
     }
