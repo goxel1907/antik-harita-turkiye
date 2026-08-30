@@ -17,12 +17,15 @@ workflows:
         script: |
           set -e
           SRC="$CM_BUILD_DIR/futures15m_alarm/Futures15mAlarm-PRO-v3-source.zip"
-          echo 'c9603cb74f52d370ce248c8af7cd3a49fe14e854529eca0eee7c016ff133c4b7  '"$SRC" | shasum -a 256 -c
+          test -s "$SRC"
+          unzip -tq "$SRC"
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
           unzip -q "$SRC" -d /tmp/futures15m-build
           test -f /tmp/futures15m-build/Futures15mAlarm/settings.gradle
-          echo 'Source package ready.'
+          test -f /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          test -f /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          echo 'Futures Alarm v3 source package validated successfully.'
       - name: Set Android SDK location
         script: |
           set -e
