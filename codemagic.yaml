@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.2 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.3 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -39,28 +39,42 @@ workflows:
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
           unzip -q /tmp/Futures15mAlarm-v9-source.zip -d /tmp/futures15m-build
-          python3 -m py_compile "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
-          python3 -m py_compile "$CM_BUILD_DIR/futures15m_alarm/v92_binance_patch.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v92_binance_patch.py"
           APP=/tmp/futures15m-build/Futures15mAlarm
           JAVA="$APP/app/src/main/java/com/futuresalarm/app"
+          python3 - <<'PY'
+          import base64, gzip
+          from pathlib import Path
+          root = Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app')
+          build = Path('/tmp/futures15m-build/Futures15mAlarm/app/build.gradle')
+          srcroot = Path(__import__('os').environ['CM_BUILD_DIR']) / 'futures15m_alarm'
+          for payload, target in [
+              ('v93_MainActivity.gz.b64', root/'MainActivity.java'),
+              ('v93_MonitorService.gz.b64', root/'MonitorService.java')]:
+              raw = base64.b64decode((srcroot/payload).read_text().strip())
+              target.write_bytes(gzip.decompress(raw))
+          b = build.read_text()
+          b = b.replace('versionCode 11', 'versionCode 12')
+          b = b.replace("versionName '9.2.0'", "versionName '9.3.0'")
+          build.write_text(b)
+          print('v9.3 live confirmation sources restored.')
+          PY
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
           test -f "$JAVA/MainActivity.java"
           test -f "$JAVA/MonitorService.java"
-          grep -q '15m Futures Alarm PRO v9.2' "$JAVA/MainActivity.java"
-          grep -q 'CHATGPT PLAN KODU YAPIŞTIR / TOPLU GÜNCELLE' "$JAVA/MainActivity.java"
-          grep -q 'a.length != 13' "$JAVA/MainActivity.java"
-          grep -q 'input.setMaxLines(8)' "$JAVA/MainActivity.java"
-          grep -q 'https://www.binance.com/en/futures/' "$JAVA/MainActivity.java"
-          grep -q 'direct.setPackage("com.binance.dev")' "$JAVA/MainActivity.java"
-          grep -q 'versionCode 11' "$APP/app/build.gradle"
-          grep -q "versionName '9.2.0'" "$APP/app/build.gradle"
-          if grep -q 'bnc://app.binance.com/futures' "$JAVA/MainActivity.java"; then exit 1; fi
-          if grep -q '+ YENİ COIN / MANUEL PLAN EKLE' "$JAVA/MainActivity.java"; then exit 1; fi
-          if grep -q 'button("DÜZENLE"' "$JAVA/MainActivity.java"; then exit 1; fi
-          echo 'Prepare v9.2 OK. Broken Binance bnc deeplink removed.'
+          grep -q '15m Futures Alarm PRO v9.3' "$JAVA/MainActivity.java"
+          grep -q 'CANLI TEYİT PANELİ' "$JAVA/MainActivity.java"
+          grep -q 'fetchMarketSnapshot' "$JAVA/MonitorService.java"
+          grep -q 'openInterestHist' "$JAVA/MonitorService.java"
+          grep -q 'takerlongshortRatio' "$JAVA/MonitorService.java"
+          grep -q 'aggTrades' "$JAVA/MonitorService.java"
+          grep -q '/fapi/v1/depth' "$JAVA/MonitorService.java"
+          grep -q '/fapi/v1/premiumIndex' "$JAVA/MonitorService.java"
+          grep -q 'versionCode 12' "$APP/app/build.gradle"
+          grep -q "versionName '9.3.0'" "$APP/app/build.gradle"
+          echo 'Prepare v9.3 OK. Live OI/CVD/volume/orderbook/funding confirmation panel enabled.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -71,13 +85,13 @@ workflows:
         script: |
           java -version
           gradle --version
-      - name: Build installable v9.2 debug APK
+      - name: Build installable v9.3 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.2.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.2.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.3.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.3.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v9.2.apk
+      - Futures15mAlarm-PRO-v9.3.apk
