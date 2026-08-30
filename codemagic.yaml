@@ -1,35 +1,41 @@
 workflows:
-  android-debug:
-    name: Antik Harita Türkiye APK v16 ATLAS
-    max_build_duration: 60
+  futures-15m-alarm-apk:
+    name: Futures 15m Alarm PRO APK
+    max_build_duration: 45
     instance_type: mac_mini_m2
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: futures15m-alarm-public-build
+          include: true
+          source: true
+    environment:
+      java: 17
     scripts:
+      - name: Rebuild source package
+        script: |
+          set -e
+          cat futures15m_alarm/source.part*.b64 > /tmp/Futures15mAlarm-PRO-v2-source.b64
+          echo 'b76f2b4756bbf87d152f60bd968842e326fe34fcc71a170a65b9360f55ace6a3  /tmp/Futures15mAlarm-PRO-v2-source.b64' | shasum -a 256 -c
+          base64 -d /tmp/Futures15mAlarm-PRO-v2-source.b64 > /tmp/Futures15mAlarm-PRO-v2-source.zip
+          echo '424617555267c681888750d05fbee453f39de396f7f02e445333cf8df8aa13dd  /tmp/Futures15mAlarm-PRO-v2-source.zip' | shasum -a 256 -c
+          rm -rf /tmp/futures15m-build
+          mkdir -p /tmp/futures15m-build
+          unzip -q /tmp/Futures15mAlarm-PRO-v2-source.zip -d /tmp/futures15m-build
       - name: Set Android SDK location
         script: |
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          echo "sdk.dir=$SDK_PATH" > "$CM_BUILD_DIR/local.properties"
-      - name: Build source-backed history corpus
+          echo "sdk.dir=$SDK_PATH" > /tmp/futures15m-build/Futures15mAlarm/local.properties
+      - name: Check build tools
         script: |
-          python3 tools/build_history_dataset.py
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          p=Path('app/src/main/assets/data/history-corpus.json')
-          d=json.loads(p.read_text(encoding='utf-8'))
-          n=len(d.get('records',[]))
-          print(f'Historical corpus records: {n}')
-          if n < 500:
-              raise SystemExit('Historical corpus is unexpectedly small; refusing demo/empty APK')
-          ui=Path('app/src/main/assets/index-v16.html')
-          if not ui.exists() or ui.stat().st_size < 15000:
-              raise SystemExit('v16 atlas interface is missing or unexpectedly small')
-          PY
-      - name: Check Gradle
-        script: |
+          java -version
           gradle --version
-      - name: Build debug APK
+      - name: Build installable debug APK
         script: |
-          gradle --no-daemon assembleDebug
+          cd /tmp/futures15m-build/Futures15mAlarm
+          gradle --no-daemon assembleDebug --stacktrace
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v2.apk"
     artifacts:
-      - app/build/outputs/apk/debug/*.apk
-      - app/build/outputs/**/*.apk
+      - Futures15mAlarm-PRO-v2.apk
