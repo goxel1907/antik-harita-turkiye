@@ -68,29 +68,49 @@ helper = r'''
         return Double.NaN;
     }
 
-    private String v952PostProcessLivePanel(String text, TradePlan p) {
-        if (text == null || p == null) return text;
+    private double v952TriggerLevel(String text, boolean shortBreakdown) {
+        try {
+            String op = shortBreakdown ? "<" : ">";
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("15m\\s+kapanış\\s*" + java.util.regex.Pattern.quote(op)
+                            + "\\s*([0-9]+(?:\\.[0-9]+)?)",
+                            java.util.regex.Pattern.CASE_INSENSITIVE)
+                    .matcher(text == null ? "" : text);
+            if (m.find()) return Double.parseDouble(m.group(1));
+        } catch (Throwable ignored) {}
+        return Double.NaN;
+    }
+
+    private String v952PostProcessLivePanel(String text) {
+        if (text == null) return null;
         double now = v952NumberAfter(text, "Anlık:");
         double close15 = v952NumberAfter(text, "Son 15m kapanış:");
         if (Double.isNaN(now) || Double.isNaN(close15)) return text;
 
+        boolean shortBreakdown = text.contains("SHORT BREAKDOWN");
+        boolean longBreakout = text.contains("LONG BREAKOUT");
+        if (!shortBreakdown && !longBreakout) return text;
+
+        double trigger = v952TriggerLevel(text, shortBreakdown);
+        if (Double.isNaN(trigger) || trigger <= 0) return text;
+
         String replacement = null;
-        if (text.contains("SHORT BREAKDOWN") && close15 < p.breakdown) {
-            boolean missed = now < p.breakdown * 0.9970;
+        if (shortBreakdown && close15 < trigger) {
+            boolean missed = now < trigger * 0.9970;
             if (missed) {
                 replacement = "✅ SHORT BREAKDOWN TETİKLENDİ — GİRİŞ KAÇTI • Son 15m kapanış "
-                        + String.format(java.util.Locale.US, "% .8f", close15).trim()
-                        + " < " + String.format(java.util.Locale.US, "% .8f", p.breakdown).trim()
+                        + String.format(java.util.Locale.US, "%.8f", close15)
+                        + " < " + String.format(java.util.Locale.US, "%.8f", trigger)
                         + " • AŞAĞIDAN SHORT KOVALAMA • retest/rejection veya yeni plan bekle";
             } else {
                 replacement = "✅ SHORT BREAKDOWN TETİKLENDİ • tamamlanmış 15m kapanış şartı sağlandı • giriş bölgesi/retest teyidini izle";
             }
-        } else if (text.contains("LONG BREAKOUT") && close15 > p.breakout) {
-            boolean missed = now > p.breakout * 1.0030;
+        } else if (longBreakout && close15 > trigger) {
+            boolean missed = now > trigger * 1.0030;
             if (missed) {
                 replacement = "✅ LONG BREAKOUT TETİKLENDİ — GİRİŞ KAÇTI • Son 15m kapanış "
-                        + String.format(java.util.Locale.US, "% .8f", close15).trim()
-                        + " > " + String.format(java.util.Locale.US, "% .8f", p.breakout).trim()
+                        + String.format(java.util.Locale.US, "%.8f", close15)
+                        + " > " + String.format(java.util.Locale.US, "%.8f", trigger)
                         + " • YUKARIDAN LONG KOVALAMA • retest/reclaim veya yeni plan bekle";
             } else {
                 replacement = "✅ LONG BREAKOUT TETİKLENDİ • tamamlanmış 15m kapanış şartı sağlandı • giriş bölgesi/retest teyidini izle";
@@ -112,27 +132,23 @@ if 'private String v952PrettyMeta(' not in s:
 # ------------------------------------------------------------------
 # 2) Live confirmation panel: if a completed candle already crossed the
 #    breakout/breakdown level, do not keep saying "waiting for close".
-#    Wrap the String-returning method that contains CANLI TEYİT PANELİ.
+#    We deliberately parse the trigger level from the panel text itself;
+#    therefore this works even when the live-panel method has no TradePlan
+#    parameter (the v9.3 source uses a symbol/live-data oriented helper).
 # ------------------------------------------------------------------
-if 'v952PostProcessLivePanel(' not in s.replace('private String v952PostProcessLivePanel', ''):
+body_without_decl = s.replace('private String v952PostProcessLivePanel', '')
+if 'v952PostProcessLivePanel(' not in body_without_decl:
     anchor_pos = s.find('CANLI TEYİT PANELİ')
     if anchor_pos < 0:
         raise SystemExit('v9.5.2: live panel anchor not found')
 
-    # Locate the nearest method declaration above the anchor.
     declarations = list(re.finditer(r'(?m)^\s*private\s+String\s+(\w+)\s*\(([^)]*)\)\s*\{', s[:anchor_pos]))
     if not declarations:
         raise SystemExit('v9.5.2: String live-panel method not found')
     dm = declarations[-1]
     method_start = dm.start()
     signature_end = dm.end()
-    params = dm.group(2)
-    pm = re.search(r'TradePlan\s+(\w+)', params)
-    if not pm:
-        raise SystemExit('v9.5.2: TradePlan parameter not found in live-panel method')
-    pvar = pm.group(1)
 
-    # Find the Java method's closing brace with a lightweight brace scanner.
     depth = 1
     i = signature_end
     in_str = False
@@ -159,12 +175,11 @@ if 'v952PostProcessLivePanel(' not in s.replace('private String v952PostProcessL
     method_end = i
     method = s[method_start:method_end]
 
-    # Wrap return expressions, but not returns already using our helper.
     def wrap_return(m):
         expr = m.group(1).strip()
         if 'v952PostProcessLivePanel' in expr:
             return m.group(0)
-        return 'return v952PostProcessLivePanel(' + expr + ', ' + pvar + ');'
+        return 'return v952PostProcessLivePanel(' + expr + ');'
 
     method2, count = re.subn(r'return\s+([^;]+);', wrap_return, method)
     if count < 1:
