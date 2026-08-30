@@ -13,60 +13,47 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v6 AUTO HIGH ACCURACY source
+      - name: Prepare Futures Alarm v9 MANUAL PRO source
         script: |
           set -euo pipefail
-          SRC="$CM_BUILD_DIR/futures15m_alarm/v5-source.b64"
-          test -s "$SRC"
+          cat futures15m_alarm/v9.part*.b64 > /tmp/Futures15mAlarm-v9-source.b64
           python3 - <<'PY'
-          import base64, zipfile
+          import base64, hashlib, zipfile
           from pathlib import Path
-          src = Path('/Users/builder/clone/futures15m_alarm/v5-source.b64')
-          zip_path = Path('/tmp/Futures15mAlarm-v5-base.zip')
+          src = Path('/tmp/Futures15mAlarm-v9-source.b64')
+          zip_path = Path('/tmp/Futures15mAlarm-v9-source.zip')
           data = base64.b64decode(src.read_text().strip())
           zip_path.write_bytes(data)
+          sha = hashlib.sha256(data).hexdigest()
+          print('v9 ZIP bytes:', len(data))
+          print('v9 SHA256:', sha)
+          if sha != '3e1e184cdd608f2202fe35a9dca7e7f4b59fa64a633b72d963c3cf4340ad559b':
+              raise SystemExit('v9 source SHA mismatch')
           if not zipfile.is_zipfile(zip_path):
-              raise SystemExit('Decoded v5 base source is not a valid ZIP')
+              raise SystemExit('Decoded v9 source is not a valid ZIP')
           with zipfile.ZipFile(zip_path, 'r') as zf:
               bad = zf.testzip()
               if bad:
-                  raise SystemExit('Corrupt base ZIP member: ' + bad)
-          print('Validated v5 base ZIP:', len(data), 'bytes')
+                  raise SystemExit('Corrupt ZIP member: ' + bad)
           PY
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
-          unzip -q /tmp/Futures15mAlarm-v5-base.zip -d /tmp/futures15m-build
+          unzip -q /tmp/Futures15mAlarm-v9-source.zip -d /tmp/futures15m-build
           APP=/tmp/futures15m-build/Futures15mAlarm
           JAVA="$APP/app/src/main/java/com/futuresalarm/app"
-          V6="$CM_BUILD_DIR/futures15m_alarm/v6"
-          test -d "$JAVA"
-          test -s "$V6/AutoSnapshot.java"
-          test -s "$V6/AutoStore.java"
-          cat "$V6"/MarketAnalyzer.java.part*.txt > "$JAVA/MarketAnalyzer.java"
-          cat "$V6"/MonitorService.java.part*.txt > "$JAVA/MonitorService.java"
-          cat "$V6"/MainActivity.java.part*.txt > "$JAVA/MainActivity.java"
-          cp "$V6/AutoSnapshot.java" "$JAVA/AutoSnapshot.java"
-          cp "$V6/AutoStore.java" "$JAVA/AutoStore.java"
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-          p = Path('/tmp/futures15m-build/Futures15mAlarm/app/build.gradle')
-          s = p.read_text()
-          s = re.sub(r'versionCode\s+\d+', 'versionCode 6', s)
-          s = re.sub(r"versionName\s+['\"][^'\"]+['\"]", "versionName '6.0.0'", s)
-          p.write_text(s)
-          PY
-          grep -q 'PRO v6' "$JAVA/MainActivity.java"
-          grep -q 'AUTO HIGH ACCURACY' "$JAVA/MainActivity.java"
-          grep -q 'class MarketAnalyzer' "$JAVA/MarketAnalyzer.java"
-          grep -q 'openInterestHist' "$JAVA/MonitorService.java"
-          grep -q 'takerlongshortRatio' "$JAVA/MonitorService.java"
-          grep -q 'globalLongShortAccountRatio' "$JAVA/MonitorService.java"
-          grep -q 'topLongShortPositionRatio' "$JAVA/MonitorService.java"
-          grep -q 'premiumIndex' "$JAVA/MonitorService.java"
-          grep -q 'versionCode 6' "$APP/app/build.gradle"
-          grep -q "versionName '6.0.0'" "$APP/app/build.gradle"
-          echo 'Futures Alarm v6 AUTO HIGH ACCURACY source reconstructed successfully.'
+          test -f "$APP/settings.gradle"
+          test -f "$APP/app/build.gradle"
+          grep -q 'PRO v9' "$JAVA/MainActivity.java"
+          grep -q 'MANUEL PRO' "$JAVA/MainActivity.java"
+          grep -q 'CHATGPT PRO ANALİZ PROMPTUNU KOPYALA' "$JAVA/MainActivity.java"
+          grep -q 'pullConfirmed' "$JAVA/MonitorService.java"
+          grep -q 'resConfirmed' "$JAVA/MonitorService.java"
+          grep -q 'versionCode 9' "$APP/app/build.gradle"
+          grep -q "versionName '9.0.0'" "$APP/app/build.gradle"
+          test ! -e "$JAVA/AiReviewClient.java"
+          test ! -e "$JAVA/VisionChart.java"
+          test ! -d "$APP/backend"
+          echo 'v9 MANUAL PRO source validated: no AI API/backend.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -77,13 +64,13 @@ workflows:
         script: |
           java -version
           gradle --version
-      - name: Build installable v6 debug APK
+      - name: Build installable v9 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v6.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v6.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v6.apk
+      - Futures15mAlarm-PRO-v9.apk
