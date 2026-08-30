@@ -23,25 +23,35 @@ workflows:
           import zipfile
           from pathlib import Path
 
-          src = Path("/Users/builder/clone/futures15m_alarm/v4-source.b64")
-          zip_path = Path("/tmp/Futures15mAlarm-v4-source.zip")
+          src = Path('/Users/builder/clone/futures15m_alarm/v4-source.b64')
+          zip_path = Path('/tmp/Futures15mAlarm-v4-source.zip')
           data = base64.b64decode(src.read_text().strip())
           zip_path.write_bytes(data)
           if not zipfile.is_zipfile(zip_path):
-              raise SystemExit("Decoded v4 source is not a valid ZIP")
-          with zipfile.ZipFile(zip_path, "r") as zf:
+              raise SystemExit('Decoded v4 source is not a valid ZIP')
+          with zipfile.ZipFile(zip_path, 'r') as zf:
               bad = zf.testzip()
               if bad:
-                  raise SystemExit("Corrupt ZIP member: " + bad)
-          print("Futures Alarm v4 source ZIP OK:", len(data), "bytes")
+                  raise SystemExit('Corrupt ZIP member: ' + bad)
+          print('Futures Alarm v4 source ZIP OK:', len(data), 'bytes')
           PY
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
           unzip -q /tmp/Futures15mAlarm-v4-source.zip -d /tmp/futures15m-build
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java')
+          s = p.read_text()
+          s = s.replace('LP=stop,tp1,tp2,tp3\\nLB=girişAlt,girişÜst,stop,tp1,tp2,tp3\\nSR=stop,tp1,tp2,tp3\\nSB=girişAlt,girişÜst,stop,tp1,tp2,tp3',
+                        'LP=stop;tp1;tp2;tp3\\nLB=girişAlt;girişÜst;stop;tp1;tp2;tp3\\nSR=stop;tp1;tp2;tp3\\nSB=girişAlt;girişÜst;stop;tp1;tp2;tp3')
+          s = s.replace('String[] p = raw.trim().split(",");', 'String[] p = raw.trim().split(";");')
+          p.write_text(s)
+          PY
           test -f /tmp/futures15m-build/Futures15mAlarm/settings.gradle
           test -f /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           grep -q 'LONG PULLBACK' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'longPullDetail' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/TradePlan.java
+          grep -q 'split(";")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           echo 'Futures Alarm v4 detailed source validated successfully.'
       - name: Set Android SDK location
         script: |
