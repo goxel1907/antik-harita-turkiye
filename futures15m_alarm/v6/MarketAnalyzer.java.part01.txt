@@ -1,0 +1,175 @@
+        String lbDetail = "Giriş: " + range(lbEntryLow, lbEntryHigh, decimals) + " (kapanış + tutunma)\nSTOP: " + fmt(lbStop, decimals) +
+                "\nTP1: " + fmt(lbTp1, decimals) + "\nTP2: " + fmt(lbTp2, decimals) + "\nTP3: " + fmt(lbTp3, decimals);
+        String srDetail = "Giriş: " + range(resLow, resHigh, decimals) + " (reddedilme teyidi)\nSTOP: " + fmt(srStop, decimals) +
+                "\nTP1: " + fmt(srTp1, decimals) + "\nTP2: " + fmt(srTp2, decimals) + "\nTP3: " + fmt(srTp3, decimals);
+        String sbDetail = "Giriş: " + range(sbEntryLow, sbEntryHigh, decimals) + " (kapanış + tutunma)\nSTOP: " + fmt(sbStop, decimals) +
+                "\nTP1: " + fmt(sbTp1, decimals) + "\nTP2: " + fmt(sbTp2, decimals) + "\nTP3: " + fmt(sbTp3, decimals);
+
+        TradePlan plan = new TradePlan(symbol, pullLow, pullHigh, resLow, resHigh, breakout, breakdown,
+                decimals, earlyWarnPercent, lpDetail, lbDetail, srDetail, sbDetail);
+
+        int best = Math.max(Math.max(lp, lb), Math.max(sr, sb));
+        String bestSetup = best == lp ? "LONG PULLBACK" : best == lb ? "LONG BREAKOUT" : best == sr ? "SHORT DİRENÇ" : "SHORT BREAKDOWN";
+        String grade = grade(best);
+        String summary = grade + " • En iyi senaryo: " + bestSetup + " " + best + "/100" +
+                " • 1h " + dirWord(f1.dir) + " • 4h " + dirWord(f4.dir) + " • 1D " + dirWord(fd.dir);
+
+        return new AutoSnapshot(symbol, last.closeTime, regime, summary,
+                lp, lb, sr, sb, lpConfirmed, lbConfirmed, srConfirmed, sbConfirmed,
+                lpReason, lbReason, srReason, sbReason, plan);
+    }
+
+    private static Frame frame(List<Bar> b) {
+        Frame f = new Frame();
+        int n = b.size();
+        f.close = b.get(n - 1).close;
+        double[] closes = new double[n];
+        double[] vols = new double[n];
+        for (int i = 0; i < n; i++) { closes[i] = b.get(i).close; vols[i] = b.get(i).volume; }
+        f.ema20 = ema(closes, 20, n - 1);
+        f.ema50 = ema(closes, 50, n - 1);
+        double ema20Old = ema(closes, 20, Math.max(20, n - 6));
+        f.rsi = rsi(closes, 14);
+        f.atr = atr(b, 14);
+        f.atrPct = f.atr / Math.max(f.close, 1e-12) * 100.0;
+        f.volRatio = vols[n - 1] / Math.max(avg(vols, Math.max(0, n - 21), n - 1), 1e-12);
+        f.slope = (f.ema20 - ema20Old) / Math.max(f.atr, 1e-12);
+        double d = 0;
+        d += f.close > f.ema20 ? 0.28 : -0.28;
+        d += f.ema20 > f.ema50 ? 0.34 : -0.34;
+        d += f.slope > 0.05 ? 0.22 : f.slope < -0.05 ? -0.22 : 0;
+        d += f.rsi > 53 ? 0.16 : f.rsi < 47 ? -0.16 : 0;
+        f.dir = clamp(d, -1, 1);
+        return f;
+    }
+
+    private static String regime(Frame f15, Frame f1, Frame f4, Frame fd) {
+        if (f15.atrPct >= 3.0 || Math.abs(f15.slope) > 1.2) return "HIGH VOLATILITY";
+        if (f4.dir > 0.38 && f1.dir > 0.28) return "TREND UP";
+        if (f4.dir < -0.38 && f1.dir < -0.28) return "TREND DOWN";
+        if (Math.abs(f4.dir) < 0.32 && Math.abs(f1.dir) < 0.38) return "RANGE";
+        return "TRANSITION";
+    }
+
+    private static int scoreLongPull(Frame f15, Frame f1, Frame f4, Frame fd, Metrics m,
+                                     boolean touch, boolean reject, boolean rrOk,
+                                     double price, double zl, double zh, double atr) {
+        int s = 0;
+        s += directionalPoints(f1.dir, true, 18);
+        s += directionalPoints(f4.dir, true, 18);
+        s += directionalPoints(fd.dir, true, 8);
+        double dist = distanceToZone(price, zl, zh) / Math.max(atr, 1e-12);
+        s += touch ? 18 : dist <= 0.6 ? 13 : dist <= 1.5 ? 7 : 0;
+        s += reject ? 16 : touch ? 5 : 0;
+        s += participationPoints(m, f15, true, 10);
+        s += momentumPoints(f15, true, 5);
+        s += sentimentPoints(m, true, 3);
+        if (rrOk) s += 4; else s -= 12;
+        if (f4.dir < -0.38 || f1.dir < -0.48) s -= 25;
+        if (f15.rsi > 80) s -= 7;
+        return boundScore(s);
+    }
+
+    private static int scoreLongBreak(Frame f15, Frame f1, Frame f4, Frame fd, Metrics m,
+                                      boolean close, boolean fresh, boolean hold, double closeLoc, double rangeAtr, boolean rrOk) {
+        int s = 0;
+        s += directionalPoints(f1.dir, true, 14);
+        s += directionalPoints(f4.dir, true, 12);
+        s += directionalPoints(fd.dir, true, 6);
+        s += close ? (fresh ? 14 : 10) : 0;
+        s += hold ? 10 : 0;
+        s += f15.volRatio >= 1.45 ? 12 : f15.volRatio >= 1.15 ? 8 : f15.volRatio >= 0.95 ? 3 : 0;
+        s += oiPoints(m, true, 10);
+        s += closeLoc >= 0.72 ? 6 : closeLoc >= 0.58 ? 3 : 0;
+        s += rangeAtr >= 1.0 ? 5 : rangeAtr >= 0.65 ? 2 : 0;
+        s += takerPoints(m, true, 5);
+        s += sentimentPoints(m, true, 4);
+        if (rrOk) s += 7; else s -= 12;
+        if (f4.dir < -0.38 || f1.dir < -0.48) s -= 24;
+        if (f15.rsi > 86) s -= 10;
+        if (!confirmParticipationLong(m, f15)) s -= 8;
+        return boundScore(s);
+    }
+
+    private static int scoreShortRes(Frame f15, Frame f1, Frame f4, Frame fd, Metrics m,
+                                     boolean touch, boolean reject, boolean rrOk,
+                                     double price, double zl, double zh, double atr) {
+        int s = 0;
+        s += directionalPoints(f1.dir, false, 15);
+        s += directionalPoints(f4.dir, false, 15);
+        s += directionalPoints(fd.dir, false, 6);
+        double dist = distanceToZone(price, zl, zh) / Math.max(atr, 1e-12);
+        s += touch ? 18 : dist <= 0.6 ? 12 : dist <= 1.5 ? 6 : 0;
+        s += reject ? 20 : touch ? 5 : 0;
+        s += participationPoints(m, f15, false, 9);
+        s += momentumPoints(f15, false, 6);
+        s += sentimentPoints(m, false, 5);
+        if (rrOk) s += 6; else s -= 12;
+        // Counter-trend shorts must earn extra proof instead of merely seeing RSI overbought.
+        if (f4.dir > 0.42 && f1.dir > 0.42) {
+            if (!(reject && f15.rsi >= 70 && (!Double.isNaN(m.takerBuySellRatio) && m.takerBuySellRatio < 1.0))) s -= 24;
+        }
+        return boundScore(s);
+    }
+
+    private static int scoreShortBreak(Frame f15, Frame f1, Frame f4, Frame fd, Metrics m,
+                                       boolean close, boolean fresh, boolean hold, double closeLoc, double rangeAtr, boolean rrOk) {
+        int s = 0;
+        s += directionalPoints(f1.dir, false, 14);
+        s += directionalPoints(f4.dir, false, 12);
+        s += directionalPoints(fd.dir, false, 6);
+        s += close ? (fresh ? 14 : 10) : 0;
+        s += hold ? 10 : 0;
+        s += f15.volRatio >= 1.45 ? 12 : f15.volRatio >= 1.15 ? 8 : f15.volRatio >= 0.95 ? 3 : 0;
+        s += oiPoints(m, false, 10);
+        s += closeLoc <= 0.28 ? 6 : closeLoc <= 0.42 ? 3 : 0;
+        s += rangeAtr >= 1.0 ? 5 : rangeAtr >= 0.65 ? 2 : 0;
+        s += takerPoints(m, false, 5);
+        s += sentimentPoints(m, false, 4);
+        if (rrOk) s += 7; else s -= 12;
+        if (f4.dir > 0.38 || f1.dir > 0.48) s -= 24;
+        if (f15.rsi < 14) s -= 10;
+        if (!confirmParticipationShort(m, f15)) s -= 8;
+        return boundScore(s);
+    }
+
+    private static boolean confirmParticipationLong(Metrics m, Frame f15) {
+        boolean vol = f15.volRatio >= 1.08;
+        boolean oi = Double.isNaN(m.oiChangePct) || m.oiChangePct >= -0.15;
+        boolean taker = Double.isNaN(m.takerBuySellRatio) || m.takerBuySellRatio >= 0.95;
+        return vol && oi && taker;
+    }
+
+    private static boolean confirmParticipationShort(Metrics m, Frame f15) {
+        boolean vol = f15.volRatio >= 1.08;
+        boolean oi = Double.isNaN(m.oiChangePct) || m.oiChangePct >= -0.15;
+        boolean taker = Double.isNaN(m.takerBuySellRatio) || m.takerBuySellRatio <= 1.05;
+        return vol && oi && taker;
+    }
+
+    private static boolean countertrendShortFilter(Frame f15, Frame f1, Frame f4, Metrics m) {
+        if (f4.dir <= 0.42 || f1.dir <= 0.42) return true;
+        return f15.rsi >= 70 && !Double.isNaN(m.takerBuySellRatio) && m.takerBuySellRatio < 1.0;
+    }
+
+    private static int directionalPoints(double dir, boolean wantLong, int max) {
+        double x = wantLong ? dir : -dir;
+        if (x >= 0.55) return max;
+        if (x >= 0.25) return (int)Math.round(max * 0.72);
+        if (x >= -0.10) return (int)Math.round(max * 0.42);
+        if (x >= -0.38) return (int)Math.round(max * 0.12);
+        return 0;
+    }
+
+    private static int participationPoints(Metrics m, Frame f15, boolean longSide, int max) {
+        int s = 0;
+        if (f15.volRatio >= 1.35) s += max / 2; else if (f15.volRatio >= 1.05) s += max / 3;
+        s += oiPoints(m, longSide, max - max / 2);
+        return Math.min(max, s);
+    }
+
+    private static int oiPoints(Metrics m, boolean longSide, int max) {
+        if (Double.isNaN(m.oiChangePct)) return max / 3;
+        double x = m.oiChangePct;
+        if (x >= 1.0) return max;
+        if (x >= 0.25) return (int)Math.round(max * 0.78);
