@@ -18,144 +18,44 @@ workflows:
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
           python3 - <<'PY'
-          import base64, hashlib, zipfile
+          import base64
+          import hashlib
+          import zipfile
           from pathlib import Path
-
           src = Path('/tmp/Futures15mAlarm-v9-source.b64')
-          zip_path = Path('/tmp/Futures15mAlarm-v9-source.zip')
+          dst = Path('/tmp/Futures15mAlarm-v9-source.zip')
           data = base64.b64decode(src.read_text().strip())
-          zip_path.write_bytes(data)
-          print('v9 ZIP bytes:', len(data))
-          print('v9 SHA256:', hashlib.sha256(data).hexdigest())
-          if not zipfile.is_zipfile(zip_path):
-              raise SystemExit('Decoded v9 source is not a valid ZIP')
-          with zipfile.ZipFile(zip_path, 'r') as zf:
+          dst.write_bytes(data)
+          print('v9 base ZIP bytes:', len(data))
+          print('v9 base SHA256:', hashlib.sha256(data).hexdigest())
+          if not zipfile.is_zipfile(dst):
+              raise SystemExit('Decoded v9 source is not a ZIP')
+          with zipfile.ZipFile(dst, 'r') as zf:
               bad = zf.testzip()
               if bad:
                   raise SystemExit('Corrupt ZIP member: ' + bad)
-          print('v9 ZIP integrity OK.')
+          print('v9 base ZIP integrity OK.')
           PY
-
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
           unzip -q /tmp/Futures15mAlarm-v9-source.zip -d /tmp/futures15m-build
+          python3 -m py_compile "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
           APP=/tmp/futures15m-build/Futures15mAlarm
           JAVA="$APP/app/src/main/java/com/futuresalarm/app"
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
           test -f "$JAVA/MainActivity.java"
           test -f "$JAVA/MonitorService.java"
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java')
-          s = p.read_text()
-
-          # 1) Ana ekrandaki tek tek coin / seviye ekleme butonunu tamamen kaldır.
-          s, n1 = re.subn(
-              r'\n        Button add = button\("\+ YENİ COIN / MANUEL PLAN EKLE".*?root\.addView\(add, addLp\);\n',
-              '\n', s, flags=re.S)
-          print('Manual add button removed:', n1)
-
-          # 2) Karttaki DÜZENLE butonunu kaldır; yalnız SİL kalsın.
-          actions_pattern = r'''\n        LinearLayout actions = new LinearLayout\(this\);.*?card\.addView\(actions, actionsLp\);\n'''
-          delete_only = '''
-        Button del = button("SİL", Color.rgb(127, 29, 29));
-        del.setOnClickListener(v -> confirmDelete(p));
-        LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
-        delLp.setMargins(0, dp(7), 0, 0);
-        card.addView(del, delLp);
-'''
-          s, n2 = re.subn(actions_pattern, delete_only, s, flags=re.S)
-          print('Manual edit action removed:', n2)
-
-          # 3) Toplu plan girişini daha anlaşılır yap.
-          s = s.replace('CHATGPT ANALİZ PLAN KODU / TOPLU GÜNCELLE',
-                        'CHATGPT PLAN KODU YAPIŞTIR / TOPLU GÜNCELLE')
-          s = s.replace('input.setHint("ChatGPT analizinden aldığın bir veya birden fazla plan kodunu alt alta yapıştır.\\nSTOP/TP için 13 alanlı DETAYLI formatı kullan.");',
-                        'input.setHint("ChatGPT cevabının EN SONUNDAKİ | işaretli plan kodu satırlarını buraya yapıştır.\\nBirden fazla coin varsa alt alta yapıştır.");')
-          s = s.replace('.setTitle("ChatGPT analiz planını yapıştır")',
-                        '.setTitle("ChatGPT DETAYLI plan kodunu yapıştır")')
-          s = s.replace('.setMessage("Coin kayıtlıysa otomatik güncellenir.\\n\\nv9 MANUEL PRO formatı: BASE 9 alan + 4 detay alanı.\\nLP=stop;tp1;tp2;tp3\\nLB=girişAlt;girişÜst;stop;tp1;tp2;tp3\\nSR=stop;tp1;tp2;tp3\\nSB=girişAlt;girişÜst;stop;tp1;tp2;tp3")',
-                        '.setMessage("TEK TEK SEVİYE GİRİŞİ YOK.\\nSadece ChatGPT cevabının sonundaki 13 alanlı detaylı kodu yapıştır. Coin kayıtlıysa güncellenir; kayıtlı değilse eklenir.\\n\\nKod formatı:\\nSYMBOL|pullLow|pullHigh|resLow|resHigh|breakout|breakdown|decimals|0.60|LP|LB|SR|SB")')
-
-          # 4) STOP/TP'siz eski plan kodlarını artık kabul etme.
-          s = s.replace('if (a.length < 8) throw new IllegalArgumentException();',
-                        'if (a.length != 13) throw new IllegalArgumentException("13 alanlı detaylı plan kodu gerekli");')
-          s = s.replace('double pre = a.length >= 9 ? Double.parseDouble(a[8].trim()) : 0.60;',
-                        'double pre = Double.parseDouble(a[8].trim());')
-          s = s.replace('String lpDetail = "", lbDetail = "", srDetail = "", sbDetail = "";\n                    if (a.length >= 13) {\n                        lpDetail = detailLp(a[9], dec);\n                        lbDetail = detailLb(a[10], dec);\n                        srDetail = detailSr(a[11], dec);\n                        sbDetail = detailSb(a[12], dec);\n                    }',
-                        'String lpDetail = detailLp(a[9], dec);\n                    String lbDetail = detailLb(a[10], dec);\n                    String srDetail = detailSr(a[11], dec);\n                    String sbDetail = detailSb(a[12], dec);')
-          s = s.replace('Toast.makeText(this, "Hiçbir plan kodu okunamadı. Kodları alt alta ve aynen yapıştır.", Toast.LENGTH_LONG).show();',
-                        'Toast.makeText(this, "Plan kodu okunamadı. ChatGPT cevabının en sonundaki 13 alanlı | işaretli kod satırını aynen yapıştır.", Toast.LENGTH_LONG).show();')
-
-          # 5) Ekran metnini v9.1 olarak ayır ve çalışma şeklini netleştir.
-          s = s.replace('15m Futures Alarm PRO v9 • MANUEL PRO', '15m Futures Alarm PRO v9.1 • MANUEL PRO')
-          s = s.replace('1) 15m / 1h / 4h / 1D grafiklerini ChatGPT\'ye gönder.\\n" +\n                "2) ChatGPT\'nin ürettiği detaylı plan kodunu buraya yapıştır.',
-                        '1) MASTER promptu kopyala; 15m / 1h / 4h / 1D grafiklerle ChatGPT\'ye gönder.\\n" +\n                "2) Cevabın EN SONUNDAKİ tek satırlık detaylı plan kodunu toplu güncelleme alanına yapıştır.')
-
-          # 6) Binance mobil Futures deeplink'i korunuyor / güçlendiriliyor.
-          new_method = '''    private void openBinanceFutures(String symbol) {
-              String sym = symbol == null ? "" : symbol.trim().toUpperCase(Locale.US);
-              if (sym.isEmpty()) return;
-
-              String[] appLinks = new String[] {
-                      "bnc://app.binance.com/futures/trade?symbol=" + Uri.encode(sym),
-                      "bnc://app.binance.com/futures/" + Uri.encode(sym),
-                      "https://www.binance.com/en/futures/" + Uri.encode(sym)
-              };
-              for (String link : appLinks) {
-                  try {
-                      Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(link));
-                      i.setPackage("com.binance.dev");
-                      i.addCategory(Intent.CATEGORY_BROWSABLE);
-                      startActivity(i);
-                      return;
-                  } catch (Exception ignored) {
-                  }
-              }
-
-              try {
-                  Intent launch = getPackageManager().getLaunchIntentForPackage("com.binance.dev");
-                  if (launch != null) {
-                      ClipboardManager cb = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                      if (cb != null) cb.setPrimaryClip(ClipData.newPlainText("Binance Futures coin", sym));
-                      startActivity(launch);
-                      Toast.makeText(this, sym + " kopyalandı • Binance açıldı. Futures aramasına yapıştır.", Toast.LENGTH_LONG).show();
-                      return;
-                  }
-              } catch (Exception ignored) {
-              }
-
-              try {
-                  Uri web = Uri.parse("https://www.binance.com/en/futures/" + Uri.encode(sym));
-                  startActivity(new Intent(Intent.ACTION_VIEW, web));
-              } catch (Exception e) {
-                  Toast.makeText(this, "Binance Futures açılamadı.", Toast.LENGTH_LONG).show();
-              }
-          }'''
-          pattern = r'    private void openBinanceFutures\(String symbol\) \{.*?\n    \}\n\n    private void copyPlan'
-          replaced, count = re.subn(pattern, new_method + '\n\n    private void copyPlan', s, flags=re.S)
-          if count == 1:
-              s = replaced
-              print('Binance mobile deeplink ensured.')
-
-          s = s.replace('STOP/TP henüz yok — detaylı plan koduyla güncelle', '⚠ STOP/TP EKSİK — güncel ChatGPT detaylı plan kodunu yapıştır')
-          s = s.replace('return s == null || s.trim().isEmpty() ? "STOP/TP yok" : s.replace("\\n", " • ");', 'return s == null || s.trim().isEmpty() ? "STOP/TP EKSİK — detaylı plan kodu gerekli" : s.replace("\\n", " • ");')
-          p.write_text(s)
-
-          # Version bump: mevcut v9 üzerine net güncelleme kurulsun.
-          g = Path('/tmp/futures15m-build/Futures15mAlarm/app/build.gradle')
-          b = g.read_text()
-          b = b.replace('versionCode 9', 'versionCode 10')
-          b = b.replace("versionName '9.0.0'", "versionName '9.1.0'")
-          g.write_text(b)
-          PY
-
-          echo 'Prepare v9.1 OK: bulk detailed plan only, manual add/edit removed.'
+          grep -q '15m Futures Alarm PRO v9.1' "$JAVA/MainActivity.java"
+          grep -q 'CHATGPT PLAN KODU YAPIŞTIR / TOPLU GÜNCELLE' "$JAVA/MainActivity.java"
+          grep -q 'a.length != 13' "$JAVA/MainActivity.java"
+          grep -q 'bnc://app.binance.com/futures/trade?symbol=' "$JAVA/MainActivity.java"
+          grep -q 'versionCode 10' "$APP/app/build.gradle"
+          grep -q "versionName '9.1.0'" "$APP/app/build.gradle"
+          if grep -q '+ YENİ COIN / MANUEL PLAN EKLE' "$JAVA/MainActivity.java"; then exit 1; fi
+          if grep -q 'button("DÜZENLE"' "$JAVA/MainActivity.java"; then exit 1; fi
+          echo 'Prepare v9.1 OK. Bulk detailed plans only; manual add/edit removed.'
       - name: Set Android SDK location
         script: |
           set -e
