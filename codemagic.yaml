@@ -13,35 +13,60 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v5 source
+      - name: Prepare Futures Alarm v6 AUTO HIGH ACCURACY source
         script: |
-          set -e
+          set -euo pipefail
           SRC="$CM_BUILD_DIR/futures15m_alarm/v5-source.b64"
           test -s "$SRC"
           python3 - <<'PY'
           import base64, zipfile
           from pathlib import Path
           src = Path('/Users/builder/clone/futures15m_alarm/v5-source.b64')
-          zip_path = Path('/tmp/Futures15mAlarm-v5-source.zip')
+          zip_path = Path('/tmp/Futures15mAlarm-v5-base.zip')
           data = base64.b64decode(src.read_text().strip())
           zip_path.write_bytes(data)
           if not zipfile.is_zipfile(zip_path):
-              raise SystemExit('Decoded v5 source is not a valid ZIP')
+              raise SystemExit('Decoded v5 base source is not a valid ZIP')
           with zipfile.ZipFile(zip_path, 'r') as zf:
               bad = zf.testzip()
               if bad:
-                  raise SystemExit('Corrupt ZIP member: ' + bad)
-          print('Futures Alarm v5 source ZIP OK:', len(data), 'bytes')
+                  raise SystemExit('Corrupt base ZIP member: ' + bad)
+          print('Validated v5 base ZIP:', len(data), 'bytes')
           PY
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
-          unzip -q /tmp/Futures15mAlarm-v5-source.zip -d /tmp/futures15m-build
-          test -f /tmp/futures15m-build/Futures15mAlarm/settings.gradle
-          test -f /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
-          grep -q 'PRO v5' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
-          grep -q "BINANCE FUTURES'TA AÇ" /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
-          grep -q 'LONG SİNYALİ' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MonitorService.java
-          echo 'Futures Alarm v5 source validated successfully.'
+          unzip -q /tmp/Futures15mAlarm-v5-base.zip -d /tmp/futures15m-build
+          APP=/tmp/futures15m-build/Futures15mAlarm
+          JAVA="$APP/app/src/main/java/com/futuresalarm/app"
+          V6="$CM_BUILD_DIR/futures15m_alarm/v6"
+          test -d "$JAVA"
+          test -s "$V6/AutoSnapshot.java"
+          test -s "$V6/AutoStore.java"
+          cat "$V6"/MarketAnalyzer.java.part*.txt > "$JAVA/MarketAnalyzer.java"
+          cat "$V6"/MonitorService.java.part*.txt > "$JAVA/MonitorService.java"
+          cat "$V6"/MainActivity.java.part*.txt > "$JAVA/MainActivity.java"
+          cp "$V6/AutoSnapshot.java" "$JAVA/AutoSnapshot.java"
+          cp "$V6/AutoStore.java" "$JAVA/AutoStore.java"
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          p = Path('/tmp/futures15m-build/Futures15mAlarm/app/build.gradle')
+          s = p.read_text()
+          s = re.sub(r'versionCode\s+\d+', 'versionCode 6', s)
+          s = re.sub(r"versionName\s+['\"][^'\"]+['\"]", "versionName '6.0.0'", s)
+          p.write_text(s)
+          PY
+          grep -q 'PRO v6' "$JAVA/MainActivity.java"
+          grep -q 'AUTO HIGH ACCURACY' "$JAVA/MainActivity.java"
+          grep -q 'class MarketAnalyzer' "$JAVA/MarketAnalyzer.java"
+          grep -q 'openInterestHist' "$JAVA/MonitorService.java"
+          grep -q 'takerlongshortRatio' "$JAVA/MonitorService.java"
+          grep -q 'globalLongShortAccountRatio' "$JAVA/MonitorService.java"
+          grep -q 'topLongShortPositionRatio' "$JAVA/MonitorService.java"
+          grep -q 'premiumIndex' "$JAVA/MonitorService.java"
+          grep -q 'versionCode 6' "$APP/app/build.gradle"
+          grep -q "versionName '6.0.0'" "$APP/app/build.gradle"
+          echo 'Futures Alarm v6 AUTO HIGH ACCURACY source reconstructed successfully.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -52,13 +77,13 @@ workflows:
         script: |
           java -version
           gradle --version
-      - name: Build installable debug APK
+      - name: Build installable v6 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v5.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v5.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v6.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v6.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v5.apk
+      - Futures15mAlarm-PRO-v6.apk
