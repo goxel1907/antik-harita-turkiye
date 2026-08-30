@@ -21,10 +21,6 @@ s = s.replace('CHATGPT ANALİZ PLAN KODU / TOPLU GÜNCELLE',
 s = s.replace('CHATGPT PRO ANALİZ PROMPTUNU KOPYALA',
               'MASTER ANALİZ PROMPTUNU KOPYALA • GRAFİKLERLE GÖNDER')
 s = s.replace('v9 MANUEL PRO çalışma şekli:', 'v9.1 MANUEL PRO çalışma şekli:')
-s = s.replace("1) 15m / 1h / 4h / 1D grafiklerini ChatGPT'ye gönder.\\n" +
-              '                "2) ChatGPT\'nin ürettiği detaylı plan kodunu buraya yapıştır.\\n" +',
-              "1) MASTER promptu kopyala; 15m / 1h / 4h / 1D grafiklerle ChatGPT'ye gönder.\\n" +
-              '                "2) Cevabın en sonundaki 13 alanlı detaylı plan kodunu TOPLU GÜNCELLE alanına yapıştır.\\n" +')
 
 # Tek tek coin / seviye ekleme butonunu kaldır.
 s, add_count = re.subn(
@@ -48,103 +44,110 @@ s, action_count = actions_pattern.subn(delete_only, s)
 if action_count not in (0, 1):
     raise SystemExit(f'Unexpected edit-action matches: {action_count}')
 
-# Toplu plan girişi: yalnız 13 alanlı detaylı kod. Tam ChatGPT cevabı yapıştırılırsa
-# açıklama satırlarını atlar, | içeren detaylı kod satırlarını alır.
+# Toplu plan girişi: giriş kutusu SABİT yükseklikte ve kendi içinde kaydırılabilir.
+# Böylece uzun kodlarda GÜNCELLE / EKLE butonu ekranın altında kaybolmaz.
 start = s.find('    private void openImportDialog() {')
 end = s.find('    private void openPlanDialog(TradePlan existing) {')
 if start < 0 or end < 0 or end <= start:
     raise SystemExit('Could not locate import dialog methods')
 new_import = r'''    private void openImportDialog() {
         EditText input = new EditText(this);
-        input.setHint("ChatGPT cevabının en sonundaki | işaretli DETAYLI plan kodunu yapıştır.\nBirden fazla coin varsa kod satırlarını alt alta yapıştır.");
+        input.setHint("ChatGPT cevabının EN SONUNDAKİ | işaretli detaylı plan kodunu yapıştır.\nBirden fazla coin varsa alt alta yapıştır.");
         input.setTextColor(Color.WHITE);
         input.setHintTextColor(Color.rgb(148, 163, 184));
         input.setSingleLine(false);
         input.setMinLines(6);
-        input.setGravity(Gravity.TOP);
-        input.setPadding(dp(18), dp(10), dp(18), dp(10));
+        input.setMaxLines(8);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setPadding(dp(14), dp(10), dp(14), dp(10));
+        input.setVerticalScrollBarEnabled(true);
+        input.setHorizontallyScrolling(false);
+        input.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("ChatGPT DETAYLI plan kodunu yapıştır")
-                .setMessage("TEK TEK COIN / SEVİYE GİRİŞİ YOK.\n\nSadece 13 alanlı detaylı plan kodu kabul edilir. Coin kayıtlıysa güncellenir; kayıtlı değilse otomatik eklenir.\n\nFormat:\nSYMBOL|pullLow|pullHigh|resLow|resHigh|breakout|breakdown|decimals|0.60|LP|LB|SR|SB")
+                .setTitle("ChatGPT detaylı plan kodunu yapıştır")
+                .setMessage("Sadece 13 alanlı | işaretli plan kodları kabul edilir. Coin kayıtlıysa güncellenir, değilse otomatik eklenir.")
                 .setView(input)
-                .setNegativeButton("İptal", null)
-                .setPositiveButton("Güncelle / ekle", null)
+                .setNegativeButton("İPTAL", null)
+                .setPositiveButton("GÜNCELLE / EKLE", null)
                 .create();
-        dialog.setOnShowListener(x -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            String rawText = input.getText().toString()
-                    .replace("```text", "")
-                    .replace("```", "")
-                    .trim();
-            if (rawText.isEmpty()) {
-                Toast.makeText(this, "Plan kodu boş.", Toast.LENGTH_LONG).show();
-                return;
-            }
 
-            String[] lines = rawText.split("\\r?\\n");
-            int success = 0;
-            int failed = 0;
-            StringBuilder failedLines = new StringBuilder();
+        dialog.setOnShowListener(x -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String rawText = input.getText().toString()
+                        .replace("```text", "")
+                        .replace("```", "")
+                        .trim();
+                if (rawText.isEmpty()) {
+                    Toast.makeText(this, "Plan kodu boş.", Toast.LENGTH_LONG).show();
+                    return;
+                }
 
-            for (String line : lines) {
-                String code = line.trim();
-                if (code.isEmpty()) continue;
-                code = code.replaceFirst("^[\\-•*]+\\s*", "")
-                           .replaceFirst("^\\d+[\\.)]\\s*", "");
-                if (!code.contains("|")) continue;
-                try {
-                    String[] a = code.replace(',', '.').split("\\|", -1);
-                    if (a.length != 13)
-                        throw new IllegalArgumentException("13 alanlı detaylı plan kodu gerekli");
-                    String sym = a[0].trim().toUpperCase(Locale.US).replace("/", "");
-                    if (!sym.endsWith("USDT")) sym += "USDT";
-                    double pl = Double.parseDouble(a[1].trim());
-                    double ph = Double.parseDouble(a[2].trim());
-                    double rl = Double.parseDouble(a[3].trim());
-                    double rh = Double.parseDouble(a[4].trim());
-                    double bo = Double.parseDouble(a[5].trim());
-                    double bd = Double.parseDouble(a[6].trim());
-                    int dec = Math.max(0, Math.min(8, Integer.parseInt(a[7].trim())));
-                    double pre = Math.max(0.05, Math.min(5.0, Double.parseDouble(a[8].trim())));
-                    if (sym.length() < 5 || pl >= ph || rl >= rh || bo <= 0 || bd <= 0)
-                        throw new IllegalArgumentException("Ana seviyeler hatalı");
+                String[] lines = rawText.split("\\r?\\n");
+                int success = 0;
+                int failed = 0;
+                StringBuilder failedLines = new StringBuilder();
 
-                    String lpDetail = detailLp(a[9], dec);
-                    String lbDetail = detailLb(a[10], dec);
-                    String srDetail = detailSr(a[11], dec);
-                    String sbDetail = detailSb(a[12], dec);
-                    PlanStore.upsert(this, new TradePlan(sym, pl, ph, rl, rh, bo, bd, dec, pre,
-                            lpDetail, lbDetail, srDetail, sbDetail));
-                    success++;
-                } catch (Exception e) {
-                    failed++;
-                    if (failedLines.length() < 260) {
-                        if (failedLines.length() > 0) failedLines.append("\n");
-                        failedLines.append(code);
+                for (String line : lines) {
+                    String code = line.trim();
+                    if (code.isEmpty()) continue;
+                    code = code.replaceFirst("^[\\-•*]+\\s*", "")
+                               .replaceFirst("^\\d+[\\.)]\\s*", "");
+                    if (!code.contains("|")) continue;
+                    try {
+                        String[] a = code.replace(',', '.').split("\\|", -1);
+                        if (a.length != 13)
+                            throw new IllegalArgumentException("13 alanlı detaylı plan kodu gerekli");
+                        String sym = a[0].trim().toUpperCase(Locale.US).replace("/", "");
+                        if (!sym.endsWith("USDT")) sym += "USDT";
+                        double pl = Double.parseDouble(a[1].trim());
+                        double ph = Double.parseDouble(a[2].trim());
+                        double rl = Double.parseDouble(a[3].trim());
+                        double rh = Double.parseDouble(a[4].trim());
+                        double bo = Double.parseDouble(a[5].trim());
+                        double bd = Double.parseDouble(a[6].trim());
+                        int dec = Math.max(0, Math.min(8, Integer.parseInt(a[7].trim())));
+                        double pre = Math.max(0.05, Math.min(5.0, Double.parseDouble(a[8].trim())));
+                        if (sym.length() < 5 || pl >= ph || rl >= rh || bo <= 0 || bd <= 0)
+                            throw new IllegalArgumentException("Ana seviyeler hatalı");
+
+                        String lpDetail = detailLp(a[9], dec);
+                        String lbDetail = detailLb(a[10], dec);
+                        String srDetail = detailSr(a[11], dec);
+                        String sbDetail = detailSb(a[12], dec);
+                        PlanStore.upsert(this, new TradePlan(sym, pl, ph, rl, rh, bo, bd, dec, pre,
+                                lpDetail, lbDetail, srDetail, sbDetail));
+                        success++;
+                    } catch (Exception e) {
+                        failed++;
+                        if (failedLines.length() < 260) {
+                            if (failedLines.length() > 0) failedLines.append("\n");
+                            failedLines.append(code);
+                        }
                     }
                 }
-            }
 
-            if (success > 0) {
-                dialog.dismiss();
-                setContentView(buildUi());
-                refreshStatus();
-                String msg = success + " plan eklendi/güncellendi";
-                if (failed > 0) msg += " • " + failed + " kod satırı hatalı";
-                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
-                if (failed > 0) {
-                    new AlertDialog.Builder(this)
-                            .setTitle("Bazı kod satırları alınamadı")
-                            .setMessage("Başarılı: " + success + "\nHatalı: " + failed + "\n\nKontrol et:\n" + failedLines)
-                            .setPositiveButton("Tamam", null)
-                            .show();
+                if (success > 0) {
+                    dialog.dismiss();
+                    setContentView(buildUi());
+                    refreshStatus();
+                    String msg = success + " plan eklendi/güncellendi";
+                    if (failed > 0) msg += " • " + failed + " kod satırı hatalı";
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+                    if (failed > 0) {
+                        new AlertDialog.Builder(this)
+                                .setTitle("Bazı kod satırları alınamadı")
+                                .setMessage("Başarılı: " + success + "\nHatalı: " + failed + "\n\nKontrol et:\n" + failedLines)
+                                .setPositiveButton("TAMAM", null)
+                                .show();
+                    }
+                } else {
+                    Toast.makeText(this,
+                            "Plan kodu okunamadı. ChatGPT cevabının en sonundaki 13 alanlı | işaretli kod satırını aynen yapıştır.",
+                            Toast.LENGTH_LONG).show();
                 }
-            } else {
-                Toast.makeText(this,
-                        "Plan kodu okunamadı. ChatGPT cevabının en sonundaki 13 alanlı | işaretli kod satırını aynen yapıştır.",
-                        Toast.LENGTH_LONG).show();
-            }
-        }));
+            });
+        });
         dialog.show();
     }
 
@@ -240,6 +243,8 @@ checks = [
     ('+ YENİ COIN / MANUEL PLAN EKLE' not in final, 'manual add button still present'),
     ('button("DÜZENLE"' not in final, 'edit button still present'),
     ('a.length != 13' in final, '13-field parser missing'),
+    ('input.setMaxLines(8)' in final, 'scrollable limited-height import box missing'),
+    ('GÜNCELLE / EKLE' in final, 'import action button missing'),
     ('bnc://app.binance.com/futures/trade?symbol=' in final, 'Binance deeplink missing'),
     ('MASTER ANALİZ PROMPTUNU KOPYALA' in final, 'master prompt button missing'),
     ('versionCode 10' in GRADLE.read_text(), 'versionCode not bumped'),
@@ -248,4 +253,4 @@ for ok, msg in checks:
     if not ok:
         raise SystemExit(msg)
 
-print('v9.1 patch OK: bulk-only detailed plans, Binance mobile deeplink, no manual add/edit.')
+print('v9.1 patch OK: plan box scrolls internally; GUNCELLE/EKLE remains visible.')
