@@ -18,6 +18,9 @@ for p in (MAIN, MONITOR, ANALYSIS, BUILD):
 s = MAIN.read_text()
 s = s.replace('15m Futures Alarm PRO v9.5.3', '15m Futures Alarm PRO v9.5.4')
 s = s.replace('15m Futures Alarm PRO v9.5.2', '15m Futures Alarm PRO v9.5.4')
+# Remove stale footer/version wording left from older builds.
+s = s.replace('v9.3 MANUEL PRO çalışma şekli:', 'v9.5.4 MANUEL PRO çalışma şekli:')
+s = s.replace('13 alanlı detaylı plan kodunu', '14 alanlı detaylı plan kodunu')
 
 old_long = ('Yalnız LONG senaryoları aktif adaydır. Alarm için: tamamlanmış 15m teyit + fiyat hâlâ giriş aralığında + canlı flow kabul edilebilir olmalı.')
 new_long = ('Yalnız LONG senaryoları aktif adaydır. Pullback için yalnız bölge teması YETMEZ: tamamlanmış 15m mum pullback üst sınırını reclaim etmelidir. Breakout için wick değil tamamlanmış 15m kapanış gerekir. Fiyat hâlâ giriş yakınında ve canlı flow uygun olmalıdır.')
@@ -130,6 +133,8 @@ af = ANALYSIS.read_text()
 bf = BUILD.read_text()
 checks = [
     ('15m Futures Alarm PRO v9.5.4' in mf, 'title'),
+    ('v9.5.4 MANUEL PRO çalışma şekli:' in mf, 'footer version text'),
+    ('14 alanlı detaylı plan kodunu' in mf, 'footer plan format text'),
     ('pullHigh üzerinde kapanarak reclaim' in mf or 'pullback üst sınırını reclaim' in mf, 'master prompt reclaim rule'),
     ('boolean v954PullReclaim' in mon, 'strict LONG reclaim'),
     ('closed.close >= p.pullbackHigh' in mon, 'LONG upper-edge close'),
@@ -146,4 +151,4 @@ for ok, msg in checks:
     if not ok:
         raise SystemExit('v9.5.4 check failed: ' + msg)
 
-print('v9.5.4 OK: strict pullback reclaim + resistance rejection + stronger flow/volume guard + visible CVD sample limitation.')
+print('v9.5.4 OK: strict pullback reclaim + resistance rejection + stronger flow/volume guard + visible CVD sample limitation + cleaned workflow text.')
