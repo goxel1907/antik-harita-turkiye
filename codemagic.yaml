@@ -18,10 +18,40 @@ workflows:
           set -e
           SRC="$CM_BUILD_DIR/futures15m_alarm/Futures15mAlarm-PRO-v3-source.zip"
           test -s "$SRC"
-          unzip -tq "$SRC"
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
-          unzip -q "$SRC" -d /tmp/futures15m-build
+          python3 - "$SRC" /tmp/futures15m-build <<'PY'
+          import base64
+          import io
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          src = Path(sys.argv[1])
+          out = Path(sys.argv[2])
+          raw = src.read_bytes().strip()
+
+          # The repository copy may be either a real ZIP or Base64 text containing a ZIP.
+          if raw.startswith(b'PK'):
+              data = raw
+              print('Source is a binary ZIP.')
+          else:
+              try:
+                  data = base64.b64decode(raw, validate=False)
+              except Exception as exc:
+                  raise SystemExit(f'Base64 decode failed: {exc}')
+              print(f'Decoded Base64 source: {len(data)} bytes')
+
+          if not data.startswith(b'PK'):
+              raise SystemExit('Decoded source is not a ZIP archive.')
+
+          with zipfile.ZipFile(io.BytesIO(data), 'r') as zf:
+              bad = zf.testzip()
+              if bad:
+                  raise SystemExit(f'Corrupt ZIP member: {bad}')
+              zf.extractall(out)
+              print(f'Extracted {len(zf.namelist())} ZIP entries.')
+          PY
           test -f /tmp/futures15m-build/Futures15mAlarm/settings.gradle
           test -f /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           test -f /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
