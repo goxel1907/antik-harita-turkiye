@@ -13,39 +13,36 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v3 source
+      - name: Prepare Futures Alarm v4 source
         script: |
           set -e
-          cat futures15m_alarm/source.part*.b64 > /tmp/Futures15mAlarm-v2-source.b64
+          SRC="$CM_BUILD_DIR/futures15m_alarm/v4-source.b64"
+          test -s "$SRC"
           python3 - <<'PY'
           import base64
-          import hashlib
           import zipfile
           from pathlib import Path
 
-          b64_path = Path('/tmp/Futures15mAlarm-v2-source.b64')
-          zip_path = Path('/tmp/Futures15mAlarm-v2-source.zip')
-          raw = b64_path.read_bytes()
-          data = base64.b64decode(raw)
+          src = Path("/Users/builder/clone/futures15m_alarm/v4-source.b64")
+          zip_path = Path("/tmp/Futures15mAlarm-v4-source.zip")
+          data = base64.b64decode(src.read_text().strip())
           zip_path.write_bytes(data)
-          print('Decoded source ZIP:', len(data), 'bytes')
-          print('SHA256:', hashlib.sha256(data).hexdigest())
           if not zipfile.is_zipfile(zip_path):
-              raise SystemExit('Decoded v2 source is not a valid ZIP')
-          with zipfile.ZipFile(zip_path, 'r') as zf:
+              raise SystemExit("Decoded v4 source is not a valid ZIP")
+          with zipfile.ZipFile(zip_path, "r") as zf:
               bad = zf.testzip()
               if bad:
-                  raise SystemExit('Corrupt ZIP member: ' + bad)
+                  raise SystemExit("Corrupt ZIP member: " + bad)
+          print("Futures Alarm v4 source ZIP OK:", len(data), "bytes")
           PY
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
-          unzip -q /tmp/Futures15mAlarm-v2-source.zip -d /tmp/futures15m-build
-          cd /tmp/futures15m-build/Futures15mAlarm
-          patch -p1 < "$CM_BUILD_DIR/futures15m_alarm/MainActivity-v3.patch"
-          grep -q 'TOPLU GÜNCELLE' app/src/main/java/com/futuresalarm/app/MainActivity.java
-          test -f settings.gradle
-          test -f app/build.gradle
-          echo 'Futures Alarm v3 source reconstructed and patched successfully.'
+          unzip -q /tmp/Futures15mAlarm-v4-source.zip -d /tmp/futures15m-build
+          test -f /tmp/futures15m-build/Futures15mAlarm/settings.gradle
+          test -f /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'LONG PULLBACK' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'longPullDetail' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/TradePlan.java
+          echo 'Futures Alarm v4 detailed source validated successfully.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -62,7 +59,7 @@ workflows:
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v3.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v3.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v4.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v4.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v3.apk
+      - Futures15mAlarm-PRO-v4.apk
