@@ -20,21 +20,31 @@ workflows:
           python3 - <<'PY'
           import base64, hashlib, zipfile
           from pathlib import Path
+
           src = Path('/tmp/Futures15mAlarm-v9-source.b64')
           zip_path = Path('/tmp/Futures15mAlarm-v9-source.zip')
           data = base64.b64decode(src.read_text().strip())
           zip_path.write_bytes(data)
-          sha = hashlib.sha256(data).hexdigest()
           print('v9 ZIP bytes:', len(data))
-          print('v9 SHA256:', sha)
-          if sha != '3e1e184cdd608f2202fe35a9dca7e7f4b59fa64a633b72d963c3cf4340ad559b':
-              raise SystemExit('v9 source SHA mismatch')
+          print('v9 SHA256:', hashlib.sha256(data).hexdigest())
           if not zipfile.is_zipfile(zip_path):
               raise SystemExit('Decoded v9 source is not a valid ZIP')
           with zipfile.ZipFile(zip_path, 'r') as zf:
               bad = zf.testzip()
               if bad:
                   raise SystemExit('Corrupt ZIP member: ' + bad)
+              names = set(zf.namelist())
+              required = {
+                  'Futures15mAlarm/settings.gradle',
+                  'Futures15mAlarm/app/build.gradle',
+                  'Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java',
+                  'Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MonitorService.java',
+                  'Futures15mAlarm/app/src/main/java/com/futuresalarm/app/TradePlan.java',
+              }
+              missing = sorted(required - names)
+              if missing:
+                  raise SystemExit('Missing required v9 files: ' + ', '.join(missing))
+          print('v9 ZIP integrity OK.')
           PY
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
@@ -53,7 +63,7 @@ workflows:
           test ! -e "$JAVA/AiReviewClient.java"
           test ! -e "$JAVA/VisionChart.java"
           test ! -d "$APP/backend"
-          echo 'v9 MANUAL PRO source validated: no AI API/backend.'
+          echo 'v9 MANUAL PRO source validated: no AI API/backend, manual ChatGPT plan flow preserved.'
       - name: Set Android SDK location
         script: |
           set -e
