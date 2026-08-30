@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.2 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.3 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -65,24 +65,31 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95_patch.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v951_import_dialog_fix.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v952_logic_ui_fix.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v953_signal_guard.py"
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
           test -f "$JAVA/MainActivity.java"
           test -f "$JAVA/MonitorService.java"
           test -f "$JAVA/AnalysisPackActivity.java"
-          grep -q '15m Futures Alarm PRO v9.5.2' "$JAVA/MainActivity.java"
+          grep -q '15m Futures Alarm PRO v9.5.3' "$JAVA/MainActivity.java"
           grep -q 'CANLI TEYİT PANELİ' "$JAVA/MainActivity.java"
           grep -q 'PROFESYONEL YAPI' "$JAVA/MainActivity.java"
           grep -q 'a.length != 13 && a.length != 14' "$JAVA/MainActivity.java"
           grep -q 'LONG_PLAN_DIALOG_SCROLL_FIX' "$JAVA/MainActivity.java"
-          grep -q 'setMaxHeight(dp(280))' "$JAVA/MainActivity.java"
-          grep -q 'setVerticalScrollBarEnabled(true)' "$JAVA/MainActivity.java"
           grep -q 'v952PrettyMeta' "$JAVA/MainActivity.java"
-          grep -q 'GİRİŞ KAÇTI' "$JAVA/MainActivity.java"
-          grep -q 'AŞAĞIDAN SHORT KOVALAMA' "$JAVA/MainActivity.java"
-          grep -q 'YUKARIDAN LONG KOVALAMA' "$JAVA/MainActivity.java"
+          grep -q 'LONG SENARYOLARI' "$JAVA/MainActivity.java"
+          grep -q 'SHORT SENARYOLARI' "$JAVA/MainActivity.java"
+          grep -q 'v953ScenarioLabel' "$JAVA/MainActivity.java"
+          grep -q 'ANA KARAR: İŞLEM YOK' "$JAVA/MainActivity.java"
+          grep -q 'v953ResetSignalLocks' "$JAVA/MainActivity.java"
           grep -q 'yaklaşma/ön uyarı sessizdir' "$JAVA/MonitorService.java"
           grep -q 'private void sendUrgent' "$JAVA/MonitorService.java"
+          grep -q 'v953DirectionAllowed' "$JAVA/MonitorService.java"
+          grep -q 'v953FlowAcceptable' "$JAVA/MonitorService.java"
+          grep -q 'v953InEntryRange' "$JAVA/MonitorService.java"
+          grep -q 'v953_trade_lock_' "$JAVA/MonitorService.java"
+          grep -q 'EN YAKIN KOŞULLU SENARYO' "$JAVA/MonitorService.java"
+          grep -q '🎯 ALARM KAPISI' "$JAVA/MonitorService.java"
           grep -q 'ChatGPT ANALİZ PAKETİ • v9.5' "$JAVA/AnalysisPackActivity.java"
           grep -q '/fapi/v1/klines' "$JAVA/AnalysisPackActivity.java"
           grep -q 'limit=101' "$JAVA/AnalysisPackActivity.java"
@@ -92,9 +99,9 @@ workflows:
           grep -q '/fapi/v1/premiumIndex' "$JAVA/AnalysisPackActivity.java"
           grep -q 'Fair Value Gap (FVG)' "$JAVA/AnalysisPackActivity.java"
           grep -q 'META=ANA_KARAR' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'versionCode 16' "$APP/app/build.gradle"
-          grep -q "versionName '9.5.2'" "$APP/app/build.gradle"
-          echo 'Prepare v9.5.2 OK. Triggered/missed-entry state is explicit and META panel is readable.'
+          grep -q 'versionCode 17' "$APP/app/build.gradle"
+          grep -q "versionName '9.5.3'" "$APP/app/build.gradle"
+          echo 'Prepare v9.5.3 OK. Decision gate + entry range + live flow filter + repeat lock active.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -105,13 +112,13 @@ workflows:
         script: |
           java -version
           gradle --version
-      - name: Build installable v9.5.2 debug APK
+      - name: Build installable v9.5.3 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.2.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.2.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.3.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.3.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.2.apk
+      - Futures15mAlarm-PRO-v9.5.3.apk
