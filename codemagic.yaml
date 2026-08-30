@@ -13,32 +13,22 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Rebuild source package
+      - name: Prepare Futures Alarm v3 source
         script: |
           set -e
-          cat futures15m_alarm/source.part*.b64 > /tmp/Futures15mAlarm-PRO-v2-source.b64
-          echo 'b76f2b4756bbf87d152f60bd968842e326fe34fcc71a170a65b9360f55ace6a3  /tmp/Futures15mAlarm-PRO-v2-source.b64' | shasum -a 256 -c
-          python3 - <<'PY'
-          import base64
-          from pathlib import Path
-          src = Path('/tmp/Futures15mAlarm-PRO-v2-source.b64')
-          dst = Path('/tmp/Futures15mAlarm-PRO-v2-source.zip')
-          dst.write_bytes(base64.b64decode(src.read_bytes()))
-          print(f'Decoded ZIP: {dst.stat().st_size} bytes')
-          PY
-          echo '424617555267c681888750d05fbee453f39de396f7f02e445333cf8df8aa13dd  /tmp/Futures15mAlarm-PRO-v2-source.zip' | shasum -a 256 -c
+          SRC="$CM_BUILD_DIR/futures15m_alarm/Futures15mAlarm-PRO-v3-source.zip"
+          echo 'c9603cb74f52d370ce248c8af7cd3a49fe14e854529eca0eee7c016ff133c4b7  '"$SRC" | shasum -a 256 -c
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
-          unzip -q /tmp/Futures15mAlarm-PRO-v2-source.zip -d /tmp/futures15m-build
+          unzip -q "$SRC" -d /tmp/futures15m-build
           test -f /tmp/futures15m-build/Futures15mAlarm/settings.gradle
-          echo 'Source package rebuilt successfully.'
+          echo 'Source package ready.'
       - name: Set Android SDK location
         script: |
           set -e
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           test -n "$SDK_PATH"
           echo "sdk.dir=$SDK_PATH" > /tmp/futures15m-build/Futures15mAlarm/local.properties
-          cat /tmp/futures15m-build/Futures15mAlarm/local.properties
       - name: Check build tools
         script: |
           java -version
@@ -49,7 +39,7 @@ workflows:
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v2.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v2.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v3.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v3.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v2.apk
+      - Futures15mAlarm-PRO-v3.apk
