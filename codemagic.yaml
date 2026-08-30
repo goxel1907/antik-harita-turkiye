@@ -61,6 +61,7 @@ workflows:
           print('v9.3 live confirmation sources restored.')
           PY
           python3 "$CM_BUILD_DIR/futures15m_alarm/v94_patch.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95_pre_anchor.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95_patch.py"
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
@@ -73,7 +74,7 @@ workflows:
           grep -q 'a.length != 13 && a.length != 14' "$JAVA/MainActivity.java"
           grep -q 'yaklaşma/ön uyarı sessizdir' "$JAVA/MonitorService.java"
           grep -q 'private void sendUrgent' "$JAVA/MonitorService.java"
-          grep -q 'ChatGPT ANALİZ PAKETİ' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'ChatGPT ANALİZ PAKETİ • v9.5' "$JAVA/AnalysisPackActivity.java"
           grep -q '/fapi/v1/klines' "$JAVA/AnalysisPackActivity.java"
           grep -q 'limit=101' "$JAVA/AnalysisPackActivity.java"
           grep -q 'aggTrades' "$JAVA/AnalysisPackActivity.java"
