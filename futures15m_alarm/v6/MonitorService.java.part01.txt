@@ -1,0 +1,131 @@
+    private double averageField(JSONArray a, String field, int lastN) {
+        if (a == null || a.length() == 0) return Double.NaN;
+        int start = Math.max(0, a.length() - lastN); double s = 0; int n = 0;
+        for (int i = start; i < a.length(); i++) {
+            try { s += Double.parseDouble(a.getJSONObject(i).optString(field, "NaN")); n++; } catch (Throwable ignored) {}
+        }
+        return n == 0 ? Double.NaN : s / n;
+    }
+
+    private JSONArray getArray(String path) throws Exception { return new JSONArray(getText(path)); }
+    private JSONObject getObject(String path) throws Exception { return new JSONObject(getText(path)); }
+
+    private String getText(String path) throws Exception {
+        Exception last = null;
+        for (String base : API_BASES) {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(base + path).openConnection();
+                conn.setRequestMethod("GET"); conn.setConnectTimeout(7000); conn.setReadTimeout(8000);
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setRequestProperty("User-Agent", "Futures15mAlarm/6.0");
+                int code = conn.getResponseCode();
+                if (code != 200) throw new Exception("HTTP " + code);
+                return readAll(conn.getInputStream());
+            } catch (Exception e) { last = e; }
+            finally { if (conn != null) conn.disconnect(); }
+        }
+        throw last == null ? new Exception("API unavailable") : last;
+    }
+
+    private static double num(JSONArray r, int i) { try { return Double.parseDouble(r.getString(i)); } catch (Exception e) { return 0; } }
+    private Candle mini(JSONArray r) throws Exception {
+        Candle c = new Candle(); c.openTime = r.getLong(0); c.open = num(r,1); c.high = num(r,2); c.low = num(r,3); c.close = num(r,4); c.closeTime = r.getLong(6); return c;
+    }
+
+    private void evaluateAutoLive(AutoSnapshot s, CandleSet set) {
+        TradePlan p = s.plan;
+        Candle live = set.current != null ? set.current : set.completed;
+        if (live == null) return;
+        double price = live.close;
+        if (s.longPullScore >= MarketAnalyzer.WATCH_MIN)
+            approachZone(p, "auto_pre_lp", price, p.pullbackLow, p.pullbackHigh,
+                    "🟢 LONG TAKİP • PULLBACK • " + s.longPullScore + "/100", p.longPullDetail);
+        if (s.longBreakScore >= MarketAnalyzer.WATCH_MIN)
+            approachThreshold(p, "auto_pre_lb", price, p.breakoutClose, true,
+                    "🟢 LONG TAKİP • BREAKOUT • " + s.longBreakScore + "/100", p.longBreakDetail);
+        if (s.shortResScore >= MarketAnalyzer.WATCH_MIN)
+            approachZone(p, "auto_pre_sr", price, p.resistanceLow, p.resistanceHigh,
+                    "🔴 SHORT TAKİP • DİRENÇ • " + s.shortResScore + "/100", p.shortResDetail);
+        if (s.shortBreakScore >= MarketAnalyzer.WATCH_MIN)
+            approachThreshold(p, "auto_pre_sb", price, p.breakdownClose, false,
+                    "🔴 SHORT TAKİP • BREAKDOWN • " + s.shortBreakScore + "/100", p.shortBreakDetail);
+    }
+
+    private void evaluateAutoClosed(AutoSnapshot s, Candle closed) {
+        int best = -1; String direction = null; String setup = null; String plan = null; String reason = null;
+        if (s.longPullConfirmed && s.longPullScore > best) { best=s.longPullScore; direction="LONG"; setup="PULLBACK"; plan=s.plan.longPullDetail; reason=s.longPullReason; }
+        if (s.longBreakConfirmed && s.longBreakScore > best) { best=s.longBreakScore; direction="LONG"; setup="BREAKOUT"; plan=s.plan.longBreakDetail; reason=s.longBreakReason; }
+        if (s.shortResConfirmed && s.shortResScore > best) { best=s.shortResScore; direction="SHORT"; setup="DİRENÇ"; plan=s.plan.shortResDetail; reason=s.shortResReason; }
+        if (s.shortBreakConfirmed && s.shortBreakScore > best) { best=s.shortBreakScore; direction="SHORT"; setup="BREAKDOWN"; plan=s.plan.shortBreakDetail; reason=s.shortBreakReason; }
+        if (best < MarketAnalyzer.SIGNAL_MIN || direction == null) return;
+        String key = "auto_signal_" + s.symbol + "_" + setup + "_time";
+        if (prefs.getLong(key, -1L) == closed.openTime) return;
+        prefs.edit().putLong(key, closed.openTime).apply();
+        String grade = best >= MarketAnalyzer.STRONG_MIN ? "GÜÇLÜ SİNYAL" : "SİNYAL";
+        String detail = "YÖN: " + direction + "\nSETUP: " + setup + "\nGÜVEN: " + best + "/100 • " + grade +
+                "\nREJİM: " + s.regime + "\n15m kapanış: " + fmt(closed.close, s.plan.decimals) + " • " + time(closed.openTime) +
+                "\n\n" + plan + "\n\nNEDEN:\n" + reason;
+        sendUrgent(s.symbol, direction + " SİNYALİ • " + setup, detail);
+    }
+
+    /** Manual fallback retains old behavior when AUTO is turned off. */
+    private void evaluateManual(TradePlan p, CandleSet set) {
+        Candle live = set.current != null ? set.current : set.completed;
+        if (live != null) {
+            approachZone(p, "man_pre_lp", live.close, p.pullbackLow, p.pullbackHigh, "LONG HAZIRLIK • PULLBACK", p.longPullDetail);
+            approachZone(p, "man_pre_sr", live.close, p.resistanceLow, p.resistanceHigh, "SHORT HAZIRLIK • DİRENÇ", p.shortResDetail);
+        }
+        Candle c = set.completed;
+        if (c == null) return;
+        if (c.close > p.breakoutClose) manualClose(p, "lb", c, "LONG SİNYALİ • BREAKOUT", p.longBreakDetail);
+        if (c.close < p.breakdownClose) manualClose(p, "sb", c, "SHORT SİNYALİ • BREAKDOWN", p.shortBreakDetail);
+    }
+
+    private void manualClose(TradePlan p, String id, Candle c, String dir, String detail) {
+        String key = p.symbol + "_manual_" + id + "_time";
+        if (prefs.getLong(key, -1) == c.openTime) return;
+        prefs.edit().putLong(key, c.openTime).apply();
+        sendUrgent(p.symbol, dir, "YÖN: " + (dir.startsWith("LONG") ? "LONG" : "SHORT") + "\n15m kapanış: " + fmt(c.close,p.decimals) + "\n" + detail);
+    }
+
+    private void approachZone(TradePlan p, String id, double price, double low, double high, String title, String planDetail) {
+        boolean inside = price >= low && price <= high;
+        boolean near = inside || distancePercentToZone(price, low, high) <= p.earlyWarnPercent;
+        String detail = "ÖN UYARI • Bölge: " + range(low, high, p.decimals) + "\nAnlık: " + fmt(price, p.decimals) +
+                " • Eşik: %" + fmtPct(p.earlyWarnPercent) + (planDetail == null || planDetail.isEmpty() ? "" : "\n" + planDetail);
+        approachTrigger(p.symbol, id, near, title, detail);
+    }
+
+    private void approachThreshold(TradePlan p, String id, double price, double threshold, boolean fromBelow, String title, String planDetail) {
+        boolean correct = fromBelow ? price < threshold : price > threshold;
+        boolean near = correct && percentDistance(price, threshold) <= p.earlyWarnPercent;
+        String detail = "ÖN UYARI • 15m tetik: " + (fromBelow ? "> " : "< ") + fmt(threshold, p.decimals) +
+                "\nAnlık: " + fmt(price, p.decimals) + " • Eşik: %" + fmtPct(p.earlyWarnPercent) +
+                (planDetail == null || planDetail.isEmpty() ? "" : "\n" + planDetail);
+        approachTrigger(p.symbol, id, near, title, detail);
+    }
+
+    private void approachTrigger(String symbol, String id, boolean near, String title, String detail) {
+        String key = symbol + "_" + id + "_active";
+        boolean active = prefs.getBoolean(key, false);
+        if (near && !active) { prefs.edit().putBoolean(key,true).apply(); sendApproach(symbol,title,detail); }
+        else if (!near && active) prefs.edit().putBoolean(key,false).apply();
+    }
+
+    private void sendApproach(String symbol, String title, String detail) {
+        ensureChannels(this);
+        NotificationManager nm = (NotificationManager)getSystemService(NOTIFICATION_SERVICE); if (nm == null) return;
+        PendingIntent pi = openBinanceIntent(symbol, 300 + Math.abs(symbol.hashCode()%10000));
+        Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL_APPROACH) : new Notification.Builder(this);
+        b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("⚠ " + symbol + " • " + title)
+                .setContentText(detail.replace("\n"," — ")).setStyle(new Notification.BigTextStyle().bigText(detail))
+                .setContentIntent(pi).setAutoCancel(true).setPriority(Notification.PRIORITY_HIGH)
+                .setCategory(Notification.CATEGORY_STATUS).setVisibility(Notification.VISIBILITY_PUBLIC).setColor(Color.rgb(251,191,36));
+        if (Build.VERSION.SDK_INT < 26) b.setDefaults(Notification.DEFAULT_ALL);
+        nm.notify(ALERT_IDS.incrementAndGet(), b.build());
+    }
+
+    private void sendUrgent(String symbol, String direction, String detail) {
+        ensureChannels(this);
+        prefs.edit().putString(KEY_LAST_SIGNAL_SYMBOL,symbol).putString(KEY_LAST_SIGNAL_DIRECTION,direction).putString(KEY_LAST_SIGNAL_DETAIL,detail).apply();
