@@ -16,7 +16,7 @@ workflows:
       - name: Prepare Futures Alarm v9 MANUAL PRO source
         script: |
           set -euo pipefail
-          cat futures15m_alarm/v9.part*.b64 > /tmp/Futures15mAlarm-v9-source.b64
+          cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
           python3 - <<'PY'
           import base64, hashlib, zipfile
           from pathlib import Path
