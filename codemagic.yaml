@@ -13,46 +13,35 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v4 source
+      - name: Prepare Futures Alarm v5 source
         script: |
           set -e
-          SRC="$CM_BUILD_DIR/futures15m_alarm/v4-source.b64"
+          SRC="$CM_BUILD_DIR/futures15m_alarm/v5-source.b64"
           test -s "$SRC"
           python3 - <<'PY'
-          import base64
-          import zipfile
+          import base64, zipfile
           from pathlib import Path
-
-          src = Path('/Users/builder/clone/futures15m_alarm/v4-source.b64')
-          zip_path = Path('/tmp/Futures15mAlarm-v4-source.zip')
+          src = Path('/Users/builder/clone/futures15m_alarm/v5-source.b64')
+          zip_path = Path('/tmp/Futures15mAlarm-v5-source.zip')
           data = base64.b64decode(src.read_text().strip())
           zip_path.write_bytes(data)
           if not zipfile.is_zipfile(zip_path):
-              raise SystemExit('Decoded v4 source is not a valid ZIP')
+              raise SystemExit('Decoded v5 source is not a valid ZIP')
           with zipfile.ZipFile(zip_path, 'r') as zf:
               bad = zf.testzip()
               if bad:
                   raise SystemExit('Corrupt ZIP member: ' + bad)
-          print('Futures Alarm v4 source ZIP OK:', len(data), 'bytes')
+          print('Futures Alarm v5 source ZIP OK:', len(data), 'bytes')
           PY
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
-          unzip -q /tmp/Futures15mAlarm-v4-source.zip -d /tmp/futures15m-build
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java')
-          s = p.read_text()
-          s = s.replace('LP=stop,tp1,tp2,tp3\\nLB=girişAlt,girişÜst,stop,tp1,tp2,tp3\\nSR=stop,tp1,tp2,tp3\\nSB=girişAlt,girişÜst,stop,tp1,tp2,tp3',
-                        'LP=stop;tp1;tp2;tp3\\nLB=girişAlt;girişÜst;stop;tp1;tp2;tp3\\nSR=stop;tp1;tp2;tp3\\nSB=girişAlt;girişÜst;stop;tp1;tp2;tp3')
-          s = s.replace('String[] p = raw.trim().split(",");', 'String[] p = raw.trim().split(";");')
-          p.write_text(s)
-          PY
+          unzip -q /tmp/Futures15mAlarm-v5-source.zip -d /tmp/futures15m-build
           test -f /tmp/futures15m-build/Futures15mAlarm/settings.gradle
           test -f /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
-          grep -q 'LONG PULLBACK' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
-          grep -q 'longPullDetail' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/TradePlan.java
-          grep -q 'split(";")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
-          echo 'Futures Alarm v4 detailed source validated successfully.'
+          grep -q 'PRO v5' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "BINANCE FUTURES'TA AÇ" /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'LONG SİNYALİ' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MonitorService.java
+          echo 'Futures Alarm v5 source validated successfully.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -69,7 +58,7 @@ workflows:
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v4.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v4.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v5.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v5.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v4.apk
+      - Futures15mAlarm-PRO-v5.apk
