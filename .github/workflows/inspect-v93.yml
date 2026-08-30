@@ -1,0 +1,39 @@
+name: Inspect v93 sources
+
+on:
+  push:
+    branches:
+      - futures15m-alarm-public-build
+    paths:
+      - '.github/workflows/inspect-v93.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/v93src
+          python3 - <<'PY'
+          import base64, gzip
+          from pathlib import Path
+          root=Path('futures15m_alarm')
+          out=Path('/tmp/v93src')
+          for src,dst in [('v93_MainActivity.gz.b64','MainActivity.java'),('v93_MonitorService.gz.b64','MonitorService.java')]:
+              raw=base64.b64decode((root/src).read_text().strip())
+              (out/dst).write_bytes(gzip.decompress(raw))
+          PY
+          cp futures15m_alarm/v94_AnalysisPackActivity.java /tmp/v93src/AnalysisPackActivity.java
+      - name: Upload decoded sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: v93-decoded-sources
+          path: /tmp/v93src
+          retention-days: 1
