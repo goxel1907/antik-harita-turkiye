@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.1 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -52,6 +52,52 @@ workflows:
 
           p = Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java')
           s = p.read_text()
+
+          # 1) Ana ekrandaki tek tek coin / seviye ekleme butonunu tamamen kaldır.
+          s, n1 = re.subn(
+              r'\n        Button add = button\("\+ YENİ COIN / MANUEL PLAN EKLE".*?root\.addView\(add, addLp\);\n',
+              '\n', s, flags=re.S)
+          print('Manual add button removed:', n1)
+
+          # 2) Karttaki DÜZENLE butonunu kaldır; yalnız SİL kalsın.
+          actions_pattern = r'''\n        LinearLayout actions = new LinearLayout\(this\);.*?card\.addView\(actions, actionsLp\);\n'''
+          delete_only = '''
+        Button del = button("SİL", Color.rgb(127, 29, 29));
+        del.setOnClickListener(v -> confirmDelete(p));
+        LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+        delLp.setMargins(0, dp(7), 0, 0);
+        card.addView(del, delLp);
+'''
+          s, n2 = re.subn(actions_pattern, delete_only, s, flags=re.S)
+          print('Manual edit action removed:', n2)
+
+          # 3) Toplu plan girişini daha anlaşılır yap.
+          s = s.replace('CHATGPT ANALİZ PLAN KODU / TOPLU GÜNCELLE',
+                        'CHATGPT PLAN KODU YAPIŞTIR / TOPLU GÜNCELLE')
+          s = s.replace('input.setHint("ChatGPT analizinden aldığın bir veya birden fazla plan kodunu alt alta yapıştır.\\nSTOP/TP için 13 alanlı DETAYLI formatı kullan.");',
+                        'input.setHint("ChatGPT cevabının EN SONUNDAKİ | işaretli plan kodu satırlarını buraya yapıştır.\\nBirden fazla coin varsa alt alta yapıştır.");')
+          s = s.replace('.setTitle("ChatGPT analiz planını yapıştır")',
+                        '.setTitle("ChatGPT DETAYLI plan kodunu yapıştır")')
+          s = s.replace('.setMessage("Coin kayıtlıysa otomatik güncellenir.\\n\\nv9 MANUEL PRO formatı: BASE 9 alan + 4 detay alanı.\\nLP=stop;tp1;tp2;tp3\\nLB=girişAlt;girişÜst;stop;tp1;tp2;tp3\\nSR=stop;tp1;tp2;tp3\\nSB=girişAlt;girişÜst;stop;tp1;tp2;tp3")',
+                        '.setMessage("TEK TEK SEVİYE GİRİŞİ YOK.\\nSadece ChatGPT cevabının sonundaki 13 alanlı detaylı kodu yapıştır. Coin kayıtlıysa güncellenir; kayıtlı değilse eklenir.\\n\\nKod formatı:\\nSYMBOL|pullLow|pullHigh|resLow|resHigh|breakout|breakdown|decimals|0.60|LP|LB|SR|SB")')
+
+          # 4) STOP/TP'siz eski plan kodlarını artık kabul etme.
+          s = s.replace('if (a.length < 8) throw new IllegalArgumentException();',
+                        'if (a.length != 13) throw new IllegalArgumentException("13 alanlı detaylı plan kodu gerekli");')
+          s = s.replace('double pre = a.length >= 9 ? Double.parseDouble(a[8].trim()) : 0.60;',
+                        'double pre = Double.parseDouble(a[8].trim());')
+          s = s.replace('String lpDetail = "", lbDetail = "", srDetail = "", sbDetail = "";\n                    if (a.length >= 13) {\n                        lpDetail = detailLp(a[9], dec);\n                        lbDetail = detailLb(a[10], dec);\n                        srDetail = detailSr(a[11], dec);\n                        sbDetail = detailSb(a[12], dec);\n                    }',
+                        'String lpDetail = detailLp(a[9], dec);\n                    String lbDetail = detailLb(a[10], dec);\n                    String srDetail = detailSr(a[11], dec);\n                    String sbDetail = detailSb(a[12], dec);')
+          s = s.replace('Toast.makeText(this, "Hiçbir plan kodu okunamadı. Kodları alt alta ve aynen yapıştır.", Toast.LENGTH_LONG).show();',
+                        'Toast.makeText(this, "Plan kodu okunamadı. ChatGPT cevabının en sonundaki 13 alanlı | işaretli kod satırını aynen yapıştır.", Toast.LENGTH_LONG).show();')
+
+          # 5) Ekran metnini v9.1 olarak ayır ve çalışma şeklini netleştir.
+          s = s.replace('15m Futures Alarm PRO v9 • MANUEL PRO', '15m Futures Alarm PRO v9.1 • MANUEL PRO')
+          s = s.replace('1) 15m / 1h / 4h / 1D grafiklerini ChatGPT\'ye gönder.\\n" +\n                "2) ChatGPT\'nin ürettiği detaylı plan kodunu buraya yapıştır.',
+                        '1) MASTER promptu kopyala; 15m / 1h / 4h / 1D grafiklerle ChatGPT\'ye gönder.\\n" +\n                "2) Cevabın EN SONUNDAKİ tek satırlık detaylı plan kodunu toplu güncelleme alanına yapıştır.')
+
+          # 6) Binance mobil Futures deeplink'i korunuyor / güçlendiriliyor.
           new_method = '''    private void openBinanceFutures(String symbol) {
               String sym = symbol == null ? "" : symbol.trim().toUpperCase(Locale.US);
               if (sym.isEmpty()) return;
@@ -95,16 +141,21 @@ workflows:
           replaced, count = re.subn(pattern, new_method + '\n\n    private void copyPlan', s, flags=re.S)
           if count == 1:
               s = replaced
-              print('Binance mobile deeplink patch applied.')
-          else:
-              print('Binance method already changed or pattern not found; continuing with source method. matches=', count)
+              print('Binance mobile deeplink ensured.')
 
           s = s.replace('STOP/TP henüz yok — detaylı plan koduyla güncelle', '⚠ STOP/TP EKSİK — güncel ChatGPT detaylı plan kodunu yapıştır')
           s = s.replace('return s == null || s.trim().isEmpty() ? "STOP/TP yok" : s.replace("\\n", " • ");', 'return s == null || s.trim().isEmpty() ? "STOP/TP EKSİK — detaylı plan kodu gerekli" : s.replace("\\n", " • ");')
           p.write_text(s)
+
+          # Version bump: mevcut v9 üzerine net güncelleme kurulsun.
+          g = Path('/tmp/futures15m-build/Futures15mAlarm/app/build.gradle')
+          b = g.read_text()
+          b = b.replace('versionCode 9', 'versionCode 10')
+          b = b.replace("versionName '9.0.0'", "versionName '9.1.0'")
+          g.write_text(b)
           PY
 
-          echo 'Prepare step OK. Continuing to Android compile.'
+          echo 'Prepare v9.1 OK: bulk detailed plan only, manual add/edit removed.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -115,13 +166,13 @@ workflows:
         script: |
           java -version
           gradle --version
-      - name: Build installable v9 debug APK
+      - name: Build installable v9.1 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.1.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.1.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v9.apk
+      - Futures15mAlarm-PRO-v9.1.apk
