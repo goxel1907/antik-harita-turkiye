@@ -43,24 +43,10 @@ workflows:
 
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java')
           s = p.read_text()
-          old = '''    private void openBinanceFutures(String symbol) {
-              Uri url = Uri.parse("https://www.binance.com/en/futures/" + symbol);
-              Intent app = new Intent(Intent.ACTION_VIEW, url);
-              app.setPackage("com.binance.dev");
-              try {
-                  startActivity(app);
-              } catch (Exception noApp) {
-                  try {
-                      startActivity(new Intent(Intent.ACTION_VIEW, url));
-                  } catch (Exception e) {
-                      Toast.makeText(this, "Binance Futures açılamadı.", Toast.LENGTH_LONG).show();
-                  }
-              }
-          }
-          '''
-          new = '''    private void openBinanceFutures(String symbol) {
+          new_method = '''    private void openBinanceFutures(String symbol) {
               String sym = symbol == null ? "" : symbol.trim().toUpperCase(Locale.US);
               if (sym.isEmpty()) return;
 
@@ -98,14 +84,14 @@ workflows:
               } catch (Exception e) {
                   Toast.makeText(this, "Binance Futures açılamadı.", Toast.LENGTH_LONG).show();
               }
-          }
-          '''
-          if old not in s:
-              raise SystemExit('Expected Binance method not found')
-          s = s.replace(old, new)
-          s = s.replace('STOP/TP henüz yok — detaylı plan koduyla güncelle', '⚠ STOP/TP EKSİK — güncel ChatGPT detaylı plan kodunu yapıştır')
-          s = s.replace('return s == null || s.trim().isEmpty() ? "STOP/TP yok" : s.replace("\\n", " • ");', 'return s == null || s.trim().isEmpty() ? "STOP/TP EKSİK — detaylı plan kodu gerekli" : s.replace("\\n", " • ");')
-          p.write_text(s)
+          }'''
+          pattern = r'    private void openBinanceFutures\(String symbol\) \{.*?\n    \}\n\n    private void copyPlan'
+          replaced, count = re.subn(pattern, new_method + '\n\n    private void copyPlan', s, flags=re.S)
+          if count != 1:
+              raise SystemExit('Could not patch Binance method; matches=' + str(count))
+          replaced = replaced.replace('STOP/TP henüz yok — detaylı plan koduyla güncelle', '⚠ STOP/TP EKSİK — güncel ChatGPT detaylı plan kodunu yapıştır')
+          replaced = replaced.replace('return s == null || s.trim().isEmpty() ? "STOP/TP yok" : s.replace("\\n", " • ");', 'return s == null || s.trim().isEmpty() ? "STOP/TP EKSİK — detaylı plan kodu gerekli" : s.replace("\\n", " • ");')
+          p.write_text(replaced)
           print('Binance mobile deeplink patch applied.')
           PY
 
@@ -113,7 +99,7 @@ workflows:
           test -f "$APP/app/build.gradle"
           grep -q 'PRO v9' "$JAVA/MainActivity.java"
           grep -q 'MANUEL PRO' "$JAVA/MainActivity.java"
-          grep -q 'CHATGPT PRO ANALİZ PROMPTUNU KOPYALA' "$JAVA/MainActivity.java"
+          grep -q 'MASTER ANALİZ PROMPTUNU KOPYALA' "$JAVA/MainActivity.java"
           grep -q 'bnc://app.binance.com/futures/trade?symbol=' "$JAVA/MainActivity.java"
           grep -q 'STOP/TP EKSİK' "$JAVA/MainActivity.java"
           grep -q 'pullConfirmed' "$JAVA/MonitorService.java"
