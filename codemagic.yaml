@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.1 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.2 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -41,21 +41,26 @@ workflows:
           unzip -q /tmp/Futures15mAlarm-v9-source.zip -d /tmp/futures15m-build
           python3 -m py_compile "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
+          python3 -m py_compile "$CM_BUILD_DIR/futures15m_alarm/v92_binance_patch.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v92_binance_patch.py"
           APP=/tmp/futures15m-build/Futures15mAlarm
           JAVA="$APP/app/src/main/java/com/futuresalarm/app"
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
           test -f "$JAVA/MainActivity.java"
           test -f "$JAVA/MonitorService.java"
-          grep -q '15m Futures Alarm PRO v9.1' "$JAVA/MainActivity.java"
+          grep -q '15m Futures Alarm PRO v9.2' "$JAVA/MainActivity.java"
           grep -q 'CHATGPT PLAN KODU YAPIŞTIR / TOPLU GÜNCELLE' "$JAVA/MainActivity.java"
           grep -q 'a.length != 13' "$JAVA/MainActivity.java"
-          grep -q 'bnc://app.binance.com/futures/trade?symbol=' "$JAVA/MainActivity.java"
-          grep -q 'versionCode 10' "$APP/app/build.gradle"
-          grep -q "versionName '9.1.0'" "$APP/app/build.gradle"
+          grep -q 'input.setMaxLines(8)' "$JAVA/MainActivity.java"
+          grep -q 'https://www.binance.com/en/futures/' "$JAVA/MainActivity.java"
+          grep -q 'direct.setPackage("com.binance.dev")' "$JAVA/MainActivity.java"
+          grep -q 'versionCode 11' "$APP/app/build.gradle"
+          grep -q "versionName '9.2.0'" "$APP/app/build.gradle"
+          if grep -q 'bnc://app.binance.com/futures' "$JAVA/MainActivity.java"; then exit 1; fi
           if grep -q '+ YENİ COIN / MANUEL PLAN EKLE' "$JAVA/MainActivity.java"; then exit 1; fi
           if grep -q 'button("DÜZENLE"' "$JAVA/MainActivity.java"; then exit 1; fi
-          echo 'Prepare v9.1 OK. Bulk detailed plans only; manual add/edit removed.'
+          echo 'Prepare v9.2 OK. Broken Binance bnc deeplink removed.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -66,13 +71,13 @@ workflows:
         script: |
           java -version
           gradle --version
-      - name: Build installable v9.1 debug APK
+      - name: Build installable v9.2 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.1.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.1.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.2.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.2.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v9.1.apk
+      - Futures15mAlarm-PRO-v9.2.apk
