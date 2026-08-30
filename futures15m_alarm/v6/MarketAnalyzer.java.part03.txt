@@ -1,0 +1,53 @@
+    private static double rrShort(double e, double s, double t) { return (e - t) / Math.max(s - e, 1e-12); }
+
+    private static double ema(double[] a, int period, int end) {
+        end = Math.min(end, a.length - 1);
+        int start = Math.max(0, end - period * 4);
+        double k = 2.0 / (period + 1.0);
+        double e = a[start];
+        for (int i = start + 1; i <= end; i++) e = a[i] * k + e * (1 - k);
+        return e;
+    }
+
+    private static double rsi(double[] c, int p) {
+        if (c.length <= p + 1) return 50;
+        double gain = 0, loss = 0;
+        int start = c.length - p - 1;
+        for (int i = start + 1; i < c.length; i++) {
+            double d = c[i] - c[i - 1];
+            if (d >= 0) gain += d; else loss -= d;
+        }
+        if (loss == 0) return 100;
+        double rs = (gain / p) / Math.max(loss / p, 1e-12);
+        return 100 - 100 / (1 + rs);
+    }
+
+    private static double atr(List<Bar> b, int p) {
+        int n = b.size();
+        int start = Math.max(1, n - p);
+        double s = 0; int count = 0;
+        for (int i = start; i < n; i++) {
+            Bar x = b.get(i), prev = b.get(i - 1);
+            double tr = Math.max(x.high - x.low, Math.max(Math.abs(x.high - prev.close), Math.abs(x.low - prev.close)));
+            s += tr; count++;
+        }
+        return count == 0 ? 0 : s / count;
+    }
+
+    private static double avg(double[] a, int from, int toExclusive) {
+        if (toExclusive <= from) return a[Math.max(0, Math.min(a.length - 1, from))];
+        double s = 0; int n = 0;
+        for (int i = from; i < toExclusive && i < a.length; i++) { s += a[i]; n++; }
+        return n == 0 ? 0 : s / n;
+    }
+
+    private static int boundScore(int s) { return Math.max(0, Math.min(100, s)); }
+    private static double clamp(double x, double a, double b) { return Math.max(a, Math.min(b, x)); }
+    private static String grade(int score) { return score >= 86 ? "GÜÇLÜ SİNYAL" : score >= 78 ? "SİNYAL" : score >= 68 ? "TAKİP" : "İŞLEM YOK"; }
+    private static String dirWord(double d) { return d > 0.35 ? "YUKARI" : d < -0.35 ? "AŞAĞI" : "NÖTR"; }
+    private static String fmt(double x, int d) { return String.format(Locale.US, "%." + Math.max(0, Math.min(8, d)) + "f", x); }
+    private static String range(double a, double b, int d) { return fmt(a, d) + " – " + fmt(b, d); }
+    private static String fmt1(double x) { return String.format(Locale.US, "%.1f", x); }
+    private static String fmt2(double x) { return String.format(Locale.US, "%.2f", x); }
+    private static String fmt4(double x) { return String.format(Locale.US, "%.4f", x); }
+}
