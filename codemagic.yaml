@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.6 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.7 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -69,12 +69,13 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v954_reclaim_precision.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v955_ui_icon.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v956_stale_flow_radar.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v957_launcher_cache_fix.py"
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
           test -f "$JAVA/MainActivity.java"
           test -f "$JAVA/MonitorService.java"
           test -f "$JAVA/AnalysisPackActivity.java"
-          grep -q 'v9.5.6' "$JAVA/MainActivity.java"
+          grep -q 'v9.5.7' "$JAVA/MainActivity.java"
           grep -q 'CANLI TEYİT PANELİ' "$JAVA/MainActivity.java"
           grep -q 'PROFESYONEL YAPI' "$JAVA/MainActivity.java"
           grep -q 'a.length != 13 && a.length != 14' "$JAVA/MainActivity.java"
@@ -125,11 +126,13 @@ workflows:
           grep -q 'Fair Value Gap (FVG)' "$JAVA/AnalysisPackActivity.java"
           grep -q 'META=ANA_KARAR' "$JAVA/AnalysisPackActivity.java"
           grep -q 'short-cover/long-exit olasılığını' "$JAVA/AnalysisPackActivity.java"
-          grep -q '@drawable/ic_launcher_pro' "$APP/app/src/main/AndroidManifest.xml"
-          test -s "$APP/app/src/main/res/drawable-nodpi/ic_launcher_pro.png"
-          grep -q 'versionCode 20' "$APP/app/build.gradle"
-          grep -q "versionName '9.5.6'" "$APP/app/build.gradle"
-          echo 'Prepare v9.5.6 OK. Stale-data fail-safe + live heartbeat + early flow/absorption/position-exit radar active.'
+          grep -q '@mipmap/ic_launcher_pro_v957' "$APP/app/src/main/AndroidManifest.xml"
+          test -s "$APP/app/src/main/res/mipmap-anydpi/ic_launcher_pro_v957.xml"
+          test -s "$APP/app/src/main/res/mipmap-anydpi-v26/ic_launcher_pro_v957.xml"
+          test -s "$APP/app/src/main/res/drawable/ic_launcher_foreground_v957.xml"
+          grep -q 'versionCode 21' "$APP/app/build.gradle"
+          grep -q "versionName '9.5.7'" "$APP/app/build.gradle"
+          echo 'Prepare v9.5.7 OK. Cache-busting adaptive trading/alarm launcher icon + v9.5.6 flow radar active.'
       - name: Set Android SDK location
         script: |
           set -e
@@ -140,13 +143,13 @@ workflows:
         script: |
           java -version
           gradle --version
-      - name: Build installable v9.5.6 debug APK
+      - name: Build installable v9.5.7 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.6.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.6.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.7.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.7.apk"
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.6.apk
+      - Futures15mAlarm-PRO-v9.5.7.apk
