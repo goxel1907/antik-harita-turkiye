@@ -23,24 +23,18 @@ a, n = pattern.subn(lambda m: replacement, a, count=1)
 if n != 1:
     raise SystemExit('v9.5.14 compile fix target not found')
 
-a = re.sub(r'ChatGPT ANALİZ PAKETİ • v9\.5(?:\.\d+)*',
-           'ChatGPT ANALİZ PAKETİ • v9.5.14', a)
-a = re.sub(r'Futures15mAlarmPRO/9\.5(?:\.\d+)*',
-           'Futures15mAlarmPRO/9.5.14', a)
+# Deterministic version bump. Avoid regex escaping mistakes in generated source.
+a = a.replace('ChatGPT ANALİZ PAKETİ • v9.5.13', 'ChatGPT ANALİZ PAKETİ • v9.5.14')
+a = a.replace('Futures15mAlarmPRO/9.5.13', 'Futures15mAlarmPRO/9.5.14')
 ANALYSIS.write_text(a)
 
 m = MAIN.read_text()
-m = re.sub(r'15m Futures Alarm PRO v9\.5(?:\.\d+)*',
-           '15m Futures Alarm PRO v9.5.14', m)
-m = re.sub(r'v9\.5(?:\.\d+)*\s*•\s*MANUEL PRO',
-           'v9.5.14  •  MANUEL PRO', m)
-m = re.sub(r'v9\.5(?:\.\d+)* MANUEL PRO çalışma şekli:',
-           'v9.5.14 MANUEL PRO çalışma şekli:', m)
+m = m.replace('v9.5.13', 'v9.5.14')
 MAIN.write_text(m)
 
 b = BUILD.read_text()
-b = re.sub(r'versionCode\s+\d+', 'versionCode 28', b, count=1)
-b = re.sub(r"versionName\s+'[^']+'", "versionName '9.5.14'", b, count=1)
+b = b.replace('versionCode 27', 'versionCode 28')
+b = b.replace("versionName '9.5.13'", "versionName '9.5.14'")
 BUILD.write_text(b)
 
 # Sanity checks: no raw newline may remain inside the repaired Java literal.
@@ -56,4 +50,4 @@ if 'v9.5.14' not in MAIN.read_text():
 if "versionName '9.5.14'" not in BUILD.read_text() or 'versionCode 28' not in BUILD.read_text():
     raise SystemExit('v9.5.14 build version check failed')
 
-print('v9.5.14 OK: repaired unclosed Java string literal and bumped app version.')
+print('v9.5.14 OK: repaired unclosed Java string literal and deterministic version bump passed.')
