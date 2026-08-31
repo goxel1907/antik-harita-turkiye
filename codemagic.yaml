@@ -82,20 +82,31 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9514_java_string_fix.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9515_prompt_dialog_ui.py"
 
-          test -f "$APP/settings.gradle"
-          test -f "$APP/app/build.gradle"
-          test -f "$JAVA/MainActivity.java"
-          test -f "$JAVA/MonitorService.java"
-          test -f "$JAVA/AnalysisPackActivity.java"
-          test -s "$APP/app/src/main/res/mipmap-anydpi/ic_launcher_pro_v957.xml"
-          test -s "$APP/app/src/main/res/mipmap-anydpi-v26/ic_launcher_pro_v957.xml"
-
-          # Each version patch above performs its own fail-fast feature checks.
-          # Keep only stable final-state checks here; old literal greps caused
-          # false Step-2 failures after newer patches legitimately changed text.
           python3 - <<'PY'
           from pathlib import Path
+
           app = Path('/tmp/futures15m-build/Futures15mAlarm')
+          required_files = [
+              app/'settings.gradle',
+              app/'app/build.gradle',
+              app/'app/src/main/java/com/futuresalarm/app/MainActivity.java',
+              app/'app/src/main/java/com/futuresalarm/app/MonitorService.java',
+              app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java',
+              app/'app/src/main/res/mipmap-anydpi/ic_launcher_pro_v957.xml',
+              app/'app/src/main/res/mipmap-anydpi-v26/ic_launcher_pro_v957.xml',
+          ]
+
+          print('--- Final v9.5.15 file diagnostics ---')
+          missing = []
+          for p in required_files:
+              exists = p.exists()
+              size = p.stat().st_size if exists and p.is_file() else -1
+              print(('OK   ' if exists and size > 0 else 'MISS '), p, 'size=', size)
+              if not exists or size <= 0:
+                  missing.append(str(p))
+          if missing:
+              raise SystemExit('Final required file(s) missing/empty: ' + ', '.join(missing))
+
           main = (app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text()
           analysis = (app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
           build = (app/'app/build.gradle').read_text()
@@ -107,9 +118,12 @@ workflows:
               'versionCode': 'versionCode 29' in build,
               'versionName': "versionName '9.5.15'" in build,
           }
-          missing = [name for name, ok in required.items() if not ok]
-          if missing:
-              raise SystemExit('Final v9.5.15 sanity check failed: ' + ', '.join(missing))
+          print('--- Final v9.5.15 feature diagnostics ---')
+          for name, ok in required.items():
+              print(('OK   ' if ok else 'FAIL '), name)
+          bad = [name for name, ok in required.items() if not ok]
+          if bad:
+              raise SystemExit('Final v9.5.15 sanity check failed: ' + ', '.join(bad))
           print('Final v9.5.15 sanity checks OK.')
           PY
 
