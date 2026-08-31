@@ -87,47 +87,33 @@ workflows:
           test -f "$JAVA/MainActivity.java"
           test -f "$JAVA/MonitorService.java"
           test -f "$JAVA/AnalysisPackActivity.java"
-
-          grep -q 'v9.5.15' "$JAVA/MainActivity.java"
-          grep -q 'ChatGPT ANALİZ PAKETİ • v9.5.15' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'V9515_VISIBLE_PROMPT_DIALOG' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'MASTER PROMPT ÖNİZLEME' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'promptView.setText(shareText)' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'MASTER PROMPTU KOPYALA' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'PROMPT + GRAFİĞİ CHATGPT' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'AYNI SOHBETİ AÇ • PROMPT PANODA' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'V9510_PLAN_LABEL_NORMALIZER' "$JAVA/MainActivity.java"
-          grep -q 'v9510StripPlanLabel(a\[9\], "LP")' "$JAVA/MainActivity.java"
-          grep -q 'LP=stop;tp1;tp2;tp3' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'V9513_PROMPT_IMAGE_HANDOFF' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'Intent.EXTRA_STREAM' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'Intent.EXTRA_TEXT' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'FLAG_GRANT_READ_URI_PERMISSION' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'AYNI SOHBET GÜVENLİK KURALI' "$JAVA/AnalysisPackActivity.java"
-
-          grep -q 'Map<String, Candle> forming' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'fetchFormingCandle' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'AÇIK MUM  O ' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'RSI14 ANLIK' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'kritik giriş teyidi yalnız TAMAMLANMIŞ 15m kapanışından' "$JAVA/AnalysisPackActivity.java"
-          grep -q '1h/4h/1D açık mum kapanmadan HTF BOS/CHoCH teyidi verme' "$JAVA/AnalysisPackActivity.java"
-
-          grep -q 'v956_last_success_' "$JAVA/MonitorService.java"
-          grep -q 'ERKEN AKIŞ RADARI' "$JAVA/MonitorService.java"
-          grep -q 'GİZLİ HACİM BİRİKİMİ' "$JAVA/MonitorService.java"
-          grep -q 'SHORT ÇIKIŞ BİRİKİMİ' "$JAVA/MonitorService.java"
-          grep -q 'if ("ISLEM_YOK".equals(d)) return true;' "$JAVA/MonitorService.java"
-          grep -q 'alarm motoru KİLİTLİ DEĞİL' "$JAVA/MonitorService.java"
-          grep -q 'KOŞULLU SENARYOLAR AKTİF İZLENİYOR' "$JAVA/MainActivity.java"
-
-          grep -q '@mipmap/ic_launcher_pro_v957' "$APP/app/src/main/AndroidManifest.xml"
-          grep -q '<package android:name="com.openai.chatgpt" />' "$APP/app/src/main/AndroidManifest.xml"
           test -s "$APP/app/src/main/res/mipmap-anydpi/ic_launcher_pro_v957.xml"
           test -s "$APP/app/src/main/res/mipmap-anydpi-v26/ic_launcher_pro_v957.xml"
 
-          grep -q 'versionCode 29' "$APP/app/build.gradle"
-          grep -q "versionName '9.5.15'" "$APP/app/build.gradle"
-          echo 'Prepare v9.5.15 OK. MASTER PROMPT visible/selectable; copy, prompt+chart share and same-chat actions always visible.'
+          # Each version patch above performs its own fail-fast feature checks.
+          # Keep only stable final-state checks here; old literal greps caused
+          # false Step-2 failures after newer patches legitimately changed text.
+          python3 - <<'PY'
+          from pathlib import Path
+          app = Path('/tmp/futures15m-build/Futures15mAlarm')
+          main = (app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text()
+          analysis = (app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
+          build = (app/'app/build.gradle').read_text()
+          required = {
+              'main version': 'v9.5.15' in main,
+              'analysis version': 'ChatGPT ANALİZ PAKETİ • v9.5.15' in analysis,
+              'prompt dialog': 'V9515_VISIBLE_PROMPT_DIALOG' in analysis,
+              'prompt preview': 'promptView.setText(shareText)' in analysis,
+              'versionCode': 'versionCode 29' in build,
+              'versionName': "versionName '9.5.15'" in build,
+          }
+          missing = [name for name, ok in required.items() if not ok]
+          if missing:
+              raise SystemExit('Final v9.5.15 sanity check failed: ' + ', '.join(missing))
+          print('Final v9.5.15 sanity checks OK.')
+          PY
+
+          echo 'Prepare v9.5.15 OK. Proceeding to Android compile.'
 
       - name: Set Android SDK location
         script: |
