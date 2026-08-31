@@ -13,14 +13,12 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.7 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.8 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
           python3 - <<'PY'
-          import base64
-          import hashlib
-          import zipfile
+          import base64, hashlib, zipfile
           from pathlib import Path
           src = Path('/tmp/Futures15mAlarm-v9-source.b64')
           dst = Path('/tmp/Futures15mAlarm-v9-source.zip')
@@ -36,19 +34,23 @@ workflows:
                   raise SystemExit('Corrupt ZIP member: ' + bad)
           print('v9 base ZIP integrity OK.')
           PY
+
           rm -rf /tmp/futures15m-build
           mkdir -p /tmp/futures15m-build
           unzip -q /tmp/Futures15mAlarm-v9-source.zip -d /tmp/futures15m-build
+
           python3 "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v92_binance_patch.py"
+
           APP=/tmp/futures15m-build/Futures15mAlarm
           JAVA="$APP/app/src/main/java/com/futuresalarm/app"
+
           python3 - <<'PY'
-          import base64, gzip
+          import base64, gzip, os
           from pathlib import Path
           root = Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app')
           build = Path('/tmp/futures15m-build/Futures15mAlarm/app/build.gradle')
-          srcroot = Path(__import__('os').environ['CM_BUILD_DIR']) / 'futures15m_alarm'
+          srcroot = Path(os.environ['CM_BUILD_DIR']) / 'futures15m_alarm'
           for payload, target in [
               ('v93_MainActivity.gz.b64', root/'MainActivity.java'),
               ('v93_MonitorService.gz.b64', root/'MonitorService.java')]:
@@ -60,6 +62,7 @@ workflows:
           build.write_text(b)
           print('v9.3 live confirmation sources restored.')
           PY
+
           python3 "$CM_BUILD_DIR/futures15m_alarm/v94_patch.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95_pre_anchor.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95_patch.py"
@@ -70,86 +73,56 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v955_ui_icon.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v956_stale_flow_radar.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v957_launcher_cache_fix.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v958_forming_candles.py"
+
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
           test -f "$JAVA/MainActivity.java"
           test -f "$JAVA/MonitorService.java"
           test -f "$JAVA/AnalysisPackActivity.java"
-          grep -q 'v9.5.7' "$JAVA/MainActivity.java"
-          grep -q 'CANLI TEYİT PANELİ' "$JAVA/MainActivity.java"
-          grep -q 'PROFESYONEL YAPI' "$JAVA/MainActivity.java"
-          grep -q 'a.length != 13 && a.length != 14' "$JAVA/MainActivity.java"
-          grep -q 'LONG_PLAN_DIALOG_SCROLL_FIX' "$JAVA/MainActivity.java"
-          grep -q 'v952PrettyMeta' "$JAVA/MainActivity.java"
-          grep -q 'LONG SENARYOLARI' "$JAVA/MainActivity.java"
-          grep -q 'SHORT SENARYOLARI' "$JAVA/MainActivity.java"
-          grep -q 'v953ScenarioLabel' "$JAVA/MainActivity.java"
-          grep -q 'ANA KARAR: İŞLEM YOK' "$JAVA/MainActivity.java"
-          grep -q 'v953ResetSignalLocks' "$JAVA/MainActivity.java"
-          grep -q 'pullback üst sınırını reclaim' "$JAVA/MainActivity.java"
-          grep -q 'V955_EMBEDDED_ANALYSIS_BUTTON' "$JAVA/MainActivity.java"
-          grep -q 'v955Panel' "$JAVA/MainActivity.java"
-          grep -q 'v956AddDataHealthPanel' "$JAVA/MainActivity.java"
-          grep -q 'VERİ ESKİ' "$JAVA/MainActivity.java"
-          grep -q 'KRİTİK ALARM KİLİTLİ' "$JAVA/MainActivity.java"
-          grep -q 'yaklaşma/ön uyarı sessizdir' "$JAVA/MonitorService.java"
-          grep -q 'private void sendUrgent' "$JAVA/MonitorService.java"
-          grep -q 'v953DirectionAllowed' "$JAVA/MonitorService.java"
-          grep -q 'v953FlowAcceptable' "$JAVA/MonitorService.java"
-          grep -q 'v953InEntryRange' "$JAVA/MonitorService.java"
-          grep -q 'v953_trade_lock_' "$JAVA/MonitorService.java"
-          grep -q 'EN YAKIN KOŞULLU SENARYO' "$JAVA/MonitorService.java"
-          grep -q '🎯 ALARM KAPISI' "$JAVA/MonitorService.java"
-          grep -q 'v954PullReclaim' "$JAVA/MonitorService.java"
-          grep -q 'closed.close >= p.pullbackHigh' "$JAVA/MonitorService.java"
-          grep -q 'v954ResReject' "$JAVA/MonitorService.java"
-          grep -q 'closed.close <= p.resistanceLow' "$JAVA/MonitorService.java"
-          grep -q 'if (sc\[2\] < 4) return false' "$JAVA/MonitorService.java"
-          grep -q 'if (support < 40) return false' "$JAVA/MonitorService.java"
-          grep -q 'breakoutStyle ? 1.00 : 0.70' "$JAVA/MonitorService.java"
-          grep -q 'reclaim/rejection' "$JAVA/MonitorService.java"
+
+          grep -q 'v9.5.8' "$JAVA/MainActivity.java"
+          grep -q 'ChatGPT ANALİZ PAKETİ • v9.5.8' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'Map<String, Candle> forming' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'fetchFormingCandle' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'AÇIK MUM  O ' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'RSI14 ANLIK' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'kritik giriş teyidi yalnız TAMAMLANMIŞ 15m kapanışından' "$JAVA/AnalysisPackActivity.java"
+          grep -q '1h/4h/1D açık mum kapanmadan HTF BOS/CHoCH teyidi verme' "$JAVA/AnalysisPackActivity.java"
+
           grep -q 'v956_last_success_' "$JAVA/MonitorService.java"
-          grep -q 'v956Age > 45000L' "$JAVA/MonitorService.java"
           grep -q 'ERKEN AKIŞ RADARI' "$JAVA/MonitorService.java"
-          grep -q 'SHORT ÇIKIŞ BİRİKİMİ' "$JAVA/MonitorService.java"
           grep -q 'GİZLİ HACİM BİRİKİMİ' "$JAVA/MonitorService.java"
-          grep -q 'GİZLİ DAĞITIM' "$JAVA/MonitorService.java"
-          grep -q 'ALICI ABSORBSİYONU' "$JAVA/MonitorService.java"
-          grep -q 'SATICI ABSORBSİYONU' "$JAVA/MonitorService.java"
-          grep -q 'ChatGPT ANALİZ PAKETİ • v9.5.6' "$JAVA/AnalysisPackActivity.java"
-          grep -q '/fapi/v1/klines' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'limit=101' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'aggTrades' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'openInterestHist' "$JAVA/AnalysisPackActivity.java"
-          grep -q '/fapi/v1/depth' "$JAVA/AnalysisPackActivity.java"
-          grep -q '/fapi/v1/premiumIndex' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'Fair Value Gap (FVG)' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'META=ANA_KARAR' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'short-cover/long-exit olasılığını' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'SHORT ÇIKIŞ BİRİKİMİ' "$JAVA/MonitorService.java"
+
           grep -q '@mipmap/ic_launcher_pro_v957' "$APP/app/src/main/AndroidManifest.xml"
           test -s "$APP/app/src/main/res/mipmap-anydpi/ic_launcher_pro_v957.xml"
           test -s "$APP/app/src/main/res/mipmap-anydpi-v26/ic_launcher_pro_v957.xml"
-          test -s "$APP/app/src/main/res/drawable/ic_launcher_foreground_v957.xml"
-          grep -q 'versionCode 21' "$APP/app/build.gradle"
-          grep -q "versionName '9.5.7'" "$APP/app/build.gradle"
-          echo 'Prepare v9.5.7 OK. Cache-busting adaptive trading/alarm launcher icon + v9.5.6 flow radar active.'
+
+          grep -q 'versionCode 22' "$APP/app/build.gradle"
+          grep -q "versionName '9.5.8'" "$APP/app/build.gradle"
+          echo 'Prepare v9.5.8 OK. 100 closed candles + forming 15m/1h/4h/1D candles + live flow radar + stale-data guard active.'
+
       - name: Set Android SDK location
         script: |
           set -e
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           test -n "$SDK_PATH"
           echo "sdk.dir=$SDK_PATH" > /tmp/futures15m-build/Futures15mAlarm/local.properties
+
       - name: Check build tools
         script: |
           java -version
           gradle --version
-      - name: Build installable v9.5.7 debug APK
+
+      - name: Build installable v9.5.8 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.7.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.7.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.8.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.8.apk"
+
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.7.apk
+      - Futures15mAlarm-PRO-v9.5.8.apk
