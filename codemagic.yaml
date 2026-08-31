@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.9 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.10 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -75,6 +75,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v957_launcher_cache_fix.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v958_forming_candles.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v959_conditional_scenarios.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9510_plan_parser.py"
 
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
@@ -82,8 +83,12 @@ workflows:
           test -f "$JAVA/MonitorService.java"
           test -f "$JAVA/AnalysisPackActivity.java"
 
-          grep -q 'v9.5.9' "$JAVA/MainActivity.java"
-          grep -q 'ChatGPT ANALİZ PAKETİ • v9.5.9' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'v9.5.10' "$JAVA/MainActivity.java"
+          grep -q 'ChatGPT ANALİZ PAKETİ • v9.5.10' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'V9510_PLAN_LABEL_NORMALIZER' "$JAVA/MainActivity.java"
+          grep -q 'v9510StripPlanLabel(a\[9\], "LP")' "$JAVA/MainActivity.java"
+          grep -q 'LP=stop;tp1;tp2;tp3' "$JAVA/AnalysisPackActivity.java"
+
           grep -q 'Map<String, Candle> forming' "$JAVA/AnalysisPackActivity.java"
           grep -q 'fetchFormingCandle' "$JAVA/AnalysisPackActivity.java"
           grep -q 'AÇIK MUM  O ' "$JAVA/AnalysisPackActivity.java"
@@ -103,9 +108,9 @@ workflows:
           test -s "$APP/app/src/main/res/mipmap-anydpi/ic_launcher_pro_v957.xml"
           test -s "$APP/app/src/main/res/mipmap-anydpi-v26/ic_launcher_pro_v957.xml"
 
-          grep -q 'versionCode 23' "$APP/app/build.gradle"
-          grep -q "versionName '9.5.9'" "$APP/app/build.gradle"
-          echo 'Prepare v9.5.9 OK. ISLEM_YOK=no entry now; LP/LB/SR/SB remain conditionally monitored. Completed 15m + valid entry/retest + live-flow confirmation still required.'
+          grep -q 'versionCode 24' "$APP/app/build.gradle"
+          grep -q "versionName '9.5.10'" "$APP/app/build.gradle"
+          echo 'Prepare v9.5.10 OK. Labelled LP=/LB=/SR=/SB= and old bare plan groups are accepted; META= supported.'
 
       - name: Set Android SDK location
         script: |
@@ -119,14 +124,14 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.9 debug APK
+      - name: Build installable v9.5.10 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.9.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.9.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.10.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.10.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.9.apk
+      - Futures15mAlarm-PRO-v9.5.10.apk
