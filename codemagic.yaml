@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.12 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.13 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -78,6 +78,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9510_plan_parser.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9511_same_chat_external.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9512_chatgpt_launch_fix.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9513_prompt_image_handoff.py"
 
           test -f "$APP/settings.gradle"
           test -f "$APP/app/build.gradle"
@@ -85,14 +86,17 @@ workflows:
           test -f "$JAVA/MonitorService.java"
           test -f "$JAVA/AnalysisPackActivity.java"
 
-          grep -q 'v9.5.12' "$JAVA/MainActivity.java"
-          grep -q 'ChatGPT ANALİZ PAKETİ • v9.5.12' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'v9.5.13' "$JAVA/MainActivity.java"
+          grep -q 'ChatGPT ANALİZ PAKETİ • v9.5.13' "$JAVA/AnalysisPackActivity.java"
           grep -q 'V9510_PLAN_LABEL_NORMALIZER' "$JAVA/MainActivity.java"
           grep -q 'v9510StripPlanLabel(a\[9\], "LP")' "$JAVA/MainActivity.java"
           grep -q 'LP=stop;tp1;tp2;tp3' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'V9512_CHATGPT_NATIVE_LAUNCH' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'setPackage("com.openai.chatgpt")' "$JAVA/AnalysisPackActivity.java"
-          grep -q 'MASTER PROMPT panoda' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'V9513_PROMPT_IMAGE_HANDOFF' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'Intent.EXTRA_STREAM' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'Intent.EXTRA_TEXT' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'FLAG_GRANT_READ_URI_PERMISSION' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'PROMPT + GRAFİĞİ CHATGPT' "$JAVA/AnalysisPackActivity.java"
+          grep -q 'AYNI SOHBETİ AÇ • PROMPT PANODA' "$JAVA/AnalysisPackActivity.java"
           grep -q 'AYNI SOHBET GÜVENLİK KURALI' "$JAVA/AnalysisPackActivity.java"
 
           grep -q 'Map<String, Candle> forming' "$JAVA/AnalysisPackActivity.java"
@@ -115,9 +119,9 @@ workflows:
           test -s "$APP/app/src/main/res/mipmap-anydpi/ic_launcher_pro_v957.xml"
           test -s "$APP/app/src/main/res/mipmap-anydpi-v26/ic_launcher_pro_v957.xml"
 
-          grep -q 'versionCode 26' "$APP/app/build.gradle"
-          grep -q "versionName '9.5.12'" "$APP/app/build.gradle"
-          echo 'Prepare v9.5.12 OK. Android package visibility fixed; native ChatGPT launch is explicit; MASTER prompt copied to clipboard; browser only final fallback.'
+          grep -q 'versionCode 27' "$APP/app/build.gradle"
+          grep -q "versionName '9.5.13'" "$APP/app/build.gradle"
+          echo 'Prepare v9.5.13 OK. Prompt+chart direct share and same-chat clipboard mode are both available with honest Android limitations.'
 
       - name: Set Android SDK location
         script: |
@@ -131,14 +135,14 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.12 debug APK
+      - name: Build installable v9.5.13 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.12.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.12.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.13.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.13.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.12.apk
+      - Futures15mAlarm-PRO-v9.5.13.apk
