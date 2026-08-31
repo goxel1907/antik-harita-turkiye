@@ -14,16 +14,17 @@ for p in (MAIN, MONITOR, ANALYSIS, BUILD):
 
 # ------------------------------------------------------------------
 # v9.5.9 core fix
-# ChatGPT ANA_KARAR=ISLEM_YOK means "no entry NOW", not "disable every
-# conditional scenario forever". LP/LB/SR/SB remain monitored and can create
-# a critical alarm later if their own completed-15m + entry-range + live-flow
-# confirmation becomes valid. LONG/SHORT decisions still keep the opposite
-# direction passive. Missing/invalid META remains locked for safety.
+# ANA_KARAR=ISLEM_YOK means "no entry NOW", not "disable all scenarios".
+# LP/LB/SR/SB remain monitored. LONG/SHORT still disables the opposite side.
+# Missing/invalid META remains fail-safe locked.
 # ------------------------------------------------------------------
 
-# ---------------- MainActivity: make the meaning explicit on screen. --------
+# ---------------- MainActivity ------------------------------------
 s = MAIN.read_text()
+# Main title is built from two text fragments in current sources, therefore
+# update both the full legacy title and the standalone version fragment.
 s = re.sub(r'15m Futures Alarm PRO v9\.5(?:\.\d+)*', '15m Futures Alarm PRO v9.5.9', s)
+s = re.sub(r'v9\.5(?:\.\d+)*\s*•\s*MANUEL PRO', 'v9.5.9  •  MANUEL PRO', s)
 s = re.sub(r'v9\.5(?:\.\d+)* MANUEL PRO çalışma şekli:', 'v9.5.9 MANUEL PRO çalışma şekli:', s)
 
 old_label = '''    private String v953ScenarioLabel(String symbol, String side, String base) {
@@ -64,7 +65,7 @@ elif 'KOŞULLU SENARYOLAR AKTİF İZLENİYOR' not in s:
 
 MAIN.write_text(s)
 
-# ---------------- MonitorService: actual alarm-engine behavior. -------------
+# ---------------- MonitorService ----------------------------------
 m = MONITOR.read_text()
 m = re.sub(r'15m Futures Alarm PRO v9\.5(?:\.\d+)*', '15m Futures Alarm PRO v9.5.9', m)
 
@@ -103,25 +104,25 @@ elif 'alarm motoru KİLİTLİ DEĞİL' not in m:
 
 MONITOR.write_text(m)
 
-# ---------------- Analysis pack visible version only. ------------------------
+# ---------------- AnalysisPackActivity -----------------------------
 a = ANALYSIS.read_text()
 a = re.sub(r'ChatGPT ANALİZ PAKETİ • v9\.5(?:\.\d+)*', 'ChatGPT ANALİZ PAKETİ • v9.5.9', a)
 a = re.sub(r'Futures15mAlarmPRO/9\.5(?:\.\d+)*', 'Futures15mAlarmPRO/9.5.9', a)
 ANALYSIS.write_text(a)
 
-# ---------------- Version bump. ---------------------------------------------
+# ---------------- Build version -----------------------------------
 b = BUILD.read_text()
 b = re.sub(r'versionCode\s+\d+', 'versionCode 23', b, count=1)
 b = re.sub(r"versionName\s+'[^']+'", "versionName '9.5.9'", b, count=1)
 BUILD.write_text(b)
 
-# ---------------- Fail-fast checks. -----------------------------------------
+# ---------------- Fail-fast checks --------------------------------
 mf = MAIN.read_text()
 mon = MONITOR.read_text()
 af = ANALYSIS.read_text()
 bf = BUILD.read_text()
 checks = [
-    ('15m Futures Alarm PRO v9.5.9' in mf, 'MainActivity version'),
+    ('v9.5.9' in mf, 'MainActivity version'),
     ('KOŞULLU SENARYOLAR AKTİF İZLENİYOR' in mf, 'explicit ISLEM_YOK screen wording'),
     ('KOŞULLU ADAY • ' in mf, 'conditional scenario labels'),
     ('if ("ISLEM_YOK".equals(d)) return true;' in mon, 'ISLEM_YOK monitors both directions'),
@@ -135,4 +136,4 @@ for ok, msg in checks:
     if not ok:
         raise SystemExit('v9.5.9 check failed: ' + msg)
 
-print('v9.5.9 OK: ISLEM_YOK now means no entry NOW; LP/LB/SR/SB remain conditionally monitored. LONG/SHORT still prioritize one direction; missing META and stale motor data stay fail-safe locked.')
+print('v9.5.9 OK: ISLEM_YOK means no entry NOW; LP/LB/SR/SB stay conditionally monitored. LONG/SHORT prioritize one direction; missing META and stale motor data remain fail-safe locked.')
