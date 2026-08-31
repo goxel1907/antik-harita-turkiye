@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 APP = Path('/tmp/futures15m-build/Futures15mAlarm')
 JAVA = APP / 'app/src/main/java/com/futuresalarm/app'
@@ -24,8 +23,6 @@ method = r'''    private void sharePack() {
         }
 
         // v9.5.15 V9515_VISIBLE_PROMPT_DIALOG
-        // Keep the full MASTER PROMPT visible and selectable instead of hiding
-        // transfer actions behind AlertDialog setMessage + setItems competition.
         copyMasterPromptToClipboard();
 
         final float density = getResources().getDisplayMetrics().density;
@@ -38,9 +35,9 @@ method = r'''    private void sharePack() {
         root.setPadding(pad, gap, pad, gap);
 
         android.widget.TextView info = new android.widget.TextView(this);
-        info.setText("MASTER PROMPT hazır ve şu anda panoya da kopyalandı. Aşağıdaki kutudan tamamını görebilir/seçebilirsin.\n\n" +
-                "PROMPT + GRAFİK modu ikisini birlikte ChatGPT paylaşımına yollar.\n" +
-                "AYNI SOHBET modu son açık ChatGPT konuşmasını öne getirir; prompt panoda kalır.");
+        info.setText("MASTER PROMPT hazır ve panoya kopyalandı. Aşağıdaki kutudan tamamını görebilir/seçebilirsin.\n\n" +
+                "PROMPT + GRAFİK: metin ve grafiği birlikte ChatGPT paylaşımına gönderir.\n" +
+                "AYNI SOHBET: son açık ChatGPT konuşmasını öne getirir; prompt panoda kalır.");
         info.setTextSize(16f);
         info.setPadding(0, 0, 0, gap);
         root.addView(info, new android.widget.LinearLayout.LayoutParams(
@@ -113,27 +110,22 @@ method = r'''    private void sharePack() {
 '''
 
 a = a[:start] + method + a[end:]
-a = re.sub(r'ChatGPT ANALİZ PAKETİ • v9\.5(?:\.\d+)*',
-           'ChatGPT ANALİZ PAKETİ • v9.5.15', a)
-a = re.sub(r'Futures15mAlarmPRO/9\.5(?:\.\d+)*',
-           'Futures15mAlarmPRO/9.5.15', a)
+a = a.replace('ChatGPT ANALİZ PAKETİ • v9.5.14', 'ChatGPT ANALİZ PAKETİ • v9.5.15')
+a = a.replace('Futures15mAlarmPRO/9.5.14', 'Futures15mAlarmPRO/9.5.15')
 ANALYSIS.write_text(a)
 
 m = MAIN.read_text()
-m = re.sub(r'15m Futures Alarm PRO v9\.5(?:\.\d+)*',
-           '15m Futures Alarm PRO v9.5.15', m)
-m = re.sub(r'v9\.5(?:\.\d+)*\s*•\s*MANUEL PRO',
-           'v9.5.15  •  MANUEL PRO', m)
-m = re.sub(r'v9\.5(?:\.\d+)* MANUEL PRO çalışma şekli:',
-           'v9.5.15 MANUEL PRO çalışma şekli:', m)
+m = m.replace('v9.5.14', 'v9.5.15')
 MAIN.write_text(m)
 
 b = BUILD.read_text()
-b = re.sub(r'versionCode\s+\d+', 'versionCode 29', b, count=1)
-b = re.sub(r"versionName\s+'[^']+'", "versionName '9.5.15'", b, count=1)
+b = b.replace('versionCode 28', 'versionCode 29')
+b = b.replace("versionName '9.5.14'", "versionName '9.5.15'")
 BUILD.write_text(b)
 
 af = ANALYSIS.read_text()
+mf = MAIN.read_text()
+bf = BUILD.read_text()
 checks = [
     ('V9515_VISIBLE_PROMPT_DIALOG' in af, 'visible prompt dialog marker'),
     ('MASTER PROMPT ÖNİZLEME' in af, 'prompt preview label'),
@@ -142,11 +134,11 @@ checks = [
     ("PROMPT + GRAFİĞİ CHATGPT'YE GÖNDER" in af, 'combined transfer button'),
     ('AYNI SOHBETİ AÇ • PROMPT PANODA' in af, 'same-chat button'),
     ('ChatGPT ANALİZ PAKETİ • v9.5.15' in af, 'analysis version'),
-    ('v9.5.15' in MAIN.read_text(), 'main version'),
-    ("versionName '9.5.15'" in BUILD.read_text() and 'versionCode 29' in BUILD.read_text(), 'build version'),
+    ('v9.5.15' in mf, 'main version'),
+    ("versionName '9.5.15'" in bf and 'versionCode 29' in bf, 'build version'),
 ]
 for ok, msg in checks:
     if not ok:
         raise SystemExit('v9.5.15 check failed: ' + msg)
 
-print('v9.5.15 OK: MASTER PROMPT is visible/selectable in a scroll box; copy, prompt+chart share, and same-chat actions are always visible.')
+print('v9.5.15 OK: visible MASTER PROMPT preview and transfer actions installed; deterministic version bump passed.')
