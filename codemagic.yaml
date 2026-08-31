@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.15 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.16 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -81,22 +81,20 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9513_prompt_image_handoff.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9514_java_string_fix.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9515_prompt_dialog_ui.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9516_structure_engine.py"
 
           python3 - <<'PY'
           from pathlib import Path
 
           app = Path('/tmp/futures15m-build/Futures15mAlarm')
-          required_files = [
-              app/'settings.gradle',
-              app/'app/build.gradle',
-              app/'app/src/main/java/com/futuresalarm/app/MainActivity.java',
-              app/'app/src/main/java/com/futuresalarm/app/MonitorService.java',
-              app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java',
-              app/'app/src/main/res/mipmap-anydpi/ic_launcher_pro_v957.xml',
-              app/'app/src/main/res/mipmap-anydpi-v26/ic_launcher_pro_v957.xml',
-          ]
+          main_p = app/'app/src/main/java/com/futuresalarm/app/MainActivity.java'
+          mon_p = app/'app/src/main/java/com/futuresalarm/app/MonitorService.java'
+          ana_p = app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java'
+          eng_p = app/'app/src/main/java/com/futuresalarm/app/StructureEngine.java'
+          build_p = app/'app/build.gradle'
+          required_files = [app/'settings.gradle', build_p, main_p, mon_p, ana_p, eng_p]
 
-          print('--- Final v9.5.15 file diagnostics ---')
+          print('--- Final v9.5.16 file diagnostics ---')
           missing = []
           for p in required_files:
               exists = p.exists()
@@ -107,27 +105,34 @@ workflows:
           if missing:
               raise SystemExit('Final required file(s) missing/empty: ' + ', '.join(missing))
 
-          main = (app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text()
-          analysis = (app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
-          build = (app/'app/build.gradle').read_text()
+          main = main_p.read_text()
+          analysis = ana_p.read_text()
+          engine = eng_p.read_text()
+          build = build_p.read_text()
           required = {
-              'main version': 'v9.5.15' in main,
-              'analysis version': 'ChatGPT ANALİZ PAKETİ • v9.5.15' in analysis,
-              'prompt dialog': 'V9515_VISIBLE_PROMPT_DIALOG' in analysis,
-              'prompt preview': 'promptView.setText(shareText)' in analysis,
-              'versionCode': 'versionCode 29' in build,
-              'versionName': "versionName '9.5.15'" in build,
+              'main version': 'v9.5.16' in main,
+              'analysis version': 'v9.5.16' in analysis,
+              'visible prompt dialog': 'V9515_VISIBLE_PROMPT_DIALOG' in analysis,
+              'structure-first protocol': 'V9516_STRUCTURE_FIRST_PROTOCOL' in analysis,
+              'structure calculation': 'StructureEngine.analyzeAll(candles)' in analysis,
+              'structure persistence': 'v9516_structure_' in analysis,
+              'main structure panel': 'v9516AddStructurePanel' in main,
+              'engine swings': 'class StructureEngine' in engine and 'equalLevel' in engine,
+              'engine fvg': 'gapState' in engine,
+              'engine order block': 'obState' in engine,
+              'versionCode': 'versionCode 30' in build,
+              'versionName': "versionName '9.5.16'" in build,
           }
-          print('--- Final v9.5.15 feature diagnostics ---')
+          print('--- Final v9.5.16 feature diagnostics ---')
           for name, ok in required.items():
               print(('OK   ' if ok else 'FAIL '), name)
           bad = [name for name, ok in required.items() if not ok]
           if bad:
-              raise SystemExit('Final v9.5.15 sanity check failed: ' + ', '.join(bad))
-          print('Final v9.5.15 sanity checks OK.')
+              raise SystemExit('Final v9.5.16 sanity check failed: ' + ', '.join(bad))
+          print('Final v9.5.16 sanity checks OK.')
           PY
 
-          echo 'Prepare v9.5.15 OK. Proceeding to Android compile.'
+          echo 'Prepare v9.5.16 OK. Proceeding to Android compile.'
 
       - name: Set Android SDK location
         script: |
@@ -141,14 +146,14 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.15 debug APK
+      - name: Build installable v9.5.16 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.15.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.15.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.16.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.16.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.15.apk
+      - Futures15mAlarm-PRO-v9.5.16.apk
