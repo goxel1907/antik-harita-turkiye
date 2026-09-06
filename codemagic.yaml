@@ -83,6 +83,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9515_prompt_dialog_ui.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9516_structure_engine.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9517_fresh_signal_history_hunt.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9517b_flow_stability.py"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -121,6 +122,7 @@ workflows:
               'main structure panel': 'v9516AddStructurePanel' in main,
               'fresh plan arm': 'v9517_plan_armed_' in main,
               'fresh signal gate': 'v9517FreshSignalEligible' in monitor,
+              'stable flow gate': 'v9517StableFlow' in monitor and monitor.count('v9517StableFlow(p.symbol') >= 4,
               'deeper history': 'v9517HistoryLimit' in analysis and 'return 320' in analysis,
               'history prompt': 'Hesaplama geçmişi:' in analysis,
               'engine swings': 'class StructureEngine' in engine and 'equalLevel' in engine,
