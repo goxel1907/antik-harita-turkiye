@@ -2,13 +2,13 @@ from pathlib import Path
 
 APP=Path('/tmp/futures15m-build/Futures15mAlarm')
 MAIN=APP/'app/src/main/java/com/futuresalarm/app/MainActivity.java'
-if not MAIN.exists(): raise SystemExit('v9.5.23 MainActivity missing')
+if not MAIN.exists(): raise SystemExit('v9.5.22d MainActivity missing')
 m=MAIN.read_text()
 
 start=m.find('    private void v9522TestApi() {')
 end=m.find('    private void v9522OpenExactFutures(String sym) {', start)
 if start < 0 or end < 0:
-    raise SystemExit('v9.5.23 API test method anchor missing')
+    raise SystemExit('v9.5.22d API test method anchor missing')
 
 replacement=r'''    // V9523_API_DIAGNOSTICS
     private String v9523HttpBase(String base, String method, String path,
@@ -28,7 +28,7 @@ replacement=r'''    // V9523_API_DIAGNOSTICS
         c.setRequestMethod(method);
         c.setConnectTimeout(8000); c.setReadTimeout(12000);
         c.setRequestProperty("Accept", "application/json");
-        c.setRequestProperty("User-Agent", "Futures15mAlarmPRO/9.5.23");
+        c.setRequestProperty("User-Agent", "Futures15mAlarmPRO/9.5.22d");
         if (signed) c.setRequestProperty("X-MBX-APIKEY", apiKey);
         int code = c.getResponseCode();
         java.io.InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
@@ -65,16 +65,14 @@ replacement=r'''    // V9523_API_DIAGNOSTICS
         Toast.makeText(this, "Binance API ayrıntılı test başlatıldı...", Toast.LENGTH_SHORT).show();
         v9522Io.execute(() -> {
             String fapi = null, spot = null, papi = null;
-            try {
-                v9522Credentials();
-            } catch (Throwable ex) {
+            try { v9522Credentials(); }
+            catch (Throwable ex) {
                 String msg = "API TEST HATASI: " + v9523Err(ex);
                 runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
                 return;
             }
-            try {
-                v9523SyncFuturesTime();
-            } catch (Throwable ex) {
+            try { v9523SyncFuturesTime(); }
+            catch (Throwable ex) {
                 String msg = "AĞ TESTİ BAŞARISIZ\nFutures sunucusuna ulaşılamadı: " + v9523Err(ex);
                 runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
                 return;
@@ -88,16 +86,10 @@ replacement=r'''    // V9523_API_DIAGNOSTICS
                 String msg = "API BAĞLANTISI BAŞARILI\nUSDⓈ-M Futures (FAPI) doğrulandı.\nİşlem yetkisi: " + (can ? "UYGUN" : "YOK");
                 runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
                 return;
-            } catch (Throwable ex) {
-                fapi = v9523Err(ex);
-            }
+            } catch (Throwable ex) { fapi = v9523Err(ex); }
 
-            try {
-                v9523HttpBase("https://api.binance.com", "GET", "/api/v3/account", null, true);
-                spot = "BAŞARILI";
-            } catch (Throwable ex) {
-                spot = v9523Err(ex);
-            }
+            try { v9523HttpBase("https://api.binance.com", "GET", "/api/v3/account", null, true); spot = "BAŞARILI"; }
+            catch (Throwable ex) { spot = v9523Err(ex); }
 
             try {
                 String raw = v9523HttpBase("https://papi.binance.com", "GET", "/papi/v1/um/account", null, true);
@@ -105,9 +97,7 @@ replacement=r'''    // V9523_API_DIAGNOSTICS
                     papi = "BAŞARILI";
                     v9522Prefs().edit().putString("v9522_api_mode", "PAPI").apply();
                 }
-            } catch (Throwable ex) {
-                papi = v9523Err(ex);
-            }
+            } catch (Throwable ex) { papi = v9523Err(ex); }
 
             final String ff = fapi, fs = spot, fp = papi;
             StringBuilder out = new StringBuilder();
@@ -135,25 +125,17 @@ replacement=r'''    // V9523_API_DIAGNOSTICS
 '''
 
 m=m[:start]+replacement+m[end:]
-# bump visible/build version for an unambiguous install
-m=m.replace('v9.5.22', 'v9.5.23')
 MAIN.write_text(m)
 
-build=APP/'app/build.gradle'
-b=build.read_text()
-b=b.replace('versionCode 36','versionCode 37').replace("versionName '9.5.22'","versionName '9.5.23'")
-build.write_text(b)
-
-f=MAIN.read_text(); bb=build.read_text()
+f=MAIN.read_text()
 checks=[
  ('V9523_API_DIAGNOSTICS' in f,'diagnostic marker'),
  ('/fapi/v1/accountConfig' in f,'FAPI diagnostic'),
  ('/api/v3/account' in f,'Spot diagnostic'),
  ('/papi/v1/um/account' in f,'Portfolio diagnostic'),
  ('HTTP " + code + " / Binance " + bcode' in f,'Binance numeric error'),
- ('versionCode 37' in bb and "versionName '9.5.23'" in bb,'version'),
 ]
 for ok,name in checks:
     print(('OK   ' if ok else 'FAIL '),name)
-    if not ok: raise SystemExit('v9.5.23 sanity failed: '+name)
-print('v9.5.23 OK: staged Binance API diagnostics + account-mode detection.')
+    if not ok: raise SystemExit('v9.5.22d sanity failed: '+name)
+print('v9.5.22d OK: staged Binance API diagnostics + account-mode detection.')
