@@ -13,26 +13,20 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.19 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.20 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
           python3 - <<'PY'
           import base64, hashlib, zipfile
           from pathlib import Path
-          src = Path('/tmp/Futures15mAlarm-v9-source.b64')
-          dst = Path('/tmp/Futures15mAlarm-v9-source.zip')
-          data = base64.b64decode(src.read_text().strip())
-          dst.write_bytes(data)
-          print('v9 base ZIP bytes:', len(data))
-          print('v9 base SHA256:', hashlib.sha256(data).hexdigest())
-          if not zipfile.is_zipfile(dst):
-              raise SystemExit('Decoded v9 source is not a ZIP')
-          with zipfile.ZipFile(dst, 'r') as zf:
-              bad = zf.testzip()
-              if bad:
-                  raise SystemExit('Corrupt ZIP member: ' + bad)
-          print('v9 base ZIP integrity OK.')
+          src=Path('/tmp/Futures15mAlarm-v9-source.b64'); dst=Path('/tmp/Futures15mAlarm-v9-source.zip')
+          data=base64.b64decode(src.read_text().strip()); dst.write_bytes(data)
+          print('v9 base ZIP bytes:',len(data)); print('v9 base SHA256:',hashlib.sha256(data).hexdigest())
+          if not zipfile.is_zipfile(dst): raise SystemExit('Decoded v9 source is not a ZIP')
+          with zipfile.ZipFile(dst,'r') as zf:
+              bad=zf.testzip()
+              if bad: raise SystemExit('Corrupt ZIP member: '+bad)
           PY
 
           rm -rf /tmp/futures15m-build
@@ -43,19 +37,14 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v92_binance_patch.py"
 
           python3 - <<'PY'
-          import base64, gzip, os
+          import base64,gzip,os
           from pathlib import Path
-          root = Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app')
-          build = Path('/tmp/futures15m-build/Futures15mAlarm/app/build.gradle')
-          srcroot = Path(os.environ['CM_BUILD_DIR']) / 'futures15m_alarm'
-          for payload, target in [
-              ('v93_MainActivity.gz.b64', root/'MainActivity.java'),
-              ('v93_MonitorService.gz.b64', root/'MonitorService.java')]:
-              raw = base64.b64decode((srcroot/payload).read_text().strip())
-              target.write_bytes(gzip.decompress(raw))
-          b = build.read_text()
-          b = b.replace('versionCode 11', 'versionCode 12')
-          b = b.replace("versionName '9.2.0'", "versionName '9.3.0'")
+          root=Path('/tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app')
+          build=Path('/tmp/futures15m-build/Futures15mAlarm/app/build.gradle')
+          srcroot=Path(os.environ['CM_BUILD_DIR'])/'futures15m_alarm'
+          for payload,target in [('v93_MainActivity.gz.b64',root/'MainActivity.java'),('v93_MonitorService.gz.b64',root/'MonitorService.java')]:
+              target.write_bytes(gzip.decompress(base64.b64decode((srcroot/payload).read_text().strip())))
+          b=build.read_text().replace('versionCode 11','versionCode 12').replace("versionName '9.2.0'","versionName '9.3.0'")
           build.write_text(b)
           PY
 
@@ -83,37 +72,36 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9518a_ui_tr.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9518b_signal_tracking.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9519_prompt_quality.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9520_professional_ui_prompt.py"
 
           python3 - <<'PY'
           from pathlib import Path
-          app = Path('/tmp/futures15m-build/Futures15mAlarm')
-          main = (app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text()
-          mon = (app/'app/src/main/java/com/futuresalarm/app/MonitorService.java').read_text()
-          ana = (app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
-          build = (app/'app/build.gradle').read_text()
-          checks = {
-              'main version marker': 'V9519_VERSION_MARKER v9.5.19' in main,
-              'analysis version': 'v9.5.19' in ana,
-              'decision-quality protocol': 'V9519_DECISION_QUALITY_PROTOCOL' in ana,
-              'CVD real coverage rule': 'GERÇEK ÖRNEKLEM KAPSAMASI' in ana and 'Kapsama <5 dk' in ana,
-              'late-entry invalidation': 'Fiyat STOP tarafına geçmişse ilgili senaryo GEÇERSİZDIR' in ana,
-              'risk/reward filter': 'TP1 en az 1.0R ve TP2 en az 1.5R' in ana,
-              'confidence calibration': '80-100 yalnız temiz çoklu zaman dilimi uyumu' in ana,
-              'completed candle label': 'SON TAMAMLANMIŞ KAPANIŞ C' in ana,
-              'fresh signal gate': 'v9517FreshSignalEligible' in mon,
-              'stable flow': 'v9517StableFlow' in mon and mon.count('v9517StableFlow(p.symbol') >= 4,
-              'signal tracking': 'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
-              'Turkish signal reason': 'SİNYAL NEDENİ:' in mon,
-              'version': 'versionCode 33' in build and "versionName '9.5.19'" in build,
+          app=Path('/tmp/futures15m-build/Futures15mAlarm')
+          main=(app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text()
+          mon=(app/'app/src/main/java/com/futuresalarm/app/MonitorService.java').read_text()
+          ana=(app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
+          build=(app/'app/build.gradle').read_text()
+          checks={
+            'main v9.5.20':'V9520_MAIN_PRO_UI v9.5.20' in main,
+            'professional action copy':'PLAN KODU\\nYapıştır veya güncelle' in main and 'ANALİZ PAKETİ\\n4 zaman dilimi • güncel mumlar' in main,
+            'button typography':'android.text.style.RelativeSizeSpan' in main,
+            'prompt v9.5.20':'V9520_PROMPT_PRECISION v9.5.20' in ana,
+            '15m trigger clarification':'Gerçek işlem tetik teyidi yalnız TAMAMLANMIŞ 15m mum kapanışından gelebilir' in ana,
+            'HTF closed-candle direction':'TAMAMLANMIŞ 1H/4H/1D mumları üst zaman dilimi yön ve yapı teyidinde kullan' in ana,
+            '15m PD weighting':'15m prim/iskonto konumu yalnız yerel giriş zamanlamasıdır' in ana,
+            'CVD coverage':'GERÇEK ÖRNEKLEM KAPSAMASI' in ana and 'Kapsama <5 dk' in ana,
+            'Turkish structure':'v9520YapiMetni(StructureEngine.analyzeAll(data))' in ana,
+            'fresh signal gate':'v9517FreshSignalEligible' in mon,
+            'stable flow':'v9517StableFlow' in mon and mon.count('v9517StableFlow(p.symbol')>=4,
+            'signal tracking':'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
+            'version':'versionCode 34' in build and "versionName '9.5.20'" in build,
           }
-          print('--- Final v9.5.19 checks ---')
-          for k,v in checks.items(): print(('OK   ' if v else 'FAIL '), k)
-          bad = [k for k,v in checks.items() if not v]
-          if bad: raise SystemExit('v9.5.19 sanity check failed: ' + ', '.join(bad))
-          print('Final v9.5.19 sanity checks OK.')
+          print('--- Final v9.5.20 checks ---')
+          for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
+          bad=[k for k,v in checks.items() if not v]
+          if bad: raise SystemExit('v9.5.20 sanity check failed: '+', '.join(bad))
+          print('Final v9.5.20 sanity checks OK.')
           PY
-
-          echo 'Prepare v9.5.19 OK. Proceeding to Android compile.'
 
       - name: Set Android SDK location
         script: |
@@ -127,14 +115,14 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.19 debug APK
+      - name: Build installable v9.5.20 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.19.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.19.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.20.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.20.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.19.apk
+      - Futures15mAlarm-PRO-v9.5.20.apk
