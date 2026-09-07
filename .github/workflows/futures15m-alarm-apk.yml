@@ -1,11 +1,11 @@
-name: Futures 15m Alarm v9.5.19 APK
+name: Futures 15m Alarm v9.5.20 APK
 
 on:
   push:
     branches:
       - futures15m-alarm-public-build
     paths:
-      - 'futures15m_alarm/v9519_prompt_quality.py'
+      - 'futures15m_alarm/v9520_professional_ui_prompt.py'
       - 'codemagic.yaml'
       - '.github/workflows/futures15m-alarm-apk.yml'
   workflow_dispatch:
@@ -37,13 +37,13 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Prepare v9.5.19 source
+      - name: Prepare v9.5.20 source
         shell: bash
         run: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
           python3 - <<'PY'
-          import base64, zipfile
+          import base64,zipfile
           from pathlib import Path
           src=Path('/tmp/Futures15mAlarm-v9-source.b64'); dst=Path('/tmp/Futures15mAlarm-v9-source.zip')
           data=base64.b64decode(src.read_text().strip()); dst.write_bytes(data)
@@ -93,6 +93,7 @@ jobs:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9518a_ui_tr.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9518b_signal_tracking.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9519_prompt_quality.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9520_professional_ui_prompt.py"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -102,20 +103,20 @@ jobs:
           ana=(app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
           build=(app/'app/build.gradle').read_text()
           checks={
-            'main marker':'V9519_VERSION_MARKER v9.5.19' in main,
-            'analysis version':'v9.5.19' in ana,
-            'quality protocol':'V9519_DECISION_QUALITY_PROTOCOL' in ana,
-            'cvd coverage':'GERÇEK ÖRNEKLEM KAPSAMASI' in ana and 'Kapsama <5 dk' in ana,
-            'late entry':'Fiyat STOP tarafına geçmişse ilgili senaryo GEÇERSİZDIR' in ana,
-            'rr filter':'TP1 en az 1.0R ve TP2 en az 1.5R' in ana,
-            'confidence':'80-100 yalnız temiz çoklu zaman dilimi uyumu' in ana,
-            'closed label':'SON TAMAMLANMIŞ KAPANIŞ C' in ana,
+            'main marker':'V9520_MAIN_PRO_UI v9.5.20' in main,
+            'professional UI':'PLAN KODU\\nYapıştır veya güncelle' in main and 'android.text.style.RelativeSizeSpan' in main,
+            'prompt marker':'V9520_PROMPT_PRECISION v9.5.20' in ana,
+            '15m trigger':'Gerçek işlem tetik teyidi yalnız TAMAMLANMIŞ 15m mum kapanışından gelebilir' in ana,
+            'HTF direction':'TAMAMLANMIŞ 1H/4H/1D mumları üst zaman dilimi yön ve yapı teyidinde kullan' in ana,
+            'PD weighting':'15m prim/iskonto konumu yalnız yerel giriş zamanlamasıdır' in ana,
+            'CVD coverage':'GERÇEK ÖRNEKLEM KAPSAMASI' in ana and 'Kapsama <5 dk' in ana,
+            'Turkish structure':'v9520YapiMetni(StructureEngine.analyzeAll(data))' in ana,
             'signal tracking':'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
-            'version': 'versionCode 33' in build and "versionName '9.5.19'" in build,
+            'version':'versionCode 34' in build and "versionName '9.5.20'" in build,
           }
           for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
           bad=[k for k,v in checks.items() if not v]
-          if bad: raise SystemExit('v9.5.19 sanity failed: '+', '.join(bad))
+          if bad: raise SystemExit('v9.5.20 sanity failed: '+', '.join(bad))
           PY
 
       - name: Build debug APK
@@ -127,12 +128,12 @@ jobs:
           cd "$APP"
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Futures15mAlarm-PRO-v9.5.19.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Futures15mAlarm-PRO-v9.5.20.apk"
 
-      - name: Upload v9.5.19 APK
+      - name: Upload v9.5.20 APK
         uses: actions/upload-artifact@v4
         with:
-          name: Futures15mAlarm-PRO-v9.5.19
-          path: Futures15mAlarm-PRO-v9.5.19.apk
+          name: Futures15mAlarm-PRO-v9.5.20
+          path: Futures15mAlarm-PRO-v9.5.20.apk
           if-no-files-found: error
           retention-days: 14
