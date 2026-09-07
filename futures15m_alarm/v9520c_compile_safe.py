@@ -52,6 +52,16 @@ MAIN.write_text(m)
 a=ANALYSIS.read_text()
 a=a.replace('private String v9520YapiMetni(String text)',
             'private static String v9520YapiMetni(String text)')
+
+# v9.5.20b translated the phrase "HTF yapı" to "üst zaman dilimi yapı".
+# v9.5.21's confidence-semantics migration intentionally matches the pre-translation
+# sentence and then replaces the whole paragraph with the newer fully Turkish rule.
+# Restore only this internal migration anchor here; v9.5.21 immediately replaces it.
+confidence_anchor_tr = 'belirsiz üst zaman dilimi yapı varken aşırı güven puanı verme.'
+confidence_anchor_compat = 'belirsiz HTF yapı varken aşırı güven puanı verme.'
+if confidence_anchor_tr in a and 'GÜVEN yalnız ANA KARARIN doğruluğuna duyulan güvendir' not in a:
+    a=a.replace(confidence_anchor_tr, confidence_anchor_compat, 1)
+
 if 'V9520C_COMPILE_SAFE' not in a:
     pos=a.find('\n',a.find('public class '))
     if pos<0: pos=0
@@ -70,8 +80,10 @@ checks=[
  ('private static String v9520YapiMetni(String text)' in ana,'static Turkish structure helper'),
  ('Gerçek işlem tetik teyidi yalnız TAMAMLANMIŞ 15m mum kapanışından gelebilir' in ana,'decision rule retained'),
  ('15m prim/iskonto konumu yalnız yerel giriş zamanlamasıdır' in ana,'PD rule retained'),
+ (confidence_anchor_compat in ana or 'GÜVEN yalnız ANA KARARIN doğruluğuna duyulan güvendir' in ana,
+  'v9.5.21 confidence migration anchor compatible'),
 ]
 for ok,name in checks:
     print(('OK   ' if ok else 'FAIL '),name)
     if not ok: raise SystemExit('v9.5.20c sanity failed: '+name)
-print('v9.5.20c OK: header string escaped + compile-safe UI helper + static presentation helper.')
+print('v9.5.20c OK: header string escaped + compile-safe UI helper + static presentation helper + v9.5.21 confidence anchor compatibility.')
