@@ -77,6 +77,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9521_trade_handoff_logic.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9522a_weighted_ltf.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9522b_api_order.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9522c_api_guard_ui.py"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -90,6 +91,8 @@ workflows:
             'main v9.5.22':'v9.5.22' in main and 'V9522_API_ORDER' in main,
             'secure API storage':'AndroidKeyStore' in main and 'AES/GCM/NoPadding' in main,
             'manual API confirmation':'SON EMİR ONAYI' in main and "EMİRLERİ BINANCE'A GÖNDER" in main,
+            'visible API test':'V9522_VISIBLE_API_TEST' in main,
+            'minimum notional guard':'V9522_MIN_NOTIONAL_GUARD' in main,
             'order endpoints':'/fapi/v1/order' in main and '/fapi/v1/leverage' in main and '/fapi/v1/algoOrder' in main,
             'protective orders':'STOP_MARKET' in main and 'TAKE_PROFIT_MARKET' in main and 'v9522EmergencyClose' in main,
             'weighted flow':'V9522_WEIGHTED_FLOW' in mon and 'support < 22' in mon,
