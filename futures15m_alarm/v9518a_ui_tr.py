@@ -25,7 +25,18 @@ def bounds(src, sig):
     return None if d else (a,b,i)
 
 s=MAIN.read_text()
-s=re.sub(r'15m Futures Alarm PRO v9\.5(?:\.\d+)*','15m Futures Alarm PRO v9.5.18',s)
+# Önceki patch zincirinde sürüm yazımı birkaç farklı biçimde kalabiliyor.
+# Noktalı sürümü doğrudan yükselt; ardından daha genel başlık kalıplarını da düzelt.
+s=s.replace('v9.5.17','v9.5.18')
+s=re.sub(r'15m Futures Alarm PRO\s*[•-]?\s*v9\.5(?:\.\d+)*','15m Futures Alarm PRO v9.5.18',s)
+s=re.sub(r'v9\.5(?:\.\d+)*\s*•\s*MANUEL PRO','v9.5.18  •  MANUEL PRO',s)
+s=re.sub(r'v9\.5(?:\.\d+)*\s+MANUEL PRO çalışma şekli:','v9.5.18 MANUEL PRO çalışma şekli:',s)
+# Sanity kontrolünün ve kaynak incelemesinin sürümü kesin olarak görmesi için zararsız kaynak işareti.
+if 'V9518_MAIN_VERSION_MARKER' not in s:
+    p=s.find('\n', s.find('public class '))
+    if p<0: p=0
+    s=s[:p+1]+'    // V9518_MAIN_VERSION_MARKER v9.5.18\n'+s[p+1:]
+
 s=s.replace('canlı flow','canlı akış').replace('flow filtresi','akış filtresi')
 s=s.replace('reclaim/rejection','geri kazanım/ret').replace('reclaim','geri kazanım').replace('rejection','ret')
 
@@ -157,16 +168,19 @@ if 'private String v9518Turkcelestir(' not in s:
 MAIN.write_text(s)
 
 a=ANALYSIS.read_text()
-a=re.sub(r'ChatGPT ANALİZ PAKETİ • v9\.5(?:\.\d+)*','ChatGPT ANALİZ PAKETİ • v9.5.18',a)
+a=a.replace('v9.5.17','v9.5.18')
+a=re.sub(r'ChatGPT ANALİZ PAKETİ\s*[•-]?\s*v9\.5(?:\.\d+)*','ChatGPT ANALİZ PAKETİ • v9.5.18',a)
 a=re.sub(r'Futures15mAlarmPRO/9\.5(?:\.\d+)*','Futures15mAlarmPRO/9.5.18',a)
 ANALYSIS.write_text(a)
 
 f=MAIN.read_text()
 for ok,msg in [
+    ('v9.5.18' in f,'main version'),
+    ('V9518_MAIN_VERSION_MARKER' in f,'main version marker'),
     ('v9518AddSignalPanel(card, symbol);' in f,'signal panel'),
     ('SİNYAL TAKİBİ' in f and 'Sinyal nedeni:' in f,'tracking UI'),
     ('SON TAMAMLANAN SİNYALLER' in f,'history UI'),
     ('NE BEKLENİYOR?' in f,'waiting label'),
     ('v9518BeklentiDuzelt' in f,'waiting correction')]:
     if not ok: raise SystemExit('v9.5.18a failed: '+msg)
-print('v9.5.18a OK: Turkish UI + clear waiting state + signal/result panel.')
+print('v9.5.18a OK: main version + Turkish UI + clear waiting state + signal/result panel.')
