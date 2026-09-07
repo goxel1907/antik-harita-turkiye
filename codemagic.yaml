@@ -77,6 +77,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9521_trade_handoff_logic.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9521b_ltf_meta_compat.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9522a_weighted_ltf.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9522a2_binance_anchor_compat.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9522b_api_order.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9522c_api_guard_ui.py"
 
