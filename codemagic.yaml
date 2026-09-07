@@ -74,6 +74,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9519_prompt_quality.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9520_professional_ui_prompt.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9520b_turkish_labels.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9520c_compile_safe.py"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -84,10 +85,11 @@ workflows:
           build=(app/'app/build.gradle').read_text()
           checks={
             'main v9.5.20':'V9520_MAIN_PRO_UI v9.5.20' in main,
+            'compile-safe UI':'V9520C_COMPILE_SAFE' in main and 'android.text.style.RelativeSizeSpan' not in main,
             'professional action copy':'PLAN KODU\\nYapıştır veya güncelle' in main and 'ANALİZ PAKETİ\\n4 zaman dilimi • güncel mumlar' in main,
-            'button typography':'android.text.style.RelativeSizeSpan' in main,
             'Turkish main action':'ANA ANALİZ PROMPTU\\nPanoya kopyala' in main,
             'prompt v9.5.20':'V9520_PROMPT_PRECISION v9.5.20' in ana,
+            'static structure helper':'private static String v9520YapiMetni(String text)' in ana,
             '15m trigger clarification':'Gerçek işlem tetik teyidi yalnız TAMAMLANMIŞ 15m mum kapanışından gelebilir' in ana,
             'HTF closed-candle direction':'TAMAMLANMIŞ 1H/4H/1D mumları üst zaman dilimi yön ve yapı teyidinde kullan' in ana,
             '15m PD weighting':'15m prim/iskonto konumu yalnız yerel giriş zamanlamasıdır' in ana,
@@ -120,9 +122,22 @@ workflows:
 
       - name: Build installable v9.5.20 debug APK
         script: |
-          set -e
+          set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          gradle --no-daemon assembleDebug --stacktrace
+          LOG=/tmp/v9520-gradle.log
+          if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
+            echo
+            echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
+            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 80 || true
+            echo '========== HATA ÇEVRESİ =========='
+            FIRST=$(grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types' "$LOG" | head -n 1 | cut -d: -f1 || true)
+            if [ -n "$FIRST" ]; then
+              START=$(( FIRST > 12 ? FIRST-12 : 1 )); END=$(( FIRST+28 )); sed -n "${START},${END}p" "$LOG"
+            else
+              tail -n 120 "$LOG"
+            fi
+            exit 1
+          fi
           test -s app/build/outputs/apk/debug/app-debug.apk
           cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.20.apk"
           ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.20.apk"
