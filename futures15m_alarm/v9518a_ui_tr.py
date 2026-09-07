@@ -3,7 +3,8 @@ import re
 
 APP = Path('/tmp/futures15m-build/Futures15mAlarm')
 MAIN = APP/'app/src/main/java/com/futuresalarm/app/MainActivity.java'
-if not MAIN.exists(): raise SystemExit('v9.5.18a MainActivity missing')
+ANALYSIS = APP/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java'
+if not MAIN.exists() or not ANALYSIS.exists(): raise SystemExit('v9.5.18a UI source missing')
 
 
 def bounds(src, sig):
@@ -154,6 +155,11 @@ if 'private String v9518Turkcelestir(' not in s:
     if p<0: raise SystemExit('v9.5.18a closing brace missing')
     s=s[:p]+helper+'\n'+s[p:]
 MAIN.write_text(s)
+
+a=ANALYSIS.read_text()
+a=re.sub(r'ChatGPT ANALİZ PAKETİ • v9\.5(?:\.\d+)*','ChatGPT ANALİZ PAKETİ • v9.5.18',a)
+a=re.sub(r'Futures15mAlarmPRO/9\.5(?:\.\d+)*','Futures15mAlarmPRO/9.5.18',a)
+ANALYSIS.write_text(a)
 
 f=MAIN.read_text()
 for ok,msg in [
