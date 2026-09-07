@@ -71,6 +71,7 @@ patches=(
   v9524b_manifest_query_fix.py
   v9525a_wait_compat.py
   v9525_dynamic_retest_precision.py
+  v9525d_wait_java_string_fix.py
   v9525b_dynamic_reentry_monitor.py
   v9525c_binance_safe_handoff.py
 )
