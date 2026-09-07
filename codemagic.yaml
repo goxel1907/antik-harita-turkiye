@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.21 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.22 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -35,7 +35,6 @@ workflows:
 
           python3 "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v92_binance_patch.py"
-
           python3 - <<'PY'
           import base64,gzip,os
           from pathlib import Path
@@ -76,6 +75,8 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9520b_turkish_labels.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9520c_compile_safe.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9521_trade_handoff_logic.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9522a_weighted_ltf.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9522b_api_order.py"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -83,28 +84,28 @@ workflows:
           main=(app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text()
           mon=(app/'app/src/main/java/com/futuresalarm/app/MonitorService.java').read_text()
           ana=(app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
+          eng=(app/'app/src/main/java/com/futuresalarm/app/StructureEngine.java').read_text()
           build=(app/'app/build.gradle').read_text()
           checks={
-            'main v9.5.21':'v9.5.21' in main and 'V9521_TRADE_HANDOFF' in main,
-            'compile-safe UI':'V9520C_COMPILE_SAFE' in main and 'android.text.style.RelativeSizeSpan' not in main,
-            'exact Binance Futures':'https://www.binance.com/en/futures/' in main and 'v9521CopyActiveSignalTicket' in main,
-            'manual leverage/margin ticket':'KALDIRAÇ / MARJ' in main and 'EMİR: kullanıcı onayı olmadan açılmaz' in main,
-            'scenario gate':'V9521_SCENARIO_STATUS_GATE' in mon and mon.count('v9521ScenarioAllowed(p.symbol')>=4,
-            'fresh signal gate':'v9517FreshSignalEligible' in mon,
-            'stable flow':'v9517StableFlow' in mon and mon.count('v9517StableFlow(p.symbol')>=4,
+            'main v9.5.22':'v9.5.22' in main and 'V9522_API_ORDER' in main,
+            'secure API storage':'AndroidKeyStore' in main and 'AES/GCM/NoPadding' in main,
+            'manual API confirmation':'SON EMİR ONAYI' in main and "EMİRLERİ BINANCE'A GÖNDER" in main,
+            'order endpoints':'/fapi/v1/order' in main and '/fapi/v1/leverage' in main and '/fapi/v1/algoOrder' in main,
+            'protective orders':'STOP_MARKET' in main and 'TAKE_PROFIT_MARKET' in main and 'v9522EmergencyClose' in main,
+            'weighted flow':'V9522_WEIGHTED_FLOW' in mon and 'support < 22' in mon,
+            'weighted prompt':'V9522_WEIGHTED_DECISION_LTF' in ana and 'YALNIZ DÖRT SERT VETO' in ana,
+            'six timeframes':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in ana,
+            'LTF structure':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in eng,
+            'LTF contract':'ALT ZAMAN DİLİMİ YENİDEN GİRİŞ KURALI' in ana and '5m YENİDEN GİRİŞ' in ana,
             'signal tracking':'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
-            'decision semantics':'V9521_DECISION_SEMANTICS' in ana and 'GÜVEN yalnız ANA KARARIN doğruluğuna duyulan güvendir' in ana,
-            'two stage':'Bu kapanış SENARYO TEYİDİDİR' in ana,
-            'scenario statuses':'LP_DURUM:<UYGUN/BEKLE/GECERSIZ>' in ana and 'SB_DURUM:<UYGUN/BEKLE/GECERSIZ>' in ana,
-            'sequential wait':'yalnız BİR SONRAKİ gerçekleşmemiş şartı' in ana,
-            'directional RR':'LONG için en kötü giriş giriş aralığının ÜST sınırı' in ana,
-            'version':'versionCode 35' in build and "versionName '9.5.21'" in build,
+            'fresh signal':'v9517FreshSignalEligible' in mon,
+            'version':'versionCode 36' in build and "versionName '9.5.22'" in build,
           }
-          print('--- Final v9.5.21 checks ---')
+          print('--- Final v9.5.22 checks ---')
           for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
           bad=[k for k,v in checks.items() if not v]
-          if bad: raise SystemExit('v9.5.21 sanity check failed: '+', '.join(bad))
-          print('Final v9.5.21 sanity checks OK.')
+          if bad: raise SystemExit('v9.5.22 sanity check failed: '+', '.join(bad))
+          print('Final v9.5.22 sanity checks OK.')
           PY
 
       - name: Set Android SDK location
@@ -119,27 +120,27 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.21 debug APK
+      - name: Build installable v9.5.22 debug APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          LOG=/tmp/v9521-gradle.log
+          LOG=/tmp/v9522-gradle.log
           if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
-            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 100 || true
+            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 120 || true
             echo '========== HATA ÇEVRESİ =========='
             FIRST=$(grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types' "$LOG" | head -n 1 | cut -d: -f1 || true)
             if [ -n "$FIRST" ]; then
-              START=$(( FIRST > 14 ? FIRST-14 : 1 )); END=$(( FIRST+34 )); sed -n "${START},${END}p" "$LOG"
+              START=$(( FIRST > 16 ? FIRST-16 : 1 )); END=$(( FIRST+42 )); sed -n "${START},${END}p" "$LOG"
             else
-              tail -n 140 "$LOG"
+              tail -n 160 "$LOG"
             fi
             exit 1
           fi
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.21.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.21.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.22.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.22.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.21.apk
+      - Futures15mAlarm-PRO-v9.5.22.apk
