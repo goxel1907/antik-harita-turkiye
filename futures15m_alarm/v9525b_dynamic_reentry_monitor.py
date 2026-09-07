@@ -283,17 +283,17 @@ if 'private void v9525EvaluateDynamicReentry(' not in m:
             boolean touched=v9525Touch(prev,q,touchPad)||v9525Touch(last,q,touchPad);
             if(!touched) continue;
             java.util.Set<String> fam=new java.util.HashSet<>();
-            int score=0; boolean strong=false; StringBuilder labels=new StringBuilder();
+            int score=0; StringBuilder labels=new StringBuilder();
             double mid=(q.low+q.high)*0.5;
             for(V9525Zone x:z){
                 double xm=(x.low+x.high)*0.5;
                 if(Math.abs(xm-mid)>clusterTol) continue;
-                if(fam.add(x.family)){score+=x.weight;if(x.weight>=3) strong=true;}
+                if(fam.add(x.family)) score+=x.weight;
                 if(labels.length()<180){if(labels.length()>0)labels.append(" + ");labels.append(x.label);}
             }
-            if((strong&&score>=3)||(!strong&&score>=3)){
-                if(score>bestScore){bestScore=score;best=q;bestLabel=labels.toString();}
-            }
+            // One strong family has weight 3; alternatively swing(2)+Fib(1)
+            // or similar independent families can reach the same threshold.
+            if(score>=3 && score>bestScore){bestScore=score;best=q;bestLabel=labels.toString();}
         }
         if(best==null) return r;
         boolean touchedPrev=v9525Touch(prev,best,touchPad);
@@ -415,7 +415,7 @@ MON.write_text(m)
 out=MON.read_text()
 checks=[
     ('V9525B_LIVE_5M_DYNAMIC_REENTRY' in out,'5m dynamic monitor marker'),
-    ('v9525ClosedKlines' in out and 'interval,"5m"' in out,'public 5m closed-kline fetch'),
+    ('v9525ClosedKlines' in out and 'v9525ClosedKlines(p.symbol,"5m",64)' in out,'public 5m closed-kline fetch'),
     ('closeTime>=now' in out,'open candle excluded'),
     ('v9525Recent15mConfirmation' in out and '45L*60L*1000L' in out,'45m 15m-confirmation window'),
     ('v9525AddFvgZones' in out and 'v9525AddObZone' in out and 'v9525AddFibZones' in out and 'v9525AddSwingZone' in out,'structural retest families'),
