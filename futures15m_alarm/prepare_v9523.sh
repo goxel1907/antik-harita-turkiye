@@ -70,6 +70,7 @@ patches=(
   v9524_binance_native_deeplink.py
   v9524b_manifest_query_fix.py
   v9525_dynamic_retest_precision.py
+  v9525b_dynamic_reentry_monitor.py
 )
 for p in "${patches[@]}"; do
   echo "--- patch: $p"
@@ -104,6 +105,11 @@ checks={
   'dynamic structural retest':'V9525_DYNAMIC_STRUCTURAL_RETEST' in ana and 'DİNAMİK RETEST / YENİDEN KABUL KURALI:' in ana,
   'dynamic retest META':'RETEST:<ORIJINAL/5M_FVG/5M_OB/5M_BREAKER/5M_FIB/5M_SWING/KARMA/NONE>' in ana,
   'dynamic retest map':'V9525_DYNAMIC_RETEST_MAP' in eng and 'Dinamik Retest Adayları' in eng,
+  'live 5m dynamic monitor':'V9525B_LIVE_5M_DYNAMIC_REENTRY' in mon and 'v9525EvaluateDynamicReentry' in mon,
+  '5m structural families':'v9525AddFvgZones' in mon and 'v9525AddObZone' in mon and 'v9525AddFibZones' in mon and 'v9525AddSwingZone' in mon,
+  '5m no-open-candle':'closeTime>=now' in mon and 'age>90000L' in mon,
+  '5m no-chase and RR':'1.0035' in mon and '(t1-live)/risk<1.0' in mon and '(live-t1)/risk<1.0' in mon,
+  'dynamic signal reasons':'LONG DİNAMİK RETEST' in mon and 'SHORT DİNAMİK RETEST' in mon and 'orijinal giriş kovalanmadı' in mon,
   'original 15m reclaim retained':'closed.close >= p.pullbackHigh' in mon and 'closed.close <= p.resistanceLow' in mon,
   'six timeframes':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in ana,
   'LTF structure':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in eng,
