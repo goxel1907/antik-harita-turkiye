@@ -69,6 +69,7 @@ patches=(
   v9523_profit_target_precision.py
   v9524_binance_native_deeplink.py
   v9524b_manifest_query_fix.py
+  v9525_dynamic_retest_precision.py
 )
 for p in "${patches[@]}"; do
   echo "--- patch: $p"
@@ -86,7 +87,7 @@ manifest=(app/'app/src/main/AndroidManifest.xml').read_text()
 build=(app/'app/build.gradle').read_text()
 root=manifest.find('<manifest'); q=manifest.find('<queries>', root); ap=manifest.find('<application', root)
 checks={
-  'main v9.5.24':'V9524_NATIVE_BINANCE_APP' in main,
+  'main v9.5.25':'v9.5.25' in main,
   'native Binance Futures deep link':'binance://futures/trade?symbol=' in main and 'com.binance.dev' in main,
   'native Binance fallback':'v9524LaunchBinanceHome' in main and 'Binance uygulaması bulunamadı' in main,
   'Binance package visibility':'<package android:name="com.binance.dev" />' in manifest and q > root and (ap < 0 or q < ap),
@@ -100,15 +101,19 @@ checks={
   'weighted prompt':'V9522_WEIGHTED_DECISION_LTF' in ana and 'YALNIZ DÖRT SERT VETO' in ana,
   'chart-data crosscheck':'GRAFİK/VERİ ÇAPRAZ DOĞRULAMA:' in ana,
   'target quality':'KÂR POTANSİYELİ KURALI:' in ana and 'TP AYRIŞMA KURALI:' in ana,
+  'dynamic structural retest':'V9525_DYNAMIC_STRUCTURAL_RETEST' in ana and 'DİNAMİK RETEST / YENİDEN KABUL KURALI:' in ana,
+  'dynamic retest META':'RETEST:<ORIJINAL/5M_FVG/5M_OB/5M_BREAKER/5M_FIB/5M_SWING/KARMA/NONE>' in ana,
+  'dynamic retest map':'V9525_DYNAMIC_RETEST_MAP' in eng and 'Dinamik Retest Adayları' in eng,
+  'original 15m reclaim retained':'closed.close >= p.pullbackHigh' in mon and 'closed.close <= p.resistanceLow' in mon,
   'six timeframes':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in ana,
   'LTF structure':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in eng,
   'signal tracking':'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
   'fresh signal':'v9517FreshSignalEligible' in mon,
-  'version':'versionCode 38' in build and "versionName '9.5.24'" in build,
+  'version':'versionCode 39' in build and "versionName '9.5.25'" in build,
 }
-print('--- Final v9.5.24 checks ---')
+print('--- Final v9.5.25 checks ---')
 for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
 bad=[k for k,v in checks.items() if not v]
-if bad: raise SystemExit('v9.5.24 sanity check failed: '+', '.join(bad))
-print('Final v9.5.24 sanity checks OK.')
+if bad: raise SystemExit('v9.5.25 sanity check failed: '+', '.join(bad))
+print('Final v9.5.25 sanity checks OK.')
 PY
