@@ -92,7 +92,7 @@ build=(app/'app/build.gradle').read_text()
 root=manifest.find('<manifest'); q=manifest.find('<queries>', root); ap=manifest.find('<application', root)
 checks={
   'main v9.5.25':'v9.5.25' in main,
-  'safe Binance Futures handoff':'V9525C_BINANCE_SAFE_HANDOFF' in main and 'https://www.binance.com/en/futures/' in main and 'bnc://app.binance.com/webview/webview' in main,
+  'safe Binance Futures handoff':'V9525C_BINANCE_SAFE_HANDOFF' in main and 'https://www.binance.com/en/futures/' in main and 'bnc://app.binance.com/markets/markets?at=futures' in main and 'bnc://app.binance.com/webview/webview' not in main and 'bnc://app.binance.com/futures/' not in main and 'bnc://app.binance.com/en/futures/' not in main,
   'broken Binance custom URI removed':'binance://futures/trade?symbol=' not in main,
   'native Binance fallback':'v9524LaunchBinanceHome' in main and 'com.binance.dev' in main,
   'Binance package visibility':'<package android:name="com.binance.dev" />' in manifest and q > root and (ap < 0 or q < ap),
