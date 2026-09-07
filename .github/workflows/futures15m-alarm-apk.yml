@@ -1,14 +1,9 @@
-name: Futures 15m Alarm v9.5.20 APK
+name: Futures 15m Alarm v9.5.22 APK
 
 on:
   push:
     branches:
       - futures15m-alarm-public-build
-    paths:
-      - 'futures15m_alarm/v9520_professional_ui_prompt.py'
-      - 'futures15m_alarm/v9520b_turkish_labels.py'
-      - 'codemagic.yaml'
-      - '.github/workflows/futures15m-alarm-apk.yml'
   workflow_dispatch:
 
 permissions:
@@ -38,7 +33,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Prepare v9.5.20 source
+      - name: Prepare v9.5.22 source
         shell: bash
         run: |
           set -euo pipefail
@@ -70,32 +65,19 @@ jobs:
           b=build.read_text().replace('versionCode 11','versionCode 12').replace("versionName '9.2.0'","versionName '9.3.0'")
           build.write_text(b)
           PY
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v94_patch.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v95_pre_anchor.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v95_patch.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v951_import_dialog_fix.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v952_logic_ui_fix.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v953_signal_guard.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v954_reclaim_precision.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v955_ui_icon.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v956_stale_flow_radar.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v957_launcher_cache_fix.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v958_forming_candles.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v959_conditional_scenarios.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9510_plan_parser.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9511_same_chat_external.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9512_chatgpt_launch_fix.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9513_prompt_image_handoff.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9514_java_string_fix.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9515_prompt_dialog_ui.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9516_structure_engine.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9517_fresh_signal_history_hunt.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9517b_flow_stability.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9518a_ui_tr.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9518b_signal_tracking.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9519_prompt_quality.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9520_professional_ui_prompt.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9520b_turkish_labels.py"
+          for patch in \
+            v94_patch.py v95_pre_anchor.py v95_patch.py v951_import_dialog_fix.py \
+            v952_logic_ui_fix.py v953_signal_guard.py v954_reclaim_precision.py v955_ui_icon.py \
+            v956_stale_flow_radar.py v957_launcher_cache_fix.py v958_forming_candles.py \
+            v959_conditional_scenarios.py v9510_plan_parser.py v9511_same_chat_external.py \
+            v9512_chatgpt_launch_fix.py v9513_prompt_image_handoff.py v9514_java_string_fix.py \
+            v9515_prompt_dialog_ui.py v9516_structure_engine.py v9517_fresh_signal_history_hunt.py \
+            v9517b_flow_stability.py v9518a_ui_tr.py v9518b_signal_tracking.py \
+            v9519_prompt_quality.py v9520_professional_ui_prompt.py v9520b_turkish_labels.py \
+            v9520c_compile_safe.py v9521_trade_handoff_logic.py v9522a_weighted_ltf.py \
+            v9522b_api_order.py; do
+              python3 "$CM_BUILD_DIR/futures15m_alarm/$patch"
+          done
 
           python3 - <<'PY'
           from pathlib import Path
@@ -105,39 +87,37 @@ jobs:
           ana=(app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
           build=(app/'app/build.gradle').read_text()
           checks={
-            'main marker':'V9520_MAIN_PRO_UI v9.5.20' in main,
-            'professional UI':'PLAN KODU\\nYapıştır veya güncelle' in main and 'android.text.style.RelativeSizeSpan' in main,
-            'Turkish main action':'ANA ANALİZ PROMPTU\\nPanoya kopyala' in main,
-            'prompt marker':'V9520_PROMPT_PRECISION v9.5.20' in ana,
-            '15m trigger':'Gerçek işlem tetik teyidi yalnız TAMAMLANMIŞ 15m mum kapanışından gelebilir' in ana,
-            'HTF direction':'TAMAMLANMIŞ 1H/4H/1D mumları üst zaman dilimi yön ve yapı teyidinde kullan' in ana,
-            'PD weighting':'15m prim/iskonto konumu yalnız yerel giriş zamanlamasıdır' in ana,
-            'CVD coverage':'GERÇEK ÖRNEKLEM KAPSAMASI' in ana and 'Kapsama <5 dk' in ana,
-            'Turkish structure':'v9520YapiMetni(StructureEngine.analyzeAll(data))' in ana,
-            'Turkish market labels':'İşaret fiyatı:' in ana and 'Fonlama:' in ana and 'Açık pozisyon (OI):' in ana and 'Agresif Alış/Satış:' in ana and 'HACİM' in ana,
-            'signal tracking':'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
-            'version':'versionCode 34' in build and "versionName '9.5.20'" in build,
+            'API':'V9522_API_ORDER' in main and 'AndroidKeyStore' in main,
+            'manual confirm':'SON EMİR ONAYI' in main,
+            'weighted':'V9522_WEIGHTED_FLOW' in mon and 'V9522_WEIGHTED_DECISION_LTF' in ana,
+            'LTF':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in ana,
+            'version':'versionCode 36' in build and "versionName '9.5.22'" in build,
           }
-          for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
+          for k,v in checks.items(): print(('OK   ' if v else 'FAIL '), k)
           bad=[k for k,v in checks.items() if not v]
-          if bad: raise SystemExit('v9.5.20 sanity failed: '+', '.join(bad))
+          if bad: raise SystemExit('v9.5.22 sanity failed: '+', '.join(bad))
           PY
 
       - name: Build debug APK
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           APP=/tmp/futures15m-build/Futures15mAlarm
           echo "sdk.dir=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" > "$APP/local.properties"
           cd "$APP"
-          gradle --no-daemon assembleDebug --stacktrace
+          LOG=/tmp/v9522-gh-gradle.log
+          if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
+            echo '========== GERÇEK DERLEME HATASI =========='
+            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 120 || true
+            exit 1
+          fi
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Futures15mAlarm-PRO-v9.5.20.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Futures15mAlarm-PRO-v9.5.22.apk"
 
-      - name: Upload v9.5.20 APK
+      - name: Upload v9.5.22 APK
         uses: actions/upload-artifact@v4
         with:
-          name: Futures15mAlarm-PRO-v9.5.20
-          path: Futures15mAlarm-PRO-v9.5.20.apk
+          name: Futures15mAlarm-PRO-v9.5.22
+          path: Futures15mAlarm-PRO-v9.5.22.apk
           if-no-files-found: error
           retention-days: 14
