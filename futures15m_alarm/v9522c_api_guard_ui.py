@@ -63,3 +63,7 @@ for ok,name in checks:
  print(('OK   ' if ok else 'FAIL '),name)
  if not ok: raise SystemExit('v9.5.22c sanity failed: '+name)
 print('v9.5.22c OK: min-notional guard + explicit API test + corrected deviation display.')
+
+# v9.5.22d: distinguish a genuinely bad API from FAPI/Portfolio/Spot/IP mode mismatch.
+import runpy
+runpy.run_path(str(Path(__file__).with_name('v9523_api_diagnostics.py')), run_name='__main__')
