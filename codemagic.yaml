@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.18 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.19 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -42,9 +42,6 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v91_patch.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v92_binance_patch.py"
 
-          APP=/tmp/futures15m-build/Futures15mAlarm
-          JAVA="$APP/app/src/main/java/com/futuresalarm/app"
-
           python3 - <<'PY'
           import base64, gzip, os
           from pathlib import Path
@@ -60,7 +57,6 @@ workflows:
           b = b.replace('versionCode 11', 'versionCode 12')
           b = b.replace("versionName '9.2.0'", "versionName '9.3.0'")
           build.write_text(b)
-          print('v9.3 live confirmation sources restored.')
           PY
 
           python3 "$CM_BUILD_DIR/futures15m_alarm/v94_patch.py"
@@ -86,69 +82,38 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9517b_flow_stability.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9518a_ui_tr.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9518b_signal_tracking.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9519_prompt_quality.py"
 
           python3 - <<'PY'
           from pathlib import Path
-
           app = Path('/tmp/futures15m-build/Futures15mAlarm')
-          main_p = app/'app/src/main/java/com/futuresalarm/app/MainActivity.java'
-          mon_p = app/'app/src/main/java/com/futuresalarm/app/MonitorService.java'
-          ana_p = app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java'
-          eng_p = app/'app/src/main/java/com/futuresalarm/app/StructureEngine.java'
-          build_p = app/'app/build.gradle'
-          required_files = [app/'settings.gradle', build_p, main_p, mon_p, ana_p, eng_p]
-
-          print('--- Final v9.5.18 file diagnostics ---')
-          missing = []
-          for p in required_files:
-              exists = p.exists()
-              size = p.stat().st_size if exists and p.is_file() else -1
-              print(('OK   ' if exists and size > 0 else 'MISS '), p, 'size=', size)
-              if not exists or size <= 0:
-                  missing.append(str(p))
-          if missing:
-              raise SystemExit('Final required file(s) missing/empty: ' + ', '.join(missing))
-
-          main = main_p.read_text()
-          monitor = mon_p.read_text()
-          analysis = ana_p.read_text()
-          engine = eng_p.read_text()
-          build = build_p.read_text()
-          required = {
-              'main version': 'v9.5.18' in main,
-              'analysis version': 'v9.5.18' in analysis,
-              'visible prompt dialog': 'V9515_VISIBLE_PROMPT_DIALOG' in analysis,
-              'structure-first protocol': 'V9516_STRUCTURE_FIRST_PROTOCOL' in analysis,
-              'structure calculation': 'StructureEngine.analyzeAll(candles)' in analysis,
-              'structure persistence': 'v9516_structure_' in analysis,
-              'main structure panel': 'v9516AddStructurePanel' in main,
-              'fresh plan arm': 'v9517_plan_armed_' in main,
-              'fresh signal gate': 'v9517FreshSignalEligible' in monitor,
-              'stable flow gate': 'v9517StableFlow' in monitor and monitor.count('v9517StableFlow(p.symbol') >= 4,
-              'deeper history': 'v9517HistoryLimit' in analysis and 'return 320' in analysis,
-              'history prompt': 'Hesaplama geçmişi:' in analysis,
-              'engine swings': 'class StructureEngine' in engine and 'equalLevel' in engine,
-              'engine fvg': 'gapState' in engine,
-              'engine order block': 'obState' in engine,
-              'hunt map': 'Stop/Likidite Av Haritası' in engine and 'huntMap' in engine,
-              'signal journal': 'v9518RecordSignal' in monitor and 'v9518UpdateSignalResult' in monitor,
-              'turkish signal reason': 'SİNYAL NEDENİ:' in monitor and 'canlı akış iki ardışık kontrolde uygun bulundu' in monitor,
-              'signal result states': 'KÂR İLE KAPANDI - TP3' in monitor and 'ZARAR İLE KAPANDI - STOP' in monitor,
-              'signal tracking panel': 'SİNYAL TAKİBİ' in main and 'SON TAMAMLANAN SİNYALLER' in main,
-              'clear waiting label': 'NE BEKLENİYOR?' in main,
-              'versionCode': 'versionCode 32' in build,
-              'versionName': "versionName '9.5.18'" in build,
+          main = (app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text()
+          mon = (app/'app/src/main/java/com/futuresalarm/app/MonitorService.java').read_text()
+          ana = (app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
+          build = (app/'app/build.gradle').read_text()
+          checks = {
+              'main version marker': 'V9519_VERSION_MARKER v9.5.19' in main,
+              'analysis version': 'v9.5.19' in ana,
+              'decision-quality protocol': 'V9519_DECISION_QUALITY_PROTOCOL' in ana,
+              'CVD real coverage rule': 'GERÇEK ÖRNEKLEM KAPSAMASI' in ana and 'Kapsama <5 dk' in ana,
+              'late-entry invalidation': 'Fiyat STOP tarafına geçmişse ilgili senaryo GEÇERSİZDIR' in ana,
+              'risk/reward filter': 'TP1 en az 1.0R ve TP2 en az 1.5R' in ana,
+              'confidence calibration': '80-100 yalnız temiz çoklu zaman dilimi uyumu' in ana,
+              'completed candle label': 'SON TAMAMLANMIŞ KAPANIŞ C' in ana,
+              'fresh signal gate': 'v9517FreshSignalEligible' in mon,
+              'stable flow': 'v9517StableFlow' in mon and mon.count('v9517StableFlow(p.symbol') >= 4,
+              'signal tracking': 'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
+              'Turkish signal reason': 'SİNYAL NEDENİ:' in mon,
+              'version': 'versionCode 33' in build and "versionName '9.5.19'" in build,
           }
-          print('--- Final v9.5.18 feature diagnostics ---')
-          for name, ok in required.items():
-              print(('OK   ' if ok else 'FAIL '), name)
-          bad = [name for name, ok in required.items() if not ok]
-          if bad:
-              raise SystemExit('Final v9.5.18 sanity check failed: ' + ', '.join(bad))
-          print('Final v9.5.18 sanity checks OK.')
+          print('--- Final v9.5.19 checks ---')
+          for k,v in checks.items(): print(('OK   ' if v else 'FAIL '), k)
+          bad = [k for k,v in checks.items() if not v]
+          if bad: raise SystemExit('v9.5.19 sanity check failed: ' + ', '.join(bad))
+          print('Final v9.5.19 sanity checks OK.')
           PY
 
-          echo 'Prepare v9.5.18 OK. Proceeding to Android compile.'
+          echo 'Prepare v9.5.19 OK. Proceeding to Android compile.'
 
       - name: Set Android SDK location
         script: |
@@ -162,14 +127,14 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.18 debug APK
+      - name: Build installable v9.5.19 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.18.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.18.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.19.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.19.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.18.apk
+      - Futures15mAlarm-PRO-v9.5.19.apk
