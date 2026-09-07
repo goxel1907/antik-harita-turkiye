@@ -69,8 +69,10 @@ patches=(
   v9523_profit_target_precision.py
   v9524_binance_native_deeplink.py
   v9524b_manifest_query_fix.py
+  v9525a_wait_compat.py
   v9525_dynamic_retest_precision.py
   v9525b_dynamic_reentry_monitor.py
+  v9525c_binance_safe_handoff.py
 )
 for p in "${patches[@]}"; do
   echo "--- patch: $p"
@@ -89,8 +91,9 @@ build=(app/'app/build.gradle').read_text()
 root=manifest.find('<manifest'); q=manifest.find('<queries>', root); ap=manifest.find('<application', root)
 checks={
   'main v9.5.25':'v9.5.25' in main,
-  'native Binance Futures deep link':'binance://futures/trade?symbol=' in main and 'com.binance.dev' in main,
-  'native Binance fallback':'v9524LaunchBinanceHome' in main and 'Binance uygulaması bulunamadı' in main,
+  'safe Binance Futures handoff':'V9525C_BINANCE_SAFE_HANDOFF' in main and 'https://www.binance.com/en/futures/' in main and 'bnc://app.binance.com/webview/webview' in main,
+  'broken Binance custom URI removed':'binance://futures/trade?symbol=' not in main,
+  'native Binance fallback':'v9524LaunchBinanceHome' in main and 'com.binance.dev' in main,
   'Binance package visibility':'<package android:name="com.binance.dev" />' in manifest and q > root and (ap < 0 or q < ap),
   'secure API storage':'AndroidKeyStore' in main and 'AES/GCM/NoPadding' in main,
   'API diagnostics':'V9523_API_DIAGNOSTICS' in main and '/fapi/v1/accountConfig' in main,
