@@ -48,8 +48,37 @@ else:
 
 MAIN.write_text(m)
 out = MAIN.read_text()
+
+# Re-run the exact legacy scanner contract used at the top of v9.5.22b.
+# This catches the previous false-positive sanity result before v9.5.22b runs.
+def legacy_method_bounds(src, signature):
+    a = src.find(signature)
+    if a < 0: return None
+    b = src.find('{', a)
+    if b < 0: return None
+    depth = 1; i = b + 1; quote = False; char_quote = False; esc = False
+    while i < len(src) and depth:
+        c = src[i]
+        if quote:
+            if esc: esc = False
+            elif c == '\\': esc = True
+            elif c == '"': quote = False
+        elif char_quote:
+            if esc: esc = False
+            elif c == '\\': esc = True
+            elif c == "'": char_quote = False
+        else:
+            if c == '"': quote = True
+            elif c == "'": char_quote = True
+            elif c == '{': depth += 1
+            elif c == '}': depth -= 1
+        i += 1
+    return None if depth else (a, b, i)
+
+legacy_ok = legacy_method_bounds(out, '    private void openBinanceFutures(String symbol) ') is not None
 checks = [
     ('    private void openBinanceFutures(String symbol) {' in out, 'parser-safe openBinanceFutures bridge'),
+    (legacy_ok, 'v9.5.22b legacy scanner can parse bridge'),
     ('V9521_TRADE_HANDOFF' in out, 'v9.5.21 handoff retained'),
     ('https://www.binance.com/en/futures/' in out, 'exact Futures URL retained'),
 ]
@@ -57,4 +86,4 @@ for ok, name in checks:
     print(('OK   ' if ok else 'FAIL '), name)
     if not ok:
         raise SystemExit('v9.5.22a2 compatibility failed: ' + name)
-print('v9.5.22a2 OK: parser-safe Binance handoff bridge prepared for v9.5.22b.')
+print('v9.5.22a2 OK: parser-safe Binance handoff bridge verified for v9.5.22b.')
