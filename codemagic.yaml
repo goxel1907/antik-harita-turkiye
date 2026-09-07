@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.24 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.25 MANUAL PRO source
         script: |
           bash "$CM_BUILD_DIR/futures15m_alarm/prepare_v9523.sh"
 
@@ -29,11 +29,11 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.24 debug APK
+      - name: Build installable v9.5.25 debug APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          LOG=/tmp/v9524-gradle.log
+          LOG=/tmp/v9525-gradle.log
           if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
@@ -48,8 +48,8 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.24.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.24.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.25.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.25.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.24.apk
+      - Futures15mAlarm-PRO-v9.5.25.apk
