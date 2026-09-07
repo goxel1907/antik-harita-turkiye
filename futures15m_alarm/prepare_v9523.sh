@@ -67,6 +67,7 @@ patches=(
   v9522b_api_order.py
   v9522c_api_guard_ui.py
   v9523_profit_target_precision.py
+  v9524_binance_native_deeplink.py
 )
 for p in "${patches[@]}"; do
   echo "--- patch: $p"
@@ -80,9 +81,13 @@ main=(app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text(
 mon=(app/'app/src/main/java/com/futuresalarm/app/MonitorService.java').read_text()
 ana=(app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
 eng=(app/'app/src/main/java/com/futuresalarm/app/StructureEngine.java').read_text()
+manifest=(app/'app/src/main/AndroidManifest.xml').read_text()
 build=(app/'app/build.gradle').read_text()
 checks={
-  'main v9.5.23':'V9523_PROFIT_TARGET_PNL' in main,
+  'main v9.5.24':'V9524_NATIVE_BINANCE_APP' in main,
+  'native Binance Futures deep link':'binance://futures/trade?symbol=' in main and 'com.binance.dev' in main,
+  'native Binance fallback':'v9524LaunchBinanceHome' in main and 'Binance uygulaması bulunamadı' in main,
+  'Binance package visibility':'<package android:name="com.binance.dev" />' in manifest,
   'secure API storage':'AndroidKeyStore' in main and 'AES/GCM/NoPadding' in main,
   'API diagnostics':'V9523_API_DIAGNOSTICS' in main and '/fapi/v1/accountConfig' in main,
   'manual API confirmation':'SON EMİR ONAYI • RİSK / KÂR' in main and "EMİRLERİ BINANCE'A GÖNDER" in main,
@@ -97,11 +102,11 @@ checks={
   'LTF structure':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in eng,
   'signal tracking':'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
   'fresh signal':'v9517FreshSignalEligible' in mon,
-  'version':'versionCode 37' in build and "versionName '9.5.23'" in build,
+  'version':'versionCode 38' in build and "versionName '9.5.24'" in build,
 }
-print('--- Final v9.5.23 checks ---')
+print('--- Final v9.5.24 checks ---')
 for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
 bad=[k for k,v in checks.items() if not v]
-if bad: raise SystemExit('v9.5.23 sanity check failed: '+', '.join(bad))
-print('Final v9.5.23 sanity checks OK.')
+if bad: raise SystemExit('v9.5.24 sanity check failed: '+', '.join(bad))
+print('Final v9.5.24 sanity checks OK.')
 PY
