@@ -25,4 +25,27 @@ ANALYSIS.write_text(a)
 out = ANALYSIS.read_text()
 if needle not in out:
     raise SystemExit('v9.5.25a WAIT compatibility insertion failed')
-print('v9.5.25a OK: canonical WAIT rule is present for the dynamic-retest patch.')
+
+# v9525_dynamic_retest_precision.py inserts the canonical no-double-counting
+# sentence with the wording "tek YAPI ailesinin kuvveti", but its fail-fast
+# check accidentally looked for "aynı YAPI ailesinin kuvveti". That makes a
+# correct prompt fail before Java/Gradle even starts. Patch only the checker;
+# do not duplicate or weaken the actual decision rule in the MASTER prompt.
+downstream = Path(__file__).with_name('v9525_dynamic_retest_precision.py')
+if not downstream.exists():
+    raise SystemExit('v9.5.25a downstream dynamic-retest patch missing')
+
+s = downstream.read_text()
+old_check = "('aynı YAPI ailesinin kuvveti' in af and 'CANLI AKIŞ ailesidir' in af, 'no double-counting rule'),"
+new_check = "('RETEST KÜMELEME / ÇİFTE SAYMAMA:' in af and 'tek YAPI ailesinin kuvveti' in af and 'CANLI AKIŞ ailesidir' in af, 'no double-counting rule'),"
+if old_check in s:
+    s = s.replace(old_check, new_check, 1)
+elif new_check not in s:
+    raise SystemExit('v9.5.25a no-double-counting sanity anchor missing')
+downstream.write_text(s)
+
+verify = downstream.read_text()
+if new_check not in verify:
+    raise SystemExit('v9.5.25a no-double-counting sanity compatibility failed')
+
+print('v9.5.25a OK: canonical WAIT rule present; dynamic-retest no-double-counting sanity check aligned with the actual prompt wording.')
