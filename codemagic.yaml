@@ -73,6 +73,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9518b_signal_tracking.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9519_prompt_quality.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9520_professional_ui_prompt.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9520b_turkish_labels.py"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -85,12 +86,14 @@ workflows:
             'main v9.5.20':'V9520_MAIN_PRO_UI v9.5.20' in main,
             'professional action copy':'PLAN KODU\\nYapıştır veya güncelle' in main and 'ANALİZ PAKETİ\\n4 zaman dilimi • güncel mumlar' in main,
             'button typography':'android.text.style.RelativeSizeSpan' in main,
+            'Turkish main action':'ANA ANALİZ PROMPTU\\nPanoya kopyala' in main,
             'prompt v9.5.20':'V9520_PROMPT_PRECISION v9.5.20' in ana,
             '15m trigger clarification':'Gerçek işlem tetik teyidi yalnız TAMAMLANMIŞ 15m mum kapanışından gelebilir' in ana,
             'HTF closed-candle direction':'TAMAMLANMIŞ 1H/4H/1D mumları üst zaman dilimi yön ve yapı teyidinde kullan' in ana,
             '15m PD weighting':'15m prim/iskonto konumu yalnız yerel giriş zamanlamasıdır' in ana,
             'CVD coverage':'GERÇEK ÖRNEKLEM KAPSAMASI' in ana and 'Kapsama <5 dk' in ana,
             'Turkish structure':'v9520YapiMetni(StructureEngine.analyzeAll(data))' in ana,
+            'Turkish market labels':'İşaret fiyatı:' in ana and 'Fonlama:' in ana and 'Açık pozisyon (OI):' in ana and 'Agresif Alış/Satış:' in ana and 'HACİM' in ana,
             'fresh signal gate':'v9517FreshSignalEligible' in mon,
             'stable flow':'v9517StableFlow' in mon and mon.count('v9517StableFlow(p.symbol')>=4,
             'signal tracking':'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
