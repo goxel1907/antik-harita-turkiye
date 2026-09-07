@@ -68,6 +68,7 @@ patches=(
   v9522c_api_guard_ui.py
   v9523_profit_target_precision.py
   v9524_binance_native_deeplink.py
+  v9524b_manifest_query_fix.py
 )
 for p in "${patches[@]}"; do
   echo "--- patch: $p"
@@ -83,11 +84,12 @@ ana=(app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').rea
 eng=(app/'app/src/main/java/com/futuresalarm/app/StructureEngine.java').read_text()
 manifest=(app/'app/src/main/AndroidManifest.xml').read_text()
 build=(app/'app/build.gradle').read_text()
+root=manifest.find('<manifest'); q=manifest.find('<queries>', root); ap=manifest.find('<application', root)
 checks={
   'main v9.5.24':'V9524_NATIVE_BINANCE_APP' in main,
   'native Binance Futures deep link':'binance://futures/trade?symbol=' in main and 'com.binance.dev' in main,
   'native Binance fallback':'v9524LaunchBinanceHome' in main and 'Binance uygulaması bulunamadı' in main,
-  'Binance package visibility':'<package android:name="com.binance.dev" />' in manifest,
+  'Binance package visibility':'<package android:name="com.binance.dev" />' in manifest and q > root and (ap < 0 or q < ap),
   'secure API storage':'AndroidKeyStore' in main and 'AES/GCM/NoPadding' in main,
   'API diagnostics':'V9523_API_DIAGNOSTICS' in main and '/fapi/v1/accountConfig' in main,
   'manual API confirmation':'SON EMİR ONAYI • RİSK / KÂR' in main and "EMİRLERİ BINANCE'A GÖNDER" in main,
