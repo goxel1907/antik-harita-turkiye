@@ -13,7 +13,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.17 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.18 MANUAL PRO source
         script: |
           set -euo pipefail
           cat futures15m_alarm/v9.part00.b64 futures15m_alarm/v9.part01.b64 futures15m_alarm/v9.fix02a.b64 futures15m_alarm/v9.fix02b.b64 futures15m_alarm/v9.part03.b64 futures15m_alarm/v9.part04.b64 > /tmp/Futures15mAlarm-v9-source.b64
@@ -84,6 +84,8 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9516_structure_engine.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9517_fresh_signal_history_hunt.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9517b_flow_stability.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9518a_ui_tr.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9518b_signal_tracking.py"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -96,7 +98,7 @@ workflows:
           build_p = app/'app/build.gradle'
           required_files = [app/'settings.gradle', build_p, main_p, mon_p, ana_p, eng_p]
 
-          print('--- Final v9.5.17 file diagnostics ---')
+          print('--- Final v9.5.18 file diagnostics ---')
           missing = []
           for p in required_files:
               exists = p.exists()
@@ -113,8 +115,8 @@ workflows:
           engine = eng_p.read_text()
           build = build_p.read_text()
           required = {
-              'main version': 'v9.5.17' in main,
-              'analysis version': 'v9.5.17' in analysis,
+              'main version': 'v9.5.18' in main,
+              'analysis version': 'v9.5.18' in analysis,
               'visible prompt dialog': 'V9515_VISIBLE_PROMPT_DIALOG' in analysis,
               'structure-first protocol': 'V9516_STRUCTURE_FIRST_PROTOCOL' in analysis,
               'structure calculation': 'StructureEngine.analyzeAll(candles)' in analysis,
@@ -129,19 +131,24 @@ workflows:
               'engine fvg': 'gapState' in engine,
               'engine order block': 'obState' in engine,
               'hunt map': 'Stop/Likidite Av Haritası' in engine and 'huntMap' in engine,
-              'versionCode': 'versionCode 31' in build,
-              'versionName': "versionName '9.5.17'" in build,
+              'signal journal': 'v9518RecordSignal' in monitor and 'v9518UpdateSignalResult' in monitor,
+              'turkish signal reason': 'SİNYAL NEDENİ:' in monitor and 'canlı akış iki ardışık kontrolde uygun bulundu' in monitor,
+              'signal result states': 'KÂR İLE KAPANDI - TP3' in monitor and 'ZARAR İLE KAPANDI - STOP' in monitor,
+              'signal tracking panel': 'SİNYAL TAKİBİ' in main and 'SON TAMAMLANAN SİNYALLER' in main,
+              'clear waiting label': 'NE BEKLENİYOR?' in main,
+              'versionCode': 'versionCode 32' in build,
+              'versionName': "versionName '9.5.18'" in build,
           }
-          print('--- Final v9.5.17 feature diagnostics ---')
+          print('--- Final v9.5.18 feature diagnostics ---')
           for name, ok in required.items():
               print(('OK   ' if ok else 'FAIL '), name)
           bad = [name for name, ok in required.items() if not ok]
           if bad:
-              raise SystemExit('Final v9.5.17 sanity check failed: ' + ', '.join(bad))
-          print('Final v9.5.17 sanity checks OK.')
+              raise SystemExit('Final v9.5.18 sanity check failed: ' + ', '.join(bad))
+          print('Final v9.5.18 sanity checks OK.')
           PY
 
-          echo 'Prepare v9.5.17 OK. Proceeding to Android compile.'
+          echo 'Prepare v9.5.18 OK. Proceeding to Android compile.'
 
       - name: Set Android SDK location
         script: |
@@ -155,14 +162,14 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.17 debug APK
+      - name: Build installable v9.5.18 debug APK
         script: |
           set -e
           cd /tmp/futures15m-build/Futures15mAlarm
           gradle --no-daemon assembleDebug --stacktrace
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.17.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.17.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.18.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.18.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.17.apk
+      - Futures15mAlarm-PRO-v9.5.18.apk
