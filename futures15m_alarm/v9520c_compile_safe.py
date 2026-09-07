@@ -11,6 +11,18 @@ for p in (MAIN,ANALYSIS):
 # Keep the v9.5.20 visual copy, but return the shared button helper to the
 # simple, already-proven implementation family used by earlier successful builds.
 m=MAIN.read_text()
+
+# v9.5.20 professional header originally inserted a real line break inside a
+# Java string literal. That makes the following bullet characters parse as Java
+# source and causes the cascade: unclosed string / illegal character / not a statement.
+# Convert that physical newline to a Java \n escape before javac sees the file.
+broken_header = ('Binance herkese açık veri' + chr(10) +
+                 '15 sn izleme • tamamlanmış 15 dk teyidi • otomatik emir yok')
+escaped_header = ('Binance herkese açık veri' + chr(92) + 'n' +
+                  '15 sn izleme • tamamlanmış 15 dk teyidi • otomatik emir yok')
+if broken_header in m:
+    m=m.replace(broken_header, escaped_header)
+
 btn=re.search(r'    private Button button\(String label, int color\) \{.*?\n    \}',m,re.S)
 if not btn: raise SystemExit('v9.5.20c button helper missing')
 new_btn='''    private Button button(String label, int color) {
@@ -46,10 +58,13 @@ if 'V9520C_COMPILE_SAFE' not in a:
     a=a[:pos+1]+'    // V9520C_COMPILE_SAFE\n'+a[pos+1:]
 ANALYSIS.write_text(a)
 
-# Source-level checks. These catch accidental malformed Java before Gradle starts.
+# Source-level checks. These catch this exact malformed-string regression during
+# preparation, before the Gradle compile stage.
 main=MAIN.read_text(); ana=ANALYSIS.read_text()
 checks=[
  ('V9520C_COMPILE_SAFE' in main,'main compile-safe marker'),
+ (broken_header not in main,'no physical newline inside professional header string'),
+ (escaped_header in main,'professional header uses Java newline escape'),
  ('android.text.style.RelativeSizeSpan' not in main,'risky span helper removed'),
  ('b.setText(label);' in main and 'b.setMaxLines(2);' in main,'simple two-line button helper'),
  ('private static String v9520YapiMetni(String text)' in ana,'static Turkish structure helper'),
@@ -59,4 +74,4 @@ checks=[
 for ok,name in checks:
     print(('OK   ' if ok else 'FAIL '),name)
     if not ok: raise SystemExit('v9.5.20c sanity failed: '+name)
-print('v9.5.20c OK: compile-safe UI helper + static presentation helper.')
+print('v9.5.20c OK: header string escaped + compile-safe UI helper + static presentation helper.')
