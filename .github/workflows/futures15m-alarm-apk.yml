@@ -37,6 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
           bash "$CM_BUILD_DIR/futures15m_alarm/prepare_v9523.sh"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9527_trade_dashboard_reconcile.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9528_exact_margin.py"
