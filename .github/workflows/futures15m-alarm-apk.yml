@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.27 APK
+name: Futures 15m Alarm v9.5.28 APK
 
 on:
   push:
@@ -33,12 +33,13 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Prepare v9.5.27 source
+      - name: Prepare v9.5.28 source
         shell: bash
         run: |
           set -euo pipefail
           bash "$CM_BUILD_DIR/futures15m_alarm/prepare_v9523.sh"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9527_trade_dashboard_reconcile.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9528_exact_margin.py"
 
       - name: Build debug APK
         shell: bash
@@ -47,26 +48,26 @@ jobs:
           APP=/tmp/futures15m-build/Futures15mAlarm
           echo "sdk.dir=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" > "$APP/local.properties"
           cd "$APP"
-          LOG=/tmp/v9527-gh-gradle.log
+          LOG=/tmp/v9528-gh-gradle.log
           if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             echo '========== GERÇEK DERLEME HATASI =========='
-            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 160 || true
+            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 180 || true
             echo '========== HATA ÇEVRESİ =========='
             FIRST=$(grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types' "$LOG" | head -n 1 | cut -d: -f1 || true)
             if [ -n "$FIRST" ]; then
-              START=$(( FIRST > 20 ? FIRST-20 : 1 )); END=$(( FIRST+60 )); sed -n "${START},${END}p" "$LOG"
+              START=$(( FIRST > 20 ? FIRST-20 : 1 )); END=$(( FIRST+70 )); sed -n "${START},${END}p" "$LOG"
             else
-              tail -n 220 "$LOG"
+              tail -n 240 "$LOG"
             fi
             exit 1
           fi
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Futures15mAlarm-PRO-v9.5.27.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Futures15mAlarm-PRO-v9.5.28.apk"
 
-      - name: Upload v9.5.27 APK
+      - name: Upload v9.5.28 APK
         uses: actions/upload-artifact@v4
         with:
-          name: Futures15mAlarm-PRO-v9.5.27
-          path: Futures15mAlarm-PRO-v9.5.27.apk
+          name: Futures15mAlarm-PRO-v9.5.28
+          path: Futures15mAlarm-PRO-v9.5.28.apk
           if-no-files-found: error
           retention-days: 14
