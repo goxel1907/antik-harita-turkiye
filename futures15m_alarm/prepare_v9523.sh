@@ -74,6 +74,7 @@ patches=(
   v9525d_wait_java_string_fix.py
   v9525b_dynamic_reentry_monitor.py
   v9525c_binance_safe_handoff.py
+  v9526_liquidity_liquidation_intel.py
 )
 for p in "${patches[@]}"; do
   echo "--- patch: $p"
@@ -87,11 +88,12 @@ main=(app/'app/src/main/java/com/futuresalarm/app/MainActivity.java').read_text(
 mon=(app/'app/src/main/java/com/futuresalarm/app/MonitorService.java').read_text()
 ana=(app/'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java').read_text()
 eng=(app/'app/src/main/java/com/futuresalarm/app/StructureEngine.java').read_text()
+liq=(app/'app/src/main/java/com/futuresalarm/app/V9526LiquidationFeed.java').read_text()
 manifest=(app/'app/src/main/AndroidManifest.xml').read_text()
 build=(app/'app/build.gradle').read_text()
 root=manifest.find('<manifest'); q=manifest.find('<queries>', root); ap=manifest.find('<application', root)
 checks={
-  'main v9.5.25':'v9.5.25' in main,
+  'main v9.5.26':'v9.5.26' in main,
   'safe Binance Futures handoff':'V9525C_BINANCE_SAFE_HANDOFF' in main and 'https://www.binance.com/en/futures/' in main and 'bnc://app.binance.com/markets/markets?at=futures' in main and 'bnc://app.binance.com/webview/webview' not in main and 'bnc://app.binance.com/futures/' not in main and 'bnc://app.binance.com/en/futures/' not in main,
   'broken Binance custom URI removed':'binance://futures/trade?symbol=' not in main,
   'native Binance fallback':'v9524LaunchBinanceHome' in main and 'com.binance.dev' in main,
@@ -119,11 +121,21 @@ checks={
   'LTF structure':'{"15m", "5m", "3m", "1h", "4h", "1d"}' in eng,
   'signal tracking':'v9518RecordSignal' in mon and 'v9518UpdateSignalResult' in mon,
   'fresh signal':'v9517FreshSignalEligible' in mon,
-  'version':'versionCode 39' in build and "versionName '9.5.25'" in build,
+  'real liquidation websocket':'V9526_LIQUIDATION_SNAPSHOT' in liq and 'wss://fstream.binance.com/ws/' in liq and '@forceOrder' in liq,
+  'liquidation side semantics':'boolean longLiq = "SELL".equals(side)' in liq,
+  'liquidation filled qty semantics':'double z = num(o, "z")' in liq and 'double l = num(o, "l")' in liq and 'double ap = num(o, "ap")' in liq,
+  'liquidation coverage reset':'c.events.clear(); // never bridge an observation gap' in liq,
+  'liquidation snapshot limitation':'tam liquidation tape/heatmap değildir' in ana and 'tam tasfiye toplamı/heatmap değildir' in liq,
+  'liquidation no double count':'LEVERAGE EVENT AİLESİ' in ana,
+  'runtime liquidation summary':'V9526LiquidationFeed.get(this).runtimeSummary(p.symbol)' in mon,
+  'unswept liquidity':'V9526_UNSWEPT_MTF_LIQUIDITY' in eng and 'liquidityLevels(highs, a, true)' in eng and 'isSwept(' in eng,
+  'multi-TF liquidity clusters':'ÇOKLU TF LİKİDİTE KÜME HARİTASI' in eng and '45M_SYN' in eng and '2H_SYN' in eng,
+  'OkHttp websocket dependency':'com.squareup.okhttp3:okhttp:4.12.0' in build,
+  'version':'versionCode 40' in build and "versionName '9.5.26'" in build,
 }
-print('--- Final v9.5.25 checks ---')
+print('--- Final v9.5.26 checks ---')
 for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
 bad=[k for k,v in checks.items() if not v]
-if bad: raise SystemExit('v9.5.25 sanity check failed: '+', '.join(bad))
-print('Final v9.5.25 sanity checks OK.')
+if bad: raise SystemExit('v9.5.26 sanity check failed: '+', '.join(bad))
+print('Final v9.5.26 sanity checks OK.')
 PY
