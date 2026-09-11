@@ -12,8 +12,10 @@ workflows:
           source: true
     environment:
       java: 17
+      android_signing:
+        - futures15m_stable
     scripts:
-      - name: Prepare Futures Alarm v9.5.29 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.30 MANUAL PRO source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -21,6 +23,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9527_trade_dashboard_reconcile.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9528_exact_margin.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9529_manual_close_reconcile.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9530_stable_signing.py"
 
       - name: Set Android SDK location
         script: |
@@ -29,32 +32,33 @@ workflows:
           test -n "$SDK_PATH"
           echo "sdk.dir=$SDK_PATH" > /tmp/futures15m-build/Futures15mAlarm/local.properties
 
-      - name: Check build tools
+      - name: Check stable signing certificate
         script: |
-          java -version
-          gradle --version
+          set -euo pipefail
+          test -s "$CM_KEYSTORE_PATH"
+          keytool -list -v -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -alias "$CM_KEY_ALIAS" | grep -E 'Alias name:|SHA256:'
 
-      - name: Build installable v9.5.29 debug APK
+      - name: Build installable v9.5.30 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          LOG=/tmp/v9529-gradle.log
-          if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
+          LOG=/tmp/v9530-gradle.log
+          if ! gradle --no-daemon assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
-            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 140 || true
+            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 160 || true
             echo '========== HATA ÇEVRESİ =========='
             FIRST=$(grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types' "$LOG" | head -n 1 | cut -d: -f1 || true)
             if [ -n "$FIRST" ]; then
-              START=$(( FIRST > 16 ? FIRST-16 : 1 )); END=$(( FIRST+48 )); sed -n "${START},${END}p" "$LOG"
+              START=$(( FIRST > 16 ? FIRST-16 : 1 )); END=$(( FIRST+60 )); sed -n "${START},${END}p" "$LOG"
             else
-              tail -n 180 "$LOG"
+              tail -n 220 "$LOG"
             fi
             exit 1
           fi
-          test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.29.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.29.apk"
+          test -s app/build/outputs/apk/release/app-release.apk
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.30.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.30.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.29.apk
+      - Futures15mAlarm-PRO-v9.5.30.apk
