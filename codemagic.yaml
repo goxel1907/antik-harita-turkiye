@@ -13,13 +13,14 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Prepare Futures Alarm v9.5.28 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.29 MANUAL PRO source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
           bash "$CM_BUILD_DIR/futures15m_alarm/prepare_v9523.sh"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9527_trade_dashboard_reconcile.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9528_exact_margin.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9529_manual_close_reconcile.py"
 
       - name: Set Android SDK location
         script: |
@@ -33,11 +34,11 @@ workflows:
           java -version
           gradle --version
 
-      - name: Build installable v9.5.28 debug APK
+      - name: Build installable v9.5.29 debug APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          LOG=/tmp/v9528-gradle.log
+          LOG=/tmp/v9529-gradle.log
           if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
@@ -52,8 +53,8 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.28.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.28.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.29.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.29.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.28.apk
+      - Futures15mAlarm-PRO-v9.5.29.apk
