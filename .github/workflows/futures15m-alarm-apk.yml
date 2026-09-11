@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.29 APK
+name: Futures 15m Alarm v9.5.30 compile check
 
 on:
   push:
@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 45
     env:
       CM_BUILD_DIR: ${{ github.workspace }}
+      FUTURES_COMPILE_ONLY: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +34,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Prepare v9.5.29 source
+      - name: Prepare v9.5.30 source
         shell: bash
         run: |
           set -euo pipefail
@@ -42,15 +43,16 @@ jobs:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9527_trade_dashboard_reconcile.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9528_exact_margin.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9529_manual_close_reconcile.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9530_stable_signing.py"
 
-      - name: Build debug APK
+      - name: Compile debug APK for validation only
         shell: bash
         run: |
           set -o pipefail
           APP=/tmp/futures15m-build/Futures15mAlarm
           echo "sdk.dir=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" > "$APP/local.properties"
           cd "$APP"
-          LOG=/tmp/v9529-gh-gradle.log
+          LOG=/tmp/v9530-gh-gradle.log
           if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             echo '========== GERÇEK DERLEME HATASI =========='
             grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 180 || true
@@ -64,12 +66,7 @@ jobs:
             exit 1
           fi
           test -s app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Futures15mAlarm-PRO-v9.5.29.apk"
 
-      - name: Upload v9.5.29 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Futures15mAlarm-PRO-v9.5.29
-          path: Futures15mAlarm-PRO-v9.5.29.apk
-          if-no-files-found: error
-          retention-days: 14
+      - name: Do not publish debug APK
+        shell: bash
+        run: echo 'GitHub Actions only validates compilation. Installable updates come from the persistently signed Codemagic release APK.'
