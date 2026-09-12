@@ -35,6 +35,25 @@ workflows:
           test -n "$SDK_PATH"
           echo "sdk.dir=$SDK_PATH" > /tmp/futures15m-build/Futures15mAlarm/local.properties
 
+      - name: Pin Android build toolchain
+        script: |
+          set -euo pipefail
+          cd /tmp/futures15m-build/Futures15mAlarm
+          echo 'Generated Android plugin declaration:'
+          grep -n -E "com.android.application|com.android.tools.build:gradle" build.gradle || true
+          echo 'Codemagic system Gradle:'
+          gradle --version | sed -n '1,14p'
+          gradle --no-daemon wrapper --gradle-version 8.9 --distribution-type bin
+          chmod +x ./gradlew
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
+          org.gradle.workers.max=2
+          org.gradle.daemon=false
+          android.useAndroidX=true
+          EOF
+          echo 'Pinned project Gradle:'
+          ./gradlew --version | sed -n '1,14p'
+
       - name: Check stable signing certificate
         script: |
           set -euo pipefail
@@ -51,13 +70,13 @@ workflows:
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
           LOG=/tmp/v9532-gradle.log
-          if ! gradle --no-daemon assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
+          if ! ./gradlew --no-daemon assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             cp "$LOG" "$CM_BUILD_DIR/v9532-gradle.log" || true
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
-            grep -n -E -i 'error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 220 || true
-            echo '========== SON 140 SATIR =========='
-            tail -n 140 "$LOG"
+            grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 280 || true
+            echo '========== SON 220 SATIR =========='
+            tail -n 220 "$LOG"
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
