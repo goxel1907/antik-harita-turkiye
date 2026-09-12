@@ -51,19 +51,42 @@ workflows:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          changed=[]
-          for p in (Path('build.gradle'), Path('settings.gradle'), Path('app/build.gradle')):
+
+          targets = [Path('build.gradle'), Path('settings.gradle'), Path('app/build.gradle')]
+          changed = []
+          for p in targets:
               if not p.exists():
                   continue
-              s=p.read_text()
-              n=re.sub(r'(com\.android\.tools\.build:gradle:)[0-9][0-9A-Za-z.\-]*', r'\g<1>8.13.2', s)
+              s = p.read_text()
+              n = s
+              n = re.sub(
+                  r"(id\s+['\"]com\.android\.application['\"]\s+version\s+['\"])[^'\"]+(['\"])",
+                  r"\g<1>8.13.2\2",
+                  n,
+              )
+              n = re.sub(
+                  r'(com\.android\.tools\.build:gradle:)[0-9][0-9A-Za-z.\-]*',
+                  r'\g<1>8.13.2',
+                  n,
+              )
               if n != s:
                   p.write_text(n)
                   changed.append(str(p))
+
           print('AGP patched files:', changed)
-          combined='\n'.join(p.read_text() for p in (Path('build.gradle'),Path('settings.gradle'),Path('app/build.gradle')) if p.exists())
-          if 'com.android.tools.build:gradle:8.13.2' not in combined:
-              raise SystemExit('AGP 8.13.2 classpath marker not found in generated project')
+          combined = '\n'.join(p.read_text() for p in targets if p.exists())
+          plugin_dsl_ok = re.search(
+              r"id\s+['\"]com\.android\.application['\"]\s+version\s+['\"]8\.13\.2['\"]",
+              combined,
+          ) is not None
+          classpath_ok = 'com.android.tools.build:gradle:8.13.2' in combined
+          if not (plugin_dsl_ok or classpath_ok):
+              print('--- build.gradle ---')
+              print(Path('build.gradle').read_text() if Path('build.gradle').exists() else '<missing>')
+              print('--- settings.gradle ---')
+              print(Path('settings.gradle').read_text() if Path('settings.gradle').exists() else '<missing>')
+              raise SystemExit('AGP 8.13.2 marker not found after plugin/classpath patch')
+          print('AGP 8.13.2 marker OK; plugin DSL=', plugin_dsl_ok, 'classpath=', classpath_ok)
           PY
 
           gradle --no-daemon wrapper --gradle-version 8.13 --distribution-type bin
