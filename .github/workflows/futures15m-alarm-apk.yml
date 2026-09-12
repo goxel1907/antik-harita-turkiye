@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.33 compile check
+name: Futures 15m Alarm v9.5.34 compile check
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Prepare v9.5.33 source
+      - name: Prepare v9.5.34 source
         shell: bash
         run: |
           set -euo pipefail
@@ -48,6 +48,7 @@ jobs:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9532_candle_wick_prompt.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9532b_android_json_compat.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9533_symbol_lifecycle_daymap.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9534_daily_rearm_ui.py"
 
       - name: Compile debug APK for validation only
         shell: bash
@@ -56,7 +57,7 @@ jobs:
           APP=/tmp/futures15m-build/Futures15mAlarm
           echo "sdk.dir=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" > "$APP/local.properties"
           cd "$APP"
-          LOG=/tmp/v9533-gh-gradle.log
+          LOG=/tmp/v9534-gh-gradle.log
           if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             echo '========== GERÇEK DERLEME HATASI =========='
             grep -n -E -i 'error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 220 || true
