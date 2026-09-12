@@ -15,7 +15,7 @@ workflows:
       android_signing:
         - futures15m_stable
     scripts:
-      - name: Prepare Futures Alarm v9.5.37 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.38 MANUAL PRO source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -32,6 +32,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9535_analysis_exhaustion.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9536_notification_trade_ticket.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9537_dashboard_restore.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9538_market_radar.py"
 
       - name: Set Android SDK location
         script: |
@@ -202,13 +203,13 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.37 signed APK
+      - name: Build installable v9.5.38 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          LOG=/tmp/v9537-gradle.log
+          LOG=/tmp/v9538-gradle.log
           if ! ./gradlew --no-daemon --max-workers=1 assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
-            cp "$LOG" "$CM_BUILD_DIR/v9537-gradle.log" || true
+            cp "$LOG" "$CM_BUILD_DIR/v9538-gradle.log" || true
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
             grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|Bus error|SIGBUS|Segmentation fault|SIGSEGV|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 420 || true
@@ -219,9 +220,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.37.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.37.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.38.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.38.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.37.apk
-      - v9537-gradle.log
+      - Futures15mAlarm-PRO-v9.5.38.apk
+      - v9538-gradle.log
