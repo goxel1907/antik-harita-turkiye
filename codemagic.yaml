@@ -26,6 +26,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9530_stable_signing.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9531_context_intelligence.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9532_candle_wick_prompt.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9532b_android_json_compat.py"
 
       - name: Set Android SDK location
         script: |
@@ -39,6 +40,11 @@ workflows:
           set -euo pipefail
           test -s "$CM_KEYSTORE_PATH"
           keytool -list -v -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -alias "$CM_KEY_ALIAS" | grep -E 'Alias name:|SHA256:'
+          TMP_SIGN="$(mktemp -d)"
+          printf 'signing-probe\n' > "$TMP_SIGN/probe.txt"
+          (cd "$TMP_SIGN" && jar cf probe.jar probe.txt)
+          jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
+          echo 'Stable keystore private key check OK.'
 
       - name: Build installable v9.5.32 signed APK
         script: |
@@ -46,16 +52,12 @@ workflows:
           cd /tmp/futures15m-build/Futures15mAlarm
           LOG=/tmp/v9532-gradle.log
           if ! gradle --no-daemon assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
+            cp "$LOG" "$CM_BUILD_DIR/v9532-gradle.log" || true
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
-            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 200 || true
-            echo '========== HATA ÇEVRESİ =========='
-            FIRST=$(grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types' "$LOG" | head -n 1 | cut -d: -f1 || true)
-            if [ -n "$FIRST" ]; then
-              START=$(( FIRST > 16 ? FIRST-16 : 1 )); END=$(( FIRST+80 )); sed -n "${START},${END}p" "$LOG"
-            else
-              tail -n 260 "$LOG"
-            fi
+            grep -n -E -i 'error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 220 || true
+            echo '========== SON 140 SATIR =========='
+            tail -n 140 "$LOG"
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
@@ -64,3 +66,4 @@ workflows:
 
     artifacts:
       - Futures15mAlarm-PRO-v9.5.32.apk
+      - v9532-gradle.log
