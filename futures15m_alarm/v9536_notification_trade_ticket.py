@@ -11,40 +11,111 @@ for p in (MAIN, MON, BUILD):
     if not p.exists():
         raise SystemExit('v9.5.36 missing required file: ' + str(p))
 
+
+def method_bounds(src, signature):
+    a = src.find(signature)
+    if a < 0:
+        return None
+    b = src.find('{', a)
+    if b < 0:
+        return None
+    depth = 1
+    i = b + 1
+    quote = False
+    char_quote = False
+    esc = False
+    line_comment = False
+    block_comment = False
+    while i < len(src) and depth:
+        c = src[i]
+        n = src[i + 1] if i + 1 < len(src) else ''
+        if line_comment:
+            if c == '\n':
+                line_comment = False
+        elif block_comment:
+            if c == '*' and n == '/':
+                block_comment = False
+                i += 1
+        elif quote:
+            if esc:
+                esc = False
+            elif c == '\\':
+                esc = True
+            elif c == '"':
+                quote = False
+        elif char_quote:
+            if esc:
+                esc = False
+            elif c == '\\':
+                esc = True
+            elif c == "'":
+                char_quote = False
+        else:
+            if c == '/' and n == '/':
+                line_comment = True
+                i += 1
+            elif c == '/' and n == '*':
+                block_comment = True
+                i += 1
+            elif c == '"':
+                quote = True
+            elif c == "'":
+                char_quote = True
+            elif c == '{':
+                depth += 1
+            elif c == '}':
+                depth -= 1
+        i += 1
+    return None if depth else (a, b, i)
+
 # ---------------------------------------------------------------------------
 # 1) Critical trade notification must return to THIS app, not Binance/browser.
-#    Both normal notification tap and Android full-screen alarm intent carry the
-#    signal symbol and request the in-app manual order ticket.
+#    Patch the CURRENT composed MonitorService method structurally instead of
+#    depending on an old exact one-line PendingIntent string.
 # ---------------------------------------------------------------------------
 m = MON.read_text()
 m = re.sub(r'15m Futures Alarm PRO v9\.5(?:\.\d+)*', '15m Futures Alarm PRO v9.5.36', m)
 
-old_pi = 'PendingIntent binancePi=openBinanceIntent(symbol,400+Math.abs(symbol.hashCode()%10000)); PendingIntent appPi=openAppIntent(40);'
-new_pi = 'PendingIntent tradePi=v9536OpenTradeTicketIntent(symbol,500+Math.abs(symbol.hashCode()%10000));'
-if old_pi in m:
-    m = m.replace(old_pi, new_pi, 1)
-elif 'v9536OpenTradeTicketIntent(symbol' not in m:
-    raise SystemExit('v9.5.36 urgent PendingIntent anchor missing')
+bounds = method_bounds(m, '    private void sendUrgent(String symbol, String direction, String detail)')
+if not bounds:
+    raise SystemExit('v9.5.36 sendUrgent method missing')
+a0, brace, e0 = bounds
+body = m[a0:e0]
 
-old_content = '.setContentIntent(binancePi).setFullScreenIntent(appPi,true).setAutoCancel(true).setPriority(Notification.PRIORITY_MAX)'
-new_content = '.setContentIntent(tradePi).setFullScreenIntent(tradePi,true).setAutoCancel(true).setPriority(Notification.PRIORITY_MAX)'
-if old_content in m:
-    m = m.replace(old_content, new_content, 1)
-elif '.setContentIntent(tradePi).setFullScreenIntent(tradePi,true)' not in m:
-    raise SystemExit('v9.5.36 urgent content intent anchor missing')
+if 'v9536OpenTradeTicketIntent(symbol' not in body:
+    p = body.find('{') + 1
+    body = body[:p] + ('\n        // V9536_NOTIFICATION_TRADE_TICKET: notification tap stays in this app.\n'
+                      '        PendingIntent tradePi = v9536OpenTradeTicketIntent(symbol, '
+                      '500 + Math.abs(symbol.hashCode() % 10000));\n') + body[p:]
 
-m = m.replace('Dokun → Binance Futures\'ta "+symbol+" aç',
-              'Dokun → uygulamada EMİR TASLAĞI aç')
-m = m.replace('Dokun → Binance Futures\'ta '+ '"+symbol+"' +' aç',
-              'Dokun → uygulamada EMİR TASLAĞI aç')
-# Exact source form in older MonitorService builds.
-m = m.replace('Dokun → Binance Futures\'ta "+symbol+" aç', 'Dokun → uygulamada EMİR TASLAĞI aç')
+# Whatever older variable names are currently used (binancePi/appPi/etc.), the
+# critical notification content tap and full-screen route both become tradePi.
+body, n_content = re.subn(r'\.setContentIntent\s*\(\s*[^)]+\s*\)', '.setContentIntent(tradePi)', body, count=1)
+body, n_full = re.subn(r'\.setFullScreenIntent\s*\(\s*[^,]+\s*,\s*true\s*\)', '.setFullScreenIntent(tradePi,true)', body, count=1)
+if n_content != 1:
+    raise SystemExit('v9.5.36 sendUrgent content intent not found')
+if n_full != 1:
+    raise SystemExit('v9.5.36 sendUrgent full-screen intent not found')
+
+# Keep the notification copy consistent with the actual action. Do not fail the
+# build if an older wording is formatted differently.
+body = re.sub(r'Dokun\s*[→>-]+\s*Binance Futures[^"\\n]*',
+              'Dokun → uygulamada EMİR TASLAĞI aç', body)
+
+m = m[:a0] + body + m[e0:]
 
 if 'private PendingIntent v9536OpenTradeTicketIntent(' not in m:
-    anchor = '    private PendingIntent openAppIntent(int requestCode)'
-    idx = m.find(anchor)
+    anchors = [
+        '    private PendingIntent openAppIntent(int requestCode)',
+        '    private Notification buildServiceNotification(',
+    ]
+    idx = -1
+    for anchor in anchors:
+        idx = m.find(anchor)
+        if idx >= 0:
+            break
     if idx < 0:
-        raise SystemExit('v9.5.36 openAppIntent anchor missing')
+        raise SystemExit('v9.5.36 PendingIntent helper insertion anchor missing')
     helper = r'''    // V9536_NOTIFICATION_TRADE_TICKET
     private PendingIntent v9536OpenTradeTicketIntent(String symbol, int requestCode) {
         Intent open = new Intent(this, MainActivity.class);
@@ -108,9 +179,6 @@ if 'private void v9536HandleNotificationIntent(' not in s:
         intent.removeExtra("v9536_symbol");
         if (symbol == null || symbol.trim().isEmpty()) return;
 
-        // Post after setContentView/onNewIntent so AlertDialog gets a fully
-        // attached Activity window. The existing ticket still enforces active
-        // signal, live-price deviation and final user confirmation safeguards.
         android.view.View decor = getWindow() == null ? null : getWindow().getDecorView();
         Runnable openTicket = () -> {
             try {
@@ -148,7 +216,7 @@ BUILD.write_text(b)
 main = MAIN.read_text(); mon = MON.read_text(); build = BUILD.read_text()
 checks = {
     'urgent tap opens app ticket': 'v9536OpenTradeTicketIntent(symbol' in mon,
-    'no urgent Binance content intent': '.setContentIntent(binancePi)' not in mon,
+    'urgent content uses trade ticket': '.setContentIntent(tradePi)' in mon,
     'full screen also opens ticket': '.setFullScreenIntent(tradePi,true)' in mon,
     'notification extras': 'v9536_open_trade_ticket' in mon and 'v9536_symbol' in mon,
     'main onCreate handler': 'v9536HandleNotificationIntent(getIntent());' in main,
