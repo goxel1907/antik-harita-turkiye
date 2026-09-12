@@ -2,7 +2,7 @@ workflows:
   futures-15m-alarm-apk:
     name: Futures 15m Alarm PRO APK
     max_build_duration: 45
-    instance_type: linux_x2
+    instance_type: mac_mini_m2
     triggering:
       events:
         - push
@@ -39,6 +39,7 @@ workflows:
         script: |
           set -euo pipefail
           APP=/tmp/futures15m-build/Futures15mAlarm
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           cd "$APP"
           echo 'Host architecture:'
           uname -a
@@ -49,13 +50,52 @@ workflows:
           gradle --version | sed -n '1,14p'
           gradle --no-daemon wrapper --gradle-version 8.9 --distribution-type bin
           chmod +x ./gradlew
-          cat > gradle.properties <<'EOF'
+
+          AAPT2_REAL="$SDK_PATH/build-tools/35.0.0/aapt2"
+          if [ ! -x "$AAPT2_REAL" ]; then
+            SDKMANAGER="$(command -v sdkmanager || true)"
+            if [ -z "$SDKMANAGER" ] && [ -x "$SDK_PATH/cmdline-tools/latest/bin/sdkmanager" ]; then
+              SDKMANAGER="$SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
+            fi
+            test -x "$SDKMANAGER"
+            set +e
+            set +o pipefail
+            yes | "$SDKMANAGER" "build-tools;35.0.0" >/tmp/v9532-sdkmanager.log 2>&1
+            SDK_RC=${PIPESTATUS[1]}
+            set -o pipefail
+            set -e
+            if [ "$SDK_RC" -ne 0 ]; then
+              cat /tmp/v9532-sdkmanager.log || true
+              exit "$SDK_RC"
+            fi
+          fi
+          test -x "$AAPT2_REAL"
+          echo 'SDK AAPT2 binary:'
+          file "$AAPT2_REAL" || true
+
+          AAPT2_WRAP=/tmp/aapt2-x86_64-wrapper
+          cat > "$AAPT2_WRAP" <<EOF
+          #!/bin/bash
+          exec arch -x86_64 "$AAPT2_REAL" "\$@"
+          EOF
+          chmod +x "$AAPT2_WRAP"
+
+          echo 'Rosetta/x86_64 AAPT2 probe:'
+          "$AAPT2_WRAP" version
+          echo 'Direct x86_64 AAPT2 resource smoke test:'
+          rm -f /tmp/v9532-res-smoke.zip
+          "$AAPT2_WRAP" compile --dir app/src/main/res -o /tmp/v9532-res-smoke.zip
+          test -s /tmp/v9532-res-smoke.zip
+          echo 'x86_64 AAPT2 resource compile OK.'
+
+          cat > gradle.properties <<EOF
           org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
           org.gradle.workers.max=1
           org.gradle.daemon=false
           org.gradle.parallel=false
           org.gradle.vfs.watch=false
           android.useAndroidX=true
+          android.aapt2FromMavenOverride=$AAPT2_WRAP
           EOF
           echo 'Pinned project Gradle:'
           ./gradlew --version | sed -n '1,14p'
@@ -80,9 +120,9 @@ workflows:
             cp "$LOG" "$CM_BUILD_DIR/v9532-gradle.log" || true
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
-            grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|Bus error|SIGBUS|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 320 || true
-            echo '========== SON 260 SATIR =========='
-            tail -n 260 "$LOG"
+            grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|Bus error|SIGBUS|arch:|Bad CPU type|Rosetta|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 360 || true
+            echo '========== SON 300 SATIR =========='
+            tail -n 300 "$LOG"
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
