@@ -51,22 +51,19 @@ workflows:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          changed = []
-          targets = [Path('build.gradle'), Path('settings.gradle'), Path('app/build.gradle')]
-          for p in targets:
+          changed=[]
+          for p in (Path('build.gradle'), Path('settings.gradle'), Path('app/build.gradle')):
               if not p.exists():
                   continue
-              s = p.read_text()
-              old = s
-              s = re.sub(r'(com\.android\.tools\.build:gradle:)[0-9][0-9A-Za-z.\-]*', r'\g<1>8.13.2', s)
-              s = re.sub(r"(id\s+['\"]com\.android\.application['\"]\s+version\s+['"])[^'"]+(['"])", r'\g<1>8.13.2\2', s)
-              if s != old:
-                  p.write_text(s)
+              s=p.read_text()
+              n=re.sub(r'(com\.android\.tools\.build:gradle:)[0-9][0-9A-Za-z.\-]*', r'\g<1>8.13.2', s)
+              if n != s:
+                  p.write_text(n)
                   changed.append(str(p))
           print('AGP patched files:', changed)
-          combined = '\n'.join(p.read_text() for p in targets if p.exists())
-          if '8.13.2' not in combined:
-              raise SystemExit('AGP 8.13.2 patch marker not found in generated project')
+          combined='\n'.join(p.read_text() for p in (Path('build.gradle'),Path('settings.gradle'),Path('app/build.gradle')) if p.exists())
+          if 'com.android.tools.build:gradle:8.13.2' not in combined:
+              raise SystemExit('AGP 8.13.2 classpath marker not found in generated project')
           PY
 
           gradle --no-daemon wrapper --gradle-version 8.13 --distribution-type bin
@@ -79,50 +76,45 @@ workflows:
           test -x "$SDKMANAGER"
 
           install_bt() {
-            local ver="$1"
-            local log="/tmp/v9532-sdkmanager-${ver}.log"
-            if [ -x "$SDK_PATH/build-tools/$ver/aapt2" ]; then
-              return 0
-            fi
+            ver="$1"
+            [ -x "$SDK_PATH/build-tools/$ver/aapt2" ] && return 0
+            log="/tmp/v9532-sdkmanager-${ver}.log"
             echo "Installing Android build-tools $ver ..."
             set +e
             set +o pipefail
             yes | "$SDKMANAGER" "build-tools;$ver" >"$log" 2>&1
-            local rc=${PIPESTATUS[1]}
+            rc=${PIPESTATUS[1]}
             set -o pipefail
             set -e
             if [ "$rc" -ne 0 ]; then
-              echo "build-tools $ver install failed (rc=$rc)"
+              echo "build-tools $ver install failed rc=$rc"
               tail -n 80 "$log" || true
               return "$rc"
             fi
           }
 
           probe_aapt2() {
-            local ver="$1"
-            local bin="$SDK_PATH/build-tools/$ver/aapt2"
-            local out="/tmp/v9532-aapt2-${ver}.zip"
-            local mini="/tmp/v9532-aapt2-mini-$ver"
-            test -x "$bin" || return 1
+            ver="$1"
+            bin="$SDK_PATH/build-tools/$ver/aapt2"
+            out="/tmp/v9532-aapt2-${ver}.zip"
+            mini="/tmp/v9532-aapt2-mini-${ver}"
+            [ -x "$bin" ] || return 1
             echo "===== AAPT2 candidate $ver ====="
             file "$bin" || true
             "$bin" version || return 1
             rm -rf "$mini" "$out"
             mkdir -p "$mini/res/values"
-            cat > "$mini/res/values/strings.xml" <<'EOF'
-          <resources><string name="v9532_probe">probe</string></resources>
-          EOF
+            printf '%s\n' '<resources><string name="v9532_probe">probe</string></resources>' > "$mini/res/values/strings.xml"
             "$bin" compile --dir "$mini/res" -o "$mini/mini.zip" || return 1
             test -s "$mini/mini.zip" || return 1
             "$bin" compile --dir app/src/main/res -o "$out" || return 1
             test -s "$out" || return 1
-            echo "AAPT2 $ver passed minimal + full project resource smoke tests."
-            return 0
+            echo "AAPT2 $ver passed minimal + full-project resource smoke tests."
           }
 
           SELECTED_AAPT2=''
           SELECTED_VER=''
-          for ver in 36.0.0 34.0.0 33.0.2; do
+          for ver in 36.0.0 34.0.0; do
             install_bt "$ver" || continue
             if probe_aapt2 "$ver"; then
               SELECTED_VER="$ver"
@@ -133,10 +125,10 @@ workflows:
           done
 
           if [ -z "$SELECTED_AAPT2" ]; then
-            echo 'No SDK AAPT2 candidate survived the full resource smoke test.'
-            echo 'Running per-resource crash diagnostics with build-tools 36.0.0 when available...'
+            echo 'No SDK AAPT2 candidate survived the full-project smoke test.'
             DIAG="$SDK_PATH/build-tools/36.0.0/aapt2"
             if [ -x "$DIAG" ]; then
+              echo 'Per-resource crash diagnostics with build-tools 36.0.0:'
               rm -rf /tmp/v9532-aapt2-single
               mkdir -p /tmp/v9532-aapt2-single
               while IFS= read -r f; do
@@ -167,11 +159,9 @@ workflows:
           EOF
 
           echo "Selected AAPT2: $SELECTED_VER -> $SELECTED_AAPT2"
-          echo 'Android plugin declaration after patch:'
           grep -R -n -E "com.android.application|com.android.tools.build:gradle" build.gradle settings.gradle app/build.gradle 2>/dev/null || true
-          echo 'Pinned project Gradle:'
           ./gradlew --version | sed -n '1,14p'
-          echo 'AGP 8.13.2 + Gradle 8.13 + smoke-tested SDK AAPT2 ready.'
+          echo 'AGP 8.13.2 + Gradle 8.13 + smoke-tested AAPT2 ready.'
 
       - name: Check stable signing certificate
         script: |
@@ -194,7 +184,7 @@ workflows:
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
             grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|Bus error|SIGBUS|Segmentation fault|SIGSEGV|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 420 || true
-            echo '========== İLK 120 HATA BAĞLAMI =========='
+            echo '========== İLK HATA BAĞLAMI =========='
             grep -n -m 120 -E -i 'AAPT2|aapt2|error:|Execution failed for task|What went wrong|Caused by:' "$LOG" || true
             echo '========== SON 300 SATIR =========='
             tail -n 300 "$LOG"
