@@ -35,11 +35,13 @@ workflows:
           test -n "$SDK_PATH"
           echo "sdk.dir=$SDK_PATH" > /tmp/futures15m-build/Futures15mAlarm/local.properties
 
-      - name: Upgrade Android build toolchain
+      - name: Harden Android AAPT2 toolchain
         script: |
           set -euo pipefail
           APP=/tmp/futures15m-build/Futures15mAlarm
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           cd "$APP"
+
           echo 'Host architecture:'
           uname -a
           uname -m
@@ -57,7 +59,7 @@ workflows:
               s = p.read_text()
               old = s
               s = re.sub(r'(com\.android\.tools\.build:gradle:)[0-9][0-9A-Za-z.\-]*', r'\g<1>8.13.2', s)
-              s = re.sub(r"(id\s+['\"]com\.android\.application['\"]\s+version\s+['\"])[^'\"]+(['\"])", r'\g<1>8.13.2\2', s)
+              s = re.sub(r"(id\s+['\"]com\.android\.application['\"]\s+version\s+['"])[^'"]+(['"])", r'\g<1>8.13.2\2', s)
               if s != old:
                   p.write_text(s)
                   changed.append(str(p))
@@ -67,24 +69,109 @@ workflows:
               raise SystemExit('AGP 8.13.2 patch marker not found in generated project')
           PY
 
-          echo 'Android plugin declaration after patch:'
-          grep -R -n -E "com.android.application|com.android.tools.build:gradle" build.gradle settings.gradle app/build.gradle 2>/dev/null || true
-
           gradle --no-daemon wrapper --gradle-version 8.13 --distribution-type bin
           chmod +x ./gradlew
 
-          cat > gradle.properties <<'EOF'
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ] && [ -x "$SDK_PATH/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          test -x "$SDKMANAGER"
+
+          install_bt() {
+            local ver="$1"
+            local log="/tmp/v9532-sdkmanager-${ver}.log"
+            if [ -x "$SDK_PATH/build-tools/$ver/aapt2" ]; then
+              return 0
+            fi
+            echo "Installing Android build-tools $ver ..."
+            set +e
+            set +o pipefail
+            yes | "$SDKMANAGER" "build-tools;$ver" >"$log" 2>&1
+            local rc=${PIPESTATUS[1]}
+            set -o pipefail
+            set -e
+            if [ "$rc" -ne 0 ]; then
+              echo "build-tools $ver install failed (rc=$rc)"
+              tail -n 80 "$log" || true
+              return "$rc"
+            fi
+          }
+
+          probe_aapt2() {
+            local ver="$1"
+            local bin="$SDK_PATH/build-tools/$ver/aapt2"
+            local out="/tmp/v9532-aapt2-${ver}.zip"
+            local mini="/tmp/v9532-aapt2-mini-$ver"
+            test -x "$bin" || return 1
+            echo "===== AAPT2 candidate $ver ====="
+            file "$bin" || true
+            "$bin" version || return 1
+            rm -rf "$mini" "$out"
+            mkdir -p "$mini/res/values"
+            cat > "$mini/res/values/strings.xml" <<'EOF'
+          <resources><string name="v9532_probe">probe</string></resources>
+          EOF
+            "$bin" compile --dir "$mini/res" -o "$mini/mini.zip" || return 1
+            test -s "$mini/mini.zip" || return 1
+            "$bin" compile --dir app/src/main/res -o "$out" || return 1
+            test -s "$out" || return 1
+            echo "AAPT2 $ver passed minimal + full project resource smoke tests."
+            return 0
+          }
+
+          SELECTED_AAPT2=''
+          SELECTED_VER=''
+          for ver in 36.0.0 34.0.0 33.0.2; do
+            install_bt "$ver" || continue
+            if probe_aapt2 "$ver"; then
+              SELECTED_VER="$ver"
+              SELECTED_AAPT2="$SDK_PATH/build-tools/$ver/aapt2"
+              break
+            fi
+            echo "AAPT2 $ver rejected by smoke test."
+          done
+
+          if [ -z "$SELECTED_AAPT2" ]; then
+            echo 'No SDK AAPT2 candidate survived the full resource smoke test.'
+            echo 'Running per-resource crash diagnostics with build-tools 36.0.0 when available...'
+            DIAG="$SDK_PATH/build-tools/36.0.0/aapt2"
+            if [ -x "$DIAG" ]; then
+              rm -rf /tmp/v9532-aapt2-single
+              mkdir -p /tmp/v9532-aapt2-single
+              while IFS= read -r f; do
+                rm -rf /tmp/v9532-aapt2-single/*
+                set +e
+                "$DIAG" compile "$f" -o /tmp/v9532-aapt2-single >/tmp/v9532-aapt2-single.log 2>&1
+                rc=$?
+                set -e
+                if [ "$rc" -ge 128 ]; then
+                  echo "AAPT2 RESOURCE CRASH rc=$rc: $f"
+                  cat /tmp/v9532-aapt2-single.log || true
+                  exit "$rc"
+                fi
+              done < <(find app/src/main/res -type f -print | sort)
+            fi
+            echo 'AAPT2_RESOURCE_SMOKE_ALL_CANDIDATES_FAILED'
+            exit 97
+          fi
+
+          cat > gradle.properties <<EOF
           org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
           org.gradle.workers.max=1
           org.gradle.daemon=false
           org.gradle.parallel=false
           org.gradle.vfs.watch=false
           android.useAndroidX=true
+          android.aapt2FromMavenOverride=$SELECTED_AAPT2
           EOF
 
+          echo "Selected AAPT2: $SELECTED_VER -> $SELECTED_AAPT2"
+          echo 'Android plugin declaration after patch:'
+          grep -R -n -E "com.android.application|com.android.tools.build:gradle" build.gradle settings.gradle app/build.gradle 2>/dev/null || true
           echo 'Pinned project Gradle:'
           ./gradlew --version | sed -n '1,14p'
-          echo 'AGP 8.13.2 + Gradle 8.13 toolchain ready.'
+          echo 'AGP 8.13.2 + Gradle 8.13 + smoke-tested SDK AAPT2 ready.'
 
       - name: Check stable signing certificate
         script: |
@@ -106,7 +193,9 @@ workflows:
             cp "$LOG" "$CM_BUILD_DIR/v9532-gradle.log" || true
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
-            grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|Bus error|SIGBUS|Segmentation fault|SIGSEGV|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 360 || true
+            grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|Bus error|SIGBUS|Segmentation fault|SIGSEGV|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 420 || true
+            echo '========== İLK 120 HATA BAĞLAMI =========='
+            grep -n -m 120 -E -i 'AAPT2|aapt2|error:|Execution failed for task|What went wrong|Caused by:' "$LOG" || true
             echo '========== SON 300 SATIR =========='
             tail -n 300 "$LOG"
             exit 1
