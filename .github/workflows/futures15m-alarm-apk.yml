@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.34 compile check
+name: Futures 15m Alarm v9.5.38 compile check
 
 on:
   push:
@@ -29,12 +29,12 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Set up Gradle 8.9
+      - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.13'
 
-      - name: Prepare v9.5.34 source
+      - name: Prepare v9.5.38 source
         shell: bash
         run: |
           set -euo pipefail
@@ -49,6 +49,10 @@ jobs:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9532b_android_json_compat.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9533_symbol_lifecycle_daymap.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9534_daily_rearm_ui.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9535_analysis_exhaustion.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9536_notification_trade_ticket.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9537_dashboard_restore.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9538_market_radar.py"
 
       - name: Compile debug APK for validation only
         shell: bash
@@ -57,12 +61,12 @@ jobs:
           APP=/tmp/futures15m-build/Futures15mAlarm
           echo "sdk.dir=${ANDROID_SDK_ROOT:-$ANDROID_HOME}" > "$APP/local.properties"
           cd "$APP"
-          LOG=/tmp/v9534-gh-gradle.log
+          LOG=/tmp/v9538-gh-gradle.log
           if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
+            echo '========== SON 100 SATIR =========='
+            tail -n 100 "$LOG" || true
             echo '========== GERÇEK DERLEME HATASI =========='
             grep -n -E -i 'error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 220 || true
-            echo '========== SON 140 SATIR =========='
-            tail -n 140 "$LOG"
             exit 1
           fi
           test -s app/build/outputs/apk/debug/app-debug.apk
