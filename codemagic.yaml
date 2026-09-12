@@ -30,7 +30,7 @@ workflows:
 
       - name: Set Android SDK location
         script: |
-          set -e
+          set -euo pipefail
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           test -n "$SDK_PATH"
           echo "sdk.dir=$SDK_PATH" > /tmp/futures15m-build/Futures15mAlarm/local.properties
@@ -38,19 +38,46 @@ workflows:
       - name: Pin Android build toolchain
         script: |
           set -euo pipefail
-          cd /tmp/futures15m-build/Futures15mAlarm
+          APP=/tmp/futures15m-build/Futures15mAlarm
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          cd "$APP"
+          echo 'Host architecture:'
+          uname -a
+          uname -m
           echo 'Generated Android plugin declaration:'
           grep -n -E "com.android.application|com.android.tools.build:gradle" build.gradle || true
           echo 'Codemagic system Gradle:'
           gradle --version | sed -n '1,14p'
           gradle --no-daemon wrapper --gradle-version 8.9 --distribution-type bin
           chmod +x ./gradlew
-          cat > gradle.properties <<'EOF'
+
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ] && [ -x "$SDK_PATH/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" "build-tools;35.0.0" >/dev/null
+          AAPT2_BIN="$SDK_PATH/build-tools/35.0.0/aapt2"
+          test -x "$AAPT2_BIN"
+          echo 'SDK AAPT2 binary:'
+          file "$AAPT2_BIN" || true
+          "$AAPT2_BIN" version
+
+          cat > gradle.properties <<EOF
           org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
-          org.gradle.workers.max=2
+          org.gradle.workers.max=1
           org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.vfs.watch=false
           android.useAndroidX=true
+          android.aapt2FromMavenOverride=$AAPT2_BIN
           EOF
+
+          echo 'Direct AAPT2 resource smoke test:'
+          rm -f /tmp/v9532-res-smoke.zip
+          "$AAPT2_BIN" compile --dir app/src/main/res -o /tmp/v9532-res-smoke.zip
+          test -s /tmp/v9532-res-smoke.zip
+          echo 'Direct AAPT2 resource compile OK.'
           echo 'Pinned project Gradle:'
           ./gradlew --version | sed -n '1,14p'
 
@@ -70,13 +97,13 @@ workflows:
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
           LOG=/tmp/v9532-gradle.log
-          if ! ./gradlew --no-daemon assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
+          if ! ./gradlew --no-daemon --max-workers=1 assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             cp "$LOG" "$CM_BUILD_DIR/v9532-gradle.log" || true
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
-            grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 280 || true
-            echo '========== SON 220 SATIR =========='
-            tail -n 220 "$LOG"
+            grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 320 || true
+            echo '========== SON 260 SATIR =========='
+            tail -n 260 "$LOG"
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
