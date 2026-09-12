@@ -46,6 +46,7 @@ jobs:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9530_stable_signing.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9531_context_intelligence.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9532_candle_wick_prompt.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9532b_android_json_compat.py"
 
       - name: Compile debug APK for validation only
         shell: bash
@@ -57,14 +58,9 @@ jobs:
           LOG=/tmp/v9532-gh-gradle.log
           if ! gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             echo '========== GERÇEK DERLEME HATASI =========='
-            grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Execution failed for task|What went wrong|Caused by:' "$LOG" | head -n 220 || true
-            echo '========== HATA ÇEVRESİ =========='
-            FIRST=$(grep -n -E -i 'error:|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types' "$LOG" | head -n 1 | cut -d: -f1 || true)
-            if [ -n "$FIRST" ]; then
-              START=$(( FIRST > 20 ? FIRST-20 : 1 )); END=$(( FIRST+90 )); sed -n "${START},${END}p" "$LOG"
-            else
-              tail -n 280 "$LOG"
-            fi
+            grep -n -E -i 'error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 220 || true
+            echo '========== SON 140 SATIR =========='
+            tail -n 140 "$LOG"
             exit 1
           fi
           test -s app/build/outputs/apk/debug/app-debug.apk
