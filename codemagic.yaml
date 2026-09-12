@@ -56,8 +56,25 @@ workflows:
             SDKMANAGER="$SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
           fi
           test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" "build-tools;35.0.0" >/dev/null
+
           AAPT2_BIN="$SDK_PATH/build-tools/35.0.0/aapt2"
+          if [ ! -x "$AAPT2_BIN" ]; then
+            echo 'Installing Android build-tools 35.0.0...'
+            set +e
+            set +o pipefail
+            yes | "$SDKMANAGER" "build-tools;35.0.0" >/tmp/v9532-sdkmanager.log 2>&1
+            SDK_RC=${PIPESTATUS[1]}
+            set -o pipefail
+            set -e
+            if [ "$SDK_RC" -ne 0 ]; then
+              cat /tmp/v9532-sdkmanager.log || true
+              echo "sdkmanager failed with status $SDK_RC"
+              exit "$SDK_RC"
+            fi
+          else
+            echo 'Android build-tools 35.0.0 already installed.'
+          fi
+
           test -x "$AAPT2_BIN"
           echo 'SDK AAPT2 binary:'
           file "$AAPT2_BIN" || true
