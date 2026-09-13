@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess, sys
 
 APP = Path('/tmp/futures15m-build/Futures15mAlarm')
 JAVA = APP / 'app/src/main/java/com/futuresalarm/app'
@@ -97,3 +98,13 @@ for forbidden in ('V9546_AUTO_ORDER', 'v9546AutoOrder', 'V9546_DIRECT_STORAGE_DE
         raise SystemExit('v9.5.46b forbidden marker: ' + forbidden)
 
 print('v9.5.46b OK: delete shortcut is UI-only, existing delete semantics reused, trading safety retained.')
+
+# Fold the batch-selector UX correction into the same v9.5.46 artifact so the
+# Codemagic chain/artifact name stays aligned with the visible app version.
+repo_root = Path(__file__).resolve().parent
+for patch in ('v9546c_batch_selector_fix.py', 'v9546d_batch_selector_compile_safe.py'):
+    p = repo_root / patch
+    if not p.exists():
+        raise SystemExit('v9.5.46b chained patch missing: ' + str(p))
+    print('--- chained patch:', patch)
+    subprocess.run([sys.executable, str(p)], check=True)
