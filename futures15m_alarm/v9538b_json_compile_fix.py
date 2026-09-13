@@ -153,7 +153,7 @@ r = r.replace('RADAR BAĞLAMI','BAĞLAMI KOPYALA')
 r = r.replace('TOP3_ENTRY ','Radar ')
 r = r.replace('Son radar: "+age+" sn önce • 3 TOP + 5 ADAY','Son tarama: "+age+" sn önce • 3 TOP + 5 ADAY • otomatik 60 sn')
 if 'V9539_RADAR_USAGE_HINT' not in r:
-    anchor = '        root.addView(status);'
+    anchor = 'root.addView(status);'
     if anchor not in r:
         raise SystemExit('v9.5.39 radar status anchor missing')
     r = r.replace(anchor, anchor + r'''
