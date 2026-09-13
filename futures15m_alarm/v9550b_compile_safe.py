@@ -1,4 +1,8 @@
 from pathlib import Path
+import runpy
+
+# Apply the lightweight loop refinement before validating final generated Java.
+runpy.run_path(str(Path(__file__).with_name('v9550c_lightweight_ui_loop.py')), run_name='__main__')
 
 APP = Path('/tmp/futures15m-build/Futures15mAlarm')
 JAVA = APP / 'app/src/main/java/com/futuresalarm/app'
@@ -65,6 +69,7 @@ for label, p in (
 checks = {
     'targeted ui refresh': 'V9550_TARGETED_UI_REFRESH' in main,
     'no timer full redraw': 'signalChanged || periodic' not in main,
+    'lightweight ui loop': 'V9550C_LIGHTWEIGHT_DIRECT_NAV' in main,
     'stable recent card': 'V9550_STABLE_DASHBOARD_HELPERS' in main and 'v9550NormalizeRecentTradeCardPosition' in main,
     'order open metadata': 'V9550_ORDER_OPEN_METADATA' in main and 'v9550_trade_margin_' in main,
     'zero margin not shown': '(Double.isNaN(r.margin) || r.margin <= 0.0)' in main,
@@ -91,4 +96,4 @@ for forbidden in ('/fapi/v1/order', 'STOP_MARKET', 'TAKE_PROFIT_MARKET', 'cancel
     if forbidden in ui:
         raise SystemExit('v9.5.50b UI helper contains trading side effect: ' + forbidden)
 
-print('v9.5.50b OK: targeted in-app updates, stable real-trade card, saved opening margin metadata; trading core retained.')
+print('v9.5.50b OK: targeted in-app updates, lightweight card refresh, stable real-trade card, saved opening margin metadata; trading core retained.')
