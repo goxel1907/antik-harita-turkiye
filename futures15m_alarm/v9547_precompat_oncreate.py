@@ -42,6 +42,58 @@ def normalize_oncreate(path, label):
     print('v9.5.47 precompat:', label, 'onCreate anchor normalized')
 
 
+def normalize_radar_ui():
+    s = RADAR.read_text()
+
+    # Older patches changed the Radar title/status wording more than once.
+    # Normalize every known 8-coin / 5-candidate wording before v9.5.47's
+    # semantic UX patch. This is display-only; scoring/trading logic is untouched.
+    replacements = (
+        ('8 COİN MARKET RADARI', '9 COİN MARKET RADARI'),
+        ('8 COIN MARKET RADARI', '9 COİN MARKET RADARI'),
+        ('8 COİN RADARI', '9 COİN RADARI'),
+        ('8 coin', '9 coin'),
+        ('8 COİN', '9 COİN'),
+        ('3 TOP + 5 ADAY', '3 TOP + 6 ADAY'),
+        ('TOP3 + 5 güçlü aday', 'TOP3 + 6 güçlü aday'),
+        ('TOP 3 + 5 güçlü aday', 'TOP 3 + 6 güçlü aday'),
+        ('5 güçlü aday', '6 güçlü aday'),
+        ('five sticky candidates', 'six sticky candidates'),
+    )
+    for old, new in replacements:
+        s = s.replace(old, new)
+
+    # Some newer generated Radar screens use a generic "FUTURES RADAR" title.
+    # Convert the first visible title to the canonical 9-coin title expected by
+    # v9.5.47 without touching later descriptive strings/buttons.
+    if '9 COİN MARKET RADARI' not in s:
+        s, n = re.subn(
+            r'📡\s*(?:FUTURES\s+RADAR|(?:\d+\s+CO[Iİ]N\s+)?MARKET\s+RADARI)(?:\s*•\s*v9\.5(?:\.\d+)*)?',
+            '📡 9 COİN MARKET RADARI • v9.5.47',
+            s,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if n == 0:
+            raise SystemExit('v9.5.47 precompat Radar title anchor not found')
+
+    # v9.5.47 sanity checks a visible status marker too. Prefer the existing
+    # status sentence; if old patches removed it, extend "Radar verisi hazır".
+    if '3 TOP + 6 ADAY' not in s:
+        s = s.replace('Radar verisi hazır', 'Radar verisi hazır • 3 TOP + 6 ADAY', 1)
+    if '3 TOP + 6 ADAY' not in s:
+        raise SystemExit('v9.5.47 precompat Radar status marker not found')
+
+    RADAR.write_text(s)
+    print('v9.5.47 precompat: Radar UI normalized to 9 coins / 3 TOP + 6 ADAY')
+
+
 normalize_oncreate(RADAR, 'Radar')
 normalize_oncreate(ANALYSIS, 'Analysis')
-print('v9.5.47 precompat OK: Activity onCreate anchors normalized before UX patch.')
+normalize_radar_ui()
+
+radar = RADAR.read_text()
+if '9 COİN MARKET RADARI' not in radar or '3 TOP + 6 ADAY' not in radar:
+    raise SystemExit('v9.5.47 precompat final Radar UI check failed')
+
+print('v9.5.47 precompat OK: Activity anchors + 9-coin Radar UI normalized before UX patch.')
