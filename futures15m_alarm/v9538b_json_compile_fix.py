@@ -194,3 +194,9 @@ failed=[name for name,ok in final_checks.items() if not ok]
 if failed:
     raise SystemExit('v9.5.39 sanity failed: ' + ', '.join(failed))
 print('v9.5.39 OK: Futures Radar main-card placement + friendlier radar workflow.')
+
+# v9.5.40 chain: persistent radar + public catalyst/news/social discovery.
+v9540 = Path(__file__).with_name('v9540_radar_persistence_catalyst.py')
+if not v9540.exists():
+    raise SystemExit('v9.5.40 patch missing: ' + str(v9540))
+exec(compile(v9540.read_text(), str(v9540), 'exec'), {'__name__':'__main__','__file__':str(v9540)})
