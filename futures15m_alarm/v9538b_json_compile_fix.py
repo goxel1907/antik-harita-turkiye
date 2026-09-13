@@ -59,7 +59,7 @@ checks = {
 for name, ok in checks.items():
     print(('OK   ' if ok else 'FAIL '), name)
 
-bad = [name for name, ok in checks.items() if not ok]
+bad = [name for name,ok in checks.items() if not ok]
 if bad:
     raise SystemExit('v9.5.38b sanity failed: ' + ', '.join(bad))
 
@@ -195,14 +195,5 @@ if failed:
     raise SystemExit('v9.5.39 sanity failed: ' + ', '.join(failed))
 print('v9.5.39 OK: Futures Radar main-card placement + friendlier radar workflow.')
 
-# v9.5.40 chain: persistent radar + public catalyst/news/social discovery.
-v9540 = Path(__file__).with_name('v9540_radar_persistence_catalyst.py')
-if not v9540.exists():
-    raise SystemExit('v9.5.40 patch missing: ' + str(v9540))
-exec(compile(v9540.read_text(), str(v9540), 'exec'), {'__name__':'__main__','__file__':str(v9540)})
-
-# v9.5.41 chain: notification tap must preserve the exact active signal.
-v9541 = Path(__file__).with_name('v9541_notification_signal_persistence.py')
-if not v9541.exists():
-    raise SystemExit('v9.5.41 patch missing: ' + str(v9541))
-exec(compile(v9541.read_text(), str(v9541), 'exec'), {'__name__':'__main__','__file__':str(v9541)})
+# v9.5.40 and v9.5.41 are intentionally NOT chained here.
+# Codemagic runs them exactly once, in order, immediately after this script.
