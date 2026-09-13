@@ -101,8 +101,15 @@ print('v9.5.46b OK: delete shortcut is UI-only, existing delete semantics reused
 
 # Fold the batch-selector UX correction into the same v9.5.46 artifact so the
 # Codemagic chain/artifact name stays aligned with the visible app version.
+# The v9.5.47 precompat is intentionally chained here because Codemagic runs
+# this file immediately before v9547; it only normalizes generated Activity
+# onCreate declarations so the next semantic patch can find them reliably.
 repo_root = Path(__file__).resolve().parent
-for patch in ('v9546c_batch_selector_fix.py', 'v9546d_batch_selector_compile_safe.py'):
+for patch in (
+    'v9546c_batch_selector_fix.py',
+    'v9546d_batch_selector_compile_safe.py',
+    'v9547_precompat_oncreate.py',
+):
     p = repo_root / patch
     if not p.exists():
         raise SystemExit('v9.5.46b chained patch missing: ' + str(p))
