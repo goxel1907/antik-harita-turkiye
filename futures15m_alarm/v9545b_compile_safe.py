@@ -87,7 +87,7 @@ checks = {
     'late-entry cap retained': 'dv>0.50' in main and 'dev > 0.50' in main,
     'batch sequential existing engine': 'v9545BatchInternalKick' in ana and 'buildPack();' in ana,
     'batch 2-8 limit': 'unique.size() >= 8' in ana and 'selected.size() < 2 || selected.size() > 8' in main,
-    'master dedupe with fallback': 'ORTAK MASTER PROTOKOL' in ana and 'Never drop data just to deduplicate' in ana,
+    'master dedupe with fallback': 'ORTAK MASTER PROTOKOL' in ana and 'Ortak protokol sınırı güvenle ayrılamadı' in ana,
     'multi-image handoff': 'ACTION_SEND_MULTIPLE' in ana and 'putParcelableArrayListExtra' in ana,
     'bulk plan wording': 'Tekli / toplu yapıştır' in main,
     'freshness advisory wording': 'sinyal filtresi değildir' in main,
