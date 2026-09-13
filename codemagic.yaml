@@ -33,6 +33,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9536_notification_trade_ticket.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9537_dashboard_restore.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9538_market_radar.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9538b_json_compile_fix.py"
 
       - name: Set Android SDK location
         script: |
