@@ -200,3 +200,9 @@ v9540 = Path(__file__).with_name('v9540_radar_persistence_catalyst.py')
 if not v9540.exists():
     raise SystemExit('v9.5.40 patch missing: ' + str(v9540))
 exec(compile(v9540.read_text(), str(v9540), 'exec'), {'__name__':'__main__','__file__':str(v9540)})
+
+# v9.5.41 chain: notification tap must preserve the exact active signal.
+v9541 = Path(__file__).with_name('v9541_notification_signal_persistence.py')
+if not v9541.exists():
+    raise SystemExit('v9.5.41 patch missing: ' + str(v9541))
+exec(compile(v9541.read_text(), str(v9541), 'exec'), {'__name__':'__main__','__file__':str(v9541)})
