@@ -64,6 +64,37 @@ def java_balance(text, label):
         raise SystemExit(f'{label}: unbalanced braces={braces} parens={parens} brackets={brackets}')
 
 main = MAIN.read_text()
+
+# V9547_EMPTY_PLAN_BATCH_ACCESS:
+# The old quick navigator returned before rendering anything when there were no
+# saved plans. Batch analysis now uses current Radar/manual input, so it must
+# remain reachable even with zero saved analyses.
+if 'V9547_ALLOW_EMPTY_PLAN_NAV' not in main:
+    old = ('        java.util.ArrayList<String> symbols = v9544AnalyzedSymbols(root);\n'
+           '        if (symbols.isEmpty()) return;')
+    new = ('        java.util.ArrayList<String> symbols = v9544AnalyzedSymbols(root);\n'
+           '        // V9547_ALLOW_EMPTY_PLAN_NAV — batch Radar/manual entry still works with zero saved plans.')
+    if old not in main:
+        raise SystemExit('v9.5.47b empty-plan navigator anchor missing')
+    main = main.replace(old, new, 1)
+
+    old_hs = '        box.addView(hs, new LinearLayout.LayoutParams(-1, dp(40)));'
+    if old_hs not in main:
+        raise SystemExit('v9.5.47b horizontal navigator row anchor missing')
+    main = main.replace(old_hs,
+                        '        if (!symbols.isEmpty()) box.addView(hs, new LinearLayout.LayoutParams(-1, dp(40)));',
+                        1)
+
+    del_anchor = '        del.setOnClickListener(v -> v9546ShowDeletePicker());'
+    if del_anchor in main:
+        main = main.replace(del_anchor,
+                            '        del.setEnabled(!symbols.isEmpty());\n'
+                            '        del.setAlpha(symbols.isEmpty() ? 0.45f : 1f);\n'
+                            + del_anchor,
+                            1)
+    MAIN.write_text(main)
+    main = MAIN.read_text()
+
 ana = ANALYSIS.read_text()
 mon = MON.read_text()
 radar = RADAR.read_text()
@@ -86,6 +117,7 @@ checks = {
     'manual symbol entry': 'MANUEL COİN GİRİŞİ' in selector and 'typed.split' in selector,
     'current radar source': 'V9538MarketRadarEngine.latestJson(host)' in selector,
     'main always-visible batch': 'V9547_BATCH_BUTTON_ALWAYS' in main and 'V9547_SHARED_BATCH_SELECTOR' in main,
+    'zero-plan batch access': 'V9547_ALLOW_EMPTY_PLAN_NAV' in main,
     'analysis multi-select': 'V9547_ANALYSIS_MULTI_SELECTOR' in ana and 'ÇOKLU COİN SEÇ / ANALİZ' in ana,
     'radar multi-select': 'V9547_RADAR_MULTI_SELECTOR' in radar and 'TOPLU COİN SEÇ / ANALİZ' in radar,
     'radar nine rows': 'stickySix(candidates)' in eng and 'sel.size()<6' in eng and 'sel.size()>=6' in eng,
@@ -111,4 +143,4 @@ for forbidden in ('V9547_AUTO_ORDER', 'v9547AutoOrder', 'V9547_DIRECT_STORAGE_DE
     if forbidden in main or forbidden in ana or forbidden in mon or forbidden in selector:
         raise SystemExit('v9.5.47b forbidden marker: ' + forbidden)
 
-print('v9.5.47b OK: user-friendly shared batch selector + TOP3/6 radar retained with trading safety unchanged.')
+print('v9.5.47b OK: shared batch selector + TOP3/6 radar + zero-plan access; trading safety unchanged.')
