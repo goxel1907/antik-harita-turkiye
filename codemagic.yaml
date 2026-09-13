@@ -15,7 +15,7 @@ workflows:
       android_signing:
         - futures15m_stable
     scripts:
-      - name: Prepare Futures Alarm v9.5.38 MANUAL PRO source
+      - name: Prepare Futures Alarm v9.5.42 MANUAL PRO source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -34,6 +34,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9537_dashboard_restore.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9538_market_radar.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9538b_json_compile_fix.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9542_social_attention_early_warning.py"
 
       - name: Set Android SDK location
         script: |
@@ -108,7 +109,7 @@ workflows:
           install_bt() {
             ver="$1"
             [ -x "$SDK_PATH/build-tools/$ver/aapt2" ] && return 0
-            log="/tmp/v9537-sdkmanager-${ver}.log"
+            log="/tmp/v9542-sdkmanager-${ver}.log"
             echo "Installing Android build-tools $ver ..."
             set +e
             set +o pipefail
@@ -126,15 +127,15 @@ workflows:
           probe_aapt2() {
             ver="$1"
             bin="$SDK_PATH/build-tools/$ver/aapt2"
-            out="/tmp/v9537-aapt2-${ver}.zip"
-            mini="/tmp/v9537-aapt2-mini-${ver}"
+            out="/tmp/v9542-aapt2-${ver}.zip"
+            mini="/tmp/v9542-aapt2-mini-${ver}"
             [ -x "$bin" ] || return 1
             echo "===== AAPT2 candidate $ver ====="
             file "$bin" || true
             "$bin" version || return 1
             rm -rf "$mini" "$out"
             mkdir -p "$mini/res/values"
-            printf '%s\n' '<resources><string name="v9537_probe">probe</string></resources>' > "$mini/res/values/strings.xml"
+            printf '%s\n' '<resources><string name="v9542_probe">probe</string></resources>' > "$mini/res/values/strings.xml"
             "$bin" compile --dir "$mini/res" -o "$mini/mini.zip" || return 1
             test -s "$mini/mini.zip" || return 1
             "$bin" compile --dir app/src/main/res -o "$out" || return 1
@@ -159,17 +160,17 @@ workflows:
             DIAG="$SDK_PATH/build-tools/36.0.0/aapt2"
             if [ -x "$DIAG" ]; then
               echo 'Per-resource crash diagnostics with build-tools 36.0.0:'
-              rm -rf /tmp/v9537-aapt2-single
-              mkdir -p /tmp/v9537-aapt2-single
+              rm -rf /tmp/v9542-aapt2-single
+              mkdir -p /tmp/v9542-aapt2-single
               while IFS= read -r f; do
-                rm -rf /tmp/v9537-aapt2-single/*
+                rm -rf /tmp/v9542-aapt2-single/*
                 set +e
-                "$DIAG" compile "$f" -o /tmp/v9537-aapt2-single >/tmp/v9537-aapt2-single.log 2>&1
+                "$DIAG" compile "$f" -o /tmp/v9542-aapt2-single >/tmp/v9542-aapt2-single.log 2>&1
                 rc=$?
                 set -e
                 if [ "$rc" -ge 128 ]; then
                   echo "AAPT2 RESOURCE CRASH rc=$rc: $f"
-                  cat /tmp/v9537-aapt2-single.log || true
+                  cat /tmp/v9542-aapt2-single.log || true
                   exit "$rc"
                 fi
               done < <(find app/src/main/res -type f -print | sort)
@@ -204,13 +205,13 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.38 signed APK
+      - name: Build installable v9.5.42 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          LOG=/tmp/v9538-gradle.log
+          LOG=/tmp/v9542-gradle.log
           if ! ./gradlew --no-daemon --max-workers=1 assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
-            cp "$LOG" "$CM_BUILD_DIR/v9538-gradle.log" || true
+            cp "$LOG" "$CM_BUILD_DIR/v9542-gradle.log" || true
             echo
             echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
             grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|Bus error|SIGBUS|Segmentation fault|SIGSEGV|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 420 || true
@@ -221,9 +222,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.38.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.38.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.42.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.42.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.38.apk
-      - v9538-gradle.log
+      - Futures15mAlarm-PRO-v9.5.42.apk
+      - v9542-gradle.log
