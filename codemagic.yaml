@@ -47,6 +47,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9545_batch_analysis_topnav.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9545b_compile_safe.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9546_analysis_delete_shortcut.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9546a_delete_target_precision.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9546b_compile_safe.py"
 
       - name: Set Android SDK location
