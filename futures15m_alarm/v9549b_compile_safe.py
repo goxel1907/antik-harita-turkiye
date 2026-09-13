@@ -103,8 +103,8 @@ for forbidden in ('/fapi/v1/order', 'newOrder', 'cancelOrder', 'STOP_MARKET', 'T
 
 print('v9.5.49b OK: in-app UI self-refreshes without restart; real-trade mini cards and advisory geometry warnings are present; trading safety remains unchanged.')
 
-# V9550_CHAIN: keep Codemagic backwards-compatible even before yaml label/artifact
-# is renamed. The generated application itself is upgraded to v9.5.50 here.
-import runpy
-runpy.run_path(str(Path(__file__).with_name('v9550_stable_live_ui_trade_meta.py')), run_name='__main__')
-runpy.run_path(str(Path(__file__).with_name('v9550b_compile_safe.py')), run_name='__main__')
+# V9550 stage is intentionally NOT chained here.
+# Codemagic invokes v9550_stable_live_ui_trade_meta.py and v9550b_compile_safe.py
+# explicitly after this regression check. Keeping one owner for patch order makes
+# the source preparation deterministic and prevents double-application failures.
+print('v9.5.49b chain OK: v9.5.50 is owned by Codemagic explicit stage.')
