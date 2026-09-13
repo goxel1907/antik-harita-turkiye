@@ -34,8 +34,6 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9537_dashboard_restore.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9538_market_radar.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9538b_json_compile_fix.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9540_radar_persistence_catalyst.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9541_notification_signal_persistence.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9542_social_attention_early_warning.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9542b_native_notification_fix.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9543_live_position_sync.py"
