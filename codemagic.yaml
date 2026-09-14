@@ -253,12 +253,42 @@ workflows:
           if ! ./gradlew --no-daemon --max-workers=1 assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
             cp "$LOG" "$CM_BUILD_DIR/v9558-gradle.log" || true
             echo
-            echo '========== GERÇEK DERLEME HATASI ÖZETİ =========='
-            grep -n -E -i 'AAPT2|aapt2|resource|process.*Resources|link.*Resources|daemon.*exit|Bus error|SIGBUS|Segmentation fault|SIGSEGV|error:|unreported exception|JSONException|cannot find symbol|unclosed|illegal|expected|not a statement|incompatible types|Could not resolve|Could not find|Failed to read key|Cannot recover key|Keystore|Execution failed for task|What went wrong|Caused by:' "$LOG" | tail -n 420 || true
-            echo '========== İLK HATA BAĞLAMI =========='
-            grep -n -m 120 -E -i 'AAPT2|aapt2|error:|Execution failed for task|What went wrong|Caused by:' "$LOG" || true
-            echo '========== SON 300 SATIR =========='
-            tail -n 300 "$LOG"
+            echo '========== SON 220 SATIR (STACKTRACE/BAĞLAM) =========='
+            tail -n 220 "$LOG" || true
+            echo
+            echo '========== FINAL ROOT CAUSE • EN ALTTA BUNU GÖNDER =========='
+            python3 - "$LOG" <<'PY'
+          import re, sys
+          from pathlib import Path
+
+          p=Path(sys.argv[1])
+          lines=p.read_text(errors='replace').splitlines()
+          pats=[
+              r'\berror:', r'cannot find symbol', r'unreported exception',
+              r'incompatible types', r'illegal start', r'unclosed', r'expected',
+              r'not a statement', r'Execution failed for task', r'What went wrong',
+              r'Caused by:', r'AAPT2', r'resource .* not found', r'Android resource linking failed',
+              r'Could not resolve', r'Could not find', r'Failed to read key',
+              r'Cannot recover key', r'Keystore', r'SIGBUS', r'SIGSEGV', r'Bus error',
+          ]
+          rx=re.compile('|'.join('(?:'+x+')' for x in pats),re.I)
+          hits=[i for i,s in enumerate(lines) if rx.search(s)]
+          # Prefer a compiler/resource error over generic stacktrace causes.
+          strong=[]
+          for i in hits:
+              s=lines[i]
+              if re.search(r'\berror:|cannot find symbol|incompatible types|illegal start|unclosed|not a statement|resource .* not found|Android resource linking failed|AAPT2',s,re.I):
+                  strong.append(i)
+          chosen=(strong[0] if strong else (hits[0] if hits else max(0,len(lines)-60)))
+          lo=max(0,chosen-18); hi=min(len(lines),chosen+26)
+          print(f'ROOT_CAUSE_LINE={chosen+1}  CONTEXT={lo+1}-{hi}')
+          for j in range(lo,hi):
+              print(f'{j+1}: {lines[j]}')
+          print('--- MATCHED ERROR LINES (ilk 40) ---')
+          for i in hits[:40]:
+              print(f'{i+1}: {lines[i]}')
+          print('=== ROOT CAUSE END ===')
+          PY
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
