@@ -92,3 +92,22 @@ for k,v in checks59.items(): print(('OK   ' if v else 'FAIL '),k)
 bad59=[k for k,v in checks59.items() if not v]
 if bad59: raise SystemExit('v9.5.59 chained sanity failed: '+', '.join(bad59))
 print('v9.5.59 chained patch OK: live breakout acceptance + 5m reclaim wait active; no profit/day-PnL protection added.')
+
+# v9.5.60 notification/persistence ordering fix. The real signal is committed and
+# journaled before its PendingIntent snapshot is created, so a fast notification
+# tap cannot outrun persistence or bind to signalTs=0/the previous cycle.
+runpy.run_path(str(ROOT/'v9560_atomic_notification_signal_handoff.py'),run_name='__main__')
+
+mon=MON.read_text(); main=MAIN.read_text(); bld=BUILD.read_text()
+checks60={
+    'v9560 atomic commit':'V9560_ATOMIC_SIGNAL_COMMIT' in mon,
+    'v9560 signal-first order':'V9560_SIGNAL_FIRST_NOTIFICATION_ORDER' in mon,
+    'v9560 durable journal':'V9560_DURABLE_SIGNAL_JOURNAL' in mon,
+    'v9560 exact-signal tap guards retained':'V9541_NOTIFICATION_SIGNAL_PERSISTENCE' in mon and 'V9543B_NOTIFICATION_TICKET_LOCK' in main,
+    'v9560 persistent card retained':'GERÇEK SİNYAL KAYDI • KAYBOLMAZ' in main,
+    'v9560 version':'v9.5.60' in main and "versionName '9.5.60'" in bld,
+}
+for k,v in checks60.items(): print(('OK   ' if v else 'FAIL '),k)
+bad60=[k for k,v in checks60.items() if not v]
+if bad60: raise SystemExit('v9.5.60 chained sanity failed: '+', '.join(bad60))
+print('v9.5.60 chained patch OK: signal persistence precedes notification creation; tap cannot make a just-emitted real signal disappear.')
