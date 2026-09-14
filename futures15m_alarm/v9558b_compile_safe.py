@@ -41,7 +41,7 @@ def balance(text,label):
 for label,p in (('MainActivity.java',MAIN),('MonitorService.java',MON),('AnalysisPackActivity.java',ANALYSIS),('V9558EmaContext.java',EMACTX)):
     balance(p.read_text(),label)
 
-main=MAIN.read_text(); mon=MON.read_text(); ana=ANALYSIS.read_text(); ema=EMACTX.read_text(); bld=BUILD.read_text()
+main=MAIN.read_text(); mon=MON.read_text(); ana=ANALYSIS.read_text(); ana_lower=ana.lower(); ema=EMACTX.read_text(); bld=BUILD.read_text()
 checks={
     'sticky signal journal UI':'V9558_PERSISTENT_SIGNAL_JOURNAL_UI' in main and 'GERÇEK SİNYAL KAYDI • KAYBOLMAZ' in main,
     'journal index retained':'v9558_signal_journal_index' in main and 'v9558_signal_journal_index' in mon,
@@ -64,7 +64,10 @@ checks={
     'minimum rr retained':'TP1 >= 1.0R' in ana and 'TP2 >= 1.5R' in ana,
     'manual approval retained':'V9543C_SINGLE_TAP_APPROVAL' in main and '⚡ ONAYLA & GÖNDER' in main,
     'version main':'v9.5.58' in main,
-    'version analysis':'v9.5.58' in ana,
+    # Analysis prompt uses V9.5.58 section markers (uppercase V). Treat the
+    # semantic version check case-insensitively; capitalization is presentation,
+    # not a missing patch. This still fails if the 9.5.58 marker is absent.
+    'version analysis':'v9.5.58' in ana_lower,
     'version build':'versionCode 26091406' in bld and "versionName '9.5.58'" in bld,
 }
 for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
