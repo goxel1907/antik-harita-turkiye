@@ -23,15 +23,14 @@ for p in JAVA.glob('*.java'):
     s=p.read_text()
     n=s
     for esc in ('n','r','t'):
-        bad="'\\\\"+esc+"'"   # Java source: '\\n' / '\\r' / '\\t' (invalid char literal)
-        good="'\\"+esc+"'"     # Java source: '\n' / '\r' / '\t' (valid escaped char)
+        bad="'\\\\"+esc+"'"
+        good="'\\"+esc+"'"
         n=n.replace(bad,good)
     if n!=s:
         p.write_text(n)
         repaired.append(p.name)
 print('v9.5.58d Java char-literal repairs:', repaired if repaired else 'none needed')
 
-# Hard fail if a double-escaped one-character literal survives.
 for p in JAVA.glob('*.java'):
     s=p.read_text()
     leftovers=[]
@@ -57,22 +56,13 @@ bad=[k for k,v in checks.items() if not v]
 if bad: raise SystemExit('v9.5.58d sanity failed: '+', '.join(bad))
 print('v9.5.58d OK: real open signal cannot vanish from an accidental active-flag loss; only non-terminal ACIK records are repaired.')
 
-# Presentation-only follow-up: render escaped newline tokens in dynamic signal
-# descriptions as real UI line breaks. Keep Codemagic wiring stable by chaining
-# through this already-wired v9558d guard.
 ROOT=Path(__file__).resolve().parent
 runpy.run_path(str(ROOT/'v9558e_signal_text_newline_fix.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9558f_compile_safe.py'),run_name='__main__')
 
-# v9.5.59 lost-breakout follow-up. This is entry-validity only: a confirmed 15m
-# scenario cannot emit an immediate entry after live price loses its trigger.
-# No day-profit, trailing-profit or PnL-based protection is added.
 runpy.run_path(str(ROOT/'v9559_day_profit_breakout_guard.py'),run_name='__main__')
-# Defense-in-depth/idempotent sanity layer. The main v9.5.59 patch already writes
-# these markers; this script verifies the same invariant without adding PnL logic.
 runpy.run_path(str(ROOT/'v9559b_lost_trigger_retest_fix.py'),run_name='__main__')
 
-# Re-run the literal check after all follow-up patching as well.
 for p in JAVA.glob('*.java'):
     s=p.read_text()
     for esc in ('n','r','t'):
@@ -93,9 +83,6 @@ bad59=[k for k,v in checks59.items() if not v]
 if bad59: raise SystemExit('v9.5.59 chained sanity failed: '+', '.join(bad59))
 print('v9.5.59 chained patch OK: live breakout acceptance + 5m reclaim wait active; no profit/day-PnL protection added.')
 
-# v9.5.60 notification/persistence ordering fix. The real signal is committed and
-# journaled before its PendingIntent snapshot is created, so a fast notification
-# tap cannot outrun persistence or bind to signalTs=0/the previous cycle.
 runpy.run_path(str(ROOT/'v9560_atomic_notification_signal_handoff.py'),run_name='__main__')
 
 mon=MON.read_text(); main=MAIN.read_text(); bld=BUILD.read_text()
@@ -111,3 +98,13 @@ for k,v in checks60.items(): print(('OK   ' if v else 'FAIL '),k)
 bad60=[k for k,v in checks60.items() if not v]
 if bad60: raise SystemExit('v9.5.60 chained sanity failed: '+', '.join(bad60))
 print('v9.5.60 chained patch OK: signal persistence precedes notification creation; tap cannot make a just-emitted real signal disappear.')
+
+# v9.5.61 consistency pass: late-entry location, exact managed-order cleanup,
+# compact stored-plan UI, and deeper liquidity/wick context. Liquidity/wick
+# remains context-only; the only new execution gate converts a late chase into
+# the existing completed-5m retest path.
+runpy.run_path(str(ROOT/'v9561a_late_entry_guard.py'),run_name='__main__')
+runpy.run_path(str(ROOT/'v9561b_order_cleanup.py'),run_name='__main__')
+runpy.run_path(str(ROOT/'v9561c_compact_plans.py'),run_name='__main__')
+runpy.run_path(str(ROOT/'v9561d_liquidity_wick.py'),run_name='__main__')
+runpy.run_path(str(ROOT/'v9561e_compile_safe.py'),run_name='__main__')
