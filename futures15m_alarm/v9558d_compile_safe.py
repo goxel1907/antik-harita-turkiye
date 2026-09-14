@@ -64,11 +64,27 @@ ROOT=Path(__file__).resolve().parent
 runpy.run_path(str(ROOT/'v9558e_signal_text_newline_fix.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9558f_compile_safe.py'),run_name='__main__')
 
-# Re-run the literal check after presentation patching as well.
+# v9.5.59 risk/breakout follow-up. This runs after the v9.5.58 presentation
+# sanitizers so the generated Java seen by javac is the final v9.5.59 source.
+runpy.run_path(str(ROOT/'v9559_day_profit_breakout_guard.py'),run_name='__main__')
+
+# Re-run the literal check after all follow-up patching as well.
 for p in JAVA.glob('*.java'):
     s=p.read_text()
     for esc in ('n','r','t'):
         bad="'\\\\"+esc+"'"
         if bad in s:
             raise SystemExit('v9.5.58d post-followup invalid Java char literal in '+p.name+': '+bad)
-print('v9.5.58d post-followup Java literal check OK.')
+
+mon=MON.read_text(); main=MAIN.read_text(); bld=BUILD.read_text()
+checks59={
+    'v9559 live breakout acceptance':'V9559_BREAKOUT_LIVE_ACCEPTANCE' in mon,
+    'v9559 day risk guard':'V9559_DAY_PROFIT_RISK_GUARD' in main,
+    'v9559 prepare guard':'V9559_PREPARE_ORDER_RISK_GUARD' in main,
+    'v9559 final guard':'V9559_FINAL_ORDER_RISK_RECHECK' in main,
+    'v9559 version':'v9.5.59' in main and "versionName '9.5.59'" in bld,
+}
+for k,v in checks59.items(): print(('OK   ' if v else 'FAIL '),k)
+bad59=[k for k,v in checks59.items() if not v]
+if bad59: raise SystemExit('v9.5.59 chained sanity failed: '+', '.join(bad59))
+print('v9.5.59 chained patch OK: live breakout acceptance + day-profit/STOP risk budget active.')
