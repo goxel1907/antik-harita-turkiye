@@ -65,13 +65,17 @@ for label, p in (
 main=MAIN.read_text()
 mon=MON.read_text()
 ana=ANALYSIS.read_text()
+ana_lower=ana.lower()
 bld=BUILD.read_text()
 
 checks={
     'multi path prompt': 'COKLU EXECUTION YOLLARI' in ana and 'RETEST_RECLAIM' in ana and 'SWEEP_RECLAIM' in ana and 'DISPLACEMENT_ACCEPTANCE' in ana,
     'compression and micro bos': 'COMPRESSION_BREAK' in ana and 'MICRO_BOS/CHOCH' in ana,
     'retest not mandatory': '5m retest yalnızca BİR execution yoludur' in ana and '5m retest zorunlu değildir' in ana,
-    'family cap retained': 'EXECUTION AILE SINIRI' in ana and 'aynı mikro hareketten' in ana,
+    # Turkish sentence begins with "Aynı" in the MASTER prompt. Keep this
+    # semantic check case-insensitive so a capitalization-only text change does
+    # not fail the build while the family-cap rule is actually present.
+    'family cap retained': 'EXECUTION AILE SINIRI' in ana and 'aynı mikro hareketten' in ana_lower,
     'crowding squeeze matrix': 'CROWDING/SQUEEZE MATRISI' in ana and 'SHORT_SQUEEZE' in ana and 'LONG_SQUEEZE' in ana,
     'top mover trap': 'TOP-MOVER CONTRARIAN TRAP' in ana and 'Çok yükseldi -> SHORT' in ana,
     'failed auction': 'TIME-AT-LEVEL / FAILED-AUCTION' in ana,
