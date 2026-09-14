@@ -1,4 +1,5 @@
 from pathlib import Path
+import runpy
 APP=Path('/tmp/futures15m-build/Futures15mAlarm')
 MON=APP/'app/src/main/java/com/futuresalarm/app/MonitorService.java'
 MAIN=APP/'app/src/main/java/com/futuresalarm/app/MainActivity.java'
@@ -20,3 +21,10 @@ for k,v in checks.items(): print(('OK   ' if v else 'FAIL '),k)
 bad=[k for k,v in checks.items() if not v]
 if bad: raise SystemExit('v9.5.58d sanity failed: '+', '.join(bad))
 print('v9.5.58d OK: real open signal cannot vanish from an accidental active-flag loss; only non-terminal ACIK records are repaired.')
+
+# Presentation-only follow-up: render dynamic signal descriptions with real
+# line breaks instead of literal \\n text. Keep Codemagic wiring stable by
+# chaining through this already-wired v9558d guard.
+ROOT=Path(__file__).resolve().parent
+runpy.run_path(str(ROOT/'v9558e_signal_text_newline_fix.py'),run_name='__main__')
+runpy.run_path(str(ROOT/'v9558f_compile_safe.py'),run_name='__main__')
