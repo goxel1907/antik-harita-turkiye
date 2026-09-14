@@ -1,11 +1,46 @@
 from pathlib import Path
 import runpy
+
 APP=Path('/tmp/futures15m-build/Futures15mAlarm')
-MON=APP/'app/src/main/java/com/futuresalarm/app/MonitorService.java'
-MAIN=APP/'app/src/main/java/com/futuresalarm/app/MainActivity.java'
+JAVA=APP/'app/src/main/java/com/futuresalarm/app'
+MON=JAVA/'MonitorService.java'
+MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (MON,MAIN,BUILD):
     if not p.exists(): raise SystemExit('v9.5.58d missing: '+str(p))
+
+# ---------------------------------------------------------------------------
+# JAVA LITERAL SANITIZER
+# v9.5.57 terminal-history helper was generated from a Python raw string with
+# Java char literal '\\n' double-escaped as '\\\\n'. In Java a char literal may
+# contain one escaped character (e.g. '\n'), not an escaped backslash plus 'n'.
+# javac therefore reports exactly: unclosed character literal (x2) + not a
+# statement. Repair only these known presentation char literals; trading values,
+# lifecycle state and order logic are untouched.
+# ---------------------------------------------------------------------------
+repaired=[]
+for p in JAVA.glob('*.java'):
+    s=p.read_text()
+    n=s
+    for esc in ('n','r','t'):
+        bad="'\\\\"+esc+"'"   # Java source: '\\n' / '\\r' / '\\t' (invalid char literal)
+        good="'\\"+esc+"'"     # Java source: '\n' / '\r' / '\t' (valid escaped char)
+        n=n.replace(bad,good)
+    if n!=s:
+        p.write_text(n)
+        repaired.append(p.name)
+print('v9.5.58d Java char-literal repairs:', repaired if repaired else 'none needed')
+
+# Hard fail if a double-escaped one-character literal survives.
+for p in JAVA.glob('*.java'):
+    s=p.read_text()
+    leftovers=[]
+    for esc in ('n','r','t'):
+        bad="'\\\\"+esc+"'"
+        if bad in s: leftovers.append(bad)
+    if leftovers:
+        raise SystemExit('v9.5.58d invalid Java char literal remains in '+p.name+': '+', '.join(leftovers))
+
 mon=MON.read_text(); main=MAIN.read_text(); bld=BUILD.read_text()
 checks={
     'active invariant helper':'V9558C_SIGNAL_ACTIVE_INVARIANT' in mon and 'v9558RepairSignalActiveInvariant' in mon,
@@ -28,3 +63,12 @@ print('v9.5.58d OK: real open signal cannot vanish from an accidental active-fla
 ROOT=Path(__file__).resolve().parent
 runpy.run_path(str(ROOT/'v9558e_signal_text_newline_fix.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9558f_compile_safe.py'),run_name='__main__')
+
+# Re-run the literal check after presentation patching as well.
+for p in JAVA.glob('*.java'):
+    s=p.read_text()
+    for esc in ('n','r','t'):
+        bad="'\\\\"+esc+"'"
+        if bad in s:
+            raise SystemExit('v9.5.58d post-followup invalid Java char literal in '+p.name+': '+bad)
+print('v9.5.58d post-followup Java literal check OK.')
