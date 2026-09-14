@@ -73,6 +73,8 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9557b_compile_safe.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9558_persistent_signal_ema_context.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9558b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9558c_signal_active_invariant.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9558d_compile_safe.py"
 
       - name: Set Android SDK location
         script: |
