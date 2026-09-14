@@ -1,8 +1,34 @@
 from pathlib import Path
+import re
+
 APP=Path('/tmp/futures15m-build/Futures15mAlarm');JAVA=APP/'app/src/main/java/com/futuresalarm/app'
 MAIN=JAVA/'MainActivity.java';MON=JAVA/'MonitorService.java';CTX=JAVA/'V9532CandleContext.java';DCTX=JAVA/'V9531DecisionContext.java';ENG=JAVA/'StructureEngine.java';BUILD=APP/'app/build.gradle'
 for p in (MAIN,MON,CTX,DCTX,ENG,BUILD):
     if not p.exists():raise SystemExit('v9.5.61e missing: '+str(p))
+
+# V9561E_STRUCTURE_180_REPAIR
+# v9.5.61d originally patched only one literal spelling ("src.size() - 100").
+# Some composed sources carry a different previous numeric cap/spacing, so the
+# marker could be present while the actual StructureEngine cap remained old.
+# Repair the semantic analyze() start expression itself, then verify it before
+# running the rest of the composition sanity checks. This changes context depth
+# only; it does not add a signal/order veto.
+eng=ENG.read_text()
+structure_pat=re.compile(
+    r'int\s+start\s*=\s*Math\.max\(\s*0\s*,\s*src\.size\(\)\s*-\s*\d+\s*\)\s*;'
+)
+mm=structure_pat.search(eng)
+if mm:
+    eng=eng[:mm.start()]+'int start = Math.max(0, src.size() - 180);'+eng[mm.end():]
+elif not re.search(r'src\.size\(\)\s*-\s*180',eng):
+    raise SystemExit('v9.5.61e StructureEngine analyze lookback expression not found')
+if 'V9561_STRUCTURE_LOOKBACK_180' not in eng:
+    cls=eng.find('final class StructureEngine')
+    nl=eng.find('\n',cls)
+    if cls<0 or nl<0:raise SystemExit('v9.5.61e StructureEngine class anchor missing')
+    eng=eng[:nl+1]+'    // V9561_STRUCTURE_LOOKBACK_180 — deeper context, no extra hard vote.\n'+eng[nl+1:]
+ENG.write_text(eng)
+
 main=MAIN.read_text();mon=MON.read_text();ctx=CTX.read_text();dc=DCTX.read_text();eng=ENG.read_text();b=BUILD.read_text()
 checks={
  'version':"versionName '9.5.61'" in b and 'versionCode 26091501' in b,
@@ -16,17 +42,16 @@ checks={
  'income net':'BINANCE_INCOME_NET' in main,
  'wick confirmed':'V9561_CONFIRMED_WICK_SWEEP' in ctx and 'SWEEP_CONFIRMED' in ctx,
  'deep context':'"15m", 384' in dc and '"1d", 365' in dc,
- 'structure 180':'src.size() - 180' in eng,
+ 'structure 180':re.search(r'src\.size\(\)\s*-\s*180',eng) is not None and 'V9561_STRUCTURE_LOOKBACK_180' in eng,
  'no wick/liquidity hard marker in monitor':'V9561_CONFIRMED_WICK_SWEEP' not in mon and 'V9561_DEEP_LIQUIDITY_LOOKBACK' not in mon,
 }
 for k,v in checks.items():print(('OK   ' if v else 'FAIL '),k)
 bad=[k for k,v in checks.items() if not v]
 if bad:raise SystemExit('v9.5.61e failed: '+', '.join(bad))
-for name,src in [('MainActivity',main),('MonitorService',mon),('WickContext',ctx)]:
+for name,src in [('MainActivity',main),('MonitorService',mon),('WickContext',ctx),('StructureEngine',eng)]:
     if src.count('{')!=src.count('}'):raise SystemExit('v9.5.61e brace mismatch: '+name)
 # Exact-collision semantic invariant.
 def norm(x):
-    import re
     y=re.sub(r'[^A-Z0-9]','',(x or '').upper());return y if y.endswith('USDT') else ''
 if norm('TUSDT')==norm('THEUSDT'):raise SystemExit('v9.5.61e T/THE symbol collision')
 print('v9.5.61e OK: late-entry, exact cleanup, compact stored plans, symbol isolation and liquidity/wick invariants survived composition.')
