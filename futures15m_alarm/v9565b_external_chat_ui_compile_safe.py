@@ -1,9 +1,11 @@
 from pathlib import Path
+import re
 
 APP = Path('/tmp/futures15m-build/Futures15mAlarm')
 ANA = APP / 'app/src/main/java/com/futuresalarm/app/AnalysisPackActivity.java'
-if not ANA.exists():
-    raise SystemExit('v9.5.65b AnalysisPackActivity missing')
+MAIN = APP / 'app/src/main/java/com/futuresalarm/app/MainActivity.java'
+if not ANA.exists() or not MAIN.exists():
+    raise SystemExit('v9.5.65b required source missing')
 
 a = ANA.read_text()
 if 'V9565_EXTERNAL_SAME_CHAT_BROWSER' not in a:
@@ -70,6 +72,17 @@ ok,why=java_lex_sanity(out)
 print(('OK   ' if ok else 'FAIL '),'java lexical AnalysisPackActivity',why)
 if not ok: raise SystemExit('v9.5.65b Java lexical mismatch: '+why)
 print('v9.5.65b OK: external-browser same-chat labels match behavior and AnalysisPackActivity remains lexically balanced.')
+
+# V9.5.66 compatibility: MainActivity historically stores the visible version
+# separately from the "15m Futures Alarm PRO" title. Normalize every remaining
+# v9.5.xx token here before the final v9.5.66 patch runs, so the visible UI and
+# final sanity check cannot drift apart again.
+main = MAIN.read_text()
+main = re.sub(r'v9\.5(?:\.\d+)+', 'v9.5.66', main)
+MAIN.write_text(main)
+if 'v9.5.66' not in MAIN.read_text():
+    raise SystemExit('v9.5.66 MainActivity visible version normalization failed')
+print('v9.5.66 compatibility: MainActivity visible version normalized')
 
 # V9.5.66 is intentionally chained here so the existing Codemagic prepare
 # step remains stable while the Android ChatGPT app becomes the primary route.
