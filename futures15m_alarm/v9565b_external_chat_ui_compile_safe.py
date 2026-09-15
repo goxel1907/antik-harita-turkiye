@@ -22,16 +22,17 @@ bad = [name for name, ok in checks.items() if not ok]
 if bad:
     raise SystemExit('v9.5.65b compatibility failed: ' + ', '.join(bad))
 
-# v9.5.67 stable transfer flow: prompt on clipboard + chart(s) in Gallery +
-# one saved ChatGPT conversation.
 PATCH_9567 = Path(__file__).with_name('v9567_prompt_clipboard_gallery_samechat.py')
 if not PATCH_9567.exists():
     raise SystemExit('v9.5.67 patch missing: ' + str(PATCH_9567))
 exec(compile(PATCH_9567.read_text(), str(PATCH_9567), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9567)})
 
-# v9.5.68 adds a separate advisory in-app trade agent. It is intentionally
-# chained after v9.5.67 so the same-chat/gallery workflow and trading logic stay intact.
 PATCH_9568 = Path(__file__).with_name('v9568_free_trade_agent.py')
 if not PATCH_9568.exists():
     raise SystemExit('v9.5.68 patch missing: ' + str(PATCH_9568))
 exec(compile(PATCH_9568.read_text(), str(PATCH_9568), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9568)})
+
+PATCH_9568B = Path(__file__).with_name('v9568b_release_identity_compat.py')
+if not PATCH_9568B.exists():
+    raise SystemExit('v9.5.68b patch missing: ' + str(PATCH_9568B))
+exec(compile(PATCH_9568B.read_text(), str(PATCH_9568B), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9568B)})
