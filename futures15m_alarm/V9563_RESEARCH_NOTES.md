@@ -8,7 +8,6 @@ This note documents external research references reviewed for v9.5.63. Runtime m
 - `mamonet/orderbook-heatmap` — incremental L2 book, rolling/cumulative delta, imbalance, liquidity clusters and absorption. Key lesson: ingestion and rendering should be decoupled; absorption needs aggression plus failure of price to travel.
 - `kotiksgame/Entropy-Liquidity-Monitor` — 0-star MIT reference using Shannon entropy + OFI on Binance WebSocket data. v9.5.63 uses normalized top-depth entropy only as a soft concentration descriptor, never a direction vote.
 - `armaansg/orderbook-microstructure` — 0-star MIT reproducible OFI study. Key lessons adopted conceptually: event-time ordering, continuity across batches, no future leakage, and OFI as short-horizon micro context rather than a universal signal.
-- `gopherchaan/go-spoofing-detector` — 0-star MIT reference for wall disappearance / opposing trade-burst ideas. v9.5.63 labels only `SPOOF_RISK=*ADAY`; it never claims actual spoofing or market-maker intent.
 - `Khaymat/pyvsmc` — 0-star MIT SMC engine: FVG/CE/IFVG, swings, first-cross BOS/CHOCH, OB/breaker/mitigation, liquidity sweeps, premium/discount/OTE. Used as a semantic/offline oracle reference; Python is not embedded in Android.
 - `joshyattridge/smart-money-concepts` — mature MIT SMC reference. Used only as a second conceptual/offline oracle; not a runtime dependency.
 - `JWHaan/quant.term` — MIT research terminal with OFI/CVD/VPIN and strong provenance/gap-reporting principles. v9.5.63 follows the same broad principle: stale/gapped data becomes `PUANSIZ`, never silently fabricated.
@@ -16,10 +15,12 @@ This note documents external research references reviewed for v9.5.63. Runtime m
 ## Research-only references (no code copied)
 
 - `Niketion/flowdepth` — GPL-3.0; useful ideas around iceberg reload, sweep, absorption and microprice, but GPL code is intentionally not embedded.
+- `gopherchaan/go-spoofing-detector` — archived and no license observed in repository metadata; wall-disappearance/spoofing ideas were research-only. No code is embedded, and v9.5.63 says only `SPOOF_RISK=*ADAY` rather than claiming spoofing or market-maker intent.
 - `Uncharted1804/microstructure-alpha-engine` — no license observed; research-only. Reinforces that OFI can be statistically real yet decay too quickly to be a direct retail execution trigger.
 - `jaefit/deep-ofi` — no license observed; research-only. Useful caution that raw queue state can carry information not captured by one OFI scalar.
 - `ysoliman03/crypto-divergence-engine` — no license observed; research-only architecture for reconnect/dedup/anomaly pipelines.
 - `Priyaanshu-Patel/orderflow-toxicity` — no license observed; research-only.
+- `edgedepthhq/edgedepth-terminal` — AGPL-3.0; useful footprint/DOM/replay reference, deliberately not embedded in the Android app.
 
 ## v9.5.63 invariants
 
@@ -29,5 +30,5 @@ This note documents external research references reviewed for v9.5.63. Runtime m
 4. REST `BOOK_MICRO` and live L2 are the same execution/micro family. If live L2 is healthy, it supersedes REST book context; they are not two votes.
 5. OFI + trade delta + imbalance + microprice + entropy + absorption are correlated microstructure views and collectively contribute at most one soft family adjustment.
 6. Resting liquidity is observed, not guaranteed. Wall pull/reload can suggest spoof/iceberg risk but does not prove hidden orders, liquidation prices or market-maker intent.
-7. The monitor warms L2 silently; no extra long dashboard block is added. Detailed microstructure is sent in the analysis package/prompt where ChatGPT can weigh it with structure, location, invalidation and R/R.
+7. L2 sockets are analysis-activated and capped; the monitor only keeps already-active analyzed symbols warm. This avoids opening a 100 ms depth feed for every stored plan and avoids adding another long dashboard block.
 8. SMC oracle semantics improve consistency without inventing levels: if CE50/IFVG/OTE or another level is not supplied or unambiguously derivable from the package, it stays unknown.
