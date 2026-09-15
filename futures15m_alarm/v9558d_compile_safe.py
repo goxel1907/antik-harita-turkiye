@@ -115,3 +115,4 @@ runpy.run_path(str(ROOT/'v9562_prompt_integrity_guard.py'),run_name='__main__')
 # v9.5.63 real Binance L2 microstructure soft-context layer.  This remains a
 # single execution/micro family contribution and never adds a new hard veto.
 runpy.run_path(str(ROOT/'v9563_l2_microstructure_soft_context.py'),run_name='__main__')
+runpy.run_path(str(ROOT/'v9563b_l2_mobile_budget_guard.py'),run_name='__main__')
