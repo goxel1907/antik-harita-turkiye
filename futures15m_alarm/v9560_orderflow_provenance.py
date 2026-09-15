@@ -44,7 +44,7 @@ if 'V9560_BOOK_PROVENANCE' not in c:
     extra=r'''            // V9560_BOOK_PROVENANCE
             b.append("BOOK PROVENANCE: Binance /fapi/v1/depth anlik snapshotidir; imb5/imb20 ve top20 concentration hesaplanir. ")
                     .append("Duvar yasi/persistence, order-id yasam dongusu, cancel-vs-fill, spoof/pull veya gercek replenishment OLCULMUYOR; bunlari varmis gibi yorumlama. ")
-                    .append("Bu veri execution/micro ailesinde soft contexttir; snapshot yok/bayatsa PUANSIZ.\\n");
+                    .append("Bu veri execution/micro ailesinde soft contexttir; snapshot yok/bayatsa PUANSIZ.\n");
 '''
     c=c[:close]+extra+c[close:]
 
@@ -62,10 +62,10 @@ if 'V9.5.60 KAYNAK / PROVENANCE SOZLESMESI' not in a:
     if line_end<0:
         raise SystemExit('v9.5.60 prompt line end missing')
     rules=r'''
-        sb.append("V9.5.60 KAYNAK / PROVENANCE SOZLESMESI: BOOK_MICRO yalniz Binance anlik depth snapshotundan gelen imbalance/concentration verisidir. Mamonet/orderbook-heatmap'teki yatay kalici bant anlatimi gorsel heatmap semantigidir; uygulamada olculen duvar-yasi/persistence algoritmasi gibi yorumlama ve mevcut BOOK/CVD/absorpsiyon ailesini tekrar puanlama.\\n");
-        sb.append("V9.5.60 ORDER-LIFECYCLE SINIRI: QuantFlowLab'daki passive-add/cancel/update/reprice/replenishment ayrimi order-level event akisina dayanir. Mevcut Binance snapshot verisinden cancel-vs-fill, spoof, passive retreat/protection veya gercek replenishment KESIN cikarsanamaz; bu alanlar olculmedikce PUANSIZDIR ve yeni hard veto yaratmaz.\\n");
-        sb.append("V9.5.60 LIKIDITE PROVENANCE: BSL/SSL/LIQ_DRAW=YAPISAL_TAHMINI hedef havuzu; LIQ_DENS=MODELLENMIS_TAHMINI yogunluk; OBS_LIQ=BINANCE_FORCEORDER_GOZLENEN_GECMIS snapshot. Ucunu birbirinin kaniti gibi kullanma, market-maker niyeti veya bireysel liquidation price uydurma; ayni leverage/flow olayini cift sayma.\\n");
-        sb.append("V9.5.60 HFTBACKTEST SINIRI: hftbacktest queue/latency/fill gercekligi OFFLINE dogrulama metodudur; Android runtime LONG/SHORT puani, alarm veya veto degildir.\\n");
+        sb.append("V9.5.60 KAYNAK / PROVENANCE SOZLESMESI: BOOK_MICRO yalniz Binance anlik depth snapshotundan gelen imbalance/concentration verisidir. Mamonet/orderbook-heatmap'teki yatay kalici bant anlatimi gorsel heatmap semantigidir; uygulamada olculen duvar-yasi/persistence algoritmasi gibi yorumlama ve mevcut BOOK/CVD/absorpsiyon ailesini tekrar puanlama.\n");
+        sb.append("V9.5.60 ORDER-LIFECYCLE SINIRI: QuantFlowLab'daki passive-add/cancel/update/reprice/replenishment ayrimi order-level event akisina dayanir. Mevcut Binance snapshot verisinden cancel-vs-fill, spoof, passive retreat/protection veya gercek replenishment KESIN cikarsanamaz; bu alanlar olculmedikce PUANSIZDIR ve yeni hard veto yaratmaz.\n");
+        sb.append("V9.5.60 LIKIDITE PROVENANCE: BSL/SSL/LIQ_DRAW=YAPISAL_TAHMINI hedef havuzu; LIQ_DENS=MODELLENMIS_TAHMINI yogunluk; OBS_LIQ=BINANCE_FORCEORDER_GOZLENEN_GECMIS snapshot. Ucunu birbirinin kaniti gibi kullanma, market-maker niyeti veya bireysel liquidation price uydurma; ayni leverage/flow olayini cift sayma.\n");
+        sb.append("V9.5.60 HFTBACKTEST SINIRI: hftbacktest queue/latency/fill gercekligi OFFLINE dogrulama metodudur; Android runtime LONG/SHORT puani, alarm veya veto degildir.\n");
 '''
     a=a[:line_end+1]+rules+a[line_end+1:]
 
