@@ -12,6 +12,7 @@ for p in (MAIN, MON, ANALYSIS, BUILD):
     if not p.exists():
         raise SystemExit('v9.5.64 missing required file: ' + str(p))
 
+
 def method_bounds(src, signature_fragment):
     a = src.find(signature_fragment)
     if a < 0:
@@ -64,6 +65,84 @@ def method_bounds(src, signature_fragment):
         i += 1
     return None if depth else (a, b, i)
 
+
+def java_lex_sanity(src):
+    depth = 0
+    i = 0
+    line = 1
+    state = 'code'
+    esc = False
+    while i < len(src):
+        c = src[i]
+        n = src[i + 1] if i + 1 < len(src) else ''
+        if c == '\n':
+            line += 1
+        if state == 'line':
+            if c == '\n':
+                state = 'code'
+            i += 1
+            continue
+        if state == 'block':
+            if c == '*' and n == '/':
+                state = 'code'
+                i += 2
+                continue
+            i += 1
+            continue
+        if state == 'string':
+            if c == '\n':
+                return False, 'newline inside Java string near line ' + str(line)
+            if esc:
+                esc = False
+            elif c == '\\':
+                esc = True
+            elif c == '"':
+                state = 'code'
+            i += 1
+            continue
+        if state == 'char':
+            if c == '\n':
+                return False, 'newline inside Java char near line ' + str(line)
+            if esc:
+                esc = False
+            elif c == '\\':
+                esc = True
+            elif c == "'":
+                state = 'code'
+            i += 1
+            continue
+        if c == '/' and n == '/':
+            state = 'line'
+            i += 2
+            continue
+        if c == '/' and n == '*':
+            state = 'block'
+            i += 2
+            continue
+        if c == '"':
+            state = 'string'
+            esc = False
+            i += 1
+            continue
+        if c == "'":
+            state = 'char'
+            esc = False
+            i += 1
+            continue
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth < 0:
+                return False, 'extra closing brace near line ' + str(line)
+        i += 1
+    if state in ('string', 'char', 'block'):
+        return False, 'unclosed Java lexical state ' + state
+    if depth != 0:
+        return False, 'unclosed structural brace depth ' + str(depth)
+    return True, 'OK'
+
+
 # ---------------------------------------------------------------------------
 # Analysis package:
 # 1) one canonical current-version header;
@@ -73,9 +152,17 @@ def method_bounds(src, signature_fragment):
 # ---------------------------------------------------------------------------
 a = ANALYSIS.read_text()
 
-for marker in ('V9545_BATCH_ANALYSIS', 'V9562', 'V9563'):
+# Check semantic markers rather than synthetic shorthand names. The previous
+# V9562 shorthand check was wrong because v9.5.62 intentionally writes the
+# human-readable protocol marker, not the literal token "V9562".
+prereqs = (
+    ('batch analysis', 'V9545_BATCH_ANALYSIS'),
+    ('exact-symbol/package guard', 'V9.5.62 ANALIZ PAKETI BUTUNLUK / EXACT SYMBOL / GORSEL KANIT KORUMASI'),
+    ('real L2 prompt context', 'V9.5.63 GERCEK L2 MICROSTRUCTURE'),
+)
+for name, marker in prereqs:
     if marker not in a:
-        raise SystemExit('v9.5.64 Analysis prerequisite missing: ' + marker)
+        raise SystemExit('v9.5.64 Analysis prerequisite missing: ' + name + ' / ' + marker)
 
 # Canonical current version at the very top of the generated single-coin prompt.
 b = method_bounds(a, '    private String buildPrompt(')
@@ -126,7 +213,15 @@ if not b:
     raise SystemExit('v9.5.64 batch composer missing')
 cs, _, ce = b
 comp = a[cs:ce]
-comp = comp.replace('--- V9.5.45 TOPLU ANALİZ PAKETİ ---', '--- V9.5.64 TOPLU ANALİZ PAKETİ ---')
+comp, header_count = re.subn(
+    r'--- V9\.5(?:\.\d+)* TOPLU ANAL[İI]Z PAKET[İI] ---',
+    '--- V9.5.64 TOPLU ANALİZ PAKETİ ---',
+    comp,
+    count=1,
+)
+if header_count == 0 and '--- V9.5.64 TOPLU ANALİZ PAKETİ ---' not in comp:
+    raise SystemExit('v9.5.64 batch header anchor missing')
+
 old1 = 'out.append("ÇIKTI: Her coin için ayrı ANA KARAR/GÜVEN/senaryolar ve ayrı TEK SATIR 14 alanlı plan kodu üret. ");'
 old2 = 'out.append("Cevabın en sonunda \'TOPLU PLAN KODLARI\' başlığı altında yalnız başarılı her sembol için bir plan kodu satırı ver; satırları birbirine karıştırma.\\n\\n");'
 if old1 in comp:
@@ -187,6 +282,12 @@ new_copy = r'''    private void copyMasterPromptToClipboard() {
             cm.setPrimaryClip(ClipData.newPlainText(
                     v9545BatchMode ? "15m Futures PRO TOPLU ANALIZ PROMPTU" : "15m Futures PRO MASTER ANALIZ PROMPTU",
                     payload));
+            String msg = v9545BatchMode
+                    ? ("Toplu analiz promptu kopyalandı • " + v9545BatchDoneSymbols.size() + " coin")
+                    : "Tek coin analiz promptu kopyalandı";
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "Analiz promptu henüz hazır değil.", Toast.LENGTH_SHORT).show();
         }
     }'''
 a = a[:ms] + new_copy + a[me:]
@@ -272,6 +373,9 @@ if 'private void v9564ScheduleLegacyTusdtCleanup()' not in m:
                 if (sp.getBoolean("v9518_signal_active_TUSDT", false)) return;
 
                 // Exact symbol only; THEUSDT/SUSDT/TURBOUSDT cannot match.
+                Toast.makeText(this,
+                        "Eski TUSDT kaydı bulundu • güvenli temizleme açılıyor.",
+                        Toast.LENGTH_SHORT).show();
                 v9546RequestDelete("TUSDT");
             } catch (Throwable ignored) { }
         }, 1200L);
@@ -296,19 +400,31 @@ BUILD.write_text(bf)
 
 main = MAIN.read_text()
 ana = ANALYSIS.read_text()
+mon = MON.read_text()
 bf = BUILD.read_text()
+
+# Pre-Gradle lexical checks catch accidental brace/string corruption in the
+# generated Java before the expensive Android build starts.
+for name, src in (('MainActivity', main), ('AnalysisPackActivity', ana), ('MonitorService', mon)):
+    ok, why = java_lex_sanity(src)
+    print(('OK   ' if ok else 'FAIL '), 'java lexical', name, why)
+    if not ok:
+        raise SystemExit('v9.5.64 Java lexical mismatch: ' + name + ' — ' + why)
+
 checks = {
-    'v9563 retained': 'V9563' in ana,
-    'exact symbol guard retained': 'V9562' in ana,
+    'v9563 retained': 'V9.5.63 GERCEK L2 MICROSTRUCTURE' in ana,
+    'exact symbol guard retained': 'V9.5.62 ANALIZ PAKETI BUTUNLUK' in ana,
     'batch combined prompt retained': 'v9545CombinedPrompt' in ana and 'ACTION_SEND_MULTIPLE' in ana,
-    'batch-aware clipboard': 'V9564_BATCH_AWARE_PROMPT_PAYLOAD' in ana and 'v9564ActivePrompt()' in ana,
+    'batch-aware clipboard': 'V9564_BATCH_AWARE_PROMPT_PAYLOAD' in ana and ana.count('private String v9564ActivePrompt()') == 1,
+    'copy UX feedback': 'Toplu analiz promptu kopyalandı' in ana and 'Analiz promptu henüz hazır değil.' in ana,
     'batch send delegate': 'V9564_BATCH_SEND_DELEGATE' in ana and 'v9545ShareBatch();' in ana,
     'batch preview combined': 'promptView.setText(v9564ActivePrompt());' in ana,
     'single current header': 'V9564_CURRENT_MASTER_HEADER' in ana and 'CURRENT_PROTOCOL_VERSION: 9.5.64' in ana,
     'single code-only output': 'V9564_PLAN_CODE_ONLY_CONTRACT' in ana,
     'batch code-only output': 'V9564_BATCH_FINAL_OUTPUT' in ana and 'ISLEM_YOK sembolunu atlama' in ana,
     'precise delete retained': 'V9546A_PRECISE_DELETE_TARGET' in main,
-    'legacy tusdt exact migration': 'V9564_EXACT_TUSDT_MIGRATION' in main and 'v9546RequestDelete("TUSDT")' in main,
+    'legacy tusdt exact migration': 'V9564_EXACT_TUSDT_MIGRATION' in main and 'v9546FindPlanCard("TUSDT")' in main and 'v9546RequestDelete("TUSDT")' in main,
+    'single tusdt migration helper': main.count('private void v9564ScheduleLegacyTusdtCleanup()') == 1,
     'active signal safety': 'v9518_signal_active_TUSDT' in main,
     'main version': 'v9.5.64' in main,
     'analysis version': 'ChatGPT ANALİZ PAKETİ • v9.5.64' in ana,
@@ -320,4 +436,4 @@ bad = [name for name, ok in checks.items() if not ok]
 if bad:
     raise SystemExit('v9.5.64 sanity failed: ' + ', '.join(bad))
 
-print('v9.5.64 OK: batch clipboard/share stabilized; plan-code-only output contract active; exact legacy TUSDT cleanup uses existing safe delete flow; version aligned.')
+print('v9.5.64 OK: prerequisites verified semantically; batch clipboard/share stabilized; plan-code-only output active; exact legacy TUSDT cleanup is guarded; Java lexical and visible-version checks passed.')
