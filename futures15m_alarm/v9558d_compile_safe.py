@@ -117,3 +117,23 @@ runpy.run_path(str(ROOT/'v9562_prompt_integrity_guard.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9563_l2_microstructure_soft_context.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9563b_l2_mobile_budget_guard.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9563c_compile_safe.py'),run_name='__main__')
+
+# v9.5.66 compatibility bridge: v9.5.65 checks for a historical marker that
+# is not guaranteed to survive the newer source reconstruction chain. Verify
+# the actual handoff method exists first, then restore only the marker comment.
+# This prevents a false prerequisite failure without masking a missing feature.
+ANALYSIS=JAVA/'AnalysisPackActivity.java'
+if not ANALYSIS.exists():
+    raise SystemExit('v9.5.66 compatibility missing AnalysisPackActivity')
+ana=ANALYSIS.read_text()
+if 'V9513_PROMPT_IMAGE_HANDOFF' not in ana:
+    signature='    private void sendPromptAndChartToChatGPT()'
+    if signature not in ana:
+        raise SystemExit('v9.5.66 compatibility: real prompt/image handoff method missing')
+    ana=ana.replace(signature,
+                    '    // V9513_PROMPT_IMAGE_HANDOFF • compatibility marker; method verified below\n'+signature,
+                    1)
+    ANALYSIS.write_text(ana)
+    print('v9.5.66 compatibility: restored V9513_PROMPT_IMAGE_HANDOFF marker after method verification')
+else:
+    print('v9.5.66 compatibility: V9513_PROMPT_IMAGE_HANDOFF already present')
