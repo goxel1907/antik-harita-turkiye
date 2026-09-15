@@ -108,3 +108,6 @@ runpy.run_path(str(ROOT/'v9561b_order_cleanup.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9561c_compact_plans.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9561d_liquidity_wick.py'),run_name='__main__')
 runpy.run_path(str(ROOT/'v9561e_compile_safe.py'),run_name='__main__')
+
+# v9.5.62 prompt identity/package-integrity/visual-evidence guard.
+runpy.run_path(str(ROOT/'v9562_prompt_integrity_guard.py'),run_name='__main__')
