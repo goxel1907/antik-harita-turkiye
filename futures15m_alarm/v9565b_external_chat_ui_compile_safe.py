@@ -36,3 +36,8 @@ PATCH_9568B = Path(__file__).with_name('v9568b_release_identity_compat.py')
 if not PATCH_9568B.exists():
     raise SystemExit('v9.5.68b patch missing: ' + str(PATCH_9568B))
 exec(compile(PATCH_9568B.read_text(), str(PATCH_9568B), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9568B)})
+
+PATCH_9569 = Path(__file__).with_name('v9569_brain_core_leader_handoff.py')
+if not PATCH_9569.exists():
+    raise SystemExit('v9.5.69 patch missing: ' + str(PATCH_9569))
+exec(compile(PATCH_9569.read_text(), str(PATCH_9569), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9569)})
