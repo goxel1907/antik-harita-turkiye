@@ -48,7 +48,24 @@ def java_lex_sanity(src):
     if depth!=0:return False,'unclosed structural brace depth '+str(depth)
     return True,'OK'
 
+# V9563D_COMPILE_TYPE_REPAIR
+# bestWall() originally declared age as double and then assigned it to Wall.ageMs
+# (a long), which javac correctly rejects as a possible lossy conversion.
+# Keep the value integral because it is elapsed milliseconds throughout the model.
+l2=L2.read_text()
+bad='double age=Math.max(0,now-w.firstSeen);double sc=w.lastShare*(1.0+Math.log1p(age/1000.0));'
+good='long age=Math.max(0L,now-w.firstSeen);double sc=w.lastShare*(1.0+Math.log1p(age/1000.0));'
+if bad in l2:
+    l2=l2.replace(bad,good,1)
+    L2.write_text(l2)
+elif good not in l2:
+    raise SystemExit('v9.5.63d age type repair anchor missing')
+
 l2=L2.read_text(); ana=ANA.read_text(); mon=MON.read_text(); main=MAIN.read_text(); b=BUILD.read_text()
+if bad in l2 or good not in l2:
+    raise SystemExit('v9.5.63d possible lossy conversion repair failed')
+print('OK   v9.5.63d L2 ageMs type repair: elapsed wall age is long milliseconds')
+
 for name,src in [('V9563MicrostructureFeed',l2),('AnalysisPackActivity',ana),('MonitorService',mon),('MainActivity',main)]:
     ok,why=java_lex_sanity(src)
     print(('OK   ' if ok else 'FAIL '),'java lexical',name,why)
@@ -65,12 +82,13 @@ checks={
     'l2 class marker':'GERCEK L2 MICROSTRUCTURE' in l2 and 'depth@100ms' in l2 and 'aggTrade' in l2,
     'mobile budget':'MAX_SYMBOLS=6' in l2 and 'V9563B_MOBILE_BUDGET' in l2,
     'gap invalidation':'sequenceGap' in l2 and 'pu!=s.lastU' in l2,
+    'ageMs compile type':'long age=Math.max(0L,now-w.firstSeen)' in l2,
     'provenance prompt':'V9.5.63 VERI PROVENANCE KURALI' in ana,
     'oracle prompt':'V9.5.63 SMC ORACLE SEMANTIGI' in ana,
     'old exact-symbol guard retained':'V9.5.62 ANALIZ PAKETI BUTUNLUK' in ana,
     'no monitor hard read':len(refs)==1,
 }
 for k,v in checks.items():print(('OK   ' if v else 'FAIL '),k)
-bad=[k for k,v in checks.items() if not v]
-if bad:raise SystemExit('v9.5.63c failed: '+', '.join(bad))
-print('v9.5.63c OK: new L2 class is lexically balanced, versioned, mobile-bounded and isolated from MonitorService trading gates.')
+bad_checks=[k for k,v in checks.items() if not v]
+if bad_checks:raise SystemExit('v9.5.63c failed: '+', '.join(bad_checks))
+print('v9.5.63c OK: new L2 class is lexically balanced, type-safe at wall age, versioned, mobile-bounded and isolated from MonitorService trading gates.')
