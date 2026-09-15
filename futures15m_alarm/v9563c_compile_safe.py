@@ -61,10 +61,28 @@ if bad in l2:
 elif good not in l2:
     raise SystemExit('v9.5.63d age type repair anchor missing')
 
+# V9563E_JSON_EXCEPTION_REPAIR
+# Android org.json.JSONObject(String) declares checked JSONException. seed() parses
+# the REST depth snapshot and previously declared only IOException, so javac
+# rejected the generated class with "unreported exception JSONException".
+# The caller already wraps seed() in try/catch(Throwable), therefore declaring
+# the checked JSON exception here preserves the existing failure/reconnect path.
+l2=L2.read_text()
+bad_seed='private boolean seed(State s,long gen)throws java.io.IOException{'
+good_seed='private boolean seed(State s,long gen)throws java.io.IOException, org.json.JSONException{'
+if bad_seed in l2:
+    l2=l2.replace(bad_seed,good_seed,1)
+    L2.write_text(l2)
+elif good_seed not in l2:
+    raise SystemExit('v9.5.63e JSONException repair anchor missing')
+
 l2=L2.read_text(); ana=ANA.read_text(); mon=MON.read_text(); main=MAIN.read_text(); b=BUILD.read_text()
 if bad in l2 or good not in l2:
     raise SystemExit('v9.5.63d possible lossy conversion repair failed')
+if bad_seed in l2 or good_seed not in l2:
+    raise SystemExit('v9.5.63e unreported JSONException repair failed')
 print('OK   v9.5.63d L2 ageMs type repair: elapsed wall age is long milliseconds')
+print('OK   v9.5.63e L2 seed declares Android org.json.JSONException')
 
 for name,src in [('V9563MicrostructureFeed',l2),('AnalysisPackActivity',ana),('MonitorService',mon),('MainActivity',main)]:
     ok,why=java_lex_sanity(src)
@@ -83,6 +101,7 @@ checks={
     'mobile budget':'MAX_SYMBOLS=6' in l2 and 'V9563B_MOBILE_BUDGET' in l2,
     'gap invalidation':'sequenceGap' in l2 and 'pu!=s.lastU' in l2,
     'ageMs compile type':'long age=Math.max(0L,now-w.firstSeen)' in l2,
+    'json checked exception':'throws java.io.IOException, org.json.JSONException' in l2,
     'provenance prompt':'V9.5.63 VERI PROVENANCE KURALI' in ana,
     'oracle prompt':'V9.5.63 SMC ORACLE SEMANTIGI' in ana,
     'old exact-symbol guard retained':'V9.5.62 ANALIZ PAKETI BUTUNLUK' in ana,
@@ -91,4 +110,4 @@ checks={
 for k,v in checks.items():print(('OK   ' if v else 'FAIL '),k)
 bad_checks=[k for k,v in checks.items() if not v]
 if bad_checks:raise SystemExit('v9.5.63c failed: '+', '.join(bad_checks))
-print('v9.5.63c OK: new L2 class is lexically balanced, type-safe at wall age, versioned, mobile-bounded and isolated from MonitorService trading gates.')
+print('v9.5.63c OK: new L2 class is lexically balanced, type-safe, JSON-exception-safe, versioned, mobile-bounded and isolated from MonitorService trading gates.')
