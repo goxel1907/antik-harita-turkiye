@@ -92,3 +92,12 @@ for k,v in checks59.items(): print(('OK   ' if v else 'FAIL '),k)
 bad59=[k for k,v in checks59.items() if not v]
 if bad59: raise SystemExit('v9.5.59 chained sanity failed: '+', '.join(bad59))
 print('v9.5.59 chained patch OK: live breakout acceptance + 5m reclaim wait active; no profit/day-PnL protection added.')
+
+# v9.5.60 provenance follow-up. This intentionally adds no signal gate or new
+# order-book score; it hardens what the existing data is allowed to mean.
+runpy.run_path(str(ROOT/'v9560_orderflow_provenance.py'),run_name='__main__')
+
+main=MAIN.read_text(); bld=BUILD.read_text()
+if 'v9.5.60' not in main or "versionName '9.5.60'" not in bld:
+    raise SystemExit('v9.5.60 chained version sanity failed')
+print('v9.5.60 chained patch OK: source provenance contract applied after v9.5.59 checks.')
