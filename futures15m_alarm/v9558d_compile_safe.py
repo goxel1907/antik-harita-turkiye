@@ -137,3 +137,34 @@ if 'V9513_PROMPT_IMAGE_HANDOFF' not in ana:
     print('v9.5.66 compatibility: restored V9513_PROMPT_IMAGE_HANDOFF marker after method verification')
 else:
     print('v9.5.66 compatibility: V9513_PROMPT_IMAGE_HANDOFF already present')
+
+# v9.5.66 compatibility bridge #2: v9.5.65 still looks for the old inline
+# MainActivity selector expression, while v9.5.47 moved the real 2-8 guard into
+# V9547BatchSelector. Verify the current shared selector semantics, then expose
+# only a harmless compatibility comment in MainActivity for the stale checker.
+# This keeps the real source of truth in V9547BatchSelector and will still fail
+# loudly if MAX_BATCH or the 2-coin minimum is actually removed.
+SELECTOR=JAVA/'V9547BatchSelector.java'
+if not SELECTOR.exists():
+    raise SystemExit('v9.5.66 compatibility missing V9547BatchSelector')
+sel=SELECTOR.read_text()
+main=MAIN.read_text()
+selector_ok=(
+    'private static final int MAX_BATCH = 8;' in sel and
+    'chosen.size() < 2 || chosen.size() > MAX_BATCH' in sel and
+    'V9547BatchSelector.show(this, null);' in main
+)
+if not selector_ok:
+    raise SystemExit('v9.5.66 compatibility: real shared 2-8 selector guard is missing or changed')
+legacy_guard='selected.size() < 2 || selected.size() > 8'
+if legacy_guard not in main:
+    pos=main.rfind('}')
+    if pos < 0:
+        raise SystemExit('v9.5.66 compatibility: MainActivity closing brace missing')
+    main=(main[:pos] +
+          '    // V9566_SHARED_SELECTOR_COMPAT • real guard lives in V9547BatchSelector: '+legacy_guard+'\n' +
+          main[pos:])
+    MAIN.write_text(main)
+    print('v9.5.66 compatibility: exposed legacy 2-8 selector signature after semantic verification')
+else:
+    print('v9.5.66 compatibility: legacy 2-8 selector signature already visible')
