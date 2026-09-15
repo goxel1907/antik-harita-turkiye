@@ -48,8 +48,57 @@ checks={
 for k,v in checks.items():print(('OK   ' if v else 'FAIL '),k)
 bad=[k for k,v in checks.items() if not v]
 if bad:raise SystemExit('v9.5.61e failed: '+', '.join(bad))
+
+# V9561E_JAVA_AWARE_BRACE_SANITY
+# Raw src.count('{')/src.count('}') is not a Java syntax check: JSON snippets,
+# regex/text literals and comments may legally contain brace characters. Scan
+# lexical Java states so only structural braces are counted. This still catches
+# a real unmatched class/method/block brace before Gradle, without false-failing
+# on harmless braces embedded in MainActivity strings.
+def java_brace_sanity(src):
+    depth=0;i=0;line=1;state='code';esc=False
+    while i<len(src):
+        c=src[i];n=src[i+1] if i+1<len(src) else ''
+        if c=='\n':line+=1
+        if state=='line':
+            if c=='\n':state='code'
+            i+=1;continue
+        if state=='block':
+            if c=='*' and n=='/':state='code';i+=2;continue
+            i+=1;continue
+        if state=='string':
+            if esc:esc=False
+            elif c=='\\':esc=True
+            elif c=='"':state='code'
+            i+=1;continue
+        if state=='char':
+            if esc:esc=False
+            elif c=='\\':esc=True
+            elif c=="'":state='code'
+            i+=1;continue
+        if state=='textblock':
+            if src.startswith('"""',i):state='code';i+=3;continue
+            i+=1;continue
+        if c=='/' and n=='/':state='line';i+=2;continue
+        if c=='/' and n=='*':state='block';i+=2;continue
+        if src.startswith('"""',i):state='textblock';i+=3;continue
+        if c=='"':state='string';esc=False;i+=1;continue
+        if c=="'":state='char';esc=False;i+=1;continue
+        if c=='{':depth+=1
+        elif c=='}':
+            depth-=1
+            if depth<0:return False,'extra closing brace near line '+str(line)
+        i+=1
+    if depth!=0:return False,'unclosed structural brace depth '+str(depth)
+    if state=='block':return False,'unclosed block comment'
+    if state in ('string','char','textblock'):return False,'unclosed Java literal ('+state+')'
+    return True,'OK'
+
 for name,src in [('MainActivity',main),('MonitorService',mon),('WickContext',ctx),('StructureEngine',eng)]:
-    if src.count('{')!=src.count('}'):raise SystemExit('v9.5.61e brace mismatch: '+name)
+    ok,why=java_brace_sanity(src)
+    print(('OK   ' if ok else 'FAIL '),'java braces',name,why)
+    if not ok:raise SystemExit('v9.5.61e Java structure mismatch: '+name+' — '+why)
+
 # Exact-collision semantic invariant.
 def norm(x):
     y=re.sub(r'[^A-Z0-9]','',(x or '').upper());return y if y.endswith('USDT') else ''
