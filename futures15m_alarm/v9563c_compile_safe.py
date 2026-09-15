@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import runpy
 
 APP=Path('/tmp/futures15m-build/Futures15mAlarm')
 JAVA=APP/'app/src/main/java/com/futuresalarm/app'
@@ -111,3 +112,8 @@ for k,v in checks.items():print(('OK   ' if v else 'FAIL '),k)
 bad_checks=[k for k,v in checks.items() if not v]
 if bad_checks:raise SystemExit('v9.5.63c failed: '+', '.join(bad_checks))
 print('v9.5.63c OK: new L2 class is lexically balanced, type-safe, JSON-exception-safe, versioned, mobile-bounded and isolated from MonitorService trading gates.')
+
+# v9.5.64 stabilization: batch prompt/copy/share consistency, exact legacy TUSDT
+# cleanup bridge, plan-code-only response contract, and aligned visible version.
+ROOT=Path(__file__).resolve().parent
+runpy.run_path(str(ROOT/'v9564_stability_batch_prompt.py'),run_name='__main__')
