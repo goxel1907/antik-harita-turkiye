@@ -70,3 +70,10 @@ ok,why=java_lex_sanity(out)
 print(('OK   ' if ok else 'FAIL '),'java lexical AnalysisPackActivity',why)
 if not ok: raise SystemExit('v9.5.65b Java lexical mismatch: '+why)
 print('v9.5.65b OK: external-browser same-chat labels match behavior and AnalysisPackActivity remains lexically balanced.')
+
+# V9.5.66 is intentionally chained here so the existing Codemagic prepare
+# step remains stable while the Android ChatGPT app becomes the primary route.
+PATCH_9566 = Path(__file__).with_name('v9566_chatgpt_app_first.py')
+if not PATCH_9566.exists():
+    raise SystemExit('v9.5.66 patch missing: ' + str(PATCH_9566))
+exec(compile(PATCH_9566.read_text(), str(PATCH_9566), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9566)})
