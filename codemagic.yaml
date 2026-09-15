@@ -77,6 +77,7 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9558d_compile_safe.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9564_stability_batch_prompt.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9565_external_same_chat_browser.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9565b_external_chat_ui_compile_safe.py"
 
       - name: Set Android SDK location
         script: |
