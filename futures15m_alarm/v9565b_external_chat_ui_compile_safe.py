@@ -41,3 +41,13 @@ PATCH_9569 = Path(__file__).with_name('v9569_brain_core_leader_handoff.py')
 if not PATCH_9569.exists():
     raise SystemExit('v9.5.69 patch missing: ' + str(PATCH_9569))
 exec(compile(PATCH_9569.read_text(), str(PATCH_9569), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9569)})
+
+PATCH_9570 = Path(__file__).with_name('v9570_9router_sse_stream_fix.py')
+if not PATCH_9570.exists():
+    raise SystemExit('v9.5.70 patch missing: ' + str(PATCH_9570))
+exec(compile(PATCH_9570.read_text(), str(PATCH_9570), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9570)})
+
+PATCH_9570B = Path(__file__).with_name('v9570b_9router_sse_compile_safe.py')
+if not PATCH_9570B.exists():
+    raise SystemExit('v9.5.70b patch missing: ' + str(PATCH_9570B))
+exec(compile(PATCH_9570B.read_text(), str(PATCH_9570B), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9570B)})
