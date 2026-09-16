@@ -132,6 +132,62 @@ async function enrich(x, book, premium, prev) {
   };
 }
 
+function addLeaderHunterFields(x, rank, prevRow) {
+  const oldRank = num(prevRow?.rank);
+  const prevVelocity = num(prevRow?.rankVelocity);
+  const rankVelocity = oldRank > 0 ? oldRank - rank : 0;
+  const rankAcceleration = rankVelocity - prevVelocity;
+  const dirSign = x.side === 'LONG' ? 1 : -1;
+  const directionSupport = [x.m1, x.m3, x.m5].filter(v => num(v) * dirSign > 0).length;
+  const flowSupport = x.side === 'LONG' ? x.takerBuyRatio >= 0.52 : x.takerBuyRatio <= 0.48;
+  const oiSupport = num(x.oiDeltaPct) > 0.05;
+  const spreadSupport = num(x.spreadBps) <= 8;
+
+  const leaderHunterScore =
+    num(x.attackScore) +
+    Math.max(0, rankVelocity) * 1.8 +
+    Math.max(0, rankAcceleration) * 0.8 +
+    directionSupport * 2.5 +
+    (flowSupport ? 4 : 0) +
+    (oiSupport ? 2 : 0) +
+    (spreadSupport ? 2 : 0) +
+    num(x.tradeQuality) * 0.04;
+
+  const top5Confirmed =
+    rank <= 5 &&
+    directionSupport >= 2 &&
+    x.tradeQuality >= 55 &&
+    spreadSupport;
+
+  const earlyTop5 =
+    rank > 5 && rank <= 15 &&
+    rankVelocity >= 2 &&
+    rankAcceleration >= -1 &&
+    directionSupport >= 2 &&
+    x.tradeQuality >= 60 &&
+    spreadSupport &&
+    (flowSupport || oiSupport);
+
+  let leaderState = 'WATCH';
+  if (top5Confirmed) leaderState = 'TOP5_CONFIRMED';
+  else if (earlyTop5) leaderState = 'EARLY_TOP5';
+  else if (rankVelocity >= 2 && directionSupport >= 2) leaderState = 'RISING';
+
+  Object.assign(x, {
+    attackRank: rank,
+    rankVelocity,
+    rankAcceleration,
+    directionSupport,
+    flowSupport,
+    oiSupport,
+    spreadSupport,
+    leaderHunterScore: round(leaderHunterScore, 3),
+    top5Confirmed,
+    earlyTop5,
+    leaderState
+  });
+}
+
 async function scan() {
   const started = Date.now();
   const prev = readState();
@@ -179,16 +235,32 @@ async function scan() {
   ));
 
   const good = enriched.filter(x => !x.error).sort((a, b) => b.attackScore - a.attackScore);
-  good.forEach((x, i) => {
-    x.attackRank = i + 1;
-    const oldRank = num(prev.bySymbol?.[x.symbol]?.rank);
-    x.rankVelocity = oldRank > 0 ? oldRank - (i + 1) : 0;
-    x.earlyTop5 = x.attackRank <= 10 && x.rankVelocity >= 3 && x.tradeQuality >= 55;
-  });
+  good.forEach((x, i) => addLeaderHunterFields(x, i + 1, prev.bySymbol?.[x.symbol]));
 
-  const next = { ts: Date.now(), bySymbol: {} };
-  for (const x of good) next.bySymbol[x.symbol] = { rank: x.attackRank, oi: x.openInterest };
+  const now = Date.now();
+  const next = { ts: now, bySymbol: {} };
+  for (const x of good) {
+    const oldHistory = Array.isArray(prev.bySymbol?.[x.symbol]?.history)
+      ? prev.bySymbol[x.symbol].history
+      : [];
+    const history = [...oldHistory, {
+      ts: now,
+      rank: x.attackRank,
+      attackScore: x.attackScore,
+      leaderHunterScore: x.leaderHunterScore
+    }].slice(-6);
+
+    next.bySymbol[x.symbol] = {
+      rank: x.attackRank,
+      oi: x.openInterest,
+      rankVelocity: x.rankVelocity,
+      leaderHunterScore: x.leaderHunterScore,
+      history
+    };
+  }
   writeState(next);
+
+  const leaderHunters = [...good].sort((a, b) => b.leaderHunterScore - a.leaderHunterScore);
 
   return {
     ok: true,
@@ -200,7 +272,10 @@ async function scan() {
     analyzed: good.length,
     failed: enriched.filter(x => x.error),
     scanMs: Date.now() - started,
-    leaders: good.slice(0, 15)
+    leaders: good.slice(0, 15),
+    leaderHunters: leaderHunters.slice(0, 15),
+    earlyTop5: leaderHunters.filter(x => x.earlyTop5).slice(0, 10),
+    top5Confirmed: leaderHunters.filter(x => x.top5Confirmed).slice(0, 5)
   };
 }
 
