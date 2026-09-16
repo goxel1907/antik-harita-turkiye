@@ -91,3 +91,8 @@ PATCH_9576 = Path(__file__).with_name('v9576_live_auto_execution.py')
 if not PATCH_9576.exists():
     raise SystemExit('v9.5.76 patch missing: ' + str(PATCH_9576))
 exec(compile(PATCH_9576.read_text(), str(PATCH_9576), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9576)})
+
+PATCH_9576B = Path(__file__).with_name('v9576b_compile_safe.py')
+if not PATCH_9576B.exists():
+    raise SystemExit('v9.5.76b patch missing: ' + str(PATCH_9576B))
+exec(compile(PATCH_9576B.read_text(), str(PATCH_9576B), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9576B)})
