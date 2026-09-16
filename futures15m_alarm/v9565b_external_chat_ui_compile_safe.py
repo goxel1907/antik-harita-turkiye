@@ -76,3 +76,8 @@ PATCH_9573 = Path(__file__).with_name('v9573_opencode_stream_mode.py')
 if not PATCH_9573.exists():
     raise SystemExit('v9.5.73 patch missing: ' + str(PATCH_9573))
 exec(compile(PATCH_9573.read_text(), str(PATCH_9573), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9573)})
+
+PATCH_9574 = Path(__file__).with_name('v9574_opencode_default_request_retry.py')
+if not PATCH_9574.exists():
+    raise SystemExit('v9.5.74 patch missing: ' + str(PATCH_9574))
+exec(compile(PATCH_9574.read_text(), str(PATCH_9574), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9574)})
