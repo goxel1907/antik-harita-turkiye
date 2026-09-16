@@ -13,7 +13,7 @@ if 'V9522_API_ORDER' not in main or 'AndroidKeyStore' not in main:raise SystemEx
 if 'V9543C_QUICK_SETTINGS_BUTTON' not in main:raise SystemExit('v9.5.76 quick settings prerequisite missing')
 
 # Visible live-auto settings button. AUTO stays OFF until the user explicitly enables it.
-anchor='        root.addView(v9543cQuickCfg,v9543cLp);'
+anchor='root.addView(v9543cQuickCfg,v9543cLp);'
 if anchor not in main:raise SystemExit('v9.5.76 quick button anchor missing')
 ui=r'''
 

@@ -45,10 +45,10 @@ function pickCandidate(scan) {
   return eligible[0] || null;
 }
 
-async function postJson(url, body, timeoutMs = 90000) {
+async function postJson(url, body, timeoutMs = 90000, token = '') {
   const r = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs)
   });
@@ -88,7 +88,7 @@ function buildPrompt(c) {
   ].join('\n');
 }
 
-async function run({ scan, port = 8787 }) {
+async function run({ scan, port = 8787, token = '' }) {
   const candidate = pickCandidate(scan);
   if (!candidate) {
     const rising = Array.isArray(scan?.leaderHunters)
@@ -117,7 +117,8 @@ async function run({ scan, port = 8787 }) {
   const committee = await postJson(
     `http://127.0.0.1:${port}/committee`,
     { system, prompt: buildPrompt(candidate) },
-    90000
+    90000,
+    token
   );
 
   return {

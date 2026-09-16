@@ -79,7 +79,8 @@ b = BUILD.read_text()
 if 'com.squareup.okhttp3:okhttp' not in b:
     mm = re.search(r'(?m)^dependencies\s*\{', b)
     if not mm:
-        raise SystemExit('v9.5.26 Gradle dependencies block missing')
+        b += "\n\ndependencies {\n}\n"
+        mm = re.search(r'(?m)^dependencies\s*\{', b)
     b = b[:mm.end()] + "\n    implementation 'com.squareup.okhttp3:okhttp:4.12.0'" + b[mm.end():]
 b = re.sub(r'versionCode\s+\d+', 'versionCode 40', b, count=1)
 b = re.sub(r"versionName\s+'[^']+'", "versionName '9.5.26'", b, count=1)

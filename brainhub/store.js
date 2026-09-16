@@ -1,0 +1,95 @@
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { DatabaseSync } = require('node:sqlite');
+
+function openStore(root) {
+  const dir = path.join(root, 'data');
+  fs.mkdirSync(dir, { recursive: true });
+  const db = new DatabaseSync(path.join(dir, 'brainhub.sqlite'));
+  db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
+    CREATE TABLE IF NOT EXISTS journal (
+      id TEXT PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL,
+      symbol TEXT, payload TEXT NOT NULL, outcome TEXT
+    );
+    CREATE INDEX IF NOT EXISTS journal_ts ON journal(ts DESC);
+    CREATE TABLE IF NOT EXISTS leases (
+      resource TEXT PRIMARY KEY, owner TEXT NOT NULL, token_hash TEXT NOT NULL,
+      expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS claims (
+      event_id TEXT PRIMARY KEY, owner TEXT NOT NULL, claimed_at INTEGER NOT NULL
+    );`);
+  const insert = db.prepare('INSERT INTO journal(id,ts,kind,symbol,payload) VALUES(?,?,?,?,?)');
+  const list = db.prepare('SELECT id,ts,kind,symbol,payload,outcome FROM journal ORDER BY ts DESC LIMIT ?');
+  const outcome = db.prepare('UPDATE journal SET outcome=? WHERE id=?');
+  const leaseGet = db.prepare('SELECT owner,token_hash,expires_at FROM leases WHERE resource=?');
+  const leaseSet = db.prepare('INSERT INTO leases(resource,owner,token_hash,expires_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,token_hash=excluded.token_hash,expires_at=excluded.expires_at,updated_at=excluded.updated_at');
+  const leaseDelete = db.prepare('DELETE FROM leases WHERE resource=? AND token_hash=?');
+  const claimInsert = db.prepare('INSERT OR IGNORE INTO claims(event_id,owner,claimed_at) VALUES(?,?,?)');
+  const claimGet = db.prepare('SELECT owner,claimed_at FROM claims WHERE event_id=?');
+  const hash = token => crypto.createHash('sha256').update(token).digest('hex');
+  function journal(kind, symbol, payload, id = crypto.randomUUID()) {
+    if (!/^[A-Z0-9_]{2,40}$/.test(kind)) throw new Error('invalid journal kind');
+    if (symbol && !/^[A-Z0-9]{2,28}$/.test(symbol)) throw new Error('invalid symbol');
+    const body = JSON.stringify(payload);
+    if (body.length > 65536) throw new Error('journal payload too large');
+    insert.run(id, Date.now(), kind, symbol || null, body);
+    return id;
+  }
+  function getJournal(limit = 50) {
+    return list.all(Math.max(1, Math.min(200, Number(limit) || 50))).map(x => ({ ...x, payload: JSON.parse(x.payload) }));
+  }
+  function label(id, value) {
+    if (!/^[0-9a-f-]{36}$/.test(id) || !['WIN', 'LOSS', 'FLAT', 'INVALIDATED'].includes(value)) throw new Error('invalid label');
+    const r = outcome.run(value, id);
+    return r.changes === 1;
+  }
+  function learning() {
+    const rows = db.prepare('SELECT kind,outcome,COUNT(*) AS count FROM journal GROUP BY kind,outcome').all();
+    return { source: 'explicit journal labels only', rows, changesAppliedToTrading: false };
+  }
+  function lease(action, resource, owner, token, ttlMs = 30000) {
+    if (!/^[A-Z0-9:_-]{2,50}$/.test(resource) || !/^[A-Za-z0-9:_-]{2,50}$/.test(owner) || !/^[A-Za-z0-9_-]{16,128}$/.test(token)) throw new Error('invalid lease fields');
+    const ttl = Math.max(5000, Math.min(120000, Number(ttlMs) || 30000));
+    const now = Date.now(), tokenHash = hash(token);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = leaseGet.get(resource);
+      let result;
+      if (action === 'acquire') {
+        if (current && current.expires_at > now && (current.owner !== owner || current.token_hash !== tokenHash)) result = { acquired: false, owner: current.owner, expiresAt: current.expires_at };
+        else { leaseSet.run(resource, owner, tokenHash, now + ttl, now); result = { acquired: true, owner, expiresAt: now + ttl }; }
+      } else if (action === 'renew') {
+        if (!current || current.expires_at <= now || current.owner !== owner || current.token_hash !== tokenHash) result = { acquired: false, reason: 'LEASE_NOT_OWNED' };
+        else { leaseSet.run(resource, owner, tokenHash, now + ttl, now); result = { acquired: true, owner, expiresAt: now + ttl }; }
+      } else if (action === 'release') {
+        result = { released: leaseDelete.run(resource, tokenHash).changes === 1 };
+      } else {
+        throw new Error('invalid lease action');
+      }
+      db.exec('COMMIT');
+      return result;
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+  function claim(eventId, owner, resource, token) {
+    if (!/^[A-Za-z0-9:_-]{8,128}$/.test(eventId)) throw new Error('invalid event id');
+    const now = Date.now();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = leaseGet.get(resource);
+      let result;
+      if (!current || current.expires_at <= now || current.owner !== owner || current.token_hash !== hash(token)) result = { claimed: false, reason: 'NO_VALID_LEASE' };
+      else {
+        const inserted = claimInsert.run(eventId, owner, now);
+        result = inserted.changes === 1 ? { claimed: true } : { claimed: false, reason: 'DUPLICATE', original: claimGet.get(eventId) };
+      }
+      db.exec('COMMIT');
+      return result;
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+  return { db, journal, getJournal, label, learning, lease, claim };
+}
+module.exports = { openStore };

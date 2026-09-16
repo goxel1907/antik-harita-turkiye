@@ -125,7 +125,7 @@ probe=r'''
         return out!=null&&!out.trim().isEmpty();
     }
 '''
-anchor='    private ArrayList<String> diverse(ArrayList<String> models, int n)'
+anchor='    private ArrayList<String> diverse(ArrayList<String> models, int max)'
 if 'private boolean probeFreeModel(' not in agent:
     k=agent.find(anchor)
     if k<0: raise SystemExit('v9.5.75 diverse anchor missing')

@@ -196,7 +196,7 @@ checks = [
     ('ORİJİNAL SENARYO İLE YENİDEN GİRİŞİ KARIŞTIRMA:' in af, 'sequential scenario semantics'),
     ('RETEST:<ORIJINAL/5M_FVG/5M_OB/5M_BREAKER/5M_FIB/5M_SWING/KARMA/NONE>' in af, 'RETEST META key'),
     ('PLAN RETEST KORİDORU KURALI:' in af, 'plan corridor rule'),
-    ('aynı YAPI ailesinin kuvveti' in af and 'CANLI AKIŞ ailesidir' in af, 'no double-counting rule'),
+    ('RETEST KÜMELEME / ÇİFTE SAYMAMA:' in af and 'tek YAPI ailesinin kuvveti' in af and 'CANLI AKIŞ ailesidir' in af, 'no double-counting rule'),
     ('V9525_DYNAMIC_RETEST_MAP' in ef and 'Dinamik Retest Adayları' in ef, 'structure retest map'),
     ('!bullGap.filled' in ef and '!bullOb.invalid' in ef, 'invalid/filled structures excluded from retest candidates'),
     ('closed.close >= p.pullbackHigh' in monf, 'original LONG 15m reclaim retained'),

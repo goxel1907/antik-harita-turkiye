@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.38 compile check
+name: Futures 15m Alarm v9.5.77 compile check
 
 on:
   push:
@@ -26,6 +26,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Brain Hub safety tests
+        run: node --test brainhub/test/engine-store.test.js
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -34,26 +42,11 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Prepare v9.5.38 source
+      - name: Prepare v9.5.77 source
         shell: bash
         run: |
           set -euo pipefail
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
-          bash "$CM_BUILD_DIR/futures15m_alarm/prepare_v9523.sh"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9527_trade_dashboard_reconcile.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9528_exact_margin.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9529_manual_close_reconcile.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9530_stable_signing.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9531_context_intelligence.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9532_candle_wick_prompt.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9532b_android_json_compat.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9533_symbol_lifecycle_daymap.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9534_daily_rearm_ui.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9535_analysis_exhaustion.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9536_notification_trade_ticket.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9537_dashboard_restore.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9538_market_radar.py"
-          python3 "$CM_BUILD_DIR/futures15m_alarm/v9538b_json_compile_fix.py"
+          python3 "$CM_BUILD_DIR/tools/run_futures_source_chain.py"
 
       - name: Compile debug APK for validation only
         shell: bash

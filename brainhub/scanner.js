@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = process.env.BRAINHUB_ROOT || path.resolve(__dirname, '..');
 const STATE_PATH = path.join(ROOT, 'data', 'scanner-state.json');
 const BASE = 'https://fapi.binance.com';
 const EXCHANGE_TTL_MS = 10 * 60 * 1000;
@@ -48,7 +48,9 @@ function readState() {
 
 function writeState(state) {
   fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
-  fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf8');
+  const tmp = STATE_PATH + '.' + process.pid + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
+  fs.renameSync(tmp, STATE_PATH);
 }
 
 async function mapLimit(items, limit, fn) {
@@ -188,7 +190,7 @@ function addLeaderHunterFields(x, rank, prevRow) {
   });
 }
 
-async function scan() {
+async function performScan() {
   const started = Date.now();
   const prev = readState();
   const [ex, tickers, books, premiums] = await Promise.all([
@@ -277,6 +279,18 @@ async function scan() {
     earlyTop5: leaderHunters.filter(x => x.earlyTop5).slice(0, 10),
     top5Confirmed: leaderHunters.filter(x => x.top5Confirmed).slice(0, 5)
   };
+}
+
+let inFlight = null;
+let cache = null;
+async function scan() {
+  if (cache && Date.now() - cache.at < 15000) return { ...cache.result, cacheAgeMs: Date.now() - cache.at };
+  if (inFlight) return inFlight;
+  inFlight = performScan().then(result => {
+    cache = { at: Date.now(), result };
+    return result;
+  }).finally(() => { inFlight = null; });
+  return inFlight;
 }
 
 module.exports = { scan };
