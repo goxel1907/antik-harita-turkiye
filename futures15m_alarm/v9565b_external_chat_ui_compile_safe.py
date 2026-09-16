@@ -71,3 +71,8 @@ PATCH_9572 = Path(__file__).with_name('v9572_9router_response_shape_guard.py')
 if not PATCH_9572.exists():
     raise SystemExit('v9.5.72 patch missing: ' + str(PATCH_9572))
 exec(compile(PATCH_9572.read_text(), str(PATCH_9572), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9572)})
+
+PATCH_9573 = Path(__file__).with_name('v9573_opencode_stream_mode.py')
+if not PATCH_9573.exists():
+    raise SystemExit('v9.5.73 patch missing: ' + str(PATCH_9573))
+exec(compile(PATCH_9573.read_text(), str(PATCH_9573), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9573)})
