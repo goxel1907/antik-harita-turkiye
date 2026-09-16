@@ -87,6 +87,11 @@ if not PATCH_9575.exists():
     raise SystemExit('v9.5.75 patch missing: ' + str(PATCH_9575))
 exec(compile(PATCH_9575.read_text(), str(PATCH_9575), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9575)})
 
+PATCH_9575B = Path(__file__).with_name('v9575b_free_probe_latency_guard.py')
+if not PATCH_9575B.exists():
+    raise SystemExit('v9.5.75b patch missing: ' + str(PATCH_9575B))
+exec(compile(PATCH_9575B.read_text(), str(PATCH_9575B), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9575B)})
+
 PATCH_9576 = Path(__file__).with_name('v9576_live_auto_execution.py')
 if not PATCH_9576.exists():
     raise SystemExit('v9.5.76 patch missing: ' + str(PATCH_9576))
