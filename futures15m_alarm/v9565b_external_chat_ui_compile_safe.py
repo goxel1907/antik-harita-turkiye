@@ -51,3 +51,8 @@ PATCH_9570B = Path(__file__).with_name('v9570b_9router_sse_compile_safe.py')
 if not PATCH_9570B.exists():
     raise SystemExit('v9.5.70b patch missing: ' + str(PATCH_9570B))
 exec(compile(PATCH_9570B.read_text(), str(PATCH_9570B), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9570B)})
+
+PATCH_9570C = Path(__file__).with_name('v9570c_release_identity_compat.py')
+if not PATCH_9570C.exists():
+    raise SystemExit('v9.5.70c patch missing: ' + str(PATCH_9570C))
+exec(compile(PATCH_9570C.read_text(), str(PATCH_9570C), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9570C)})
