@@ -61,3 +61,8 @@ PATCH_9571 = Path(__file__).with_name('v9571_opencode_free_provider_guard.py')
 if not PATCH_9571.exists():
     raise SystemExit('v9.5.71 patch missing: ' + str(PATCH_9571))
 exec(compile(PATCH_9571.read_text(), str(PATCH_9571), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9571)})
+
+PATCH_9571B = Path(__file__).with_name('v9571b_release_identity_compat.py')
+if not PATCH_9571B.exists():
+    raise SystemExit('v9.5.71b patch missing: ' + str(PATCH_9571B))
+exec(compile(PATCH_9571B.read_text(), str(PATCH_9571B), 'exec'), {'__name__': '__main__', '__file__': str(PATCH_9571B)})
