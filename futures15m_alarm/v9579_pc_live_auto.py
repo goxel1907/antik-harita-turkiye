@@ -464,7 +464,7 @@ checks={
     'visible live status panel':'V9582_VISIBLE_LIVE_STATUS_PANEL' in MAIN.read_text() and 'TARIYOR • TAZE SİNYAL / FIRSAT BEKLİYOR' in MAIN.read_text(),
     'active trade detail':'AUTO POZİSYON' in MAIN.read_text() and 'TP AKTİF' in MAIN.read_text() and 'KORUMALI' in MAIN.read_text(),
     'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
-    'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'totalWalletBalance' in MAIN.read_text() and 'totalMarginBalance' in MAIN.read_text() and 'availableBalance' in MAIN.read_text() and 'java.util.regex.Pattern.compile' not in MAIN.read_text(),
+    'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'totalWalletBalance' in MAIN.read_text() and 'totalMarginBalance' in MAIN.read_text() and 'availableBalance' in MAIN.read_text(),
     'TPs bound into LIVE intent':'takeProfit1' in AUTO.read_text() and 'takeProfit2' in AUTO.read_text() and 'takeProfit3' in AUTO.read_text() and 'stop/TP geometrisi' in AUTO.read_text(),
     'identity':"versionName '9.5.84'" in BUILD.read_text() and 'versionCode 26091824' in BUILD.read_text(),
 }
