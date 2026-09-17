@@ -15,6 +15,10 @@ function compactCandidate(c) {
     rankAcceleration: num(c.rankAcceleration),
     leaderHunterScore: num(c.leaderHunterScore),
     attackScore: num(c.attackScore),
+    movementPotential: num(c.movementPotential),
+    longExpansionScore: num(c.longExpansionScore),
+    shortExpansionScore: num(c.shortExpansionScore),
+    expansionScore: num(c.expansionScore),
     tradeQuality: num(c.tradeQuality),
     directionSupport: num(c.directionSupport),
     flowSupport: Boolean(c.flowSupport),
@@ -22,6 +26,8 @@ function compactCandidate(c) {
     m1: num(c.m1),
     m3: num(c.m3),
     m5: num(c.m5),
+    volumeAcceleration: num(c.volumeAcceleration),
+    rangeExpansion: num(c.rangeExpansion),
     oiDeltaPct: num(c.oiDeltaPct),
     takerBuyRatio: num(c.takerBuyRatio),
     spreadBps: num(c.spreadBps),
@@ -30,16 +36,24 @@ function compactCandidate(c) {
 }
 
 function pickCandidate(scan) {
-  const early = Array.isArray(scan?.earlyTop5) ? scan.earlyTop5 : [];
-  const eligible = early
-    .filter(x => x && x.leaderState === 'EARLY_TOP5')
-    .filter(x => num(x.tradeQuality) >= 60)
-    .filter(x => num(x.directionSupport) >= 2)
+  const pools = [
+    ...(Array.isArray(scan?.earlyTop5) ? scan.earlyTop5 : []),
+    ...(Array.isArray(scan?.earlyExpansion) ? scan.earlyExpansion : [])
+  ];
+  const seen = new Set();
+  const eligible = pools
+    .filter(x => x && !seen.has(x.symbol) && seen.add(x.symbol))
+    .filter(x => ['EARLY_TOP5','EARLY_EXPANSION'].includes(x.leaderState))
+    .filter(x => num(x.tradeQuality) >= 58)
+    .filter(x => num(x.directionSupport) >= 1)
+    .filter(x => num(x.expansionScore) >= 35 || x.leaderState === 'EARLY_TOP5')
     .sort((a, b) => {
       const score = num(b.leaderHunterScore) - num(a.leaderHunterScore);
       if (score) return score;
-      const accel = num(b.rankAcceleration) - num(a.rankAcceleration);
-      if (accel) return accel;
+      const move = num(b.movementPotential) - num(a.movementPotential);
+      if (move) return move;
+      const expansion = num(b.expansionScore) - num(a.expansionScore);
+      if (expansion) return expansion;
       return num(b.tradeQuality) - num(a.tradeQuality);
     });
   return eligible[0] || null;
@@ -54,36 +68,32 @@ async function postJson(url, body, timeoutMs = 90000, token = '') {
   });
   const raw = await r.text();
   let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error(`committee non-json HTTP ${r.status}: ${raw.slice(0, 300)}`);
-  }
-  if (!r.ok || parsed?.ok === false) {
-    throw new Error(`committee HTTP ${r.status}: ${JSON.stringify(parsed).slice(0, 500)}`);
-  }
+  try { parsed = JSON.parse(raw); }
+  catch { throw new Error(`committee non-json HTTP ${r.status}: ${raw.slice(0, 300)}`); }
+  if (!r.ok || parsed?.ok === false) throw new Error(`committee HTTP ${r.status}: ${JSON.stringify(parsed).slice(0, 500)}`);
   return parsed;
 }
 
 function buildPrompt(c) {
   const data = compactCandidate(c);
   return [
-    'Leader Hunter EARLY_TOP5 adayi bulundu.',
-    'Asagidaki veri sadece Binance public piyasa verisi ve deterministik scanner metrikleridir.',
-    'Veride olmayan seyi uydurma. Flow/OI/taker gibi korelasyonlu metrikleri bagimsiz birden fazla teyit gibi sayma.',
-    'Bu asamada emir verme veya otomatik islem karari verme; sadece analiz et.',
+    'Leader Hunter erken genisleme adayi bulundu.',
+    'Aşağıdaki veri yalnız Binance public piyasa verisi ve deterministik scanner metrikleridir.',
+    'LONG_EXPANSION ve SHORT_EXPANSION ayrı hipotezlerdir. movementPotential yönsüz hareket potansiyelidir; hiçbiri işlem garantisi değildir.',
+    'Veride olmayan şeyi uydurma. Flow/OI/taker gibi korelasyonlu metrikleri bağımsız birden fazla teyit gibi sayma.',
+    'Bu aşamada emir verme; yalnız hangi tarafın ve hangi risklerin daha yakından incelenmesi gerektiğini değerlendir.',
     '',
     'CANDIDATE_JSON:',
     JSON.stringify(data),
     '',
-    'Cevabi SADECE su formatta ver:',
-    'PLAN_CODE: LH_EARLY_TOP5',
+    'Cevabı SADECE şu formatta ver:',
+    'PLAN_CODE: LH_EARLY_EXPANSION',
     `SYMBOL: ${data.symbol}`,
     `SIDE: ${data.side}`,
     'STATUS: WATCH | QUALIFIED | REJECT',
     'CONFIDENCE: 0-100',
-    'WHY: tek satir, en fazla 3 kisa gerekce',
-    'RISK_NOTE: tek satir',
+    'WHY: tek satır, en fazla 3 kısa gerekçe',
+    'RISK_NOTE: tek satır',
     'EXECUTION: ADVISORY_ONLY'
   ].join('\n');
 }
@@ -92,42 +102,24 @@ async function run({ scan, port = 8787, token = '' }) {
   const candidate = pickCandidate(scan);
   if (!candidate) {
     const rising = Array.isArray(scan?.leaderHunters)
-      ? scan.leaderHunters
-          .filter(x => x && x.leaderState === 'RISING')
-          .slice(0, 3)
-          .map(compactCandidate)
+      ? scan.leaderHunters.filter(x => x && ['RISING','WATCH'].includes(x.leaderState)).slice(0, 3).map(compactCandidate)
       : [];
-    return {
-      ok: true,
-      candidateFound: false,
-      reason: 'NO_QUALIFIED_EARLY_TOP5',
-      risingWatch: rising,
-      committeeCalled: false
-    };
+    return { ok:true, candidateFound:false, reason:'NO_QUALIFIED_EARLY_EXPANSION', risingWatch:rising, committeeCalled:false };
   }
-
   const system = [
     'You are the Brain Hub crypto futures committee.',
     'Use only supplied deterministic scanner data.',
-    'Do not invent prices, levels, news, fundamentals, or order-book facts.',
-    'Leader Hunter context is supportive, not a license to override risk rules.',
+    'Do not invent prices, levels, news, fundamentals, liquidation maps, or order-book facts.',
+    'Early expansion context is supportive, not a license to override risk rules.',
     'This endpoint is advisory only and cannot place orders.'
   ].join(' ');
-
   const committee = await postJson(
     `http://127.0.0.1:${port}/committee`,
-    { system, prompt: buildPrompt(candidate) },
+    { role:'FAST', system, prompt:buildPrompt(candidate) },
     90000,
     token
   );
-
-  return {
-    ok: true,
-    candidateFound: true,
-    candidate: compactCandidate(candidate),
-    committeeCalled: true,
-    committee
-  };
+  return { ok:true, candidateFound:true, candidate:compactCandidate(candidate), committeeCalled:true, committee };
 }
 
-module.exports = { run, pickCandidate };
+module.exports = { run, pickCandidate, compactCandidate };
