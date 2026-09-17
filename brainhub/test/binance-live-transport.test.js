@@ -193,3 +193,100 @@ test('protective STOP rejection triggers one emergency reduce-only MARKET close 
   assert.match(emergency.body, /reduceOnly=true/);
   assert.match(emergency.body, /side=SELL/);
 });
+
+
+test('requested leverage is applied and re-verified before LIVE entry', async () => {
+  let positionReads = 0;
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    const path = pathOf(url);
+    const method = options.method || 'GET';
+    calls.push({ path, method, body:options.body || '' });
+    if (path === '/fapi/v1/time') return ok({ serverTime:1000000 });
+    if (path === '/fapi/v1/exchangeInfo') return ok(exchangeInfo());
+    if (path === '/fapi/v1/ticker/price') return ok({ symbol:'BTCUSDT', price:'100' });
+    if (path === '/fapi/v1/positionSide/dual') return ok({ dualSidePosition:false });
+    if (path === '/fapi/v3/positionRisk') {
+      positionReads++;
+      return ok([{ symbol:'BTCUSDT', positionAmt:'0', leverage:positionReads === 1 ? '5' : '10', positionSide:'BOTH' }]);
+    }
+    if (path === '/fapi/v1/leverage' && method === 'POST') {
+      assert.match(options.body || '', /symbol=BTCUSDT/);
+      assert.match(options.body || '', /leverage=10/);
+      return ok({ symbol:'BTCUSDT', leverage:10, maxNotionalValue:'1000000' });
+    }
+    if (path === '/fapi/v1/order' && method === 'POST') return ok({ orderId:321, status:'FILLED', executedQty:'0.1' });
+    if (path === '/fapi/v1/algoOrder' && method === 'POST') return ok({ algoId:654, algoStatus:'NEW' });
+    throw new Error(`unexpected mocked request ${method} ${path}`);
+  };
+
+  const transport = new BinanceLiveTransport({
+    registry:authorizedRegistry(),
+    fetchImpl,
+    clock:() => 1000000
+  });
+  const result = await transport.submit({
+    grantId:'grant-regression-001',
+    order:order(),
+    credentials:credentials(),
+    livePolicy:{ expectedLeverage:10, maxEntryDeviationPct:0.5 }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.execution, 'LIVE_ENTRY_PROTECTED');
+  assert.equal(result.expectedLeverage, 10);
+  assert.equal(result.leverageChanged, true);
+  assert.equal(positionReads, 2);
+  assert.deepEqual(calls.map(x => `${x.method} ${x.path}`), [
+    'GET /fapi/v1/time',
+    'GET /fapi/v1/exchangeInfo',
+    'GET /fapi/v1/ticker/price',
+    'GET /fapi/v1/positionSide/dual',
+    'GET /fapi/v3/positionRisk',
+    'POST /fapi/v1/leverage',
+    'GET /fapi/v3/positionRisk',
+    'POST /fapi/v1/order',
+    'POST /fapi/v1/algoOrder'
+  ]);
+});
+
+test('LIVE entry stays fail-closed when requested leverage is not acknowledged', async () => {
+  let entryPosts = 0;
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    const path = pathOf(url);
+    const method = options.method || 'GET';
+    calls.push({ path, method, body:options.body || '' });
+    if (path === '/fapi/v1/time') return ok({ serverTime:1000000 });
+    if (path === '/fapi/v1/exchangeInfo') return ok(exchangeInfo());
+    if (path === '/fapi/v1/ticker/price') return ok({ symbol:'BTCUSDT', price:'100' });
+    if (path === '/fapi/v1/positionSide/dual') return ok({ dualSidePosition:false });
+    if (path === '/fapi/v3/positionRisk') return ok([{ symbol:'BTCUSDT', positionAmt:'0', leverage:'5', positionSide:'BOTH' }]);
+    if (path === '/fapi/v1/leverage' && method === 'POST') return ok({ symbol:'BTCUSDT', leverage:5 });
+    if (path === '/fapi/v1/order' && method === 'POST') {
+      entryPosts++;
+      return ok({ orderId:999, status:'FILLED', executedQty:'0.1' });
+    }
+    throw new Error(`unexpected mocked request ${method} ${path}`);
+  };
+
+  const transport = new BinanceLiveTransport({
+    registry:authorizedRegistry(),
+    fetchImpl,
+    clock:() => 1000000
+  });
+  const result = await transport.submit({
+    grantId:'grant-regression-001',
+    order:order(),
+    credentials:credentials(),
+    livePolicy:{ expectedLeverage:10, maxEntryDeviationPct:0.5 }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.orderPlaced, false);
+  assert.equal(result.liveAllowed, false);
+  assert.equal(result.execution, 'LIVE_BLOCKED');
+  assert.ok(result.reasons.includes('BINANCE_LEVERAGE_CHANGE_REJECTED'));
+  assert.equal(entryPosts, 0);
+  assert.equal(calls.some(x => x.path === '/fapi/v1/order' && x.method === 'POST'), false);
+});
