@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { preflightRiskGate, accountRiskCaps, structuralStopGate } = require('../risk-gate');
+const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate } = require('../risk-gate');
 
 function baseUnified() {
   return {
@@ -219,4 +219,45 @@ test('handoff stop may tighten but never widen original risk on LONG or SHORT', 
   assert.ok(shortWiden.reasons.includes('STOP_WOULD_WIDEN_RISK'));
   assert.equal(longWiden.liveAllowed, false);
   assert.equal(shortWiden.liveAllowed, false);
+});
+
+test('healthy kill switch permits dry-run only and never live', () => {
+  const out = killSwitchGate({
+    control:{ available:true, tripped:false, dryRunEnabled:true }
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.eligibleForDryRun, true);
+  assert.equal(out.liveAllowed, false);
+  assert.equal(out.execution, 'ADVISORY_ONLY');
+  assert.deepEqual(out.reasons, []);
+});
+
+test('tripped kill switch blocks dry-run immediately', () => {
+  const out = killSwitchGate({
+    control:{ available:true, tripped:true, dryRunEnabled:true }
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.eligibleForDryRun, false);
+  assert.equal(out.liveAllowed, false);
+  assert.ok(out.reasons.includes('KILL_SWITCH_TRIPPED'));
+});
+
+test('missing kill switch source or state fails closed', () => {
+  const out = killSwitchGate({ control:{} });
+  assert.equal(out.ok, false);
+  assert.equal(out.eligibleForDryRun, false);
+  assert.equal(out.liveAllowed, false);
+  assert.ok(out.reasons.includes('KILL_SWITCH_UNAVAILABLE'));
+  assert.ok(out.reasons.includes('KILL_SWITCH_STATE_UNKNOWN'));
+  assert.ok(out.reasons.includes('DRY_RUN_SWITCH_STATE_UNKNOWN'));
+});
+
+test('disabled dry-run switch blocks execution even when kill switch is healthy', () => {
+  const out = killSwitchGate({
+    control:{ available:true, tripped:false, dryRunEnabled:false }
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.eligibleForDryRun, false);
+  assert.equal(out.liveAllowed, false);
+  assert.ok(out.reasons.includes('DRY_RUN_DISABLED'));
 });
