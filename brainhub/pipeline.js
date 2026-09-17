@@ -21,51 +21,47 @@ function frameFresh(frame, f, now) {
   return now >= Number(f.asOf) && now - Number(f.asOf) <= maxAge;
 }
 function breakoutState(f, livePrice) {
-  if (!f?.available || !f.breakOfStructure) return { status: 'NO_ACTIVE_BREAKOUT', allowed: null };
-  if (!Number.isFinite(livePrice)) return { status: 'LIVE_PRICE_UNAVAILABLE', allowed: false };
-  if (f.breakOfStructure === 'UP') {
-    return breakoutExecution({ side:'LONG', confirmedClose:f.close, trigger:f.prior20High, livePrice });
-  }
-  if (f.breakOfStructure === 'DOWN') {
-    return breakoutExecution({ side:'SHORT', confirmedClose:f.close, trigger:f.prior20Low, livePrice });
-  }
-  return { status: 'NO_ACTIVE_BREAKOUT', allowed: null };
+  if (!f?.available || !f.breakOfStructure) return { status:'NO_ACTIVE_BREAKOUT', allowed:null };
+  if (!Number.isFinite(livePrice)) return { status:'LIVE_PRICE_UNAVAILABLE', allowed:false };
+  if (f.breakOfStructure === 'UP') return breakoutExecution({ side:'LONG', confirmedClose:f.close, trigger:f.prior20High, livePrice });
+  if (f.breakOfStructure === 'DOWN') return breakoutExecution({ side:'SHORT', confirmedClose:f.close, trigger:f.prior20Low, livePrice });
+  return { status:'NO_ACTIVE_BREAKOUT', allowed:null };
 }
 function summarizeFrame(frame, f, now, livePrice) {
   if (!f?.available) return { available:false, reason:f?.reason || 'UNAVAILABLE' };
   const executionState = breakoutState(f, livePrice);
   return {
-    available: true,
+    available:true,
     frame,
-    fresh: frameFresh(frame, f, now),
-    asOf: f.asOf,
-    close: f.close,
-    trend: f.trend,
-    rsi14: f.rsi14,
-    atrPct: f.atrPct,
-    breakOfStructure: f.breakOfStructure,
-    prior20High: f.prior20High,
-    prior20Low: f.prior20Low,
-    returnPct: f.returnPct,
-    candle: f.candle || null,
-    patterns: Array.isArray(f.patterns) ? f.patterns.slice(-6) : [],
-    liquidity: {
-      buySide: f.buySideLiquidity,
-      sellSide: f.sellSideLiquidity,
-      equalHigh: f.liquidity?.equalHigh || null,
-      equalLow: f.liquidity?.equalLow || null,
-      lastSweep: f.liquidity?.lastSweep || null,
-      fairValueGaps: Array.isArray(f.recentFairValueGaps) ? f.recentFairValueGaps.slice(-3) : []
+    fresh:frameFresh(frame, f, now),
+    asOf:f.asOf,
+    close:f.close,
+    trend:f.trend,
+    rsi14:f.rsi14,
+    atrPct:f.atrPct,
+    breakOfStructure:f.breakOfStructure,
+    prior20High:f.prior20High,
+    prior20Low:f.prior20Low,
+    returnPct:f.returnPct,
+    candle:f.candle || null,
+    patterns:Array.isArray(f.patterns) ? f.patterns.slice(-6) : [],
+    liquidity:{
+      buySide:f.buySideLiquidity,
+      sellSide:f.sellSideLiquidity,
+      equalHigh:f.liquidity?.equalHigh || null,
+      equalLow:f.liquidity?.equalLow || null,
+      lastSweep:f.liquidity?.lastSweep || null,
+      fairValueGaps:Array.isArray(f.recentFairValueGaps) ? f.recentFairValueGaps.slice(-3) : []
     },
-    opportunity: f.opportunity?.available ? {
-      state: f.opportunity.state,
-      preferredSide: f.opportunity.preferredSide,
-      longScore: finite(f.opportunity.longScore) ?? 0,
-      shortScore: finite(f.opportunity.shortScore) ?? 0,
-      originEligible: f.opportunity.originEligible !== false,
-      ownerEligible: f.opportunity.ownerEligible !== false
+    opportunity:f.opportunity?.available ? {
+      state:f.opportunity.state,
+      preferredSide:f.opportunity.preferredSide,
+      longScore:finite(f.opportunity.longScore) ?? 0,
+      shortScore:finite(f.opportunity.shortScore) ?? 0,
+      originEligible:f.opportunity.originEligible !== false,
+      ownerEligible:f.opportunity.ownerEligible !== false
     } : { available:false, reason:f.opportunity?.reason || 'NO_OPPORTUNITY_CONTEXT' },
-    breakoutExecution: executionState
+    breakoutExecution:executionState
   };
 }
 function sidePath(frames, side) {
@@ -81,18 +77,18 @@ function sidePath(frames, side) {
     continuity.push({
       frame,
       score,
-      state: failed ? 'WAIT_RECLAIM' : 'ACTIVE_CONTEXT',
-      immediateEligible: !failed,
-      breakoutStatus: f.breakoutExecution?.status || null
+      state:failed ? 'WAIT_RECLAIM' : 'ACTIVE_CONTEXT',
+      immediateEligible:!failed,
+      breakoutStatus:f.breakoutExecution?.status || null
     });
   }
   const eligible = continuity.filter(x => x.immediateEligible);
   return {
     side,
-    originTF: eligible[0]?.frame || null,
-    ownerTF: eligible.at(-1)?.frame || null,
+    originTF:eligible[0]?.frame || null,
+    ownerTF:eligible.at(-1)?.frame || null,
     continuity,
-    handoffNote: 'ownerTF is informational only; a live handoff must not widen the original structural risk.'
+    handoffNote:'ownerTF is informational only; a live handoff must not widen the original structural risk.'
   };
 }
 function globalAsset(asset) {
@@ -107,11 +103,48 @@ function globalAsset(asset) {
 function compactCandidate(c) {
   if (!c) return null;
   return {
-    symbol:c.symbol, side:c.side, leaderState:c.leaderState,
-    attackRank:c.attackRank, rankVelocity:c.rankVelocity, rankAcceleration:c.rankAcceleration,
-    leaderHunterScore:c.leaderHunterScore, attackScore:c.attackScore, tradeQuality:c.tradeQuality,
-    spreadBps:c.spreadBps, oiDeltaPct:c.oiDeltaPct, takerBuyRatio:c.takerBuyRatio,
-    fundingRate:c.fundingRate, directionSupport:c.directionSupport
+    symbol:c.symbol,
+    side:c.side,
+    leaderState:c.leaderState,
+    attackRank:c.attackRank,
+    rankVelocity:c.rankVelocity,
+    rankAcceleration:c.rankAcceleration,
+    leaderHunterScore:c.leaderHunterScore,
+    attackScore:c.attackScore,
+    movementPotential:c.movementPotential,
+    longExpansionScore:c.longExpansionScore,
+    shortExpansionScore:c.shortExpansionScore,
+    expansionScore:c.expansionScore,
+    tradeQuality:c.tradeQuality,
+    spreadBps:c.spreadBps,
+    oiDeltaPct:c.oiDeltaPct,
+    takerBuyRatio:c.takerBuyRatio,
+    fundingRate:c.fundingRate,
+    directionSupport:c.directionSupport,
+    volumeAcceleration:c.volumeAcceleration,
+    rangeExpansion:c.rangeExpansion
+  };
+}
+function liquidationContext(micro) {
+  const obs = micro?.observedLiquidations;
+  if (!obs?.available || !Number.isFinite(Number(obs.count)) || Number(obs.count) < 1) {
+    return {
+      available:false,
+      reason:'NO_RECENT_OBSERVED_FORCE_ORDER_PRINTS',
+      source:'BINANCE_FORCEORDER_PUBLIC_STREAM_WHEN_AVAILABLE',
+      note:'Absence of observed prints is not evidence that no liquidation levels exist. Do not fabricate a heatmap.'
+    };
+  }
+  return {
+    available:true,
+    source:'OBSERVED_BINANCE_FORCEORDER_15M',
+    semantics:obs.semantics || 'OBSERVED_BINANCE_FORCE_ORDER_ONLY',
+    count:Number(obs.count),
+    asOf:obs.asOf || null,
+    longLiquidatedQuote:finite(obs.longLiquidatedQuote) ?? 0,
+    shortLiquidatedQuote:finite(obs.shortLiquidatedQuote) ?? 0,
+    zones:Array.isArray(obs.zones) ? obs.zones.slice(0,6) : [],
+    note:'Observed liquidation prints only; not a projected heatmap, hidden position map, or proof of market-maker intent.'
   };
 }
 function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now() }) {
@@ -121,23 +154,21 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
   for (const frame of FRAME_ORDER) frames[frame] = summarizeFrame(frame, symbol?.timeframes?.[frame], now, livePrice);
   const freshFrames = FRAME_ORDER.filter(x => frames[x]?.available && frames[x].fresh);
   const staleFrames = FRAME_ORDER.filter(x => frames[x]?.available && !frames[x].fresh);
+  const microQuality = symbol?.microstructure?.sourceQuality || (symbol?.microstructure?.available ? 'REST_SNAPSHOT_APPROX' : 'UNAVAILABLE');
   return {
-    version: 'UNIFIED_BRAIN_CONTEXT_V9578B',
-    symbol: symbol?.symbol || candidate?.symbol || null,
-    generatedAt: new Date(now).toISOString(),
+    version:'UNIFIED_BRAIN_CONTEXT_V9578E',
+    symbol:symbol?.symbol || candidate?.symbol || null,
+    generatedAt:new Date(now).toISOString(),
     livePrice,
-    sourceCandidate: compactCandidate(candidate),
+    sourceCandidate:compactCandidate(candidate),
     frames,
-    opportunityPaths: {
-      LONG: sidePath(frames, 'LONG'),
-      SHORT: sidePath(frames, 'SHORT')
-    },
-    microstructure: symbol?.microstructure || { available:false, reason:'UNAVAILABLE' },
-    global: {
-      btc: globalAsset(global?.btc),
-      eth: globalAsset(global?.eth),
-      ethbtc: globalAsset(global?.ethbtc),
-      marketCap: global?.marketCap?.available ? {
+    opportunityPaths:{ LONG:sidePath(frames, 'LONG'), SHORT:sidePath(frames, 'SHORT') },
+    microstructure:symbol?.microstructure || { available:false, reason:'UNAVAILABLE' },
+    global:{
+      btc:globalAsset(global?.btc),
+      eth:globalAsset(global?.eth),
+      ethbtc:globalAsset(global?.ethbtc),
+      marketCap:global?.marketCap?.available ? {
         available:true,
         usdtDominancePct:global.marketCap.usdtDominancePct,
         total2ProxyUsd:global.marketCap.total2ProxyUsd,
@@ -145,34 +176,35 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
         source:global.marketCap.source
       } : { available:false, reason:global?.marketCap?.reason || 'UNAVAILABLE' }
     },
-    liquiditySemantics: {
-      marketMakerIntent: 'NOT_INFERRED',
-      note: 'BSL/SSL, equal highs/lows, wick sweeps and FVGs are observed or derived liquidity context, not proof of a market-maker target.'
+    liquiditySemantics:{
+      marketMakerIntent:'NOT_INFERRED',
+      note:'BSL/SSL, equal highs/lows, wick sweeps, FVGs and observed force orders are liquidity context, not proof of a hidden market-maker target.'
     },
-    liquidationContext: {
-      available:false,
-      reason:'NO_RELIABLE_LIQUIDATION_CLUSTER_FEED_IN_THIS_VERSION',
-      note:'Do not fabricate liquidation maps. Public force-order or a verified cluster feed must be added before this field can become actionable context.'
-    },
-    dataQuality: {
+    liquidationContext:liquidationContext(symbol?.microstructure),
+    dataQuality:{
       freshFrames,
       staleFrames,
       microstructureAvailable:Boolean(symbol?.microstructure?.available),
-      microstructureQuality:symbol?.microstructure?.available ? 'REST_SNAPSHOT_APPROX' : 'UNAVAILABLE',
+      microstructureQuality:microQuality,
+      streamingAvailable:Boolean(symbol?.microstructure?.streaming?.available),
+      websocketConnected:Boolean(symbol?.streamHealth?.connected),
       advisoryUsable:freshFrames.length > 0,
       executionReady:false
     },
-    policy: {
+    policy:{
       everyTimeframeMayOriginate:true,
       legacy15mStillRequiresCompleted15m:true,
       unifiedEngineDoesNotWaitFor15m:true,
       timeframesAreNotVotes:true,
       synthetic45mIsContextNotIndependentVote:true,
+      observedLiquidationsAreContextNotIntent:true,
+      trueOfiClaimed:false,
       execution:'ADVISORY_ONLY'
     }
   };
 }
 function compactUnifiedContext(u) {
+  const m = u.microstructure;
   return {
     version:u.version,
     symbol:u.symbol,
@@ -189,17 +221,28 @@ function compactUnifiedContext(u) {
       }];
     })),
     opportunityPaths:u.opportunityPaths,
-    microstructure:u.microstructure?.available ? {
-      available:true, spreadBps:u.microstructure.spreadBps,
-      depth20Imbalance:u.microstructure.depth20Imbalance,
-      cvdSampleQuote:u.microstructure.cvdSampleQuote,
-      cvdSampleTrades:u.microstructure.cvdSampleTrades,
-      ofiProxyQuote:u.microstructure.ofiProxyQuote,
-      quality:'REST_SNAPSHOT_APPROX'
-    } : { available:false, reason:u.microstructure?.reason },
+    microstructure:m?.available ? {
+      available:true,
+      quality:m.sourceQuality || u.dataQuality.microstructureQuality,
+      spreadBps:m.spreadBps,
+      depth20Imbalance:m.depth20Imbalance,
+      cvdSampleQuote:m.cvdSampleQuote,
+      cvdSampleTrades:m.cvdSampleTrades,
+      cvdSource:m.cvdSource || 'REST_AGGTRADES_SAMPLE',
+      ofiProxyQuote:m.ofiProxyQuote,
+      ofiQuality:'REST_TWO_SNAPSHOT_PROXY_NOT_TRUE_OFI',
+      streaming:m.streaming ? {
+        available:Boolean(m.streaming.available),
+        connected:Boolean(m.streaming.connected),
+        ageMs:m.streaming.ageMs,
+        cvdQuote120s:m.streaming.cvdQuote120s,
+        cvdTrades120s:m.streaming.cvdTrades120s,
+        depth20Imbalance:m.streaming.depth20Imbalance
+      } : { available:false }
+    } : { available:false, reason:m?.reason },
+    liquidationContext:u.liquidationContext,
     global:u.global,
     liquiditySemantics:u.liquiditySemantics,
-    liquidationContext:u.liquidationContext,
     dataQuality:u.dataQuality,
     policy:u.policy
   };
@@ -212,7 +255,7 @@ function planFields(raw) {
   };
   const status = field('STATUS');
   const side = field('SIDE');
-  if (!['WATCH', 'QUALIFIED', 'REJECT'].includes(status) || !['LONG', 'SHORT'].includes(side)) {
+  if (!['WATCH','QUALIFIED','REJECT'].includes(status) || !['LONG','SHORT'].includes(side)) {
     return { valid:false, status:'REVIEW_REQUIRED', reason:'UNSTRUCTURED_COMMITTEE_OUTPUT' };
   }
   const tf = value => FRAME_ORDER.includes(String(value || '').toLowerCase()) ? String(value).toLowerCase() : null;
@@ -233,7 +276,7 @@ function planFields(raw) {
 }
 async function run({ scan, committee, store }) {
   const candidate = pickCandidate(scan);
-  if (!candidate) return { ok:true, candidateFound:false, reason:'NO_QUALIFIED_EARLY_TOP5', committeeCalled:false, execution:'ADVISORY_ONLY' };
+  if (!candidate) return { ok:true, candidateFound:false, reason:'NO_QUALIFIED_EARLY_EXPANSION', committeeCalled:false, execution:'ADVISORY_ONLY' };
   const [symbol, global] = await Promise.all([symbolContext(candidate.symbol), globalContext()]);
   const unified = buildUnifiedContext({ symbol, global, candidate });
   if (!unified.dataQuality.advisoryUsable) {
@@ -258,8 +301,9 @@ async function run({ scan, committee, store }) {
     'Rules: any fresh timeframe may originate an opportunity. A valid 1m/3m/5m opportunity must not wait for 15m merely because 15m is higher. The legacy 15m strategy still keeps its own completed-15m confirmation rule.',
     'Timeframes are context, not votes. Synthetic 45m is derived from closed 15m candles and is not an independent vote.',
     'A FAILED_BREAKOUT timeframe is not an immediate breakout entry; require reclaim or another valid execution path.',
-    'Treat BSL/SSL, equal highs/lows, wick sweeps and FVGs as liquidity context, never proof of market-maker intent.',
-    'Do not invent liquidation clusters, news, levels, or missing flow. Do not place an order.',
+    'Observed forceOrder liquidation prints may inform liquidity context, but they are not a complete heatmap, future cluster map, or market-maker intent.',
+    'Partial depth20 streaming is not true OFI. Respect the supplied quality labels and do not multiply correlated flow evidence into fake confirmations.',
+    'Do not invent news, levels, missing flow, liquidation maps, or hidden intent. Do not place an order.',
     '',
     'UNIFIED_CONTEXT_JSON:',
     JSON.stringify(compactUnifiedContext(unified))
@@ -268,7 +312,7 @@ async function run({ scan, committee, store }) {
   try {
     result = await committee({
       role:'STRUCTURE',
-      system:'You are the Brain Hub multi-timeframe futures structure analyst. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. Respect failed-breakout protection, structural invalidation, liquidity semantics and data-quality limits. This endpoint is advisory only.',
+      system:'You are the Brain Hub multi-timeframe futures structure analyst. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. This endpoint is advisory only.',
       prompt
     });
   } catch (e) {
@@ -291,4 +335,4 @@ async function run({ scan, committee, store }) {
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, run, planFields };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, run, planFields };
