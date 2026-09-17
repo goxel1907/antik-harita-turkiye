@@ -205,4 +205,31 @@ function structuralStopGate({
   };
 }
 
-module.exports = { FRAME_ORDER, preflightRiskGate, accountRiskCaps, structuralStopGate };
+function killSwitchGate({ control } = {}) {
+  const reasons = [];
+  const available = control?.available === true;
+  const tripped = typeof control?.tripped === 'boolean' ? control.tripped : null;
+  const dryRunEnabled = typeof control?.dryRunEnabled === 'boolean' ? control.dryRunEnabled : null;
+
+  if (!available) reasons.push('KILL_SWITCH_UNAVAILABLE');
+  if (tripped === null) reasons.push('KILL_SWITCH_STATE_UNKNOWN');
+  else if (tripped) reasons.push('KILL_SWITCH_TRIPPED');
+  if (dryRunEnabled === null) reasons.push('DRY_RUN_SWITCH_STATE_UNKNOWN');
+  else if (!dryRunEnabled) reasons.push('DRY_RUN_DISABLED');
+
+  const uniqueReasons = [...new Set(reasons)];
+  return {
+    ok: uniqueReasons.length === 0,
+    eligibleForDryRun: uniqueReasons.length === 0,
+    liveAllowed: false,
+    execution: 'ADVISORY_ONLY',
+    state: {
+      available,
+      tripped,
+      dryRunEnabled
+    },
+    reasons: uniqueReasons
+  };
+}
+
+module.exports = { FRAME_ORDER, preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate };
