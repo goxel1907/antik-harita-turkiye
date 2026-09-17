@@ -9,6 +9,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
@@ -19,7 +20,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-// V9577_OPTIONAL_PC_BRAINHUB: read-only market context; mobile BrainCore remains available.
+// V9579_PC_LIVE_BRIDGE: PC owns Binance credentials and execution; Android sends authenticated intents only.
 public final class BrainHubClient {
     private static final String PREF = "v9577_brainhub";
     private static final String ALIAS = "futures_alarm_brainhub_token_v1";
@@ -69,35 +70,81 @@ public final class BrainHubClient {
         String e = prefs(c).getString("endpoint", "");
         return e != null && !e.isEmpty() && prefs(c).contains("token");
     }
-    private static JSONObject get(Context c, String path) throws Exception {
+    private static JSONObject request(Context c, String method, String path, JSONObject payload, boolean allowError) throws Exception {
         String base = prefs(c).getString("endpoint", "");
         validate(base);
         if (!path.startsWith("/") || path.contains("..")) throw new Exception("BrainHub yolu geçersiz");
         String bearer = token(c);
         if (bearer.isEmpty()) throw new Exception("BrainHub token gerekli");
         HttpURLConnection conn = (HttpURLConnection)new URL(base + path).openConnection();
-        conn.setRequestMethod("GET");conn.setConnectTimeout(4000);conn.setReadTimeout(22000);
+        conn.setRequestMethod(method);conn.setConnectTimeout(4000);conn.setReadTimeout(path.equals("/live/execute") ? 120000 : 22000);
         conn.setRequestProperty("Authorization", "Bearer " + bearer);
         conn.setRequestProperty("Accept", "application/json");
+        if (payload != null) {
+            byte[] data = payload.toString().getBytes(StandardCharsets.UTF_8);
+            if (data.length > 262144) throw new Exception("BrainHub istek gövdesi çok büyük");
+            conn.setDoOutput(true);conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            conn.setFixedLengthStreamingMode(data.length);
+            try (OutputStream out = conn.getOutputStream()) { out.write(data); }
+        }
         try {
             int code = conn.getResponseCode();
-            if (code < 200 || code >= 300) throw new Exception("BrainHub HTTP " + code);
-            try (InputStream in = conn.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            InputStream source = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
+            if (source == null) throw new Exception("BrainHub HTTP " + code);
+            JSONObject body;
+            try (InputStream in = source; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
                 byte[] buf = new byte[4096]; int n;
                 while ((n=in.read(buf))!=-1) { out.write(buf,0,n); if (out.size()>1048576) throw new Exception("BrainHub yanıtı çok büyük"); }
-                return new JSONObject(out.toString("UTF-8"));
+                String raw = out.toString("UTF-8");
+                body = raw.trim().isEmpty() ? new JSONObject() : new JSONObject(raw);
             }
+            if (code < 200 || code >= 300) {
+                if (allowError) { body.put("_httpStatus", code); return body; }
+                String msg = body.optString("error", "");
+                if (msg.isEmpty()) {
+                    JSONArray reasons = body.optJSONArray("reasons");
+                    msg = reasons != null && reasons.length() > 0 ? reasons.optString(0, "") : "";
+                }
+                throw new Exception("BrainHub HTTP " + code + (msg.isEmpty() ? "" : " • " + msg));
+            }
+            return body;
         } finally { conn.disconnect(); }
     }
-    private static void check(Context c) throws Exception {
+    private static JSONObject get(Context c, String path) throws Exception { return request(c, "GET", path, null, false); }
+    private static JSONObject post(Context c, String path, JSONObject payload, boolean allowError) throws Exception { return request(c, "POST", path, payload, allowError); }
+
+    private static JSONObject check(Context c) throws Exception {
         JSONObject health = get(c, "/health");
-        if (!health.optBoolean("ok") || !"brainhub-pro-1".equals(health.optString("version")) || !"ADVISORY_ONLY".equals(health.optString("execution"))) throw new Exception("BrainHub sürümü veya güvenlik modu uygun değil");
+        String mode = health.optString("execution");
+        boolean modeOk = "ADVISORY_ONLY".equals(mode) || "LIVE_ARMED_PER_ORDER_GRANT_REQUIRED".equals(mode);
+        if (!health.optBoolean("ok") || !"brainhub-pro-1".equals(health.optString("version")) || !modeOk) throw new Exception("BrainHub sürümü veya güvenlik modu uygun değil");
+        return health;
+    }
+    public static JSONObject liveStatus(Context c) throws Exception {
+        check(c);
+        return get(c, "/live/status");
+    }
+    public static JSONObject liveExecute(Context c, JSONObject intent) throws Exception {
+        if (intent == null) throw new Exception("LIVE intent gerekli");
+        JSONObject health = check(c);
+        if (!"LIVE_ARMED_PER_ORDER_GRANT_REQUIRED".equals(health.optString("execution"))) {
+            JSONObject out = new JSONObject();
+            out.put("ok", false);out.put("orderPlaced", false);out.put("liveAllowed", false);out.put("execution", "LIVE_BLOCKED");
+            out.put("reasons", new JSONArray().put("PC_LIVE_NOT_ARMED"));
+            return out;
+        }
+        return post(c, "/live/execute", intent, true);
+    }
+    public static JSONObject liveDisarm(Context c, String reason) throws Exception {
+        JSONObject body = new JSONObject();body.put("reason", reason == null ? "ANDROID_USER_DISARM" : reason);
+        return post(c, "/live/disarm", body, true);
     }
     public static String dashboard(Context c) throws Exception {
-        check(c);
+        JSONObject health = check(c);
         JSONObject global = get(c, "/context/global"), scan = get(c, "/scanner");
         JSONObject cap = global.optJSONObject("marketCap");
-        StringBuilder b = new StringBuilder("PC BRAIN HUB • analiz modu\n");
+        JSONObject live = get(c, "/live/status");
+        StringBuilder b = new StringBuilder("PC BRAIN HUB • ").append(live.optBoolean("armed") ? "LIVE ARMED" : "analiz modu").append("\n");
         b.append("BTC 15m: ").append(frame(global.optJSONObject("btc"),"15m")).append("\n");
         b.append("ETH 15m: ").append(frame(global.optJSONObject("eth"),"15m")).append("\n");
         b.append("ETH/BTC 15m: ").append(frame(global.optJSONObject("ethbtc"),"15m")).append("\n");
@@ -106,7 +153,7 @@ public final class BrainHubClient {
         JSONArray early = scan.optJSONArray("earlyTop5");
         if (early == null || early.length()==0) b.append("Şu an doğrulanmış erken aday yok.\n");
         else for(int i=0;i<Math.min(5,early.length());i++) b.append(early.optJSONObject(i).toString()).append('\n');
-        b.append("\nİşlem yetkisi: YOK • Telefonun yerel BrainCore'u bağlantı kesilince kullanılabilir.");
+        b.append("\nİşlem yetkisi: ").append(live.optBoolean("armed") ? "PC ARMED • her emir için deterministic grant gerekir" : "YOK");
         return b.toString();
     }
     private static String frame(JSONObject asset,String tf) {
@@ -119,7 +166,7 @@ public final class BrainHubClient {
         check(c);
         JSONObject market = get(c, "/context/symbol?symbol=" + symbol);
         JSONObject global = get(c, "/context/global");
-        return "PC BRAIN HUB / " + symbol + " • analiz, emir değil\n" + market.toString() + "\nGLOBAL:\n" + global.toString();
+        return "PC BRAIN HUB / " + symbol + " • analiz; LIVE emri yalnız /live/execute güvenlik zinciriyle\n" + market.toString() + "\nGLOBAL:\n" + global.toString();
     }
     public static String endpoint(Context c) { return prefs(c).getString("endpoint", ""); }
 }
