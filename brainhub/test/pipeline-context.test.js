@@ -2,7 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields } = require('../pipeline');
+const { preflightRiskGate } = require('../risk-gate');
 
 function frame(asOf, longScore, shortScore) {
   return {
@@ -14,7 +15,7 @@ function frame(asOf, longScore, shortScore) {
   };
 }
 
-test('Unified Brain can originate at 1m without waiting for 15m and carries observed liquidations as context', () => {
+function unifiedFixture() {
   const now = Date.UTC(2026, 8, 17, 10, 0, 0);
   const symbol = {
     symbol:'BTCUSDT',
@@ -32,13 +33,40 @@ test('Unified Brain can originate at 1m without waiting for 15m and carries obse
     streamHealth:{ connected:true }
   };
   const global = { marketCap:{available:false}, btc:{available:false}, eth:{available:false}, ethbtc:{available:false} };
-  const u = buildUnifiedContext({ symbol, global, now });
+  return { now, unified:buildUnifiedContext({ symbol, global, now }) };
+}
+
+test('Unified Brain can originate at 1m without waiting for 15m and carries observed liquidations as context', () => {
+  const { unified:u } = unifiedFixture();
   assert.equal(u.opportunityPaths.LONG.originTF, '1m');
   assert.equal(u.opportunityPaths.LONG.ownerTF, '5m');
   assert.equal(u.policy.unifiedEngineDoesNotWaitFor15m, true);
   assert.equal(u.liquidationContext.available, true);
   assert.equal(u.liquiditySemantics.marketMakerIntent, 'NOT_INFERRED');
   assert.equal(u.dataQuality.microstructureQuality, 'STREAMING_PARTIAL_BOOK');
+});
+
+test('pipeline risk gate can qualify dry-run context but never authorizes live execution', () => {
+  const { unified } = unifiedFixture();
+  const plan = planFields([
+    'STATUS: QUALIFIED',
+    'SIDE: LONG',
+    'CONFIDENCE: 78',
+    'ORIGIN_TF: 1m',
+    'OWNER_TF: 5m',
+    'SETUP: continuation',
+    'EXEC_PATH: reclaim-or-continuity',
+    'WHY: deterministic regression fixture',
+    'RISK_NOTE: preserve structural invalidation',
+    'EXECUTION: ADVISORY_ONLY'
+  ].join('\n'));
+  const riskGate = preflightRiskGate({ plan, unified });
+  const pipelineLikeOutput = { plan, riskGate, execution:'ADVISORY_ONLY', orderPlaced:false };
+  assert.equal(pipelineLikeOutput.riskGate.ok, true);
+  assert.equal(pipelineLikeOutput.riskGate.eligibleForDryRun, true);
+  assert.equal(pipelineLikeOutput.riskGate.liveAllowed, false);
+  assert.equal(pipelineLikeOutput.execution, 'ADVISORY_ONLY');
+  assert.equal(pipelineLikeOutput.orderPlaced, false);
 });
 
 test('missing force-order prints never become a fabricated liquidation map', () => {
