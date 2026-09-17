@@ -86,27 +86,54 @@ function Stop-Brain([string]$BrainRoot) {
         throw 'BrainHub 8787 portunu birakmadi.'
     }
 }
+function Startup-Detail([string]$OutLog, [string]$ErrLog) {
+    $parts = @()
+    if (Test-Path -LiteralPath $ErrLog) {
+        $tail = (Get-Content -LiteralPath $ErrLog -Tail 20 -ErrorAction SilentlyContinue | Out-String).Trim()
+        if ($tail) { $parts += "stderr=$tail" }
+    }
+    if (Test-Path -LiteralPath $OutLog) {
+        $tail = (Get-Content -LiteralPath $OutLog -Tail 20 -ErrorAction SilentlyContinue | Out-String).Trim()
+        if ($tail) { $parts += "stdout=$tail" }
+    }
+    return ($parts -join ' | ')
+}
 function Start-Brain([string]$BrainRoot, [string]$Node, [string]$Key, [switch]$AcceptLegacy) {
     if (Brain-Pid $BrainRoot) { Write-Host 'BrainHub zaten calisiyor.'; return }
+    $logDir = Join-Path $BrainRoot 'logs'
+    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+    $outLog = Join-Path $logDir 'brain-startup.out.log'
+    $errLog = Join-Path $logDir 'brain-startup.err.log'
+    Remove-Item -LiteralPath $outLog,$errLog -Force -ErrorAction SilentlyContinue
     $env:BRAINHUB_ROUTER_KEY = $Key
     $env:BRAINHUB_ROOT = $BrainRoot
     $token = Client-Token $BrainRoot
     if ($token) { $env:BRAINHUB_CLIENT_TOKEN = $token }
+    $proc = $null
     try {
-        Start-Process -FilePath $Node -ArgumentList @((Join-Path $BrainRoot 'server\server.js')) -WorkingDirectory $BrainRoot -WindowStyle Hidden | Out-Null
+        $proc = Start-Process -FilePath $Node -ArgumentList @((Join-Path $BrainRoot 'server\server.js')) -WorkingDirectory $BrainRoot -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog -PassThru
     } finally {
         Remove-Item Env:BRAINHUB_ROUTER_KEY -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_ROOT -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_CLIENT_TOKEN -ErrorAction SilentlyContinue
     }
+    $lastHealth = ''
     for ($i=0; $i -lt 40; $i++) {
         Start-Sleep -Milliseconds 500
+        if ($proc -and $proc.HasExited) {
+            $detail = Startup-Detail $outLog $errLog
+            throw "BrainHub process erken kapandi exit=$($proc.ExitCode). $detail"
+        }
         try {
             $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers (Auth-Headers $BrainRoot) -TimeoutSec 2
             if ($h.ok -and ($AcceptLegacy -or $h.version -eq 'brainhub-pro-1')) { return }
-        } catch { }
+            $lastHealth = "ok=$($h.ok) version=$($h.version)"
+        } catch {
+            $lastHealth = $_.Exception.Message
+        }
     }
-    throw 'BrainHub yeni surumle baslamadi; logs\brainpub.log dosyasina bakin.'
+    $detail = Startup-Detail $outLog $errLog
+    throw "BrainHub health timeout pid=$($proc.Id) lastHealth=$lastHealth. $detail"
 }
 function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
