@@ -211,6 +211,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   const leaseToken = crypto.randomBytes(32).toString('base64url');
   let armState = { armed:false, armedAt:null, expiresAt:null };
   let lastDisarmReason = 'STARTUP_FAIL_CLOSED';
+  let accountSummaryCache = { at:0, value:null };
 
   function currentCredentials() {
     return resolveCredentials(root, credentials);
@@ -244,6 +245,50 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       execution:armed ? 'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED' : 'LIVE_DISARMED',
       lastDisarmReason
     };
+  }
+
+  async function accountSummary({ maxAgeMs = 5000 } = {}) {
+    const now = clock();
+    if (accountSummaryCache.value && Number.isFinite(now) && now - accountSummaryCache.at >= 0 && now - accountSummaryCache.at <= maxAgeMs) {
+      return { ...accountSummaryCache.value, cached:true };
+    }
+    const policy = readPolicy(root);
+    const creds = currentCredentials();
+    if (!policy.ok) return { ok:false, configured:false, reasons:policy.reasons || ['LIVE_POLICY_REQUIRED'] };
+    if (!credentialsReady(creds)) return { ok:false, configured:false, reasons:['BINANCE_CREDENTIALS_REQUIRED'] };
+    try {
+      await transport._syncServerTime();
+      const account = await transport._fetchJson('GET', '/fapi/v3/account', { credentials:creds, signed:true });
+      if (!account || typeof account !== 'object') throw new Error('BINANCE_ACCOUNT_SUMMARY_INVALID');
+      const walletBalance = finite(account?.totalWalletBalance);
+      const equity = finite(account?.totalMarginBalance);
+      const availableBalance = finite(account?.availableBalance);
+      const unrealizedPnl = finite(account?.totalUnrealizedProfit);
+      const positions = Array.isArray(account?.positions) ? account.positions : [];
+      const openPositions = positions.filter(x => Math.abs(finite(x?.positionAmt) || 0) > 0).length;
+      if (walletBalance === null || equity === null || availableBalance === null) {
+        throw new Error('BINANCE_ACCOUNT_BALANCE_FIELDS_MISSING');
+      }
+      const value = {
+        ok:true,
+        configured:true,
+        walletBalance,
+        equity,
+        availableBalance,
+        unrealizedPnl:unrealizedPnl ?? 0,
+        openPositions,
+        asOf:new Date(now).toISOString()
+      };
+      accountSummaryCache = { at:now, value };
+      return { ...value, cached:false };
+    } catch (e) {
+      return {
+        ok:false,
+        configured:true,
+        exchangeError:e?.body || null,
+        reasons:[String(e?.message || 'BINANCE_ACCOUNT_SUMMARY_FAILED').slice(0,160)]
+      };
+    }
   }
 
   async function arm({ confirmed = false } = {}) {
@@ -462,7 +507,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
-  return { status, arm, disarm, execute, readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, arm, disarm, execute, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };
