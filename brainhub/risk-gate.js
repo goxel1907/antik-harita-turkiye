@@ -146,4 +146,63 @@ function accountRiskCaps({ account, intent, limits } = {}) {
   };
 }
 
-module.exports = { FRAME_ORDER, preflightRiskGate, accountRiskCaps };
+function structuralStopGate({
+  side,
+  entryPrice,
+  stopPrice,
+  structuralInvalidationPrice,
+  bufferQuote = 0,
+  initialStopPrice = null
+} = {}) {
+  const reasons = [];
+  const normalizedSide = String(side || '').toUpperCase();
+  const entry = finite(entryPrice);
+  const stop = finite(stopPrice);
+  const invalidation = finite(structuralInvalidationPrice);
+  const buffer = finite(bufferQuote);
+  const initialProvided = initialStopPrice !== null && initialStopPrice !== undefined;
+  const initialStop = initialProvided ? finite(initialStopPrice) : null;
+
+  if (!['LONG','SHORT'].includes(normalizedSide)) reasons.push('SIDE_INVALID');
+  if (entry === null || entry <= 0) reasons.push('ENTRY_PRICE_INVALID');
+  if (stop === null || stop <= 0) reasons.push('STOP_PRICE_INVALID');
+  if (invalidation === null || invalidation <= 0) reasons.push('STRUCTURAL_INVALIDATION_INVALID');
+  if (buffer === null || buffer < 0) reasons.push('STOP_BUFFER_INVALID');
+  if (initialProvided && (initialStop === null || initialStop <= 0)) reasons.push('INITIAL_STOP_INVALID');
+
+  let structuralBoundary = null;
+  if (normalizedSide === 'LONG' && entry !== null && invalidation !== null && buffer !== null) {
+    structuralBoundary = invalidation - buffer;
+    if (invalidation >= entry) reasons.push('INVALIDATION_NOT_BELOW_ENTRY');
+    if (stop !== null && stop >= entry) reasons.push('STOP_NOT_BELOW_ENTRY');
+    if (stop !== null && stop > structuralBoundary) reasons.push('STOP_INSIDE_STRUCTURAL_INVALIDATION');
+    if (initialStop !== null && stop !== null && stop < initialStop) reasons.push('STOP_WOULD_WIDEN_RISK');
+  }
+  if (normalizedSide === 'SHORT' && entry !== null && invalidation !== null && buffer !== null) {
+    structuralBoundary = invalidation + buffer;
+    if (invalidation <= entry) reasons.push('INVALIDATION_NOT_ABOVE_ENTRY');
+    if (stop !== null && stop <= entry) reasons.push('STOP_NOT_ABOVE_ENTRY');
+    if (stop !== null && stop < structuralBoundary) reasons.push('STOP_INSIDE_STRUCTURAL_INVALIDATION');
+    if (initialStop !== null && stop !== null && stop > initialStop) reasons.push('STOP_WOULD_WIDEN_RISK');
+  }
+
+  const uniqueReasons = [...new Set(reasons)];
+  return {
+    ok: uniqueReasons.length === 0,
+    eligibleForDryRun: uniqueReasons.length === 0,
+    liveAllowed: false,
+    execution: 'ADVISORY_ONLY',
+    mode: initialProvided ? 'HANDOFF' : 'INITIAL',
+    side: ['LONG','SHORT'].includes(normalizedSide) ? normalizedSide : null,
+    entryPrice: entry,
+    stopPrice: stop,
+    structuralInvalidationPrice: invalidation,
+    bufferQuote: buffer,
+    structuralBoundary,
+    initialStopPrice: initialStop,
+    riskDistanceQuote: entry !== null && stop !== null ? Math.abs(entry - stop) : null,
+    reasons: uniqueReasons
+  };
+}
+
+module.exports = { FRAME_ORDER, preflightRiskGate, accountRiskCaps, structuralStopGate };
