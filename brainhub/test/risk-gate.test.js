@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { preflightRiskGate, accountRiskCaps } = require('../risk-gate');
+const { preflightRiskGate, accountRiskCaps, structuralStopGate } = require('../risk-gate');
 
 function baseUnified() {
   return {
@@ -147,4 +147,76 @@ test('family exposure above its cap blocks dry-run', () => {
   assert.equal(out.ok, false);
   assert.equal(out.eligibleForDryRun, false);
   assert.ok(out.reasons.includes('FAMILY_EXPOSURE_CAP_EXCEEDED'));
+});
+
+test('LONG structural stop stays beyond invalidation plus explicit buffer', () => {
+  const out = structuralStopGate({
+    side:'LONG',
+    entryPrice:100,
+    stopPrice:97.5,
+    structuralInvalidationPrice:98,
+    bufferQuote:0.5
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.eligibleForDryRun, true);
+  assert.equal(out.liveAllowed, false);
+  assert.equal(out.structuralBoundary, 97.5);
+  assert.deepEqual(out.reasons, []);
+});
+
+test('SHORT structural stop stays beyond invalidation plus explicit buffer', () => {
+  const out = structuralStopGate({
+    side:'SHORT',
+    entryPrice:100,
+    stopPrice:102.5,
+    structuralInvalidationPrice:102,
+    bufferQuote:0.5
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.eligibleForDryRun, true);
+  assert.equal(out.liveAllowed, false);
+  assert.equal(out.structuralBoundary, 102.5);
+  assert.deepEqual(out.reasons, []);
+});
+
+test('stop inside structural invalidation buffer is blocked on both sides', () => {
+  const longOut = structuralStopGate({
+    side:'LONG', entryPrice:100, stopPrice:97.8,
+    structuralInvalidationPrice:98, bufferQuote:0.5
+  });
+  const shortOut = structuralStopGate({
+    side:'SHORT', entryPrice:100, stopPrice:102.2,
+    structuralInvalidationPrice:102, bufferQuote:0.5
+  });
+  assert.equal(longOut.ok, false);
+  assert.equal(shortOut.ok, false);
+  assert.ok(longOut.reasons.includes('STOP_INSIDE_STRUCTURAL_INVALIDATION'));
+  assert.ok(shortOut.reasons.includes('STOP_INSIDE_STRUCTURAL_INVALIDATION'));
+});
+
+test('handoff stop may tighten but never widen original risk on LONG or SHORT', () => {
+  const longTighten = structuralStopGate({
+    side:'LONG', entryPrice:100, stopPrice:97.5,
+    structuralInvalidationPrice:98, bufferQuote:0.5, initialStopPrice:97
+  });
+  const longWiden = structuralStopGate({
+    side:'LONG', entryPrice:100, stopPrice:96.5,
+    structuralInvalidationPrice:98, bufferQuote:0.5, initialStopPrice:97
+  });
+  const shortTighten = structuralStopGate({
+    side:'SHORT', entryPrice:100, stopPrice:102.5,
+    structuralInvalidationPrice:102, bufferQuote:0.5, initialStopPrice:103
+  });
+  const shortWiden = structuralStopGate({
+    side:'SHORT', entryPrice:100, stopPrice:103.5,
+    structuralInvalidationPrice:102, bufferQuote:0.5, initialStopPrice:103
+  });
+  assert.equal(longTighten.ok, true);
+  assert.equal(shortTighten.ok, true);
+  assert.equal(longWiden.ok, false);
+  assert.equal(shortWiden.ok, false);
+  assert.ok(longWiden.reasons.includes('STOP_WOULD_WIDEN_RISK'));
+  assert.ok(shortWiden.reasons.includes('STOP_WOULD_WIDEN_RISK'));
+  assert.equal(longWiden.liveAllowed, false);
+  assert.equal(shortWiden.liveAllowed, false);
 });
