@@ -122,9 +122,11 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             body.put("structuralInvalidationPrice",stop);body.put("bufferQuote",0.0);body.put("initialStopPrice",stop);
 
             JSONObject out=BrainHubClient.liveExecute(c,body);
-            boolean protectedEntry=out.optBoolean("ok",false)&&out.optBoolean("orderPlaced",false)&&out.optBoolean("stopProtected",false);
+            boolean stopProtectedEntry=out.optBoolean("orderPlaced",false)&&out.optBoolean("stopProtected",false);
+            boolean tpProtected=out.optBoolean("tpProtected",false);
+            boolean fullyProtected=out.optBoolean("ok",false)&&stopProtectedEntry&&tpProtected;
             boolean uncertain=out.optBoolean("manualReviewRequired",false)||"LIVE_ENTRY_REVIEW_REQUIRED".equals(out.optString("execution"));
-            if(protectedEntry){
+            if(stopProtectedEntry){
                 android.content.SharedPreferences.Editor ed=p.edit()
                     .putLong("v9522_order_sent_signal_"+s,ts).putLong("v9576_last_auto_"+s,now)
                     .putString("v9550_trade_margin_"+s,fmt(margin))
@@ -137,12 +139,16 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
                     .putString("v9582_trade_entry_order_id_"+s,out.optString("entryOrderId",""))
                     .putString("v9582_trade_stop_algo_id_"+s,out.optString("stopAlgoId",""))
                     .putBoolean("v9582_trade_stop_protected_"+s,out.optBoolean("stopProtected",false))
+                    .putBoolean("v9582_trade_tp_protected_"+s,tpProtected)
+                    .putString("v9582_trade_tp_algo_ids_"+s,out.optJSONArray("tpAlgoIds")==null?"":out.optJSONArray("tpAlgoIds").toString())
                     .putLong("v9582_trade_meta_ts_"+s,now);
                 if(!bad(tp1))ed.putString("v9582_trade_tp1_"+s,fmt(tp1));
                 if(!bad(tp2))ed.putString("v9582_trade_tp2_"+s,fmt(tp2));
                 if(!bad(tp3))ed.putString("v9582_trade_tp3_"+s,fmt(tp3));
                 ed.apply();
-                String msg="PC LIVE KORUMALI GİRİŞ • "+s+" "+side+" • "+fmt(margin)+" USDT • "+configuredLev+"x • max "+maxPositions;
+                String msg=fullyProtected
+                    ? "PC LIVE TAM KORUMALI GİRİŞ • "+s+" "+side+" • STOP + TP1/TP2/TP3 AKTİF • "+fmt(margin)+" USDT • "+configuredLev+"x"
+                    : "PC LIVE STOP AKTİF • TP EKSİK • MANUEL KONTROL • "+s+" "+side+" • "+out.optString("execution","LIVE_TP_REVIEW");
                 status(p,s,msg);BrainLearning.recordExecution(c,s,msg);return;
             }
             if(uncertain){
@@ -400,6 +406,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
             double tp2=v9582PrefNumber(sp,"v9582_trade_tp2_"+r.symbol,"v9518_signal_tp2_"+r.symbol);
             double tp3=v9582PrefNumber(sp,"v9582_trade_tp3_"+r.symbol,"v9518_signal_tp3_"+r.symbol);
             boolean stopProtected=sp.getBoolean("v9582_trade_stop_protected_"+r.symbol,false);
+            boolean tpProtected=sp.getBoolean("v9582_trade_tp_protected_"+r.symbol,false);
             StringBuilder x=new StringBuilder();
             x.append("⚡ AUTO POZİSYON • ").append(r.symbol);
             if(r.side!=null&&!r.side.isEmpty())x.append(" • ").append(r.side);
@@ -409,7 +416,8 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
             x.append(" • ROI: ").append(v9549Fmt(shownRoi,"%"));
             x.append("\nGiriş ref: ").append(v9582Level(entry));
             x.append(" • STOP: ").append(v9582Level(stop)).append(stopProtected?" ✓ KORUMALI":" • doğrulama bekliyor");
-            x.append("\nPLAN TP1: ").append(v9582Level(tp1)).append(" • TP2: ").append(v9582Level(tp2)).append(" • TP3: ").append(v9582Level(tp3));
+            x.append("\n").append(tpProtected?"TP AKTİF • ":"PLAN TP • ");
+            x.append("TP1: ").append(v9582Level(tp1)).append(" • TP2: ").append(v9582Level(tp2)).append(" • TP3: ").append(v9582Level(tp3));
             android.widget.TextView tv=text(x.toString(),12.2f,android.graphics.Color.WHITE,true);
             tv.setPadding(dp(9),dp(7),dp(9),dp(7));
             int bg=Double.isNaN(shownPnl)?android.graphics.Color.rgb(22,36,51)
@@ -419,7 +427,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
             lp.setMargins(0,dp(7),0,0);box.addView(tv,lp);
         }
         if(openShown==0){
-            android.widget.TextView wait=text("Açık oto pozisyon yok • uygun sinyal oluşursa burada coin / yön / canlı PnL / STOP / PLAN TP seviyeleri görünür.",
+            android.widget.TextView wait=text("Açık oto pozisyon yok • uygun sinyal oluşursa burada coin / yön / canlı PnL / STOP / TP durumları görünür.",
                     11.2f,android.graphics.Color.rgb(148,163,184),false);
             wait.setPadding(0,dp(6),0,0);
             box.addView(wait,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -444,8 +452,8 @@ checks={
     'emergency stop stays off':'BUTTON_NEUTRAL).setOnClickListener(v->{sp.edit().putBoolean("v9576_auto_enabled",false).apply();' in MAIN.read_text(),
     'dynamic trade settings':'requestedMarginQuote' in AUTO.read_text() and 'requestedLeverage' in AUTO.read_text() and 'requestedMaxOpenPositions' in AUTO.read_text(),
     'visible live status panel':'V9582_VISIBLE_LIVE_STATUS_PANEL' in MAIN.read_text() and 'TARIYOR • TAZE SİNYAL / FIRSAT BEKLİYOR' in MAIN.read_text(),
-    'active trade detail':'AUTO POZİSYON' in MAIN.read_text() and 'PLAN TP1:' in MAIN.read_text() and 'KORUMALI' in MAIN.read_text(),
-    'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
+    'active trade detail':'AUTO POZİSYON' in MAIN.read_text() and 'TP AKTİF' in MAIN.read_text() and 'KORUMALI' in MAIN.read_text(),
+    'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
     'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'totalWalletBalance' in MAIN.read_text() and 'totalMarginBalance' in MAIN.read_text() and 'availableBalance' in MAIN.read_text(),
     'TPs bound into LIVE intent':'takeProfit1' in AUTO.read_text() and 'takeProfit2' in AUTO.read_text() and 'takeProfit3' in AUTO.read_text() and 'stop/TP geometrisi' in AUTO.read_text(),
     'identity':"versionName '9.5.84'" in BUILD.read_text() and 'versionCode 26091824' in BUILD.read_text(),
