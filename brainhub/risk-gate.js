@@ -234,4 +234,34 @@ function killSwitchGate({ control } = {}) {
   };
 }
 
-module.exports = { FRAME_ORDER, preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate };
+function executionClaimGate({ claim } = {}) {
+  const reasons = [];
+  const claimKnown = typeof claim?.claimed === 'boolean';
+  const claimed = claimKnown ? claim.claimed : null;
+  const lineageId = typeof claim?.lineageId === 'string' && claim.lineageId.trim() ? claim.lineageId.trim() : null;
+  const rejectReason = typeof claim?.reason === 'string' ? claim.reason : null;
+
+  if (!claimKnown) {
+    reasons.push('EXECUTION_CLAIM_STATE_UNKNOWN');
+  } else if (!claimed) {
+    if (rejectReason === 'NO_VALID_LEASE') reasons.push('NO_VALID_LEASE');
+    else if (rejectReason === 'DUPLICATE') reasons.push('DUPLICATE_EVENT_CLAIM');
+    else if (rejectReason === 'DUPLICATE_LINEAGE') reasons.push('DUPLICATE_LINEAGE_CLAIM');
+    else reasons.push('EXECUTION_CLAIM_REJECTED');
+  }
+  if (claimed && !lineageId) reasons.push('LINEAGE_ID_MISSING');
+
+  const uniqueReasons = [...new Set(reasons)];
+  return {
+    ok: uniqueReasons.length === 0,
+    eligibleForDryRun: uniqueReasons.length === 0,
+    liveAllowed: false,
+    execution: 'ADVISORY_ONLY',
+    claimed,
+    lineageId,
+    rejectReason,
+    reasons: uniqueReasons
+  };
+}
+
+module.exports = { FRAME_ORDER, preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate };
