@@ -76,6 +76,36 @@ test('1m opportunity can originate without waiting for unavailable 15m', () => {
   assert.equal(u.policy.execution, 'ADVISORY_ONLY');
 });
 
+test('3m LONG can originate while a fresh 15m context disagrees', () => {
+  const u = buildUnifiedContext({
+    symbol: symbol({
+      '3m':tf('3m',{preferredSide:'LONG',longScore:74,shortScore:8,trend:'UP'}),
+      '15m':tf('15m',{preferredSide:'SHORT',longScore:12,shortScore:72,trend:'DOWN',asOf:NOW-60000})
+    }),
+    global,
+    now: NOW
+  });
+  assert.equal(u.opportunityPaths.LONG.originTF, '3m');
+  assert.equal(u.opportunityPaths.LONG.ownerTF, '3m');
+  assert.equal(u.opportunityPaths.SHORT.originTF, '15m');
+  assert.equal(u.policy.timeframesAreNotVotes, true);
+});
+
+test('5m SHORT can originate without waiting for 15m LONG context', () => {
+  const u = buildUnifiedContext({
+    symbol: symbol({
+      '5m':tf('5m',{preferredSide:'SHORT',longScore:9,shortScore:77,trend:'DOWN'}),
+      '15m':tf('15m',{preferredSide:'LONG',longScore:69,shortScore:11,trend:'UP',asOf:NOW-60000})
+    }),
+    global,
+    now: NOW
+  });
+  assert.equal(u.opportunityPaths.SHORT.originTF, '5m');
+  assert.equal(u.opportunityPaths.SHORT.ownerTF, '5m');
+  assert.equal(u.opportunityPaths.LONG.originTF, '15m');
+  assert.equal(u.policy.unifiedEngineDoesNotWaitFor15m, true);
+});
+
 test('failed breakout blocks that timeframe until reclaim or alternate path', () => {
   const one = tf('1m', {
     close:101,
