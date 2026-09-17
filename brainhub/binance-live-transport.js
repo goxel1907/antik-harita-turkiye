@@ -33,6 +33,25 @@ function approxMultiple(value, step) {
   return Math.abs(reconstructed - v) <= Math.max(1e-12, Math.abs(v) * 1e-11);
 }
 
+function floorToStep(value, step) {
+  const v = finite(value), s = finite(step);
+  if (v === null || s === null || s <= 0) return null;
+  const units = Math.floor((v / s) + 1e-10);
+  const out = units * s;
+  return Number(out.toPrecision(15));
+}
+
+function splitTakeProfitQty(totalQty, step) {
+  const total = finite(totalQty), s = finite(step);
+  if (total === null || s === null || total <= 0 || s <= 0) return null;
+  const q1 = floorToStep(total / 3, s);
+  const q2 = floorToStep(total / 3, s);
+  if (q1 === null || q2 === null) return null;
+  const q3 = floorToStep(total - q1 - q2, s);
+  if (q3 === null) return null;
+  return [q1,q2,q3];
+}
+
 function filterOf(symbolInfo, type) {
   return Array.isArray(symbolInfo?.filters)
     ? symbolInfo.filters.find(x => x?.filterType === type) || null
@@ -183,6 +202,14 @@ class BinanceLiveTransport {
     else {
       if (stop < minPrice || stop > maxPrice) reasons.push('STOP_OUTSIDE_EXCHANGE_FILTER');
       if (!approxMultiple(stop, tick)) reasons.push('STOP_TICK_MISMATCH');
+      const tps = [finite(order.takeProfit1), finite(order.takeProfit2), finite(order.takeProfit3)];
+      if (tps.some(x => x === null || x <= 0)) reasons.push('TAKE_PROFIT_LEVELS_REQUIRED');
+      else {
+        for (const [i,tp] of tps.entries()) {
+          if (tp < minPrice || tp > maxPrice) reasons.push(`TP${i+1}_OUTSIDE_EXCHANGE_FILTER`);
+          if (!approxMultiple(tp, tick)) reasons.push(`TP${i+1}_TICK_MISMATCH`);
+        }
+      }
     }
 
     const minNotionalFilter = filterOf(symbolInfo, 'MIN_NOTIONAL');
@@ -197,6 +224,18 @@ class BinanceLiveTransport {
       if (deviationPct > maxDeviationPct) reasons.push('LIVE_PRICE_DEVIATION_TOO_HIGH');
       if (order.side === 'LONG' && !(stop < livePrice)) reasons.push('LONG_STOP_NOT_BELOW_LIVE_PRICE');
       if (order.side === 'SHORT' && !(stop > livePrice)) reasons.push('SHORT_STOP_NOT_ABOVE_LIVE_PRICE');
+      const tp1 = finite(order.takeProfit1), tp2 = finite(order.takeProfit2), tp3 = finite(order.takeProfit3);
+      if (order.side === 'LONG' && !(livePrice < tp1 && tp1 < tp2 && tp2 < tp3)) reasons.push('LONG_TAKE_PROFIT_NOT_ABOVE_LIVE_PRICE');
+      if (order.side === 'SHORT' && !(livePrice > tp1 && tp1 > tp2 && tp2 > tp3)) reasons.push('SHORT_TAKE_PROFIT_NOT_BELOW_LIVE_PRICE');
+    }
+
+    if (lot && qty !== null && step !== null) {
+      const split = splitTakeProfitQty(qty, step);
+      if (!split || split.some(x => x < minQty || x <= 0)) reasons.push('TAKE_PROFIT_SPLIT_BELOW_MIN_QTY');
+      if (minNotional !== null && split) {
+        const tps = [finite(order.takeProfit1), finite(order.takeProfit2), finite(order.takeProfit3)];
+        if (split.some((x,i) => tps[i] !== null && x * tps[i] < minNotional)) reasons.push('TAKE_PROFIT_SPLIT_BELOW_MIN_NOTIONAL');
+      }
     }
 
     return [...new Set(reasons)];
@@ -369,8 +408,10 @@ class BinanceLiveTransport {
       }
 
       const stopSide = normalized.side === 'LONG' ? 'SELL' : 'BUY';
+      let stop;
+      let stopAlgoId = null;
       try {
-        const stop = await this._fetchJson('POST', '/fapi/v1/algoOrder', {
+        stop = await this._fetchJson('POST', '/fapi/v1/algoOrder', {
           credentials,
           signed:true,
           params:{
@@ -387,29 +428,8 @@ class BinanceLiveTransport {
             newOrderRespType:'ACK'
           }
         });
-        const stopAlgoId = stop?.algoId ?? null;
+        stopAlgoId = stop?.algoId ?? null;
         if (stopAlgoId === null) throw new TransportError('BINANCE_STOP_ACK_INVALID', { endpoint:'/fapi/v1/algoOrder', requestSent:true });
-        return {
-          ok:true,
-          orderPlaced:true,
-          stopProtected:true,
-          liveAllowed:true,
-          execution:'LIVE_ENTRY_PROTECTED',
-          authorization,
-          symbol:normalized.symbol,
-          side:normalized.side,
-          positionSide,
-          expectedLeverage,
-          leverageChanged,
-          livePrice,
-          entryOrderId,
-          entryStatus:text(entry?.status),
-          executedQty,
-          stopAlgoId,
-          stopStatus:text(stop?.algoStatus) || 'NEW',
-          transport:{ attempted:true, requestSent:true },
-          reasons:[]
-        };
       } catch (stopError) {
         let emergencyCloseSucceeded = false;
         let emergencyCloseOrderId = null;
@@ -431,6 +451,135 @@ class BinanceLiveTransport {
           emergencyCloseOrderId = emergency?.orderId ?? null;
           emergencyCloseSucceeded = emergencyCloseOrderId !== null && (finite(emergency?.executedQty) || 0) > 0;
         } catch (e) {
+          emergencyError = e?.body || { msg:String(e?.message || 'EMERGENCY_CLOSE_FAILED').slice(0,240) };
+        }
+        return {
+          ok:false,
+          orderPlaced:true,
+          stopProtected:false,
+          tpProtected:false,
+          liveAllowed:false,
+          execution:emergencyCloseSucceeded ? 'LIVE_STOP_FAILED_EMERGENCY_CLOSED' : 'LIVE_STOP_FAILED_MANUAL_INTERVENTION_REQUIRED',
+          authorization,
+          symbol:normalized.symbol,
+          side:normalized.side,
+          entryOrderId,
+          entryStatus:text(entry?.status),
+          executedQty,
+          stopError:stopError?.body || { msg:String(stopError?.message || 'STOP_INSTALL_FAILED').slice(0,240) },
+          emergencyCloseAttempted:true,
+          emergencyCloseSucceeded,
+          emergencyCloseOrderId,
+          emergencyError,
+          manualReviewRequired:!emergencyCloseSucceeded,
+          transport:{ attempted:true, requestSent:true },
+          reasons:[emergencyCloseSucceeded ? 'PROTECTIVE_STOP_FAILED_POSITION_CLOSED' : 'PROTECTIVE_STOP_FAILED_POSITION_MAY_BE_OPEN']
+        };
+      }
+
+      const lot = filterOf(symbolInfo, 'MARKET_LOT_SIZE') || filterOf(symbolInfo, 'LOT_SIZE');
+      const step = finite(lot?.stepSize);
+      const minQty = finite(lot?.minQty);
+      const tpQty = splitTakeProfitQty(executedQty, step);
+      if (!tpQty || minQty === null || tpQty.some(x => x < minQty || x <= 0)) {
+        return {
+          ok:false,
+          orderPlaced:true,
+          stopProtected:true,
+          tpProtected:false,
+          liveAllowed:false,
+          execution:'LIVE_TP_SPLIT_REVIEW_REQUIRED',
+          authorization,
+          symbol:normalized.symbol,
+          side:normalized.side,
+          entryOrderId,
+          entryStatus:text(entry?.status),
+          executedQty,
+          stopAlgoId,
+          manualReviewRequired:true,
+          transport:{ attempted:true, requestSent:true },
+          reasons:['TAKE_PROFIT_SPLIT_INVALID_AFTER_FILL']
+        };
+      }
+
+      const tpLevels = [normalized.takeProfit1, normalized.takeProfit2, normalized.takeProfit3];
+      const tpAlgoIds = [];
+      try {
+        for (let i = 0; i < 3; i++) {
+          const params = {
+            algoType:'CONDITIONAL',
+            symbol:normalized.symbol,
+            side:stopSide,
+            positionSide,
+            type:'TAKE_PROFIT_MARKET',
+            triggerPrice:decimal(tpLevels[i]),
+            workingType:'MARK_PRICE',
+            quantity:decimal(tpQty[i]),
+            priceProtect:'true',
+            clientAlgoId:clientId(`T${i+1}`, normalized),
+            newOrderRespType:'ACK'
+          };
+          if (!hedgeMode) params.reduceOnly = 'true';
+          const tp = await this._fetchJson('POST', '/fapi/v1/algoOrder', {
+            credentials, signed:true, params
+          });
+          const id = tp?.algoId ?? null;
+          if (id === null) throw new TransportError(`BINANCE_TP${i+1}_ACK_INVALID`, { endpoint:'/fapi/v1/algoOrder', requestSent:true });
+          tpAlgoIds.push(id);
+        }
+      } catch (tpError) {
+        return {
+          ok:false,
+          orderPlaced:true,
+          stopProtected:true,
+          tpProtected:false,
+          liveAllowed:false,
+          execution:'LIVE_TP_PARTIAL_MANUAL_REVIEW_REQUIRED',
+          authorization,
+          symbol:normalized.symbol,
+          side:normalized.side,
+          positionSide,
+          expectedLeverage,
+          leverageChanged,
+          livePrice,
+          entryOrderId,
+          entryStatus:text(entry?.status),
+          executedQty,
+          stopAlgoId,
+          stopStatus:text(stop?.algoStatus) || 'NEW',
+          tpAlgoIds,
+          tpError:tpError?.body || { msg:String(tpError?.message || 'TAKE_PROFIT_INSTALL_FAILED').slice(0,240) },
+          manualReviewRequired:true,
+          transport:{ attempted:true, requestSent:true },
+          reasons:['TAKE_PROFIT_INSTALL_INCOMPLETE_STOP_REMAINS_ACTIVE']
+        };
+      }
+
+      return {
+        ok:true,
+        orderPlaced:true,
+        stopProtected:true,
+        tpProtected:true,
+        liveAllowed:true,
+        execution:'LIVE_ENTRY_FULLY_PROTECTED',
+        authorization,
+        symbol:normalized.symbol,
+        side:normalized.side,
+        positionSide,
+        expectedLeverage,
+        leverageChanged,
+        livePrice,
+        entryOrderId,
+        entryStatus:text(entry?.status),
+        executedQty,
+        stopAlgoId,
+        stopStatus:text(stop?.algoStatus) || 'NEW',
+        tpAlgoIds,
+        tpQuantities:tpQty,
+        transport:{ attempted:true, requestSent:true },
+        reasons:[]
+      };
+    } catch (e) {
           emergencyError = e?.body || { msg:String(e?.message || 'EMERGENCY_CLOSE_FAILED').slice(0,240) };
         }
         return {
@@ -475,5 +624,7 @@ module.exports = {
   DEFAULT_BASE_URL,
   DEFAULT_RECV_WINDOW_MS,
   approxMultiple,
+  floorToStep,
+  splitTakeProfitQty,
   BinanceLiveTransport
 };
