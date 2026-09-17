@@ -13,6 +13,9 @@ function order(overrides = {}) {
     quantity:0.01,
     entryPrice:100.05,
     stopPrice:98.8,
+    takeProfit1:102,
+    takeProfit2:104,
+    takeProfit3:106,
     limitPrice:null,
     clientOrderId:'live-grant-regression-001',
     lineageId:'lineage-live-regression-001',
@@ -137,6 +140,27 @@ test('expired grant is consumed fail-closed and cannot be replayed', () => {
   const replay = registry.consume({ grantId:issued.grant.grantId, order:o, now:80002 });
   assert.equal(replay.ok, false);
   assert.ok(replay.reasons.includes('LIVE_GRANT_UNKNOWN_OR_CONSUMED'));
+});
+
+test('take-profit mutation invalidates the one-shot grant fingerprint', () => {
+  const registry = new LiveAuthorizationRegistry();
+  const o = order();
+  const issued = registry.issue({
+    executionReadiness:ready(o),
+    apiPolicy:apiPolicy(),
+    userApproved:true,
+    order:o,
+    now:85000
+  });
+  assert.equal(issued.ok, true);
+
+  const mismatch = registry.consume({
+    grantId:issued.grant.grantId,
+    order:order({ takeProfit2:104.1 }),
+    now:85001
+  });
+  assert.equal(mismatch.ok, false);
+  assert.ok(mismatch.reasons.includes('LIVE_GRANT_ORDER_MISMATCH'));
 });
 
 test('order mutation invalidates and burns the one-shot grant', () => {
