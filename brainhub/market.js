@@ -6,16 +6,286 @@ const { FRAMES, NATIVE_FRAMES, analyzeFrames, microstructure, parseKlines, aggre
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
 const GECKO = 'https://api.coingecko.com/api/v3';
+const FUTURES_WS = 'wss://fstream.binance.com/ws';
 const frameCache = new Map();
 const depthCache = new Map();
 let globalCache = { at: 0, result: null };
+
+function finite(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function round(n, places = 6) {
+  return n === null || !Number.isFinite(n) ? null : Number(n.toFixed(places));
+}
+function validSymbol(s) { return typeof s === 'string' && /^[A-Z0-9]{2,28}USDT$/.test(s); }
+
+function depthImbalance(bids, asks) {
+  const parse = side => Array.isArray(side)
+    ? side.slice(0, 20).map(x => [finite(x?.[0]), finite(x?.[1])]).filter(x => x[0] > 0 && x[1] > 0)
+    : [];
+  const b = parse(bids), a = parse(asks);
+  if (!b.length || !a.length) return null;
+  const bn = b.reduce((s, x) => s + x[0] * x[1], 0);
+  const an = a.reduce((s, x) => s + x[0] * x[1], 0);
+  return bn + an > 0 ? (bn - an) / (bn + an) : null;
+}
+
+function liquidationZones(records, mid, bucketBps = 10) {
+  if (!Array.isArray(records) || !records.length || !(mid > 0)) return [];
+  const step = Math.max(mid * bucketBps / 10000, Number.EPSILON);
+  const buckets = new Map();
+  for (const r of records) {
+    if (!(r.price > 0) || !(r.quote > 0)) continue;
+    const key = Math.round(r.price / step);
+    const k = `${key}:${r.side}`;
+    let z = buckets.get(k);
+    if (!z) {
+      z = { side:r.side, priceSum:0, weight:0, quote:0, count:0, firstAt:r.at, lastAt:r.at };
+      buckets.set(k, z);
+    }
+    z.priceSum += r.price * r.quote;
+    z.weight += r.quote;
+    z.quote += r.quote;
+    z.count += 1;
+    z.firstAt = Math.min(z.firstAt, r.at);
+    z.lastAt = Math.max(z.lastAt, r.at);
+  }
+  return [...buckets.values()]
+    .map(z => ({
+      side:z.side,
+      price:round(z.weight > 0 ? z.priceSum / z.weight : null),
+      observedQuote:round(z.quote, 2),
+      count:z.count,
+      firstAt:z.firstAt,
+      lastAt:z.lastAt,
+      semantics:'OBSERVED_FORCE_ORDER_CLUSTER'
+    }))
+    .sort((a, b) => b.observedQuote - a.observedQuote)
+    .slice(0, 6);
+}
+
+class StreamingMarket {
+  constructor({ WebSocketImpl = (typeof WebSocket === 'function' ? WebSocket : null), now = () => Date.now() } = {}) {
+    this.WebSocketImpl = WebSocketImpl;
+    this.now = now;
+    this.ws = null;
+    this.connecting = false;
+    this.reconnectTimer = null;
+    this.reconnectMs = 1000;
+    this.states = new Map();
+    this.subscribed = new Set();
+    this.subscriptionId = 1;
+    this.maxSymbols = 80;
+    this.tradeWindowMs = 120000;
+    this.liquidationWindowMs = 15 * 60 * 1000;
+    this.staleMs = 15000;
+  }
+  ensureSymbol(symbol) {
+    symbol = String(symbol || '').toUpperCase();
+    if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
+    if (!this.states.has(symbol)) {
+      if (this.states.size >= this.maxSymbols) throw new Error('stream symbol capacity reached');
+      this.states.set(symbol, {
+        symbol, lastEventAt:0, book:null, depth:null, depthAt:0,
+        trades:[], tradeAt:0, liquidations:[], liquidationAt:0
+      });
+    }
+    this.subscribed.add(symbol);
+    this.connect();
+    this.subscribeSymbols([symbol]);
+    return this.states.get(symbol);
+  }
+  connect() {
+    if (!this.WebSocketImpl || this.ws || this.connecting || !this.subscribed.size) return;
+    this.connecting = true;
+    let ws;
+    try { ws = new this.WebSocketImpl(FUTURES_WS); }
+    catch { this.connecting = false; this.scheduleReconnect(); return; }
+    this.ws = ws;
+    const on = (name, fn) => {
+      if (typeof ws.addEventListener === 'function') ws.addEventListener(name, fn);
+      else ws['on' + name] = fn;
+    };
+    on('open', () => {
+      this.connecting = false;
+      this.reconnectMs = 1000;
+      this.subscribeSymbols([...this.subscribed], true);
+    });
+    on('message', async event => {
+      try {
+        let raw = event?.data;
+        if (raw && typeof raw.text === 'function') raw = await raw.text();
+        else if (raw instanceof ArrayBuffer) raw = Buffer.from(raw).toString('utf8');
+        else if (ArrayBuffer.isView(raw)) raw = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf8');
+        const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        this.ingest(msg);
+      } catch { }
+    });
+    on('error', () => { });
+    on('close', () => {
+      if (this.ws === ws) this.ws = null;
+      this.connecting = false;
+      this.scheduleReconnect();
+    });
+  }
+  scheduleReconnect() {
+    if (!this.WebSocketImpl || !this.subscribed.size || this.reconnectTimer) return;
+    const delay = Math.min(this.reconnectMs, 30000);
+    this.reconnectMs = Math.min(delay * 2, 30000);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
+    if (typeof this.reconnectTimer.unref === 'function') this.reconnectTimer.unref();
+  }
+  subscribeSymbols(symbols, force = false) {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== 1 || typeof ws.send !== 'function') return;
+    const params = [];
+    for (const symbol of symbols) {
+      if (!force && !this.subscribed.has(symbol)) continue;
+      const s = symbol.toLowerCase();
+      params.push(`${s}@aggTrade`, `${s}@bookTicker`, `${s}@depth20@100ms`, `${s}@forceOrder`);
+    }
+    if (!params.length) return;
+    try { ws.send(JSON.stringify({ method:'SUBSCRIBE', params, id:this.subscriptionId++ })); }
+    catch { }
+  }
+  cleanup(state, now = this.now()) {
+    state.trades = state.trades.filter(x => now - x.at <= this.tradeWindowMs && now >= x.at);
+    state.liquidations = state.liquidations.filter(x => now - x.at <= this.liquidationWindowMs && now >= x.at);
+  }
+  ingest(message) {
+    const data = message?.data && typeof message.data === 'object' ? message.data : message;
+    if (!data || typeof data !== 'object') return false;
+    const eventType = String(data.e || '');
+    const symbol = String(data.s || data.o?.s || '').toUpperCase();
+    if (!validSymbol(symbol)) return false;
+    const state = this.states.get(symbol) || this.ensureSymbol(symbol);
+    const now = this.now();
+    const eventAt = finite(data.E) ?? finite(data.T) ?? finite(data.o?.T) ?? now;
+    state.lastEventAt = Math.max(state.lastEventAt, eventAt || now);
+    if (eventType === 'bookTicker') {
+      const bid = finite(data.b), ask = finite(data.a), bidQty = finite(data.B), askQty = finite(data.A);
+      if (bid > 0 && ask > bid) state.book = { bid, ask, bidQty, askQty, at:eventAt || now };
+    } else if (eventType === 'depthUpdate') {
+      const imbalance = depthImbalance(data.b, data.a);
+      state.depth = { bids:Array.isArray(data.b) ? data.b.slice(0,20) : [], asks:Array.isArray(data.a) ? data.a.slice(0,20) : [], imbalance, at:eventAt || now };
+      state.depthAt = eventAt || now;
+    } else if (eventType === 'aggTrade') {
+      const price = finite(data.p), qty = finite(data.q), at = finite(data.T) ?? eventAt ?? now;
+      if (price > 0 && qty > 0 && at <= now + 5000) {
+        state.trades.push({ at, quote:price * qty, sign:data.m ? -1 : 1 });
+        state.tradeAt = Math.max(state.tradeAt, at);
+      }
+    } else if (eventType === 'forceOrder') {
+      const o = data.o || {};
+      const price = finite(o.ap) > 0 ? finite(o.ap) : finite(o.p);
+      const qty = finite(o.z) > 0 ? finite(o.z) : finite(o.q);
+      const at = finite(o.T) ?? eventAt ?? now;
+      if (price > 0 && qty > 0 && ['BUY','SELL'].includes(String(o.S || '').toUpperCase())) {
+        state.liquidations.push({
+          at,
+          price,
+          quote:price * qty,
+          side:String(o.S).toUpperCase() === 'SELL' ? 'LONG_LIQUIDATED' : 'SHORT_LIQUIDATED'
+        });
+        state.liquidationAt = Math.max(state.liquidationAt, at);
+      }
+    } else return false;
+    this.cleanup(state, now);
+    return true;
+  }
+  snapshot(symbol, now = this.now()) {
+    symbol = String(symbol || '').toUpperCase();
+    const state = this.states.get(symbol);
+    if (!state) return {
+      available:false, symbol, reason:'STREAM_NOT_STARTED', websocketAvailable:Boolean(this.WebSocketImpl), connected:Boolean(this.ws && this.ws.readyState === 1)
+    };
+    this.cleanup(state, now);
+    const connected = Boolean(this.ws && this.ws.readyState === 1);
+    const lastAt = Math.max(state.lastEventAt, state.book?.at || 0, state.depthAt || 0, state.tradeAt || 0, state.liquidationAt || 0);
+    const ageMs = lastAt > 0 && now >= lastAt ? now - lastAt : null;
+    const bookFresh = state.book && now >= state.book.at && now - state.book.at <= this.staleMs;
+    const bid = bookFresh ? state.book.bid : null;
+    const ask = bookFresh ? state.book.ask : null;
+    const mid = bid && ask ? (bid + ask) / 2 : null;
+    const cvdQuote = state.trades.reduce((s, x) => s + x.sign * x.quote, 0);
+    const longLiqQuote = state.liquidations.filter(x => x.side === 'LONG_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
+    const shortLiqQuote = state.liquidations.filter(x => x.side === 'SHORT_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
+    const zones = liquidationZones(state.liquidations, mid || state.book?.bid || state.book?.ask || 0);
+    const available = Boolean(bookFresh && ageMs !== null && ageMs <= this.staleMs);
+    return {
+      available,
+      symbol,
+      reason:available ? null : 'STREAM_WARMING_OR_STALE',
+      source:'Binance USD-M public WebSocket',
+      websocketAvailable:Boolean(this.WebSocketImpl),
+      connected,
+      asOf:lastAt || null,
+      ageMs,
+      bid:round(bid),
+      ask:round(ask),
+      spreadBps:mid ? round((ask - bid) / mid * 10000, 3) : null,
+      depth20Imbalance:state.depth && now - state.depth.at <= this.staleMs ? round(state.depth.imbalance, 4) : null,
+      depthAsOf:state.depthAt || null,
+      cvdQuote120s:state.trades.length ? round(cvdQuote, 2) : null,
+      cvdTrades120s:state.trades.length,
+      cvdAsOf:state.tradeAt || null,
+      observedLiquidations:{
+        available:state.liquidations.length > 0,
+        windowMs:this.liquidationWindowMs,
+        count:state.liquidations.length,
+        asOf:state.liquidationAt || null,
+        longLiquidatedQuote:round(longLiqQuote, 2),
+        shortLiquidatedQuote:round(shortLiqQuote, 2),
+        zones,
+        semantics:'OBSERVED_BINANCE_FORCE_ORDER_ONLY',
+        note:'Observed liquidation prints only; not a complete liquidation heatmap, future cluster map, or proof of market-maker intent.'
+      },
+      limitations:[
+        'Partial depth20 stream is not a locally sequenced full order book and is not true OFI.',
+        'CVD covers the retained public aggTrade window only.',
+        'Force-order records are observed liquidation prints, not all future liquidation levels.'
+      ]
+    };
+  }
+  health() {
+    const now = this.now();
+    let fresh = 0, warming = 0;
+    for (const symbol of this.states.keys()) {
+      if (this.snapshot(symbol, now).available) fresh++; else warming++;
+    }
+    return {
+      websocketAvailable:Boolean(this.WebSocketImpl),
+      connected:Boolean(this.ws && this.ws.readyState === 1),
+      subscribedSymbols:this.subscribed.size,
+      freshSymbols:fresh,
+      warmingOrStaleSymbols:warming,
+      endpoint:FUTURES_WS,
+      publicOnly:true
+    };
+  }
+  shutdown() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    const ws = this.ws;
+    this.ws = null;
+    this.connecting = false;
+    if (ws && typeof ws.close === 'function') {
+      try { ws.close(); } catch { }
+    }
+  }
+}
+
+const marketStream = new StreamingMarket();
 
 async function getJson(base, endpoint, timeout = 10000) {
   const res = await fetch(base + endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(timeout) });
   if (!res.ok) throw new Error(`${new URL(base).hostname} HTTP ${res.status}`);
   return res.json();
 }
-function validSymbol(s) { return typeof s === 'string' && /^[A-Z0-9]{2,28}USDT$/.test(s); }
 async function frameSet(symbol, base = FUTURES, path = '/fapi/v1/klines') {
   const cacheKey = `${base}:${symbol}`;
   const cached = frameCache.get(cacheKey);
@@ -36,6 +306,7 @@ async function frameSet(symbol, base = FUTURES, path = '/fapi/v1/klines') {
 }
 async function symbolContext(symbol) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
+  marketStream.ensureSymbol(symbol);
   const [frames, depthResult, tradeResult] = await Promise.allSettled([
     frameSet(symbol),
     getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=20`, 9000),
@@ -50,12 +321,40 @@ async function symbolContext(symbol) {
     depthCache.set(symbol, micro.snapshot);
     delete micro.snapshot;
   }
+  const streaming = marketStream.snapshot(symbol, now);
+  micro.sourceQuality = 'REST_SNAPSHOT_APPROX';
+  micro.streaming = streaming;
+  micro.observedLiquidations = streaming.observedLiquidations || {
+    available:false, count:0, longLiquidatedQuote:0, shortLiquidatedQuote:0, zones:[], semantics:'OBSERVED_BINANCE_FORCE_ORDER_ONLY'
+  };
+  if (streaming.available) {
+    micro.available = true;
+    micro.sourceQuality = 'STREAMING_PARTIAL_BOOK';
+    if (streaming.bid !== null) micro.bid = streaming.bid;
+    if (streaming.ask !== null) micro.ask = streaming.ask;
+    if (streaming.spreadBps !== null) micro.spreadBps = streaming.spreadBps;
+    if (streaming.depth20Imbalance !== null) micro.depth20Imbalance = streaming.depth20Imbalance;
+    if (streaming.cvdQuote120s !== null) {
+      micro.cvdSampleQuote = streaming.cvdQuote120s;
+      micro.cvdSampleTrades = streaming.cvdTrades120s;
+      micro.cvdWindow = 'continuous retained public aggTrade window, at most 120s';
+      micro.cvdSource = 'BINANCE_WS_AGGTRADE_120S';
+    }
+    micro.ofiNote = 'REST two-snapshot OFI proxy may be present as fallback context; partial depth20 streaming is not true sequenced local-book OFI.';
+  }
   return {
     ok: true, symbol, generatedAt: new Date(now).toISOString(),
-    source: 'Binance USDT-M public REST; closed candles only; 45m causally aggregated from three closed 15m candles',
-    timeframes: frames.frames, timeframeErrors: frames.errors,
+    source: 'Binance USDT-M public REST + public WebSocket when fresh; closed candles only; 45m causally aggregated from three closed 15m candles',
+    timeframes: frames.value.frames, timeframeErrors: frames.value.errors,
     microstructure: micro,
-    limitations: ['REST depth snapshots do not prove resting-liquidity persistence or true OFI', 'Recent aggTrades are sampled CVD, not full session CVD', 'FVG, wick sweeps and liquidity levels are structural context, not executable prices', '45m is synthetic and is not an independent vote']
+    streamHealth: marketStream.health(),
+    limitations: [
+      'Streaming depth20 is a partial book and does not prove resting-liquidity persistence or true sequenced OFI',
+      'Streaming CVD covers the retained public aggTrade window, not a complete session',
+      'Observed forceOrder prints are not a complete liquidation heatmap or future liquidation map',
+      'FVG, wick sweeps and liquidity levels are structural context, not executable prices',
+      '45m is synthetic and is not an independent vote'
+    ]
   };
 }
 async function chartContext(symbol, frame, requestedBars = 128) {
@@ -257,4 +556,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { globalContext, symbolContext, chartContext, renderChartPng, validSymbol };
+module.exports = { globalContext, symbolContext, chartContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, depthImbalance };
