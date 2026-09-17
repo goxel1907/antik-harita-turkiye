@@ -27,6 +27,9 @@ function canonicalOrder(order = {}) {
     quantity:finite(order.quantity),
     entryPrice:finite(order.entryPrice),
     stopPrice:finite(order.stopPrice),
+    takeProfit1:finite(order.takeProfit1),
+    takeProfit2:finite(order.takeProfit2),
+    takeProfit3:finite(order.takeProfit3),
     limitPrice:orderType === 'LIMIT' ? finite(order.limitPrice) : null,
     clientOrderId:text(order.clientOrderId),
     lineageId:text(order.lineageId)
@@ -67,6 +70,15 @@ class LiveAuthorizationRegistry {
     if (normalized.quantity === null || normalized.quantity <= 0) reasons.push('LIVE_ORDER_QUANTITY_INVALID');
     if (normalized.entryPrice === null || normalized.entryPrice <= 0) reasons.push('LIVE_ORDER_ENTRY_PRICE_INVALID');
     if (normalized.stopPrice === null || normalized.stopPrice <= 0) reasons.push('LIVE_ORDER_STOP_PRICE_INVALID');
+    if (normalized.takeProfit1 === null || normalized.takeProfit1 <= 0) reasons.push('LIVE_ORDER_TP1_INVALID');
+    if (normalized.takeProfit2 === null || normalized.takeProfit2 <= 0) reasons.push('LIVE_ORDER_TP2_INVALID');
+    if (normalized.takeProfit3 === null || normalized.takeProfit3 <= 0) reasons.push('LIVE_ORDER_TP3_INVALID');
+    if (normalized.side === 'LONG' && !(normalized.entryPrice < normalized.takeProfit1 && normalized.takeProfit1 < normalized.takeProfit2 && normalized.takeProfit2 < normalized.takeProfit3)) {
+      reasons.push('LIVE_ORDER_LONG_TP_GEOMETRY_INVALID');
+    }
+    if (normalized.side === 'SHORT' && !(normalized.entryPrice > normalized.takeProfit1 && normalized.takeProfit1 > normalized.takeProfit2 && normalized.takeProfit2 > normalized.takeProfit3)) {
+      reasons.push('LIVE_ORDER_SHORT_TP_GEOMETRY_INVALID');
+    }
     if (normalized.orderType === 'LIMIT' && (normalized.limitPrice === null || normalized.limitPrice <= 0)) reasons.push('LIVE_ORDER_LIMIT_PRICE_INVALID');
     if (orderFingerprint(normalized) !== orderFingerprint(executorOrder)) reasons.push('LIVE_ORDER_DIFFERS_FROM_DRY_RUN');
 
