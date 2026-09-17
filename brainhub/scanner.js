@@ -116,38 +116,44 @@ function scoreExpansion({ a, b, c, oiDeltaPct, spreadBps, fundingPct = 0 }) {
   return { taker, directionalMomentum, volAccel, rangeExpansion, longExpansionScore, shortExpansionScore, movementPotential };
 }
 
-function candidatePreScore(x) {
-  return Math.min(x.range24hPct,40) * 0.85 +
-    Math.min(Math.abs(x.priceChangePercent),40) * 0.25 +
-    Math.max(0, 8 - x.volumeRank * 0.04);
+function candidatePreScore(x, prevRow = null) {
+  const continuityBoost =
+    Math.max(0, num(prevRow?.rankVelocity)) * 1.5 +
+    Math.max(0, num(prevRow?.leaderHunterScore) - 40) * 0.08;
+  return Math.min(x.range24hPct,40) * 0.90 +
+    Math.min(Math.abs(x.priceChangePercent),40) * 0.12 +
+    Math.max(0, 6 - x.volumeRank * 0.03) +
+    continuityBoost;
 }
 
-function selectCandidates(universe, limit = 32) {
+function selectCandidates(universe, prevState = {}, limit = 32) {
   const liquidTop = universe.slice(0,100);
-  const volatileTop = [...universe].sort((a,b)=>b.range24hPct-a.range24hPct).slice(0,100);
-  const gainerTop = [...universe]
-    .filter(x => x.priceChangePercent > 0)
-    .sort((a,b)=>b.priceChangePercent-a.priceChangePercent)
-    .slice(0,10);
-  const loserTop = [...universe]
-    .filter(x => x.priceChangePercent < 0)
-    .sort((a,b)=>a.priceChangePercent-b.priceChangePercent)
-    .slice(0,10);
+  const volatileTop = [...universe].sort((a,b)=>b.range24hPct-a.range24hPct).slice(0,120);
+  const universeMap = new Map(universe.map(x => [x.symbol,x]));
+  const statePriority = { TOP3_APPROACH:5, TOP10_APPROACH:4, EARLY_TOP5:3, EARLY_EXPANSION:2, RISING:1 };
+  const continuity = Object.entries(prevState?.bySymbol || {})
+    .filter(([symbol,row]) => universeMap.has(symbol) && (num(row?.rankVelocity) > 0 || statePriority[row?.leaderState]))
+    .sort((a,b) =>
+      (statePriority[b[1]?.leaderState] || 0) - (statePriority[a[1]?.leaderState] || 0) ||
+      num(b[1]?.rankVelocity) - num(a[1]?.rankVelocity) ||
+      num(b[1]?.leaderHunterScore) - num(a[1]?.leaderHunterScore))
+    .slice(0,12)
+    .map(([symbol]) => universeMap.get(symbol));
 
   const prefilterMap = new Map();
-  for (const x of [...liquidTop,...volatileTop,...gainerTop,...loserTop]) prefilterMap.set(x.symbol,x);
+  for (const x of [...liquidTop,...volatileTop,...continuity]) prefilterMap.set(x.symbol,x);
   const prefilter = [...prefilterMap.values()];
   const scored = prefilter
-    .map(x => ({ ...x, preScore:candidatePreScore(x) }))
+    .map(x => ({ ...x, preScore:candidatePreScore(x, prevState?.bySymbol?.[x.symbol]) }))
     .sort((a,b)=>b.preScore-a.preScore);
 
-  const forcedSymbols = new Set([...gainerTop,...loserTop].map(x => x.symbol));
+  const continuitySymbols = new Set(continuity.map(x => x.symbol));
   const bySymbol = new Map(scored.map(x => [x.symbol,x]));
-  const forced = [...gainerTop,...loserTop].map(x => bySymbol.get(x.symbol)).filter(Boolean);
-  const remainder = scored.filter(x => !forcedSymbols.has(x.symbol));
-  const candidates = [...forced,...remainder].slice(0,limit);
+  const carried = continuity.map(x => bySymbol.get(x.symbol)).filter(Boolean);
+  const remainder = scored.filter(x => !continuitySymbols.has(x.symbol));
+  const candidates = [...carried,...remainder].slice(0,limit);
 
-  return { liquidTop, volatileTop, gainerTop, loserTop, prefilter, candidates };
+  return { liquidTop, volatileTop, continuity, prefilter, candidates };
 }
 
 async function enrich(x, book, premium, prev) {
@@ -206,12 +212,19 @@ function addLeaderHunterFields(x, rank, prevRow) {
   const prevVelocity = num(prevRow?.rankVelocity);
   const rankVelocity = oldRank > 0 ? oldRank - rank : 0;
   const rankAcceleration = rankVelocity - prevVelocity;
+  const projectedRank = Math.max(1, Math.round(rank - Math.max(0, rankVelocity) - Math.max(0, rankAcceleration) * 0.5));
   const dirSign = x.side === 'LONG' ? 1 : -1;
   const directionSupport = [x.m1, x.m3, x.m5].filter(v => num(v) * dirSign > 0).length;
   const flowSupport = x.side === 'LONG' ? x.takerBuyRatio >= 0.52 : x.takerBuyRatio <= 0.48;
   const oiSupport = Math.abs(num(x.oiDeltaPct)) > 0.05;
   const spreadSupport = num(x.spreadBps) <= 8;
   const expansionScore = x.side === 'LONG' ? num(x.longExpansionScore) : num(x.shortExpansionScore);
+  const approachQuality = directionSupport >= 2 && x.tradeQuality >= 58 && spreadSupport && expansionScore >= 40 && (flowSupport || oiSupport);
+  const top3Approach = rank > 3 && projectedRank <= 3 && rankVelocity >= 2 && rankAcceleration >= 0 && approachQuality && expansionScore >= 45;
+  const top10Approach = rank > 10 && projectedRank <= 10 && rankVelocity >= 2 && rankAcceleration >= -1 && approachQuality;
+  const top5Confirmed = rank <= 5 && directionSupport >= 2 && x.tradeQuality >= 55 && spreadSupport && expansionScore >= 35;
+  const earlyTop5 = rank > 5 && rank <= 15 && rankVelocity >= 2 && rankAcceleration >= -1 && directionSupport >= 2 && x.tradeQuality >= 60 && spreadSupport && expansionScore >= 35 && (flowSupport || oiSupport);
+  const earlyExpansion = num(x.movementPotential) >= 45 && expansionScore >= 45 && x.tradeQuality >= 58 && spreadSupport;
   const leaderHunterScore =
     num(x.attackScore) +
     Math.max(0, rankVelocity) * 1.8 +
@@ -221,20 +234,32 @@ function addLeaderHunterFields(x, rank, prevRow) {
     (oiSupport ? 2 : 0) +
     (spreadSupport ? 2 : 0) +
     expansionScore * 0.08 +
-    num(x.tradeQuality) * 0.04;
-  const top5Confirmed = rank <= 5 && directionSupport >= 2 && x.tradeQuality >= 55 && spreadSupport && expansionScore >= 35;
-  const earlyTop5 = rank > 5 && rank <= 15 && rankVelocity >= 2 && rankAcceleration >= -1 && directionSupport >= 2 && x.tradeQuality >= 60 && spreadSupport && expansionScore >= 35 && (flowSupport || oiSupport);
-  const earlyExpansion = num(x.movementPotential) >= 45 && expansionScore >= 45 && x.tradeQuality >= 58 && spreadSupport;
+    num(x.tradeQuality) * 0.04 +
+    (top3Approach ? 10 : top10Approach ? 6 : 0);
   let leaderState = 'WATCH';
-  if (top5Confirmed) leaderState = 'TOP5_CONFIRMED';
+  if (top3Approach) leaderState = 'TOP3_APPROACH';
+  else if (top5Confirmed) leaderState = 'TOP5_CONFIRMED';
+  else if (top10Approach) leaderState = 'TOP10_APPROACH';
   else if (earlyTop5) leaderState = 'EARLY_TOP5';
   else if (earlyExpansion) leaderState = 'EARLY_EXPANSION';
   else if (rankVelocity >= 2 && directionSupport >= 2) leaderState = 'RISING';
   Object.assign(x, {
-    attackRank: rank, rankVelocity, rankAcceleration, directionSupport, flowSupport, oiSupport, spreadSupport,
+    attackRank: rank,
+    projectedRank,
+    rankVelocity,
+    rankAcceleration,
+    directionSupport,
+    flowSupport,
+    oiSupport,
+    spreadSupport,
     expansionScore: round(expansionScore,1),
     leaderHunterScore: round(leaderHunterScore,3),
-    top5Confirmed, earlyTop5, earlyExpansion, leaderState
+    top3Approach,
+    top10Approach,
+    top5Confirmed,
+    earlyTop5,
+    earlyExpansion,
+    leaderState
   });
 }
 
@@ -266,8 +291,8 @@ async function performScan() {
     .sort((a,b)=>b.quoteVolume-a.quoteVolume);
   universe.forEach((x,i)=>{x.volumeRank=i+1;});
 
-  const selection = selectCandidates(universe,32);
-  const { liquidTop, volatileTop, gainerTop, loserTop, prefilter, candidates } = selection;
+  const selection = selectCandidates(universe,prev,32);
+  const { liquidTop, volatileTop, continuity, prefilter, candidates } = selection;
 
   const enriched = await mapLimit(candidates,8,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
@@ -277,12 +302,24 @@ async function performScan() {
   const next={ts:now,bySymbol:{}};
   for(const x of good){
     const oldHistory=Array.isArray(prev.bySymbol?.[x.symbol]?.history)?prev.bySymbol[x.symbol].history:[];
-    const history=[...oldHistory,{ts:now,rank:x.attackRank,attackScore:x.attackScore,leaderHunterScore:x.leaderHunterScore,movementPotential:x.movementPotential,longExpansionScore:x.longExpansionScore,shortExpansionScore:x.shortExpansionScore}].slice(-8);
-    next.bySymbol[x.symbol]={rank:x.attackRank,oi:x.openInterest,rankVelocity:x.rankVelocity,leaderHunterScore:x.leaderHunterScore,history};
+    const history=[...oldHistory,{ts:now,rank:x.attackRank,projectedRank:x.projectedRank,attackScore:x.attackScore,leaderHunterScore:x.leaderHunterScore,movementPotential:x.movementPotential,longExpansionScore:x.longExpansionScore,shortExpansionScore:x.shortExpansionScore,leaderState:x.leaderState}].slice(-8);
+    next.bySymbol[x.symbol]={
+      rank:x.attackRank,
+      projectedRank:x.projectedRank,
+      oi:x.openInterest,
+      rankVelocity:x.rankVelocity,
+      rankAcceleration:x.rankAcceleration,
+      leaderHunterScore:x.leaderHunterScore,
+      leaderState:x.leaderState,
+      side:x.side,
+      history
+    };
   }
   writeState(next);
   const leaderHunters=[...good].sort((a,b)=>b.leaderHunterScore-a.leaderHunterScore);
   const earlyExpansion=[...leaderHunters].filter(x=>x.earlyExpansion).sort((a,b)=>b.movementPotential-a.movementPotential||b.expansionScore-a.expansionScore);
+  const top3Approach=[...leaderHunters].filter(x=>x.top3Approach).sort((a,b)=>a.projectedRank-b.projectedRank||b.rankVelocity-a.rankVelocity||b.leaderHunterScore-a.leaderHunterScore);
+  const top10Approach=[...leaderHunters].filter(x=>x.top10Approach).sort((a,b)=>a.projectedRank-b.projectedRank||b.rankVelocity-a.rankVelocity||b.leaderHunterScore-a.leaderHunterScore);
   const longExpansion=[...leaderHunters].sort((a,b)=>b.longExpansionScore-a.longExpansionScore).slice(0,10);
   const shortExpansion=[...leaderHunters].sort((a,b)=>b.shortExpansionScore-a.shortExpansionScore).slice(0,10);
   return {
@@ -293,24 +330,25 @@ async function performScan() {
     universeCount:universe.length,
     liquidPrefilter:liquidTop.length,
     volatilePrefilter:volatileTop.length,
-    gainerPrefilter:gainerTop.length,
-    loserPrefilter:loserTop.length,
+    continuityPrefilter:continuity.length,
     combinedPrefilter:prefilter.length,
     analyzed:good.length,
     failed:enriched.filter(x=>x.error),
     scanMs:Date.now()-started,
     leaders:good.slice(0,15),
     leaderHunters:leaderHunters.slice(0,15),
+    top3Approach:top3Approach.slice(0,10),
+    top10Approach:top10Approach.slice(0,12),
     earlyExpansion:earlyExpansion.slice(0,12),
     longExpansion,
     shortExpansion,
     earlyTop5:leaderHunters.filter(x=>x.earlyTop5).slice(0,10),
     top5Confirmed:leaderHunters.filter(x=>x.top5Confirmed).slice(0,5),
     notes:[
-      'Top-10 24h gainers and top-10 24h losers are guaranteed deep-scan candidates before remaining slots are ranked',
-      'Volume rank is liquidity context only and no longer gets a dominant prefilter bonus',
-      'LONG and SHORT expansion scores are separate hypotheses, not trade guarantees',
-      'movementPotential is direction-neutral expansion context',
+      'Current 24h top gainers or losers are not forced into deep scan merely because they already moved',
+      'TOP10_APPROACH and TOP3_APPROACH use attack-rank velocity, acceleration, 1m/3m/5m directional expansion, flow/OI support, spread and trade quality',
+      'The same early-approach logic applies independently to LONG and SHORT hypotheses',
+      'Volume rank is liquidity context only and does not dominate opportunity selection',
       'forming candles are excluded from short-horizon confirmation stats'
     ]
   };
