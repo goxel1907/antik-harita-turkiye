@@ -580,31 +580,6 @@ class BinanceLiveTransport {
         reasons:[]
       };
     } catch (e) {
-          emergencyError = e?.body || { msg:String(e?.message || 'EMERGENCY_CLOSE_FAILED').slice(0,240) };
-        }
-        return {
-          ok:false,
-          orderPlaced:true,
-          stopProtected:false,
-          liveAllowed:false,
-          execution:emergencyCloseSucceeded ? 'LIVE_STOP_FAILED_EMERGENCY_CLOSED' : 'LIVE_STOP_FAILED_MANUAL_INTERVENTION_REQUIRED',
-          authorization,
-          symbol:normalized.symbol,
-          side:normalized.side,
-          entryOrderId,
-          entryStatus:text(entry?.status),
-          executedQty,
-          stopError:stopError?.body || { msg:String(stopError?.message || 'STOP_INSTALL_FAILED').slice(0,240) },
-          emergencyCloseAttempted:true,
-          emergencyCloseSucceeded,
-          emergencyCloseOrderId,
-          emergencyError,
-          manualReviewRequired:!emergencyCloseSucceeded,
-          transport:{ attempted:true, requestSent:true },
-          reasons:[emergencyCloseSucceeded ? 'PROTECTIVE_STOP_FAILED_POSITION_CLOSED' : 'PROTECTIVE_STOP_FAILED_POSITION_MAY_BE_OPEN']
-        };
-      }
-    } catch (e) {
       return {
         ok:false,
         orderPlaced:false,
