@@ -112,10 +112,24 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN')) { throw 'v9.5.78 BrainHub feature set eksik.' }
+    $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
+    if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly) { throw '9Router rol yonlendirme testi gecmedi.' }
     $scan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/scanner' -Headers $headers -TimeoutSec 90
     if (-not $scan.ok -or $scan.activeUsdtPerpetuals -lt 1) { throw 'Scanner testi gecmedi.' }
+    if ($null -eq $scan.longExpansion -or $null -eq $scan.shortExpansion -or $null -eq $scan.earlyExpansion) { throw 'Cift yonlu expansion radar alanlari eksik.' }
     $symbol = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/symbol?symbol=BTCUSDT' -Headers $headers -TimeoutSec 60
-    if (-not $symbol.ok -or -not $symbol.timeframes.'15m'.available) { throw '15m sembol baglami testi gecmedi.' }
+    if (-not $symbol.ok -or -not $symbol.timeframes.'15m'.available -or -not $symbol.timeframes.'45m'.available) { throw '9TF sembol baglami testi gecmedi.' }
+    $unified = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/unified?symbol=BTCUSDT' -Headers $headers -TimeoutSec 90
+    if (-not $unified.ok -or -not $unified.dataQuality.advisoryUsable -or -not $unified.policy.unifiedEngineDoesNotWaitFor15m) { throw 'Unified Brain Context testi gecmedi.' }
+    $chart = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/chart/data?symbol=BTCUSDT&tf=45m&bars=64' -Headers $headers -TimeoutSec 60
+    if (-not $chart.ok -or -not $chart.synthetic -or $chart.bars -lt 52) { throw '45m causal chart data testi gecmedi.' }
+    $pngPath = Join-Path $env:TEMP ("brainhub-chart-" + [guid]::NewGuid().ToString('N') + '.png')
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8787/chart/png?symbol=BTCUSDT&tf=15m&mode=annotated&bars=64' -Headers $headers -TimeoutSec 60 -OutFile $pngPath | Out-Null
+        $bytes = [IO.File]::ReadAllBytes($pngPath)
+        if ($bytes.Length -lt 1000 -or $bytes[0] -ne 137 -or $bytes[1] -ne 80 -or $bytes[2] -ne 78 -or $bytes[3] -ne 71) { throw 'PNG imza veya boyut testi gecmedi.' }
+    } finally { Remove-Item -LiteralPath $pngPath -Force -ErrorAction SilentlyContinue }
     $global = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/global' -Headers $headers -TimeoutSec 90
     if (-not $global.ok -or -not $global.btc.available -or -not $global.eth.available) { throw 'BTC/ETH global baglam testi gecmedi.' }
     $learn = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/learning' -Headers $headers -TimeoutSec 5
@@ -125,7 +139,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         if (-not $plan.ok -or $plan.execution -ne 'ADVISORY_ONLY' -or $plan.orderPlaced) { throw 'Leader pipeline guvenlik testi gecmedi.' }
         Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$($plan.committeeCalled)"
     }
-    Write-Host "BRAINHUB_TEST_OK models=$($h.configured.total) universe=$($scan.activeUsdtPerpetuals) 15m=$($symbol.timeframes.'15m'.available) sqlite=$($learn.ok)"
+    Write-Host "BRAINHUB_TEST_OK feature=$($h.featureVersion) models=$($h.configured.total) universe=$($scan.activeUsdtPerpetuals) tf45=$($symbol.timeframes.'45m'.available) unified=$($unified.dataQuality.advisoryUsable) chart=$($chart.bars) sqlite=$($learn.ok)"
 }
 function Get-Source([string]$Given) {
     if ($Given) {
@@ -235,6 +249,14 @@ foreach ($name in $files) {
     if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
     & $node --check $p
     if ($LASTEXITCODE -ne 0) { throw "Node syntax hatasi: $name" }
+}
+$testDir = Join-Path $sourceDir 'test'
+if (Test-Path -LiteralPath $testDir) {
+    foreach ($testFile in @(Get-ChildItem -LiteralPath $testDir -Filter '*.test.js' -File | Sort-Object Name)) {
+        Write-Host "UNIT_TEST $($testFile.Name)"
+        & $node --test $testFile.FullName
+        if ($LASTEXITCODE -ne 0) { throw "Node unit test hatasi: $($testFile.Name)" }
+    }
 }
 $key = Router-Key $rootFull
 New-Item -ItemType Directory -Force -Path (Join-Path $rootFull 'server'),(Join-Path $rootFull 'config'),(Join-Path $rootFull 'data'),(Join-Path $rootFull 'logs') | Out-Null
