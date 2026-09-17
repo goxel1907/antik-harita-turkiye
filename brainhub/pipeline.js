@@ -4,6 +4,7 @@ const { pickCandidate } = require('./leader-committee');
 const { symbolContext, globalContext } = require('./market');
 const { breakoutExecution } = require('./engine');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
+const { buildDryRunOrder } = require('./binance-dry-run-executor');
 
 const FRAME_ORDER = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const FRAME_MS = {
@@ -303,7 +304,25 @@ function combineRiskGate(preflight, accountCaps, structuralStop, killSwitch, exe
     remainingMandatoryControls:[...new Set(remaining)]
   };
 }
-async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null }) {
+function combineExecutionReadiness(riskGate, dryRunExecutor) {
+  const riskReasons = Array.isArray(riskGate?.reasons) ? riskGate.reasons : [];
+  const executorReasons = Array.isArray(dryRunExecutor?.reasons) ? dryRunExecutor.reasons : [];
+  const remaining = Array.isArray(riskGate?.remainingMandatoryControls)
+    ? riskGate.remainingMandatoryControls.filter(x => x !== 'BINANCE_DRY_RUN_EXECUTOR')
+    : [];
+  if (!dryRunExecutor?.ok) remaining.push('BINANCE_DRY_RUN_EXECUTOR');
+  return {
+    ok:Boolean(riskGate?.ok && dryRunExecutor?.ok),
+    eligibleForDryRun:Boolean(riskGate?.eligibleForDryRun && dryRunExecutor?.ok),
+    liveAllowed:false,
+    execution:'ADVISORY_ONLY',
+    riskGate,
+    dryRunExecutor,
+    reasons:[...new Set([...riskReasons, ...executorReasons])],
+    remainingMandatoryControls:[...new Set(remaining)]
+  };
+}
+async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null }) {
   const candidate = pickCandidate(scan);
   if (!candidate) return { ok:true, candidateFound:false, reason:'NO_QUALIFIED_EARLY_EXPANSION', committeeCalled:false, execution:'ADVISORY_ONLY' };
   const [symbol, global] = await Promise.all([symbolContext(candidate.symbol), globalContext()]);
@@ -356,6 +375,17 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   const killSwitchState = killSwitchGate(killSwitch || {});
   const executionClaimState = executionClaimGate({ claim:executionClaim || {} });
   const riskGate = combineRiskGate(preflight, accountCaps, structuralStop, killSwitchState, executionClaimState);
+  const dryRunExecutor = buildDryRunOrder({
+    intent:{
+      ...(executionIntent || {}),
+      mode:'DRY_RUN',
+      live:false,
+      symbol:candidate.symbol,
+      side:plan.side
+    },
+    riskGate
+  });
+  const executionReadiness = combineExecutionReadiness(riskGate, dryRunExecutor);
   const out = {
     ok:true,
     candidateFound:true,
@@ -364,11 +394,13 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     committee:result,
     plan,
     riskGate,
+    dryRunExecutor,
+    executionReadiness,
     execution:'ADVISORY_ONLY',
     orderPlaced:false
   };
-  out.journalId = store.journal('PLAN', candidate.symbol, { candidate, plan, riskGate, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
+  out.journalId = store.journal('PLAN', candidate.symbol, { candidate, plan, riskGate, dryRunExecutor, executionReadiness, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, run, planFields };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, combineExecutionReadiness, run, planFields };
