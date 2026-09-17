@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate } = require('../risk-gate');
+const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 
 function baseUnified() {
   return {
@@ -295,4 +295,43 @@ test('disabled dry-run switch blocks execution even when kill switch is healthy'
   assert.equal(out.eligibleForDryRun, false);
   assert.equal(out.liveAllowed, false);
   assert.ok(out.reasons.includes('DRY_RUN_DISABLED'));
+});
+
+test('successful execution claim permits dry-run only and never live', () => {
+  const out = executionClaimGate({ claim:{ claimed:true, lineageId:'lineage:btc:001' } });
+  assert.equal(out.ok, true);
+  assert.equal(out.eligibleForDryRun, true);
+  assert.equal(out.liveAllowed, false);
+  assert.equal(out.execution, 'ADVISORY_ONLY');
+  assert.equal(out.claimed, true);
+  assert.equal(out.lineageId, 'lineage:btc:001');
+  assert.deepEqual(out.reasons, []);
+});
+
+test('unknown execution claim state fails closed', () => {
+  const out = executionClaimGate({ claim:{} });
+  assert.equal(out.ok, false);
+  assert.equal(out.eligibleForDryRun, false);
+  assert.equal(out.liveAllowed, false);
+  assert.ok(out.reasons.includes('EXECUTION_CLAIM_STATE_UNKNOWN'));
+});
+
+test('claim rejection preserves lease and duplicate failure classes', () => {
+  const noLease = executionClaimGate({ claim:{ claimed:false, reason:'NO_VALID_LEASE' } });
+  const duplicateEvent = executionClaimGate({ claim:{ claimed:false, reason:'DUPLICATE' } });
+  const duplicateLineage = executionClaimGate({ claim:{ claimed:false, reason:'DUPLICATE_LINEAGE' } });
+  assert.ok(noLease.reasons.includes('NO_VALID_LEASE'));
+  assert.ok(duplicateEvent.reasons.includes('DUPLICATE_EVENT_CLAIM'));
+  assert.ok(duplicateLineage.reasons.includes('DUPLICATE_LINEAGE_CLAIM'));
+  assert.equal(noLease.eligibleForDryRun, false);
+  assert.equal(duplicateEvent.eligibleForDryRun, false);
+  assert.equal(duplicateLineage.eligibleForDryRun, false);
+});
+
+test('claimed execution without lineage id fails closed', () => {
+  const out = executionClaimGate({ claim:{ claimed:true } });
+  assert.equal(out.ok, false);
+  assert.equal(out.eligibleForDryRun, false);
+  assert.equal(out.liveAllowed, false);
+  assert.ok(out.reasons.includes('LINEAGE_ID_MISSING'));
 });
