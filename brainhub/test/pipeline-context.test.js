@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate } = require('../pipeline');
-const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate } = require('../risk-gate');
+const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 
 function frame(asOf, longScore, shortScore) {
   return {
@@ -73,7 +73,7 @@ test('pipeline risk gate can qualify dry-run context but never authorizes live e
   assert.equal(pipelineLikeOutput.orderPlaced, false);
 });
 
-test('combined pipeline gate is fail-closed until account caps, structural stop and kill-switch all pass', () => {
+test('combined pipeline gate is fail-closed until account caps, structural stop, kill-switch and execution claim all pass', () => {
   const { unified } = unifiedFixture();
   const preflight = preflightRiskGate({ plan:qualifiedPlan(), unified });
   assert.equal(preflight.ok, true);
@@ -92,14 +92,20 @@ test('combined pipeline gate is fail-closed until account caps, structural stop 
   });
   assert.equal(passingKillSwitch.ok, true);
 
+  const passingClaim = executionClaimGate({
+    claim:{ claimed:true, lineageId:'lineage-regression-001' }
+  });
+  assert.equal(passingClaim.ok, true);
+
   const missingAccount = accountRiskCaps({});
-  const accountBlocked = combineRiskGate(preflight, missingAccount, passingStop, passingKillSwitch);
+  const accountBlocked = combineRiskGate(preflight, missingAccount, passingStop, passingKillSwitch, passingClaim);
   assert.equal(accountBlocked.ok, false);
   assert.equal(accountBlocked.eligibleForDryRun, false);
   assert.equal(accountBlocked.liveAllowed, false);
   assert.ok(accountBlocked.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'));
   assert.equal(accountBlocked.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'), false);
   assert.equal(accountBlocked.remainingMandatoryControls.includes('KILL_SWITCH'), false);
+  assert.equal(accountBlocked.remainingMandatoryControls.includes('LEASE_AND_LINEAGE_CLAIM'), false);
 
   const passingAccount = accountRiskCaps({
     account:{ available:true, equity:10000, dailyRealizedPnl:-50, openPositions:1 },
@@ -115,24 +121,36 @@ test('combined pipeline gate is fail-closed until account caps, structural stop 
   assert.equal(passingAccount.ok, true);
 
   const missingStop = structuralStopGate({ side:'LONG' });
-  const stopBlocked = combineRiskGate(preflight, passingAccount, missingStop, passingKillSwitch);
+  const stopBlocked = combineRiskGate(preflight, passingAccount, missingStop, passingKillSwitch, passingClaim);
   assert.equal(stopBlocked.ok, false);
   assert.equal(stopBlocked.eligibleForDryRun, false);
   assert.equal(stopBlocked.liveAllowed, false);
   assert.ok(stopBlocked.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'));
   assert.equal(stopBlocked.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'), false);
   assert.equal(stopBlocked.remainingMandatoryControls.includes('KILL_SWITCH'), false);
+  assert.equal(stopBlocked.remainingMandatoryControls.includes('LEASE_AND_LINEAGE_CLAIM'), false);
 
   const missingKillSwitch = killSwitchGate({});
-  const killSwitchBlocked = combineRiskGate(preflight, passingAccount, passingStop, missingKillSwitch);
+  const killSwitchBlocked = combineRiskGate(preflight, passingAccount, passingStop, missingKillSwitch, passingClaim);
   assert.equal(killSwitchBlocked.ok, false);
   assert.equal(killSwitchBlocked.eligibleForDryRun, false);
   assert.equal(killSwitchBlocked.liveAllowed, false);
   assert.ok(killSwitchBlocked.remainingMandatoryControls.includes('KILL_SWITCH'));
   assert.equal(killSwitchBlocked.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'), false);
   assert.equal(killSwitchBlocked.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'), false);
+  assert.equal(killSwitchBlocked.remainingMandatoryControls.includes('LEASE_AND_LINEAGE_CLAIM'), false);
 
-  const allowed = combineRiskGate(preflight, passingAccount, passingStop, passingKillSwitch);
+  const missingClaim = executionClaimGate({});
+  const claimBlocked = combineRiskGate(preflight, passingAccount, passingStop, passingKillSwitch, missingClaim);
+  assert.equal(claimBlocked.ok, false);
+  assert.equal(claimBlocked.eligibleForDryRun, false);
+  assert.equal(claimBlocked.liveAllowed, false);
+  assert.ok(claimBlocked.remainingMandatoryControls.includes('LEASE_AND_LINEAGE_CLAIM'));
+  assert.equal(claimBlocked.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'), false);
+  assert.equal(claimBlocked.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'), false);
+  assert.equal(claimBlocked.remainingMandatoryControls.includes('KILL_SWITCH'), false);
+
+  const allowed = combineRiskGate(preflight, passingAccount, passingStop, passingKillSwitch, passingClaim);
   assert.equal(allowed.ok, true);
   assert.equal(allowed.eligibleForDryRun, true);
   assert.equal(allowed.liveAllowed, false);
@@ -140,6 +158,7 @@ test('combined pipeline gate is fail-closed until account caps, structural stop 
   assert.equal(allowed.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'), false);
   assert.equal(allowed.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'), false);
   assert.equal(allowed.remainingMandatoryControls.includes('KILL_SWITCH'), false);
+  assert.equal(allowed.remainingMandatoryControls.includes('LEASE_AND_LINEAGE_CLAIM'), false);
 });
 
 test('missing force-order prints never become a fabricated liquidation map', () => {
