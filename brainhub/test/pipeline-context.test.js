@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate } = require('../pipeline');
-const { preflightRiskGate, accountRiskCaps } = require('../risk-gate');
+const { preflightRiskGate, accountRiskCaps, structuralStopGate } = require('../risk-gate');
 
 function frame(asOf, longScore, shortScore) {
   return {
@@ -73,17 +73,27 @@ test('pipeline risk gate can qualify dry-run context but never authorizes live e
   assert.equal(pipelineLikeOutput.orderPlaced, false);
 });
 
-test('combined pipeline gate is fail-closed until account caps pass', () => {
+test('combined pipeline gate is fail-closed until account caps and structural stop both pass', () => {
   const { unified } = unifiedFixture();
   const preflight = preflightRiskGate({ plan:qualifiedPlan(), unified });
   assert.equal(preflight.ok, true);
 
+  const passingStop = structuralStopGate({
+    side:'LONG',
+    entryPrice:100.05,
+    stopPrice:98.8,
+    structuralInvalidationPrice:99,
+    bufferQuote:0.1
+  });
+  assert.equal(passingStop.ok, true);
+
   const missingAccount = accountRiskCaps({});
-  const blocked = combineRiskGate(preflight, missingAccount);
-  assert.equal(blocked.ok, false);
-  assert.equal(blocked.eligibleForDryRun, false);
-  assert.equal(blocked.liveAllowed, false);
-  assert.ok(blocked.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'));
+  const accountBlocked = combineRiskGate(preflight, missingAccount, passingStop);
+  assert.equal(accountBlocked.ok, false);
+  assert.equal(accountBlocked.eligibleForDryRun, false);
+  assert.equal(accountBlocked.liveAllowed, false);
+  assert.ok(accountBlocked.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'));
+  assert.equal(accountBlocked.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'), false);
 
   const passingAccount = accountRiskCaps({
     account:{ available:true, equity:10000, dailyRealizedPnl:-50, openPositions:1 },
@@ -96,12 +106,23 @@ test('combined pipeline gate is fail-closed until account caps pass', () => {
       maxFamilyExposurePct:25
     }
   });
-  const allowed = combineRiskGate(preflight, passingAccount);
+  assert.equal(passingAccount.ok, true);
+
+  const missingStop = structuralStopGate({ side:'LONG' });
+  const stopBlocked = combineRiskGate(preflight, passingAccount, missingStop);
+  assert.equal(stopBlocked.ok, false);
+  assert.equal(stopBlocked.eligibleForDryRun, false);
+  assert.equal(stopBlocked.liveAllowed, false);
+  assert.ok(stopBlocked.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'));
+  assert.equal(stopBlocked.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'), false);
+
+  const allowed = combineRiskGate(preflight, passingAccount, passingStop);
   assert.equal(allowed.ok, true);
   assert.equal(allowed.eligibleForDryRun, true);
   assert.equal(allowed.liveAllowed, false);
   assert.equal(allowed.execution, 'ADVISORY_ONLY');
   assert.equal(allowed.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'), false);
+  assert.equal(allowed.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'), false);
 });
 
 test('missing force-order prints never become a fabricated liquidation map', () => {
