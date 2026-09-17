@@ -2,8 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields } = require('../pipeline');
-const { preflightRiskGate } = require('../risk-gate');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate } = require('../pipeline');
+const { preflightRiskGate, accountRiskCaps } = require('../risk-gate');
 
 function frame(asOf, longScore, shortScore) {
   return {
@@ -36,6 +36,21 @@ function unifiedFixture() {
   return { now, unified:buildUnifiedContext({ symbol, global, now }) };
 }
 
+function qualifiedPlan() {
+  return planFields([
+    'STATUS: QUALIFIED',
+    'SIDE: LONG',
+    'CONFIDENCE: 78',
+    'ORIGIN_TF: 1m',
+    'OWNER_TF: 5m',
+    'SETUP: continuation',
+    'EXEC_PATH: reclaim-or-continuity',
+    'WHY: deterministic regression fixture',
+    'RISK_NOTE: preserve structural invalidation',
+    'EXECUTION: ADVISORY_ONLY'
+  ].join('\n'));
+}
+
 test('Unified Brain can originate at 1m without waiting for 15m and carries observed liquidations as context', () => {
   const { unified:u } = unifiedFixture();
   assert.equal(u.opportunityPaths.LONG.originTF, '1m');
@@ -48,18 +63,7 @@ test('Unified Brain can originate at 1m without waiting for 15m and carries obse
 
 test('pipeline risk gate can qualify dry-run context but never authorizes live execution', () => {
   const { unified } = unifiedFixture();
-  const plan = planFields([
-    'STATUS: QUALIFIED',
-    'SIDE: LONG',
-    'CONFIDENCE: 78',
-    'ORIGIN_TF: 1m',
-    'OWNER_TF: 5m',
-    'SETUP: continuation',
-    'EXEC_PATH: reclaim-or-continuity',
-    'WHY: deterministic regression fixture',
-    'RISK_NOTE: preserve structural invalidation',
-    'EXECUTION: ADVISORY_ONLY'
-  ].join('\n'));
+  const plan = qualifiedPlan();
   const riskGate = preflightRiskGate({ plan, unified });
   const pipelineLikeOutput = { plan, riskGate, execution:'ADVISORY_ONLY', orderPlaced:false };
   assert.equal(pipelineLikeOutput.riskGate.ok, true);
@@ -67,6 +71,37 @@ test('pipeline risk gate can qualify dry-run context but never authorizes live e
   assert.equal(pipelineLikeOutput.riskGate.liveAllowed, false);
   assert.equal(pipelineLikeOutput.execution, 'ADVISORY_ONLY');
   assert.equal(pipelineLikeOutput.orderPlaced, false);
+});
+
+test('combined pipeline gate is fail-closed until account caps pass', () => {
+  const { unified } = unifiedFixture();
+  const preflight = preflightRiskGate({ plan:qualifiedPlan(), unified });
+  assert.equal(preflight.ok, true);
+
+  const missingAccount = accountRiskCaps({});
+  const blocked = combineRiskGate(preflight, missingAccount);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.eligibleForDryRun, false);
+  assert.equal(blocked.liveAllowed, false);
+  assert.ok(blocked.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'));
+
+  const passingAccount = accountRiskCaps({
+    account:{ available:true, equity:10000, dailyRealizedPnl:-50, openPositions:1 },
+    intent:{ riskQuote:50, notionalQuote:1000, family:'ALT', familyExposureAfterQuote:1500 },
+    limits:{
+      maxRiskPctPerTrade:1,
+      maxNotionalPctPerTrade:20,
+      maxDailyLossPct:3,
+      maxOpenPositions:3,
+      maxFamilyExposurePct:25
+    }
+  });
+  const allowed = combineRiskGate(preflight, passingAccount);
+  assert.equal(allowed.ok, true);
+  assert.equal(allowed.eligibleForDryRun, true);
+  assert.equal(allowed.liveAllowed, false);
+  assert.equal(allowed.execution, 'ADVISORY_ONLY');
+  assert.equal(allowed.remainingMandatoryControls.includes('ACCOUNT_RISK_CAPS'), false);
 });
 
 test('missing force-order prints never become a fabricated liquidation map', () => {
