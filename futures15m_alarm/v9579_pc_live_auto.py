@@ -7,15 +7,15 @@ AUTO=JAVA/'AutoTradeEngine.java'
 MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (AUTO,MAIN,BUILD):
-    if not p.exists(): raise SystemExit('v9.5.80 missing '+str(p))
+    if not p.exists(): raise SystemExit('v9.5.81 missing '+str(p))
 
 auto=AUTO.read_text()
 if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.80 requires v9.5.78 dry-run lock first')
+    raise SystemExit('v9.5.81 requires v9.5.78 dry-run lock first')
 start=auto.find('    // V9577_DRY_RUN_LOCK:')
 end=auto.find('    private static void run(Context c,String s)',start)
 if start<0 or end<0:
-    raise SystemExit('v9.5.80 AutoTradeEngine dry-run anchor changed')
+    raise SystemExit('v9.5.81 AutoTradeEngine dry-run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
@@ -119,18 +119,18 @@ repls=[
     ('boolean v9576On=false;','boolean v9576On=getSharedPreferences(MonitorService.PREFS,MODE_PRIVATE).getBoolean("v9576_auto_enabled",false);'),
     ('en.setChecked(false);en.setEnabled(false);en.setText("Canlı otomatik emir testler bitene kadar kilitli");','en.setChecked(sp.getBoolean("v9576_auto_enabled",false));en.setEnabled(BrainHubClient.configured(this));en.setText("PC LIVE oto yürütücü (PC arm ayrıca gerekli)");'),
     ('if(en.isChecked())v9522Credentials(); // encrypted key/secret must exist before LIVE AUTO can be enabled','if(en.isChecked()&&!BrainHubClient.configured(this))throw new Exception("Önce PC Brain Hub bağlantısını ayarlayın");'),
-    ('.putBoolean("v9576_auto_enabled",false)','.putBoolean("v9576_auto_enabled",en.isChecked())'),
+    ('.putBoolean("v9576_auto_short",sht.isChecked()).putBoolean("v9576_auto_enabled",false)','.putBoolean("v9576_auto_short",sht.isChecked()).putBoolean("v9576_auto_enabled",en.isChecked())'),
     ('.putString("v9576_executor_owner","PHONE")','.putString("v9576_executor_owner","PC")'),
     ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
 ]
 for old,new in repls:
-    if old not in main: raise SystemExit('v9.5.80 MainActivity anchor missing: '+old[:70])
+    if old not in main: raise SystemExit('v9.5.81 MainActivity anchor missing: '+old[:70])
     main=main.replace(old,new,1)
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091820',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.80'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091821',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.81'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -140,9 +140,11 @@ checks={
     'PC executor owner':'putString("v9576_executor_owner","PC")' in MAIN.read_text(),
     'phone live toggle enabled only with BrainHub':'en.setEnabled(BrainHubClient.configured(this))' in MAIN.read_text(),
     'phone credentials not required for auto':'if(en.isChecked())v9522Credentials()' not in MAIN.read_text(),
+    'live toggle persists':'putBoolean("v9576_auto_short",sht.isChecked()).putBoolean("v9576_auto_enabled",en.isChecked())' in MAIN.read_text(),
+    'emergency stop stays off':'BUTTON_NEUTRAL).setOnClickListener(v->{sp.edit().putBoolean("v9576_auto_enabled",false).apply();' in MAIN.read_text(),
     'dynamic trade settings':'requestedMarginQuote' in AUTO.read_text() and 'requestedLeverage' in AUTO.read_text() and 'requestedMaxOpenPositions' in AUTO.read_text(),
-    'identity':"versionName '9.5.80'" in BUILD.read_text() and 'versionCode 26091820' in BUILD.read_text(),
+    'identity':"versionName '9.5.81'" in BUILD.read_text() and 'versionCode 26091821' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.80 PC LIVE bridge integration check failed')
-print('v9.5.80 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+if not all(checks.values()): raise SystemExit('v9.5.81 PC LIVE bridge integration check failed')
+print('v9.5.81 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
