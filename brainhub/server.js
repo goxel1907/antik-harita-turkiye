@@ -5,6 +5,7 @@ const scanner=require('./scanner');
 const market=require('./market');
 const pipeline=require('./pipeline');
 const {openStore}=require('./store');
+const {createLiveController}=require('./live-controller');
 
 const ROOT=process.env.BRAINHUB_ROOT||path.resolve(__dirname,'..');
 const CFG=path.join(ROOT,'config','models.json');
@@ -14,6 +15,10 @@ const KEY=(process.env.BRAINHUB_ROUTER_KEY||'').trim();
 const HOST=process.env.BRAINHUB_HOST||'127.0.0.1';
 const PORT=Number(process.env.BRAINHUB_PORT||8787);
 const CLIENT_TOKEN=(process.env.BRAINHUB_CLIENT_TOKEN||'').trim();
+const BINANCE_CREDENTIALS={
+  apiKey:(process.env.BRAINHUB_BINANCE_API_KEY||'').trim(),
+  apiSecret:(process.env.BRAINHUB_BINANCE_API_SECRET||'').trim()
+};
 const TTL=(Number(cfg.healthCacheSeconds)||600)*1000;
 if(!KEY){console.error('BRAINHUB_ROUTER_KEY missing');process.exit(2);}
 if(HOST!=='127.0.0.1'&&HOST!=='::1'&&CLIENT_TOKEN.length<32){console.error('BRAINHUB_CLIENT_TOKEN (32+ chars) required for non-loopback binding');process.exit(2);}
@@ -176,13 +181,37 @@ function candidateForSymbol(scan,symbol){
   }
   return null;
 }
+async function committeeCall(body){
+  const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
+  const data=await r.json();
+  if(!r.ok)throw new Error('committee unavailable: '+(data.error||r.status));
+  return data;
+}
+const live=createLiveController({root:ROOT,store,scanner,pipeline,committee:committeeCall,credentials:BINANCE_CREDENTIALS});
 
 const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,'http://127.0.0.1');
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.78-C',execution:'ADVISORY_ONLY',database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED']});
+      const ls=live.status();
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.78-C',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','LIVE_FAIL_CLOSED']});
+    }
+    if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,live.status());
+    if(req.method==='POST'&&u.pathname==='/live/arm'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      if(body?.confirm!=='LIVE')return send(res,400,{ok:false,armed:false,liveAllowed:false,execution:'LIVE_BLOCKED',reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']});
+      const out=await live.arm({confirmed:true});
+      return send(res,out.ok?200:409,out);
+    }
+    if(req.method==='POST'&&u.pathname==='/live/disarm'){
+      let body={};try{body=JSON.parse((await readBody(req))||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      return send(res,200,live.disarm(typeof body.reason==='string'?body.reason:'USER_DISARM'));
+    }
+    if(req.method==='POST'&&u.pathname==='/live/execute'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const out=await live.execute(body||{});
+      return send(res,out.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({model,status:state.has(model)?(state.get(model).ok?'healthy':'cooldown'):'untested',last:state.get(model)?.at||null,error:state.get(model)?.error||null}));
@@ -348,12 +377,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='GET'&&u.pathname==='/leader/plan'){
       const scan=await scanner.scan();
-      const out=await pipeline.run({scan,store,committee:async body=>{
-        const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
-        const data=await r.json();
-        if(!r.ok)throw new Error('committee unavailable: '+(data.error||r.status));
-        return data;
-      }});
+      const out=await pipeline.run({scan,store,committee:committeeCall});
       return send(res,200,out);
     }
     if(req.method==='GET'&&u.pathname==='/journal')return send(res,200,{ok:true,items:store.getJournal(u.searchParams.get('limit'))});
