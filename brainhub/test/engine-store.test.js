@@ -113,6 +113,16 @@ test('SQLite journal, outcome labels, exclusive lease and duplicate claim', () =
     assert.equal(store.lease('acquire','EXECUTOR','PC',token2,30000).acquired, false);
     assert.equal(store.claim('signal-0001','PHONE','EXECUTOR',token1).claimed, true);
     assert.equal(store.claim('signal-0001','PHONE','EXECUTOR',token1).reason, 'DUPLICATE');
+
+    const lineageId = 'BTCUSDT:LONG:lineage-0001';
+    const firstLineageClaim = store.claim('signal-0101','PHONE','EXECUTOR',token1,lineageId);
+    assert.equal(firstLineageClaim.claimed, true);
+    assert.equal(firstLineageClaim.lineageId, lineageId);
+    const handoffDuplicate = store.claim('signal-0102','PHONE','EXECUTOR',token1,lineageId);
+    assert.equal(handoffDuplicate.claimed, false);
+    assert.equal(handoffDuplicate.reason, 'DUPLICATE_LINEAGE');
+    assert.equal(handoffDuplicate.original.event_id, 'signal-0101');
+
     assert.equal(store.claim('signal-0002','PC','EXECUTOR',token2).reason, 'NO_VALID_LEASE');
     assert.equal(store.lease('release','EXECUTOR','PHONE',token1).released, true);
     assert.equal(store.lease('acquire','EXECUTOR','PC',token2,30000).acquired, true);
