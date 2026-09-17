@@ -54,7 +54,7 @@ test('wide spread reduces directional expansion instead of becoming a hard direc
   assert.equal(wide.longExpansionScore > wide.shortExpansionScore,true);
 });
 
-test('current 24h movers are not forced into the deep-scan candidate set', () => {
+test('current 24h movers get no forced continuity slot and must compete on preScore', () => {
   const universe = Array.from({ length: 180 }, (_, i) => ({
     symbol:`C${String(i+1).padStart(3,'0')}USDT`,
     quoteVolume:180-i,
@@ -64,8 +64,13 @@ test('current 24h movers are not forced into the deep-scan candidate set', () =>
     volumeRank:i+1
   }));
   const out = selectCandidates(universe, {}, 32);
-  const symbols = new Set(out.candidates.map(x => x.symbol));
-  assert.equal(symbols.has('C180USDT'), false);
+  const mover = out.candidates.find(x => x.symbol === 'C180USDT');
+  assert.equal(out.continuity.some(x => x.symbol === 'C180USDT'), false);
+  assert.equal(out.continuity.length, 0);
+  if (mover) {
+    const lowestSelectedPreScore = Math.min(...out.candidates.map(x => x.preScore));
+    assert.ok(mover.preScore >= lowestSelectedPreScore);
+  }
 });
 
 test('prior TOP3/TOP10 approach continuity keeps an accelerating candidate in deep scan before it reaches the leaders', () => {
