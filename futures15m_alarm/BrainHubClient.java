@@ -125,6 +125,10 @@ public final class BrainHubClient {
         check(c);
         return get(c, "/live/status");
     }
+    public static JSONObject liveAccount(Context c) throws Exception {
+        check(c);
+        return get(c, "/live/account");
+    }
     public static JSONObject liveExecute(Context c, JSONObject intent) throws Exception {
         if (intent == null) throw new Exception("LIVE intent gerekli");
         JSONObject health = check(c);
