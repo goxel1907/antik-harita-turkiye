@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair')][string]$Action = 'Update',
+    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','LiveSetup','LiveStatus','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
@@ -29,6 +29,23 @@ function Save-Dpapi([string]$Path, [string]$Value) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
     $secure = ConvertTo-SecureString -String $Value -AsPlainText -Force
     $secure | ConvertFrom-SecureString | Set-Content -LiteralPath $Path -Encoding ASCII
+}
+function Secure-ToPlain([Security.SecureString]$Secure) {
+    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
+    try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+}
+function Prompt-IntRange([string]$Label, [int]$Min, [int]$Max) {
+    $raw = (Read-Host $Label).Trim()
+    $value = 0
+    if (-not [int]::TryParse($raw, [ref]$value) -or $value -lt $Min -or $value -gt $Max) { throw "$Label gecersiz ($Min-$Max)." }
+    return $value
+}
+function Prompt-PositiveDouble([string]$Label, [double]$MinExclusive, [double]$MaxInclusive) {
+    $raw = (Read-Host $Label).Trim().Replace(',','.')
+    $value = 0.0
+    if (-not [double]::TryParse($raw, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -or $value -le $MinExclusive -or $value -gt $MaxInclusive) { throw "$Label gecersiz (> $MinExclusive ve <= $MaxInclusive)." }
+    return $value
 }
 function Client-Token([string]$BrainRoot) {
     $flag = Join-Path $BrainRoot 'config\remote-enabled'
@@ -109,6 +126,12 @@ function Start-Brain([string]$BrainRoot, [string]$Node, [string]$Key, [switch]$A
     $env:BRAINHUB_ROOT = $BrainRoot
     $token = Client-Token $BrainRoot
     if ($token) { $env:BRAINHUB_CLIENT_TOKEN = $token }
+    $binanceApiKey = Read-Dpapi (Join-Path $BrainRoot 'config\binance-api-key.dpapi')
+    $binanceApiSecret = Read-Dpapi (Join-Path $BrainRoot 'config\binance-api-secret.dpapi')
+    if ($binanceApiKey -and $binanceApiSecret) {
+        $env:BRAINHUB_BINANCE_API_KEY = $binanceApiKey
+        $env:BRAINHUB_BINANCE_API_SECRET = $binanceApiSecret
+    }
     $proc = $null
     try {
         $proc = Start-Process -FilePath $Node -ArgumentList @((Join-Path $BrainRoot 'server\server.js')) -WorkingDirectory $BrainRoot -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog -PassThru
@@ -116,6 +139,10 @@ function Start-Brain([string]$BrainRoot, [string]$Node, [string]$Key, [switch]$A
         Remove-Item Env:BRAINHUB_ROUTER_KEY -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_ROOT -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_CLIENT_TOKEN -ErrorAction SilentlyContinue
+        Remove-Item Env:BRAINHUB_BINANCE_API_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:BRAINHUB_BINANCE_API_SECRET -ErrorAction SilentlyContinue
+        $binanceApiKey = ''
+        $binanceApiSecret = ''
     }
     $lastHealth = ''
     for ($i=0; $i -lt 40; $i++) {
@@ -139,7 +166,9 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN')) { throw 'v9.5.78 BrainHub feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.78 BrainHub feature set eksik.' }
+    $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
+    if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
     if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly) { throw '9Router rol yonlendirme testi gecmedi.' }
     if ($null -eq $routes.roles.SCALP -or @($routes.roles.SCALP).Count -lt 1) { throw '9Router SCALP rol rotasi eksik.' }
@@ -168,7 +197,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         if (-not $plan.ok -or $plan.execution -ne 'ADVISORY_ONLY' -or $plan.orderPlaced) { throw 'Leader pipeline guvenlik testi gecmedi.' }
         Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$($plan.committeeCalled)"
     }
-    Write-Host "BRAINHUB_TEST_OK feature=$($h.featureVersion) models=$($h.configured.total) universe=$($scan.activeUsdtPerpetuals) tf45=$($symbol.timeframes.'45m'.available) unified=$($unified.dataQuality.advisoryUsable) chart=$($chart.bars) sqlite=$($learn.ok)"
+    Write-Host "BRAINHUB_TEST_OK feature=$($h.featureVersion) models=$($h.configured.total) universe=$($scan.activeUsdtPerpetuals) tf45=$($symbol.timeframes.'45m'.available) unified=$($unified.dataQuality.advisoryUsable) chart=$($chart.bars) sqlite=$($learn.ok) liveArmed=$($live.armed)"
 }
 function Get-Source([string]$Given) {
     if ($Given) {
@@ -203,6 +232,80 @@ function Backup-Brain([string]$BrainRoot) {
 $rootFull = [IO.Path]::GetFullPath($Root)
 $node = Resolve-Node
 if ($Action -eq 'Test') { Test-Brain $rootFull -IncludeDeep:$Deep; exit 0 }
+if ($Action -eq 'LiveStatus') {
+    $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 5
+    $live | ConvertTo-Json -Depth 6
+    exit 0
+}
+if ($Action -eq 'LiveSetup') {
+    $permissionConfirm = (Read-Host 'Futures trading ACIK, withdrawal KAPALI ve API IP restriction ACIK ise LIVE yazin').Trim().ToUpperInvariant()
+    if ($permissionConfirm -ne 'LIVE') { throw 'LIVE API permission onayi verilmedi.' }
+    $apiKeySecure = Read-Host 'Binance API Key (gizli giris)' -AsSecureString
+    $apiSecretSecure = Read-Host 'Binance API Secret (gizli giris)' -AsSecureString
+    $apiKey = Secure-ToPlain $apiKeySecure
+    $apiSecret = Secure-ToPlain $apiSecretSecure
+    if ([string]::IsNullOrWhiteSpace($apiKey) -or $apiKey.Trim().Length -lt 8) { throw 'Binance API key gecersiz.' }
+    if ([string]::IsNullOrWhiteSpace($apiSecret) -or $apiSecret.Trim().Length -lt 8) { throw 'Binance API secret gecersiz.' }
+    $armMinutes = Prompt-IntRange 'LIVE arm suresi dakika (5-1440)' 5 1440
+    $expectedLeverage = Prompt-IntRange 'Beklenen Futures kaldirac (1-125)' 1 125
+    $maxEntryDeviationPct = Prompt-PositiveDouble 'Maksimum entry fiyat sapmasi % (0-5]' 0 5
+    $maxRiskPctPerTrade = Prompt-PositiveDouble 'Islem basi maksimum risk % (0-100]' 0 100
+    $maxNotionalPctPerTrade = Prompt-PositiveDouble 'Islem basi maksimum notional/equity % (0-100]' 0 100
+    $maxDailyLossPct = Prompt-PositiveDouble 'Gunluk maksimum kayip % (0-100]' 0 100
+    $maxOpenPositions = Prompt-IntRange 'Maksimum ayni anda acik pozisyon (1-100)' 1 100
+    $maxFamilyExposurePct = Prompt-PositiveDouble 'Toplam USDT perp exposure/equity % (0-100]' 0 100
+    $policy = [ordered]@{
+        armMinutes = $armMinutes
+        expectedLeverage = $expectedLeverage
+        maxEntryDeviationPct = $maxEntryDeviationPct
+        limits = [ordered]@{
+            maxRiskPctPerTrade = $maxRiskPctPerTrade
+            maxNotionalPctPerTrade = $maxNotionalPctPerTrade
+            maxDailyLossPct = $maxDailyLossPct
+            maxOpenPositions = $maxOpenPositions
+            maxFamilyExposurePct = $maxFamilyExposurePct
+        }
+        apiPermissions = [ordered]@{
+            configured = $true
+            futuresEnabled = $true
+            withdrawalsEnabled = $false
+            ipRestricted = $true
+        }
+    }
+    $cfgDir = Join-Path $rootFull 'config'
+    New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
+    Save-Dpapi (Join-Path $cfgDir 'binance-api-key.dpapi') $apiKey.Trim()
+    Save-Dpapi (Join-Path $cfgDir 'binance-api-secret.dpapi') $apiSecret.Trim()
+    $policy | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $cfgDir 'live-policy.json') -Encoding UTF8
+    $apiKey = ''
+    $apiSecret = ''
+    $key = Router-Key $rootFull
+    Stop-Brain $rootFull
+    Start-Brain $rootFull $node $key
+    Test-Brain $rootFull
+    $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 5
+    if (-not $live.liveConfigured) { throw 'LIVE setup kaydedildi ancak BrainHub configured durumuna gecmedi.' }
+    Write-Host "BRAINHUB_LIVE_SETUP_OK configured=$($live.liveConfigured) armed=$($live.armed)"
+    exit 0
+}
+if ($Action -eq 'LiveArm') {
+    $headers = Auth-Headers $rootFull
+    $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
+    if (-not $status.liveConfigured) { throw 'LIVE configured degil; once LiveSetup calistirin.' }
+    $body = @{ confirm='LIVE' } | ConvertTo-Json -Compress
+    $out = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/live/arm' -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 20
+    if (-not $out.ok -or -not $out.armed) { throw 'LIVE arm basarisiz.' }
+    Write-Host "BRAINHUB_LIVE_ARMED expiresAt=$($out.expiresAt)"
+    exit 0
+}
+if ($Action -eq 'LiveDisarm') {
+    $headers = Auth-Headers $rootFull
+    $body = @{ reason='USER_DISARM' } | ConvertTo-Json -Compress
+    $out = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/live/disarm' -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 10
+    if (-not $out.ok -or $out.armed) { throw 'LIVE disarm basarisiz.' }
+    Write-Host 'BRAINHUB_LIVE_DISARMED'
+    exit 0
+}
 if ($Action -eq 'Pair') {
     $tailscale = 'C:\Program Files\Tailscale\tailscale.exe'
     if (-not (Test-Path -LiteralPath $tailscale)) { throw 'Tailscale kurulu degil.' }
@@ -272,7 +375,7 @@ if ($Action -eq 'Restore') {
 if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); Test-Brain $rootFull; exit 0 }
 
 $sourceDir = Get-Source $Source
-$files = @('server.js','scanner.js','leader-committee.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js')
+$files = @('server.js','scanner.js','leader-committee.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js')
 foreach ($name in $files) {
     $p = Join-Path $sourceDir $name
     if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
