@@ -3,7 +3,7 @@
 const { pickCandidate } = require('./leader-committee');
 const { symbolContext, globalContext } = require('./market');
 const { breakoutExecution } = require('./engine');
-const { preflightRiskGate, accountRiskCaps, structuralStopGate } = require('./risk-gate');
+const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate } = require('./risk-gate');
 
 const FRAME_ORDER = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const FRAME_MS = {
@@ -275,27 +275,30 @@ function planFields(raw) {
     execution:'ADVISORY_ONLY'
   };
 }
-function combineRiskGate(preflight, accountCaps, structuralStop) {
+function combineRiskGate(preflight, accountCaps, structuralStop, killSwitch) {
   const preflightReasons = Array.isArray(preflight?.reasons) ? preflight.reasons : [];
   const accountReasons = Array.isArray(accountCaps?.reasons) ? accountCaps.reasons : [];
   const stopReasons = Array.isArray(structuralStop?.reasons) ? structuralStop.reasons : [];
-  const remaining = Array.isArray(preflight?.remainingMandatoryControls) ? preflight.remainingMandatoryControls.filter(x => !['ACCOUNT_RISK_CAPS','STRUCTURAL_STOP_AND_NO_WIDEN'].includes(x)) : [];
+  const killSwitchReasons = Array.isArray(killSwitch?.reasons) ? killSwitch.reasons : [];
+  const remaining = Array.isArray(preflight?.remainingMandatoryControls) ? preflight.remainingMandatoryControls.filter(x => !['ACCOUNT_RISK_CAPS','STRUCTURAL_STOP_AND_NO_WIDEN','KILL_SWITCH'].includes(x)) : [];
   if (!accountCaps?.ok) remaining.push('ACCOUNT_RISK_CAPS');
   if (!structuralStop?.ok) remaining.push('STRUCTURAL_STOP_AND_NO_WIDEN');
+  if (!killSwitch?.ok) remaining.push('KILL_SWITCH');
   return {
     ...preflight,
-    ok:Boolean(preflight?.ok && accountCaps?.ok && structuralStop?.ok),
-    eligibleForDryRun:Boolean(preflight?.eligibleForDryRun && accountCaps?.eligibleForDryRun && structuralStop?.eligibleForDryRun),
+    ok:Boolean(preflight?.ok && accountCaps?.ok && structuralStop?.ok && killSwitch?.ok),
+    eligibleForDryRun:Boolean(preflight?.eligibleForDryRun && accountCaps?.eligibleForDryRun && structuralStop?.eligibleForDryRun && killSwitch?.eligibleForDryRun),
     liveAllowed:false,
     execution:'ADVISORY_ONLY',
     preflight,
     accountCaps,
     structuralStop,
-    reasons:[...new Set([...preflightReasons, ...accountReasons, ...stopReasons])],
+    killSwitch,
+    reasons:[...new Set([...preflightReasons, ...accountReasons, ...stopReasons, ...killSwitchReasons])],
     remainingMandatoryControls:[...new Set(remaining)]
   };
 }
-async function run({ scan, committee, store, accountRisk = null, stopRisk = null }) {
+async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null }) {
   const candidate = pickCandidate(scan);
   if (!candidate) return { ok:true, candidateFound:false, reason:'NO_QUALIFIED_EARLY_EXPANSION', committeeCalled:false, execution:'ADVISORY_ONLY' };
   const [symbol, global] = await Promise.all([symbolContext(candidate.symbol), globalContext()]);
@@ -345,7 +348,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   const preflight = preflightRiskGate({ plan, unified });
   const accountCaps = accountRiskCaps(accountRisk || {});
   const structuralStop = structuralStopGate({ ...(stopRisk || {}), side:plan.side });
-  const riskGate = combineRiskGate(preflight, accountCaps, structuralStop);
+  const killSwitchState = killSwitchGate(killSwitch || {});
+  const riskGate = combineRiskGate(preflight, accountCaps, structuralStop, killSwitchState);
   const out = {
     ok:true,
     candidateFound:true,
