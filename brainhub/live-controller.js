@@ -126,6 +126,84 @@ function utcDayStart(ts) {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
+function requestedExecutionSettings(body, policy) {
+  const supplied = body?.requestedMarginQuote !== undefined ||
+    body?.requestedLeverage !== undefined ||
+    body?.requestedMaxOpenPositions !== undefined;
+  if (!supplied) {
+    return {
+      ok:true,
+      dynamic:false,
+      marginQuote:null,
+      leverage:policy?.expectedLeverage ?? null,
+      maxOpenPositions:policy?.limits?.maxOpenPositions ?? null,
+      reasons:[]
+    };
+  }
+
+  const reasons = [];
+  const marginQuote = finite(body?.requestedMarginQuote);
+  const leverage = finite(body?.requestedLeverage);
+  const maxOpenPositions = finite(body?.requestedMaxOpenPositions);
+  if (marginQuote === null || marginQuote <= 0) reasons.push('REQUESTED_MARGIN_INVALID');
+  if (leverage === null || !Number.isInteger(leverage) || leverage < 1 || leverage > 125) reasons.push('REQUESTED_LEVERAGE_INVALID');
+  if (maxOpenPositions === null || !Number.isInteger(maxOpenPositions) || maxOpenPositions < 1 || maxOpenPositions > 5) reasons.push('REQUESTED_MAX_OPEN_POSITIONS_INVALID');
+
+  const pcMax = finite(policy?.limits?.maxOpenPositions);
+  if (maxOpenPositions !== null && pcMax !== null && maxOpenPositions > pcMax) reasons.push('REQUESTED_MAX_OPEN_POSITIONS_EXCEEDS_PC_CAP');
+
+  return {
+    ok:reasons.length === 0,
+    dynamic:true,
+    marginQuote,
+    leverage,
+    maxOpenPositions,
+    reasons:[...new Set(reasons)]
+  };
+}
+
+function applyDynamicSizingGuards(accountRisk, settings, policy) {
+  if (!settings?.dynamic) return { ok:true, accountRisk, reasons:[] };
+  const reasons = [];
+  const equity = finite(accountRisk?.account?.equity);
+  const availableBalance = finite(accountRisk?.account?.availableBalance);
+  const notionalQuote = finite(accountRisk?.intent?.notionalQuote);
+  const familyExposureAfterQuote = finite(accountRisk?.intent?.familyExposureAfterQuote);
+  const expectedNotional = settings.marginQuote * settings.leverage;
+
+  if (availableBalance === null || availableBalance < settings.marginQuote) reasons.push('REQUESTED_MARGIN_EXCEEDS_AVAILABLE_BALANCE');
+  if (notionalQuote === null || notionalQuote <= 0) reasons.push('TRADE_NOTIONAL_INVALID');
+  if (Number.isFinite(expectedNotional) && expectedNotional > 0 && notionalQuote !== null && notionalQuote > expectedNotional * 1.02) {
+    reasons.push('ORDER_NOTIONAL_EXCEEDS_REQUESTED_MARGIN_LEVERAGE');
+  }
+  if (equity === null || equity <= 0) reasons.push('ACCOUNT_EQUITY_INVALID');
+  if (reasons.length) return { ok:false, accountRisk, reasons:[...new Set(reasons)] };
+
+  // App-selected margin/leverage define position size. PC keeps independent stop-risk,
+  // daily-loss and max-position guards; legacy notional/exposure percentages no longer
+  // shrink an explicitly selected margin after those hard controls have passed.
+  const notionalPct = notionalQuote / equity * 100;
+  const familyPct = familyExposureAfterQuote / equity * 100;
+  const effectiveLimits = {
+    ...policy.limits,
+    maxOpenPositions:settings.maxOpenPositions,
+    maxNotionalPctPerTrade:Math.max(policy.limits.maxNotionalPctPerTrade, notionalPct + 1e-9),
+    maxFamilyExposurePct:Math.max(policy.limits.maxFamilyExposurePct, familyPct + 1e-9)
+  };
+  return {
+    ok:true,
+    reasons:[],
+    accountRisk:{ ...accountRisk, limits:effectiveLimits },
+    sizing:{
+      requestedMarginQuote:settings.marginQuote,
+      requestedLeverage:settings.leverage,
+      requestedMaxOpenPositions:settings.maxOpenPositions,
+      expectedNotionalQuote:expectedNotional,
+      effectiveLimits
+    }
+  };
+}
+
 function createLiveController({ root, store, scanner, pipeline, committee, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
@@ -273,6 +351,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const lineageId = text(order?.lineageId) || '';
     if (!ID_RE.test(eventId) || !ID_RE.test(lineageId)) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['EVENT_OR_LINEAGE_INVALID'] };
 
+    const settings = requestedExecutionSettings(body, policy);
+    if (!settings.ok) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:settings.reasons };
+
     let accountRisk;
     try { accountRisk = await accountRiskFor(order, policy, creds); }
     catch (e) {
@@ -285,6 +366,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         reasons:[String(e.message || 'BINANCE_ACCOUNT_PREFLIGHT_FAILED').slice(0,160)]
       };
     }
+
+    const sizingGuard = applyDynamicSizingGuards(accountRisk, settings, policy);
+    if (!sizingGuard.ok) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_PREFLIGHT_BLOCKED', reasons:sizingGuard.reasons };
+    }
+    accountRisk = sizingGuard.accountRisk;
 
     let lease;
     try { lease = store.lease('acquire', LIVE_RESOURCE, LIVE_OWNER, leaseToken, 60000); }
@@ -351,7 +438,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       grantId:grant.grant.grantId,
       order,
       credentials:creds,
-      livePolicy:{ expectedLeverage:policy.expectedLeverage, maxEntryDeviationPct:policy.maxEntryDeviationPct }
+      livePolicy:{ expectedLeverage:settings.leverage, maxEntryDeviationPct:policy.maxEntryDeviationPct }
     });
 
     try {
@@ -360,6 +447,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         lineageId,
         plan:planResult?.plan || null,
         riskGate:planResult?.riskGate || null,
+        sizing:sizingGuard.sizing || null,
         result
       });
     } catch {}
@@ -369,11 +457,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       claim,
       plan:planResult?.plan || null,
       riskGate:planResult?.riskGate || null,
-      executionReadiness:planResult?.executionReadiness || null
+      executionReadiness:planResult?.executionReadiness || null,
+      sizing:sizingGuard.sizing || null
     };
   }
 
   return { status, arm, disarm, execute, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
-module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, createLiveController };
+module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };
