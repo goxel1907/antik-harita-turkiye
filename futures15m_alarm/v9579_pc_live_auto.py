@@ -140,7 +140,8 @@ checks={
     'PC executor owner':'putString("v9576_executor_owner","PC")' in MAIN.read_text(),
     'phone live toggle enabled only with BrainHub':'en.setEnabled(BrainHubClient.configured(this))' in MAIN.read_text(),
     'phone credentials not required for auto':'if(en.isChecked())v9522Credentials()' not in MAIN.read_text(),
-    'identity':"versionName '9.5.79'" in BUILD.read_text() and 'versionCode 26091719' in BUILD.read_text(),
+    'dynamic trade settings':'requestedMarginQuote' in AUTO.read_text() and 'requestedLeverage' in AUTO.read_text() and 'requestedMaxOpenPositions' in AUTO.read_text(),
+    'identity':"versionName '9.5.80'" in BUILD.read_text() and 'versionCode 26091820' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
 if not all(checks.values()): raise SystemExit('v9.5.80 PC LIVE bridge integration check failed')
