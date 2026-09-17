@@ -1,4 +1,4 @@
-﻿const http=require('http');
+const http=require('http');
 const fs=require('fs');
 const path=require('path');
 const scanner=require('./scanner');
@@ -22,6 +22,47 @@ const store=openStore(ROOT);
 fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
 let rr=0;
+const ROLE_HINTS={
+  DEFAULT:[],
+  FAST:['lightning','flash','mimo','spark'],
+  STRUCTURE:['ultra','pickle','muse','mimo'],
+  PATTERN:['ultra','muse','pickle','mimo'],
+  MICROSTRUCTURE:['mimo','lightning','ultra','flash'],
+  REGIME:['muse','ultra','pickle','mimo'],
+  RISK:['ultra','pickle','muse','mimo']
+};
+function normalizeRole(v){
+  const r=String(v||'DEFAULT').trim().toUpperCase();
+  return Object.prototype.hasOwnProperty.call(ROLE_HINTS,r)?r:'DEFAULT';
+}
+function roleInstruction(role){
+  switch(normalizeRole(role)){
+    case 'FAST': return 'Role FAST: look for the earliest valid 1m/3m/5m opportunity. Do not wait for 15m unless the requested setup is explicitly the legacy 15m strategy. Never trade on speed alone.';
+    case 'STRUCTURE': return 'Role STRUCTURE: compare 1m through 1d structure, liquidity, wick behavior and continuity. Timeframes are context, not votes. Synthetic 45m is not an independent confirmation.';
+    case 'PATTERN': return 'Role PATTERN: evaluate closed-candle formations and their invalidation. Distinguish FORMING, CONFIRMED, FAILED, INVALIDATED and RECLAIMED states.';
+    case 'MICROSTRUCTURE': return 'Role MICROSTRUCTURE: treat depth/CVD/OFI quality labels literally. Do not infer market-maker intent from snapshots or fabricate liquidation clusters.';
+    case 'REGIME': return 'Role REGIME: evaluate BTC, ETH, ETH/BTC and market-cap context as regime information, not as an automatic veto or directional vote.';
+    case 'RISK': return 'Role RISK: protect structural invalidation, stale-data, RR, duplicate/lease and max-risk rules. Never widen the original stop merely because a higher timeframe is supportive.';
+    default: return 'Use only supplied data. Do not invent missing facts and do not place orders.';
+  }
+}
+function rankPool(models,role,rotate=false){
+  const unique=[...new Set((models||[]).filter(Boolean))];
+  if(rotate&&unique.length){const n=rr++%unique.length;unique.push(...unique.splice(0,n));}
+  const hints=ROLE_HINTS[normalizeRole(role)]||[];
+  if(!hints.length)return unique;
+  return unique.map((model,index)=>{
+    const z=model.toLowerCase();
+    let rank=999;
+    for(let i=0;i<hints.length;i++){if(z.includes(hints[i])){rank=i;break;}}
+    return {model,index,rank};
+  }).sort((a,b)=>a.rank-b.rank||a.index-b.index).map(x=>x.model);
+}
+function orderedModels(role='DEFAULT',preferred=''){
+  const free=rankPool([...(cfg.opencode||[])],role,true);
+  if(preferred&&free.includes(preferred))return [preferred,...free.filter(x=>x!==preferred)];
+  return free;
+}
 
 function log(s){
   const line=new Date().toISOString()+' '+s;
@@ -42,54 +83,41 @@ function authorized(req){
   if(supplied.length!==CLIENT_TOKEN.length)return false;
   return require('crypto').timingSafeEqual(Buffer.from(supplied),Buffer.from(CLIENT_TOKEN));
 }
-function textFromObj(j){
-  if(!j)return '';
-  if(Array.isArray(j.choices))return j.choices.map(c=>c?.message?.content||c?.delta?.content||'').join('');
-  return j.output_text||j.text||j.content||'';
-}
 function extract(raw){
   raw=String(raw||'');
   let out='';
   const add=v=>{
-    if(typeof v==='string') out+=v;
-    else if(Array.isArray(v)) for(const x of v){
-      if(typeof x==='string') out+=x;
-      else if(x && typeof x.text==='string') out+=x.text;
-      else if(x && typeof x.content==='string') out+=x.content;
+    if(typeof v==='string')out+=v;
+    else if(Array.isArray(v))for(const x of v){
+      if(typeof x==='string')out+=x;
+      else if(x&&typeof x.text==='string')out+=x.text;
+      else if(x&&typeof x.content==='string')out+=x.content;
     }
   };
   const take=j=>{
-    if(!j) return;
-    if(Array.isArray(j.choices)) for(const c of j.choices||[]){
-      add(c?.delta?.content);
-      add(c?.message?.content);
-      add(c?.text);
-    }
-    add(j.output_text);
-    add(j.text);
-    if(j.message) add(j.message.content);
+    if(!j)return;
+    if(Array.isArray(j.choices))for(const c of j.choices||[]){add(c?.delta?.content);add(c?.message?.content);add(c?.text);}
+    add(j.output_text);add(j.text);if(j.message)add(j.message.content);
   };
-  try{ take(JSON.parse(raw)); }catch{}
-  if(out.trim()) return out.trim();
+  try{take(JSON.parse(raw));}catch{}
+  if(out.trim())return out.trim();
   for(const line of raw.split(/\r?\n/)){
     let d=line.trim();
-    if(d.startsWith('data:')) d=d.slice(5).trim();
-    if(!d || d==='[DONE]' || (!d.startsWith('{') && !d.startsWith('['))) continue;
-    try{ take(JSON.parse(d)); }catch{}
+    if(d.startsWith('data:'))d=d.slice(5).trim();
+    if(!d||d==='[DONE]'||(!d.startsWith('{')&&!d.startsWith('[')))continue;
+    try{take(JSON.parse(d));}catch{}
   }
-  if(out.trim()) return out.trim();
+  if(out.trim())return out.trim();
   const re=/"content"\s*:\s*"((?:\\.|[^"\\])*)"/g;
   let m;
-  while((m=re.exec(raw))){
-    try{ out+=JSON.parse('"'+m[1]+'"'); }catch{}
-  }
+  while((m=re.exec(raw))){try{out+=JSON.parse('"'+m[1]+'"');}catch{}}
   return out.trim();
 }
 async function callModel(model,messages,timeoutMs=12000){
   const url=cfg.baseUrl+'/chat/completions';
-  const r=await fetch(url,{method:'POST',headers:{'authorization':'Bearer '+KEY,'content-type':'application/json'},body:JSON.stringify({model,messages}),signal:AbortSignal.timeout(timeoutMs)});
+  const r=await fetch(url,{method:'POST',headers:{authorization:'Bearer '+KEY,'content-type':'application/json'},body:JSON.stringify({model,messages}),signal:AbortSignal.timeout(timeoutMs)});
   const raw=await r.text();
-  if(!r.ok){throw new Error('HTTP '+r.status+' '+raw.slice(0,300));}
+  if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
   const text=extract(raw);
   if(!text)throw new Error('empty response');
   state.set(model,{ok:true,at:Date.now(),error:null});
@@ -99,29 +127,25 @@ function blocked(model){
   const s=state.get(model);
   return !!(s&&s.ok===false&&(Date.now()-s.at)<TTL);
 }
-function orderedModels(){
-  const oc=[...(cfg.opencode||[])];
-  if(oc.length){const n=rr++%oc.length; oc.push(...oc.splice(0,n));}
-  return oc;
-}
-async function ask(prompt,system,preferred){
+async function ask(prompt,system,preferred,role='DEFAULT'){
+  role=normalizeRole(role);
   const msgs=[];
-  if(system)msgs.push({role:'system',content:system});
+  const sys=[roleInstruction(role),String(system||'').trim()].filter(Boolean).join(' ');
+  if(sys)msgs.push({role:'system',content:sys});
   msgs.push({role:'user',content:prompt});
-  const free=orderedModels();
-  const list=preferred&&free.includes(preferred)?[preferred,...free.filter(x=>x!==preferred)]:free;
+  const list=orderedModels(role,preferred);
   const errors=[];
   for(const m of list){
     if(blocked(m))continue;
     try{
       const out=await callModel(m,msgs);
-      log('ASK OK '+m);
-      return {...out,attempts:errors.length+1};
+      log('ASK OK role='+role+' model='+m);
+      return {...out,role,attempts:errors.length+1};
     }catch(e){
       const msg=String(e.message||e);
       state.set(m,{ok:false,at:Date.now(),error:msg.slice(0,240)});
       errors.push({model:m,error:msg.slice(0,240)});
-      log('ASK FAIL '+m+' '+msg.slice(0,180));
+      log('ASK FAIL role='+role+' model='+m+' '+msg.slice(0,180));
     }
   }
   throw Object.assign(new Error('no healthy model'),{errors});
@@ -134,24 +158,44 @@ function readBody(req){
     req.on('error',reject);
   });
 }
+function readCommitteeConfig(){
+  const cpath=path.join(ROOT,'config','committee.json');
+  return JSON.parse(fs.readFileSync(cpath,'utf8').replace(/^\uFEFF/,''));
+}
+function candidateForSymbol(scan,symbol){
+  const pools=[scan?.earlyTop5,scan?.top5Confirmed,scan?.leaderHunters,scan?.leaders];
+  for(const pool of pools){
+    const found=Array.isArray(pool)?pool.find(x=>x?.symbol===symbol):null;
+    if(found)return found;
+  }
+  return null;
+}
 
 const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,'http://127.0.0.1');
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',execution:'ADVISORY_ONLY',database:'sqlite',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.78-B',execution:'ADVISORY_ONLY',database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD']});
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({model,status:state.has(model)?(state.get(model).ok?'healthy':'cooldown'):'untested',last:state.get(model)?.at||null,error:state.get(model)?.error||null}));
       return send(res,200,{cacheSeconds:TTL/1000,models});
     }
+    if(req.method==='GET'&&u.pathname==='/models/routes'){
+      let ccfg={};try{ccfg=readCommitteeConfig();}catch{}
+      const configured=[...(ccfg.analysts||[]),...(ccfg.backupAnalysts||[])];
+      const base=configured.length?configured:[...(cfg.opencode||[])];
+      const routes={};
+      for(const role of Object.keys(ROLE_HINTS))routes[role]=rankPool(base,role,false);
+      return send(res,200,{ok:true,freeFirst:true,roles:routes,judges:ccfg.judges||[],kiroJudgeOnly:true,note:'Kiro judges are reserved for disagreement/forced review; API keys are never exposed here.'});
+    }
     if(req.method==='POST'&&u.pathname==='/ask'){
       const raw=await readBody(req);
-      let j={}; try{j=JSON.parse(raw||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      let j={};try{j=JSON.parse(raw||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
       if(!j.prompt||typeof j.prompt!=='string')return send(res,400,{ok:false,error:'prompt required'});
       try{
-        const out=await ask(j.prompt,j.system||'',j.model||'');
+        const out=await ask(j.prompt,j.system||'',j.model||'',j.role||'DEFAULT');
         return send(res,200,{ok:true,...out});
       }catch(e){
         return send(res,503,{ok:false,error:e.message,details:e.errors||[]});
@@ -159,51 +203,56 @@ const server=http.createServer(async(req,res)=>{
     }
 
     if(req.method==='POST'&&u.pathname==='/committee'){
-      const cpath=path.join(ROOT,'config','committee.json');
       let ccfg={};
-      try{ccfg=JSON.parse(fs.readFileSync(cpath,'utf8').replace(/^\uFEFF/,''));}
+      try{ccfg=readCommitteeConfig();}
       catch(e){return send(res,500,{ok:false,error:'committee config error',detail:String(e.message||e)});}
       const raw=await readBody(req);
       let j={};
-      try{j=JSON.parse(raw||'{}');}
-      catch{return send(res,400,{ok:false,error:'invalid json'});}
+      try{j=JSON.parse(raw||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
       if(!j.prompt||typeof j.prompt!=='string')return send(res,400,{ok:false,error:'prompt required'});
 
-      const analysts=Array.isArray(ccfg.analysts)?ccfg.analysts:[];
-      const backups=Array.isArray(ccfg.backupAnalysts)?ccfg.backupAnalysts:[];
+      const role=normalizeRole(j.role||'DEFAULT');
+      const configured=[...(Array.isArray(ccfg.analysts)?ccfg.analysts:[]),...(Array.isArray(ccfg.backupAnalysts)?ccfg.backupAnalysts:[])];
+      const freeSet=new Set(cfg.opencode||[]);
+      const eligible=(configured.length?configured:[...(cfg.opencode||[])]).filter(x=>freeSet.has(x));
+      const routed=rankPool(eligible.length?eligible:[...(cfg.opencode||[])],role,true);
       const judges=Array.isArray(ccfg.judges)?ccfg.judges:[];
       const minReplies=Math.max(1,Number(ccfg.minAnalystReplies||2));
-      const parallel=Math.max(1,Math.min(Number(ccfg.parallelAnalysts||3),analysts.length||1));
+      const parallel=Math.max(1,Math.min(Number(ccfg.parallelAnalysts||3),routed.length||1));
       const messages=[];
-      if(j.system)messages.push({role:'system',content:String(j.system)});
+      const system=[roleInstruction(role),String(j.system||'').trim()].filter(Boolean).join(' ');
+      if(system)messages.push({role:'system',content:system});
       messages.push({role:'user',content:j.prompt});
 
       async function probe(model){
+        if(blocked(model))return {ok:false,model,error:'cooldown'};
         try{
           const r=await callModel(model,messages,20000);
           return {ok:true,model,text:r.text};
         }catch(e){
-          return {ok:false,model,error:String(e.message||e).slice(0,240)};
+          const msg=String(e.message||e).slice(0,240);
+          state.set(model,{ok:false,at:Date.now(),error:msg});
+          return {ok:false,model,error:msg};
         }
       }
 
-      let results=await Promise.all(analysts.slice(0,parallel).map(probe));
+      let results=await Promise.all(routed.slice(0,parallel).map(probe));
       let good=results.filter(x=>x.ok&&x.text);
-      for(const m of backups){
+      for(const m of routed.slice(parallel)){
         if(good.length>=minReplies)break;
         const r=await probe(m);
         results.push(r);
         if(r.ok&&r.text)good.push(r);
       }
       if(good.length<minReplies){
-        return send(res,503,{ok:false,error:'not enough analyst replies',required:minReplies,received:good.length,results});
+        return send(res,503,{ok:false,error:'not enough analyst replies',role,required:minReplies,received:good.length,results});
       }
 
-      const norm=t=>String(t||'').toLowerCase().replace(/[^a-z0-9Ã§ÄŸÄ±Ã¶ÅŸÃ¼]+/gi,' ').trim().replace(/\s+/g,' ');
+      const norm=t=>String(t||'').toLocaleLowerCase('tr-TR').replace(/[^\p{L}\p{N}]+/gu,' ').trim().replace(/\s+/g,' ');
       const exact=new Set(good.map(x=>norm(x.text))).size===1;
       const verdict=t=>{
         const z=String(t||'').toUpperCase().replace(/[- ]/g,'_');
-        const m=z.match(/\b(NO_TRADE|LONG|SHORT|WAIT|HOLD)\b/);
+        const m=z.match(/\b(NO_TRADE|LONG|SHORT|WAIT|HOLD|REJECT)\b/);
         return m?m[1]:null;
       };
       const vs=good.map(x=>verdict(x.text));
@@ -218,13 +267,13 @@ const server=http.createServer(async(req,res)=>{
 
       if(needJudge&&judges.length){
         const jp=[
-          {role:'system',content:'You are the committee judge. Compare the analyst answers. Resolve conflicts using only the supplied answers. Do not invent facts. Return one concise final answer.'},
-          {role:'user',content:'ORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
+          {role:'system',content:'You are the committee judge. Resolve conflicts using only supplied analyst answers and source context. Do not invent facts, do not infer hidden market-maker intent, and do not place orders.'},
+          {role:'user',content:'ROLE: '+role+'\nORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
         ];
         for(const m of judges){
           try{
             const r=await callModel(m,jp,20000);
-            finalText=r.text; finalModel=m; judge={used:true,model:m}; break;
+            finalText=r.text;finalModel=m;judge={used:true,model:m};break;
           }catch(e){
             judge={used:false,lastModel:m,error:String(e.message||e).slice(0,240)};
           }
@@ -232,49 +281,39 @@ const server=http.createServer(async(req,res)=>{
       }
 
       if(!finalText){
-        const synth=(cfg.opencode||[])[0]||good[0].model;
+        const synth=orderedModels(role)[0]||good[0].model;
         const sp=[
-          {role:'system',content:'Synthesize the analyst answers into one concise final answer. Preserve consensus and mention material disagreement. Use only the supplied answers. Do not invent facts.'},
-          {role:'user',content:'ORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
+          {role:'system',content:'Synthesize the analyst answers into one concise final answer. Preserve consensus and material disagreement. Use only supplied facts. This is advisory only.'},
+          {role:'user',content:'ROLE: '+role+'\nORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
         ];
         try{
           const r=await callModel(synth,sp,20000);
-          finalText=r.text; finalModel=synth;
+          finalText=r.text;finalModel=synth;
         }catch{
-          finalText=good[0].text; finalModel=good[0].model;
+          finalText=good[0].text;finalModel=good[0].model;
         }
       }
 
-      log('COMMITTEE OK analysts='+good.length+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no'));
-      return send(res,200,{
-        ok:true,
-        mode:judge&&judge.used?'judge':'consensus',
-        disagreement,
-        verdictConsensus:verdictConsensus?(vs[0]||null):null,
-        analysts:good,
-        failed:results.filter(x=>!x.ok),
-        judge:judge||{used:false},
-        model:finalModel,
-        text:finalText
-      });
+      log('COMMITTEE OK role='+role+' analysts='+good.length+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no'));
+      return send(res,200,{ok:true,role,mode:judge&&judge.used?'judge':'consensus',disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
-      try{
-        const out=await scanner.scan();
-        return send(res,200,out);
-      }catch(e){
-        log('SCANNER FAIL '+String(e.message||e));
-        return send(res,503,{ok:false,error:'scanner failed',detail:String(e.message||e)});
-      }
+      try{return send(res,200,await scanner.scan());}
+      catch(e){log('SCANNER FAIL '+String(e.message||e));return send(res,503,{ok:false,error:'scanner failed',detail:String(e.message||e)});}
     }
-    if(req.method==='GET'&&u.pathname==='/context/global'){
-      return send(res,200,await market.globalContext());
-    }
+    if(req.method==='GET'&&u.pathname==='/context/global')return send(res,200,await market.globalContext());
     if(req.method==='GET'&&u.pathname==='/context/symbol'){
       const symbol=(u.searchParams.get('symbol')||'').toUpperCase();
       if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
       return send(res,200,await market.symbolContext(symbol));
+    }
+    if(req.method==='GET'&&u.pathname==='/context/unified'){
+      const symbol=(u.searchParams.get('symbol')||'').toUpperCase();
+      if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
+      const [sym,global,scan]=await Promise.all([market.symbolContext(symbol),market.globalContext(),scanner.scan()]);
+      const unified=pipeline.buildUnifiedContext({symbol:sym,global,candidate:candidateForSymbol(scan,symbol)});
+      return send(res,200,{ok:true,...unified});
     }
     if(req.method==='GET'&&u.pathname==='/leader/committee'){
       const scan=await scanner.scan();
