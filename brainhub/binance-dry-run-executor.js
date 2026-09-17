@@ -21,6 +21,9 @@ function buildDryRunOrder({ intent, riskGate } = {}) {
   const quantity = finite(intent?.quantity);
   const entryPrice = finite(intent?.entryPrice);
   const stopPrice = finite(intent?.stopPrice);
+  const takeProfit1 = finite(intent?.takeProfit1);
+  const takeProfit2 = finite(intent?.takeProfit2);
+  const takeProfit3 = finite(intent?.takeProfit3);
   const limitPrice = finite(intent?.limitPrice);
   const clientOrderId = typeof intent?.clientOrderId === 'string' ? intent.clientOrderId.trim() : '';
   const lineageId = typeof intent?.lineageId === 'string' ? intent.lineageId.trim() : '';
@@ -43,6 +46,17 @@ function buildDryRunOrder({ intent, riskGate } = {}) {
   }
   if (side === 'SHORT' && entryPrice !== null && stopPrice !== null && stopPrice <= entryPrice) {
     reasons.push('SHORT_STOP_NOT_ABOVE_ENTRY');
+  }
+
+  const hasAnyTp = [takeProfit1,takeProfit2,takeProfit3].some(x => x !== null);
+  if (hasAnyTp) {
+    if ([takeProfit1,takeProfit2,takeProfit3].some(x => x === null || x <= 0)) reasons.push('TAKE_PROFIT_LEVELS_INCOMPLETE');
+    if (side === 'LONG' && !(entryPrice < takeProfit1 && takeProfit1 < takeProfit2 && takeProfit2 < takeProfit3)) {
+      reasons.push('LONG_TAKE_PROFIT_GEOMETRY_INVALID');
+    }
+    if (side === 'SHORT' && !(entryPrice > takeProfit1 && takeProfit1 > takeProfit2 && takeProfit2 > takeProfit3)) {
+      reasons.push('SHORT_TAKE_PROFIT_GEOMETRY_INVALID');
+    }
   }
 
   if (riskGate?.ok !== true) reasons.push('RISK_GATE_NOT_PASSED');
@@ -81,6 +95,9 @@ function buildDryRunOrder({ intent, riskGate } = {}) {
       quantity,
       entryPrice,
       stopPrice,
+      takeProfit1,
+      takeProfit2,
+      takeProfit3,
       limitPrice:orderType === 'LIMIT' ? limitPrice : null,
       clientOrderId,
       lineageId
