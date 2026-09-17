@@ -11,11 +11,11 @@ MANIFEST = APP / 'app/src/main/AndroidManifest.xml'
 BUILD = APP / 'app/build.gradle'
 for p in (AGENT, BRAIN, AUTO, MAIN, MANIFEST, BUILD):
     if not p.exists():
-        raise SystemExit('v9.5.77 missing ' + str(p))
+        raise SystemExit('v9.5.78 missing ' + str(p))
 
 client = Path(__file__).with_name('BrainHubClient.java').read_text()
 if 'V9577_OPTIONAL_PC_BRAINHUB' not in client:
-    raise SystemExit('v9.5.77 BrainHubClient marker missing')
+    raise SystemExit('v9.5.78 BrainHubClient marker missing')
 (JAVA / 'BrainHubClient.java').write_text(client)
 
 agent = AGENT.read_text()
@@ -26,12 +26,12 @@ replacement = '''        if (BrainHubClient.configured(this)) {
         }
         return BrainCore.symbolSnapshot(this, s);'''
 if agent.count(anchor) != 1:
-    raise SystemExit('v9.5.77 agent snapshot anchor changed')
+    raise SystemExit('v9.5.78 agent snapshot anchor changed')
 agent = agent.replace(anchor, replacement, 1)
 anchor = '        TextView note=label("FREE-ONLY kilidi'
 pos = agent.find(anchor)
 if pos < 0:
-    raise SystemExit('v9.5.77 settings anchor missing')
+    raise SystemExit('v9.5.78 settings anchor missing')
 hub_fields = '''        EditText hubEp=new EditText(this);hubEp.setHint("PC Brain Hub: https://tailscale-adresi:8787");hubEp.setText(BrainHubClient.endpoint(this));hubEp.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);box.addView(hubEp);
         EditText hubToken=new EditText(this);hubToken.setHint("Brain Hub erişim tokenı (boşsa mevcut korunur)");hubToken.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);box.addView(hubToken);
 '''
@@ -41,7 +41,7 @@ replacement = '''            try { BrainHubClient.save(this,hubEp.getText()==nul
             catch(Exception ex) { Toast.makeText(this,"Brain Hub ayarı: "+ex.getMessage(),Toast.LENGTH_LONG).show();return; }
             prefs().edit().putString("endpoint",ep.getText()==null?"":ep.getText().toString().trim()).putString("api_key",key.getText()==null?"":key.getText().toString().trim()).apply(); refreshStatusAsync();'''
 if anchor not in agent:
-    raise SystemExit('v9.5.77 save settings anchor changed')
+    raise SystemExit('v9.5.78 save settings anchor changed')
 agent = agent.replace(anchor, replacement, 1)
 AGENT.write_text(agent)
 
@@ -49,7 +49,7 @@ brain = BRAIN.read_text()
 start = brain.find('    private void scan(){')
 end = brain.find('    @Override protected void onDestroy', start)
 if start < 0 or end < 0:
-    raise SystemExit('v9.5.77 BrainActivity scan method changed')
+    raise SystemExit('v9.5.78 BrainActivity scan method changed')
 new_scan = r'''    private String localSnapshot(){
         return "=== TELEFON GLOBAL REJİM ===\n"+BrainCore.global(this)
             +"\n\n=== TELEFON LİDER ADAYLARI ===\n"+BrainCore.leaders(this,10)
@@ -75,7 +75,7 @@ auto = AUTO.read_text()
 start = auto.find('    public static void onSignal(Context c,String symbol){')
 end = auto.find('    private static void run(Context c,String s)', start)
 if start < 0 or end < 0:
-    raise SystemExit('v9.5.77 AutoTradeEngine entry anchor changed')
+    raise SystemExit('v9.5.78 AutoTradeEngine entry anchor changed')
 dry = '''    // V9577_DRY_RUN_LOCK: this release cannot invoke the private live order path.
     public static void onSignal(Context c,String symbol){
         if(c==null||symbol==null||symbol.trim().isEmpty())return;
@@ -95,20 +95,20 @@ AUTO.write_text(auto)
 
 main = MAIN.read_text()
 needle = 'boolean v9576On=getSharedPreferences(MonitorService.PREFS,MODE_PRIVATE).getBoolean("v9576_auto_enabled",false);'
-if needle not in main: raise SystemExit('v9.5.77 live UI state anchor missing')
+if needle not in main: raise SystemExit('v9.5.78 live UI state anchor missing')
 main = main.replace(needle, 'boolean v9576On=false;', 1)
 needle = 'en.setChecked(sp.getBoolean("v9576_auto_enabled",false));'
-if needle not in main: raise SystemExit('v9.5.77 live checkbox anchor missing')
+if needle not in main: raise SystemExit('v9.5.78 live checkbox anchor missing')
 main = main.replace(needle, 'en.setChecked(false);en.setEnabled(false);en.setText("Canlı otomatik emir testler bitene kadar kilitli");', 1)
 needle = '.putBoolean("v9576_auto_enabled",en.isChecked())'
-if needle not in main: raise SystemExit('v9.5.77 live save anchor missing')
+if needle not in main: raise SystemExit('v9.5.78 live save anchor missing')
 main = main.replace(needle, '.putBoolean("v9576_auto_enabled",false)', 1)
 main = main.replace('"CANLI OTO: KAPALI"','"DRY-RUN: AÇIK"',1)
 MAIN.write_text(main)
 
 build = BUILD.read_text()
-build = re.sub(r'versionCode\s+\d+', 'versionCode 26091517', build, count=1)
-build = re.sub(r"versionName\s+['\"][^'\"]+['\"]", "versionName '9.5.77'", build, count=1)
+build = re.sub(r'versionCode\s+\d+', 'versionCode 26091718', build, count=1)
+build = re.sub(r"versionName\s+['\"][^'\"]+['\"]", "versionName '9.5.78'", build, count=1)
 BUILD.write_text(build)
 
 checks = {
@@ -117,8 +117,8 @@ checks = {
     'local fallback': 'BrainCore.symbolSnapshot(this, s)' in AGENT.read_text() and 'localSnapshot()' in BRAIN.read_text(),
     'live entry disabled': 'IO.execute(()->run(app,s))' not in AUTO.read_text() and 'V9577_DRY_RUN_LOCK' in AUTO.read_text(),
     'live UI disabled': 'en.setEnabled(false)' in MAIN.read_text() and '.putBoolean("v9576_auto_enabled",false)' in MAIN.read_text(),
-    'identity': "versionName '9.5.77'" in BUILD.read_text() and 'versionCode 26091517' in BUILD.read_text(),
+    'identity': "versionName '9.5.78'" in BUILD.read_text() and 'versionCode 26091718' in BUILD.read_text(),
 }
 for name, ok in checks.items(): print(('OK   ' if ok else 'FAIL '), name)
-if not all(checks.values()): raise SystemExit('v9.5.77 integration check failed')
-print('v9.5.77 OK: optional authenticated PC Brain Hub read path with local mobile fallback; live automatic order trigger locked to dry-run.')
+if not all(checks.values()): raise SystemExit('v9.5.78 integration check failed')
+print('v9.5.78 OK: optional authenticated PC Brain Hub read path with local mobile fallback; live automatic order trigger locked to dry-run.')
