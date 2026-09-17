@@ -21,6 +21,10 @@ function openStore(root) {
     );
     CREATE TABLE IF NOT EXISTS claims (
       event_id TEXT PRIMARY KEY, owner TEXT NOT NULL, claimed_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS lineage_claims (
+      lineage_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, owner TEXT NOT NULL,
+      claimed_at INTEGER NOT NULL
     );`);
   const insert = db.prepare('INSERT INTO journal(id,ts,kind,symbol,payload) VALUES(?,?,?,?,?)');
   const list = db.prepare('SELECT id,ts,kind,symbol,payload,outcome FROM journal ORDER BY ts DESC LIMIT ?');
@@ -28,8 +32,10 @@ function openStore(root) {
   const leaseGet = db.prepare('SELECT owner,token_hash,expires_at FROM leases WHERE resource=?');
   const leaseSet = db.prepare('INSERT INTO leases(resource,owner,token_hash,expires_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,token_hash=excluded.token_hash,expires_at=excluded.expires_at,updated_at=excluded.updated_at');
   const leaseDelete = db.prepare('DELETE FROM leases WHERE resource=? AND token_hash=?');
-  const claimInsert = db.prepare('INSERT OR IGNORE INTO claims(event_id,owner,claimed_at) VALUES(?,?,?)');
+  const claimInsert = db.prepare('INSERT INTO claims(event_id,owner,claimed_at) VALUES(?,?,?)');
   const claimGet = db.prepare('SELECT owner,claimed_at FROM claims WHERE event_id=?');
+  const lineageInsert = db.prepare('INSERT INTO lineage_claims(lineage_id,event_id,owner,claimed_at) VALUES(?,?,?,?)');
+  const lineageGet = db.prepare('SELECT event_id,owner,claimed_at FROM lineage_claims WHERE lineage_id=?');
   const hash = token => crypto.createHash('sha256').update(token).digest('hex');
   function journal(kind, symbol, payload, id = crypto.randomUUID()) {
     if (!/^[A-Z0-9_]{2,40}$/.test(kind)) throw new Error('invalid journal kind');
@@ -74,17 +80,30 @@ function openStore(root) {
       return result;
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
-  function claim(eventId, owner, resource, token) {
+  function claim(eventId, owner, resource, token, lineageId = eventId) {
     if (!/^[A-Za-z0-9:_-]{8,128}$/.test(eventId)) throw new Error('invalid event id');
+    if (!/^[A-Za-z0-9:_-]{8,128}$/.test(lineageId)) throw new Error('invalid lineage id');
     const now = Date.now();
     db.exec('BEGIN IMMEDIATE');
     try {
       const current = leaseGet.get(resource);
       let result;
-      if (!current || current.expires_at <= now || current.owner !== owner || current.token_hash !== hash(token)) result = { claimed: false, reason: 'NO_VALID_LEASE' };
-      else {
-        const inserted = claimInsert.run(eventId, owner, now);
-        result = inserted.changes === 1 ? { claimed: true } : { claimed: false, reason: 'DUPLICATE', original: claimGet.get(eventId) };
+      if (!current || current.expires_at <= now || current.owner !== owner || current.token_hash !== hash(token)) {
+        result = { claimed: false, reason: 'NO_VALID_LEASE' };
+      } else {
+        const originalEvent = claimGet.get(eventId);
+        if (originalEvent) {
+          result = { claimed: false, reason: 'DUPLICATE', original: originalEvent };
+        } else {
+          const originalLineage = lineageGet.get(lineageId);
+          if (originalLineage) {
+            result = { claimed: false, reason: 'DUPLICATE_LINEAGE', original: originalLineage };
+          } else {
+            claimInsert.run(eventId, owner, now);
+            lineageInsert.run(lineageId, eventId, owner, now);
+            result = { claimed: true, lineageId };
+          }
+        }
       }
       db.exec('COMMIT');
       return result;
