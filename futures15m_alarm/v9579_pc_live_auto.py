@@ -7,7 +7,7 @@ AUTO=JAVA/'AutoTradeEngine.java'
 MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (AUTO,MAIN,BUILD):
-    if not p.exists(): raise SystemExit('v9.5.83 missing '+str(p))
+    if not p.exists(): raise SystemExit('v9.5.84 missing '+str(p))
 
 def method_bounds(src, signature_fragment):
     a=src.find(signature_fragment)
@@ -41,11 +41,11 @@ def method_bounds(src, signature_fragment):
 
 auto=AUTO.read_text()
 if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.83 requires v9.5.78 dry-run lock first')
+    raise SystemExit('v9.5.84 requires v9.5.78 dry-run lock first')
 start=auto.find('    // V9577_DRY_RUN_LOCK:')
 end=auto.find('    private static void run(Context c,String s)',start)
 if start<0 or end<0:
-    raise SystemExit('v9.5.83 AutoTradeEngine dry-run anchor changed')
+    raise SystemExit('v9.5.84 AutoTradeEngine dry-run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
@@ -74,9 +74,10 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             if(lng&&!p.getBoolean("v9576_auto_long",true))throw new Exception("LONG oto kapalı");
             if(!lng&&!p.getBoolean("v9576_auto_short",true))throw new Exception("SHORT oto kapalı");
             double entry=d(p,"v9518_signal_price_"+s),stop=d(p,"v9518_signal_stop_"+s);
-            if(bad(entry)||bad(stop))throw new Exception("sinyal giriş/stop seviyesi eksik");
-            if(lng&&!(stop<entry))throw new Exception("LONG stop geometrisi geçersiz");
-            if(!lng&&!(stop>entry))throw new Exception("SHORT stop geometrisi geçersiz");
+            double tp1=d(p,"v9518_signal_tp1_"+s),tp2=d(p,"v9518_signal_tp2_"+s),tp3=d(p,"v9518_signal_tp3_"+s);
+            if(bad(entry)||bad(stop)||bad(tp1)||bad(tp2)||bad(tp3))throw new Exception("sinyal giriş/stop/TP seviyeleri eksik");
+            if(lng&&!(stop<entry&&entry<tp1&&tp1<tp2&&tp2<tp3))throw new Exception("LONG stop/TP geometrisi geçersiz");
+            if(!lng&&!(stop>entry&&entry>tp1&&tp1>tp2&&tp2>tp3))throw new Exception("SHORT stop/TP geometrisi geçersiz");
 
             double margin=Double.parseDouble(p.getString("v9576_auto_margin",p.getString("v9522_last_margin","0")));
             int configuredLev=Integer.parseInt(p.getString("v9576_auto_leverage",p.getString("v9522_last_leverage","0")));
@@ -112,7 +113,9 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
 
             JSONObject order=new JSONObject();
             order.put("action","OPEN");order.put("symbol",s);order.put("side",lng?"LONG":"SHORT");order.put("orderType","MARKET");
-            order.put("quantity",qty);order.put("entryPrice",entry);order.put("stopPrice",stop);order.put("clientOrderId",clientId);order.put("lineageId",lineage);
+            order.put("quantity",qty);order.put("entryPrice",entry);order.put("stopPrice",stop);
+            order.put("takeProfit1",tp1);order.put("takeProfit2",tp2);order.put("takeProfit3",tp3);
+            order.put("clientOrderId",clientId);order.put("lineageId",lineage);
             JSONObject body=new JSONObject();body.put("eventId",eventId);body.put("order",order);
             body.put("requestedMarginQuote",margin);body.put("requestedLeverage",configuredLev);body.put("requestedMaxOpenPositions",maxPositions);
             // Existing deterministic signal stores one structural stop boundary; no separate buffer field exists on mobile yet.
@@ -122,7 +125,6 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             boolean protectedEntry=out.optBoolean("ok",false)&&out.optBoolean("orderPlaced",false)&&out.optBoolean("stopProtected",false);
             boolean uncertain=out.optBoolean("manualReviewRequired",false)||"LIVE_ENTRY_REVIEW_REQUIRED".equals(out.optString("execution"));
             if(protectedEntry){
-                double tp1=d(p,"v9518_signal_tp1_"+s),tp2=d(p,"v9518_signal_tp2_"+s),tp3=d(p,"v9518_signal_tp3_"+s);
                 android.content.SharedPreferences.Editor ed=p.edit()
                     .putLong("v9522_order_sent_signal_"+s,ts).putLong("v9576_last_auto_"+s,now)
                     .putString("v9550_trade_margin_"+s,fmt(margin))
@@ -172,7 +174,7 @@ repls=[
     ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
 ]
 for old,new in repls:
-    if old not in main: raise SystemExit('v9.5.83 MainActivity anchor missing: '+old[:70])
+    if old not in main: raise SystemExit('v9.5.84 MainActivity anchor missing: '+old[:70])
     main=main.replace(old,new,1)
 
 # V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -181,7 +183,7 @@ for old,new in repls:
 # status at a throttled interval. No order/cancel side effects live here.
 if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     pos=main.rfind('}')
-    if pos<0: raise SystemExit('v9.5.83 MainActivity close missing')
+    if pos<0: raise SystemExit('v9.5.84 MainActivity close missing')
     helpers=r'''
     // ============================================================
     // V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -332,7 +334,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     main=main[:pos]+helpers+'\n'+main[pos:]
 
 b=method_bounds(main,'private void v9549FillRecentTradesCard(')
-if not b: raise SystemExit('v9.5.83 recent trades renderer missing')
+if not b: raise SystemExit('v9.5.84 recent trades renderer missing')
 a,_,e=b
 renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout box) {
         if(box==null)return;
@@ -427,8 +429,8 @@ main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091823',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.83'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091824',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.84'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -445,8 +447,9 @@ checks={
     'active trade detail':'AUTO POZİSYON' in MAIN.read_text() and 'PLAN TP1:' in MAIN.read_text() and 'KORUMALI' in MAIN.read_text(),
     'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
     'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'totalWalletBalance' in MAIN.read_text() and 'totalMarginBalance' in MAIN.read_text() and 'availableBalance' in MAIN.read_text(),
-    'identity':"versionName '9.5.83'" in BUILD.read_text() and 'versionCode 26091823' in BUILD.read_text(),
+    'TPs bound into LIVE intent':'takeProfit1' in AUTO.read_text() and 'takeProfit2' in AUTO.read_text() and 'takeProfit3' in AUTO.read_text() and 'stop/TP geometrisi' in AUTO.read_text(),
+    'identity':"versionName '9.5.84'" in BUILD.read_text() and 'versionCode 26091824' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.83 PC LIVE bridge integration check failed')
-print('v9.5.83 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+if not all(checks.values()): raise SystemExit('v9.5.84 PC LIVE bridge integration check failed')
+print('v9.5.84 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
