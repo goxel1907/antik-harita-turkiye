@@ -7,7 +7,7 @@ AUTO=JAVA/'AutoTradeEngine.java'
 MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (AUTO,MAIN,BUILD):
-    if not p.exists(): raise SystemExit('v9.5.82 missing '+str(p))
+    if not p.exists(): raise SystemExit('v9.5.83 missing '+str(p))
 
 def method_bounds(src, signature_fragment):
     a=src.find(signature_fragment)
@@ -41,11 +41,11 @@ def method_bounds(src, signature_fragment):
 
 auto=AUTO.read_text()
 if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.82 requires v9.5.78 dry-run lock first')
+    raise SystemExit('v9.5.83 requires v9.5.78 dry-run lock first')
 start=auto.find('    // V9577_DRY_RUN_LOCK:')
 end=auto.find('    private static void run(Context c,String s)',start)
 if start<0 or end<0:
-    raise SystemExit('v9.5.82 AutoTradeEngine dry-run anchor changed')
+    raise SystemExit('v9.5.83 AutoTradeEngine dry-run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
@@ -172,7 +172,7 @@ repls=[
     ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
 ]
 for old,new in repls:
-    if old not in main: raise SystemExit('v9.5.82 MainActivity anchor missing: '+old[:70])
+    if old not in main: raise SystemExit('v9.5.83 MainActivity anchor missing: '+old[:70])
     main=main.replace(old,new,1)
 
 # V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -181,7 +181,7 @@ for old,new in repls:
 # status at a throttled interval. No order/cancel side effects live here.
 if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     pos=main.rfind('}')
-    if pos<0: raise SystemExit('v9.5.82 MainActivity close missing')
+    if pos<0: raise SystemExit('v9.5.83 MainActivity close missing')
     helpers=r'''
     // ============================================================
     // V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -273,11 +273,66 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
         if(Double.isNaN(x)||Double.isInfinite(x)||x<=0.0)return "—";
         return java.math.BigDecimal.valueOf(x).stripTrailingZeros().toPlainString();
     }
+
+    // V9583_BINANCE_BALANCE_SUMMARY
+    // Reads the existing foreground account-sync snapshot only. No extra signed
+    // Binance request is made here and credentials are never rendered/logged.
+    private double v9583JsonNumber(String raw,String key){
+        if(raw==null||raw.trim().isEmpty()||key==null)return Double.NaN;
+        try{
+            org.json.JSONObject j=new org.json.JSONObject(raw);
+            Object v=j.opt(key);
+            if(v!=null&&v!=org.json.JSONObject.NULL){
+                double x=v9549Number(String.valueOf(v));
+                if(!Double.isNaN(x))return x;
+            }
+        }catch(Throwable ignored){}
+        try{
+            java.util.regex.Matcher m=java.util.regex.Pattern.compile(
+                "\\""+java.util.regex.Pattern.quote(key)+"\\"\\s*:\\s*\\"?([+-]?[0-9]+(?:[\\.,][0-9]+)?)",
+                java.util.regex.Pattern.CASE_INSENSITIVE).matcher(raw);
+            if(m.find())return v9549Number(m.group(1));
+        }catch(Throwable ignored){}
+        return Double.NaN;
+    }
+
+    private String v9583BinanceBalanceSummary(){
+        double wallet=Double.NaN,equity=Double.NaN,available=Double.NaN;
+        int best=-1;
+        try{
+            java.util.Map<String,?> all=v9522Prefs().getAll();
+            for(java.util.Map.Entry<String,?> e:all.entrySet()){
+                Object v=e.getValue();
+                if(!(v instanceof String))continue;
+                String raw=((String)v).trim();
+                if(raw.isEmpty())continue;
+                double w=v9583JsonNumber(raw,"totalWalletBalance");
+                double q=v9583JsonNumber(raw,"totalMarginBalance");
+                double a=v9583JsonNumber(raw,"availableBalance");
+                if(Double.isNaN(w)&&Double.isNaN(q)&&Double.isNaN(a))continue;
+                String k=e.getKey()==null?"":e.getKey().toLowerCase(java.util.Locale.US);
+                int score=0;
+                if(k.startsWith("v9527")||k.startsWith("v9543"))score+=8;
+                if(k.contains("account")||k.contains("portfolio")||k.contains("balance"))score+=4;
+                if(raw.contains("positions")||raw.contains("\"canTrade\""))score+=3;
+                if(score>best){
+                    best=score;wallet=w;equity=q;available=a;
+                }
+            }
+        }catch(Throwable ignored){}
+        if(Double.isNaN(wallet)&&Double.isNaN(equity)&&Double.isNaN(available))
+            return "Binance Futures bakiye: senkron bekleniyor";
+        StringBuilder b=new StringBuilder("Binance Futures");
+        if(!Double.isNaN(wallet))b.append(" • Cüzdan ").append(String.format(java.util.Locale.US,"%.2f USDT",wallet));
+        if(!Double.isNaN(equity))b.append(" • Equity ").append(String.format(java.util.Locale.US,"%.2f USDT",equity));
+        if(!Double.isNaN(available))b.append(" • Kullanılabilir ").append(String.format(java.util.Locale.US,"%.2f USDT",available));
+        return b.toString();
+    }
 '''
     main=main[:pos]+helpers+'\n'+main[pos:]
 
 b=method_bounds(main,'private void v9549FillRecentTradesCard(')
-if not b: raise SystemExit('v9.5.82 recent trades renderer missing')
+if not b: raise SystemExit('v9.5.83 recent trades renderer missing')
 a,_,e=b
 renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout box) {
         if(box==null)return;
@@ -307,6 +362,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
         else state="🟢 TARIYOR • TAZE SİNYAL / FIRSAT BEKLİYOR";
 
         StringBuilder st=new StringBuilder(state);
+        st.append("\n").append(v9583BinanceBalanceSummary());
         st.append("\nRadar: ").append(v9582RadarSummary());
         st.append(" • aktif sinyal ").append(activeSignals);
         st.append("\nAyar: ").append(margin).append(" USDT • ").append(lev).append("x • max ").append(max)
@@ -371,8 +427,8 @@ main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091822',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.82'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091823',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.83'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -388,8 +444,9 @@ checks={
     'visible live status panel':'V9582_VISIBLE_LIVE_STATUS_PANEL' in MAIN.read_text() and 'TARIYOR • TAZE SİNYAL / FIRSAT BEKLİYOR' in MAIN.read_text(),
     'active trade detail':'AUTO POZİSYON' in MAIN.read_text() and 'PLAN TP1:' in MAIN.read_text() and 'KORUMALI' in MAIN.read_text(),
     'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
-    'identity':"versionName '9.5.82'" in BUILD.read_text() and 'versionCode 26091822' in BUILD.read_text(),
+    'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'totalWalletBalance' in MAIN.read_text() and 'totalMarginBalance' in MAIN.read_text() and 'availableBalance' in MAIN.read_text(),
+    'identity':"versionName '9.5.83'" in BUILD.read_text() and 'versionCode 26091823' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.82 PC LIVE bridge integration check failed')
-print('v9.5.82 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+if not all(checks.values()): raise SystemExit('v9.5.83 PC LIVE bridge integration check failed')
+print('v9.5.83 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
