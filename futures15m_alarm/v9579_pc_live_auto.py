@@ -296,10 +296,20 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             }
         }catch(Throwable ignored){}
         try{
-            java.util.regex.Matcher m=java.util.regex.Pattern.compile(
-                "\\""+java.util.regex.Pattern.quote(key)+"\\"\\s*:\\s*\\"?([+-]?[0-9]+(?:[\\.,][0-9]+)?)",
-                java.util.regex.Pattern.CASE_INSENSITIVE).matcher(raw);
-            if(m.find())return v9549Number(m.group(1));
+            String needle=String.valueOf((char)34)+key+(char)34;
+            int p=raw.indexOf(needle);
+            if(p<0)return Double.NaN;
+            int c=raw.indexOf(':',p+needle.length());
+            if(c<0)return Double.NaN;
+            int i=c+1;
+            while(i<raw.length()&&(raw.charAt(i)==' '||raw.charAt(i)=='\t'||raw.charAt(i)==(char)34))i++;
+            int j=i;
+            while(j<raw.length()){
+                char ch=raw.charAt(j);
+                if((ch>='0'&&ch<='9')||ch=='+'||ch=='-'||ch=='.'||ch==',')j++;
+                else break;
+            }
+            if(j>i)return v9549Number(raw.substring(i,j));
         }catch(Throwable ignored){}
         return Double.NaN;
     }
@@ -454,7 +464,7 @@ checks={
     'visible live status panel':'V9582_VISIBLE_LIVE_STATUS_PANEL' in MAIN.read_text() and 'TARIYOR • TAZE SİNYAL / FIRSAT BEKLİYOR' in MAIN.read_text(),
     'active trade detail':'AUTO POZİSYON' in MAIN.read_text() and 'TP AKTİF' in MAIN.read_text() and 'KORUMALI' in MAIN.read_text(),
     'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
-    'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'totalWalletBalance' in MAIN.read_text() and 'totalMarginBalance' in MAIN.read_text() and 'availableBalance' in MAIN.read_text(),
+    'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'totalWalletBalance' in MAIN.read_text() and 'totalMarginBalance' in MAIN.read_text() and 'availableBalance' in MAIN.read_text() and 'java.util.regex.Pattern.compile' not in MAIN.read_text(),
     'TPs bound into LIVE intent':'takeProfit1' in AUTO.read_text() and 'takeProfit2' in AUTO.read_text() and 'takeProfit3' in AUTO.read_text() and 'stop/TP geometrisi' in AUTO.read_text(),
     'identity':"versionName '9.5.84'" in BUILD.read_text() and 'versionCode 26091824' in BUILD.read_text(),
 }
