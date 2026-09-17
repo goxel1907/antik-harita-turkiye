@@ -2,8 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, combineExecutionReadiness } = require('../pipeline');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
+const { buildDryRunOrder } = require('../binance-dry-run-executor');
 
 function frame(asOf, longScore, shortScore) {
   return {
@@ -159,6 +160,58 @@ test('combined pipeline gate is fail-closed until account caps, structural stop,
   assert.equal(allowed.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'), false);
   assert.equal(allowed.remainingMandatoryControls.includes('KILL_SWITCH'), false);
   assert.equal(allowed.remainingMandatoryControls.includes('LEASE_AND_LINEAGE_CLAIM'), false);
+});
+
+test('pipeline dry-run executor stays fail-closed without intent and never sends an exchange request', () => {
+  const { unified } = unifiedFixture();
+  const preflight = preflightRiskGate({ plan:qualifiedPlan(), unified });
+  const account = accountRiskCaps({
+    account:{ available:true, equity:10000, dailyRealizedPnl:-50, openPositions:1 },
+    intent:{ riskQuote:50, notionalQuote:1000, family:'ALT', familyExposureAfterQuote:1500 },
+    limits:{ maxRiskPctPerTrade:1, maxNotionalPctPerTrade:20, maxDailyLossPct:3, maxOpenPositions:3, maxFamilyExposurePct:25 }
+  });
+  const stop = structuralStopGate({ side:'LONG', entryPrice:100.05, stopPrice:98.8, structuralInvalidationPrice:99, bufferQuote:0.1 });
+  const killSwitch = killSwitchGate({ control:{ available:true, tripped:false, dryRunEnabled:true } });
+  const claim = executionClaimGate({ claim:{ claimed:true, lineageId:'lineage-regression-001' } });
+  const riskGate = combineRiskGate(preflight, account, stop, killSwitch, claim);
+  assert.equal(riskGate.ok, true);
+
+  const missingIntentExecutor = buildDryRunOrder({
+    intent:{ mode:'DRY_RUN', live:false, symbol:'BTCUSDT', side:'LONG' },
+    riskGate
+  });
+  const blocked = combineExecutionReadiness(riskGate, missingIntentExecutor);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.eligibleForDryRun, false);
+  assert.equal(blocked.liveAllowed, false);
+  assert.ok(blocked.remainingMandatoryControls.includes('BINANCE_DRY_RUN_EXECUTOR'));
+
+  const dryRunExecutor = buildDryRunOrder({
+    intent:{
+      mode:'DRY_RUN',
+      live:false,
+      action:'OPEN',
+      symbol:'BTCUSDT',
+      side:'LONG',
+      orderType:'MARKET',
+      quantity:0.01,
+      entryPrice:100.05,
+      stopPrice:98.8,
+      clientOrderId:'dryrun-regression-001',
+      lineageId:'lineage-regression-001'
+    },
+    riskGate
+  });
+  const ready = combineExecutionReadiness(riskGate, dryRunExecutor);
+  assert.equal(ready.ok, true);
+  assert.equal(ready.eligibleForDryRun, true);
+  assert.equal(ready.liveAllowed, false);
+  assert.equal(ready.execution, 'ADVISORY_ONLY');
+  assert.equal(ready.remainingMandatoryControls.includes('BINANCE_DRY_RUN_EXECUTOR'), false);
+  assert.equal(dryRunExecutor.simulated, true);
+  assert.equal(dryRunExecutor.submitted, false);
+  assert.equal(dryRunExecutor.transport.attempted, false);
+  assert.equal(dryRunExecutor.transport.requestSent, false);
 });
 
 test('missing force-order prints never become a fabricated liquidation map', () => {
