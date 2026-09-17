@@ -116,6 +116,40 @@ function scoreExpansion({ a, b, c, oiDeltaPct, spreadBps, fundingPct = 0 }) {
   return { taker, directionalMomentum, volAccel, rangeExpansion, longExpansionScore, shortExpansionScore, movementPotential };
 }
 
+function candidatePreScore(x) {
+  return Math.min(x.range24hPct,40) * 0.85 +
+    Math.min(Math.abs(x.priceChangePercent),40) * 0.25 +
+    Math.max(0, 8 - x.volumeRank * 0.04);
+}
+
+function selectCandidates(universe, limit = 32) {
+  const liquidTop = universe.slice(0,100);
+  const volatileTop = [...universe].sort((a,b)=>b.range24hPct-a.range24hPct).slice(0,100);
+  const gainerTop = [...universe]
+    .filter(x => x.priceChangePercent > 0)
+    .sort((a,b)=>b.priceChangePercent-a.priceChangePercent)
+    .slice(0,10);
+  const loserTop = [...universe]
+    .filter(x => x.priceChangePercent < 0)
+    .sort((a,b)=>a.priceChangePercent-b.priceChangePercent)
+    .slice(0,10);
+
+  const prefilterMap = new Map();
+  for (const x of [...liquidTop,...volatileTop,...gainerTop,...loserTop]) prefilterMap.set(x.symbol,x);
+  const prefilter = [...prefilterMap.values()];
+  const scored = prefilter
+    .map(x => ({ ...x, preScore:candidatePreScore(x) }))
+    .sort((a,b)=>b.preScore-a.preScore);
+
+  const forcedSymbols = new Set([...gainerTop,...loserTop].map(x => x.symbol));
+  const bySymbol = new Map(scored.map(x => [x.symbol,x]));
+  const forced = [...gainerTop,...loserTop].map(x => bySymbol.get(x.symbol)).filter(Boolean);
+  const remainder = scored.filter(x => !forcedSymbols.has(x.symbol));
+  const candidates = [...forced,...remainder].slice(0,limit);
+
+  return { liquidTop, volatileTop, gainerTop, loserTop, prefilter, candidates };
+}
+
 async function enrich(x, book, premium, prev) {
   const s = encodeURIComponent(x.symbol);
   const now = Date.now();
@@ -232,18 +266,8 @@ async function performScan() {
     .sort((a,b)=>b.quoteVolume-a.quoteVolume);
   universe.forEach((x,i)=>{x.volumeRank=i+1;});
 
-  const liquidTop = universe.slice(0,100);
-  const volatileTop = [...universe].sort((a,b)=>b.range24hPct-a.range24hPct).slice(0,100);
-  const prefilterMap = new Map();
-  for (const x of [...liquidTop,...volatileTop]) prefilterMap.set(x.symbol,x);
-  const prefilter = [...prefilterMap.values()];
-  const candidates = prefilter
-    .map(x => ({
-      ...x,
-      preScore: Math.min(x.range24hPct,40)*0.85 + Math.min(Math.abs(x.priceChangePercent),40)*0.25 + Math.max(0,24-x.volumeRank*0.12)
-    }))
-    .sort((a,b)=>b.preScore-a.preScore)
-    .slice(0,32);
+  const selection = selectCandidates(universe,32);
+  const { liquidTop, volatileTop, gainerTop, loserTop, prefilter, candidates } = selection;
 
   const enriched = await mapLimit(candidates,8,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
@@ -269,6 +293,8 @@ async function performScan() {
     universeCount:universe.length,
     liquidPrefilter:liquidTop.length,
     volatilePrefilter:volatileTop.length,
+    gainerPrefilter:gainerTop.length,
+    loserPrefilter:loserTop.length,
     combinedPrefilter:prefilter.length,
     analyzed:good.length,
     failed:enriched.filter(x=>x.error),
@@ -280,7 +306,13 @@ async function performScan() {
     shortExpansion,
     earlyTop5:leaderHunters.filter(x=>x.earlyTop5).slice(0,10),
     top5Confirmed:leaderHunters.filter(x=>x.top5Confirmed).slice(0,5),
-    notes:['LONG and SHORT expansion scores are separate hypotheses, not trade guarantees','movementPotential is direction-neutral expansion context','forming candles are excluded from short-horizon confirmation stats']
+    notes:[
+      'Top-10 24h gainers and top-10 24h losers are guaranteed deep-scan candidates before remaining slots are ranked',
+      'Volume rank is liquidity context only and no longer gets a dominant prefilter bonus',
+      'LONG and SHORT expansion scores are separate hypotheses, not trade guarantees',
+      'movementPotential is direction-neutral expansion context',
+      'forming candles are excluded from short-horizon confirmation stats'
+    ]
   };
 }
 
@@ -293,4 +325,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={scan,tfStats,scoreExpansion};
+module.exports={scan,tfStats,scoreExpansion,selectCandidates};
