@@ -25,6 +25,7 @@ let rr=0;
 const ROLE_HINTS={
   DEFAULT:[],
   FAST:['lightning','flash','mimo','spark'],
+  SCALP:['lightning','flash','mimo','spark'],
   STRUCTURE:['ultra','pickle','muse','mimo'],
   PATTERN:['ultra','muse','pickle','mimo'],
   MICROSTRUCTURE:['mimo','lightning','ultra','flash'],
@@ -38,6 +39,7 @@ function normalizeRole(v){
 function roleInstruction(role){
   switch(normalizeRole(role)){
     case 'FAST': return 'Role FAST: look for the earliest valid 1m/3m/5m opportunity. Do not wait for 15m unless the requested setup is explicitly the legacy 15m strategy. Never trade on speed alone.';
+    case 'SCALP': return 'Role SCALP: evaluate the earliest valid 1m/3m/5m scalp opportunity without waiting for 15m. Require closed-candle structure, valid liquidity/execution context and deterministic risk checks; speed alone is never enough.';
     case 'STRUCTURE': return 'Role STRUCTURE: compare 1m through 1d structure, liquidity, wick behavior and continuity. Timeframes are context, not votes. Synthetic 45m is not an independent confirmation.';
     case 'PATTERN': return 'Role PATTERN: evaluate closed-candle formations and their invalidation. Distinguish FORMING, CONFIRMED, FAILED, INVALIDATED and RECLAIMED states.';
     case 'MICROSTRUCTURE': return 'Role MICROSTRUCTURE: treat depth/CVD/OFI quality labels literally. Do not infer market-maker intent from snapshots or fabricate liquidation clusters.';
