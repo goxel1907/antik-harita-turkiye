@@ -111,6 +111,20 @@ test('account caps fail closed when any mandatory limit is missing', () => {
   assert.equal(out.caps, null);
 });
 
+test('null and blank mandatory account values fail closed instead of becoming zero', () => {
+  const input = accountCase();
+  input.account.dailyRealizedPnl = null;
+  input.intent.familyExposureAfterQuote = '   ';
+  const out = accountRiskCaps(input);
+  assert.equal(out.ok, false);
+  assert.equal(out.eligibleForDryRun, false);
+  assert.equal(out.liveAllowed, false);
+  assert.ok(out.reasons.includes('DAILY_PNL_UNAVAILABLE'));
+  assert.ok(out.reasons.includes('FAMILY_EXPOSURE_UNAVAILABLE'));
+  assert.equal(out.metrics.dailyRealizedPnl, null);
+  assert.equal(out.metrics.familyExposureAfterQuote, null);
+});
+
 test('daily realized loss at the cap blocks dry-run', () => {
   const input = accountCase();
   input.account.dailyRealizedPnl = -50;
@@ -177,6 +191,27 @@ test('SHORT structural stop stays beyond invalidation plus explicit buffer', () 
   assert.equal(out.liveAllowed, false);
   assert.equal(out.structuralBoundary, 102.5);
   assert.deepEqual(out.reasons, []);
+});
+
+test('blank structural stop fields fail closed instead of becoming zero', () => {
+  const out = structuralStopGate({
+    side:'LONG',
+    entryPrice:' ',
+    stopPrice:'',
+    structuralInvalidationPrice:'   ',
+    bufferQuote:' '
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.eligibleForDryRun, false);
+  assert.equal(out.liveAllowed, false);
+  assert.ok(out.reasons.includes('ENTRY_PRICE_INVALID'));
+  assert.ok(out.reasons.includes('STOP_PRICE_INVALID'));
+  assert.ok(out.reasons.includes('STRUCTURAL_INVALIDATION_INVALID'));
+  assert.ok(out.reasons.includes('STOP_BUFFER_INVALID'));
+  assert.equal(out.entryPrice, null);
+  assert.equal(out.stopPrice, null);
+  assert.equal(out.structuralInvalidationPrice, null);
+  assert.equal(out.bufferQuote, null);
 });
 
 test('stop inside structural invalidation buffer is blocked on both sides', () => {
