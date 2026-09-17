@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { tfStats, scoreExpansion } = require('../scanner');
+const { tfStats, scoreExpansion, selectCandidates } = require('../scanner');
 
 function k(openTime, closeTime, open, high, low, close, quote=1000, takerBuyQuote=550) {
   return [openTime,String(open),String(high),String(low),String(close),'10',closeTime,String(quote),10,'5',String(takerBuyQuote)];
@@ -52,4 +52,60 @@ test('wide spread reduces directional expansion instead of becoming a hard direc
   assert.ok(tight.longExpansionScore > wide.longExpansionScore);
   assert.equal(tight.longExpansionScore > tight.shortExpansionScore,true);
   assert.equal(wide.longExpansionScore > wide.shortExpansionScore,true);
+});
+
+test('current 24h movers are not forced into the deep-scan candidate set', () => {
+  const universe = Array.from({ length: 180 }, (_, i) => ({
+    symbol:`C${String(i+1).padStart(3,'0')}USDT`,
+    quoteVolume:180-i,
+    priceChangePercent:i === 179 ? 80 : 0.2,
+    lastPrice:1,
+    range24hPct:i === 179 ? 80 : 12-(i*0.01),
+    volumeRank:i+1
+  }));
+  const out = selectCandidates(universe, {}, 32);
+  const symbols = new Set(out.candidates.map(x => x.symbol));
+  assert.equal(symbols.has('C180USDT'), false);
+});
+
+test('prior TOP3/TOP10 approach continuity keeps an accelerating candidate in deep scan before it reaches the leaders', () => {
+  const universe = Array.from({ length: 180 }, (_, i) => ({
+    symbol:`C${String(i+1).padStart(3,'0')}USDT`,
+    quoteVolume:180-i,
+    priceChangePercent:0.1,
+    lastPrice:1,
+    range24hPct:10-(i*0.01),
+    volumeRank:i+1
+  }));
+  const target = universe[169];
+  target.priceChangePercent = 0.8;
+  target.range24hPct = 2.1;
+  const prev = {
+    bySymbol:{
+      [target.symbol]:{
+        rank:14,
+        projectedRank:3,
+        rankVelocity:5,
+        rankAcceleration:2,
+        leaderHunterScore:74,
+        leaderState:'TOP3_APPROACH',
+        side:'LONG'
+      },
+      C169USDT:{
+        rank:17,
+        projectedRank:9,
+        rankVelocity:4,
+        rankAcceleration:1,
+        leaderHunterScore:68,
+        leaderState:'TOP10_APPROACH',
+        side:'SHORT'
+      }
+    }
+  };
+  const out = selectCandidates(universe, prev, 32);
+  const symbols = out.candidates.map(x => x.symbol);
+  assert.ok(symbols.includes(target.symbol));
+  assert.ok(symbols.includes('C169USDT'));
+  assert.ok(out.continuity.some(x => x.symbol === target.symbol));
+  assert.ok(out.continuity.some(x => x.symbol === 'C169USDT'));
 });
