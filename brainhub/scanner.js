@@ -363,4 +363,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={scan,tfStats,scoreExpansion,selectCandidates};
+module.exports={scan,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields};
