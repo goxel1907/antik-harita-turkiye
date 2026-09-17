@@ -368,7 +368,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&u.pathname==='/execution/claim'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
-      try{return send(res,200,{ok:true,...store.claim(body.eventId,body.owner,body.resource,body.token)});}catch(e){return send(res,400,{ok:false,error:String(e.message||e)});}
+      try{return send(res,200,{ok:true,...store.claim(body.eventId,body.owner,body.resource,body.token,body.lineageId||body.eventId)});}catch(e){return send(res,400,{ok:false,error:String(e.message||e)});}
     }
     return send(res,404,{ok:false,error:'not found'});
   }catch(e){
