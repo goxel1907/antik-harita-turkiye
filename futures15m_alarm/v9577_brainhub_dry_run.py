@@ -122,3 +122,8 @@ checks = {
 for name, ok in checks.items(): print(('OK   ' if ok else 'FAIL '), name)
 if not all(checks.values()): raise SystemExit('v9.5.78 integration check failed')
 print('v9.5.78 OK: optional authenticated PC Brain Hub read path with local mobile fallback; live automatic order trigger locked to dry-run.')
+
+live_bridge = Path(__file__).with_name('v9579_pc_live_auto.py')
+if not live_bridge.exists():
+    raise SystemExit('v9.5.79 PC LIVE bridge file missing')
+exec(compile(live_bridge.read_text(), str(live_bridge), 'exec'), {'__name__':'__main__', '__file__':str(live_bridge)})
