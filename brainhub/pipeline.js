@@ -3,7 +3,7 @@
 const { pickCandidate } = require('./leader-committee');
 const { symbolContext, globalContext } = require('./market');
 const { breakoutExecution } = require('./engine');
-const { preflightRiskGate, accountRiskCaps } = require('./risk-gate');
+const { preflightRiskGate, accountRiskCaps, structuralStopGate } = require('./risk-gate');
 
 const FRAME_ORDER = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const FRAME_MS = {
@@ -275,24 +275,27 @@ function planFields(raw) {
     execution:'ADVISORY_ONLY'
   };
 }
-function combineRiskGate(preflight, accountCaps) {
+function combineRiskGate(preflight, accountCaps, structuralStop) {
   const preflightReasons = Array.isArray(preflight?.reasons) ? preflight.reasons : [];
   const accountReasons = Array.isArray(accountCaps?.reasons) ? accountCaps.reasons : [];
-  const remaining = Array.isArray(preflight?.remainingMandatoryControls) ? preflight.remainingMandatoryControls.filter(x => x !== 'ACCOUNT_RISK_CAPS') : [];
+  const stopReasons = Array.isArray(structuralStop?.reasons) ? structuralStop.reasons : [];
+  const remaining = Array.isArray(preflight?.remainingMandatoryControls) ? preflight.remainingMandatoryControls.filter(x => !['ACCOUNT_RISK_CAPS','STRUCTURAL_STOP_AND_NO_WIDEN'].includes(x)) : [];
   if (!accountCaps?.ok) remaining.push('ACCOUNT_RISK_CAPS');
+  if (!structuralStop?.ok) remaining.push('STRUCTURAL_STOP_AND_NO_WIDEN');
   return {
     ...preflight,
-    ok:Boolean(preflight?.ok && accountCaps?.ok),
-    eligibleForDryRun:Boolean(preflight?.eligibleForDryRun && accountCaps?.eligibleForDryRun),
+    ok:Boolean(preflight?.ok && accountCaps?.ok && structuralStop?.ok),
+    eligibleForDryRun:Boolean(preflight?.eligibleForDryRun && accountCaps?.eligibleForDryRun && structuralStop?.eligibleForDryRun),
     liveAllowed:false,
     execution:'ADVISORY_ONLY',
     preflight,
     accountCaps,
-    reasons:[...new Set([...preflightReasons, ...accountReasons])],
+    structuralStop,
+    reasons:[...new Set([...preflightReasons, ...accountReasons, ...stopReasons])],
     remainingMandatoryControls:[...new Set(remaining)]
   };
 }
-async function run({ scan, committee, store, accountRisk = null }) {
+async function run({ scan, committee, store, accountRisk = null, stopRisk = null }) {
   const candidate = pickCandidate(scan);
   if (!candidate) return { ok:true, candidateFound:false, reason:'NO_QUALIFIED_EARLY_EXPANSION', committeeCalled:false, execution:'ADVISORY_ONLY' };
   const [symbol, global] = await Promise.all([symbolContext(candidate.symbol), globalContext()]);
@@ -341,7 +344,8 @@ async function run({ scan, committee, store, accountRisk = null }) {
   const plan = planFields(result.text);
   const preflight = preflightRiskGate({ plan, unified });
   const accountCaps = accountRiskCaps(accountRisk || {});
-  const riskGate = combineRiskGate(preflight, accountCaps);
+  const structuralStop = structuralStopGate({ ...(stopRisk || {}), side:plan.side });
+  const riskGate = combineRiskGate(preflight, accountCaps, structuralStop);
   const out = {
     ok:true,
     candidateFound:true,
