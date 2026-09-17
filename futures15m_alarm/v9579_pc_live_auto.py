@@ -7,15 +7,45 @@ AUTO=JAVA/'AutoTradeEngine.java'
 MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (AUTO,MAIN,BUILD):
-    if not p.exists(): raise SystemExit('v9.5.81 missing '+str(p))
+    if not p.exists(): raise SystemExit('v9.5.82 missing '+str(p))
+
+def method_bounds(src, signature_fragment):
+    a=src.find(signature_fragment)
+    if a<0:return None
+    b=src.find('{',a)
+    if b<0:return None
+    depth=1;i=b+1;ins=inc=esc=lc=bc=False
+    while i<len(src) and depth:
+        c=src[i];n=src[i+1] if i+1<len(src) else ''
+        if lc:
+            if c=='\n':lc=False
+        elif bc:
+            if c=='*' and n=='/':bc=False;i+=1
+        elif ins:
+            if esc:esc=False
+            elif c=='\\':esc=True
+            elif c=='"':ins=False
+        elif inc:
+            if esc:esc=False
+            elif c=='\\':esc=True
+            elif c=="'":inc=False
+        else:
+            if c=='/' and n=='/':lc=True;i+=1
+            elif c=='/' and n=='*':bc=True;i+=1
+            elif c=='"':ins=True
+            elif c=="'":inc=True
+            elif c=='{':depth+=1
+            elif c=='}':depth-=1
+        i+=1
+    return None if depth else (a,b,i)
 
 auto=AUTO.read_text()
 if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.81 requires v9.5.78 dry-run lock first')
+    raise SystemExit('v9.5.82 requires v9.5.78 dry-run lock first')
 start=auto.find('    // V9577_DRY_RUN_LOCK:')
 end=auto.find('    private static void run(Context c,String s)',start)
 if start<0 or end<0:
-    raise SystemExit('v9.5.81 AutoTradeEngine dry-run anchor changed')
+    raise SystemExit('v9.5.82 AutoTradeEngine dry-run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
@@ -61,6 +91,7 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             if(pcMaxPositions>0&&maxPositions>pcMaxPositions)throw new Exception("telefon max pozisyon "+maxPositions+", PC güvenlik tavanı "+pcMaxPositions);
 
             p.edit().putBoolean("v9522_order_inflight_"+s,true).apply();
+            status(p,s,"PC LIVE ÖN KONTROL • "+s+" "+side+" • risk / lineage / grant doğrulanıyor");
 
             // Public Binance data only: no API key/secret and no signed order from Android.
             double live=new JSONObject(http(c,"GET","/fapi/v1/ticker/price",map("symbol",s),false)).getDouble("price");
@@ -91,7 +122,24 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             boolean protectedEntry=out.optBoolean("ok",false)&&out.optBoolean("orderPlaced",false)&&out.optBoolean("stopProtected",false);
             boolean uncertain=out.optBoolean("manualReviewRequired",false)||"LIVE_ENTRY_REVIEW_REQUIRED".equals(out.optString("execution"));
             if(protectedEntry){
-                p.edit().putLong("v9522_order_sent_signal_"+s,ts).putLong("v9576_last_auto_"+s,now).apply();
+                double tp1=d(p,"v9518_signal_tp1_"+s),tp2=d(p,"v9518_signal_tp2_"+s),tp3=d(p,"v9518_signal_tp3_"+s);
+                android.content.SharedPreferences.Editor ed=p.edit()
+                    .putLong("v9522_order_sent_signal_"+s,ts).putLong("v9576_last_auto_"+s,now)
+                    .putString("v9550_trade_margin_"+s,fmt(margin))
+                    .putString("v9550_trade_leverage_"+s,Integer.toString(configuredLev))
+                    .putString("v9550_trade_side_"+s,side)
+                    .putLong("v9550_trade_open_ts_"+s,now)
+                    .putString("v9582_trade_entry_ref_"+s,fmt(entry))
+                    .putString("v9582_trade_stop_"+s,fmt(stop))
+                    .putString("v9582_trade_qty_"+s,out.optString("executedQty",fmt(qty)))
+                    .putString("v9582_trade_entry_order_id_"+s,out.optString("entryOrderId",""))
+                    .putString("v9582_trade_stop_algo_id_"+s,out.optString("stopAlgoId",""))
+                    .putBoolean("v9582_trade_stop_protected_"+s,out.optBoolean("stopProtected",false))
+                    .putLong("v9582_trade_meta_ts_"+s,now);
+                if(!bad(tp1))ed.putString("v9582_trade_tp1_"+s,fmt(tp1));
+                if(!bad(tp2))ed.putString("v9582_trade_tp2_"+s,fmt(tp2));
+                if(!bad(tp3))ed.putString("v9582_trade_tp3_"+s,fmt(tp3));
+                ed.apply();
                 String msg="PC LIVE KORUMALI GİRİŞ • "+s+" "+side+" • "+fmt(margin)+" USDT • "+configuredLev+"x • max "+maxPositions;
                 status(p,s,msg);BrainLearning.recordExecution(c,s,msg);return;
             }
@@ -124,13 +172,207 @@ repls=[
     ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
 ]
 for old,new in repls:
-    if old not in main: raise SystemExit('v9.5.81 MainActivity anchor missing: '+old[:70])
+    if old not in main: raise SystemExit('v9.5.82 MainActivity anchor missing: '+old[:70])
     main=main.replace(old,new,1)
+
+# V9582_VISIBLE_LIVE_STATUS_PANEL
+# Replace the historical-only real-trades card with a persistent operating-state
+# panel. It reads local radar/signal/account snapshots and probes BrainHub LIVE
+# status at a throttled interval. No order/cancel side effects live here.
+if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
+    pos=main.rfind('}')
+    if pos<0: raise SystemExit('v9.5.82 MainActivity close missing')
+    helpers=r'''
+    // ============================================================
+    // V9582_VISIBLE_LIVE_STATUS_PANEL
+    // UI/read-only telemetry. No Binance order/cancel side effects.
+    // ============================================================
+    private volatile long v9582PcProbeAt=0L;
+    private volatile boolean v9582PcProbeBusy=false;
+
+    private void v9582MaybeProbePcLive(){
+        final long now=System.currentTimeMillis();
+        if(v9582PcProbeBusy||now-v9582PcProbeAt<5000L)return;
+        v9582PcProbeAt=now;v9582PcProbeBusy=true;
+        v9522Io.execute(()->{
+            android.content.SharedPreferences sp=v9522Prefs();
+            try{
+                org.json.JSONObject st=BrainHubClient.liveStatus(this);
+                sp.edit().putBoolean("v9582_pc_probe_ok",true)
+                    .putBoolean("v9582_pc_armed",st.optBoolean("armed",false))
+                    .putString("v9582_pc_expires_at",st.optString("expiresAt",""))
+                    .putString("v9582_pc_execution",st.optString("execution",""))
+                    .putLong("v9582_pc_probe_ts",System.currentTimeMillis()).apply();
+            }catch(Throwable e){
+                sp.edit().putBoolean("v9582_pc_probe_ok",false)
+                    .putString("v9582_pc_probe_error",e.getClass().getSimpleName())
+                    .putLong("v9582_pc_probe_ts",System.currentTimeMillis()).apply();
+            }finally{
+                v9582PcProbeBusy=false;
+                runOnUiThread(()->{try{v9549InstallRecentTradesCard();}catch(Throwable ignored){}});
+            }
+        });
+    }
+
+    private String v9582Age(long ts){
+        if(ts<=0)return "—";
+        long sec=Math.max(0L,(System.currentTimeMillis()-ts)/1000L);
+        if(sec<60L)return sec+" sn";
+        long min=sec/60L;if(min<60L)return min+" dk";
+        return (min/60L)+" saat "+(min%60L)+" dk";
+    }
+
+    private String v9582ArmRemaining(String iso){
+        if(iso==null||iso.trim().isEmpty())return "—";
+        try{
+            java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",java.util.Locale.US);
+            f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            long ms=f.parse(iso).getTime()-System.currentTimeMillis();
+            if(ms<=0)return "süre doldu";
+            long sec=ms/1000L;return (sec/60L)+" dk "+(sec%60L)+" sn";
+        }catch(Throwable ignored){return iso;}
+    }
+
+    private int v9582ActiveSignalCount(){
+        int n=0;
+        try{
+            java.util.Map<String,?> all=v9522Prefs().getAll();
+            for(java.util.Map.Entry<String,?> e:all.entrySet())
+                if(e.getKey().startsWith("v9518_signal_active_")&&Boolean.TRUE.equals(e.getValue()))n++;
+        }catch(Throwable ignored){}
+        return n;
+    }
+
+    private boolean v9582AnyInflight(){
+        try{
+            java.util.Map<String,?> all=v9522Prefs().getAll();
+            for(java.util.Map.Entry<String,?> e:all.entrySet())
+                if(e.getKey().startsWith("v9522_order_inflight_")&&Boolean.TRUE.equals(e.getValue()))return true;
+        }catch(Throwable ignored){}
+        return false;
+    }
+
+    private String v9582RadarSummary(){
+        try{
+            String raw=V9538MarketRadarEngine.latestJson(this);
+            org.json.JSONObject j=new org.json.JSONObject(raw);
+            long at=j.optLong("updatedAt",0L);
+            org.json.JSONArray rows=j.optJSONArray("rows");
+            int n=rows==null?0:rows.length();
+            return n+" aday • son tarama "+v9582Age(at)+" önce";
+        }catch(Throwable ignored){return "radar verisi bekleniyor";}
+    }
+
+    private double v9582PrefNumber(android.content.SharedPreferences sp,String primary,String fallback){
+        double x=v9549Number(sp.getString(primary,""));
+        if(Double.isNaN(x)&&fallback!=null)x=v9549Number(sp.getString(fallback,""));
+        return x;
+    }
+
+    private String v9582Level(double x){
+        if(Double.isNaN(x)||Double.isInfinite(x)||x<=0.0)return "—";
+        return java.math.BigDecimal.valueOf(x).stripTrailingZeros().toPlainString();
+    }
+'''
+    main=main[:pos]+helpers+'\n'+main[pos:]
+
+b=method_bounds(main,'private void v9549FillRecentTradesCard(')
+if not b: raise SystemExit('v9.5.82 recent trades renderer missing')
+a,_,e=b
+renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout box) {
+        if(box==null)return;
+        box.removeAllViews();
+        v9582MaybeProbePcLive();
+        android.content.SharedPreferences sp=v9522Prefs();
+        long now=System.currentTimeMillis();
+        boolean autoOn=sp.getBoolean("v9576_auto_enabled",false);
+        long probeTs=sp.getLong("v9582_pc_probe_ts",0L);
+        boolean pcFresh=probeTs>0&&now-probeTs<=15000L&&sp.getBoolean("v9582_pc_probe_ok",false);
+        boolean armed=pcFresh&&sp.getBoolean("v9582_pc_armed",false);
+        boolean inflight=v9582AnyInflight();
+        int activeSignals=v9582ActiveSignalCount();
+
+        android.widget.TextView head=text("🤖 OTO İŞLEM DURUMU • SABİT",14f,android.graphics.Color.WHITE,true);
+        box.addView(head,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        String margin=sp.getString("v9576_auto_margin","—");
+        String lev=sp.getString("v9576_auto_leverage","—");
+        int max=sp.getInt("v9576_auto_max_positions",1);
+        boolean lng=sp.getBoolean("v9576_auto_long",true),sht=sp.getBoolean("v9576_auto_short",true);
+        String state;
+        if(!autoOn) state="⏹ OTO MOTOR KAPALI";
+        else if(!pcFresh) state="🟡 OTO AÇIK • PC LIVE DURUMU YENİLENİYOR";
+        else if(!armed) state="🟠 OTO HAZIR • PC ARM KAPALI";
+        else if(inflight) state="🔵 SİNYAL İŞLENİYOR • RİSK / LINEAGE / GRANT KONTROLÜ";
+        else state="🟢 TARIYOR • TAZE SİNYAL / FIRSAT BEKLİYOR";
+
+        StringBuilder st=new StringBuilder(state);
+        st.append("\nRadar: ").append(v9582RadarSummary());
+        st.append(" • aktif sinyal ").append(activeSignals);
+        st.append("\nAyar: ").append(margin).append(" USDT • ").append(lev).append("x • max ").append(max)
+          .append(" • ").append(lng?"LONG ":"").append(sht?"SHORT":"");
+        if(pcFresh){
+            st.append("\nPC LIVE: ").append(armed?"ARMED":"KAPALI");
+            if(armed)st.append(" • kalan ").append(v9582ArmRemaining(sp.getString("v9582_pc_expires_at","")));
+        }
+        String last=sp.getString("v9576_auto_last_status","");
+        if(last!=null&&!last.trim().isEmpty())st.append("\nSon motor durumu: ").append(last.trim());
+        int stateBg=!autoOn?android.graphics.Color.rgb(51,65,85)
+                :(!armed?android.graphics.Color.rgb(120,74,18)
+                :(inflight?android.graphics.Color.rgb(30,64,175):android.graphics.Color.rgb(20,83,45)));
+        android.widget.TextView status=text(st.toString(),11.8f,android.graphics.Color.WHITE,false);
+        status.setPadding(dp(9),dp(7),dp(9),dp(7));status.setBackgroundColor(stateBg);
+        android.widget.LinearLayout.LayoutParams slp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.setMargins(0,dp(6),0,0);box.addView(status,slp);
+
+        java.util.ArrayList<V9549TradeRow> rows=v9549RecentTradeRows();
+        int openShown=0;
+        for(V9549TradeRow r:rows){
+            v9550EnrichTradeRow(r);
+            boolean open="AÇIK".equalsIgnoreCase(r.status)||"ACIK".equalsIgnoreCase(r.status)||"OPEN".equalsIgnoreCase(r.status);
+            if(!open)continue;
+            openShown++;
+            double shownMargin=v9552OpeningMargin(r.symbol);
+            if(Double.isNaN(shownMargin)||shownMargin<=0.0)shownMargin=r.margin;
+            double shownPnl=v9552LiveOpenPnl(r.symbol);
+            double shownRoi=(!Double.isNaN(shownPnl)&&!Double.isNaN(shownMargin)&&shownMargin>0.0)?(shownPnl/shownMargin)*100.0:Double.NaN;
+            double entry=v9582PrefNumber(sp,"v9582_trade_entry_ref_"+r.symbol,"v9518_signal_price_"+r.symbol);
+            double stop=v9582PrefNumber(sp,"v9582_trade_stop_"+r.symbol,"v9518_signal_stop_"+r.symbol);
+            double tp1=v9582PrefNumber(sp,"v9582_trade_tp1_"+r.symbol,"v9518_signal_tp1_"+r.symbol);
+            double tp2=v9582PrefNumber(sp,"v9582_trade_tp2_"+r.symbol,"v9518_signal_tp2_"+r.symbol);
+            double tp3=v9582PrefNumber(sp,"v9582_trade_tp3_"+r.symbol,"v9518_signal_tp3_"+r.symbol);
+            boolean stopProtected=sp.getBoolean("v9582_trade_stop_protected_"+r.symbol,false);
+            StringBuilder x=new StringBuilder();
+            x.append("⚡ AUTO POZİSYON • ").append(r.symbol);
+            if(r.side!=null&&!r.side.isEmpty())x.append(" • ").append(r.side);
+            x.append("\nMarj: ").append((Double.isNaN(shownMargin)||shownMargin<=0.0)?"—":String.format(java.util.Locale.US,"%.2f USDT",shownMargin));
+            x.append(" • Kaldıraç: ").append(Double.isNaN(r.leverage)?lev+"x":String.format(java.util.Locale.US,"%.0fx",r.leverage));
+            x.append("\nCanlı PnL: ").append(Double.isNaN(shownPnl)?"—":v9549Fmt(shownPnl," USDT"));
+            x.append(" • ROI: ").append(v9549Fmt(shownRoi,"%"));
+            x.append("\nGiriş ref: ").append(v9582Level(entry));
+            x.append(" • STOP: ").append(v9582Level(stop)).append(stopProtected?" ✓ KORUMALI":" • doğrulama bekliyor");
+            x.append("\nPLAN TP1: ").append(v9582Level(tp1)).append(" • TP2: ").append(v9582Level(tp2)).append(" • TP3: ").append(v9582Level(tp3));
+            android.widget.TextView tv=text(x.toString(),12.2f,android.graphics.Color.WHITE,true);
+            tv.setPadding(dp(9),dp(7),dp(9),dp(7));
+            int bg=Double.isNaN(shownPnl)?android.graphics.Color.rgb(22,36,51)
+                    :(shownPnl>=0?android.graphics.Color.rgb(20,83,45):android.graphics.Color.rgb(127,29,29));
+            tv.setBackgroundColor(bg);
+            android.widget.LinearLayout.LayoutParams lp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0,dp(7),0,0);box.addView(tv,lp);
+        }
+        if(openShown==0){
+            android.widget.TextView wait=text("Açık oto pozisyon yok • uygun sinyal oluşursa burada coin / yön / canlı PnL / STOP / PLAN TP seviyeleri görünür.",
+                    11.2f,android.graphics.Color.rgb(148,163,184),false);
+            wait.setPadding(0,dp(6),0,0);
+            box.addView(wait,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+    }'''
+main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091821',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.81'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091822',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.82'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -143,8 +385,11 @@ checks={
     'live toggle persists':'putBoolean("v9576_auto_short",sht.isChecked()).putBoolean("v9576_auto_enabled",en.isChecked())' in MAIN.read_text(),
     'emergency stop stays off':'BUTTON_NEUTRAL).setOnClickListener(v->{sp.edit().putBoolean("v9576_auto_enabled",false).apply();' in MAIN.read_text(),
     'dynamic trade settings':'requestedMarginQuote' in AUTO.read_text() and 'requestedLeverage' in AUTO.read_text() and 'requestedMaxOpenPositions' in AUTO.read_text(),
-    'identity':"versionName '9.5.81'" in BUILD.read_text() and 'versionCode 26091821' in BUILD.read_text(),
+    'visible live status panel':'V9582_VISIBLE_LIVE_STATUS_PANEL' in MAIN.read_text() and 'TARIYOR • TAZE SİNYAL / FIRSAT BEKLİYOR' in MAIN.read_text(),
+    'active trade detail':'AUTO POZİSYON' in MAIN.read_text() and 'PLAN TP1:' in MAIN.read_text() and 'KORUMALI' in MAIN.read_text(),
+    'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
+    'identity':"versionName '9.5.82'" in BUILD.read_text() and 'versionCode 26091822' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.81 PC LIVE bridge integration check failed')
-print('v9.5.81 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+if not all(checks.values()): raise SystemExit('v9.5.82 PC LIVE bridge integration check failed')
+print('v9.5.82 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
