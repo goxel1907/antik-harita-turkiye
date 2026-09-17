@@ -71,8 +71,12 @@ function log(s){
 }
 function send(res,code,obj){
   const b=JSON.stringify(obj,null,2);
-  res.writeHead(code,{'content-type':'application/json; charset=utf-8','content-length':Buffer.byteLength(b)});
+  res.writeHead(code,{'content-type':'application/json; charset=utf-8','content-length':Buffer.byteLength(b),'cache-control':'no-store'});
   res.end(b);
+}
+function sendBuffer(res,code,buffer,type,extra={}){
+  res.writeHead(code,{'content-type':type,'content-length':buffer.length,'cache-control':'no-store','x-content-type-options':'nosniff',...extra});
+  res.end(buffer);
 }
 function isLoopback(req){
   return ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
@@ -176,7 +180,7 @@ const server=http.createServer(async(req,res)=>{
     const u=new URL(req.url,'http://127.0.0.1');
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.78-B',execution:'ADVISORY_ONLY',database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD']});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.78-C',execution:'ADVISORY_ONLY',database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED']});
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({model,status:state.has(model)?(state.get(model).ok?'healthy':'cooldown'):'untested',last:state.get(model)?.at||null,error:state.get(model)?.error||null}));
@@ -314,6 +318,26 @@ const server=http.createServer(async(req,res)=>{
       const [sym,global,scan]=await Promise.all([market.symbolContext(symbol),market.globalContext(),scanner.scan()]);
       const unified=pipeline.buildUnifiedContext({symbol:sym,global,candidate:candidateForSymbol(scan,symbol)});
       return send(res,200,{ok:true,...unified});
+    }
+    if(req.method==='GET'&&u.pathname==='/chart/data'){
+      const symbol=(u.searchParams.get('symbol')||'').toUpperCase();
+      const tf=(u.searchParams.get('tf')||'15m').toLowerCase();
+      const bars=Number(u.searchParams.get('bars')||128);
+      if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
+      try{return send(res,200,await market.chartContext(symbol,tf,bars));}
+      catch(e){return send(res,400,{ok:false,error:String(e.message||e)});}
+    }
+    if(req.method==='GET'&&u.pathname==='/chart/png'){
+      const symbol=(u.searchParams.get('symbol')||'').toUpperCase();
+      const tf=(u.searchParams.get('tf')||'15m').toLowerCase();
+      const mode=(u.searchParams.get('mode')||'clean').toLowerCase();
+      const bars=Number(u.searchParams.get('bars')||128);
+      if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
+      try{
+        const chart=await market.chartContext(symbol,tf,bars);
+        const png=market.renderChartPng(chart,mode);
+        return sendBuffer(res,200,png,'image/png',{'x-brainhub-symbol':symbol,'x-brainhub-timeframe':tf,'x-brainhub-chart-mode':mode});
+      }catch(e){return send(res,400,{ok:false,error:String(e.message||e)});}
     }
     if(req.method==='GET'&&u.pathname==='/leader/committee'){
       const scan=await scanner.scan();
