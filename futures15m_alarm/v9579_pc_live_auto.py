@@ -7,15 +7,15 @@ AUTO=JAVA/'AutoTradeEngine.java'
 MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (AUTO,MAIN,BUILD):
-    if not p.exists(): raise SystemExit('v9.5.79 missing '+str(p))
+    if not p.exists(): raise SystemExit('v9.5.80 missing '+str(p))
 
 auto=AUTO.read_text()
 if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.79 requires v9.5.78 dry-run lock first')
+    raise SystemExit('v9.5.80 requires v9.5.78 dry-run lock first')
 start=auto.find('    // V9577_DRY_RUN_LOCK:')
 end=auto.find('    private static void run(Context c,String s)',start)
 if start<0 or end<0:
-    raise SystemExit('v9.5.79 AutoTradeEngine dry-run anchor changed')
+    raise SystemExit('v9.5.80 AutoTradeEngine dry-run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
@@ -50,14 +50,15 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
 
             double margin=Double.parseDouble(p.getString("v9576_auto_margin",p.getString("v9522_last_margin","0")));
             int configuredLev=Integer.parseInt(p.getString("v9576_auto_leverage",p.getString("v9522_last_leverage","0")));
-            if(!(margin>0)||configuredLev<1||configuredLev>125)throw new Exception("oto marj/kaldıraç ayarı geçersiz");
+            int maxPositions=p.getInt("v9576_auto_max_positions",1);
+            if(!(margin>0)||configuredLev<1||configuredLev>125||maxPositions<1||maxPositions>5)throw new Exception("oto marj/kaldıraç/max pozisyon ayarı geçersiz");
 
             JSONObject liveStatus=BrainHubClient.liveStatus(c);
             if(!liveStatus.optBoolean("liveConfigured")||!liveStatus.optBoolean("armed"))throw new Exception("PC LIVE arm kapalı");
             JSONObject policy=liveStatus.optJSONObject("policy");
-            int policyLev=policy==null?0:policy.optInt("expectedLeverage",0);
-            if(policyLev<1||policyLev>125)throw new Exception("PC LIVE kaldıraç policy eksik");
-            if(configuredLev!=policyLev)throw new Exception("telefon kaldıraç "+configuredLev+"x, PC policy "+policyLev+"x; eşitleyin");
+            JSONObject limits=policy==null?null:policy.optJSONObject("limits");
+            int pcMaxPositions=limits==null?0:limits.optInt("maxOpenPositions",0);
+            if(pcMaxPositions>0&&maxPositions>pcMaxPositions)throw new Exception("telefon max pozisyon "+maxPositions+", PC güvenlik tavanı "+pcMaxPositions);
 
             p.edit().putBoolean("v9522_order_inflight_"+s,true).apply();
 
@@ -68,7 +69,7 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             if(lot==null)throw new Exception("MARKET_LOT_SIZE/LOT_SIZE filtresi yok");
             double step=lot.optDouble("stepSize",0),min=lot.optDouble("minQty",0),max=lot.optDouble("maxQty",Double.POSITIVE_INFINITY);
             if(!(step>0)||!(min>=0)||!(max>0))throw new Exception("lot filtresi geçersiz");
-            double qty=floor(margin*policyLev/live,step);
+            double qty=floor(margin*configuredLev/live,step);
             if(!(qty>0)||qty<min||qty>max)throw new Exception("hesaplanan miktar Binance lot sınırı dışında");
 
             String tsText=Long.toString(ts),tail=tsText.substring(Math.max(0,tsText.length()-10));
@@ -82,6 +83,7 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             order.put("action","OPEN");order.put("symbol",s);order.put("side",lng?"LONG":"SHORT");order.put("orderType","MARKET");
             order.put("quantity",qty);order.put("entryPrice",entry);order.put("stopPrice",stop);order.put("clientOrderId",clientId);order.put("lineageId",lineage);
             JSONObject body=new JSONObject();body.put("eventId",eventId);body.put("order",order);
+            body.put("requestedMarginQuote",margin);body.put("requestedLeverage",configuredLev);body.put("requestedMaxOpenPositions",maxPositions);
             // Existing deterministic signal stores one structural stop boundary; no separate buffer field exists on mobile yet.
             body.put("structuralInvalidationPrice",stop);body.put("bufferQuote",0.0);body.put("initialStopPrice",stop);
 
@@ -90,7 +92,7 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             boolean uncertain=out.optBoolean("manualReviewRequired",false)||"LIVE_ENTRY_REVIEW_REQUIRED".equals(out.optString("execution"));
             if(protectedEntry){
                 p.edit().putLong("v9522_order_sent_signal_"+s,ts).putLong("v9576_last_auto_"+s,now).apply();
-                String msg="PC LIVE KORUMALI GİRİŞ • "+s+" "+side+" • "+fmt(margin)+" USDT • "+policyLev+"x";
+                String msg="PC LIVE KORUMALI GİRİŞ • "+s+" "+side+" • "+fmt(margin)+" USDT • "+configuredLev+"x • max "+maxPositions;
                 status(p,s,msg);BrainLearning.recordExecution(c,s,msg);return;
             }
             if(uncertain){
@@ -122,13 +124,13 @@ repls=[
     ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
 ]
 for old,new in repls:
-    if old not in main: raise SystemExit('v9.5.79 MainActivity anchor missing: '+old[:70])
+    if old not in main: raise SystemExit('v9.5.80 MainActivity anchor missing: '+old[:70])
     main=main.replace(old,new,1)
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091719',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.79'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091820',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.80'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -141,5 +143,5 @@ checks={
     'identity':"versionName '9.5.79'" in BUILD.read_text() and 'versionCode 26091719' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.79 PC LIVE bridge integration check failed')
-print('v9.5.79 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+if not all(checks.values()): raise SystemExit('v9.5.80 PC LIVE bridge integration check failed')
+print('v9.5.80 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
