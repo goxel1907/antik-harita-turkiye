@@ -1,6 +1,6 @@
 'use strict';
 
-const { FRAMES, analyzeFrames, microstructure } = require('./engine');
+const { NATIVE_FRAMES, analyzeFrames, microstructure } = require('./engine');
 
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
@@ -22,9 +22,9 @@ async function frameSet(symbol, base = FUTURES, path = '/fapi/v1/klines') {
   const result = {}, errors = {};
   let next = 0;
   async function worker() {
-    while (next < FRAMES.length) {
-      const frame = FRAMES[next++];
-      try { result[frame] = await getJson(base, `${path}?symbol=${symbol}&interval=${frame}&limit=72`, 12000); }
+    while (next < NATIVE_FRAMES.length) {
+      const frame = NATIVE_FRAMES[next++];
+      try { result[frame] = await getJson(base, `${path}?symbol=${symbol}&interval=${frame}&limit=${frame === '15m' ? 180 : 72}`, 12000); }
       catch (e) { errors[frame] = String(e.message || e); }
     }
   }
@@ -51,10 +51,10 @@ async function symbolContext(symbol) {
   }
   return {
     ok: true, symbol, generatedAt: new Date(now).toISOString(),
-    source: 'Binance USDT-M public REST; closed candles only',
-    timeframes: frames.value.frames, timeframeErrors: frames.value.errors,
+    source: 'Binance USDT-M public REST; closed candles only; 45m causally aggregated from three closed 15m candles',
+    timeframes: frames.frames, timeframeErrors: frames.errors,
     microstructure: micro,
-    limitations: ['REST depth snapshots do not prove resting-liquidity persistence or true OFI', 'Recent aggTrades are sampled CVD, not full session CVD', 'FVG and swing levels are structural context, not executable prices']
+    limitations: ['REST depth snapshots do not prove resting-liquidity persistence or true OFI', 'Recent aggTrades are sampled CVD, not full session CVD', 'FVG, wick sweeps and liquidity levels are structural context, not executable prices', '45m is synthetic and is not an independent vote']
   };
 }
 async function globalContext() {
@@ -85,7 +85,7 @@ async function globalContext() {
     } else marketCap.reason = 'GLOBAL_MARKET_CAP_STALE_OR_INVALID';
   } else marketCap.reason = String(gecko.reason?.message || gecko.reason);
   const unwrap = r => r.status === 'fulfilled'
-    ? { available: !!r.value.frames['15m']?.available, source: 'Binance closed candles', ...r.value }
+    ? { available: !!r.value.frames['15m']?.available, source: 'Binance closed candles; synthetic 45m from closed 15m', ...r.value }
     : { available: false, reason: String(r.reason?.message || r.reason) };
   const result = {
     ok: true, generatedAt: new Date(now).toISOString(),
