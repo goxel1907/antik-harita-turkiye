@@ -10,7 +10,7 @@ function order() {
     symbol:'BTCUSDT',
     side:'LONG',
     orderType:'MARKET',
-    quantity:0.01,
+    quantity:0.1,
     entryPrice:100,
     stopPrice:98.8,
     clientOrderId:'live-regression-001',
@@ -104,7 +104,7 @@ test('authorized MARKET entry is submitted only after preflight and returns prot
     if (path === '/fapi/v1/ticker/price') return ok({ symbol:'BTCUSDT', price:'100' });
     if (path === '/fapi/v1/positionSide/dual') return ok({ dualSidePosition:false });
     if (path === '/fapi/v3/positionRisk') return ok([{ symbol:'BTCUSDT', positionAmt:'0', leverage:'10', positionSide:'BOTH' }]);
-    if (path === '/fapi/v1/order' && method === 'POST') return ok({ orderId:123, status:'FILLED', executedQty:'0.01' });
+    if (path === '/fapi/v1/order' && method === 'POST') return ok({ orderId:123, status:'FILLED', executedQty:'0.1' });
     if (path === '/fapi/v1/algoOrder' && method === 'POST') return ok({ algoId:456, algoStatus:'NEW' });
     throw new Error(`unexpected mocked request ${method} ${path}`);
   };
@@ -162,8 +162,8 @@ test('protective STOP rejection triggers one emergency reduce-only MARKET close 
     if (path === '/fapi/v1/algoOrder' && method === 'POST') return ok({ code:-4120, msg:'mock stop rejected' }, 400);
     if (path === '/fapi/v1/order' && method === 'POST') {
       orderPosts++;
-      if (orderPosts === 1) return ok({ orderId:123, status:'FILLED', executedQty:'0.01' });
-      return ok({ orderId:789, status:'FILLED', executedQty:'0.01' });
+      if (orderPosts === 1) return ok({ orderId:123, status:'FILLED', executedQty:'0.1' });
+      return ok({ orderId:789, status:'FILLED', executedQty:'0.1' });
     }
     throw new Error(`unexpected mocked request ${method} ${path}`);
   };
