@@ -64,4 +64,86 @@ function preflightRiskGate({ plan, unified } = {}) {
   };
 }
 
-module.exports = { FRAME_ORDER, preflightRiskGate };
+function accountRiskCaps({ account, intent, limits } = {}) {
+  const reasons = [];
+  const equity = finite(account?.equity);
+  const dailyRealizedPnl = finite(account?.dailyRealizedPnl);
+  const openPositions = finite(account?.openPositions);
+  const riskQuote = finite(intent?.riskQuote);
+  const notionalQuote = finite(intent?.notionalQuote);
+  const familyExposureAfterQuote = finite(intent?.familyExposureAfterQuote);
+  const family = String(intent?.family || '').trim();
+
+  const maxRiskPctPerTrade = finite(limits?.maxRiskPctPerTrade);
+  const maxNotionalPctPerTrade = finite(limits?.maxNotionalPctPerTrade);
+  const maxDailyLossPct = finite(limits?.maxDailyLossPct);
+  const maxOpenPositions = finite(limits?.maxOpenPositions);
+  const maxFamilyExposurePct = finite(limits?.maxFamilyExposurePct);
+
+  if (account?.available !== true) reasons.push('ACCOUNT_UNAVAILABLE');
+  if (equity === null || equity <= 0) reasons.push('ACCOUNT_EQUITY_INVALID');
+  if (dailyRealizedPnl === null) reasons.push('DAILY_PNL_UNAVAILABLE');
+  if (openPositions === null || openPositions < 0 || !Number.isInteger(openPositions)) reasons.push('OPEN_POSITION_COUNT_INVALID');
+
+  if (riskQuote === null || riskQuote <= 0) reasons.push('TRADE_RISK_INVALID');
+  if (notionalQuote === null || notionalQuote <= 0) reasons.push('TRADE_NOTIONAL_INVALID');
+  if (!family) reasons.push('POSITION_FAMILY_MISSING');
+  if (familyExposureAfterQuote === null || familyExposureAfterQuote < 0) reasons.push('FAMILY_EXPOSURE_UNAVAILABLE');
+
+  if (maxRiskPctPerTrade === null || maxRiskPctPerTrade <= 0) reasons.push('MAX_RISK_LIMIT_MISSING');
+  if (maxNotionalPctPerTrade === null || maxNotionalPctPerTrade <= 0) reasons.push('MAX_NOTIONAL_LIMIT_MISSING');
+  if (maxDailyLossPct === null || maxDailyLossPct <= 0) reasons.push('MAX_DAILY_LOSS_LIMIT_MISSING');
+  if (maxOpenPositions === null || maxOpenPositions < 1 || !Number.isInteger(maxOpenPositions)) reasons.push('MAX_OPEN_POSITIONS_LIMIT_MISSING');
+  if (maxFamilyExposurePct === null || maxFamilyExposurePct <= 0) reasons.push('MAX_FAMILY_EXPOSURE_LIMIT_MISSING');
+
+  const limitsUsable = equity !== null && equity > 0 &&
+    maxRiskPctPerTrade !== null && maxRiskPctPerTrade > 0 &&
+    maxNotionalPctPerTrade !== null && maxNotionalPctPerTrade > 0 &&
+    maxDailyLossPct !== null && maxDailyLossPct > 0 &&
+    maxOpenPositions !== null && maxOpenPositions >= 1 && Number.isInteger(maxOpenPositions) &&
+    maxFamilyExposurePct !== null && maxFamilyExposurePct > 0;
+
+  const caps = limitsUsable ? {
+    riskQuote: equity * maxRiskPctPerTrade / 100,
+    notionalQuote: equity * maxNotionalPctPerTrade / 100,
+    dailyLossQuote: equity * maxDailyLossPct / 100,
+    openPositions: maxOpenPositions,
+    familyExposureQuote: equity * maxFamilyExposurePct / 100
+  } : null;
+
+  if (caps) {
+    if (riskQuote !== null && riskQuote > caps.riskQuote) reasons.push('TRADE_RISK_CAP_EXCEEDED');
+    if (notionalQuote !== null && notionalQuote > caps.notionalQuote) reasons.push('TRADE_NOTIONAL_CAP_EXCEEDED');
+    if (dailyRealizedPnl !== null && Math.max(0, -dailyRealizedPnl) >= caps.dailyLossQuote) reasons.push('DAILY_LOSS_CAP_REACHED');
+    if (openPositions !== null && openPositions >= caps.openPositions) reasons.push('OPEN_POSITION_CAP_REACHED');
+    if (familyExposureAfterQuote !== null && familyExposureAfterQuote > caps.familyExposureQuote) reasons.push('FAMILY_EXPOSURE_CAP_EXCEEDED');
+  }
+
+  const uniqueReasons = [...new Set(reasons)];
+  return {
+    ok: uniqueReasons.length === 0,
+    eligibleForDryRun: uniqueReasons.length === 0,
+    liveAllowed: false,
+    execution: 'ADVISORY_ONLY',
+    family: family || null,
+    metrics: {
+      equity,
+      dailyRealizedPnl,
+      openPositions,
+      riskQuote,
+      notionalQuote,
+      familyExposureAfterQuote
+    },
+    limits: {
+      maxRiskPctPerTrade,
+      maxNotionalPctPerTrade,
+      maxDailyLossPct,
+      maxOpenPositions,
+      maxFamilyExposurePct
+    },
+    caps,
+    reasons: uniqueReasons
+  };
+}
+
+module.exports = { FRAME_ORDER, preflightRiskGate, accountRiskCaps };
