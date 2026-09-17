@@ -20,6 +20,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
+// V9577_OPTIONAL_PC_BRAINHUB compatibility marker retained for the v9.5.78 build bootstrap.
 // V9579_PC_LIVE_BRIDGE: PC owns Binance credentials and execution; Android sends authenticated intents only.
 public final class BrainHubClient {
     private static final String PREF = "v9577_brainhub";
