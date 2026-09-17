@@ -267,10 +267,10 @@ class BinanceLiveTransport {
       const mode = await this._fetchJson('GET', '/fapi/v1/positionSide/dual', { credentials, signed:true });
       const hedgeMode = mode?.dualSidePosition === true;
       const positionSide = hedgeMode ? normalized.side : 'BOTH';
-      const positionRisk = await this._fetchJson('GET', '/fapi/v3/positionRisk', {
+      let positionRisk = await this._fetchJson('GET', '/fapi/v3/positionRisk', {
         params:{ symbol:normalized.symbol }, credentials, signed:true
       });
-      const rows = Array.isArray(positionRisk) ? positionRisk : [];
+      let rows = Array.isArray(positionRisk) ? positionRisk : [];
       if (!rows.length) {
         return {
           ok:false, orderPlaced:false, stopProtected:false, liveAllowed:false, execution:'LIVE_BLOCKED', authorization,
@@ -283,11 +283,36 @@ class BinanceLiveTransport {
           transport:{ attempted:true, requestSent:true }, reasons:['SYMBOL_POSITION_ALREADY_OPEN']
         };
       }
-      const leverages = [...new Set(rows.map(x => finite(x?.leverage)).filter(x => x !== null))];
+
+      let leverages = [...new Set(rows.map(x => finite(x?.leverage)).filter(x => x !== null))];
+      let leverageChanged = false;
       if (!leverages.length || leverages.some(x => x !== expectedLeverage)) {
+        const leverageAck = await this._fetchJson('POST', '/fapi/v1/leverage', {
+          credentials,
+          signed:true,
+          params:{ symbol:normalized.symbol, leverage:String(expectedLeverage) }
+        });
+        const acknowledgedLeverage = finite(leverageAck?.leverage);
+        if (acknowledgedLeverage !== null && acknowledgedLeverage !== expectedLeverage) {
+          return {
+            ok:false, orderPlaced:false, stopProtected:false, liveAllowed:false, execution:'LIVE_BLOCKED', authorization,
+            observedLeverages:leverages,
+            acknowledgedLeverage,
+            transport:{ attempted:true, requestSent:true }, reasons:['BINANCE_LEVERAGE_CHANGE_REJECTED']
+          };
+        }
+        leverageChanged = true;
+        positionRisk = await this._fetchJson('GET', '/fapi/v3/positionRisk', {
+          params:{ symbol:normalized.symbol }, credentials, signed:true
+        });
+        rows = Array.isArray(positionRisk) ? positionRisk : [];
+        leverages = [...new Set(rows.map(x => finite(x?.leverage)).filter(x => x !== null))];
+      }
+      if (!rows.length || !leverages.length || leverages.some(x => x !== expectedLeverage)) {
         return {
           ok:false, orderPlaced:false, stopProtected:false, liveAllowed:false, execution:'LIVE_BLOCKED', authorization,
           observedLeverages:leverages,
+          leverageChanged,
           transport:{ attempted:true, requestSent:true }, reasons:['BINANCE_LEVERAGE_MISMATCH']
         };
       }
@@ -375,6 +400,7 @@ class BinanceLiveTransport {
           side:normalized.side,
           positionSide,
           expectedLeverage,
+          leverageChanged,
           livePrice,
           entryOrderId,
           entryStatus:text(entry?.status),
