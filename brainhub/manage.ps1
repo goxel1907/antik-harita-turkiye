@@ -12,7 +12,7 @@ function Resolve-Node {
     $candidates = @((Get-Command node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue), 'C:\Users\adm\AppData\Local\OpenClaw\deps\portable-node\node.exe')
     foreach ($n in $candidates) {
         if ($n -and (Test-Path -LiteralPath $n)) {
-            $v = & $n -p 'process.versions.node.split(".")[0]'
+            $v = & $n -p 'parseInt(process.versions.node,10)'
             if ([int]$v -ge 22) { return $n }
         }
     }
