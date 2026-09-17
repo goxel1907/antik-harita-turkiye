@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { tfStats, scoreExpansion, selectCandidates } = require('../scanner');
+const { tfStats, scoreExpansion, selectCandidates, addLeaderHunterFields } = require('../scanner');
 
 function k(openTime, closeTime, open, high, low, close, quote=1000, takerBuyQuote=550) {
   return [openTime,String(open),String(high),String(low),String(close),'10',closeTime,String(quote),10,'5',String(takerBuyQuote)];
@@ -108,4 +108,51 @@ test('prior TOP3/TOP10 approach continuity keeps an accelerating candidate in de
   assert.ok(symbols.includes('C169USDT'));
   assert.ok(out.continuity.some(x => x.symbol === target.symbol));
   assert.ok(out.continuity.some(x => x.symbol === 'C169USDT'));
+});
+
+test('LONG acceleration can become TOP3_APPROACH before reaching the top three', () => {
+  const row = {
+    symbol:'EARLYLONGUSDT',
+    side:'LONG',
+    attackScore:58,
+    movementPotential:62,
+    longExpansionScore:61,
+    shortExpansionScore:12,
+    tradeQuality:76,
+    m1:1.1,
+    m3:0.8,
+    m5:0.4,
+    takerBuyRatio:0.61,
+    oiDeltaPct:0.35,
+    spreadBps:2
+  };
+  addLeaderHunterFields(row, 6, { rank:12, rankVelocity:4 });
+  assert.equal(row.top3Approach, true);
+  assert.equal(row.leaderState, 'TOP3_APPROACH');
+  assert.ok(row.projectedRank <= 3);
+  assert.ok(row.attackRank > 3);
+});
+
+test('SHORT acceleration can become TOP10_APPROACH before reaching the top ten', () => {
+  const row = {
+    symbol:'EARLYSHORTUSDT',
+    side:'SHORT',
+    attackScore:54,
+    movementPotential:58,
+    longExpansionScore:14,
+    shortExpansionScore:53,
+    tradeQuality:72,
+    m1:-0.9,
+    m3:-0.6,
+    m5:-0.3,
+    takerBuyRatio:0.39,
+    oiDeltaPct:0.25,
+    spreadBps:3
+  };
+  addLeaderHunterFields(row, 12, { rank:16, rankVelocity:3 });
+  assert.equal(row.top10Approach, true);
+  assert.equal(row.top3Approach, false);
+  assert.equal(row.leaderState, 'TOP10_APPROACH');
+  assert.ok(row.projectedRank <= 10);
+  assert.ok(row.attackRank > 10);
 });
