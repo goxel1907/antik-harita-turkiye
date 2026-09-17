@@ -3,6 +3,8 @@
 const FRAME_ORDER = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 
 function finite(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
