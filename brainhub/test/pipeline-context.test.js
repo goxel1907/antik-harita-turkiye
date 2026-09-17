@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, combineExecutionReadiness } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness } = require('../pipeline');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 const { buildDryRunOrder } = require('../binance-dry-run-executor');
 
@@ -160,6 +160,39 @@ test('combined pipeline gate is fail-closed until account caps, structural stop,
   assert.equal(allowed.remainingMandatoryControls.includes('STRUCTURAL_STOP_AND_NO_WIDEN'), false);
   assert.equal(allowed.remainingMandatoryControls.includes('KILL_SWITCH'), false);
   assert.equal(allowed.remainingMandatoryControls.includes('LEASE_AND_LINEAGE_CLAIM'), false);
+});
+
+test('claimed execution lineage must exactly match the execution intent lineage', () => {
+  const { unified } = unifiedFixture();
+  const preflight = preflightRiskGate({ plan:qualifiedPlan(), unified });
+  const account = accountRiskCaps({
+    account:{ available:true, equity:10000, dailyRealizedPnl:-50, openPositions:1 },
+    intent:{ riskQuote:50, notionalQuote:1000, family:'ALT', familyExposureAfterQuote:1500 },
+    limits:{ maxRiskPctPerTrade:1, maxNotionalPctPerTrade:20, maxDailyLossPct:3, maxOpenPositions:3, maxFamilyExposurePct:25 }
+  });
+  const stop = structuralStopGate({ side:'LONG', entryPrice:100.05, stopPrice:98.8, structuralInvalidationPrice:99, bufferQuote:0.1 });
+  const killSwitch = killSwitchGate({ control:{ available:true, tripped:false, dryRunEnabled:true } });
+  const claim = executionClaimGate({ claim:{ claimed:true, lineageId:'lineage-regression-001' } });
+  const base = combineRiskGate(preflight, account, stop, killSwitch, claim);
+  assert.equal(base.ok, true);
+
+  const mismatch = enforceExecutionLineage(base, claim, { lineageId:'lineage-regression-002' });
+  assert.equal(mismatch.ok, false);
+  assert.equal(mismatch.eligibleForDryRun, false);
+  assert.equal(mismatch.liveAllowed, false);
+  assert.equal(mismatch.lineageAlignment.ok, false);
+  assert.equal(mismatch.lineageAlignment.claimedLineageId, 'lineage-regression-001');
+  assert.equal(mismatch.lineageAlignment.intentLineageId, 'lineage-regression-002');
+  assert.ok(mismatch.reasons.includes('EXECUTION_LINEAGE_MISMATCH'));
+  assert.ok(mismatch.remainingMandatoryControls.includes('EXECUTION_LINEAGE_ALIGNMENT'));
+
+  const aligned = enforceExecutionLineage(base, claim, { lineageId:'lineage-regression-001' });
+  assert.equal(aligned.ok, true);
+  assert.equal(aligned.eligibleForDryRun, true);
+  assert.equal(aligned.liveAllowed, false);
+  assert.equal(aligned.lineageAlignment.ok, true);
+  assert.equal(aligned.reasons.includes('EXECUTION_LINEAGE_MISMATCH'), false);
+  assert.equal(aligned.remainingMandatoryControls.includes('EXECUTION_LINEAGE_ALIGNMENT'), false);
 });
 
 test('pipeline dry-run executor stays fail-closed without intent and never sends an exchange request', () => {
