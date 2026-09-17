@@ -304,6 +304,27 @@ function combineRiskGate(preflight, accountCaps, structuralStop, killSwitch, exe
     remainingMandatoryControls:[...new Set(remaining)]
   };
 }
+function normalizeLineage(v) {
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+function enforceExecutionLineage(riskGate, executionClaim, executionIntent) {
+  const claimedLineageId = normalizeLineage(executionClaim?.lineageId);
+  const intentLineageId = normalizeLineage(executionIntent?.lineageId);
+  const claimPassed = executionClaim?.ok === true;
+  const aligned = Boolean(claimPassed && claimedLineageId && intentLineageId && claimedLineageId === intentLineageId);
+  const lineageAlignment = { ok:aligned, claimedLineageId, intentLineageId };
+  if (!claimPassed || aligned) return { ...riskGate, lineageAlignment };
+  return {
+    ...riskGate,
+    ok:false,
+    eligibleForDryRun:false,
+    liveAllowed:false,
+    execution:'ADVISORY_ONLY',
+    lineageAlignment,
+    reasons:[...new Set([...(riskGate?.reasons || []), 'EXECUTION_LINEAGE_MISMATCH'])],
+    remainingMandatoryControls:[...new Set([...(riskGate?.remainingMandatoryControls || []), 'EXECUTION_LINEAGE_ALIGNMENT'])]
+  };
+}
 function combineExecutionReadiness(riskGate, dryRunExecutor) {
   const riskReasons = Array.isArray(riskGate?.reasons) ? riskGate.reasons : [];
   const executorReasons = Array.isArray(dryRunExecutor?.reasons) ? dryRunExecutor.reasons : [];
@@ -374,7 +395,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   const structuralStop = structuralStopGate({ ...(stopRisk || {}), side:plan.side });
   const killSwitchState = killSwitchGate(killSwitch || {});
   const executionClaimState = executionClaimGate({ claim:executionClaim || {} });
-  const riskGate = combineRiskGate(preflight, accountCaps, structuralStop, killSwitchState, executionClaimState);
+  const riskGateBase = combineRiskGate(preflight, accountCaps, structuralStop, killSwitchState, executionClaimState);
+  const riskGate = enforceExecutionLineage(riskGateBase, executionClaimState, executionIntent);
   const dryRunExecutor = buildDryRunOrder({
     intent:{
       ...(executionIntent || {}),
@@ -403,4 +425,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, combineExecutionReadiness, run, planFields };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, run, planFields };
