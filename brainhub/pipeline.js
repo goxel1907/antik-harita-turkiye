@@ -3,6 +3,7 @@
 const { pickCandidate } = require('./leader-committee');
 const { symbolContext, globalContext } = require('./market');
 const { breakoutExecution } = require('./engine');
+const { preflightRiskGate } = require('./risk-gate');
 
 const FRAME_ORDER = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const FRAME_MS = {
@@ -321,6 +322,7 @@ async function run({ scan, committee, store }) {
     return out;
   }
   const plan = planFields(result.text);
+  const riskGate = preflightRiskGate({ plan, unified });
   const out = {
     ok:true,
     candidateFound:true,
@@ -328,10 +330,11 @@ async function run({ scan, committee, store }) {
     unifiedContext:unified,
     committee:result,
     plan,
+    riskGate,
     execution:'ADVISORY_ONLY',
     orderPlaced:false
   };
-  out.journalId = store.journal('PLAN', candidate.symbol, { candidate, plan, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
+  out.journalId = store.journal('PLAN', candidate.symbol, { candidate, plan, riskGate, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
   return out;
 }
 
