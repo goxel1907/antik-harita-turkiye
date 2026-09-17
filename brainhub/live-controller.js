@@ -1,8 +1,9 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const { LiveAuthorizationRegistry } = require('./live-authorization');
 const { BinanceLiveTransport } = require('./binance-live-transport');
 const { assessApiPermissionDeclaration, containsSecretLikeKey } = require('./binance-account-context');
@@ -10,7 +11,6 @@ const { assessApiPermissionDeclaration, containsSecretLikeKey } = require('./bin
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
 const ID_RE = /^[A-Za-z0-9:_-]{8,128}$/;
-const DAILY_INCOME_TYPES = new Set(['REALIZED_PNL','COMMISSION','FUNDING_FEE','INSURANCE_CLEAR','COMMISSION_REBATE']);
 
 function finite(v) {
   if (v === null || v === undefined) return null;
@@ -19,10 +19,37 @@ function finite(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function text(v) {
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+function readDpapi(file) {
+  if (process.platform !== 'win32' || !fs.existsSync(file)) return null;
+  const script = [
+    '$p=$args[0]',
+    '$s=(Get-Content -LiteralPath $p -Raw).Trim() | ConvertTo-SecureString',
+    '$b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)',
+    'try {[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))}',
+    'finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}'
+  ].join(';');
+  const out = spawnSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script, file
+  ], { encoding:'utf8', windowsHide:true, timeout:5000, maxBuffer:16384 });
+  if (out.error || out.status !== 0) return null;
+  return text(out.stdout);
+}
+
+function resolveCredentials(root, supplied = {}) {
+  const apiKey = text(supplied?.apiKey) || readDpapi(path.join(root, 'config', 'binance-api-key.dpapi'));
+  const apiSecret = text(supplied?.apiSecret) || readDpapi(path.join(root, 'config', 'binance-api-secret.dpapi'));
+  return {
+    apiKey:apiKey && apiKey.length >= 8 ? apiKey : null,
+    apiSecret:apiSecret && apiSecret.length >= 8 ? apiSecret : null
+  };
+}
+
 function credentialsReady(credentials) {
-  const key = typeof credentials?.apiKey === 'string' ? credentials.apiKey.trim() : '';
-  const secret = typeof credentials?.apiSecret === 'string' ? credentials.apiSecret.trim() : '';
-  return key.length >= 8 && secret.length >= 8;
+  return Boolean(text(credentials?.apiKey)?.length >= 8 && text(credentials?.apiSecret)?.length >= 8);
 }
 
 function normalizePolicy(raw) {
@@ -50,7 +77,13 @@ function normalizePolicy(raw) {
   if (limits.maxOpenPositions === null || !Number.isInteger(limits.maxOpenPositions) || limits.maxOpenPositions < 1) reasons.push('MAX_OPEN_POSITIONS_LIMIT_MISSING');
   if (limits.maxFamilyExposurePct === null || limits.maxFamilyExposurePct <= 0) reasons.push('MAX_FAMILY_EXPOSURE_LIMIT_MISSING');
 
-  const apiPolicy = assessApiPermissionDeclaration(raw?.apiPermissions || {});
+  const declared = raw?.apiPermissions || {};
+  const apiPolicy = assessApiPermissionDeclaration({
+    configured:declared.configured === true,
+    futuresTradingEnabled:declared.futuresTradingEnabled === true || declared.futuresEnabled === true,
+    withdrawalsEnabled:declared.withdrawalsEnabled,
+    ipRestricted:declared.ipRestricted === true
+  });
   if (!apiPolicy.ok) reasons.push(...apiPolicy.reasons);
 
   return {
@@ -93,12 +126,17 @@ function utcDayStart(ts) {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, credentials, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
   const leaseToken = crypto.randomBytes(32).toString('base64url');
   let armState = { armed:false, armedAt:null, expiresAt:null };
+  let lastDisarmReason = 'STARTUP_FAIL_CLOSED';
+
+  function currentCredentials() {
+    return resolveCredentials(root, credentials);
+  }
 
   function armedNow() {
     if (!armState.armed) return false;
@@ -106,6 +144,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if (!Number.isFinite(now) || now >= armState.expiresAt) {
       registry.revokeAll();
       armState = { armed:false, armedAt:null, expiresAt:null };
+      lastDisarmReason = 'ARM_EXPIRED';
       return false;
     }
     return true;
@@ -113,60 +152,77 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
   function status() {
     const policy = readPolicy(root);
+    const creds = currentCredentials();
     const armed = armedNow();
     return {
       ok:true,
-      liveConfigured:credentialsReady(credentials) && policy.ok === true,
-      credentialsConfigured:credentialsReady(credentials),
+      liveConfigured:credentialsReady(creds) && policy.ok === true,
+      credentialsConfigured:credentialsReady(creds),
       policy:publicPolicy(policy),
       armed,
       armedAt:armed ? armState.armedAt : null,
-      expiresAt:armed ? armState.expiresAt : null,
+      expiresAt:armed ? new Date(armState.expiresAt).toISOString() : null,
       liveAllowed:false,
-      execution:armed ? 'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED' : 'LIVE_DISARMED'
+      execution:armed ? 'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED' : 'LIVE_DISARMED',
+      lastDisarmReason
     };
   }
 
   async function arm({ confirmed = false } = {}) {
+    registry.revokeAll();
+    armState = { armed:false, armedAt:null, expiresAt:null };
     const policy = readPolicy(root);
+    const creds = currentCredentials();
     const reasons = [];
     if (confirmed !== true) reasons.push('LIVE_USER_APPROVAL_REQUIRED');
-    if (!credentialsReady(credentials)) reasons.push('BINANCE_CREDENTIALS_REQUIRED');
+    if (!credentialsReady(creds)) reasons.push('BINANCE_CREDENTIALS_REQUIRED');
     if (!policy.ok) reasons.push(...(policy.reasons || ['LIVE_POLICY_REQUIRED']));
     if (reasons.length) return { ok:false, armed:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:[...new Set(reasons)] };
 
     try {
       await transport._syncServerTime();
-      const account = await transport._fetchJson('GET', '/fapi/v2/account', { credentials, signed:true });
+      const account = await transport._fetchJson('GET', '/fapi/v3/account', { credentials:creds, signed:true });
       if (!account || typeof account !== 'object') throw new Error('BINANCE_ACCOUNT_PREFLIGHT_INVALID');
+      await transport._fetchJson('GET', '/fapi/v1/positionSide/dual', { credentials:creds, signed:true });
     } catch (e) {
       return {
         ok:false,
         armed:false,
         liveAllowed:false,
         execution:'LIVE_BLOCKED',
-        reasons:[String(e.message || 'BINANCE_ACCOUNT_PREFLIGHT_FAILED')]
+        exchangeError:e?.body || null,
+        reasons:['BINANCE_FUTURES_CREDENTIAL_PROBE_FAILED']
       };
     }
 
     const now = clock();
     armState = { armed:true, armedAt:now, expiresAt:now + policy.armMinutes * 60000 };
-    registry.revokeAll();
-    return { ok:true, armed:true, liveAllowed:false, execution:'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED', armedAt:now, expiresAt:armState.expiresAt, policy:publicPolicy(policy), reasons:[] };
+    lastDisarmReason = null;
+    return {
+      ok:true,
+      armed:true,
+      liveAllowed:false,
+      execution:'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED',
+      armedAt:new Date(now).toISOString(),
+      expiresAt:new Date(armState.expiresAt).toISOString(),
+      policy:publicPolicy(policy),
+      reasons:[]
+    };
   }
 
   function disarm(reason = 'USER_DISARM') {
     const revoked = registry.revokeAll();
     armState = { armed:false, armedAt:null, expiresAt:null };
-    return { ok:true, armed:false, liveAllowed:false, execution:'LIVE_DISARMED', revokedGrants:revoked, reason };
+    lastDisarmReason = text(reason) || 'USER_DISARM';
+    return { ok:true, armed:false, liveAllowed:false, execution:'LIVE_DISARMED', revokedGrants:revoked, reason:lastDisarmReason };
   }
 
-  async function accountRiskFor(order, policy) {
+  async function accountRiskFor(order, policy, creds) {
     await transport._syncServerTime();
-    const account = await transport._fetchJson('GET', '/fapi/v2/account', { credentials, signed:true });
+    const account = await transport._fetchJson('GET', '/fapi/v3/account', { credentials:creds, signed:true });
     const income = await transport._fetchJson('GET', '/fapi/v1/income', {
-      params:{ startTime:utcDayStart(clock()), limit:1000 },
-      credentials,
+      params:{ incomeType:'REALIZED_PNL', startTime:utcDayStart(clock()), limit:1000 },
+      credentials:creds,
       signed:true
     });
     if (!Array.isArray(income)) throw new Error('BINANCE_DAILY_INCOME_UNAVAILABLE');
@@ -182,14 +238,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       const amt = finite(x?.positionAmt), mark = finite(x?.markPrice);
       return sum + (amt !== null && mark !== null ? Math.abs(amt * mark) : 0);
     }, 0);
-    const dailyRealizedPnl = income.reduce((sum, x) => {
-      if (!DAILY_INCOME_TYPES.has(String(x?.incomeType || '').toUpperCase())) return sum;
-      const value = finite(x?.income);
-      return sum + (value === null ? 0 : value);
-    }, 0);
+    const dailyRealizedPnl = income.reduce((sum, x) => sum + (finite(x?.income) || 0), 0);
     const quantity = finite(order?.quantity), entryPrice = finite(order?.entryPrice), stopPrice = finite(order?.stopPrice);
-    const notionalQuote = quantity !== null && entryPrice !== null ? quantity * entryPrice : null;
-    const riskQuote = quantity !== null && entryPrice !== null && stopPrice !== null ? quantity * Math.abs(entryPrice - stopPrice) : null;
+    const notionalQuote = quantity !== null && entryPrice !== null ? Math.abs(quantity * entryPrice) : null;
+    const riskQuote = quantity !== null && entryPrice !== null && stopPrice !== null ? Math.abs(quantity * (entryPrice - stopPrice)) : null;
 
     return {
       account:{
@@ -211,27 +263,37 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
   async function execute(body = {}) {
     const policy = readPolicy(root);
+    const creds = currentCredentials();
     if (!armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_NOT_ARMED'] };
     if (!policy.ok) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:policy.reasons || ['LIVE_POLICY_REQUIRED'] };
-    if (!credentialsReady(credentials)) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['BINANCE_CREDENTIALS_REQUIRED'] };
+    if (!credentialsReady(creds)) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['BINANCE_CREDENTIALS_REQUIRED'] };
 
-    const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : '';
+    const eventId = text(body?.eventId) || '';
     const order = body?.order || {};
-    const lineageId = typeof order?.lineageId === 'string' ? order.lineageId.trim() : '';
+    const lineageId = text(order?.lineageId) || '';
     if (!ID_RE.test(eventId) || !ID_RE.test(lineageId)) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['EVENT_OR_LINEAGE_INVALID'] };
 
     let accountRisk;
-    try { accountRisk = await accountRiskFor(order, policy); }
-    catch (e) { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_PREFLIGHT_BLOCKED', reasons:[String(e.message || e)] }; }
+    try { accountRisk = await accountRiskFor(order, policy, creds); }
+    catch (e) {
+      return {
+        ok:false,
+        orderPlaced:false,
+        liveAllowed:false,
+        execution:'LIVE_PREFLIGHT_BLOCKED',
+        exchangeError:e?.body || null,
+        reasons:[String(e.message || 'BINANCE_ACCOUNT_PREFLIGHT_FAILED').slice(0,160)]
+      };
+    }
 
     let lease;
     try { lease = store.lease('acquire', LIVE_RESOURCE, LIVE_OWNER, leaseToken, 60000); }
-    catch (e) { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:[String(e.message || e)] }; }
+    catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_LEASE_FAILED'] }; }
     if (!lease?.acquired) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_LEASE_UNAVAILABLE'] };
 
     let claim;
     try { claim = store.claim(eventId, LIVE_OWNER, LIVE_RESOURCE, leaseToken, lineageId); }
-    catch (e) { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:[String(e.message || e)] }; }
+    catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['EXECUTION_CLAIM_FAILED'] }; }
     if (!claim?.claimed) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, reasons:[claim?.reason || 'EXECUTION_CLAIM_REJECTED'] };
 
     const stopRisk = {
@@ -245,7 +307,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
     let scan;
     try { scan = await scanner.scan(); }
-    catch (e) { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, reasons:['SCANNER_UNAVAILABLE'] }; }
+    catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, reasons:['SCANNER_UNAVAILABLE'] }; }
 
     let planResult;
     try {
@@ -288,7 +350,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const result = await transport.submit({
       grantId:grant.grant.grantId,
       order,
-      credentials,
+      credentials:creds,
       livePolicy:{ expectedLeverage:policy.expectedLeverage, maxEntryDeviationPct:policy.maxEntryDeviationPct }
     });
 
@@ -314,4 +376,4 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   return { status, arm, disarm, execute, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
-module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, createLiveController };
+module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, createLiveController };
