@@ -20,5 +20,5 @@
     "kiroStream": true,
     "probeOnStart": true,
     "healthCacheSeconds": 600,
-    "opencodeCliFallback": true
+    "opencodeOfficialFreeInferenceFallback": true
 }
