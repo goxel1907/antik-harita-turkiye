@@ -209,7 +209,25 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         $committeeCalled = $false
         if ($null -ne $plan.PSObject.Properties['committeeCalled']) { $committeeCalled = [bool]$plan.committeeCalled }
         Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
-        $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 180
+        try {
+            $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 240
+        } catch {
+            Write-Host '========== 9TF VISION PROBE HATA ==========' -ForegroundColor Red
+            if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
+            try {
+                $mh = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/healthy' -Headers $headers -TimeoutSec 10
+                Write-Host '========== MODEL / VISION SAGLIK ==========' -ForegroundColor Yellow
+                foreach ($m in @($mh.models)) {
+                    Write-Host ("{0} text={1} vision={2} visionError={3}" -f $m.model,$m.status,$m.visionStatus,$m.visionError)
+                }
+            } catch {}
+            $brainLog = Join-Path $BrainRoot 'logs\brainpub.log'
+            if (Test-Path -LiteralPath $brainLog) {
+                Write-Host '========== BRAINHUB LOG SON 100 ==========' -ForegroundColor Yellow
+                Get-Content -LiteralPath $brainLog -Tail 100
+            }
+            throw
+        }
         if (-not $vision.ok -or $vision.charts.attached -lt 9 -or $vision.vision.attached -lt 9 -or [string]::IsNullOrWhiteSpace([string]$vision.model)) {
             throw '9TF Vision model okuma testi gecmedi; grafikler uretilse bile model tarafinda gercek gorsel okuma dogrulanamadi.'
         }
