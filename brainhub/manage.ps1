@@ -166,7 +166,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'OPENCODE_OFFICIAL_CLI_FALLBACK') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.95 BrainHub Vision/OpenCode feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'OPENCODE_OFFICIAL_FREE_INFERENCE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.95 BrainHub Vision/OpenCode feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
@@ -211,9 +211,9 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
         try {
             $oc = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/opencode/status' -Headers $headers -TimeoutSec 15
-            Write-Host "OPENCODE_CLI ok=$($oc.ok) version=$($oc.cli.version)"
+            Write-Host "OPENCODE_FREE_INFERENCE ok=$($oc.ok) mimoListed=$($oc.official.mimoListed) bigPickleListed=$($oc.official.bigPickleListed)"
         } catch {
-            Write-Host 'OPENCODE_CLI kullanilamiyor. 9Router OpenCode Free 403 veriyorsa resmi OpenCode CLI kurulmalidir.' -ForegroundColor Yellow
+            Write-Host 'OPENCODE_FREE_INFERENCE erisilemiyor. 9TF Vision fallback fail-closed kalacak.' -ForegroundColor Yellow
         }
         try {
             $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 240
@@ -417,10 +417,14 @@ if ($Action -eq 'Restore') {
 if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); Test-Brain $rootFull; exit 0 }
 
 $sourceDir = Get-Source $Source
-$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','opencode-cli-transport.js')
-foreach ($name in $files) {
+$requiredFiles = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js')
+foreach ($name in $requiredFiles) {
     $p = Join-Path $sourceDir $name
     if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
+}
+$files = @(Get-ChildItem -LiteralPath $sourceDir -Filter '*.js' -File | Sort-Object Name | Select-Object -ExpandProperty Name)
+foreach ($name in $files) {
+    $p = Join-Path $sourceDir $name
     & $node --check $p
     if ($LASTEXITCODE -ne 0) { throw "Node syntax hatasi: $name" }
 }
