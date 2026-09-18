@@ -36,7 +36,7 @@ jobs:
           node --check brainhub/server.js
           node --check brainhub/pipeline.js
           node --check brainhub/live-controller.js
-          node --test brainhub/test/engine-store.test.js brainhub/test/pipeline-context.test.js brainhub/test/vision-routing-integration.test.js
+          node --test brainhub/test/engine-store.test.js brainhub/test/pipeline-context.test.js brainhub/test/chart-renderer.test.js brainhub/test/vision-pixel-probe.test.js brainhub/test/vision-routing-integration.test.js
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
