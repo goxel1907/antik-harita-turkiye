@@ -337,6 +337,10 @@ async function buildVisionCharts(symbol, requestedBars = 128) {
     try {
       const chart = await chartContext(symbol, frame, requestedBars);
       const png = renderChartPng(chart, 'annotated');
+      const last=Array.isArray(chart?.candles)&&chart.candles.length?chart.candles[chart.candles.length-1]:null;
+      const visualLastCandle=last
+        ? (Number(last.close)>=Number(last.open)?'BULL':'BEAR')
+        : null;
       return {
         ok:true,
         frame,
@@ -344,6 +348,7 @@ async function buildVisionCharts(symbol, requestedBars = 128) {
         closedBars:Number(chart?.closedBars || 0),
         formingBars:Number(chart?.formingBars || 0),
         generatedAt:chart?.generatedAt || null,
+        visualLastCandle,
         dataUrl:'data:image/png;base64,'+png.toString('base64')
       };
     } catch (e) {
@@ -362,7 +367,8 @@ async function buildVisionCharts(symbol, requestedBars = 128) {
       bars:row.bars,
       closedBars:row.closedBars,
       formingBars:row.formingBars,
-      generatedAt:row.generatedAt
+      generatedAt:row.generatedAt,
+      visualLastCandle:row.visualLastCandle
     };
   }
   return {
