@@ -195,7 +195,9 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     if ($IncludeDeep) {
         $plan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/plan' -Headers $headers -TimeoutSec 120
         if (-not $plan.ok -or $plan.execution -ne 'ADVISORY_ONLY' -or $plan.orderPlaced) { throw 'Leader pipeline guvenlik testi gecmedi.' }
-        Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$($plan.committeeCalled)"
+        $committeeCalled = $false
+        if ($null -ne $plan.PSObject.Properties['committeeCalled']) { $committeeCalled = [bool]$plan.committeeCalled }
+        Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
         $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 180
         if (-not $vision.ok -or $vision.charts.attached -lt 9 -or $vision.vision.attached -lt 9 -or [string]::IsNullOrWhiteSpace([string]$vision.model)) {
             throw '9TF Vision model okuma testi gecmedi; grafikler uretilse bile model tarafinda gercek gorsel okuma dogrulanamadi.'
