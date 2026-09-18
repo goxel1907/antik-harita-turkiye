@@ -532,9 +532,15 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,await leaderCommittee.run({scan,port:PORT,token:CLIENT_TOKEN}));
     }
     if(req.method==='GET'&&u.pathname==='/leader/plan'){
-      const scan=await scanner.scan();
-      const out=await pipeline.run({scan,store,committee:committeeCall});
-      return send(res,200,out);
+      try{
+        const scan=await scanner.scan();
+        const out=await pipeline.run({scan,store,committee:committeeCall});
+        return send(res,200,out);
+      }catch(e){
+        const detail=String(e?.stack||e?.message||e).slice(0,2400);
+        log('LEADER PLAN FAIL '+detail);
+        return send(res,503,{ok:false,error:'leader plan failed',detail:String(e?.message||e).slice(0,1200)});
+      }
     }
     if(req.method==='GET'&&u.pathname==='/journal')return send(res,200,{ok:true,items:store.getJournal(u.searchParams.get('limit'))});
     if(req.method==='GET'&&u.pathname==='/learning')return send(res,200,{ok:true,...store.learning()});
