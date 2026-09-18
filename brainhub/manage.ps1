@@ -258,7 +258,25 @@ function Get-Source([string]$Given) {
 
     $meta = Invoke-RestMethod -Uri 'https://api.github.com/repos/goxel1907/antik-harita-turkiye/commits/futures15m-alarm-public-build' -Headers $headers -TimeoutSec 30
     $sha = ([string]$meta.sha).Trim().ToLowerInvariant()
-    if ($sha -notmatch '^[0-9a-f]{40}
+    if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'GitHub branch HEAD SHA dogrulanamadi.' }
+
+    $archiveUrl = "https://codeload.github.com/goxel1907/antik-harita-turkiye/zip/$sha"
+    Invoke-WebRequest -UseBasicParsing -Uri $archiveUrl -Headers $headers -TimeoutSec 120 -OutFile $zip
+    Expand-Archive -LiteralPath $zip -DestinationPath $tempDir
+
+    $dir = Get-ChildItem -LiteralPath $tempDir -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'brainhub\server.js') } | Select-Object -First 1
+    if (-not $dir) { throw 'Indirilen arsivde BrainHub bulunamadi.' }
+
+    $brainDir = Join-Path $dir.FullName 'brainhub'
+    $serverPath = Join-Path $brainDir 'server.js'
+    $serverText = Get-Content -LiteralPath $serverPath -Raw
+    if ($serverText -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or $serverText -notmatch 'VISION_PIXEL_PROBE' -or $serverText -notmatch 'OPENCODE_OFFICIAL_FREE_INFERENCE') {
+        throw "GitHub HEAD $sha beklenen bootstrap/Vision isaretlerini icermiyor; eski arsiv uygulanmadi."
+    }
+
+    Write-Host "SOURCE_HEAD $sha"
+    return $brainDir
+}
 function Backup-Brain([string]$BrainRoot) {
     $parent = Split-Path -Parent $BrainRoot
     $targetRoot = Join-Path $parent 'BrainHubBackups'
