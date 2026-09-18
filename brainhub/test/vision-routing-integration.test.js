@@ -1,0 +1,193 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('http');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawn } = require('child_process');
+
+function listen(server) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve(server.address().port);
+    });
+  });
+}
+
+async function freePort() {
+  const s = http.createServer();
+  const port = await listen(s);
+  await new Promise(resolve => s.close(resolve));
+  return port;
+}
+
+async function waitFor(url, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch(url);
+      if (r.ok) return r.json();
+      lastError = new Error('HTTP '+r.status);
+    } catch (e) {
+      lastError = e;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw lastError || new Error('server did not become ready');
+}
+
+function stopChild(child) {
+  return new Promise(resolve => {
+    if (!child || child.exitCode !== null) return resolve();
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch {}
+    }, 1500);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    try { child.kill('SIGTERM'); } catch { resolve(); }
+  });
+}
+
+function hasImageInput(body) {
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  return messages.some(m => Array.isArray(m?.content) && m.content.some(x => x?.type === 'image_url'));
+}
+
+function fakeImage(tf) {
+  const bytes = Buffer.alloc(256, tf.length + 1);
+  return { tf, mode:'annotated', dataUrl:'data:image/png;base64,'+bytes.toString('base64') };
+}
+
+test('9TF Vision falls back from image-incapable free models to a Kiro vision route without changing text-only routing', { timeout:20000 }, async () => {
+  const requested = [];
+  const fakeRouter = http.createServer(async (req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.writeHead(404, { 'content-type':'application/json' });
+      return res.end(JSON.stringify({ error:'not found' }));
+    }
+    let raw='';
+    for await (const chunk of req) raw += chunk;
+    const body=JSON.parse(raw||'{}');
+    const model=String(body.model||'');
+    const vision=hasImageInput(body);
+    requested.push({ model, vision });
+
+    if (vision && model.startsWith('oc/')) {
+      res.writeHead(400, { 'content-type':'application/json' });
+      return res.end(JSON.stringify({ error:'image input unsupported by this model' }));
+    }
+    if (vision && model.startsWith('kr/')) {
+      res.writeHead(200, { 'content-type':'application/json' });
+      return res.end(JSON.stringify({ choices:[{ message:{ content:'VISION_OK: 1m,3m,5m,15m,30m,45m,1h,4h,1d' } }] }));
+    }
+    res.writeHead(200, { 'content-type':'application/json' });
+    return res.end(JSON.stringify({ choices:[{ message:{ content:'NO_TRADE' } }] }));
+  });
+
+  const routerPort=await listen(fakeRouter);
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-vision-route-'));
+  const brainPort=await freePort();
+  const configDir=path.join(root,'config');
+  fs.mkdirSync(configDir,{recursive:true});
+
+  const opencode=['oc/free-fast','oc/free-structure'];
+  const kiro=['kr/vision-backup'];
+  fs.writeFileSync(path.join(configDir,'models.json'),JSON.stringify({
+    baseUrl:'http://127.0.0.1:'+routerPort+'/v1',
+    opencode,
+    kiro,
+    healthCacheSeconds:1
+  }),'utf8');
+  fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
+    analysts:opencode,
+    backupAnalysts:[],
+    judges:[],
+    minAnalystReplies:2,
+    minVisionAnalystReplies:1,
+    parallelAnalysts:2,
+    judgeOnlyOnDisagreement:true
+  }),'utf8');
+
+  const serverPath=path.join(__dirname,'..','server.js');
+  const child=spawn(process.execPath,[serverPath],{
+    cwd:root,
+    env:{
+      ...process.env,
+      BRAINHUB_ROOT:root,
+      BRAINHUB_ROUTER_KEY:'integration-test-router-key-123456',
+      BRAINHUB_HOST:'127.0.0.1',
+      BRAINHUB_PORT:String(brainPort),
+      BRAINHUB_CLIENT_TOKEN:''
+    },
+    stdio:['ignore','pipe','pipe']
+  });
+
+  let stderr='';
+  child.stderr.on('data',chunk=>{stderr+=String(chunk);});
+
+  try {
+    await waitFor('http://127.0.0.1:'+brainPort+'/health');
+
+    const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+    const vr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({
+        role:'STRUCTURE',
+        system:'Vision routing regression only.',
+        prompt:'Return exactly VISION_OK and the received timeframes.',
+        images:tfs.map(fakeImage)
+      })
+    });
+    const vision=await vr.json();
+    assert.equal(vr.status,200,JSON.stringify(vision));
+    assert.equal(vision.ok,true);
+    assert.equal(vision.vision?.attached,9);
+    assert.equal(vision.model,'kr/vision-backup');
+    assert.equal(vision.mode,'degraded_single');
+    assert.equal(vision.degraded,true);
+    assert.equal(vision.receivedAnalystReplies,1);
+    assert.equal(vision.requiredVisionAnalystReplies,1);
+    assert.match(String(vision.text),/^VISION_OK:/);
+
+    const imageCalls=requested.filter(x=>x.vision);
+    assert.ok(imageCalls.some(x=>x.model==='oc/free-fast'));
+    assert.ok(imageCalls.some(x=>x.model==='oc/free-structure'));
+    assert.ok(imageCalls.some(x=>x.model==='kr/vision-backup'));
+    const firstKiro=imageCalls.findIndex(x=>x.model.startsWith('kr/'));
+    const lastFree=Math.max(...imageCalls.map((x,i)=>x.model.startsWith('oc/')?i:-1));
+    assert.ok(firstKiro>lastFree,'Kiro must remain a fallback after free Vision attempts');
+
+    const hr=await fetch('http://127.0.0.1:'+brainPort+'/models/healthy');
+    const health=await hr.json();
+    const freeHealth=health.models.filter(x=>String(x.model).startsWith('oc/'));
+    const kiroHealth=health.models.find(x=>x.model==='kr/vision-backup');
+    assert.ok(freeHealth.every(x=>x.visionStatus==='cooldown'));
+    assert.equal(kiroHealth.visionStatus,'healthy');
+
+    const beforeText=requested.length;
+    const tr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({role:'SCALP',prompt:'Return NO_TRADE'})
+    });
+    const textOnly=await tr.json();
+    assert.equal(tr.status,200,JSON.stringify(textOnly));
+    const textCalls=requested.slice(beforeText);
+    assert.ok(textCalls.length>=2);
+    assert.ok(textCalls.every(x=>x.model.startsWith('oc/')));
+  } finally {
+    await stopChild(child);
+    await new Promise(resolve=>fakeRouter.close(resolve));
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+
+  assert.equal(stderr.includes('BRAINHUB_ROUTER_KEY missing'),false,stderr);
+});
