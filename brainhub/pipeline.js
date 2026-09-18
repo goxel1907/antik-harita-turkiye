@@ -389,6 +389,19 @@ function planFields(raw) {
     execPath:field('EXEC_PATH'),
     why:field('WHY'),
     riskNote:field('RISK_NOTE'),
+    waitFor:field('WAIT_FOR'),
+    timeframeNotes:{
+      '1m':field('TF_1M'),
+      '3m':field('TF_3M'),
+      '5m':field('TF_5M'),
+      '15m':field('TF_15M'),
+      '30m':field('TF_30M'),
+      '45m':field('TF_45M'),
+      '1h':field('TF_1H'),
+      '4h':field('TF_4H'),
+      '1d':field('TF_1D')
+    },
+    visionSummary:field('VISION_SUMMARY'),
     execution:'ADVISORY_ONLY'
   };
 }
@@ -505,12 +518,24 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'OWNER_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
     'SETUP: short setup name',
     'EXEC_PATH: short path name',
-    'WHY: one concise line',
-    'RISK_NOTE: one concise line',
+    'WHY: Türkçe, net ve somut gerekçe; grafik + veri birlikte değerlendirilsin',
+    'RISK_NOTE: Türkçe, işlemi bozabilecek ana risk',
+    'WAIT_FOR: Türkçe, QUALIFIED değilse sinyal için tam olarak ne beklendiği; QUALIFIED ise NONE',
+    'TF_1M: Türkçe 1m grafik/veri özeti ve LONG/SHORT açısından etkisi',
+    'TF_3M: Türkçe 3m grafik/veri özeti ve LONG/SHORT açısından etkisi',
+    'TF_5M: Türkçe 5m grafik/veri özeti ve LONG/SHORT açısından etkisi',
+    'TF_15M: Türkçe 15m grafik/veri özeti ve LONG/SHORT açısından etkisi',
+    'TF_30M: Türkçe 30m grafik/veri özeti ve LONG/SHORT açısından etkisi',
+    'TF_45M: Türkçe 45m grafik/veri özeti; sentetik 45m olduğu açıkça belirtilsin',
+    'TF_1H: Türkçe 1h grafik/veri özeti ve LONG/SHORT açısından etkisi',
+    'TF_4H: Türkçe 4h grafik/veri özeti ve LONG/SHORT açısından etkisi',
+    'TF_1D: Türkçe 1D grafik/veri özeti ve LONG/SHORT açısından etkisi',
+    'VISION_SUMMARY: Türkçe, 9 grafikte görülen ortak yapı/çelişki ve forming mumun yalnız bağlam olduğu özeti',
     'EXECUTION: ADVISORY_ONLY',
     '',
     'VISION_INPUT: 1m/3m/5m/15m/30m/45m/1h/4h/1d annotated charts are attached when available; each uses '+vision.barsRequested+' recent candles and includes the current forming candle for visual context.',
-    'Vision rule: read the chart image together with UNIFIED_CONTEXT_JSON. The current forming candle may shape a WATCH idea but MUST NOT be used as closed-candle confirmation. Do not ignore a visible structural conflict merely because numeric scores are high.',
+    'Vision rule: read every attached chart image together with UNIFIED_CONTEXT_JSON. The current forming candle may shape a WATCH idea but MUST NOT be used as closed-candle confirmation. Do not ignore a visible structural conflict merely because numeric scores are high.',
+    'Explanation rule: WHY, RISK_NOTE, WAIT_FOR, TF_* and VISION_SUMMARY must be in Turkish, coin-specific and evidence-based. State what supports the setup, what blocks it, and what exact condition would change WATCH/REJECT into QUALIFIED. Avoid generic filler.',
     'Rules: any fresh timeframe may originate an opportunity. A valid 1m/3m/5m opportunity must not wait for 15m merely because 15m is higher. The legacy 15m strategy still keeps its own completed-15m confirmation rule.',
     'Timeframes are context, not votes. Synthetic 45m is derived from closed 15m candles and is not an independent vote.',
     'A FAILED_BREAKOUT timeframe is not an immediate breakout entry; require reclaim or another valid execution path.',
@@ -526,7 +551,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   try {
     result = await committee({
       role:'STRUCTURE',
-      system:'You are the Brain Hub multi-timeframe futures structure analyst. Analyze the attached 9-timeframe charts and supplied market data together. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. The forming candle is visual context only and cannot confirm a setup. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. This endpoint is advisory only.',
+      system:'You are the Brain Hub multi-timeframe futures structure analyst. Analyze the attached 9-timeframe charts and supplied market data together. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. The forming candle is visual context only and cannot confirm a setup. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. Produce detailed coin-specific Turkish diagnostic explanations for every timeframe and the exact missing trigger when not qualified. This endpoint is advisory only.',
       prompt,
       images:vision.images
     });
