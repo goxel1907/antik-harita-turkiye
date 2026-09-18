@@ -373,9 +373,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
-  async function refreshOneTrackedAnalysis(scan) {
+  async function refreshOneTrackedAnalysis(scan, skipSymbol = '') {
+    const skip=String(skipSymbol || '').toUpperCase();
     const rows=Object.values(leaderAnalysisState.bySymbol || {})
       .filter(x => x && x.reanalysisEligible === true && ['LONG','SHORT'].includes(String(x.side || '').toUpperCase()))
+      .filter(x => String(x.symbol || '').toUpperCase() !== skip)
       .sort((a,b) => Number(a.lastAnalyzedAt || 0)-Number(b.lastAnalyzedAt || 0));
     if (!rows.length) return null;
     const idx=leaderAnalysisState.cursor % rows.length;
@@ -992,11 +994,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const rawCandidates = selectDeepCandidates(scan, 16);
     setLeaderAutoDiagnostics(scan, rawCandidates, allowLong, allowShort);
 
-    // Follow one existing setup every tick in analysis-only mode. This may refresh
-    // a coin that temporarily fell out of the deep shortlist, but it can never
-    // submit a LIVE order. Normal fresh-candidate hunting continues below.
-    const trackedRefresh = await refreshOneTrackedAnalysis(scan);
-    if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
     const candidates = rawCandidates
       .filter(executionEligible)
       .filter(x => {
@@ -1005,11 +1002,20 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       });
     if (!candidates.length) {
       leaderAutoCandidateCursor = 0;
-      return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', reasons:['NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER'] };
+      // Even when there is no fresh execution candidate, keep one existing setup
+      // alive with a fresh analysis-only 9TF/Vision pass.
+      const trackedRefresh = await refreshOneTrackedAnalysis(scan);
+      if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
+      return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', reasons:['NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER'], trackedRefresh };
     }
     const selectedIndex = leaderAutoCandidateCursor % candidates.length;
     const candidate = candidates[selectedIndex];
     leaderAutoCandidateCursor = (selectedIndex + 1) % candidates.length;
+
+    // Follow one other existing setup every tick in analysis-only mode. Skip the
+    // primary symbol so the same 9TF chart package is never sent twice in one tick.
+    const trackedRefresh = await refreshOneTrackedAnalysis(scan, candidate.symbol);
+    if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
     const existingLifecycle=leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null;
     if (!existingLifecycle) upsertLeaderLifecycle(candidate,null,'DETECTED','FRESH_SCANNER_SELECTION');
     annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_SELECTED', [], { selectedIndex, lifecycle:existingLifecycle || leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null });
@@ -1186,6 +1192,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       leaderCandidate:candidate,
       leaderPlan:advisory.plan,
       leaderIntent:intent,
+      trackedRefresh,
       analysisLifecycle:leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null
     };
   }
