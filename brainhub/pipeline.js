@@ -713,6 +713,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   const out = {
     ok:true,
     candidateFound:true,
+    committeeCalled:true,
     candidate,
     targetedExecution:selection.targeted,
     trackingOnly:selection.trackingOnly === true,
