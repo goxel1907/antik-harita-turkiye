@@ -520,7 +520,7 @@ const server=http.createServer(async(req,res)=>{
       if(!finalText){
         const synth=hasVision?(good[0]?.model||orderedModels(role)[0]):(orderedModels(role)[0]||good[0].model);
         const sp=[
-          {role:'system',content:'Synthesize the analyst answers into one final answer. Preserve consensus and material disagreement, but most importantly preserve the exact output schema and every required field requested in ORIGINAL REQUEST. If ORIGINAL REQUEST asks for TF_1M..TF_1D, WHY, RISK_NOTE, WAIT_FOR or VISION_SUMMARY, all of those fields must remain present. Use only supplied facts. This is advisory only.'},
+          {role:'system',content:'Synthesize the analyst answers into one final answer. Preserve consensus and material disagreement, but most importantly preserve the exact output schema and every required field requested in ORIGINAL REQUEST. Preserve STATUS, SIDE, CONFIDENCE, ORIGIN_TF, OWNER_TF, SETUP, EXEC_PATH, WHY, RISK_NOTE, WAIT_FOR, SUPPORT_TFS, VETO_TFS, FORMING_CONTEXT, every TF_* summary/WHY/WAIT/ROLE/FORMING/RISK line, VISION_SUMMARY and EXECUTION. Return plain labeled lines only: no Markdown, bullets, table, JSON, code fence, heading or extra prose. Use only supplied facts. This is advisory only.'},
           {role:'user',content:'ROLE: '+role+'\nORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
         ];
         try{
