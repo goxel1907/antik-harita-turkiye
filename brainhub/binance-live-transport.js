@@ -7,6 +7,7 @@ const DEFAULT_BASE_URL = 'https://fapi.binance.com';
 const DEFAULT_RECV_WINDOW_MS = 5000;
 const DEFAULT_TIMEOUT_MS = 8000;
 const MAX_RESPONSE_BYTES = 262144;
+const MAX_EXCHANGE_INFO_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 function text(v) {
   return typeof v === 'string' && v.trim() ? v.trim() : null;
@@ -157,7 +158,8 @@ class BinanceLiveTransport {
         } catch {
           throw new TransportError('BINANCE_RESPONSE_READ_ERROR', { endpoint:path, status:response.status, requestSent:true });
         }
-        if (raw.length > MAX_RESPONSE_BYTES) {
+        const responseLimit = isExchangeInfo ? MAX_EXCHANGE_INFO_RESPONSE_BYTES : MAX_RESPONSE_BYTES;
+        if (raw.length > responseLimit) {
           throw new TransportError('BINANCE_RESPONSE_TOO_LARGE', { endpoint:path, status:response.status, requestSent:true });
         }
         let body = null;
