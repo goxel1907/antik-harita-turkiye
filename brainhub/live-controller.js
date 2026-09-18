@@ -913,9 +913,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       planWhy:String(plan.why || ''),
       planRisk:String(plan.riskNote || ''),
       waitFor:String(plan.waitFor || ''),
+      supportTFs:Array.isArray(plan.supportTFs) ? plan.supportTFs.slice(0,9) : [],
+      vetoTFs:Array.isArray(plan.vetoTFs) ? plan.vetoTFs.slice(0,9) : [],
+      formingContext:String(plan.formingContext || ''),
       visionSummary:String(plan.visionSummary || ''),
-      missingVisionFields:Array.isArray(plan.missingVisionFields) ? plan.missingVisionFields.slice(0,24) : [],
+      missingVisionFields:Array.isArray(plan.missingVisionFields) ? plan.missingVisionFields.slice(0,64) : [],
       timeframeNotes:plan.timeframeNotes && typeof plan.timeframeNotes === 'object' ? plan.timeframeNotes : {},
+      timeframeDiagnostics:plan.timeframeDiagnostics && typeof plan.timeframeDiagnostics === 'object' ? plan.timeframeDiagnostics : {},
       timeframeEvidence:timeframeEvidence(advisory?.unifiedContext),
       vision:{
         ok:vision?.ok === true,
@@ -973,6 +977,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if(row?.setup) parts.push(`Kurulum: ${row.setup}.`);
     if(row?.planWhy) parts.push(`Plan gerekçesi: ${row.planWhy}`);
     if(row?.waitFor && String(row.waitFor).toUpperCase()!=='NONE') parts.push(`Sinyal için beklenen: ${row.waitFor}`);
+    if(Array.isArray(row?.supportTFs)) parts.push(`Destek TF: ${row.supportTFs.length?row.supportTFs.join(', '):'NONE'}.`);
+    if(Array.isArray(row?.vetoTFs)) parts.push(`Veto TF: ${row.vetoTFs.length?row.vetoTFs.join(', '):'NONE'}.`);
+    if(row?.formingContext) parts.push(`Forming bağlamı: ${row.formingContext}`);
     if(row?.visionSummary) parts.push(`9TF grafik özeti: ${row.visionSummary}`);
     if(row?.vision) parts.push(`Vision: ${Number(row.vision.attached||0)}/${Number(row.vision.required||9)} grafik, ${Number(row.vision.barsRequested||128)} mum, ${row.vision.mode||'annotated'}.`);
     if(row?.planRisk) parts.push(`Risk notu: ${row.planRisk}`);
