@@ -282,6 +282,41 @@ function compactUnifiedContext(u) {
     policy:u.policy
   };
 }
+function deterministicFallbackPlan(candidate, unified, detail = '') {
+  const side = String(candidate?.side || '').toUpperCase();
+  const path = ['LONG','SHORT'].includes(side) ? unified?.opportunityPaths?.[side] : null;
+  const originTF = FRAME_ORDER.includes(String(path?.originTF || '').toLowerCase()) ? String(path.originTF).toLowerCase() : null;
+  const ownerTF = FRAME_ORDER.includes(String(path?.ownerTF || '').toLowerCase()) ? String(path.ownerTF).toLowerCase() : null;
+  const continuity = Array.isArray(path?.continuity) ? path.continuity : [];
+  const origin = originTF ? continuity.find(x => x?.frame === originTF) : null;
+  const owner = ownerTF ? continuity.find(x => x?.frame === ownerTF) : null;
+  const qualified = Boolean(
+    ['LONG','SHORT'].includes(side) &&
+    originTF &&
+    ownerTF &&
+    origin?.immediateEligible === true &&
+    owner
+  );
+  return {
+    valid:qualified,
+    planCode:'LH_UNIFIED_9TF_DETERMINISTIC_FALLBACK',
+    status:qualified ? 'QUALIFIED' : 'WATCH',
+    side:['LONG','SHORT'].includes(side) ? side : null,
+    confidence:0,
+    originTF,
+    ownerTF,
+    setup:'DETERMINISTIC_OPPORTUNITY_PATH',
+    execPath:'COMMITTEE_OUTAGE_FALLBACK',
+    why:qualified
+      ? 'Committee unavailable; deterministic fresh opportunity path passed plan-shape requirements.'
+      : 'Committee unavailable and no immediately eligible deterministic opportunity path exists.',
+    riskNote:'Fallback never bypasses account, stop, kill-switch, lease/lineage, dry-run or one-shot LIVE grant gates.',
+    committeeUnavailable:true,
+    committeeDetail:String(detail || '').slice(0,160),
+    execution:'ADVISORY_ONLY'
+  };
+}
+
 function planFields(raw) {
   const text = String(raw || '');
   const field = name => {
@@ -421,18 +456,35 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     JSON.stringify(compactUnifiedContext(unified))
   ].join('\n');
   let result;
+  let plan;
   try {
     result = await committee({
       role:'STRUCTURE',
       system:'You are the Brain Hub multi-timeframe futures structure analyst. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. This endpoint is advisory only.',
       prompt
     });
+    plan = planFields(result.text);
   } catch (e) {
-    const out = { ok:true, candidateFound:true, candidate, unifiedContext:unified, status:'REVIEW_REQUIRED', reason:'COMMITTEE_UNAVAILABLE', detail:String(e.message || e).slice(0,160), committeeCalled:true, execution:'ADVISORY_ONLY', orderPlaced:false };
-    out.journalId = store.journal('PLAN_REJECT', candidate.symbol, { candidate, reason:out.reason, contextVersion:unified.version });
-    return out;
+    const detail = String(e.message || e).slice(0,160);
+    plan = deterministicFallbackPlan(candidate, unified, detail);
+    result = {
+      ok:false,
+      degraded:true,
+      source:'DETERMINISTIC_FALLBACK',
+      error:'COMMITTEE_UNAVAILABLE',
+      detail,
+      text:null
+    };
+    try {
+      store.journal('PLAN_COMMITTEE_FALLBACK', candidate.symbol, {
+        candidate,
+        plan,
+        reason:'COMMITTEE_UNAVAILABLE',
+        detail,
+        contextVersion:unified.version
+      });
+    } catch {}
   }
-  const plan = planFields(result.text);
   const preflight = preflightRiskGate({ plan, unified });
   const accountCaps = accountRiskCaps(accountRisk || {});
   const structuralStop = structuralStopGate({ ...(stopRisk || {}), side:plan.side });
@@ -468,4 +520,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, deterministicFallbackPlan };
