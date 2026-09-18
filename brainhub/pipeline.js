@@ -20,12 +20,15 @@ function finite(v) {
 
 function resolveExecutionCandidate(scan, executionIntent = null) {
   const requestedSymbol = String(executionIntent?.symbol || '').trim().toUpperCase();
+  const trackingOnly = executionIntent?.analysisTracking === true;
+  const requestedSide = String(executionIntent?.side || '').trim().toUpperCase();
   if (!requestedSymbol) {
     const candidate = pickCandidate(scan);
     return {
       candidate,
       requestedSymbol:null,
       targeted:false,
+      trackingOnly:false,
       reason:candidate ? null : 'NO_QUALIFIED_EARLY_EXPANSION'
     };
   }
@@ -33,22 +36,48 @@ function resolveExecutionCandidate(scan, executionIntent = null) {
   const pool = selectDeepCandidates(scan, 16);
   const candidate = pool.find(x => String(x?.symbol || '').trim().toUpperCase() === requestedSymbol) || null;
   if (!candidate) {
+    if (trackingOnly && ['LONG','SHORT'].includes(requestedSide)) {
+      return {
+        candidate:{
+          symbol:requestedSymbol,
+          side:requestedSide,
+          leaderState:'TRACKED_SETUP',
+          deepScanReason:'PERSISTENT_ANALYSIS_TRACK',
+          trackedOutsideDeepScan:true
+        },
+        requestedSymbol,
+        targeted:true,
+        trackingOnly:true,
+        reason:null
+      };
+    }
     return {
       candidate:null,
       requestedSymbol,
       targeted:true,
+      trackingOnly:false,
       reason:'REQUESTED_SYMBOL_NOT_IN_DEEP_SCAN'
     };
   }
   if (!executionEligible(candidate)) {
+    if (trackingOnly && ['LONG','SHORT'].includes(requestedSide)) {
+      return {
+        candidate:{ ...candidate, side:requestedSide, trackedOutsideExecutionEligibility:true },
+        requestedSymbol,
+        targeted:true,
+        trackingOnly:true,
+        reason:null
+      };
+    }
     return {
       candidate:null,
       requestedSymbol,
       targeted:true,
+      trackingOnly:false,
       reason:'REQUESTED_SYMBOL_NOT_EXECUTION_ELIGIBLE'
     };
   }
-  return { candidate, requestedSymbol, targeted:true, reason:null };
+  return { candidate, requestedSymbol, targeted:true, trackingOnly, reason:null };
 }
 function frameFresh(frame, f, now) {
   if (!f?.available || !Number.isFinite(Number(f.asOf))) return false;
@@ -480,6 +509,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     candidateFound:false,
     requestedSymbol:selection.requestedSymbol,
     targetedExecution:selection.targeted,
+    trackingOnly:selection.trackingOnly === true,
     reason:selection.reason || 'NO_QUALIFIED_EARLY_EXPANSION',
     committeeCalled:false,
     execution:'ADVISORY_ONLY',
@@ -620,6 +650,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     ok:true,
     candidateFound:true,
     candidate,
+    targetedExecution:selection.targeted,
+    trackingOnly:selection.trackingOnly === true,
     unifiedContext:unified,
     vision:{ ok:vision.ok, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures },
     committee:result,
