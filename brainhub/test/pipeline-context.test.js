@@ -116,7 +116,8 @@ test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK 
   const contract = visionPlanContract(incomplete);
   assert.equal(contract.ok,false);
   assert.ok(contract.missing.includes('TF_3M_WAIT'));
-  assert.ok(contract.missing.includes('SUPPORT_TFS_ROLE_MISMATCH'));
+  assert.ok(!contract.missing.includes('SUPPORT_TFS_ROLE_MISMATCH'));
+  assert.ok(contract.warnings.includes('SUPPORT_TFS_ROLE_MISMATCH'));
 });
 test('per-TF roles are canonical while contradictory SUPPORT_TFS/VETO_TFS summaries stay visible as warnings', () => {
   const tags={ '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
