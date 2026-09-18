@@ -914,6 +914,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       planRisk:String(plan.riskNote || ''),
       waitFor:String(plan.waitFor || ''),
       visionSummary:String(plan.visionSummary || ''),
+      missingVisionFields:Array.isArray(plan.missingVisionFields) ? plan.missingVisionFields.slice(0,24) : [],
       timeframeNotes:plan.timeframeNotes && typeof plan.timeframeNotes === 'object' ? plan.timeframeNotes : {},
       timeframeEvidence:timeframeEvidence(advisory?.unifiedContext),
       vision:{
