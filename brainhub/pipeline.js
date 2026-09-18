@@ -785,6 +785,11 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       };
     } else {
       const contract=visionPlanContract(plan);
+      plan = {
+        ...plan,
+        visionContractWarnings:Array.isArray(contract.warnings)?contract.warnings:[],
+        execution:'ADVISORY_ONLY'
+      };
       if (!contract.ok) {
         plan = {
           ...plan,
