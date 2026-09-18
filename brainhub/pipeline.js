@@ -452,6 +452,19 @@ function planFields(raw) {
     execution:'ADVISORY_ONLY'
   };
 }
+function visionPlanContract(plan) {
+  const missing=[];
+  if (!plan || plan.valid !== true) missing.push('STATUS_SIDE');
+  if (!String(plan?.why || '').trim()) missing.push('WHY');
+  if (!String(plan?.riskNote || '').trim()) missing.push('RISK_NOTE');
+  if (!String(plan?.visionSummary || '').trim()) missing.push('VISION_SUMMARY');
+  if (String(plan?.status || '') !== 'QUALIFIED' && !String(plan?.waitFor || '').trim()) missing.push('WAIT_FOR');
+  for (const tf of FRAME_ORDER) {
+    if (!String(plan?.timeframeNotes?.[tf] || '').trim()) missing.push('TF_'+tf.toUpperCase());
+  }
+  return { ok:missing.length===0, missing };
+}
+
 function combineRiskGate(preflight, accountCaps, structuralStop, killSwitch, executionClaim) {
   const preflightReasons = Array.isArray(preflight?.reasons) ? preflight.reasons : [];
   const accountReasons = Array.isArray(accountCaps?.reasons) ? accountCaps.reasons : [];
@@ -610,6 +623,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     plan = planFields(result.text);
     if (selection.targeted && Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
       plan = {
+        ...plan,
         valid:false,
         status:'REVIEW_REQUIRED',
         reason:'VISION_COMMITTEE_INPUT_INCOMPLETE',
@@ -617,9 +631,23 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
         confidence:0,
         execution:'ADVISORY_ONLY'
       };
+    } else if (selection.targeted) {
+      const contract=visionPlanContract(plan);
+      if (!contract.ok) {
+        plan = {
+          ...plan,
+          valid:false,
+          status:'REVIEW_REQUIRED',
+          reason:'VISION_COMMITTEE_OUTPUT_INCOMPLETE',
+          confidence:0,
+          missingVisionFields:contract.missing,
+          execution:'ADVISORY_ONLY'
+        };
+      }
     }
   } catch (e) {
-    const detail = String(e.message || e).slice(0,160);
+    const detail = String(e.message || e).slice(0,1200);
+    const failureMeta=e&&e.committee&&typeof e.committee==='object'?e.committee:null;
     plan = selection.targeted
       ? {
           valid:false,
@@ -634,10 +662,18 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       : deterministicFallbackPlan(candidate, unified, detail);
     result = {
       ok:false,
-      degraded:true,
+      available:false,
+      degraded:false,
+      mode:'unavailable',
+      model:'',
       source:selection.targeted ? 'VISION_REQUIRED_FAIL_CLOSED' : 'DETERMINISTIC_FALLBACK',
       error:'COMMITTEE_UNAVAILABLE',
       detail,
+      requiredAnalystReplies:Number(failureMeta?.required || 0),
+      receivedAnalystReplies:Number(failureMeta?.received || 0),
+      failed:Array.isArray(failureMeta?.failures)?failureMeta.failures.slice(0,12):[],
+      attemptedModels:Array.isArray(failureMeta?.attemptedModels)?failureMeta.attemptedModels.slice(0,12):[],
+      vision:failureMeta?.vision || {attached:vision.attached,timeframes:vision.frames?.map?.(x=>x.tf)||[],modes:[]},
       text:null
     };
     try {
@@ -688,4 +724,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, visionPlanContract, deterministicFallbackPlan };
