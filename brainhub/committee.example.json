@@ -17,6 +17,7 @@
     "judgeOnlyOnDisagreement":  true,
     "minAnalystReplies":  2,
     "minVisionAnalystReplies":  1,
+    "maxFreeVisionAttempts":  3,
     "parallelAnalysts":  3,
     "kiroCreditSaving":  true
 }
