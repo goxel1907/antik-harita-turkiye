@@ -7,7 +7,7 @@ AUTO=JAVA/'AutoTradeEngine.java'
 MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (AUTO,MAIN,BUILD):
-    if not p.exists(): raise SystemExit('v9.5.89 missing '+str(p))
+    if not p.exists(): raise SystemExit('v9.5.90 missing '+str(p))
 
 def method_bounds(src, signature_fragment):
     a=src.find(signature_fragment)
@@ -43,11 +43,11 @@ auto=AUTO.read_text()
 auto=auto.replace('private static final ExecutorService IO=Executors.newSingleThreadExecutor();',
                   'private static final java.util.concurrent.ScheduledExecutorService IO=Executors.newSingleThreadScheduledExecutor();')
 if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.89 requires v9.5.78 dry-run lock first')
+    raise SystemExit('v9.5.90 requires v9.5.78 dry-run lock first')
 start=auto.find('    // V9577_DRY_RUN_LOCK:')
 end=auto.find('    private static void run(Context c,String s)',start)
 if start<0 or end<0:
-    raise SystemExit('v9.5.89 AutoTradeEngine dry-run anchor changed')
+    raise SystemExit('v9.5.90 AutoTradeEngine dry-run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
@@ -223,7 +223,7 @@ repls=[
     ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
 ]
 for old,new in repls:
-    if old not in main: raise SystemExit('v9.5.89 MainActivity anchor missing: '+old[:70])
+    if old not in main: raise SystemExit('v9.5.90 MainActivity anchor missing: '+old[:70])
     main=main.replace(old,new,1)
 
 # V9588_PC_LEADER_AUTO_SYNC
@@ -241,7 +241,7 @@ save_new='''v9522Io.execute(()->{
                         }
                     });
                     Toast.makeText(this,"Oto işlem ayarı kaydedildi • "+(en.isChecked()?"CANLI AÇIK":"KAPALI"),Toast.LENGTH_LONG).show();dlg.dismiss();'''
-if save_anchor not in main: raise SystemExit('v9.5.89 save sync anchor missing')
+if save_anchor not in main: raise SystemExit('v9.5.90 save sync anchor missing')
 main=main.replace(save_anchor,save_new,1)
 
 emergency_anchor='dlg.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{sp.edit().putBoolean("v9576_auto_enabled",false).apply();en.setChecked(false);st.setText("SON DURUM: ACİL DURDUR • yeni oto girişler kapalı");Toast.makeText(this,"CANLI OTO yeni girişleri durduruldu. Açık Binance pozisyonları otomatik kapatılmadı.",Toast.LENGTH_LONG).show();});'
@@ -251,14 +251,15 @@ emergency_new='''dlg.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClic
                 v9522Io.execute(()->{
                     try{
                         double m=v9549Number(sp.getString("v9576_auto_margin","0")); if(Double.isNaN(m))m=0.0;
-                        int l=1,x=1;try{l=Integer.parseInt(sp.getString("v9576_auto_leverage","1"));}catch(Throwable ignored){} x=sp.getInt("v9576_auto_max_positions",1);
-                        BrainHubClient.configureLeaderAuto(this,false,m,l,x,sp.getBoolean("v9576_auto_long",true),sp.getBoolean("v9576_auto_short",true));
+                        int emergencyLev=1;try{emergencyLev=Integer.parseInt(sp.getString("v9576_auto_leverage","1"));}catch(Throwable ignored){}
+                        int emergencyMaxPositions=sp.getInt("v9576_auto_max_positions",1);
+                        BrainHubClient.configureLeaderAuto(this,false,m,emergencyLev,emergencyMaxPositions,sp.getBoolean("v9576_auto_long",true),sp.getBoolean("v9576_auto_short",true));
                     }catch(Throwable ignored){}
                     try{BrainHubClient.liveDisarm(this,"ANDROID_EMERGENCY_STOP");}catch(Throwable ignored){}
                 });
                 Toast.makeText(this,"ACİL DURDUR: yeni PC oto girişleri kapatılıyor ve LIVE disarm ediliyor.",Toast.LENGTH_LONG).show();
             });'''
-if emergency_anchor not in main: raise SystemExit('v9.5.89 emergency sync anchor missing')
+if emergency_anchor not in main: raise SystemExit('v9.5.90 emergency sync anchor missing')
 main=main.replace(emergency_anchor,emergency_new,1)
 
 # V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -267,7 +268,7 @@ main=main.replace(emergency_anchor,emergency_new,1)
 # status at a throttled interval. No order/cancel side effects live here.
 if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     pos=main.rfind('}')
-    if pos<0: raise SystemExit('v9.5.89 MainActivity close missing')
+    if pos<0: raise SystemExit('v9.5.90 MainActivity close missing')
     helpers=r'''
     // ============================================================
     // V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -297,8 +298,8 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                     try{
                         double m=v9549Number(sp.getString("v9576_auto_margin","0"));if(Double.isNaN(m))m=0.0;
                         int l=1;try{l=Integer.parseInt(sp.getString("v9576_auto_leverage","1"));}catch(Throwable ignored){}
-                        int x=sp.getInt("v9576_auto_max_positions",1);
-                        org.json.JSONObject cfg=BrainHubClient.configureLeaderAuto(this,sp.getBoolean("v9576_auto_enabled",false),m,l,x,
+                        int syncMaxPositions=sp.getInt("v9576_auto_max_positions",1);
+                        org.json.JSONObject cfg=BrainHubClient.configureLeaderAuto(this,sp.getBoolean("v9576_auto_enabled",false),m,l,syncMaxPositions,
                             sp.getBoolean("v9576_auto_long",true),sp.getBoolean("v9576_auto_short",true));
                         sp.edit().putBoolean("v9588_pc_auto_sync_ok",cfg.optBoolean("ok",false))
                           .putString("v9588_pc_auto_sync_error",cfg.optBoolean("ok",false)?"":cfg.optJSONArray("reasons")==null?cfg.optString("error","PC_AUTO_CONFIG_REJECTED"):cfg.optJSONArray("reasons").toString())
@@ -474,7 +475,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     main=main[:pos]+helpers+'\n'+main[pos:]
 
 b=method_bounds(main,'private void v9549FillRecentTradesCard(')
-if not b: raise SystemExit('v9.5.89 recent trades renderer missing')
+if not b: raise SystemExit('v9.5.90 recent trades renderer missing')
 a,_,e=b
 renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout box) {
         if(box==null)return;
@@ -624,8 +625,8 @@ main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091829',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.89'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091830',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.90'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -647,8 +648,8 @@ checks={
     'safe retry':'V9587_SAFE_LIVE_RETRY' in AUTO.read_text() and 'newSingleThreadScheduledExecutor' in AUTO.read_text() and 'retryable' in AUTO.read_text(),
     'PC leader auto sync':'BrainHubClient.configureLeaderAuto(this' in MAIN.read_text() and 'v9588_pc_auto_enabled' in MAIN.read_text() and 'PC LEADER AUTO:' in MAIN.read_text(),
     'explicit mobile rearm':'V9589_MOBILE_REARM' in MAIN.read_text() and 'BrainHubClient.liveArm(this)' in MAIN.read_text() and 'LIVE 24 SAAT BAŞLAT / YENİDEN BAŞLAT' in MAIN.read_text(),
-    'identity':"versionName '9.5.89'" in BUILD.read_text() and 'versionCode 26091829' in BUILD.read_text(),
+    'identity':"versionName '9.5.90'" in BUILD.read_text() and 'versionCode 26091830' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.89 PC LIVE bridge integration check failed')
-print('v9.5.89 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+if not all(checks.values()): raise SystemExit('v9.5.90 PC LIVE bridge integration check failed')
+print('v9.5.90 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
