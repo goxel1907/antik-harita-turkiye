@@ -169,6 +169,12 @@ test('9TF Vision may use an explicitly opted-in Kiro free-quota route without ch
     const lastFree=Math.max(...imageCalls.map((x,i)=>x.model.startsWith('oc/')?i:-1));
     assert.ok(firstKiro>lastFree,'Kiro free quota must remain a fallback after free OpenCode Vision attempts');
 
+    const routes=await (await fetch('http://127.0.0.1:'+brainPort+'/models/routes')).json();
+    assert.equal(routes.visionKiroFreeQuota,true);
+    assert.equal(routes.paidVisionFallbackEnabled,false);
+    assert.deepEqual(routes.kiroFreeQuotaVisionModels,['kr/vision-backup']);
+    assert.ok(routes.visionRoutes.STRUCTURE.includes('kr/vision-backup'));
+
     const hr=await fetch('http://127.0.0.1:'+brainPort+'/models/healthy');
     const health=await hr.json();
     const freeHealth=health.models.filter(x=>String(x.model).startsWith('oc/'));
