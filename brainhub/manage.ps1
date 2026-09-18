@@ -212,12 +212,16 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
         $detailPlanResult = $plan
         $detailCommitteeCalled = $committeeCalled
+        $usedAnalysisOnlyDetailProbe = $false
         if (-not ($plan.candidateFound -and $committeeCalled)) {
             try {
                 $detailPlanResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $headers -TimeoutSec 240
+                $usedAnalysisOnlyDetailProbe = $true
                 $detailCommitteeCalled = $false
                 if ($null -ne $detailPlanResult.PSObject.Properties['committeeCalled']) { $detailCommitteeCalled = [bool]$detailPlanResult.committeeCalled }
-                Write-Host "LEADER_DETAIL_PROBE candidate=$($detailPlanResult.candidateFound) committee=$detailCommitteeCalled analysisOnly=$($detailPlanResult.analysisOnly)"
+                $detailAnalysisOnly = $false
+                if ($null -ne $detailPlanResult.PSObject.Properties['analysisOnly']) { $detailAnalysisOnly = [bool]$detailPlanResult.analysisOnly }
+                Write-Host "LEADER_DETAIL_PROBE candidate=$($detailPlanResult.candidateFound) committee=$detailCommitteeCalled analysisOnly=$detailAnalysisOnly"
             } catch {
                 Write-Host '========== LEADER DETAIL PROBE HATA ==========' -ForegroundColor Red
                 if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
@@ -225,7 +229,10 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
             }
         }
         if ($detailPlanResult.candidateFound -and $detailCommitteeCalled) {
-            if ($detailPlanResult.analysisOnly -eq $false) { throw 'Leader detay probe analysis-only kilidi bozuldu.' }
+            if ($usedAnalysisOnlyDetailProbe) {
+                $analysisProp = $detailPlanResult.PSObject.Properties['analysisOnly']
+                if ($null -eq $analysisProp -or [bool]$analysisProp.Value -ne $true) { throw 'Leader detay probe analysis-only kilidi bozuldu.' }
+            }
             if ($null -eq $detailPlanResult.vision -or [int]$detailPlanResult.vision.attached -lt 9) { throw 'Leader 9TF grafik paketi 9/9 degil.' }
             if ($null -eq $detailPlanResult.plan) { throw 'Leader model plani yok.' }
             $leaderPlan = $detailPlanResult.plan
