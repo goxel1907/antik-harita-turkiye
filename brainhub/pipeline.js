@@ -473,14 +473,49 @@ function planFields(raw) {
   const text = String(raw || '');
   const field = name => {
     const match = text.match(new RegExp(`^${name}:\\s*(.+)$`, 'mi'));
-    return match ? match[1].trim().slice(0, 500) : null;
+    return match ? match[1].trim().slice(0, 700) : null;
   };
   const status = field('STATUS');
   const side = field('SIDE');
   if (!['WATCH','QUALIFIED','REJECT'].includes(status) || !['LONG','SHORT'].includes(side)) {
     return { valid:false, status:'REVIEW_REQUIRED', reason:'UNSTRUCTURED_COMMITTEE_OUTPUT' };
   }
+
   const tf = value => FRAME_ORDER.includes(String(value || '').toLowerCase()) ? String(value).toLowerCase() : null;
+  const tfTags = { '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
+  const roleValue = value => {
+    const r=String(value || '').trim().toUpperCase();
+    return ['SUPPORT','VETO','NEUTRAL'].includes(r) ? r : null;
+  };
+  const parseTfList = value => {
+    if (value === null || value === undefined) return { declared:false, values:[], invalid:[] };
+    const rawValue=String(value).trim();
+    if (!rawValue) return { declared:true, values:[], invalid:['EMPTY'] };
+    if (rawValue.toUpperCase() === 'NONE') return { declared:true, values:[], invalid:[] };
+    const parts=rawValue.split(/[;,\s]+/).map(x=>x.trim().toLowerCase()).filter(Boolean);
+    const values=[...new Set(parts.filter(x=>FRAME_ORDER.includes(x)))];
+    const invalid=[...new Set(parts.filter(x=>!FRAME_ORDER.includes(x)))];
+    return { declared:true, values, invalid };
+  };
+
+  const timeframeNotes={};
+  const timeframeDiagnostics={};
+  for (const frame of FRAME_ORDER) {
+    const tag=tfTags[frame];
+    timeframeNotes[frame]=field('TF_'+tag);
+    timeframeDiagnostics[frame]={
+      summary:timeframeNotes[frame],
+      why:field('TF_'+tag+'_WHY'),
+      waitFor:field('TF_'+tag+'_WAIT'),
+      role:roleValue(field('TF_'+tag+'_ROLE')),
+      formingContext:field('TF_'+tag+'_FORMING'),
+      risk:field('TF_'+tag+'_RISK')
+    };
+  }
+
+  const supportDecl=parseTfList(field('SUPPORT_TFS'));
+  const vetoDecl=parseTfList(field('VETO_TFS'));
+
   return {
     valid:true,
     planCode:'LH_UNIFIED_9TF',
@@ -494,17 +529,15 @@ function planFields(raw) {
     why:field('WHY'),
     riskNote:field('RISK_NOTE'),
     waitFor:field('WAIT_FOR'),
-    timeframeNotes:{
-      '1m':field('TF_1M'),
-      '3m':field('TF_3M'),
-      '5m':field('TF_5M'),
-      '15m':field('TF_15M'),
-      '30m':field('TF_30M'),
-      '45m':field('TF_45M'),
-      '1h':field('TF_1H'),
-      '4h':field('TF_4H'),
-      '1d':field('TF_1D')
-    },
+    supportTFs:supportDecl.values,
+    vetoTFs:vetoDecl.values,
+    supportTFsDeclared:supportDecl.declared,
+    vetoTFsDeclared:vetoDecl.declared,
+    invalidSupportTFs:supportDecl.invalid,
+    invalidVetoTFs:vetoDecl.invalid,
+    formingContext:field('FORMING_CONTEXT'),
+    timeframeNotes,
+    timeframeDiagnostics,
     visionSummary:field('VISION_SUMMARY'),
     execution:'ADVISORY_ONLY'
   };
@@ -512,14 +545,42 @@ function planFields(raw) {
 function visionPlanContract(plan) {
   const missing=[];
   if (!plan || plan.valid !== true) missing.push('STATUS_SIDE');
+  if (!plan?.originTF) missing.push('ORIGIN_TF');
+  if (!plan?.ownerTF) missing.push('OWNER_TF');
+  if (!String(plan?.setup || '').trim()) missing.push('SETUP');
+  if (!String(plan?.execPath || '').trim()) missing.push('EXEC_PATH');
   if (!String(plan?.why || '').trim()) missing.push('WHY');
   if (!String(plan?.riskNote || '').trim()) missing.push('RISK_NOTE');
+  if (!String(plan?.waitFor || '').trim()) missing.push('WAIT_FOR');
   if (!String(plan?.visionSummary || '').trim()) missing.push('VISION_SUMMARY');
-  if (String(plan?.status || '') !== 'QUALIFIED' && !String(plan?.waitFor || '').trim()) missing.push('WAIT_FOR');
-  for (const tf of FRAME_ORDER) {
-    if (!String(plan?.timeframeNotes?.[tf] || '').trim()) missing.push('TF_'+tf.toUpperCase());
+  if (!String(plan?.formingContext || '').trim()) missing.push('FORMING_CONTEXT');
+  if (plan?.supportTFsDeclared !== true) missing.push('SUPPORT_TFS');
+  if (plan?.vetoTFsDeclared !== true) missing.push('VETO_TFS');
+  if (Array.isArray(plan?.invalidSupportTFs) && plan.invalidSupportTFs.length) missing.push('SUPPORT_TFS_INVALID');
+  if (Array.isArray(plan?.invalidVetoTFs) && plan.invalidVetoTFs.length) missing.push('VETO_TFS_INVALID');
+
+  for (const frame of FRAME_ORDER) {
+    const tag=frame.toUpperCase();
+    const d=plan?.timeframeDiagnostics?.[frame] || {};
+    if (!String(d.summary || '').trim()) missing.push('TF_'+tag);
+    if (!String(d.why || '').trim()) missing.push('TF_'+tag+'_WHY');
+    if (!String(d.waitFor || '').trim()) missing.push('TF_'+tag+'_WAIT');
+    if (!['SUPPORT','VETO','NEUTRAL'].includes(String(d.role || ''))) missing.push('TF_'+tag+'_ROLE');
+    if (!String(d.formingContext || '').trim()) missing.push('TF_'+tag+'_FORMING');
+    if (!String(d.risk || '').trim()) missing.push('TF_'+tag+'_RISK');
   }
-  return { ok:missing.length===0, missing };
+
+  const supportSet=new Set(Array.isArray(plan?.supportTFs)?plan.supportTFs:[]);
+  const vetoSet=new Set(Array.isArray(plan?.vetoTFs)?plan.vetoTFs:[]);
+  if ([...supportSet].some(tf=>vetoSet.has(tf))) missing.push('SUPPORT_VETO_OVERLAP');
+
+  const roleSupport=FRAME_ORDER.filter(tf=>plan?.timeframeDiagnostics?.[tf]?.role==='SUPPORT');
+  const roleVeto=FRAME_ORDER.filter(tf=>plan?.timeframeDiagnostics?.[tf]?.role==='VETO');
+  const sameSet=(a,b)=>a.length===b.size && a.every(x=>b.has(x));
+  if (!sameSet(roleSupport,supportSet)) missing.push('SUPPORT_TFS_ROLE_MISMATCH');
+  if (!sameSet(roleVeto,vetoSet)) missing.push('VETO_TFS_ROLE_MISMATCH');
+
+  return { ok:missing.length===0, missing:[...new Set(missing)] };
 }
 
 function combineRiskGate(preflight, accountCaps, structuralStop, killSwitch, executionClaim) {
@@ -611,7 +672,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     return out;
   }
   const vision = await buildVisionCharts(candidate.symbol, 128);
-  if (selection.targeted && !vision.ok) {
+  if (!vision.ok) {
     const out = {
       ok:true,
       candidateFound:true,
@@ -626,6 +687,19 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     out.journalId = store.journal('PLAN_REJECT', candidate.symbol, out);
     return out;
   }
+  const tfPromptTags={ '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
+  const tfPromptLines=FRAME_ORDER.flatMap(frame => {
+    const tag=tfPromptTags[frame];
+    const synthetic=frame==='45m' ? ' Sentetik 45m olduğu açıkça yazılsın; bağımsız oy gibi sayılmasın.' : '';
+    return [
+      'TF_'+tag+': Türkçe kısa grafik/veri özeti ve LONG/SHORT etkisi.'+synthetic,
+      'TF_'+tag+'_WHY: Türkçe; bu TF’de sinyal/kurulum neden oluştu veya neden oluşmadı, somut görsel + deterministik kanıtla',
+      'TF_'+tag+'_WAIT: Türkçe; bu TF için beklenen tam koşul; ek koşul yoksa NONE',
+      'TF_'+tag+'_ROLE: SUPPORT | VETO | NEUTRAL',
+      'TF_'+tag+'_FORMING: Türkçe; mevcut forming mumun ne anlattığı ve bunun kapanmış mum teyidi olmadığı açıkça belirtilsin',
+      'TF_'+tag+'_RISK: Türkçe; bu TF özelindeki ana bozulma/yanlış okuma riski'
+    ];
+  });
   const prompt = [
     'PLAN_CODE: LH_UNIFIED_9TF',
     'Return exactly these lines:',
@@ -638,22 +712,17 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'EXEC_PATH: short path name',
     'WHY: Türkçe, net ve somut gerekçe; grafik + veri birlikte değerlendirilsin',
     'RISK_NOTE: Türkçe, işlemi bozabilecek ana risk',
-    'WAIT_FOR: Türkçe, QUALIFIED değilse sinyal için tam olarak ne beklendiği; QUALIFIED ise NONE',
-    'TF_1M: Türkçe 1m grafik/veri özeti ve LONG/SHORT açısından etkisi',
-    'TF_3M: Türkçe 3m grafik/veri özeti ve LONG/SHORT açısından etkisi',
-    'TF_5M: Türkçe 5m grafik/veri özeti ve LONG/SHORT açısından etkisi',
-    'TF_15M: Türkçe 15m grafik/veri özeti ve LONG/SHORT açısından etkisi',
-    'TF_30M: Türkçe 30m grafik/veri özeti ve LONG/SHORT açısından etkisi',
-    'TF_45M: Türkçe 45m grafik/veri özeti; sentetik 45m olduğu açıkça belirtilsin',
-    'TF_1H: Türkçe 1h grafik/veri özeti ve LONG/SHORT açısından etkisi',
-    'TF_4H: Türkçe 4h grafik/veri özeti ve LONG/SHORT açısından etkisi',
-    'TF_1D: Türkçe 1D grafik/veri özeti ve LONG/SHORT açısından etkisi',
-    'VISION_SUMMARY: Türkçe, 9 grafikte görülen ortak yapı/çelişki ve forming mumun yalnız bağlam olduğu özeti',
+    'WAIT_FOR: Türkçe, sinyal için tam olarak ne beklendiği; QUALIFIED ise NONE',
+    'SUPPORT_TFS: TF_... değil, yalnız virgülle 1m,3m,5m,15m,30m,45m,1h,4h,1d değerleri; destek yoksa NONE',
+    'VETO_TFS: TF_... değil, yalnız virgülle 1m,3m,5m,15m,30m,45m,1h,4h,1d değerleri; veto yoksa NONE',
+    'FORMING_CONTEXT: Türkçe; 9TF forming mum bağlamının özeti ve kapanmış mum teyidi yerine geçmediği açıkça yazılsın',
+    ...tfPromptLines,
+    'VISION_SUMMARY: Türkçe, 9 grafikte görülen ortak yapı, destek/veto ilişkisi, çelişkiler ve origin→owner devamlılığı',
     'EXECUTION: ADVISORY_ONLY',
     '',
     'VISION_INPUT: 1m/3m/5m/15m/30m/45m/1h/4h/1d annotated charts are attached when available; each uses '+vision.barsRequested+' recent candles and includes the current forming candle for visual context.',
     'Vision rule: read every attached chart image together with UNIFIED_CONTEXT_JSON. The current forming candle may shape a WATCH idea but MUST NOT be used as closed-candle confirmation. Do not ignore a visible structural conflict merely because numeric scores are high.',
-    'Explanation rule: WHY, RISK_NOTE, WAIT_FOR, TF_* and VISION_SUMMARY must be in Turkish, coin-specific and evidence-based. State what supports the setup, what blocks it, and what exact condition would change WATCH/REJECT into QUALIFIED. Avoid generic filler.',
+    'Explanation rule: WHY, RISK_NOTE, WAIT_FOR, FORMING_CONTEXT, TF_* and VISION_SUMMARY must be in Turkish, coin-specific and evidence-based. Every TF must separately state WHY, WAIT, ROLE, FORMING and RISK. SUPPORT_TFS/VETO_TFS must exactly agree with the TF_*_ROLE fields. State what supports the setup, what blocks it, and the exact condition that would change WATCH/REJECT into QUALIFIED. Avoid generic filler.',
     'Rules: any fresh timeframe may originate an opportunity. A valid 1m/3m/5m opportunity must not wait for 15m merely because 15m is higher. The legacy 15m strategy still keeps its own completed-15m confirmation rule.',
     'Timeframes are context, not votes. Synthetic 45m is derived from closed 15m candles and is not an independent vote.',
     'A FAILED_BREAKOUT timeframe is not an immediate breakout entry; require reclaim or another valid execution path.',
@@ -678,7 +747,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       images:vision.images
     });
     plan = planFields(result.text);
-    if (selection.targeted && Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
+    if (Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
       plan = {
         ...plan,
         valid:false,
@@ -688,7 +757,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
         confidence:0,
         execution:'ADVISORY_ONLY'
       };
-    } else if (selection.targeted) {
+    } else {
       const contract=visionPlanContract(plan);
       if (!contract.ok) {
         plan = {
