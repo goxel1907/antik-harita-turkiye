@@ -162,8 +162,8 @@ function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
     const hint=m=>{
       const z=String(m||'').toLowerCase();
       if(z.includes('vision'))return 0;
-      if(z.includes('claude-haiku-4.5'))return 1;
-      if(z.includes('claude-sonnet-4.5'))return 2;
+      if(z.includes('claude-sonnet-4.5'))return 1;
+      if(z.includes('claude-haiku-4.5'))return 2;
       if(z.includes('muse-spark-1.3'))return 3;
       if(z.includes('muse-spark-1.2'))return 4;
       return 9;
