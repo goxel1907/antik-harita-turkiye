@@ -65,7 +65,7 @@ function fakeImage(tf) {
   return { tf, mode:'annotated', dataUrl:'data:image/png;base64,'+bytes.toString('base64') };
 }
 
-test('9TF Vision falls back from image-incapable free models to a Kiro vision route without changing text-only routing', { timeout:20000 }, async () => {
+test('9TF Vision may use an explicitly opted-in Kiro free-quota route without changing text-only routing', { timeout:20000 }, async () => {
   const requested = [];
   const fakeRouter = http.createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
@@ -112,7 +112,9 @@ test('9TF Vision falls back from image-incapable free models to a Kiro vision ro
     minAnalystReplies:2,
     minVisionAnalystReplies:1,
     maxFreeVisionAttempts:2,
-    allowKiroVisionFallback:true,
+    allowKiroFreeQuotaVision:true,
+    kiroFreeQuotaVisionModels:['kr/vision-backup'],
+    allowKiroVisionFallback:false,
     parallelAnalysts:2,
     judgeOnlyOnDisagreement:true
   }),'utf8');
@@ -165,7 +167,7 @@ test('9TF Vision falls back from image-incapable free models to a Kiro vision ro
     assert.ok(imageCalls.some(x=>x.model==='kr/vision-backup'));
     const firstKiro=imageCalls.findIndex(x=>x.model.startsWith('kr/'));
     const lastFree=Math.max(...imageCalls.map((x,i)=>x.model.startsWith('oc/')?i:-1));
-    assert.ok(firstKiro>lastFree,'Kiro must remain a fallback after free Vision attempts');
+    assert.ok(firstKiro>lastFree,'Kiro free quota must remain a fallback after free OpenCode Vision attempts');
 
     const hr=await fetch('http://127.0.0.1:'+brainPort+'/models/healthy');
     const health=await hr.json();
@@ -194,7 +196,7 @@ test('9TF Vision falls back from image-incapable free models to a Kiro vision ro
   assert.equal(stderr.includes('BRAINHUB_ROUTER_KEY missing'),false,stderr);
 });
 
-test('9TF Vision never consumes Kiro when paid fallback is not explicitly enabled', { timeout:20000 }, async () => {
+test('9TF Vision never consumes Kiro when neither free-quota nor legacy fallback is explicitly enabled', { timeout:20000 }, async () => {
   const requested=[];
   const fakeRouter=http.createServer(async (req,res)=>{
     if(req.method!=='POST'||req.url!=='/v1/chat/completions'){
@@ -264,7 +266,9 @@ test('9TF Vision never consumes Kiro when paid fallback is not explicitly enable
     assert.equal(requested.some(x=>x.model.startsWith('kr/')),false,'paid/Kiro route must require explicit opt-in');
 
     const routes=await (await fetch('http://127.0.0.1:'+brainPort+'/models/routes')).json();
+    assert.equal(routes.visionKiroFreeQuota,false);
     assert.equal(routes.visionKiroFallback,false);
+    assert.equal(routes.paidVisionFallbackEnabled,false);
     assert.ok(routes.visionRoutes.STRUCTURE.every(x=>x.startsWith('oc/')));
   }finally{
     await stopChild(child);
