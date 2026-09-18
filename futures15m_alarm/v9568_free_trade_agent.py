@@ -140,6 +140,7 @@ public class TradeAgentActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle("Trade Ajanı");
+        deepMode = prefs().getBoolean("deep_mode", false);
         buildUi();
         loadHistory();
         if (history.isEmpty()) {
@@ -185,8 +186,12 @@ public class TradeAgentActivity extends Activity {
         root.addView(status, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout actions = new LinearLayout(this); actions.setOrientation(LinearLayout.HORIZONTAL);
-        deepButton = smallButton("DERİN: KAPALI");
-        deepButton.setOnClickListener(v -> { deepMode = !deepMode; deepButton.setText(deepMode ? "DERİN: AÇIK" : "DERİN: KAPALI"); });
+        deepButton = smallButton(deepMode ? "DERİN: AÇIK" : "DERİN: KAPALI");
+        deepButton.setOnClickListener(v -> {
+            deepMode = !deepMode;
+            prefs().edit().putBoolean("deep_mode", deepMode).apply();
+            deepButton.setText(deepMode ? "DERİN: AÇIK" : "DERİN: KAPALI");
+        });
         Button clear = smallButton("SOHBETİ TEMİZLE"); clear.setOnClickListener(v -> clearHistory());
         actions.addView(deepButton, new LinearLayout.LayoutParams(0, dp(40), 1f));
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, dp(40), 1f); cp.setMargins(dp(7),0,0,0); actions.addView(clear, cp);
@@ -513,6 +518,7 @@ checks = {
     'no auto order': 'never places, edits or closes an order' in AGENT.read_text(),
     'market context': 'fapi.binance.com' in AGENT.read_text() and 'L2_IMBALANCE' in AGENT.read_text(),
     'deep committee': 'deepAnswer(' in AGENT.read_text() and 'diverse(models, 3)' in AGENT.read_text(),
+    'deep mode persists': 'getBoolean("deep_mode", false)' in AGENT.read_text() and 'putBoolean("deep_mode", deepMode)' in AGENT.read_text(),
     'launcher': 'V9568_TRADE_AGENT_LAUNCH' in MAIN.read_text(),
     'manifest activity': 'TradeAgentActivity' in MANIFEST.read_text(),
     'same-chat retained': 'V9567_CLIPBOARD_GALLERY_SAME_CHAT' in ANALYSIS.read_text(),
