@@ -18,6 +18,14 @@ test('streaming market keeps rolling CVD, partial depth and observed liquidation
   assert.equal(snapshot.available, true);
   assert.equal(snapshot.cvdQuote120s, 100);
   assert.ok(snapshot.depth20Imbalance > 0);
+  assert.ok(snapshot.depthSoftContext);
+  assert.ok(snapshot.depthSoftContext.normalizedEntropy >= 0 && snapshot.depthSoftContext.normalizedEntropy <= 1);
+  assert.ok(snapshot.depthSoftContext.concentration >= 0 && snapshot.depthSoftContext.concentration <= 1);
+  assert.ok(snapshot.depthSoftContext.bidWallShare > snapshot.depthSoftContext.askWallShare);
+  assert.ok(snapshot.depthSoftContext.wallPressure > 0);
+  assert.ok(snapshot.depthSoftContext.microprice > 100 && snapshot.depthSoftContext.microprice < 100.1);
+  assert.ok(Number.isFinite(snapshot.depthSoftContext.micropriceBps));
+  assert.equal(snapshot.depthSoftContext.semantics, 'SOFT_MICROSTRUCTURE_CONTEXT_ONLY');
   assert.equal(snapshot.observedLiquidations.count, 1);
   assert.equal(snapshot.observedLiquidations.zones[0].side, 'LONG_LIQUIDATED');
   assert.match(snapshot.observedLiquidations.note, /not a complete liquidation heatmap/);
@@ -27,5 +35,6 @@ test('streaming market keeps rolling CVD, partial depth and observed liquidation
   const aged = stream.snapshot('BTCUSDT', now);
   assert.equal(aged.cvdTrades120s, 0);
   assert.equal(aged.available, false);
+  assert.equal(aged.depthSoftContext, null);
   stream.shutdown();
 });
