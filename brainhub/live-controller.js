@@ -425,7 +425,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
     let scan;
     try { scan = await scanner.scan(); }
-    catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['SCANNER_UNAVAILABLE'] }; }
+    catch { return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LIVE_BLOCKED', reasons:['SCANNER_UNAVAILABLE'] }; }
 
     if (typeof pipeline.resolveExecutionCandidate === 'function') {
       const selection = pipeline.resolveExecutionCandidate(scan, order);
@@ -435,6 +435,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
           orderPlaced:false,
           liveAllowed:false,
           execution:'LIVE_PREFLIGHT_BLOCKED',
+          retryable:true,
           requestedSymbol:selection?.requestedSymbol || String(order?.symbol || '').toUpperCase(),
           reasons:[selection?.reason || 'REQUESTED_SYMBOL_NOT_EXECUTION_ELIGIBLE']
         };
@@ -474,7 +475,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       });
     } catch (e) {
       const claimRelease = releaseClaim();
-      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, claimRelease, reasons:[String(e.message || 'PIPELINE_FAILED').slice(0,160)] };
+      return { ok:false, orderPlaced:false, liveAllowed:false, retryable:claimRelease?.released === true, execution:'LIVE_BLOCKED', claim, claimRelease, reasons:[String(e.message || 'PIPELINE_FAILED').slice(0,160)] };
     }
 
     if (!armedNow()) {
@@ -487,7 +488,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     catch { renewed = { acquired:false, reason:'LEASE_RENEW_FAILED' }; }
     if (!renewed?.acquired) {
       const claimRelease = releaseClaim();
-      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, claimRelease, reasons:['LIVE_EXECUTOR_LEASE_LOST'] };
+      return { ok:false, orderPlaced:false, liveAllowed:false, retryable:claimRelease?.released === true, execution:'LIVE_BLOCKED', claim, claimRelease, reasons:['LIVE_EXECUTOR_LEASE_LOST'] };
     }
 
     const grant = registry.issue({
@@ -503,6 +504,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         orderPlaced:false,
         liveAllowed:false,
         execution:'LIVE_BLOCKED',
+        retryable:claimRelease?.released === true,
         claim,
         claimRelease,
         plan:planResult?.plan || null,
@@ -538,6 +540,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
     return {
       ...result,
+      retryable:claimRelease?.released === true && result?.orderPlaced !== true && !uncertainSubmit,
       claim,
       claimRelease,
       plan:planResult?.plan || null,
