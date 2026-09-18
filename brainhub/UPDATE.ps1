@@ -14,7 +14,7 @@ try {
     Unblock-File -LiteralPath $tempManage -ErrorAction SilentlyContinue
 
     $text = Get-Content -LiteralPath $tempManage -Raw
-    if ($text -notmatch 'SOURCE_HEAD' -or $text -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or $text -notmatch 'VISION_PIXEL_PROBE' -or $text -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS') {
+    if ($text -notmatch 'SOURCE_HEAD' -or $text -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or $text -notmatch 'VISION_PIXEL_PROBE' -or $text -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or $text -notmatch 'LEADER_DETAIL_PROBE') {
         throw 'Guncel BrainHub updater bootstrap isaretleri bulunamadi; eski updater calistirilmadi.'
     }
 
