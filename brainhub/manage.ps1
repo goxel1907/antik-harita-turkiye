@@ -375,7 +375,7 @@ if ($Action -eq 'Restore') {
 if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); Test-Brain $rootFull; exit 0 }
 
 $sourceDir = Get-Source $Source
-$files = @('server.js','scanner.js','leader-committee.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js')
+$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js')
 foreach ($name in $files) {
     $p = Join-Path $sourceDir $name
     if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
