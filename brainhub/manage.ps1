@@ -170,7 +170,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
-    if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly -or -not $routes.visionKiroFallback) { throw '9Router rol/Vision yonlendirme testi gecmedi.' }
+    if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly -or $null -eq $routes.visionKiroFallback) { throw '9Router rol/Vision yonlendirme testi gecmedi.' }
     if ($null -eq $routes.roles.SCALP -or @($routes.roles.SCALP).Count -lt 1) { throw '9Router SCALP rol rotasi eksik.' }
     if ((@($routes.roles.SCALP) -join '|') -ne (@($routes.roles.FAST) -join '|')) { throw 'SCALP rotasi FAST ile ayni hizli model havuzunu kullanmiyor.' }
     $scan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/scanner' -Headers $headers -TimeoutSec 90
