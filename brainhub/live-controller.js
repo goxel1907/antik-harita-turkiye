@@ -7,6 +7,8 @@ const { spawnSync } = require('node:child_process');
 const { LiveAuthorizationRegistry } = require('./live-authorization');
 const { BinanceLiveTransport } = require('./binance-live-transport');
 const { assessApiPermissionDeclaration, containsSecretLikeKey } = require('./binance-account-context');
+const { selectDeepCandidates, executionEligible } = require('./leader-committee');
+const { buildLeaderLiveIntent } = require('./leader-live-intent');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -384,6 +386,199 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
+  function exchangeFiltersFor(symbolInfo) {
+    const filters = Array.isArray(symbolInfo?.filters) ? symbolInfo.filters : [];
+    const byType = type => filters.find(x => x?.filterType === type) || null;
+    const lot = byType('MARKET_LOT_SIZE') || byType('LOT_SIZE');
+    const price = byType('PRICE_FILTER');
+    const minNotionalFilter = byType('MIN_NOTIONAL') || byType('NOTIONAL');
+    return {
+      tickSize:finite(price?.tickSize),
+      lotStep:finite(lot?.stepSize),
+      minQty:finite(lot?.minQty),
+      maxQty:finite(lot?.maxQty),
+      minNotional:finite(minNotionalFilter?.notional ?? minNotionalFilter?.minNotional)
+    };
+  }
+
+  async function executeLeader(body = {}) {
+    const policy = readPolicy(root);
+    if (!armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['LIVE_NOT_ARMED'] };
+    if (!policy.ok) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:policy.reasons || ['LIVE_POLICY_REQUIRED'] };
+
+    const settings = requestedExecutionSettings(body, policy);
+    if (!settings.ok || !settings.dynamic) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:settings.reasons?.length ? settings.reasons : ['LEADER_AUTO_DYNAMIC_SETTINGS_REQUIRED'] };
+    }
+
+    const allowLong = body?.allowLong === true;
+    const allowShort = body?.allowShort === true;
+    if (!allowLong && !allowShort) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['LEADER_AUTO_DIRECTION_DISABLED'] };
+    }
+
+    let scan;
+    try { scan = await scanner.scan(); }
+    catch (e) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LEADER_AUTO_BLOCKED', reasons:['SCANNER_UNAVAILABLE'] };
+    }
+
+    const candidates = selectDeepCandidates(scan, 16)
+      .filter(executionEligible)
+      .filter(x => {
+        const side = String(x?.side || '').toUpperCase();
+        return (side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
+      });
+    const candidate = candidates[0] || null;
+    if (!candidate) {
+      return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', reasons:['NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER'] };
+    }
+
+    let advisory;
+    try {
+      advisory = await pipeline.run({
+        scan,
+        store,
+        committee,
+        executionIntent:{ symbol:candidate.symbol }
+      });
+    } catch (e) {
+      return {
+        ok:false,
+        orderPlaced:false,
+        liveAllowed:false,
+        retryable:true,
+        execution:'LEADER_AUTO_BLOCKED',
+        symbol:candidate.symbol,
+        reasons:[String(e?.message || 'LEADER_PLAN_FAILED').slice(0,160)]
+      };
+    }
+
+    if (!advisory?.candidateFound || !advisory?.plan || !advisory?.unifiedContext) {
+      return {
+        ok:true,
+        orderPlaced:false,
+        liveAllowed:false,
+        execution:'LEADER_AUTO_WAIT',
+        symbol:candidate.symbol,
+        reasons:[advisory?.reason || 'LEADER_PLAN_NOT_READY']
+      };
+    }
+
+    if (String(advisory.plan.status || '').toUpperCase() !== 'QUALIFIED') {
+      return {
+        ok:true,
+        orderPlaced:false,
+        liveAllowed:false,
+        execution:'LEADER_AUTO_WAIT',
+        symbol:candidate.symbol,
+        plan:advisory.plan,
+        reasons:['LEADER_PLAN_NOT_QUALIFIED']
+      };
+    }
+
+    const creds = currentCredentials();
+    if (!credentialsReady(creds)) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['BINANCE_CREDENTIALS_REQUIRED'] };
+    }
+
+    let symbolInfo;
+    try {
+      const ex = await transport._fetchJson('GET', '/fapi/v1/exchangeInfo');
+      symbolInfo = Array.isArray(ex?.symbols) ? ex.symbols.find(x => String(x?.symbol || '').toUpperCase() === String(candidate.symbol).toUpperCase()) : null;
+    } catch (e) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LEADER_AUTO_BLOCKED', symbol:candidate.symbol, reasons:['BINANCE_EXCHANGE_INFO_UNAVAILABLE'] };
+    }
+    if (!symbolInfo) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', symbol:candidate.symbol, reasons:['BINANCE_SYMBOL_FILTERS_UNAVAILABLE'] };
+    }
+
+    const intent = buildLeaderLiveIntent({
+      candidate,
+      unified:advisory.unifiedContext,
+      plan:advisory.plan,
+      marginQuote:settings.marginQuote,
+      leverage:settings.leverage,
+      filters:exchangeFiltersFor(symbolInfo)
+    });
+    if (!intent.ok) {
+      return {
+        ok:true,
+        orderPlaced:false,
+        liveAllowed:false,
+        execution:'LEADER_AUTO_WAIT',
+        symbol:candidate.symbol,
+        plan:advisory.plan,
+        intent,
+        reasons:intent.reasons || ['LEADER_INTENT_NOT_READY']
+      };
+    }
+
+    const now = clock();
+    const eventBucket = Math.floor(now / 60000);
+    const lineageBucket = Math.floor(now / (5 * 60000));
+    const side = intent.side;
+    const eventId = `LH:${intent.symbol}:${side}:${eventBucket}`;
+    const lineageId = `LH:${intent.symbol}:${side}:${intent.originTF}:${lineageBucket}`;
+    const clientOrderId = `LH${intent.symbol.slice(0,8)}${side[0]}${eventBucket.toString(36)}`.slice(0,36);
+    const order = {
+      action:'OPEN',
+      symbol:intent.symbol,
+      side,
+      orderType:'MARKET',
+      quantity:intent.quantity,
+      entryPrice:intent.entryPrice,
+      stopPrice:intent.stopPrice,
+      takeProfit1:intent.takeProfit1,
+      takeProfit2:intent.takeProfit2,
+      takeProfit3:intent.takeProfit3,
+      clientOrderId,
+      lineageId
+    };
+
+    const result = await execute({
+      eventId,
+      order,
+      structuralInvalidationPrice:intent.structuralInvalidationPrice,
+      bufferQuote:intent.buffer,
+      initialStopPrice:intent.stopPrice,
+      requestedMarginQuote:settings.marginQuote,
+      requestedLeverage:settings.leverage,
+      requestedMaxOpenPositions:settings.maxOpenPositions
+    });
+
+    try {
+      store.journal('LEADER_AUTO_ATTEMPT', intent.symbol, {
+        eventId,
+        lineageId,
+        candidate,
+        plan:advisory.plan,
+        intent:{
+          symbol:intent.symbol,
+          side:intent.side,
+          originTF:intent.originTF,
+          entryPrice:intent.entryPrice,
+          stopPrice:intent.stopPrice,
+          takeProfit1:intent.takeProfit1,
+          takeProfit2:intent.takeProfit2,
+          takeProfit3:intent.takeProfit3,
+          quantity:intent.quantity,
+          riskQuote:intent.riskQuote,
+          notionalQuote:intent.notionalQuote
+        },
+        result
+      });
+    } catch {}
+
+    return {
+      ...result,
+      leaderAuto:true,
+      leaderCandidate:candidate,
+      leaderPlan:advisory.plan,
+      leaderIntent:intent
+    };
+  }
+
   async function execute(body = {}) {
     const policy = readPolicy(root);
     const creds = currentCredentials();
@@ -550,7 +745,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
-  return { status, accountSummary, arm, disarm, execute, readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, arm, disarm, execute, executeLeader, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };
