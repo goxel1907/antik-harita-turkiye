@@ -7,6 +7,35 @@ const os = require('os');
 const path = require('path');
 const { openStore } = require('../store');
 
+test('unsubmitted execution claim can be safely released and retried by the same lease identity', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'brainhub-claim-release-'));
+  const owner = 'brainhub-owner';
+  const resource = 'BINANCE_LIVE_EXECUTOR';
+  const token = 'release-token-1234567890';
+  const eventId = 'event-release-0001';
+  const lineageId = 'lineage-release-0001';
+  let store;
+  try {
+    store = openStore(root);
+    assert.equal(store.lease('acquire', resource, owner, token, 60000).acquired, true);
+    const first = store.claim(eventId, owner, resource, token, lineageId);
+    assert.equal(first.claimed, true);
+
+    const wrong = store.releaseClaim(eventId, 'other-owner', resource, token, lineageId);
+    assert.equal(wrong.released, false);
+
+    const released = store.releaseClaim(eventId, owner, resource, token, lineageId);
+    assert.equal(released.released, true);
+
+    const retry = store.claim(eventId, owner, resource, token, lineageId);
+    assert.equal(retry.claimed, true);
+    assert.equal(retry.lineageId, lineageId);
+  } finally {
+    try { store?.db.close(); } catch {}
+    fs.rmSync(root, { recursive:true, force:true });
+  }
+});
+
 test('execution claims stay idempotent across store restart', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'brainhub-restart-idempotency-'));
   const owner = 'brainhub-owner';
