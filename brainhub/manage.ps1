@@ -249,6 +249,11 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
                 $reason = [string](Get-PropValue $leaderPlan "reason" "UNKNOWN")
                 $missingObj = Get-PropValue $leaderPlan "missingVisionFields" @()
                 $missing = @($missingObj) -join ','
+                $rawSnippet = [string](Get-PropValue $leaderPlan "rawOutputSnippet" "")
+                if (-not [string]::IsNullOrWhiteSpace($rawSnippet)) {
+                    Write-Host '========== MODEL HAM CIKTI OZETI ==========' -ForegroundColor Yellow
+                    Write-Host $rawSnippet
+                }
                 throw "Leader KKK 9TF model detay sozlesmesi gecmedi. reason=$reason missing=$missing"
             }
 
