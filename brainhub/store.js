@@ -34,8 +34,10 @@ function openStore(root) {
   const leaseDelete = db.prepare('DELETE FROM leases WHERE resource=? AND token_hash=?');
   const claimInsert = db.prepare('INSERT INTO claims(event_id,owner,claimed_at) VALUES(?,?,?)');
   const claimGet = db.prepare('SELECT owner,claimed_at FROM claims WHERE event_id=?');
+  const claimDelete = db.prepare('DELETE FROM claims WHERE event_id=? AND owner=?');
   const lineageInsert = db.prepare('INSERT INTO lineage_claims(lineage_id,event_id,owner,claimed_at) VALUES(?,?,?,?)');
   const lineageGet = db.prepare('SELECT event_id,owner,claimed_at FROM lineage_claims WHERE lineage_id=?');
+  const lineageDelete = db.prepare('DELETE FROM lineage_claims WHERE lineage_id=? AND event_id=? AND owner=?');
   const hash = token => crypto.createHash('sha256').update(token).digest('hex');
   function journal(kind, symbol, payload, id = crypto.randomUUID()) {
     if (!/^[A-Z0-9_]{2,40}$/.test(kind)) throw new Error('invalid journal kind');
@@ -109,6 +111,34 @@ function openStore(root) {
       return result;
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
-  return { db, journal, getJournal, label, learning, lease, claim };
+  function releaseClaim(eventId, owner, resource, token, lineageId = eventId) {
+    if (!/^[A-Za-z0-9:_-]{8,128}$/.test(eventId)) throw new Error('invalid event id');
+    if (!/^[A-Za-z0-9:_-]{8,128}$/.test(lineageId)) throw new Error('invalid lineage id');
+    if (!/^[A-Z0-9:_-]{2,50}$/.test(resource) || !/^[A-Za-z0-9:_-]{2,50}$/.test(owner) || !/^[A-Za-z0-9_-]{16,128}$/.test(token)) throw new Error('invalid release fields');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = leaseGet.get(resource);
+      if (!current || current.owner !== owner || current.token_hash !== hash(token)) {
+        db.exec('COMMIT');
+        return { released:false, reason:'LEASE_IDENTITY_MISMATCH' };
+      }
+      const event = claimGet.get(eventId);
+      const lineage = lineageGet.get(lineageId);
+      if (!event || event.owner !== owner) {
+        db.exec('COMMIT');
+        return { released:false, reason:'CLAIM_NOT_OWNED' };
+      }
+      if (!lineage || lineage.owner !== owner || lineage.event_id !== eventId) {
+        db.exec('COMMIT');
+        return { released:false, reason:'LINEAGE_NOT_OWNED' };
+      }
+      lineageDelete.run(lineageId, eventId, owner);
+      claimDelete.run(eventId, owner);
+      db.exec('COMMIT');
+      return { released:true, eventId, lineageId };
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+
+  return { db, journal, getJournal, label, learning, lease, claim, releaseClaim };
 }
 module.exports = { openStore };
