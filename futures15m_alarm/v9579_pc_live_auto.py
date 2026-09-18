@@ -1030,5 +1030,5 @@ checks={
     'vision failure diagnostic':'V9595_VISION_ROUTING_DIAGNOSTICS' in MAIN.read_text() and 'GÖRSEL OKUMA TAMAMLANMADI' in MAIN.read_text() and 'SADECE DETERMINİSTİK KANIT' in MAIN.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.93 PC LIVE bridge integration check failed')
+if not all(checks.values()): raise SystemExit('v9.5.95 Vision routing integration check failed')
 print('v9.5.95 OK: 9TF Vision routing failures are explicit, deterministic evidence is never mislabeled as model chart reading, and PC remains the only LIVE executor.')
