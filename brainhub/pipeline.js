@@ -109,6 +109,7 @@ function summarizeFrame(frame, f, now, livePrice) {
     returnPct:f.returnPct,
     candle:f.candle || null,
     patterns:Array.isArray(f.patterns) ? f.patterns.slice(-6) : [],
+    smcContext:f.smcContext || null,
     liquidity:{
       buySide:f.buySideLiquidity,
       sellSide:f.sellSideLiquidity,
@@ -282,7 +283,7 @@ function compactUnifiedContext(u) {
       return [tf, {
         fresh:f.fresh, asOf:f.asOf, close:f.close, trend:f.trend, rsi14:f.rsi14, atrPct:f.atrPct,
         breakOfStructure:f.breakOfStructure, prior20High:f.prior20High, prior20Low:f.prior20Low,
-        candle:f.candle, patterns:f.patterns, liquidity:f.liquidity,
+        candle:f.candle, patterns:f.patterns, liquidity:f.liquidity, smcContext:f.smcContext,
         opportunity:f.opportunity, breakoutExecution:f.breakoutExecution
       }];
     })),
@@ -590,6 +591,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'Partial depth20 streaming is not true OFI. Respect the supplied quality labels and do not multiply correlated flow evidence into fake confirmations.',
     'OPEN_SOURCE_REFERENCE_MICRO: depth entropy, wall concentration, wall pressure and microprice are independent local calculations inspired by reviewed MIT research patterns; treat them as ONE correlated soft microstructure family only.',
     'Entropy/concentration/microprice cannot create a hard veto, cannot independently qualify a trade, and cannot prove spoofing, hidden liquidity or market-maker intent. Missing/stale auxiliary micro data is PUANSIZ, not bearish/bullish evidence.',
+    'OPEN_SOURCE_REFERENCE_SMC: swingStructure, CHOCH/BOS, premium-discount dealing range, equilibrium, OTE reference zones and FVG CE50 are independent closed-candle calculations inspired by reviewed MIT SMC semantics. Use them as structural context, not as standalone entry signals.',
+    'SMC context must not invent order blocks, breakers, mitigation, hidden liquidity or market-maker intent when those fields are not supplied.',
     'Do not invent news, levels, missing flow, liquidation maps, or hidden intent. Do not place an order.',
     '',
     'UNIFIED_CONTEXT_JSON:',
