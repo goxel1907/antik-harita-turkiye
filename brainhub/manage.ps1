@@ -246,14 +246,274 @@ function Get-Source([string]$Given) {
         if (-not (Test-Path -LiteralPath (Join-Path $dir 'server.js'))) { throw 'Source icinde brainhub/server.js yok.' }
         return $dir
     }
+
     $tempDir = Join-Path $env:TEMP ("brainhub-source-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
     $zip = Join-Path $tempDir 'repo.zip'
-    Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/goxel1907/antik-harita-turkiye/archive/refs/heads/futures15m-alarm-public-build.zip' -OutFile $zip
+    $headers = @{
+        'User-Agent' = 'BrainHub-Updater'
+        'Cache-Control' = 'no-cache'
+        'Pragma' = 'no-cache'
+    }
+
+    $meta = Invoke-RestMethod -Uri 'https://api.github.com/repos/goxel1907/antik-harita-turkiye/commits/futures15m-alarm-public-build' -Headers $headers -TimeoutSec 30
+    $sha = ([string]$meta.sha).Trim().ToLowerInvariant()
+    if ($sha -notmatch '^[0-9a-f]{40}
+function Backup-Brain([string]$BrainRoot) {
+    $parent = Split-Path -Parent $BrainRoot
+    $targetRoot = Join-Path $parent 'BrainHubBackups'
+    New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
+    $target = Join-Path $targetRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
+    New-Item -ItemType Directory -Force -Path $target | Out-Null
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
+        $p = Join-Path $BrainRoot $name
+        if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $target -Recurse -Force }
+    }
+    Write-Host "BACKUP_OK $target"
+    return $target
+}
+
+$rootFull = [IO.Path]::GetFullPath($Root)
+$node = Resolve-Node
+if ($Action -eq 'Test') { Test-Brain $rootFull -IncludeDeep:$Deep; exit 0 }
+if ($Action -eq 'VisionStatus') {
+    $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
+    [ordered]@{
+        ok = $routes.ok
+        freeFirst = $routes.freeFirst
+        kiroFreeQuotaVision = $routes.visionKiroFreeQuota
+        kiroFreeQuotaVisionModels = @($routes.kiroFreeQuotaVisionModels)
+        paidVisionFallbackEnabled = $routes.paidVisionFallbackEnabled
+        visionRoutes = $routes.visionRoutes
+        note = $routes.note
+    } | ConvertTo-Json -Depth 8
+    exit 0
+}
+if ($Action -eq 'VisionFreeSetup') {
+    $confirm = (Read-Host 'Kiro hesabinin mevcut ucretsiz kotasini 9TF Vision icin kullanmak istiyorsaniz KIRO_FREE yazin').Trim().ToUpperInvariant()
+    if ($confirm -ne 'KIRO_FREE') { throw 'Kiro free-quota Vision acik onayi verilmedi.' }
+    $committeePath = Join-Path $rootFull 'config\committee.json'
+    if (-not (Test-Path -LiteralPath $committeePath)) { throw 'committee.json bulunamadi; once BrainHub Update/Install calistirin.' }
+    $committee = Get-Content -LiteralPath $committeePath -Raw | ConvertFrom-Json
+    $committee | Add-Member -NotePropertyName allowKiroFreeQuotaVision -NotePropertyValue $true -Force
+    $committee | Add-Member -NotePropertyName kiroFreeQuotaVisionModels -NotePropertyValue @('kr/claude-sonnet-4.5','kr/claude-haiku-4.5') -Force
+    $committee | Add-Member -NotePropertyName allowKiroVisionFallback -NotePropertyValue $false -Force
+    $committee | Add-Member -NotePropertyName minVisionAnalystReplies -NotePropertyValue 1 -Force
+    $committee | Add-Member -NotePropertyName visionParallelAnalysts -NotePropertyValue 1 -Force
+    $committee | Add-Member -NotePropertyName kiroCreditSaving -NotePropertyValue $true -Force
+    $committee | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $committeePath -Encoding UTF8
+    $key = Router-Key $rootFull
+    Stop-Brain $rootFull
+    Start-Brain $rootFull $node $key
+    Test-Brain $rootFull
+    $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
+    if (-not $routes.visionKiroFreeQuota -or $routes.paidVisionFallbackEnabled) { throw 'Kiro free-quota Vision ayari fail-closed dogrulanamadi.' }
+    Write-Host ("BRAINHUB_VISION_FREE_SETUP_OK models=" + (@($routes.kiroFreeQuotaVisionModels) -join ','))
+    exit 0
+}
+if ($Action -eq 'LiveStatus') {
+    $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 5
+    $live | ConvertTo-Json -Depth 6
+    exit 0
+}
+if ($Action -eq 'LiveSetup') {
+    $permissionConfirm = (Read-Host 'Futures trading ACIK, withdrawal KAPALI ve API IP restriction ACIK ise LIVE yazin').Trim().ToUpperInvariant()
+    if ($permissionConfirm -ne 'LIVE') { throw 'LIVE API permission onayi verilmedi.' }
+    $apiKeySecure = Read-Host 'Binance API Key (gizli giris)' -AsSecureString
+    $apiSecretSecure = Read-Host 'Binance API Secret (gizli giris)' -AsSecureString
+    $apiKey = Secure-ToPlain $apiKeySecure
+    $apiSecret = Secure-ToPlain $apiSecretSecure
+    if ([string]::IsNullOrWhiteSpace($apiKey) -or $apiKey.Trim().Length -lt 8) { throw 'Binance API key gecersiz.' }
+    if ([string]::IsNullOrWhiteSpace($apiSecret) -or $apiSecret.Trim().Length -lt 8) { throw 'Binance API secret gecersiz.' }
+    $armMinutes = Prompt-IntRange 'LIVE arm suresi dakika (5-1440)' 5 1440
+    $expectedLeverage = Prompt-IntRange 'Beklenen Futures kaldirac (1-125)' 1 125
+    $maxEntryDeviationPct = Prompt-PositiveDouble 'Maksimum entry fiyat sapmasi % (0-5]' 0 5
+    $maxRiskPctPerTrade = Prompt-PositiveDouble 'Islem basi maksimum risk % (0-100]' 0 100
+    $maxNotionalPctPerTrade = Prompt-PositiveDouble 'Islem basi maksimum notional/equity % (0-100]' 0 100
+    $maxDailyLossPct = Prompt-PositiveDouble 'Gunluk maksimum kayip % (0-100]' 0 100
+    $maxOpenPositions = Prompt-IntRange 'Maksimum ayni anda acik pozisyon (1-100)' 1 100
+    $maxFamilyExposurePct = Prompt-PositiveDouble 'Toplam USDT perp exposure/equity % (0-100]' 0 100
+    $policy = [ordered]@{
+        armMinutes = $armMinutes
+        expectedLeverage = $expectedLeverage
+        maxEntryDeviationPct = $maxEntryDeviationPct
+        limits = [ordered]@{
+            maxRiskPctPerTrade = $maxRiskPctPerTrade
+            maxNotionalPctPerTrade = $maxNotionalPctPerTrade
+            maxDailyLossPct = $maxDailyLossPct
+            maxOpenPositions = $maxOpenPositions
+            maxFamilyExposurePct = $maxFamilyExposurePct
+        }
+        apiPermissions = [ordered]@{
+            configured = $true
+            futuresEnabled = $true
+            withdrawalsEnabled = $false
+            ipRestricted = $true
+        }
+    }
+    $cfgDir = Join-Path $rootFull 'config'
+    New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
+    Save-Dpapi (Join-Path $cfgDir 'binance-api-key.dpapi') $apiKey.Trim()
+    Save-Dpapi (Join-Path $cfgDir 'binance-api-secret.dpapi') $apiSecret.Trim()
+    $policy | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $cfgDir 'live-policy.json') -Encoding UTF8
+    $apiKey = ''
+    $apiSecret = ''
+    $key = Router-Key $rootFull
+    Stop-Brain $rootFull
+    Start-Brain $rootFull $node $key
+    Test-Brain $rootFull
+    $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 5
+    if (-not $live.liveConfigured) { throw 'LIVE setup kaydedildi ancak BrainHub configured durumuna gecmedi.' }
+    Write-Host "BRAINHUB_LIVE_SETUP_OK configured=$($live.liveConfigured) armed=$($live.armed)"
+    exit 0
+}
+if ($Action -eq 'LiveArm') {
+    $headers = Auth-Headers $rootFull
+    $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
+    if (-not $status.liveConfigured) { throw 'LIVE configured degil; once LiveSetup calistirin.' }
+    $body = @{ confirm='LIVE' } | ConvertTo-Json -Compress
+    $out = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/live/arm' -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 20
+    if (-not $out.ok -or -not $out.armed) { throw 'LIVE arm basarisiz.' }
+    Write-Host "BRAINHUB_LIVE_ARMED expiresAt=$($out.expiresAt)"
+    exit 0
+}
+if ($Action -eq 'LiveDisarm') {
+    $headers = Auth-Headers $rootFull
+    $body = @{ reason='USER_DISARM' } | ConvertTo-Json -Compress
+    $out = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/live/disarm' -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 10
+    if (-not $out.ok -or $out.armed) { throw 'LIVE disarm basarisiz.' }
+    Write-Host 'BRAINHUB_LIVE_DISARMED'
+    exit 0
+}
+if ($Action -eq 'Pair') {
+    $tailscale = 'C:\Program Files\Tailscale\tailscale.exe'
+    if (-not (Test-Path -LiteralPath $tailscale)) { throw 'Tailscale kurulu degil.' }
+    $key = Router-Key $rootFull
+    $tokenPath = Join-Path $rootFull 'config\client-token.dpapi'
+    $token = Read-Dpapi $tokenPath
+    if (-not $token) {
+        $bytes = New-Object byte[] 32
+        [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $token = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replace('/','_')
+        Save-Dpapi $tokenPath $token
+    }
+    $flag = Join-Path $rootFull 'config\remote-enabled'
+    Set-Content -LiteralPath $flag -Value 'TAILSCALE_SERVE_TOKEN_REQUIRED' -Encoding ASCII
+    Stop-Brain $rootFull
+    try {
+        Start-Brain $rootFull $node $key
+        Test-Brain $rootFull
+        & $tailscale serve --bg --https=8787 --yes 'http://127.0.0.1:8787' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Tailscale Serve failed' }
+        $state = (& $tailscale status --json | ConvertFrom-Json)
+        $dns = ([string]$state.Self.DNSName).TrimEnd('.')
+        if (-not $dns) { throw 'Tailscale DNS name unavailable' }
+        Set-Clipboard -Value $token
+        Write-Host "BRAINHUB_PAIR_OK endpoint=https://$($dns):8787 token=PC_CLIPBOARD"
+    } catch {
+        Remove-Item -LiteralPath $flag -ErrorAction SilentlyContinue
+        Stop-Brain $rootFull
+        Start-Brain $rootFull $node $key
+        throw
+    }
+    exit 0
+}
+if ($Action -eq 'Unpair') {
+    $tailscale = 'C:\Program Files\Tailscale\tailscale.exe'
+    if (Test-Path -LiteralPath $tailscale) { & $tailscale serve --https=8787 off | Out-Null }
+    $flag = Join-Path $rootFull 'config\remote-enabled'
+    Remove-Item -LiteralPath $flag -ErrorAction SilentlyContinue
+    $key = Router-Key $rootFull
+    Stop-Brain $rootFull
+    Start-Brain $rootFull $node $key
+    Test-Brain $rootFull
+    Write-Host 'BRAINHUB_UNPAIR_OK'
+    exit 0
+}
+if ($Action -eq 'Backup') {
+    $key = Router-Key $rootFull
+    Stop-Brain $rootFull
+    try { Backup-Brain $rootFull | Out-Null }
+    finally { Start-Brain $rootFull $node $key -AcceptLegacy }
+    exit 0
+}
+if ($Action -eq 'Restore') {
+    $backupRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $rootFull) 'BrainHubBackups'))
+    $resolved = (Resolve-Path -LiteralPath $BackupPath).Path
+    if (-not $resolved.StartsWith($backupRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore yolu BrainHubBackups icinde olmali.' }
+    $key = Router-Key $rootFull
+    Stop-Brain $rootFull
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
+        $p = Join-Path $resolved $name
+        if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
+    }
+    Start-Brain $rootFull $node $key
+    Test-Brain $rootFull
+    exit 0
+}
+if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); Test-Brain $rootFull; exit 0 }
+
+$sourceDir = Get-Source $Source
+$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js')
+foreach ($name in $files) {
+    $p = Join-Path $sourceDir $name
+    if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
+    & $node --check $p
+    if ($LASTEXITCODE -ne 0) { throw "Node syntax hatasi: $name" }
+}
+$testDir = Join-Path $sourceDir 'test'
+if (Test-Path -LiteralPath $testDir) {
+    foreach ($testFile in @(Get-ChildItem -LiteralPath $testDir -Filter '*.test.js' -File | Sort-Object Name)) {
+        Write-Host "UNIT_TEST $($testFile.Name)"
+        & $node --test $testFile.FullName
+        if ($LASTEXITCODE -ne 0) { throw "Node unit test hatasi: $($testFile.Name)" }
+    }
+}
+$key = Router-Key $rootFull
+New-Item -ItemType Directory -Force -Path (Join-Path $rootFull 'server'),(Join-Path $rootFull 'config'),(Join-Path $rootFull 'data'),(Join-Path $rootFull 'logs') | Out-Null
+$wasRunning = [bool](Brain-Pid $rootFull)
+if ($wasRunning) { Stop-Brain $rootFull }
+$backup = Backup-Brain $rootFull
+try {
+    foreach ($name in $files) { Copy-Item -LiteralPath (Join-Path $sourceDir $name) -Destination (Join-Path $rootFull 'server') -Force }
+    foreach ($cfg in @(@('models.example.json','models.json'),@('committee.example.json','committee.json'))) {
+        $dst = Join-Path (Join-Path $rootFull 'config') $cfg[1]
+        if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $sourceDir $cfg[0]) -Destination $dst }
+    }
+    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $sourceDir $script) -Destination $rootFull -Force
+    }
+    Start-Brain $rootFull $node $key
+    Test-Brain $rootFull -IncludeDeep:$Deep
+    Write-Host "BRAINHUB_$($Action.ToUpperInvariant())_OK backup=$backup"
+} catch {
+    Write-Warning "Update dogrulanamadi: $($_.Exception.Message). Geri alma deneniyor."
+    Stop-Brain $rootFull
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
+        $p = Join-Path $backup $name
+        if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
+    }
+    if ($wasRunning) { Start-Brain $rootFull $node $key -AcceptLegacy }
+    throw
+}
+) { throw 'GitHub branch HEAD SHA dogrulanamadi.' }
+
+    $archiveUrl = "https://codeload.github.com/goxel1907/antik-harita-turkiye/zip/$sha"
+    Invoke-WebRequest -UseBasicParsing -Uri $archiveUrl -Headers $headers -TimeoutSec 120 -OutFile $zip
     Expand-Archive -LiteralPath $zip -DestinationPath $tempDir
+
     $dir = Get-ChildItem -LiteralPath $tempDir -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'brainhub\server.js') } | Select-Object -First 1
     if (-not $dir) { throw 'Indirilen arsivde BrainHub bulunamadi.' }
-    return (Join-Path $dir.FullName 'brainhub')
+
+    $brainDir = Join-Path $dir.FullName 'brainhub'
+    $serverPath = Join-Path $brainDir 'server.js'
+    $serverText = Get-Content -LiteralPath $serverPath -Raw
+    if ($serverText -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or $serverText -notmatch 'VISION_PIXEL_PROBE' -or $serverText -notmatch 'OPENCODE_OFFICIAL_FREE_INFERENCE') {
+        throw "GitHub HEAD $sha beklenen bootstrap/Vision isaretlerini icermiyor; eski arsiv uygulanmadi."
+    }
+
+    Write-Host "SOURCE_HEAD $sha"
+    return $brainDir
 }
 function Backup-Brain([string]$BrainRoot) {
     $parent = Split-Path -Parent $BrainRoot
