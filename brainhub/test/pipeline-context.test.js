@@ -52,49 +52,72 @@ function qualifiedPlan() {
   ].join('\n'));
 }
 
-test('targeted Vision plan contract requires Turkish diagnostics for all 9 timeframes', () => {
+test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK for all 9 timeframes', () => {
+  const tags={ '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
+  const roles={ '1m':'SUPPORT','3m':'SUPPORT','5m':'NEUTRAL','15m':'VETO','30m':'NEUTRAL','45m':'NEUTRAL','1h':'SUPPORT','4h':'NEUTRAL','1d':'NEUTRAL' };
+  const tfLines=[];
+  for (const tf of Object.keys(tags)) {
+    const tag=tags[tf];
+    tfLines.push(
+      'TF_'+tag+': Türkçe '+tf+' grafik ve veri özeti',
+      'TF_'+tag+'_WHY: '+tf+' yapısında somut neden',
+      'TF_'+tag+'_WAIT: '+(tf==='15m'?'kapanmış mum reclaim':'NONE'),
+      'TF_'+tag+'_ROLE: '+roles[tf],
+      'TF_'+tag+'_FORMING: forming mum yalnız bağlamdır; kapanış teyidi değildir',
+      'TF_'+tag+'_RISK: '+tf+' ana yapısal risk'
+    );
+  }
+
   const complete = planFields([
     'STATUS: WATCH',
     'SIDE: LONG',
     'CONFIDENCE: 70',
     'ORIGIN_TF: 1m',
-    'OWNER_TF: 5m',
+    'OWNER_TF: 1h',
     'SETUP: continuation',
     'EXEC_PATH: reclaim',
     'WHY: Türkçe somut gerekçe',
     'RISK_NOTE: Türkçe ana risk',
-    'WAIT_FOR: 1m kapanmış mum reclaim teyidi',
-    'TF_1M: Türkçe 1m yorum',
-    'TF_3M: Türkçe 3m yorum',
-    'TF_5M: Türkçe 5m yorum',
-    'TF_15M: Türkçe 15m yorum',
-    'TF_30M: Türkçe 30m yorum',
-    'TF_45M: Türkçe sentetik 45m yorum',
-    'TF_1H: Türkçe 1h yorum',
-    'TF_4H: Türkçe 4h yorum',
-    'TF_1D: Türkçe 1D yorum',
-    'VISION_SUMMARY: Dokuz grafiğin ortak yapısı ve çelişkisi',
+    'WAIT_FOR: 15m veto kalkarken 1m yapısı korunmalı',
+    'SUPPORT_TFS: 1m,3m,1h',
+    'VETO_TFS: 15m',
+    'FORMING_CONTEXT: Dokuz TF forming mumları yalnız anlık bağlamdır ve kapanmış mum teyidi değildir',
+    ...tfLines,
+    'VISION_SUMMARY: Dokuz grafiğin ortak yapısı, destek/veto ilişkisi ve çelişkisi',
     'EXECUTION: ADVISORY_ONLY'
   ].join('\n'));
-  assert.deepEqual(visionPlanContract(complete), { ok:true, missing:[] });
 
+  assert.deepEqual(visionPlanContract(complete), { ok:true, missing:[] });
+  assert.deepEqual(complete.supportTFs,['1m','3m','1h']);
+  assert.deepEqual(complete.vetoTFs,['15m']);
+  assert.equal(complete.timeframeDiagnostics['1m'].role,'SUPPORT');
+  assert.match(complete.timeframeDiagnostics['15m'].waitFor,/reclaim/);
+  assert.match(complete.timeframeDiagnostics['4h'].formingContext,/kapanış teyidi değildir/);
+
+  const incompleteLines=tfLines.filter(x=>!x.startsWith('TF_3M_WAIT:'));
   const incomplete = planFields([
     'STATUS: QUALIFIED',
     'SIDE: LONG',
     'CONFIDENCE: 80',
     'ORIGIN_TF: 1m',
-    'OWNER_TF: 5m',
+    'OWNER_TF: 1h',
+    'SETUP: continuation',
+    'EXEC_PATH: direct',
     'WHY: gerekçe var',
     'RISK_NOTE: risk var',
-    'TF_1M: yalnız 1m yorumlandı',
+    'WAIT_FOR: NONE',
+    'SUPPORT_TFS: 1m,1h',
+    'VETO_TFS: 15m',
+    'FORMING_CONTEXT: forming yalnız bağlam',
+    ...incompleteLines,
     'VISION_SUMMARY: özet var'
   ].join('\n'));
+
   const contract = visionPlanContract(incomplete);
   assert.equal(contract.ok,false);
-  assert.ok(contract.missing.includes('TF_3M'));
-  assert.ok(contract.missing.includes('TF_1D'));
+  assert.ok(contract.missing.includes('TF_3M_WAIT'));
+  assert.ok(contract.missing.includes('SUPPORT_TFS_ROLE_MISMATCH'));
 });
-
 test('LIVE execution candidate is locked to the requested signal symbol instead of the top scanner pick', () => {
   const scan = {
     leaders:[
