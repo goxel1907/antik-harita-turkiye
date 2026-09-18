@@ -568,7 +568,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     LEADER_INTENT_NOT_READY:'giriş, stop veya miktar henüz güvenli emir niyetine dönüşmedi',
     EXECUTION_LINEAGE_MISMATCH:'sinyal ile emir soy zinciri eşleşmedi',
     DUPLICATE_EVENT:'aynı sinyal olayı daha önce işlendi',
-    DUPLICATE_LINEAGE:'aynı işlem fikri daha önce işlendi'
+    DUPLICATE_LINEAGE:'aynı işlem fikri daha önce işlendi',
+    VISION_9TF_INCOMPLETE:'9 zaman diliminin grafik paketi eksik; grafik görmeden canlı karar verilmedi',
+    VISION_COMMITTEE_INPUT_INCOMPLETE:'9Router komitesi 9 grafiğin tamamını alamadı; canlı karar bloke edildi',
+    VISION_COMMITTEE_UNAVAILABLE:'Vision/9Router analiz komitesi erişilemiyor; grafik analizi tamamlanmadı',
+    UNSTRUCTURED_COMMITTEE_OUTPUT:'model çıktısı beklenen plan şemasına uymadı',
+    NO_FRESH_TIMEFRAME_CONTEXT:'taze zaman dilimi bağlamı yetersiz'
   };
 
   const LEADER_STAGE_TR = {
@@ -594,6 +599,96 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if (/expansion/i.test(key)) return 'seçilen yöndeki genişleme/momentum gücü henüz yeterli değil';
     if (/invalid USDT perpetual symbol/i.test(key)) return 'sembol Binance USDT perpetual evreniyle eşleşmedi';
     return key;
+  }
+
+  const LEADER_DIAG_FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+
+  function shortPatternName(p) {
+    if (!p) return '';
+    if (typeof p === 'string') return p.slice(0,60);
+    return String(p.name || p.type || p.pattern || p.state || '').slice(0,60);
+  }
+
+  function timeframeEvidence(unified) {
+    const out={};
+    for (const tf of LEADER_DIAG_FRAMES) {
+      const f=unified?.frames?.[tf];
+      if (!f?.available) {
+        out[tf]={ available:false, summaryTr:'veri yok: '+String(f?.reason || 'UNAVAILABLE') };
+        continue;
+      }
+      const opp=f.opportunity?.available === false ? null : f.opportunity;
+      const patterns=(Array.isArray(f.patterns)?f.patterns:[]).map(shortPatternName).filter(Boolean).slice(-3);
+      const sweep=f.liquidity?.lastSweep;
+      const sweepText=sweep
+        ? String(sweep.side || sweep.type || sweep.state || sweep.direction || 'sweep')
+        : '';
+      const parts=[
+        f.fresh ? 'taze' : 'eski',
+        f.trend ? 'trend '+f.trend : '',
+        finite(f.rsi14)!==null ? 'RSI '+finite(f.rsi14).toFixed(1) : '',
+        f.breakOfStructure ? 'BOS '+f.breakOfStructure : '',
+        opp?.preferredSide ? 'fırsat '+opp.preferredSide : '',
+        opp && finite(opp.longScore)!==null ? 'L '+finite(opp.longScore).toFixed(0) : '',
+        opp && finite(opp.shortScore)!==null ? 'S '+finite(opp.shortScore).toFixed(0) : '',
+        f.breakoutExecution?.status ? 'breakout '+f.breakoutExecution.status : '',
+        sweepText ? 'sweep '+sweepText : '',
+        patterns.length ? 'pattern '+patterns.join('/') : ''
+      ].filter(Boolean);
+      out[tf]={
+        available:true,
+        fresh:f.fresh === true,
+        asOf:f.asOf || null,
+        trend:f.trend || null,
+        rsi14:finite(f.rsi14),
+        breakOfStructure:f.breakOfStructure || null,
+        longScore:opp ? finite(opp.longScore) : null,
+        shortScore:opp ? finite(opp.shortScore) : null,
+        preferredSide:opp?.preferredSide || null,
+        breakoutStatus:f.breakoutExecution?.status || null,
+        patterns,
+        liquidity:{
+          buySide:f.liquidity?.buySide || null,
+          sellSide:f.liquidity?.sellSide || null,
+          lastSweep:sweep || null,
+          fairValueGaps:Array.isArray(f.liquidity?.fairValueGaps) ? f.liquidity.fairValueGaps.slice(-2) : []
+        },
+        summaryTr:parts.join(' • ')
+      };
+    }
+    return out;
+  }
+
+  function visionDiagnosticExtras(advisory) {
+    const plan=advisory?.plan || {};
+    const vision=advisory?.vision || {};
+    return {
+      planStatus:String(plan.status || ''),
+      confidence:finite(plan.confidence),
+      originTF:String(plan.originTF || ''),
+      ownerTF:String(plan.ownerTF || ''),
+      setup:String(plan.setup || ''),
+      execPath:String(plan.execPath || ''),
+      planWhy:String(plan.why || ''),
+      planRisk:String(plan.riskNote || ''),
+      waitFor:String(plan.waitFor || ''),
+      visionSummary:String(plan.visionSummary || ''),
+      timeframeNotes:plan.timeframeNotes && typeof plan.timeframeNotes === 'object' ? plan.timeframeNotes : {},
+      timeframeEvidence:timeframeEvidence(advisory?.unifiedContext),
+      vision:{
+        ok:vision?.ok === true,
+        attached:Number(vision?.attached || advisory?.committee?.vision?.attached || 0),
+        required:Number(vision?.required || 9),
+        barsRequested:Number(vision?.barsRequested || 128),
+        mode:String(vision?.mode || 'annotated'),
+        failures:Array.isArray(vision?.failures) ? vision.failures.slice(0,9) : []
+      },
+      committee:{
+        model:String(advisory?.committee?.model || ''),
+        mode:String(advisory?.committee?.mode || ''),
+        degraded:advisory?.committee?.degraded === true
+      }
+    };
   }
 
   function leaderCandidateExplanationTr(row) {
@@ -627,6 +722,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if(finite(row?.confidence)!==null) parts.push(`Model güveni: ${finite(row.confidence)}/100.`);
     if(row?.setup) parts.push(`Kurulum: ${row.setup}.`);
     if(row?.planWhy) parts.push(`Plan gerekçesi: ${row.planWhy}`);
+    if(row?.waitFor && String(row.waitFor).toUpperCase()!=='NONE') parts.push(`Sinyal için beklenen: ${row.waitFor}`);
+    if(row?.visionSummary) parts.push(`9TF grafik özeti: ${row.visionSummary}`);
+    if(row?.vision) parts.push(`Vision: ${Number(row.vision.attached||0)}/${Number(row.vision.required||9)} grafik, ${Number(row.vision.barsRequested||128)} mum, ${row.vision.mode||'annotated'}.`);
     if(row?.planRisk) parts.push(`Risk notu: ${row.planRisk}`);
     if(row?.orderPlaced === true) parts.push('Sonuç: Binance Futures canlı emri gönderildi; koruma ve yürütme sonucu ayrıca izleniyor.');
     return parts.join(' ');
@@ -746,7 +844,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
     if (!advisory?.candidateFound || !advisory?.plan || !advisory?.unifiedContext) {
       const rs=[advisory?.reason || 'LEADER_PLAN_NOT_READY'];
-      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_READY', rs);
+      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_READY', rs, visionDiagnosticExtras(advisory));
       return {
         ok:true,
         orderPlaced:false,
@@ -758,17 +856,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     }
 
     if (String(advisory.plan.status || '').toUpperCase() !== 'QUALIFIED') {
-      const rs=['LEADER_PLAN_NOT_QUALIFIED'];
-      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, {
-        planStatus:String(advisory.plan.status || ''),
-        confidence:finite(advisory.plan.confidence),
-        originTF:String(advisory.plan.originTF || ''),
-        ownerTF:String(advisory.plan.ownerTF || ''),
-        setup:String(advisory.plan.setup || ''),
-        execPath:String(advisory.plan.execPath || ''),
-        planWhy:String(advisory.plan.why || ''),
-        planRisk:String(advisory.plan.riskNote || '')
-      });
+      const rs=[...new Set(['LEADER_PLAN_NOT_QUALIFIED', advisory.plan.reason].filter(Boolean))];
+      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, visionDiagnosticExtras(advisory));
       return {
         ok:true,
         orderPlaced:false,
@@ -779,16 +868,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         reasons:rs
       };
     }
-    annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], {
-      planStatus:'QUALIFIED',
-      confidence:finite(advisory.plan.confidence),
-      originTF:String(advisory.plan.originTF || ''),
-      ownerTF:String(advisory.plan.ownerTF || ''),
-      setup:String(advisory.plan.setup || ''),
-      execPath:String(advisory.plan.execPath || ''),
-      planWhy:String(advisory.plan.why || ''),
-      planRisk:String(advisory.plan.riskNote || '')
-    });
+    annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], visionDiagnosticExtras(advisory));
 
     const creds = currentCredentials();
     if (!credentialsReady(creds)) {
