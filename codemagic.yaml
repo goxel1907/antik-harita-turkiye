@@ -15,7 +15,7 @@ workflows:
       android_signing:
         - futures15m_stable
     scripts:
-      - name: Prepare Futures Alarm v9.5.94 Vision lifecycle source
+      - name: Prepare Futures Alarm v9.5.95 Vision lifecycle source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -84,12 +84,15 @@ workflows:
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
           BUILD="$APP/app/build.gradle"
           grep -q 'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' "$MAIN"
+          grep -q 'V9595_VISION_ROUTING_DIAGNOSTICS' "$MAIN"
+          grep -q 'GÖRSEL OKUMA TAMAMLANMADI' "$MAIN"
+          grep -q 'SADECE DETERMINİSTİK KANIT' "$MAIN"
           grep -q 'DETAYLI OTO ANALİZ' "$MAIN"
           grep -q 'timeframeNotes' "$MAIN"
           grep -q 'timeframeEvidence' "$MAIN"
-          grep -q "versionName '9.5.94'" "$BUILD"
-          grep -q 'versionCode 26091834' "$BUILD"
-          echo 'V9594_ANDROID_VISION_DIAGNOSTICS_OK'
+          grep -q "versionName '9.5.95'" "$BUILD"
+          grep -q 'versionCode 26091835' "$BUILD"
+          echo 'V9595_ANDROID_VISION_DIAGNOSTICS_OK'
 
       - name: Set Android SDK location
         script: |
@@ -260,13 +263,13 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.94 signed APK
+      - name: Build installable v9.5.95 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          LOG=/tmp/v9594-gradle.log
+          LOG=/tmp/v9595-gradle.log
           if ! ./gradlew --no-daemon --max-workers=1 assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
-            cp "$LOG" "$CM_BUILD_DIR/v9594-gradle.log" || true
+            cp "$LOG" "$CM_BUILD_DIR/v9595-gradle.log" || true
             echo
             echo '========== SON 220 SATIR (STACKTRACE/BAĞLAM) =========='
             tail -n 220 "$LOG" || true
@@ -306,9 +309,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.94.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.94.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.95.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.95.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.94.apk
-      - v9594-gradle.log
+      - Futures15mAlarm-PRO-v9.5.95.apk
+      - v9595-gradle.log
