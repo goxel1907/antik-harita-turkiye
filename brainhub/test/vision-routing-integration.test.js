@@ -193,3 +193,83 @@ test('9TF Vision falls back from image-incapable free models to a Kiro vision ro
 
   assert.equal(stderr.includes('BRAINHUB_ROUTER_KEY missing'),false,stderr);
 });
+
+test('9TF Vision never consumes Kiro when paid fallback is not explicitly enabled', { timeout:20000 }, async () => {
+  const requested=[];
+  const fakeRouter=http.createServer(async (req,res)=>{
+    if(req.method!=='POST'||req.url!=='/v1/chat/completions'){
+      res.writeHead(404,{'content-type':'application/json'});
+      return res.end(JSON.stringify({error:'not found'}));
+    }
+    let raw=''; for await(const chunk of req) raw+=chunk;
+    const body=JSON.parse(raw||'{}');
+    const model=String(body.model||'');
+    const vision=hasImageInput(body);
+    requested.push({model,vision});
+    if(vision&&model.startsWith('oc/')){
+      res.writeHead(400,{'content-type':'application/json'});
+      return res.end(JSON.stringify({error:'image input unsupported'}));
+    }
+    res.writeHead(200,{'content-type':'application/json'});
+    return res.end(JSON.stringify({choices:[{message:{content:'VISION_OK: should-not-use-paid-fallback'}}]}));
+  });
+
+  const routerPort=await listen(fakeRouter);
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-vision-free-only-'));
+  const brainPort=await freePort();
+  const configDir=path.join(root,'config');
+  fs.mkdirSync(configDir,{recursive:true});
+  fs.writeFileSync(path.join(configDir,'models.json'),JSON.stringify({
+    baseUrl:'http://127.0.0.1:'+routerPort+'/v1',
+    opencode:['oc/free-only'],
+    kiro:['kr/paid-vision'],
+    healthCacheSeconds:1
+  }),'utf8');
+  fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
+    analysts:['oc/free-only'],
+    backupAnalysts:[],
+    judges:['kr/paid-vision'],
+    minAnalystReplies:2,
+    minVisionAnalystReplies:1,
+    parallelAnalysts:1,
+    judgeOnlyOnDisagreement:true
+  }),'utf8');
+
+  const serverPath=path.join(__dirname,'..','server.js');
+  const child=spawn(process.execPath,[serverPath],{
+    cwd:root,
+    env:{
+      ...process.env,
+      BRAINHUB_ROOT:root,
+      BRAINHUB_ROUTER_KEY:'integration-test-router-key-123456',
+      BRAINHUB_HOST:'127.0.0.1',
+      BRAINHUB_PORT:String(brainPort),
+      BRAINHUB_CLIENT_TOKEN:''
+    },
+    stdio:['ignore','pipe','pipe']
+  });
+
+  try{
+    await waitFor('http://127.0.0.1:'+brainPort+'/health');
+    const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+    const r=await fetch('http://127.0.0.1:'+brainPort+'/committee',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({role:'STRUCTURE',prompt:'Vision free-only regression',images:tfs.map(fakeImage)})
+    });
+    const body=await r.json();
+    assert.equal(r.status,503,JSON.stringify(body));
+    assert.equal(body.error,'no vision analyst replies');
+    assert.ok(requested.some(x=>x.model==='oc/free-only'&&x.vision));
+    assert.equal(requested.some(x=>x.model.startsWith('kr/')),false,'paid/Kiro route must require explicit opt-in');
+
+    const routes=await (await fetch('http://127.0.0.1:'+brainPort+'/models/routes')).json();
+    assert.equal(routes.visionKiroFallback,false);
+    assert.ok(routes.visionRoutes.STRUCTURE.every(x=>x.startsWith('oc/')));
+  }finally{
+    await stopChild(child);
+    await new Promise(resolve=>fakeRouter.close(resolve));
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
