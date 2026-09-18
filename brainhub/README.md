@@ -35,7 +35,7 @@ Gerçek uçtan uca test için:
 & 'C:\\BrainHub\\TEST.ps1' -Deep
 ```
 
-Bu test `/vision/probe?symbol=BTCUSDT` üzerinden 9/9 grafiğin hazırlanmasını, modelin dokuz TF'nin tamamını raporlamasını ve modelden gizlenen gerçek son-mum yönlerine karşı pixel-read doğrulamasını çalıştırır. Probe'un başarılı sayılması için 9 TF'nin tamamı raporlanmalı ve en az 8/9 görsel yön eşleşmelidir. Bu son mum forming olabilir; test yalnız gerçek Vision taşımacılığını doğrular, işlem teyidi değildir. `9TF Vision model okuma testi gecmedi` veya pixel doğrulama hatası alınırsa APK/Android tarafını değil, PC 9Router/model Vision rotasını inceleyin. `/models/healthy` çıktısındaki `visionStatus` ve `visionError` alanları hangi modelin görsel girişini kabul/reddettiğini gösterir.
+Bu test `/vision/probe?symbol=BTCUSDT` üzerinden 9/9 grafiğin hazırlanmasını, modelin dokuz TF'nin tamamını gerçekten görmesini ve yalnız diagnostik probe görüntülerine çizilen gizli dört-kare renk kodlarını okumasını doğrular. Beklenen kodlar modele verilmez; her TF için farklı kod sunucu tarafında bilinir ve 9/9 tam eşleşme gerekir. Marker yalnız probe görüntülerine eklenir, normal Leader/Trade grafiklerine eklenmez ve piyasa kanıtı değildir. Böylece küçük/doji/forming son mumun görsel yorum belirsizliği transport testini yanlış negatif yapmaz. `9TF Vision model okuma testi gecmedi` veya pixel doğrulama hatası alınırsa APK/Android tarafını değil, PC 9Router/model Vision rotasını inceleyin. `/models/healthy` çıktısındaki `visionStatus` ve `visionError` alanları hangi modelin görsel girişini kabul/reddettiğini gösterir.
 
 ## Android bağlantısı
 
