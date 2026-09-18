@@ -47,6 +47,16 @@ test('clean and annotated chart renderer returns valid PNG bytes', () => {
   assert.notEqual(clean.toString('base64'),annotated.toString('base64'));
 });
 
+test('diagnostic Vision marker changes only the requested probe render', () => {
+  const c=chartFixture();
+  const normal=renderChartPng(c,'annotated');
+  const probeA=renderChartPng(c,'annotated',{visionProbeCode:'0001'});
+  const probeB=renderChartPng(c,'annotated',{visionProbeCode:'1001'});
+  assert.notEqual(normal.toString('base64'),probeA.toString('base64'));
+  assert.notEqual(probeA.toString('base64'),probeB.toString('base64'));
+  assert.equal(renderChartPng(c,'annotated',{visionProbeCode:'xxxx'}).toString('base64'),normal.toString('base64'));
+});
+
 test('invalid chart mode is rejected', () => {
   assert.throws(()=>renderChartPng(chartFixture(),'future-vision'),/invalid chart mode/);
 });
