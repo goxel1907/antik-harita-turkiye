@@ -374,23 +374,29 @@ const server=http.createServer(async(req,res)=>{
       const minReplies=Math.max(1,Number(ccfg.minAnalystReplies||2));
       const minVisionReplies=Math.max(1,Number(ccfg.minVisionAnalystReplies||1));
       const requiredReplies=hasVision?minVisionReplies:minReplies;
-      const parallel=Math.max(1,Math.min(Number(ccfg.parallelAnalysts||3),routed.length||1));
+      const textParallel=Math.max(1,Math.min(Number(ccfg.parallelAnalysts||3),routed.length||1));
+      const visionParallel=Math.max(1,Math.min(2,Number(ccfg.visionParallelAnalysts||1),routed.length||1));
+      const parallel=hasVision?visionParallel:textParallel;
+      const visionTimeoutMs=Math.max(30000,Math.min(180000,Number(ccfg.visionTimeoutMs||90000)));
       const messages=[];
       const system=[roleInstruction(role),String(j.system||'').trim()].filter(Boolean).join(' ');
       if(system)messages.push({role:'system',content:system});
       messages.push({role:'user',content:vision.content});
 
       async function probe(model){
-        if(hasVision?visionBlocked(model):blocked(model))return {ok:false,model,error:hasVision?'vision cooldown':'cooldown'};
+        if(hasVision?visionBlocked(model):blocked(model))return {ok:false,model,error:hasVision?'vision cooldown':'cooldown',durationMs:0};
+        const started=Date.now();
         try{
-          const r=await callModel(model,messages,20000);
-          if(hasVision)visionState.set(model,{ok:true,at:Date.now(),error:null});
-          return {ok:true,model,text:r.text};
+          const r=await callModel(model,messages,hasVision?visionTimeoutMs:20000);
+          const durationMs=Date.now()-started;
+          if(hasVision)visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs});
+          return {ok:true,model,text:r.text,durationMs};
         }catch(e){
+          const durationMs=Date.now()-started;
           const msg=String(e.message||e).slice(0,400);
-          if(hasVision)visionState.set(model,{ok:false,at:Date.now(),error:msg});
+          if(hasVision)visionState.set(model,{ok:false,at:Date.now(),error:msg,durationMs});
           else state.set(model,{ok:false,at:Date.now(),error:msg});
-          return {ok:false,model,error:msg};
+          return {ok:false,model,error:msg,durationMs};
         }
       }
 
@@ -422,6 +428,8 @@ const server=http.createServer(async(req,res)=>{
           received:0,
           vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},
           attemptedModels:results.map(x=>x.model),
+          visionTimeoutMs:hasVision?visionTimeoutMs:null,
+          visionParallelAnalysts:hasVision?visionParallel:null,
           failures
         });
       }
@@ -478,7 +486,7 @@ const server=http.createServer(async(req,res)=>{
       }
 
       log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no')+' visionCharts='+vision.images.length);
-      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
+      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
