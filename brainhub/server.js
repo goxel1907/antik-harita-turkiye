@@ -279,7 +279,7 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','KKK_DETAILED_9TF_DIAGNOSTICS','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,live.status());
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -576,6 +576,26 @@ const server=http.createServer(async(req,res)=>{
       const scan=await scanner.scan();
       const leaderCommittee=require('./leader-committee');
       return send(res,200,await leaderCommittee.run({scan,port:PORT,token:CLIENT_TOKEN}));
+    }
+    if(req.method==='GET'&&u.pathname==='/leader/detail-probe'){
+      try{
+        const scan=await scanner.scan();
+        const leaderCommittee=require('./leader-committee');
+        const pool=leaderCommittee.selectDeepCandidates(scan,16);
+        const candidate=pool.find(x=>['LONG','SHORT'].includes(String(x?.side||'').toUpperCase()))||null;
+        if(!candidate)return send(res,200,{ok:true,candidateFound:false,reason:'NO_DIRECTIONAL_DEEP_SCAN_CANDIDATE',analysisOnly:true,execution:'ADVISORY_ONLY',orderPlaced:false});
+        const out=await pipeline.run({
+          scan,
+          store,
+          committee:committeeCall,
+          executionIntent:{symbol:String(candidate.symbol||'').toUpperCase(),side:String(candidate.side||'').toUpperCase(),analysisTracking:true}
+        });
+        return send(res,200,{...out,analysisOnly:true,detailProbe:true,execution:'ADVISORY_ONLY',orderPlaced:false});
+      }catch(e){
+        const detail=String(e?.stack||e?.message||e).slice(0,2400);
+        log('LEADER DETAIL PROBE FAIL '+detail);
+        return send(res,503,{ok:false,error:'leader detail probe failed',detail:String(e?.message||e).slice(0,1200),analysisOnly:true,execution:'ADVISORY_ONLY',orderPlaced:false});
+      }
     }
     if(req.method==='GET'&&u.pathname==='/leader/plan'){
       try{
