@@ -263,6 +263,8 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
       synthetic45mIsContextNotIndependentVote:true,
       observedLiquidationsAreContextNotIntent:true,
       trueOfiClaimed:false,
+      microstructureSoftFamilySingleVote:true,
+      missingAuxiliaryDataIsScoreless:true,
       execution:'ADVISORY_ONLY'
     }
   };
@@ -295,13 +297,28 @@ function compactUnifiedContext(u) {
       cvdSource:m.cvdSource || 'REST_AGGTRADES_SAMPLE',
       ofiProxyQuote:m.ofiProxyQuote,
       ofiQuality:'REST_TWO_SNAPSHOT_PROXY_NOT_TRUE_OFI',
+      depthSoftContext:m.depthSoftContext ? {
+        source:m.depthSoftContext.source || 'BINANCE_DEPTH20_PARTIAL_BOOK',
+        normalizedEntropy:m.depthSoftContext.normalizedEntropy,
+        concentration:m.depthSoftContext.concentration,
+        bidEntropy:m.depthSoftContext.bidEntropy,
+        askEntropy:m.depthSoftContext.askEntropy,
+        bidWallShare:m.depthSoftContext.bidWallShare,
+        askWallShare:m.depthSoftContext.askWallShare,
+        wallPressure:m.depthSoftContext.wallPressure,
+        microprice:m.depthSoftContext.microprice,
+        micropriceBps:m.depthSoftContext.micropriceBps,
+        semantics:m.depthSoftContext.semantics || 'SOFT_MICROSTRUCTURE_CONTEXT_ONLY',
+        note:m.depthSoftContext.note || null
+      } : { available:false },
       streaming:m.streaming ? {
         available:Boolean(m.streaming.available),
         connected:Boolean(m.streaming.connected),
         ageMs:m.streaming.ageMs,
         cvdQuote120s:m.streaming.cvdQuote120s,
         cvdTrades120s:m.streaming.cvdTrades120s,
-        depth20Imbalance:m.streaming.depth20Imbalance
+        depth20Imbalance:m.streaming.depth20Imbalance,
+        depthSoftContext:m.streaming.depthSoftContext || null
       } : { available:false }
     } : { available:false, reason:m?.reason },
     liquidationContext:u.liquidationContext,
@@ -571,6 +588,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'A FAILED_BREAKOUT timeframe is not an immediate breakout entry; require reclaim or another valid execution path.',
     'Observed forceOrder liquidation prints may inform liquidity context, but they are not a complete heatmap, future cluster map, or market-maker intent.',
     'Partial depth20 streaming is not true OFI. Respect the supplied quality labels and do not multiply correlated flow evidence into fake confirmations.',
+    'OPEN_SOURCE_REFERENCE_MICRO: depth entropy, wall concentration, wall pressure and microprice are independent local calculations inspired by reviewed MIT research patterns; treat them as ONE correlated soft microstructure family only.',
+    'Entropy/concentration/microprice cannot create a hard veto, cannot independently qualify a trade, and cannot prove spoofing, hidden liquidity or market-maker intent. Missing/stale auxiliary micro data is PUANSIZ, not bearish/bullish evidence.',
     'Do not invent news, levels, missing flow, liquidation maps, or hidden intent. Do not place an order.',
     '',
     'UNIFIED_CONTEXT_JSON:',
