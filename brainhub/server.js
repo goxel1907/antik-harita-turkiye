@@ -26,6 +26,7 @@ const store=openStore(ROOT);
 
 fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
+const visionState=new Map();
 let rr=0;
 const ROLE_HINTS={
   DEFAULT:[],
@@ -134,9 +135,29 @@ async function callModel(model,messages,timeoutMs=12000){
   state.set(model,{ok:true,at:Date.now(),error:null});
   return {model,text};
 }
-function blocked(model){
-  const s=state.get(model);
+function recentFailure(map,model){
+  const s=map.get(model);
   return !!(s&&s.ok===false&&(Date.now()-s.at)<TTL);
+}
+function blocked(model){ return recentFailure(state,model); }
+function visionBlocked(model){ return recentFailure(visionState,model); }
+function uniqueModels(xs){ return [...new Set((xs||[]).filter(Boolean))]; }
+function orderedVisionModels(ccfg,role='STRUCTURE'){
+  const free=uniqueModels(cfg.opencode||[]);
+  const kiro=uniqueModels(cfg.kiro||[]);
+  const allowed=new Set([...free,...kiro]);
+  const explicit=uniqueModels([...(ccfg?.visionAnalysts||[]),...(ccfg?.visionBackupAnalysts||[])]).filter(x=>allowed.has(x));
+  const general=uniqueModels([...(ccfg?.analysts||[]),...(ccfg?.backupAnalysts||[])]).filter(x=>allowed.has(x));
+  const freePool=uniqueModels([...explicit.filter(x=>free.includes(x)),...general.filter(x=>free.includes(x)),...free]);
+  const kiroPool=uniqueModels([...explicit.filter(x=>kiro.includes(x)),...general.filter(x=>kiro.includes(x)),...kiro]);
+  const preferHealthy=xs=>[
+    ...xs.filter(x=>visionState.get(x)?.ok===true),
+    ...xs.filter(x=>!visionState.has(x))
+  ];
+  return uniqueModels([
+    ...rankPool(preferHealthy(freePool),role,true),
+    ...rankPool(preferHealthy(kiroPool),role,true)
+  ]);
 }
 async function ask(prompt,system,preferred,role='DEFAULT'){
   role=normalizeRole(role);
@@ -217,7 +238,13 @@ function candidateForSymbol(scan,symbol){
 async function committeeCall(body){
   const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
   const data=await r.json();
-  if(!r.ok)throw new Error('committee unavailable: '+(data.error||r.status));
+  if(!r.ok){
+    const failures=Array.isArray(data?.failures)?data.failures:[];
+    const failureText=failures.slice(0,4).map(x=>String(x?.model||'?')+': '+String(x?.error||'error')).join(' | ');
+    const err=new Error('committee unavailable: '+(data.error||r.status)+(failureText?' | '+failureText:''));
+    err.committee=data;
+    throw err;
+  }
   return data;
 }
 const live=createLiveController({root:ROOT,store,scanner,pipeline,committee:committeeCall,credentials:BINANCE_CREDENTIALS});
@@ -228,7 +255,7 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.78-C',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','LIVE_FAIL_CLOSED']});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','LIVE_FAIL_CLOSED']});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,live.status());
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -259,7 +286,15 @@ const server=http.createServer(async(req,res)=>{
       return send(res,out.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
-      const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({model,status:state.has(model)?(state.get(model).ok?'healthy':'cooldown'):'untested',last:state.get(model)?.at||null,error:state.get(model)?.error||null}));
+      const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({
+        model,
+        status:state.has(model)?(state.get(model).ok?'healthy':'cooldown'):'untested',
+        last:state.get(model)?.at||null,
+        error:state.get(model)?.error||null,
+        visionStatus:visionState.has(model)?(visionState.get(model).ok?'healthy':'cooldown'):'untested',
+        visionLast:visionState.get(model)?.at||null,
+        visionError:visionState.get(model)?.error||null
+      }));
       return send(res,200,{cacheSeconds:TTL/1000,models});
     }
     if(req.method==='GET'&&u.pathname==='/models/routes'){
@@ -296,9 +331,14 @@ const server=http.createServer(async(req,res)=>{
       const configured=[...(Array.isArray(ccfg.analysts)?ccfg.analysts:[]),...(Array.isArray(ccfg.backupAnalysts)?ccfg.backupAnalysts:[])];
       const freeSet=new Set(cfg.opencode||[]);
       const eligible=(configured.length?configured:[...(cfg.opencode||[])]).filter(x=>freeSet.has(x));
-      const routed=rankPool(eligible.length?eligible:[...(cfg.opencode||[])],role,true);
+      const hasVision=vision.images.length>0;
+      const routed=hasVision
+        ? orderedVisionModels(ccfg,role)
+        : rankPool(eligible.length?eligible:[...(cfg.opencode||[])],role,true);
       const judges=Array.isArray(ccfg.judges)?ccfg.judges:[];
       const minReplies=Math.max(1,Number(ccfg.minAnalystReplies||2));
+      const minVisionReplies=Math.max(1,Number(ccfg.minVisionAnalystReplies||1));
+      const requiredReplies=hasVision?minVisionReplies:minReplies;
       const parallel=Math.max(1,Math.min(Number(ccfg.parallelAnalysts||3),routed.length||1));
       const messages=[];
       const system=[roleInstruction(role),String(j.system||'').trim()].filter(Boolean).join(' ');
@@ -306,13 +346,15 @@ const server=http.createServer(async(req,res)=>{
       messages.push({role:'user',content:vision.content});
 
       async function probe(model){
-        if(blocked(model))return {ok:false,model,error:'cooldown'};
+        if(hasVision?visionBlocked(model):blocked(model))return {ok:false,model,error:hasVision?'vision cooldown':'cooldown'};
         try{
           const r=await callModel(model,messages,20000);
+          if(hasVision)visionState.set(model,{ok:true,at:Date.now(),error:null});
           return {ok:true,model,text:r.text};
         }catch(e){
-          const msg=String(e.message||e).slice(0,240);
-          state.set(model,{ok:false,at:Date.now(),error:msg});
+          const msg=String(e.message||e).slice(0,400);
+          if(hasVision)visionState.set(model,{ok:false,at:Date.now(),error:msg});
+          else state.set(model,{ok:false,at:Date.now(),error:msg});
           return {ok:false,model,error:msg};
         }
       }
@@ -320,13 +362,23 @@ const server=http.createServer(async(req,res)=>{
       let results=await Promise.all(routed.slice(0,parallel).map(probe));
       let good=results.filter(x=>x.ok&&x.text);
       for(const m of routed.slice(parallel)){
-        if(good.length>=minReplies)break;
+        if(good.length>=requiredReplies)break;
         const r=await probe(m);
         results.push(r);
         if(r.ok&&r.text)good.push(r);
       }
       if(good.length===0){
-        return send(res,503,{ok:false,error:'no analyst replies',role,required:minReplies,received:0,results});
+        const failures=results.filter(x=>!x.ok).slice(0,12);
+        return send(res,503,{
+          ok:false,
+          error:hasVision?'no vision analyst replies':'no analyst replies',
+          role,
+          required:requiredReplies,
+          received:0,
+          vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},
+          attemptedModels:results.map(x=>x.model),
+          failures
+        });
       }
       const degraded=good.length<minReplies;
 
@@ -349,7 +401,7 @@ const server=http.createServer(async(req,res)=>{
 
       if(needJudge&&judges.length){
         const jp=[
-          {role:'system',content:'You are the committee judge. Resolve conflicts using only supplied analyst answers and source context. Do not invent facts, do not infer hidden market-maker intent, and do not place orders.'},
+          {role:'system',content:'You are the committee judge. Resolve conflicts using only supplied analyst answers and source context. Preserve the exact output schema and every required field requested in ORIGINAL REQUEST, including all TF_* lines and VISION_SUMMARY when present. Do not invent facts, do not infer hidden market-maker intent, and do not place orders.'},
           {role:'user',content:'ROLE: '+role+'\nORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
         ];
         for(const m of judges){
@@ -362,10 +414,14 @@ const server=http.createServer(async(req,res)=>{
         }
       }
 
+      if(!finalText&&hasVision&&good.length===1){
+        finalText=good[0].text;
+        finalModel=good[0].model;
+      }
       if(!finalText){
-        const synth=orderedModels(role)[0]||good[0].model;
+        const synth=hasVision?(good[0]?.model||orderedModels(role)[0]):(orderedModels(role)[0]||good[0].model);
         const sp=[
-          {role:'system',content:'Synthesize the analyst answers into one concise final answer. Preserve consensus and material disagreement. Use only supplied facts. This is advisory only.'},
+          {role:'system',content:'Synthesize the analyst answers into one final answer. Preserve consensus and material disagreement, but most importantly preserve the exact output schema and every required field requested in ORIGINAL REQUEST. If ORIGINAL REQUEST asks for TF_1M..TF_1D, WHY, RISK_NOTE, WAIT_FOR or VISION_SUMMARY, all of those fields must remain present. Use only supplied facts. This is advisory only.'},
           {role:'user',content:'ROLE: '+role+'\nORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
         ];
         try{
@@ -377,7 +433,7 @@ const server=http.createServer(async(req,res)=>{
       }
 
       log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no')+' visionCharts='+vision.images.length);
-      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,receivedAnalystReplies:good.length,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
+      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
