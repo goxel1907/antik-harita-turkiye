@@ -166,7 +166,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.95 BrainHub 9TF Vision feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.95 BrainHub KKK detayli 9TF Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
@@ -210,6 +210,45 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         $committeeCalled = $false
         if ($null -ne $plan.PSObject.Properties['committeeCalled']) { $committeeCalled = [bool]$plan.committeeCalled }
         Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
+        if ($plan.candidateFound -and $committeeCalled) {
+            if ($null -eq $plan.vision -or [int]$plan.vision.attached -lt 9) { throw 'Leader 9TF grafik paketi 9/9 degil.' }
+            if ($null -eq $plan.plan) { throw 'Leader model plani yok.' }
+            $leaderPlan = $plan.plan
+            if ($leaderPlan.valid -ne $true) {
+                $missing = @($leaderPlan.missingVisionFields) -join ','
+                throw "Leader KKK 9TF model detay sozlesmesi gecmedi. reason=$($leaderPlan.reason) missing=$missing"
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$leaderPlan.why) -or
+                [string]::IsNullOrWhiteSpace([string]$leaderPlan.riskNote) -or
+                [string]::IsNullOrWhiteSpace([string]$leaderPlan.waitFor) -or
+                [string]::IsNullOrWhiteSpace([string]$leaderPlan.formingContext) -or
+                [string]::IsNullOrWhiteSpace([string]$leaderPlan.visionSummary)) {
+                throw 'Leader KKK genel WHY/WAIT/RISK/FORMING/VISION_SUMMARY alanlari eksik.'
+            }
+            if ($null -eq $leaderPlan.supportTFs -or $null -eq $leaderPlan.vetoTFs) {
+                throw 'Leader KKK SUPPORT_TFS/VETO_TFS alanlari eksik.'
+            }
+            $diagFrames = @('1m','3m','5m','15m','30m','45m','1h','4h','1d')
+            foreach ($tf in $diagFrames) {
+                $prop = $leaderPlan.timeframeDiagnostics.PSObject.Properties[$tf]
+                if ($null -eq $prop -or $null -eq $prop.Value) { throw "Leader KKK $tf model diagnostigi eksik." }
+                $d = $prop.Value
+                foreach ($name in @('summary','why','waitFor','role','formingContext','risk')) {
+                    $v = $d.PSObject.Properties[$name]
+                    if ($null -eq $v -or [string]::IsNullOrWhiteSpace([string]$v.Value)) {
+                        throw "Leader KKK $tf/$name alani eksik."
+                    }
+                }
+                if (@('SUPPORT','VETO','NEUTRAL') -notcontains [string]$d.role) {
+                    throw "Leader KKK $tf role gecersiz: $($d.role)"
+                }
+            }
+            $supportText = @($leaderPlan.supportTFs) -join ','
+            $vetoText = @($leaderPlan.vetoTFs) -join ','
+            Write-Host ("LEADER_9TF_DETAIL symbol={0} side={1} status={2} vision={3}/9 support={4} veto={5} detailed=9/9" -f $plan.candidate.symbol,$leaderPlan.side,$leaderPlan.status,$plan.vision.attached,$supportText,$vetoText)
+        } elseif (-not $plan.candidateFound) {
+            Write-Host 'LEADER_9TF_DETAIL skipped=NO_CURRENT_CANDIDATE'
+        }
         try {
             $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 240
         } catch {
