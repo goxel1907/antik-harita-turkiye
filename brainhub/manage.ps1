@@ -233,7 +233,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
             throw '9TF Vision model okuma testi gecmedi; grafikler uretilse bile model tarafinda gercek gorsel okuma dogrulanamadi.'
         }
         if (-not $vision.visualVerification -or -not $vision.visualVerification.ok -or $vision.visualVerification.reported -lt 9 -or $vision.visualVerification.matched -lt $vision.visualVerification.threshold) {
-            throw '9TF Vision pixel okuma testi gecmedi; model dokuz probe grafigindeki gizli diagnostik renk kodlarini 9/9 dogrulayamadı.'
+            throw '9TF Vision pixel okuma testi gecmedi; model dokuz probe grafigindeki gizli 3x3 diagnostik hucre konumlarini 9/9 dogrulayamadı.'
         }
         Write-Host "VISION model=$($vision.model) mode=$($vision.mode) charts=$($vision.vision.attached)/9 degraded=$($vision.degraded) pixel=$($vision.visualVerification.matched)/9 threshold=$($vision.visualVerification.threshold)"
     }
