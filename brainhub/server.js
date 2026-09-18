@@ -161,13 +161,46 @@ async function ask(prompt,system,preferred,role='DEFAULT'){
   }
   throw Object.assign(new Error('no healthy model'),{errors});
 }
-function readBody(req){
+function readBody(req,maxBytes=1048576){
   return new Promise((resolve,reject)=>{
     let b='';
-    req.on('data',c=>{b+=c;if(b.length>1048576){reject(new Error('body too large'));req.destroy();}});
+    req.on('data',c=>{b+=c;if(b.length>maxBytes){reject(new Error('body too large'));req.destroy();}});
     req.on('end',()=>resolve(b));
     req.on('error',reject);
   });
+}
+function normalizeVisionImages(images){
+  if(!Array.isArray(images)||!images.length)return [];
+  const out=[];
+  let totalBytes=0;
+  for(const raw of images.slice(0,9)){
+    const tf=String(raw?.tf||'').toLowerCase();
+    const mode=String(raw?.mode||'clean').toLowerCase();
+    const dataUrl=String(raw?.dataUrl||raw?.url||'').trim();
+    if(!/^(1m|3m|5m|15m|30m|45m|1h|4h|1d)$/.test(tf))continue;
+    if(!/^(clean|annotated)$/.test(mode))continue;
+    const m=dataUrl.match(/^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/);
+    if(!m)continue;
+    const approxBytes=Math.floor(m[2].length*3/4);
+    if(approxBytes<100||approxBytes>700000)continue;
+    if(totalBytes+approxBytes>5000000)break;
+    totalBytes+=approxBytes;
+    out.push({tf,mode,dataUrl,bytes:approxBytes});
+  }
+  return out;
+}
+function multimodalUserContent(prompt,images){
+  const normalized=normalizeVisionImages(images);
+  if(!normalized.length)return {content:String(prompt||''),images:[]};
+  const content=[{
+    type:'text',
+    text:String(prompt||'')+'\n\nVISION_CHARTS: Aşağıdaki grafikler aynı sembolün farklı zaman dilimleridir. Görseldeki FORMING son mumu teyit mumu sayma; kapanmış mum yapısı ile mevcut forming mumu ayrı değerlendir.'
+  }];
+  for(const image of normalized){
+    content.push({type:'text',text:'CHART '+image.tf+' '+image.mode.toUpperCase()});
+    content.push({type:'image_url',image_url:{url:image.dataUrl,detail:'high'}});
+  }
+  return {content,images:normalized};
 }
 function readCommitteeConfig(){
   const cpath=path.join(ROOT,'config','committee.json');
@@ -195,7 +228,7 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.78-C',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','LIVE_FAIL_CLOSED']});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.78-C',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','LIVE_FAIL_CLOSED']});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,live.status());
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -253,10 +286,11 @@ const server=http.createServer(async(req,res)=>{
       let ccfg={};
       try{ccfg=readCommitteeConfig();}
       catch(e){return send(res,500,{ok:false,error:'committee config error',detail:String(e.message||e)});}
-      const raw=await readBody(req);
+      const raw=await readBody(req,8*1024*1024);
       let j={};
       try{j=JSON.parse(raw||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
       if(!j.prompt||typeof j.prompt!=='string')return send(res,400,{ok:false,error:'prompt required'});
+      const vision=multimodalUserContent(j.prompt,j.images);
 
       const role=normalizeRole(j.role||'DEFAULT');
       const configured=[...(Array.isArray(ccfg.analysts)?ccfg.analysts:[]),...(Array.isArray(ccfg.backupAnalysts)?ccfg.backupAnalysts:[])];
@@ -269,7 +303,7 @@ const server=http.createServer(async(req,res)=>{
       const messages=[];
       const system=[roleInstruction(role),String(j.system||'').trim()].filter(Boolean).join(' ');
       if(system)messages.push({role:'system',content:system});
-      messages.push({role:'user',content:j.prompt});
+      messages.push({role:'user',content:vision.content});
 
       async function probe(model){
         if(blocked(model))return {ok:false,model,error:'cooldown'};
@@ -342,8 +376,8 @@ const server=http.createServer(async(req,res)=>{
         }
       }
 
-      log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no'));
-      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,receivedAnalystReplies:good.length,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
+      log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no')+' visionCharts='+vision.images.length);
+      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,receivedAnalystReplies:good.length,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
