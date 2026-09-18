@@ -15,7 +15,7 @@ workflows:
       android_signing:
         - futures15m_stable
     scripts:
-      - name: Prepare Futures Alarm v9.5.90 PC LIVE source
+      - name: Prepare Futures Alarm v9.5.91 PC LIVE source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -249,13 +249,13 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.90 signed APK
+      - name: Build installable v9.5.91 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
-          LOG=/tmp/v9590-gradle.log
+          LOG=/tmp/v9591-gradle.log
           if ! ./gradlew --no-daemon --max-workers=1 assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
-            cp "$LOG" "$CM_BUILD_DIR/v9590-gradle.log" || true
+            cp "$LOG" "$CM_BUILD_DIR/v9591-gradle.log" || true
             echo
             echo '========== SON 220 SATIR (STACKTRACE/BAĞLAM) =========='
             tail -n 220 "$LOG" || true
@@ -295,9 +295,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.90.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.90.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.91.apk"
+          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.91.apk"
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.90.apk
-      - v9590-gradle.log
+      - Futures15mAlarm-PRO-v9.5.91.apk
+      - v9591-gradle.log
