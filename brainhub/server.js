@@ -6,6 +6,7 @@ const market=require('./market');
 const pipeline=require('./pipeline');
 const {openStore}=require('./store');
 const {createLiveController}=require('./live-controller');
+const {isOpenCodeFreeRestriction,runOpenCodeCli,probeOpenCodeCli}=require('./opencode-cli-transport');
 
 const ROOT=process.env.BRAINHUB_ROOT||path.resolve(__dirname,'..');
 const CFG=path.join(ROOT,'config','models.json');
@@ -129,11 +130,27 @@ async function callModel(model,messages,timeoutMs=12000){
   const url=cfg.baseUrl+'/chat/completions';
   const r=await fetch(url,{method:'POST',headers:{authorization:'Bearer '+KEY,'content-type':'application/json'},body:JSON.stringify({model,messages}),signal:AbortSignal.timeout(timeoutMs)});
   const raw=await r.text();
-  if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
+  if(!r.ok){
+    const canCli=String(model||'').startsWith('oc/') && cfg.opencodeCliFallback!==false && isOpenCodeFreeRestriction(r.status,raw);
+    if(canCli){
+      try{
+        const cli=await runOpenCodeCli({model,messages,timeoutMs:Math.max(30000,timeoutMs)});
+        state.set(model,{ok:true,at:Date.now(),error:null,transport:'opencode-cli'});
+        log('OPENCODE CLI FALLBACK OK model='+model+' images='+Number(cli.attachedImages||0));
+        return cli;
+      }catch(e){
+        const detail=String(e?.message||e).slice(0,700);
+        const err=new Error('OpenCode free REST blocked; official CLI fallback failed: '+detail);
+        err.code=e?.code||'OPENCODE_CLI_FALLBACK_FAILED';
+        throw err;
+      }
+    }
+    throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
+  }
   const text=extract(raw);
   if(!text)throw new Error('empty response');
-  state.set(model,{ok:true,at:Date.now(),error:null});
-  return {model,text};
+  state.set(model,{ok:true,at:Date.now(),error:null,transport:'9router'});
+  return {model,text,transport:'9router'};
 }
 function recentFailure(map,model){
   const s=map.get(model);
@@ -270,7 +287,7 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','LIVE_FAIL_CLOSED']});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','OPENCODE_OFFICIAL_CLI_FALLBACK','LIVE_FAIL_CLOSED']});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,live.status());
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -299,6 +316,10 @@ const server=http.createServer(async(req,res)=>{
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
       const out=live.configureLeaderAuto(body||{});
       return send(res,out.ok?200:409,out);
+    }
+    if(req.method==='GET'&&u.pathname==='/opencode/status'){
+      const cli=await probeOpenCodeCli();
+      return send(res,cli.ok?200:503,{ok:cli.ok,cli,restFallbackEnabled:cfg.opencodeCliFallback!==false,note:cli.ok?'Official OpenCode CLI is available for oc/* free-tier fallback.':'Install the official OpenCode CLI or set BRAINHUB_OPENCODE_BIN; 9Router OpenCode free REST may return 403.'});
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({
