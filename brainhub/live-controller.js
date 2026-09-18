@@ -216,6 +216,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   let accountSummaryCache = { at:0, value:null };
   let leaderAutoBusy = false;
   let lastLeaderAutoResult = null;
+  let leaderAutoCandidateCursor = 0;
+  let leaderAutoConsecutiveBlocked = 0;
+  let leaderAutoLastTickAt = null;
+  let leaderAutoLastHealthyAt = null;
   const leaderAutoFile = path.join(root, 'config', 'leader-auto.json');
 
   function currentCredentials() {
@@ -315,16 +319,35 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       lastExecution:lastLeaderAutoResult?.execution || null,
       lastSymbol:lastLeaderAutoResult?.symbol || lastLeaderAutoResult?.leaderIntent?.symbol || null,
       lastOrderPlaced:lastLeaderAutoResult?.orderPlaced === true,
+      lastReasons:Array.isArray(lastLeaderAutoResult?.reasons) ? lastLeaderAutoResult.reasons.slice(0,8) : [],
+      lastTickAt:leaderAutoLastTickAt,
+      lastHealthyAt:leaderAutoLastHealthyAt,
+      consecutiveBlocked:leaderAutoConsecutiveBlocked,
+      candidateCursor:leaderAutoCandidateCursor,
       reasons:cfg.reasons || []
     };
+  }
+
+  function recordLeaderAutoResult(result) {
+    const nowIso = new Date(clock()).toISOString();
+    leaderAutoLastTickAt = nowIso;
+    lastLeaderAutoResult = result;
+    const execution = String(result?.execution || '');
+    const blocked = execution === 'LEADER_AUTO_BLOCKED' || execution === 'LEADER_AUTO_TICK_FAILED' || execution === 'LEADER_AUTO_CONFIG_INVALID';
+    if (blocked) leaderAutoConsecutiveBlocked += 1;
+    else leaderAutoConsecutiveBlocked = 0;
+    if (!blocked && execution !== 'LEADER_AUTO_BUSY' && execution !== 'LEADER_AUTO_DISABLED' && execution !== 'LEADER_AUTO_WAIT_ARM') {
+      leaderAutoLastHealthyAt = nowIso;
+    }
+    return result;
   }
 
   async function leaderAutoTick() {
     if (leaderAutoBusy) return { ok:true, skipped:true, execution:'LEADER_AUTO_BUSY', orderPlaced:false };
     const cfg = readLeaderAutoConfig();
-    if (!cfg.ok) return { ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons };
-    if (!cfg.config.enabled) return { ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false };
-    if (!armedNow()) return { ok:true, skipped:true, execution:'LEADER_AUTO_WAIT_ARM', orderPlaced:false };
+    if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
+    if (!cfg.config.enabled) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });
+    if (!armedNow()) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_WAIT_ARM', orderPlaced:false });
     leaderAutoBusy = true;
     try {
       const result = await executeLeader({
@@ -334,8 +357,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         allowLong:cfg.config.allowLong,
         allowShort:cfg.config.allowShort
       });
-      lastLeaderAutoResult = result;
-      return result;
+      return recordLeaderAutoResult(result);
     } catch (e) {
       const result = {
         ok:false,
@@ -344,8 +366,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         execution:'LEADER_AUTO_TICK_FAILED',
         reasons:[String(e?.message || 'LEADER_AUTO_TICK_FAILED').slice(0,160)]
       };
-      lastLeaderAutoResult = result;
-      return result;
+      return recordLeaderAutoResult(result);
     } finally {
       leaderAutoBusy = false;
     }
@@ -550,10 +571,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         const side = String(x?.side || '').toUpperCase();
         return (side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
       });
-    const candidate = candidates[0] || null;
-    if (!candidate) {
+    if (!candidates.length) {
+      leaderAutoCandidateCursor = 0;
       return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', reasons:['NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER'] };
     }
+    const selectedIndex = leaderAutoCandidateCursor % candidates.length;
+    const candidate = candidates[selectedIndex];
+    leaderAutoCandidateCursor = (selectedIndex + 1) % candidates.length;
 
     let advisory;
     try {
