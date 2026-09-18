@@ -655,15 +655,18 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
   }
   line(left,volumeTop-8,right,volumeTop-8,grid);
 
-  const probeCode=String(options?.visionProbeCode||'');
-  if(/^[01]{4}$/.test(probeCode)){
-    const on=[0,255,120,255], off=[255,70,70,255], border=[255,255,255,255];
-    const mx=30,my=30,cell=22,gap=6;
-    fillRect(mx-4,my-4,mx+4*(cell+gap)-gap+3,my+cell+3,border);
-    fillRect(mx-2,my-2,mx+4*(cell+gap)-gap+1,my+cell+1,bg);
-    for(let i=0;i<4;i++){
-      const x0=mx+i*(cell+gap);
-      fillRect(x0,my,x0+cell-1,my+cell-1,probeCode[i]==='1'?on:off);
+  const probeCell=Number(options?.visionProbeCell);
+  if(Number.isInteger(probeCell)&&probeCell>=1&&probeCell<=9){
+    const active=[255,0,255,255], inactive=[30,34,42,255], border=[255,255,255,255];
+    const mx=36,my=36,cell=64,gap=12,pad=10;
+    const grid=3*cell+2*gap;
+    fillRect(mx-pad,my-pad,mx+grid+pad-1,my+grid+pad-1,border);
+    fillRect(mx-pad+4,my-pad+4,mx+grid+pad-5,my+grid+pad-5,bg);
+    for(let i=0;i<9;i++){
+      const row=Math.floor(i/3), col=i%3;
+      const x0=mx+col*(cell+gap), y0=my+row*(cell+gap);
+      fillRect(x0-2,y0-2,x0+cell+1,y0+cell+1,border);
+      fillRect(x0,y0,x0+cell-1,y0+cell-1,(i+1)===probeCell?active:inactive);
     }
   }
 
