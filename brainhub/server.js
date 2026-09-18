@@ -142,7 +142,7 @@ function recentFailure(map,model){
 function blocked(model){ return recentFailure(state,model); }
 function visionBlocked(model){ return recentFailure(visionState,model); }
 function uniqueModels(xs){ return [...new Set((xs||[]).filter(Boolean))]; }
-function orderedVisionModels(ccfg,role='STRUCTURE'){
+function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
   const free=uniqueModels(cfg.opencode||[]);
   const kiro=uniqueModels(cfg.kiro||[]);
   const allowed=new Set([...free,...kiro]);
@@ -152,7 +152,7 @@ function orderedVisionModels(ccfg,role='STRUCTURE'){
   const kiroPool=uniqueModels([...explicit.filter(x=>kiro.includes(x)),...general.filter(x=>kiro.includes(x)),...kiro]);
   const preferHealthy=xs=>[
     ...xs.filter(x=>visionState.get(x)?.ok===true),
-    ...xs.filter(x=>visionState.get(x)?.ok!==true&&!visionBlocked(x))
+    ...xs.filter(x=>visionState.get(x)?.ok!==true&&(includeCooldown||!visionBlocked(x)))
   ];
   const visionRank=xs=>{
     const roleRanked=rankPool(xs,role,true);
@@ -333,7 +333,8 @@ const server=http.createServer(async(req,res)=>{
           role:'STRUCTURE',
           system:'Vision transport diagnostic only. Inspect every attached timeframe image. Do not give trading advice and do not place orders.',
           prompt:'Return exactly one line in this form: VISION_OK: <comma-separated timeframes you actually received>. Do not infer or invent missing charts.',
-          images:pack.images
+          images:pack.images,
+          forceVisionProbe:true
         });
         return send(res,200,{ok:true,symbol,charts:{attached:pack.attached,required:pack.required,barsRequested:pack.barsRequested,mode:pack.mode},vision:out.vision||null,model:out.model||'',mode:out.mode||'',degraded:out.degraded===true,requiredAnalystReplies:out.requiredAnalystReplies||null,requiredVisionAnalystReplies:out.requiredVisionAnalystReplies||null,receivedAnalystReplies:out.receivedAnalystReplies||0,failed:Array.isArray(out.failed)?out.failed:[],text:String(out.text||'').slice(0,500)});
       }catch(e){
@@ -367,8 +368,9 @@ const server=http.createServer(async(req,res)=>{
       const freeSet=new Set(cfg.opencode||[]);
       const eligible=(configured.length?configured:[...(cfg.opencode||[])]).filter(x=>freeSet.has(x));
       const hasVision=vision.images.length>0;
+      const forceVisionProbe=hasVision&&j.forceVisionProbe===true;
       const routed=hasVision
-        ? orderedVisionModels(ccfg,role)
+        ? orderedVisionModels(ccfg,role,forceVisionProbe)
         : rankPool(eligible.length?eligible:[...(cfg.opencode||[])],role,true);
       const judges=Array.isArray(ccfg.judges)?ccfg.judges:[];
       const minReplies=Math.max(1,Number(ccfg.minAnalystReplies||2));
@@ -384,7 +386,7 @@ const server=http.createServer(async(req,res)=>{
       messages.push({role:'user',content:vision.content});
 
       async function probe(model){
-        if(hasVision?visionBlocked(model):blocked(model))return {ok:false,model,error:hasVision?'vision cooldown':'cooldown',durationMs:0};
+        if(hasVision?!forceVisionProbe&&visionBlocked(model):blocked(model))return {ok:false,model,error:hasVision?'vision cooldown':'cooldown',durationMs:0};
         const started=Date.now();
         try{
           const r=await callModel(model,messages,hasVision?visionTimeoutMs:20000);
@@ -428,6 +430,7 @@ const server=http.createServer(async(req,res)=>{
           received:0,
           vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},
           attemptedModels:results.map(x=>x.model),
+          forceVisionProbe:forceVisionProbe||false,
           visionTimeoutMs:hasVision?visionTimeoutMs:null,
           visionParallelAnalysts:hasVision?visionParallel:null,
           failures
@@ -486,7 +489,7 @@ const server=http.createServer(async(req,res)=>{
       }
 
       log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no')+' visionCharts='+vision.images.length);
-      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
+      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,forceVisionProbe:forceVisionProbe||false,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
