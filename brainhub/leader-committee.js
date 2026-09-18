@@ -85,13 +85,28 @@ function selectDeepCandidates(scan, limit = 16) {
   return out.slice(0, Math.max(1, limit));
 }
 
+function executionEligibility(c) {
+  const reasons = [];
+  const side = String(c?.side || '').toUpperCase();
+  if (!c || !['LONG','SHORT'].includes(side)) reasons.push('SIDE_NOT_LONG_OR_SHORT');
+  if (num(c?.tradeQuality) < 58) reasons.push('TRADE_QUALITY_BELOW_58');
+  if (num(c?.directionSupport) < 1) reasons.push('DIRECTION_SUPPORT_MISSING');
+  if (num(c?.spreadBps) > 8) reasons.push('SPREAD_ABOVE_8_BPS');
+  const directional = side === 'LONG' ? num(c?.longExpansionScore) : side === 'SHORT' ? num(c?.shortExpansionScore) : 0;
+  if (directional < 35) reasons.push(side === 'SHORT' ? 'SHORT_EXPANSION_BELOW_35' : 'LONG_EXPANSION_BELOW_35');
+  return {
+    eligible:reasons.length === 0,
+    reasons,
+    side:side || 'NONE',
+    tradeQuality:num(c?.tradeQuality),
+    directionSupport:num(c?.directionSupport),
+    spreadBps:num(c?.spreadBps),
+    directionalExpansion:directional
+  };
+}
+
 function executionEligible(c) {
-  if (!c || !['LONG','SHORT'].includes(c.side)) return false;
-  if (num(c.tradeQuality) < 58) return false;
-  if (num(c.directionSupport) < 1) return false;
-  if (num(c.spreadBps) > 8) return false;
-  const directional = c.side === 'LONG' ? num(c.longExpansionScore) : num(c.shortExpansionScore);
-  return directional >= 35;
+  return executionEligibility(c).eligible;
 }
 
 function pickCandidate(scan) {
@@ -188,4 +203,4 @@ async function run({ scan, port = 8787, token = '' }) {
   };
 }
 
-module.exports = { run, pickCandidate, selectDeepCandidates, executionEligible, compactCandidate, buildPrompt };
+module.exports = { run, pickCandidate, selectDeepCandidates, executionEligibility, executionEligible, compactCandidate, buildPrompt };
