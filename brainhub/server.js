@@ -152,7 +152,7 @@ function orderedVisionModels(ccfg,role='STRUCTURE'){
   const kiroPool=uniqueModels([...explicit.filter(x=>kiro.includes(x)),...general.filter(x=>kiro.includes(x)),...kiro]);
   const preferHealthy=xs=>[
     ...xs.filter(x=>visionState.get(x)?.ok===true),
-    ...xs.filter(x=>!visionState.has(x))
+    ...xs.filter(x=>visionState.get(x)?.ok!==true&&!visionBlocked(x))
   ];
   return uniqueModels([
     ...rankPool(preferHealthy(freePool),role,true),
@@ -303,7 +303,26 @@ const server=http.createServer(async(req,res)=>{
       const base=configured.length?configured:[...(cfg.opencode||[])];
       const routes={};
       for(const role of Object.keys(ROLE_HINTS))routes[role]=rankPool(base,role,false);
-      return send(res,200,{ok:true,freeFirst:true,roles:routes,judges:ccfg.judges||[],kiroJudgeOnly:true,note:'Kiro judges are reserved for disagreement/forced review; API keys are never exposed here.'});
+      const visionRoutes={};
+      for(const role of Object.keys(ROLE_HINTS))visionRoutes[role]=orderedVisionModels(ccfg,role);
+      return send(res,200,{ok:true,freeFirst:true,roles:routes,visionRoutes,judges:ccfg.judges||[],kiroJudgeOnly:true,visionKiroFallback:true,note:'Text-only routes keep Kiro for judge duty; 9TF image requests may use Kiro only as a Vision fallback after free OpenCode candidates fail. API keys are never exposed here.'});
+    }
+    if(req.method==='GET'&&u.pathname==='/vision/probe'){
+      const symbol=String(u.searchParams.get('symbol')||'BTCUSDT').trim().toUpperCase();
+      if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
+      const pack=await pipeline.buildVisionCharts(symbol,128);
+      if(!pack?.ok)return send(res,503,{ok:false,error:'vision charts incomplete',symbol,charts:{attached:pack?.attached||0,required:pack?.required||9,failures:pack?.failures||[]}});
+      try{
+        const out=await committeeCall({
+          role:'STRUCTURE',
+          system:'Vision transport diagnostic only. Inspect every attached timeframe image. Do not give trading advice and do not place orders.',
+          prompt:'Return exactly one line in this form: VISION_OK: <comma-separated timeframes you actually received>. Do not infer or invent missing charts.',
+          images:pack.images
+        });
+        return send(res,200,{ok:true,symbol,charts:{attached:pack.attached,required:pack.required,barsRequested:pack.barsRequested,mode:pack.mode},vision:out.vision||null,model:out.model||'',mode:out.mode||'',degraded:out.degraded===true,requiredAnalystReplies:out.requiredAnalystReplies||null,requiredVisionAnalystReplies:out.requiredVisionAnalystReplies||null,receivedAnalystReplies:out.receivedAnalystReplies||0,failed:Array.isArray(out.failed)?out.failed:[],text:String(out.text||'').slice(0,500)});
+      }catch(e){
+        return send(res,503,{ok:false,error:'vision probe failed',symbol,detail:String(e.message||e).slice(0,1200),charts:{attached:pack.attached,required:pack.required,barsRequested:pack.barsRequested,mode:pack.mode},committee:e.committee||null});
+      }
     }
     if(req.method==='POST'&&u.pathname==='/ask'){
       const raw=await readBody(req);
