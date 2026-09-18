@@ -18,8 +18,9 @@ This file is the persistent product contract for the Trade Brain work. It exists
 - 9Router is the free-first model router. Never silently fall back to a paid model. Free provider availability is not assumed to be unlimited.
 - PC is an optional 24/7 Brain Hub/Turbo worker; mobile must retain core scanning/control capability without the PC.
 - For targeted Leader AUTO analysis, generating 9 chart PNGs is not equivalent to model chart reading. A real Vision route must receive all 9 images and return coin-specific `WHY`, `RISK_NOTE`, `WAIT_FOR`, `VISION_SUMMARY` and per-timeframe `TF_1M..TF_1D` notes; otherwise remain `REVIEW_REQUIRED`.
+- Deep Vision verification must prove visual transport, not only text response: the model must report all 9 timeframe charts and pass a hidden pixel-read check against visual candle directions before the probe is considered healthy. This probe is diagnostic only; the forming candle remains context, never confirmation.
 - Deterministic timeframe evidence must stay visibly separate from model/Vision interpretation. Never label RSI/BOS/FVG/pattern summaries as if the model visually read the chart.
-- A paid/Kiro Vision fallback requires explicit opt-in. Free-model failure must never silently consume paid credits.
+- Kiro connected-account free quota may be used for 9TF Vision only after explicit local opt-in and only through an allowlisted Kiro Vision model set. If that quota/route is unavailable, Vision remains fail-closed unless a separate paid fallback is explicitly enabled. Free-model failure must never silently consume a paid API/provider route.
 
 ## Universe Scanner / Leader Hunter
 
