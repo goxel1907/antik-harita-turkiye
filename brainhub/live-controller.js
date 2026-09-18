@@ -419,14 +419,37 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     accountRisk = sizingGuard.accountRisk;
 
     let lease;
-    try { lease = store.lease('acquire', LIVE_RESOURCE, LIVE_OWNER, leaseToken, 60000); }
+    try { lease = store.lease('acquire', LIVE_RESOURCE, LIVE_OWNER, leaseToken, 120000); }
     catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_LEASE_FAILED'] }; }
     if (!lease?.acquired) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_LEASE_UNAVAILABLE'] };
+
+    let scan;
+    try { scan = await scanner.scan(); }
+    catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['SCANNER_UNAVAILABLE'] }; }
+
+    if (typeof pipeline.resolveExecutionCandidate === 'function') {
+      const selection = pipeline.resolveExecutionCandidate(scan, order);
+      if (!selection?.candidate) {
+        return {
+          ok:false,
+          orderPlaced:false,
+          liveAllowed:false,
+          execution:'LIVE_PREFLIGHT_BLOCKED',
+          requestedSymbol:selection?.requestedSymbol || String(order?.symbol || '').toUpperCase(),
+          reasons:[selection?.reason || 'REQUESTED_SYMBOL_NOT_EXECUTION_ELIGIBLE']
+        };
+      }
+    }
 
     let claim;
     try { claim = store.claim(eventId, LIVE_OWNER, LIVE_RESOURCE, leaseToken, lineageId); }
     catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['EXECUTION_CLAIM_FAILED'] }; }
     if (!claim?.claimed) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, reasons:[claim?.reason || 'EXECUTION_CLAIM_REJECTED'] };
+
+    const releaseClaim = () => {
+      try { return store.releaseClaim?.(eventId, LIVE_OWNER, LIVE_RESOURCE, leaseToken, lineageId) || { released:false, reason:'RELEASE_UNAVAILABLE' }; }
+      catch { return { released:false, reason:'RELEASE_FAILED' }; }
+    };
 
     const stopRisk = {
       entryPrice:order?.entryPrice,
@@ -436,10 +459,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       initialStopPrice:body?.initialStopPrice
     };
     const killSwitch = { control:{ available:true, tripped:!armedNow(), dryRunEnabled:true } };
-
-    let scan;
-    try { scan = await scanner.scan(); }
-    catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, reasons:['SCANNER_UNAVAILABLE'] }; }
 
     let planResult;
     try {
@@ -454,10 +473,22 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         executionIntent:order
       });
     } catch (e) {
-      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, reasons:[String(e.message || 'PIPELINE_FAILED').slice(0,160)] };
+      const claimRelease = releaseClaim();
+      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, claimRelease, reasons:[String(e.message || 'PIPELINE_FAILED').slice(0,160)] };
     }
 
-    if (!armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, plan:planResult?.plan || null, reasons:['LIVE_DISARMED_DURING_PREFLIGHT'] };
+    if (!armedNow()) {
+      const claimRelease = releaseClaim();
+      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, claimRelease, plan:planResult?.plan || null, reasons:['LIVE_DISARMED_DURING_PREFLIGHT'] };
+    }
+
+    let renewed;
+    try { renewed = store.lease('renew', LIVE_RESOURCE, LIVE_OWNER, leaseToken, 120000); }
+    catch { renewed = { acquired:false, reason:'LEASE_RENEW_FAILED' }; }
+    if (!renewed?.acquired) {
+      const claimRelease = releaseClaim();
+      return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, claimRelease, reasons:['LIVE_EXECUTOR_LEASE_LOST'] };
+    }
 
     const grant = registry.issue({
       executionReadiness:planResult?.executionReadiness,
@@ -466,12 +497,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       order
     });
     if (!grant.ok) {
+      const claimRelease = releaseClaim();
       return {
         ok:false,
         orderPlaced:false,
         liveAllowed:false,
         execution:'LIVE_BLOCKED',
         claim,
+        claimRelease,
         plan:planResult?.plan || null,
         riskGate:planResult?.riskGate || null,
         executionReadiness:planResult?.executionReadiness || null,
@@ -485,6 +518,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       credentials:creds,
       livePolicy:{ expectedLeverage:settings.leverage, maxEntryDeviationPct:policy.maxEntryDeviationPct }
     });
+
+    const uncertainSubmit = result?.manualReviewRequired === true ||
+      result?.execution === 'LIVE_ENTRY_REVIEW_REQUIRED' ||
+      result?.execution === 'LIVE_STOP_FAILED_MANUAL_INTERVENTION_REQUIRED';
+    let claimRelease = null;
+    if (result?.orderPlaced !== true && !uncertainSubmit) claimRelease = releaseClaim();
 
     try {
       store.journal('LIVE_EXECUTION', String(order?.symbol || '').toUpperCase(), {
@@ -500,6 +539,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     return {
       ...result,
       claim,
+      claimRelease,
       plan:planResult?.plan || null,
       riskGate:planResult?.riskGate || null,
       executionReadiness:planResult?.executionReadiness || null,
