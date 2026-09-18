@@ -579,6 +579,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             String why=v9594Safe(row.optString("planWhy",""));
             String waitFor=v9594Safe(row.optString("waitFor",""));
             String risk=v9594Safe(row.optString("planRisk",""));
+            String formingContext=v9594Safe(row.optString("formingContext",""));
             String visionSummary=v9594Safe(row.optString("visionSummary",""));
             String origin=v9594Safe(row.optString("originTF",""));
             String owner=v9594Safe(row.optString("ownerTF",""));
@@ -607,7 +608,24 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             if(!setup.isEmpty())b.append("\nSetup: ").append(setup);
             if(!execPath.isEmpty())b.append(" • Yol: ").append(execPath);
             if(!why.isEmpty())b.append("\nNeden: ").append(why);
-            if(!waitFor.isEmpty()&&!"NONE".equalsIgnoreCase(waitFor))b.append("\n🎯 Sinyal için beklenen: ").append(waitFor);
+            if(!waitFor.isEmpty())b.append("\n🎯 Sinyal için beklenen: ").append(waitFor);
+
+            org.json.JSONArray supportTf=row.optJSONArray("supportTFs");
+            org.json.JSONArray vetoTf=row.optJSONArray("vetoTFs");
+            if(supportTf!=null||vetoTf!=null){
+                StringBuilder sbSup=new StringBuilder(),sbVeto=new StringBuilder();
+                if(supportTf!=null)for(int i=0;i<supportTf.length();i++){
+                    String x=v9594Safe(supportTf.optString(i,""));if(x.isEmpty())continue;
+                    if(sbSup.length()>0)sbSup.append(", ");sbSup.append(x);
+                }
+                if(vetoTf!=null)for(int i=0;i<vetoTf.length();i++){
+                    String x=v9594Safe(vetoTf.optString(i,""));if(x.isEmpty())continue;
+                    if(sbVeto.length()>0)sbVeto.append(", ");sbVeto.append(x);
+                }
+                b.append("\n✅ Destek TF: ").append(sbSup.length()==0?"NONE":sbSup.toString());
+                b.append(" • ⛔ Veto TF: ").append(sbVeto.length()==0?"NONE":sbVeto.toString());
+            }
+            if(!formingContext.isEmpty())b.append("\n🕯 Forming bağlamı: ").append(formingContext);
             if(!visionSummary.isEmpty())b.append("\n👁 9TF grafik özeti: ").append(visionSummary);
             if(!risk.isEmpty())b.append("\n⚠ Risk: ").append(risk);
 
@@ -694,25 +712,44 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             }
 
             org.json.JSONObject notes=row.optJSONObject("timeframeNotes");
+            org.json.JSONObject modelTf=row.optJSONObject("timeframeDiagnostics");
             org.json.JSONObject evidence=row.optJSONObject("timeframeEvidence");
             String[] tfs=new String[]{"1m","3m","5m","15m","30m","45m","1h","4h","1d"};
             boolean anyModelTf=false;
             for(String tf:tfs){
-                if(notes!=null&&!v9594Safe(notes.optString(tf,"")).isEmpty()){anyModelTf=true;break;}
+                org.json.JSONObject md=modelTf==null?null:modelTf.optJSONObject(tf);
+                String summary=md==null?"":v9594Safe(md.optString("summary",""));
+                if(summary.isEmpty()&&notes!=null)summary=v9594Safe(notes.optString(tf,""));
+                if(md!=null||!summary.isEmpty()){anyModelTf=true;break;}
             }
             boolean anyTf=false;
             for(String tf:tfs){
-                String note=notes==null?"":v9594Safe(notes.optString(tf,""));
+                org.json.JSONObject md=modelTf==null?null:modelTf.optJSONObject(tf);
+                String note=md==null?"":v9594Safe(md.optString("summary",""));
+                if(note.isEmpty()&&notes!=null)note=v9594Safe(notes.optString(tf,""));
+                String tfWhy=md==null?"":v9594Safe(md.optString("why",""));
+                String tfWait=md==null?"":v9594Safe(md.optString("waitFor",""));
+                String tfRole=md==null?"":v9594Safe(md.optString("role",""));
+                String tfForming=md==null?"":v9594Safe(md.optString("formingContext",""));
+                String tfRisk=md==null?"":v9594Safe(md.optString("risk",""));
                 org.json.JSONObject ev=evidence==null?null:evidence.optJSONObject(tf);
                 String evSummary=ev==null?"":v9594Safe(ev.optString("summaryTr",""));
-                if(note.isEmpty()&&evSummary.isEmpty())continue;
+                if(note.isEmpty()&&tfWhy.isEmpty()&&tfWait.isEmpty()&&tfRole.isEmpty()&&tfForming.isEmpty()&&tfRisk.isEmpty()&&evSummary.isEmpty())continue;
                 if(!anyTf){
-                    b.append(anyModelTf?"\n\n📊 1m → 1D • MODEL + DETERMINİSTİK KANIT":"\n\n📊 1m → 1D • SADECE DETERMINİSTİK KANIT (VISION YORUMU YOK)");
+                    b.append(anyModelTf?"\n\n📊 1m → 1D • MODEL YORUMU / DETERMINİSTİK KANIT AYRI":"\n\n📊 1m → 1D • SADECE DETERMINİSTİK KANIT (VISION YORUMU YOK)");
                     anyTf=true;
                 }
-                b.append("\n[").append(v9594TfLabel(tf)).append("]");
-                if(!note.isEmpty())b.append(" Model: ").append(note);
-                if(!evSummary.isEmpty())b.append("\n   ↳ Veri: ").append(evSummary);
+                b.append("\n\n[").append(v9594TfLabel(tf)).append("]");
+                if(!note.isEmpty())b.append("\n   Model özet: ").append(note);
+                if(!tfWhy.isEmpty())b.append("\n   Neden: ").append(tfWhy);
+                if(!tfWait.isEmpty())b.append("\n   Bekle: ").append(tfWait);
+                if(!tfRole.isEmpty()){
+                    String roleTr="SUPPORT".equalsIgnoreCase(tfRole)?"DESTEK":"VETO".equalsIgnoreCase(tfRole)?"VETO":"NÖTR";
+                    b.append("\n   Rol: ").append(roleTr);
+                }
+                if(!tfForming.isEmpty())b.append("\n   Forming: ").append(tfForming);
+                if(!tfRisk.isEmpty())b.append("\n   TF riski: ").append(tfRisk);
+                if(!evSummary.isEmpty())b.append("\n   ↳ Deterministik veri: ").append(evSummary);
             }
 
             if(!anyTf){
@@ -1022,7 +1059,7 @@ checks={
     'explicit mobile rearm':'V9589_MOBILE_REARM' in MAIN.read_text() and 'BrainHubClient.liveArm(this)' in MAIN.read_text() and 'LIVE 24 SAAT BAŞLAT / YENİDEN BAŞLAT' in MAIN.read_text(),
     'blocked telemetry visible':'v9592_pc_auto_last_reasons' in MAIN.read_text() and 'üst üste' in MAIN.read_text() and 'Son PC tick:' in MAIN.read_text(),
     'per coin diagnostics':'v9593_pc_auto_diagnostics' in MAIN.read_text() and 'PC tarama: Evren' in MAIN.read_text() and 'derin kısa liste' in MAIN.read_text(),
-    'detailed 9TF diagnostics':'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' in MAIN.read_text() and 'DETAYLI OTO ANALİZ' in MAIN.read_text() and 'timeframeNotes' in MAIN.read_text() and 'timeframeEvidence' in MAIN.read_text() and 'Grafik/Vision:' in MAIN.read_text(),
+    'detailed 9TF diagnostics':'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' in MAIN.read_text() and 'DETAYLI OTO ANALİZ' in MAIN.read_text() and 'timeframeNotes' in MAIN.read_text() and 'timeframeDiagnostics' in MAIN.read_text() and 'timeframeEvidence' in MAIN.read_text() and 'Destek TF:' in MAIN.read_text() and 'Veto TF:' in MAIN.read_text() and 'Model özet:' in MAIN.read_text() and 'Deterministik veri:' in MAIN.read_text() and 'Grafik/Vision:' in MAIN.read_text(),
     'persistent lifecycle visible':'v9594_pc_analysis_lifecycle' in MAIN.read_text() and 'KALICI ANALİZ TAKİBİ' in MAIN.read_text() and 'rebaseCount' in MAIN.read_text() and 'invalidationCount' in MAIN.read_text(),
     'scalp cost detail visible':'İşlem maliyeti' in MAIN.read_text() and 'edge/maliyet' in MAIN.read_text() and 'Binance taker oranı' in MAIN.read_text(),
     'forming candle disclosure':'forming mum görüntüde/anlık bağlamda vardır' in MAIN.read_text(),
