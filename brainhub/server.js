@@ -154,8 +154,9 @@ function orderedVisionModels(ccfg,role='STRUCTURE'){
     ...xs.filter(x=>visionState.get(x)?.ok===true),
     ...xs.filter(x=>visionState.get(x)?.ok!==true&&!visionBlocked(x))
   ];
+  const maxFree=Math.max(1,Math.min(6,Number(ccfg?.maxFreeVisionAttempts||3)));
   return uniqueModels([
-    ...rankPool(preferHealthy(freePool),role,true),
+    ...rankPool(preferHealthy(freePool),role,true).slice(0,maxFree),
     ...rankPool(preferHealthy(kiroPool),role,true)
   ]);
 }
