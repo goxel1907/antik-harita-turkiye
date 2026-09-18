@@ -118,6 +118,50 @@ test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK 
   assert.ok(contract.missing.includes('TF_3M_WAIT'));
   assert.ok(contract.missing.includes('SUPPORT_TFS_ROLE_MISMATCH'));
 });
+test('plan parser accepts harmless Markdown/JSON-like label decoration without inventing missing KKK fields', () => {
+  const tags=['1M','3M','5M','15M','30M','45M','1H','4H','1D'];
+  const lines=[
+    '```text',
+    '- **STATUS:** watch',
+    '- **SIDE:** long',
+    '- **CONFIDENCE:** 72',
+    '- **ORIGIN_TF:** 1m',
+    '- **OWNER_TF:** 1h',
+    '- **SETUP:** reclaim',
+    '- **EXEC_PATH:** continuation',
+    '- **WHY:** Türkçe somut neden',
+    '- **RISK_NOTE:** Türkçe risk',
+    '- **WAIT_FOR:** NONE',
+    '- **SUPPORT_TFS:** 1m,3m,1h',
+    '- **VETO_TFS:** 15m',
+    '- **FORMING_CONTEXT:** forming yalnız bağlamdır, teyit değildir'
+  ];
+  const roles={ '1M':'SUPPORT','3M':'SUPPORT','5M':'NEUTRAL','15M':'VETO','30M':'NEUTRAL','45M':'NEUTRAL','1H':'SUPPORT','4H':'NEUTRAL','1D':'NEUTRAL' };
+  for(const tag of tags){
+    lines.push(
+      '- **TF_'+tag+':** Türkçe özet',
+      '- **TF_'+tag+'_WHY:** somut neden',
+      '- **TF_'+tag+'_WAIT:** NONE',
+      '- **TF_'+tag+'_ROLE:** '+roles[tag],
+      '- **TF_'+tag+'_FORMING:** forming kapanış teyidi değildir',
+      '- **TF_'+tag+'_RISK:** ana risk'
+    );
+  }
+  lines.push('- **VISION_SUMMARY:** ortak yapı ve çelişki','```');
+  const plan=planFields(lines.join('\n'));
+  assert.equal(plan.valid,true);
+  assert.equal(plan.status,'WATCH');
+  assert.equal(plan.side,'LONG');
+  assert.deepEqual(visionPlanContract(plan),{ok:true,missing:[]});
+  assert.match(plan.rawOutputSnippet,/\*\*STATUS:/);
+
+  const partial=planFields('**STATUS:** WATCH\n**SIDE:** sideways\n**WHY:** korunmalı');
+  assert.equal(partial.valid,false);
+  assert.equal(partial.status,'WATCH');
+  assert.equal(partial.side,null);
+  assert.equal(partial.why,'korunmalı');
+  assert.match(partial.rawOutputSnippet,/SIDE/);
+});
 test('LIVE execution candidate is locked to the requested signal symbol instead of the top scanner pick', () => {
   const scan = {
     leaders:[
