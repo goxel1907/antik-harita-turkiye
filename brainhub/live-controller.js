@@ -1010,8 +1010,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const selectedIndex = leaderAutoCandidateCursor % candidates.length;
     const candidate = candidates[selectedIndex];
     leaderAutoCandidateCursor = (selectedIndex + 1) % candidates.length;
-    upsertLeaderLifecycle(candidate,null,'DETECTED','FRESH_SCANNER_SELECTION');
-    annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_SELECTED', [], { selectedIndex });
+    const existingLifecycle=leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null;
+    if (!existingLifecycle) upsertLeaderLifecycle(candidate,null,'DETECTED','FRESH_SCANNER_SELECTION');
+    annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_SELECTED', [], { selectedIndex, lifecycle:existingLifecycle || leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null });
 
     let advisory;
     try {
