@@ -57,6 +57,12 @@ function Auth-Headers([string]$BrainRoot) {
     if ($token) { return @{ Authorization = "Bearer $token" } }
     return @{}
 }
+function Get-PropValue($InputObject, [string]$Name, $Default = $null) {
+    if ($null -eq $InputObject) { return $Default }
+    $prop = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $Default }
+    return $prop.Value
+}
 function Router-Key([string]$BrainRoot) {
     $secret = Join-Path $BrainRoot 'config\router-key.dpapi'
     $key = Read-Dpapi $secret
@@ -210,68 +216,75 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         $committeeCalled = $false
         if ($null -ne $plan.PSObject.Properties['committeeCalled']) { $committeeCalled = [bool]$plan.committeeCalled }
         Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
-        $detailPlanResult = $plan
-        $detailCommitteeCalled = $committeeCalled
-        $usedAnalysisOnlyDetailProbe = $false
-        if (-not ($plan.candidateFound -and $committeeCalled)) {
-            try {
-                $detailPlanResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $headers -TimeoutSec 240
-                $usedAnalysisOnlyDetailProbe = $true
-                $detailCommitteeCalled = $false
-                if ($null -ne $detailPlanResult.PSObject.Properties['committeeCalled']) { $detailCommitteeCalled = [bool]$detailPlanResult.committeeCalled }
-                $detailAnalysisOnly = $false
-                if ($null -ne $detailPlanResult.PSObject.Properties['analysisOnly']) { $detailAnalysisOnly = [bool]$detailPlanResult.analysisOnly }
-                Write-Host "LEADER_DETAIL_PROBE candidate=$($detailPlanResult.candidateFound) committee=$detailCommitteeCalled analysisOnly=$detailAnalysisOnly"
-            } catch {
-                Write-Host '========== LEADER DETAIL PROBE HATA ==========' -ForegroundColor Red
-                if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
-                throw
-            }
+
+        # /leader/plan may legitimately fall back to deterministic advisory output when the
+        # committee is unavailable. KKK Vision detail verification must never treat that
+        # fallback as a model-generated 9TF analysis, so Deep always uses the targeted
+        # analysis-only endpoint below. That endpoint is fail-closed for Vision/model failure.
+        try {
+            $detailPlanResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $headers -TimeoutSec 240
+        } catch {
+            Write-Host '========== LEADER DETAIL PROBE HATA ==========' -ForegroundColor Red
+            if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
+            throw
         }
-        if ($detailPlanResult.candidateFound -and $detailCommitteeCalled) {
-            if ($usedAnalysisOnlyDetailProbe) {
-                $analysisProp = $detailPlanResult.PSObject.Properties['analysisOnly']
-                if ($null -eq $analysisProp -or [bool]$analysisProp.Value -ne $true) { throw 'Leader detay probe analysis-only kilidi bozuldu.' }
+
+        $detailCandidateFound = [bool](Get-PropValue $detailPlanResult "candidateFound" $false)
+        $detailCommitteeCalled = [bool](Get-PropValue $detailPlanResult "committeeCalled" $false)
+        $detailAnalysisOnly = [bool](Get-PropValue $detailPlanResult "analysisOnly" $false)
+        Write-Host "LEADER_DETAIL_PROBE candidate=$detailCandidateFound committee=$detailCommitteeCalled analysisOnly=$detailAnalysisOnly"
+
+        if ($detailCandidateFound) {
+            if (-not $detailAnalysisOnly) { throw 'Leader detay probe analysis-only kilidi bozuldu.' }
+            if (-not $detailCommitteeCalled) { throw 'Leader detay probe model/committee cagrisini tamamlamadi.' }
+
+            $detailVision = Get-PropValue $detailPlanResult "vision" $null
+            $attached = [int](Get-PropValue $detailVision "attached" 0)
+            if ($attached -lt 9) { throw "Leader 9TF grafik paketi 9/9 degil: $attached/9" }
+
+            $leaderPlan = Get-PropValue $detailPlanResult "plan" $null
+            if ($null -eq $leaderPlan) { throw 'Leader model plani yok.' }
+            $planValid = [bool](Get-PropValue $leaderPlan "valid" $false)
+            if (-not $planValid) {
+                $reason = [string](Get-PropValue $leaderPlan "reason" "UNKNOWN")
+                $missingObj = Get-PropValue $leaderPlan "missingVisionFields" @()
+                $missing = @($missingObj) -join ','
+                throw "Leader KKK 9TF model detay sozlesmesi gecmedi. reason=$reason missing=$missing"
             }
-            if ($null -eq $detailPlanResult.vision -or [int]$detailPlanResult.vision.attached -lt 9) { throw 'Leader 9TF grafik paketi 9/9 degil.' }
-            if ($null -eq $detailPlanResult.plan) { throw 'Leader model plani yok.' }
-            $leaderPlan = $detailPlanResult.plan
-            if ($leaderPlan.valid -ne $true) {
-                $missing = @($leaderPlan.missingVisionFields) -join ','
-                throw "Leader KKK 9TF model detay sozlesmesi gecmedi. reason=$($leaderPlan.reason) missing=$missing"
+
+            foreach ($name in @("why","riskNote","waitFor","formingContext","visionSummary")) {
+                $value = [string](Get-PropValue $leaderPlan $name "")
+                if ([string]::IsNullOrWhiteSpace($value)) { throw "Leader KKK genel $name alani eksik." }
             }
-            if ([string]::IsNullOrWhiteSpace([string]$leaderPlan.why) -or
-                [string]::IsNullOrWhiteSpace([string]$leaderPlan.riskNote) -or
-                [string]::IsNullOrWhiteSpace([string]$leaderPlan.waitFor) -or
-                [string]::IsNullOrWhiteSpace([string]$leaderPlan.formingContext) -or
-                [string]::IsNullOrWhiteSpace([string]$leaderPlan.visionSummary)) {
-                throw 'Leader KKK genel WHY/WAIT/RISK/FORMING/VISION_SUMMARY alanlari eksik.'
-            }
-            if ($null -eq $leaderPlan.supportTFs -or $null -eq $leaderPlan.vetoTFs) {
-                throw 'Leader KKK SUPPORT_TFS/VETO_TFS alanlari eksik.'
-            }
+
+            $supportObj = Get-PropValue $leaderPlan "supportTFs" $null
+            $vetoObj = Get-PropValue $leaderPlan "vetoTFs" $null
+            if ($null -eq $supportObj -or $null -eq $vetoObj) { throw 'Leader KKK SUPPORT_TFS/VETO_TFS alanlari eksik.' }
+
+            $tfDiagnostics = Get-PropValue $leaderPlan "timeframeDiagnostics" $null
+            if ($null -eq $tfDiagnostics) { throw 'Leader KKK timeframeDiagnostics alani eksik.' }
             $diagFrames = @('1m','3m','5m','15m','30m','45m','1h','4h','1d')
             foreach ($tf in $diagFrames) {
-                $prop = $leaderPlan.timeframeDiagnostics.PSObject.Properties[$tf]
-                if ($null -eq $prop -or $null -eq $prop.Value) { throw "Leader KKK $tf model diagnostigi eksik." }
-                $d = $prop.Value
-                foreach ($name in @('summary','why','waitFor','role','formingContext','risk')) {
-                    $v = $d.PSObject.Properties[$name]
-                    if ($null -eq $v -or [string]::IsNullOrWhiteSpace([string]$v.Value)) {
-                        throw "Leader KKK $tf/$name alani eksik."
-                    }
+                $d = Get-PropValue $tfDiagnostics $tf $null
+                if ($null -eq $d) { throw "Leader KKK $tf model diagnostigi eksik." }
+                foreach ($name in @("summary","why","waitFor","role","formingContext","risk")) {
+                    $value = [string](Get-PropValue $d $name "")
+                    if ([string]::IsNullOrWhiteSpace($value)) { throw "Leader KKK $tf/$name alani eksik." }
                 }
-                if (@('SUPPORT','VETO','NEUTRAL') -notcontains [string]$d.role) {
-                    throw "Leader KKK $tf role gecersiz: $($d.role)"
-                }
+                $role = [string](Get-PropValue $d "role" "")
+                if (@('SUPPORT','VETO','NEUTRAL') -notcontains $role) { throw "Leader KKK $tf role gecersiz: $role" }
             }
-            $supportText = @($leaderPlan.supportTFs) -join ','
-            $vetoText = @($leaderPlan.vetoTFs) -join ','
-            Write-Host ("LEADER_9TF_DETAIL symbol={0} side={1} status={2} vision={3}/9 support={4} veto={5} detailed=9/9" -f $detailPlanResult.candidate.symbol,$leaderPlan.side,$leaderPlan.status,$detailPlanResult.vision.attached,$supportText,$vetoText)
-        } elseif (-not $detailPlanResult.candidateFound) {
-            Write-Host 'LEADER_9TF_DETAIL skipped=NO_DIRECTIONAL_DEEP_SCAN_CANDIDATE'
+
+            $supportText = @($supportObj) -join ','
+            $vetoText = @($vetoObj) -join ','
+            $detailCandidate = Get-PropValue $detailPlanResult "candidate" $null
+            $detailSymbol = [string](Get-PropValue $detailCandidate "symbol" "")
+            $detailSide = [string](Get-PropValue $leaderPlan "side" "")
+            $detailStatus = [string](Get-PropValue $leaderPlan "status" "")
+            Write-Host ("LEADER_9TF_DETAIL symbol={0} side={1} status={2} vision={3}/9 support={4} veto={5} detailed=9/9" -f $detailSymbol,$detailSide,$detailStatus,$attached,$supportText,$vetoText)
         } else {
-            throw 'Leader detay probe aday buldu ancak model/committee analizi tamamlanmadi.'
+            $detailReason = [string](Get-PropValue $detailPlanResult "reason" "NO_DIRECTIONAL_DEEP_SCAN_CANDIDATE")
+            Write-Host "LEADER_9TF_DETAIL skipped=$detailReason"
         }
         try {
             $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 240
