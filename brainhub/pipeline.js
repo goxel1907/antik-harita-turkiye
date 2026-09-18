@@ -1,7 +1,7 @@
 'use strict';
 
 const { pickCandidate, selectDeepCandidates, executionEligible } = require('./leader-committee');
-const { symbolContext, globalContext } = require('./market');
+const { symbolContext, globalContext, chartContext, renderChartPng } = require('./market');
 const { breakoutExecution } = require('./engine');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
@@ -282,6 +282,54 @@ function compactUnifiedContext(u) {
     policy:u.policy
   };
 }
+async function buildVisionCharts(symbol, requestedBars = 128) {
+  const frames = {};
+  const images = [];
+  const failures = [];
+  const rows = await Promise.all(FRAME_ORDER.map(async frame => {
+    try {
+      const chart = await chartContext(symbol, frame, requestedBars);
+      const png = renderChartPng(chart, 'annotated');
+      return {
+        ok:true,
+        frame,
+        bars:Number(chart?.bars || 0),
+        closedBars:Number(chart?.closedBars || 0),
+        formingBars:Number(chart?.formingBars || 0),
+        generatedAt:chart?.generatedAt || null,
+        dataUrl:'data:image/png;base64,'+png.toString('base64')
+      };
+    } catch (e) {
+      return { ok:false, frame, error:String(e?.message || e).slice(0,160) };
+    }
+  }));
+  for (const row of rows) {
+    if (!row.ok) {
+      failures.push({ frame:row.frame, error:row.error });
+      frames[row.frame] = { ok:false, error:row.error };
+      continue;
+    }
+    images.push({ tf:row.frame, mode:'annotated', dataUrl:row.dataUrl });
+    frames[row.frame] = {
+      ok:true,
+      bars:row.bars,
+      closedBars:row.closedBars,
+      formingBars:row.formingBars,
+      generatedAt:row.generatedAt
+    };
+  }
+  return {
+    ok:images.length === FRAME_ORDER.length,
+    required:FRAME_ORDER.length,
+    attached:images.length,
+    barsRequested:Math.max(100, Math.min(256, Number(requestedBars) || 128)),
+    mode:'annotated',
+    frames,
+    failures,
+    images
+  };
+}
+
 function deterministicFallbackPlan(candidate, unified, detail = '') {
   const side = String(candidate?.side || '').toUpperCase();
   const path = ['LONG','SHORT'].includes(side) ? unified?.opportunityPaths?.[side] : null;
@@ -431,6 +479,22 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     out.journalId = store.journal('PLAN_REJECT', candidate.symbol, out);
     return out;
   }
+  const vision = await buildVisionCharts(candidate.symbol, 128);
+  if (selection.targeted && !vision.ok) {
+    const out = {
+      ok:true,
+      candidateFound:true,
+      symbol:candidate.symbol,
+      status:'REVIEW_REQUIRED',
+      reason:'VISION_9TF_INCOMPLETE',
+      vision:{ ok:false, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures },
+      committeeCalled:false,
+      execution:'ADVISORY_ONLY',
+      orderPlaced:false
+    };
+    out.journalId = store.journal('PLAN_REJECT', candidate.symbol, out);
+    return out;
+  }
   const prompt = [
     'PLAN_CODE: LH_UNIFIED_9TF',
     'Return exactly these lines:',
@@ -445,6 +509,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'RISK_NOTE: one concise line',
     'EXECUTION: ADVISORY_ONLY',
     '',
+    'VISION_INPUT: 1m/3m/5m/15m/30m/45m/1h/4h/1d annotated charts are attached when available; each uses '+vision.barsRequested+' recent candles and includes the current forming candle for visual context.',
+    'Vision rule: read the chart image together with UNIFIED_CONTEXT_JSON. The current forming candle may shape a WATCH idea but MUST NOT be used as closed-candle confirmation. Do not ignore a visible structural conflict merely because numeric scores are high.',
     'Rules: any fresh timeframe may originate an opportunity. A valid 1m/3m/5m opportunity must not wait for 15m merely because 15m is higher. The legacy 15m strategy still keeps its own completed-15m confirmation rule.',
     'Timeframes are context, not votes. Synthetic 45m is derived from closed 15m candles and is not an independent vote.',
     'A FAILED_BREAKOUT timeframe is not an immediate breakout entry; require reclaim or another valid execution path.',
@@ -460,17 +526,39 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   try {
     result = await committee({
       role:'STRUCTURE',
-      system:'You are the Brain Hub multi-timeframe futures structure analyst. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. This endpoint is advisory only.',
-      prompt
+      system:'You are the Brain Hub multi-timeframe futures structure analyst. Analyze the attached 9-timeframe charts and supplied market data together. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. The forming candle is visual context only and cannot confirm a setup. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. This endpoint is advisory only.',
+      prompt,
+      images:vision.images
     });
     plan = planFields(result.text);
+    if (selection.targeted && Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
+      plan = {
+        valid:false,
+        status:'REVIEW_REQUIRED',
+        reason:'VISION_COMMITTEE_INPUT_INCOMPLETE',
+        side:plan?.side || null,
+        confidence:0,
+        execution:'ADVISORY_ONLY'
+      };
+    }
   } catch (e) {
     const detail = String(e.message || e).slice(0,160);
-    plan = deterministicFallbackPlan(candidate, unified, detail);
+    plan = selection.targeted
+      ? {
+          valid:false,
+          status:'REVIEW_REQUIRED',
+          reason:'VISION_COMMITTEE_UNAVAILABLE',
+          side:String(candidate?.side || '').toUpperCase(),
+          confidence:0,
+          committeeUnavailable:true,
+          committeeDetail:detail,
+          execution:'ADVISORY_ONLY'
+        }
+      : deterministicFallbackPlan(candidate, unified, detail);
     result = {
       ok:false,
       degraded:true,
-      source:'DETERMINISTIC_FALLBACK',
+      source:selection.targeted ? 'VISION_REQUIRED_FAIL_CLOSED' : 'DETERMINISTIC_FALLBACK',
       error:'COMMITTEE_UNAVAILABLE',
       detail,
       text:null
@@ -508,6 +596,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     candidateFound:true,
     candidate,
     unifiedContext:unified,
+    vision:{ ok:vision.ok, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures },
     committee:result,
     plan,
     riskGate,
@@ -516,8 +605,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     execution:'ADVISORY_ONLY',
     orderPlaced:false
   };
-  out.journalId = store.journal('PLAN', candidate.symbol, { candidate, plan, riskGate, dryRunExecutor, executionReadiness, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
+  out.journalId = store.journal('PLAN', candidate.symbol, { candidate, plan, vision:{ ok:vision.ok, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures }, riskGate, dryRunExecutor, executionReadiness, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, deterministicFallbackPlan };
