@@ -455,6 +455,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
 
 
     // V9594_DETAILED_9TF_AUTO_DIAGNOSTICS
+    // V9595_VISION_ROUTING_DIAGNOSTICS
     // Renders model/Vision interpretation and deterministic evidence separately.
     private String v9594Safe(String x){
         if(x==null)return "";
@@ -648,8 +649,31 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             if(committee!=null){
                 String model=v9594Safe(committee.optString("model",""));
                 String mode=v9594Safe(committee.optString("mode",""));
+                String error=v9594Safe(committee.optString("error",""));
+                String detail=v9594Safe(committee.optString("detail",""));
                 boolean degraded=committee.optBoolean("degraded",false);
-                if(!model.isEmpty()||!mode.isEmpty()||degraded){
+                boolean available=committee.has("available")?committee.optBoolean("available",true):(!"unavailable".equalsIgnoreCase(mode)&&error.isEmpty());
+                int requiredReplies=committee.optInt("requiredAnalystReplies",0);
+                int receivedReplies=committee.optInt("receivedAnalystReplies",0);
+                if(!available){
+                    b.append("\nKomite/Vision: ❌ GÖRSEL OKUMA TAMAMLANMADI");
+                    if(receivedReplies>0||requiredReplies>0)b.append(" • yanıt ").append(receivedReplies).append("/").append(requiredReplies);
+                    if(!error.isEmpty())b.append("\n   Hata: ").append(error);
+                    if(!detail.isEmpty())b.append("\n   Teknik: ").append(detail.length()>420?detail.substring(0,420)+"…":detail);
+                    org.json.JSONArray failed=committee.optJSONArray("failed");
+                    if(failed!=null&&failed.length()>0){
+                        int n=Math.min(3,failed.length());
+                        for(int i=0;i<n;i++){
+                            org.json.JSONObject fx=failed.optJSONObject(i);if(fx==null)continue;
+                            String fm=v9594Safe(fx.optString("model","?"));
+                            String fe=v9594Safe(fx.optString("error",""));
+                            if(fe.length()>180)fe=fe.substring(0,180)+"…";
+                            b.append("\n   • ").append(fm).append(": ").append(fe);
+                        }
+                    }
+                    if(vision!=null&&vision.optInt("attached",0)>=vision.optInt("required",9))
+                        b.append("\n⚠ 9 grafik paketi hazır; fakat model Vision katmanı grafikleri okuyup tamamlanmış analiz üretemedi.");
+                }else if(!model.isEmpty()||!mode.isEmpty()||degraded){
                     b.append("\nKomite: ");
                     if(!model.isEmpty())b.append(model);
                     if(!mode.isEmpty())b.append(model.isEmpty()?"":" • ").append(mode);
@@ -657,16 +681,35 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                 }
             }
 
+            org.json.JSONArray missingVision=row.optJSONArray("missingVisionFields");
+            if(missingVision!=null&&missingVision.length()>0){
+                StringBuilder mb=new StringBuilder();
+                for(int i=0;i<missingVision.length();i++){
+                    String x=v9594Safe(missingVision.optString(i,""));
+                    if(x.isEmpty())continue;
+                    if(mb.length()>0)mb.append(", ");
+                    mb.append(x);
+                }
+                if(mb.length()>0)b.append("\n⚠ Eksik Vision alanları: ").append(mb);
+            }
+
             org.json.JSONObject notes=row.optJSONObject("timeframeNotes");
             org.json.JSONObject evidence=row.optJSONObject("timeframeEvidence");
             String[] tfs=new String[]{"1m","3m","5m","15m","30m","45m","1h","4h","1d"};
+            boolean anyModelTf=false;
+            for(String tf:tfs){
+                if(notes!=null&&!v9594Safe(notes.optString(tf,"")).isEmpty()){anyModelTf=true;break;}
+            }
             boolean anyTf=false;
             for(String tf:tfs){
                 String note=notes==null?"":v9594Safe(notes.optString(tf,""));
                 org.json.JSONObject ev=evidence==null?null:evidence.optJSONObject(tf);
                 String evSummary=ev==null?"":v9594Safe(ev.optString("summaryTr",""));
                 if(note.isEmpty()&&evSummary.isEmpty())continue;
-                if(!anyTf){b.append("\n\n📊 1m → 1D ZAMAN DİLİMİ KANITLARI");anyTf=true;}
+                if(!anyTf){
+                    b.append(anyModelTf?"\n\n📊 1m → 1D • MODEL + DETERMINİSTİK KANIT":"\n\n📊 1m → 1D • SADECE DETERMINİSTİK KANIT (VISION YORUMU YOK)");
+                    anyTf=true;
+                }
                 b.append("\n[").append(v9594TfLabel(tf)).append("]");
                 if(!note.isEmpty())b.append(" Model: ").append(note);
                 if(!evSummary.isEmpty())b.append("\n   ↳ Veri: ").append(evSummary);
@@ -954,8 +997,8 @@ main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091834',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.94'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091835',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.95'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -983,8 +1026,9 @@ checks={
     'persistent lifecycle visible':'v9594_pc_analysis_lifecycle' in MAIN.read_text() and 'KALICI ANALİZ TAKİBİ' in MAIN.read_text() and 'rebaseCount' in MAIN.read_text() and 'invalidationCount' in MAIN.read_text(),
     'scalp cost detail visible':'İşlem maliyeti' in MAIN.read_text() and 'edge/maliyet' in MAIN.read_text() and 'Binance taker oranı' in MAIN.read_text(),
     'forming candle disclosure':'forming mum görüntüde/anlık bağlamda vardır' in MAIN.read_text(),
-    'identity':"versionName '9.5.94'" in BUILD.read_text() and 'versionCode 26091834' in BUILD.read_text(),
+    'identity':"versionName '9.5.95'" in BUILD.read_text() and 'versionCode 26091835' in BUILD.read_text(),
+    'vision failure diagnostic':'V9595_VISION_ROUTING_DIAGNOSTICS' in MAIN.read_text() and 'GÖRSEL OKUMA TAMAMLANMADI' in MAIN.read_text() and 'SADECE DETERMINİSTİK KANIT' in MAIN.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
 if not all(checks.values()): raise SystemExit('v9.5.93 PC LIVE bridge integration check failed')
-print('v9.5.94 OK: detailed Turkish 9TF Vision diagnostics are visible per selected coin; Android remains read-only for analysis and PC owns LIVE execution.')
+print('v9.5.95 OK: 9TF Vision routing failures are explicit, deterministic evidence is never mislabeled as model chart reading, and PC remains the only LIVE executor.')
