@@ -291,9 +291,10 @@ const server=http.createServer(async(req,res)=>{
         results.push(r);
         if(r.ok&&r.text)good.push(r);
       }
-      if(good.length<minReplies){
-        return send(res,503,{ok:false,error:'not enough analyst replies',role,required:minReplies,received:good.length,results});
+      if(good.length===0){
+        return send(res,503,{ok:false,error:'no analyst replies',role,required:minReplies,received:0,results});
       }
+      const degraded=good.length<minReplies;
 
       const norm=t=>String(t||'').toLocaleLowerCase('tr-TR').replace(/[^\p{L}\p{N}]+/gu,' ').trim().replace(/\s+/g,' ');
       const exact=new Set(good.map(x=>norm(x.text))).size===1;
@@ -341,8 +342,8 @@ const server=http.createServer(async(req,res)=>{
         }
       }
 
-      log('COMMITTEE OK role='+role+' analysts='+good.length+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no'));
-      return send(res,200,{ok:true,role,mode:judge&&judge.used?'judge':'consensus',disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
+      log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no'));
+      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,receivedAnalystReplies:good.length,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
