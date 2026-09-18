@@ -129,6 +129,21 @@ public final class BrainHubClient {
         check(c);
         return get(c, "/live/account");
     }
+    public static JSONObject leaderAutoStatus(Context c) throws Exception {
+        check(c);
+        return get(c, "/live/leader-auto");
+    }
+    public static JSONObject configureLeaderAuto(Context c, boolean enabled, double marginQuote, int leverage, int maxOpenPositions, boolean allowLong, boolean allowShort) throws Exception {
+        check(c);
+        JSONObject body = new JSONObject();
+        body.put("enabled", enabled);
+        body.put("marginQuote", marginQuote);
+        body.put("leverage", leverage);
+        body.put("maxOpenPositions", maxOpenPositions);
+        body.put("allowLong", allowLong);
+        body.put("allowShort", allowShort);
+        return post(c, "/live/leader-auto", body, true);
+    }
     public static JSONObject liveExecute(Context c, JSONObject intent) throws Exception {
         if (intent == null) throw new Exception("LIVE intent gerekli");
         JSONObject health = check(c);
