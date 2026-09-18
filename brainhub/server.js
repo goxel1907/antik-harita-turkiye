@@ -353,17 +353,17 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/vision/probe'){
       const symbol=String(u.searchParams.get('symbol')||'BTCUSDT').trim().toUpperCase();
       if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
-      const pack=await pipeline.buildVisionCharts(symbol,128);
+      const pack=await pipeline.buildVisionCharts(symbol,128,{visionProbe:true});
       if(!pack?.ok)return send(res,503,{ok:false,error:'vision charts incomplete',symbol,charts:{attached:pack?.attached||0,required:pack?.required||9,failures:pack?.failures||[]}});
       try{
         const out=await committeeCall({
           role:'STRUCTURE',
-          system:'Vision transport diagnostic only. Inspect every attached timeframe image. Do not give trading advice and do not place orders. The last candle may be forming; identify its visible body direction only for transport verification.',
+          system:'Vision transport diagnostic only. Inspect every attached timeframe image. Read only the diagnostic color marker requested in the prompt. Do not give trading advice and do not place orders. The diagnostic marker is not market evidence.',
           prompt:pipeline.visionPixelProbePrompt(),
           images:pack.images,
           forceVisionProbe:true
         });
-        const visualVerification=pipeline.evaluateVisionPixelProbe(out.text,pack.frames,8);
+        const visualVerification=pipeline.evaluateVisionPixelProbe(out.text,pack.frames);
         const payload={
           symbol,
           charts:{attached:pack.attached,required:pack.required,barsRequested:pack.barsRequested,mode:pack.mode},
