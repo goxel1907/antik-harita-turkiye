@@ -20,5 +20,7 @@
     "maxFreeVisionAttempts":  3,
     "allowKiroVisionFallback":  false,
     "parallelAnalysts":  3,
+    "visionParallelAnalysts":  1,
+    "visionTimeoutMs":  90000,
     "kiroCreditSaving":  true
 }
