@@ -23,6 +23,20 @@ Yeni PC'de repo klonlandıysa `& .\brainhub\INSTALL.ps1 -Source (Get-Location).P
 $f=Join-Path $env:TEMP 'brainhub-manage.ps1'; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/goxel1907/antik-harita-turkiye/futures15m-alarm-public-build/brainhub/manage.ps1' -OutFile $f; & $f -Action Install
 ```
 
+## 9TF Vision doğrulaması
+
+Leader AUTO için 1m, 3m, 5m, 15m, 30m, sentetik 45m, 1h, 4h ve 1D grafik paketinin üretilmesi tek başına "grafik okundu" sayılmaz. Targeted/analysis-tracking akışında dokuz grafik `/committee` üzerinden gerçek multimodal modele ulaşmalı; model ayrıca `WHY`, `RISK_NOTE`, `WAIT_FOR`, `VISION_SUMMARY` ve dokuz `TF_*` alanının tamamını üretmelidir. Eksik görsel girişi, model erişim hatası veya eksik sözleşme çıktısı `REVIEW_REQUIRED` ile fail-closed kalır.
+
+Vision isteklerinde ücretsiz OpenCode modelleri önce denenir. Görsel girişi desteklemeyen ücretsiz modeller Vision cooldown'a alınır; metin istekleri için ayrıca kullanılabilir kalırlar. Ücretsiz Vision rotası bulunamazsa yalnız görsel analiz isteği için Kiro modelleri fallback olarak denenebilir. Metin-only SCALP/FAST rotası free-first davranışını korur ve Kiro'yu normal analist havuzuna taşımaz.
+
+Gerçek uçtan uca test için:
+
+```powershell
+& 'C:\\BrainHub\\TEST.ps1' -Deep
+```
+
+Bu test `/vision/probe?symbol=BTCUSDT` üzerinden 9/9 grafiğin hazırlanmasını ve en az bir modelin görselleri gerçekten almasını doğrular. `9TF Vision model okuma testi gecmedi` hatası alınırsa APK/Android tarafını değil, PC 9Router/model Vision rotasını inceleyin. `/models/healthy` çıktısındaki `visionStatus` ve `visionError` alanları hangi modelin görsel girişini kabul/reddettiğini gösterir.
+
 ## Android bağlantısı
 
 `& 'C:\BrainHub\PAIR.ps1'` Tailscale üzerinde ayrı bir HTTPS `:8787` uç noktası açar. 9Router'ın mevcut `:443` yönlendirmesi korunur. Erişim tokenı Windows kullanıcı şifrelemesiyle saklanır ve eşleştirme sırasında PC panosuna konur. Android uygulamasında Trade Ajanı → Ayar içinde HTTPS adresi ve token girilir. Brain Hub erişilemezse uygulama kendi BrainCore taramasına döner. `& 'C:\BrainHub\UNPAIR.ps1'` yalnız Brain Hub yönlendirmesini kapatır.
