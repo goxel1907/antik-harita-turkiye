@@ -155,6 +155,11 @@ public final class BrainHubClient {
         }
         return post(c, "/live/execute", intent, true);
     }
+    public static JSONObject liveArm(Context c) throws Exception {
+        check(c);
+        JSONObject body = new JSONObject();body.put("confirm", "LIVE");
+        return post(c, "/live/arm", body, true);
+    }
     public static JSONObject liveDisarm(Context c, String reason) throws Exception {
         JSONObject body = new JSONObject();body.put("reason", reason == null ? "ANDROID_USER_DISARM" : reason);
         return post(c, "/live/disarm", body, true);
