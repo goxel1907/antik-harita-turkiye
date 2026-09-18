@@ -18,6 +18,7 @@
     "minAnalystReplies":  2,
     "minVisionAnalystReplies":  1,
     "maxFreeVisionAttempts":  3,
+    "allowKiroVisionFallback":  false,
     "parallelAnalysts":  3,
     "kiroCreditSaving":  true
 }
