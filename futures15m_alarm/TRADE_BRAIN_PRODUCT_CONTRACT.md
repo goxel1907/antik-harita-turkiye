@@ -17,6 +17,9 @@ This file is the persistent product contract for the Trade Brain work. It exists
 - It must answer live questions such as: strongest current futures candidates, why a trade is open/waiting, scenario impact of BTC/ETH moves, news impact, and why a candidate was rejected.
 - 9Router is the free-first model router. Never silently fall back to a paid model. Free provider availability is not assumed to be unlimited.
 - PC is an optional 24/7 Brain Hub/Turbo worker; mobile must retain core scanning/control capability without the PC.
+- For targeted Leader AUTO analysis, generating 9 chart PNGs is not equivalent to model chart reading. A real Vision route must receive all 9 images and return coin-specific `WHY`, `RISK_NOTE`, `WAIT_FOR`, `VISION_SUMMARY` and per-timeframe `TF_1M..TF_1D` notes; otherwise remain `REVIEW_REQUIRED`.
+- Deterministic timeframe evidence must stay visibly separate from model/Vision interpretation. Never label RSI/BOS/FVG/pattern summaries as if the model visually read the chart.
+- A paid/Kiro Vision fallback requires explicit opt-in. Free-model failure must never silently consume paid credits.
 
 ## Universe Scanner / Leader Hunter
 
