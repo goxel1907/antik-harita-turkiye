@@ -320,7 +320,7 @@ function Get-Source([string]$Given) {
     if (-not $dir) { throw 'Indirilen arsivde BrainHub bulunamadi.' }
     $brainDir = Join-Path $dir.FullName 'brainhub'
     $serverText = Get-Content -LiteralPath (Join-Path $brainDir 'server.js') -Raw
-    if ($serverText -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or $serverText -notmatch 'VISION_PIXEL_PROBE' -or $serverText -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or $serverText -notmatch 'OPENCODE_OFFICIAL_FREE_INFERENCE') {
+    if ($serverText -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or $serverText -notmatch 'VISION_PIXEL_PROBE' -or $serverText -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or $serverText -notmatch 'LEADER_DETAIL_PROBE' -or $serverText -notmatch 'OPENCODE_OFFICIAL_FREE_INFERENCE') {
         throw "GitHub HEAD $sha beklenen Vision bootstrap isaretlerini icermiyor; eski arsiv uygulanmadi."
     }
     Write-Host "SOURCE_HEAD $sha"
