@@ -24,8 +24,11 @@ function buildLeaderLiveIntent({
   marginQuote,
   leverage,
   filters,
+  takerCommissionRate = null,
   bufferAtrFraction = 0.05,
-  bufferBps = 2
+  bufferBps = 2,
+  slippageFloorBpsPerSide = 0.5,
+  minimumScalpEdgeMultiple = 1.5
 } = {}) {
   const reasons = [];
   const symbol = String(candidate?.symbol || unified?.symbol || '').trim().toUpperCase();
@@ -42,6 +45,16 @@ function buildLeaderLiveIntent({
 
   const frame = unified?.frames?.[originTF] || null;
   if (!frame?.available || frame?.fresh !== true) reasons.push('ORIGIN_FRAME_NOT_FRESH');
+
+  const scalpCostGate = ['1m','3m','5m'].includes(originTF);
+  const takerRate = finite(takerCommissionRate);
+  const spreadBps = finite(unified?.microstructure?.spreadBps);
+  const micropriceBps = finite(
+    unified?.microstructure?.depthSoftContext?.micropriceBps ??
+    unified?.microstructure?.streaming?.depthSoftContext?.micropriceBps
+  );
+  if (scalpCostGate && (takerRate === null || takerRate < 0)) reasons.push('SCALP_COMMISSION_RATE_REQUIRED');
+  if (scalpCostGate && (spreadBps === null || spreadBps < 0)) reasons.push('SCALP_SPREAD_COST_REQUIRED');
 
   const entryPrice = finite(unified?.livePrice);
   if (entryPrice === null || entryPrice <= 0) reasons.push('LIVE_ENTRY_PRICE_INVALID');
@@ -134,6 +147,46 @@ function buildLeaderLiveIntent({
   }
   const riskQuote = quantity === null || riskDistance === null ? null : quantity * riskDistance;
 
+  const feeBpsPerSide = takerRate !== null && takerRate >= 0 ? takerRate * 10000 : null;
+  const feeRoundTripBps = feeBpsPerSide === null ? null : feeBpsPerSide * 2;
+  const spreadRoundTripBps = spreadBps !== null && spreadBps >= 0 ? spreadBps : null;
+  const slippagePerSideBps = Math.max(
+    0,
+    Number(slippageFloorBpsPerSide) || 0,
+    micropriceBps === null ? 0 : Math.abs(micropriceBps)
+  );
+  const slippageRoundTripBps = slippagePerSideBps * 2;
+  const tp1DistanceBps = takeProfit1 !== null && entryPrice > 0
+    ? Math.abs(takeProfit1 - entryPrice) / entryPrice * 10000
+    : null;
+  const estimatedRoundTripCostBps = feeRoundTripBps !== null && spreadRoundTripBps !== null
+    ? feeRoundTripBps + spreadRoundTripBps + slippageRoundTripBps
+    : null;
+  const costEdgeMultiple = estimatedRoundTripCostBps !== null && estimatedRoundTripCostBps > 0 && tp1DistanceBps !== null
+    ? tp1DistanceBps / estimatedRoundTripCostBps
+    : null;
+  const requiredEdgeMultiple = Math.max(1, Number(minimumScalpEdgeMultiple) || 1.5);
+  if (scalpCostGate && estimatedRoundTripCostBps !== null && costEdgeMultiple !== null && costEdgeMultiple < requiredEdgeMultiple) {
+    reasons.push('SCALP_COST_EDGE_NOT_VIABLE');
+  }
+  const costModel = {
+    source:'LIVE_USER_COMMISSION_PLUS_CURRENT_MICROSTRUCTURE',
+    scalpGateApplied:scalpCostGate,
+    takerCommissionRate:takerRate,
+    feeBpsPerSide,
+    feeRoundTripBps,
+    spreadRoundTripBps,
+    micropriceBps,
+    slippageFloorBpsPerSide:Math.max(0,Number(slippageFloorBpsPerSide)||0),
+    estimatedSlippageBpsPerSide:slippagePerSideBps,
+    slippageRoundTripBps,
+    estimatedRoundTripCostBps,
+    tp1DistanceBps,
+    costEdgeMultiple,
+    minimumScalpEdgeMultiple:requiredEdgeMultiple,
+    semantics:'CONSERVATIVE_EXECUTION_COST_VIABILITY'
+  };
+
   if (reasons.length) return {
     ok:false,
     symbol,
@@ -149,6 +202,7 @@ function buildLeaderLiveIntent({
     quantity,
     notionalQuote,
     riskQuote,
+    costModel,
     reasons:[...new Set(reasons)]
   };
 
@@ -169,6 +223,7 @@ function buildLeaderLiveIntent({
     requestedLeverage:lev,
     notionalQuote,
     riskQuote,
+    costModel,
     reasons:[]
   };
 }
