@@ -7,7 +7,7 @@ const { spawnSync } = require('node:child_process');
 const { LiveAuthorizationRegistry } = require('./live-authorization');
 const { BinanceLiveTransport } = require('./binance-live-transport');
 const { assessApiPermissionDeclaration, containsSecretLikeKey } = require('./binance-account-context');
-const { selectDeepCandidates, executionEligible } = require('./leader-committee');
+const { selectDeepCandidates, executionEligibility, executionEligible } = require('./leader-committee');
 const { buildLeaderLiveIntent } = require('./leader-live-intent');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
@@ -220,6 +220,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   let leaderAutoConsecutiveBlocked = 0;
   let leaderAutoLastTickAt = null;
   let leaderAutoLastHealthyAt = null;
+  let leaderAutoLastDiagnostics = { universeCount:0, shortlistCount:0, eligibleCount:0, candidates:[] };
   const leaderAutoFile = path.join(root, 'config', 'leader-auto.json');
 
   function currentCredentials() {
@@ -324,6 +325,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       lastHealthyAt:leaderAutoLastHealthyAt,
       consecutiveBlocked:leaderAutoConsecutiveBlocked,
       candidateCursor:leaderAutoCandidateCursor,
+      diagnostics:leaderAutoLastDiagnostics,
       reasons:cfg.reasons || []
     };
   }
@@ -543,6 +545,48 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
+  function setLeaderAutoDiagnostics(scan, rawCandidates, allowLong, allowShort) {
+    const rows = (Array.isArray(rawCandidates) ? rawCandidates : []).map(c => {
+      const e = executionEligibility(c);
+      const side = String(c?.side || '').toUpperCase();
+      const directionAllowed = (side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
+      const reasons = [...(e.reasons || [])];
+      if (!directionAllowed) reasons.push(side === 'LONG' ? 'LONG_DISABLED_BY_USER' : side === 'SHORT' ? 'SHORT_DISABLED_BY_USER' : 'DIRECTION_DISABLED');
+      return {
+        symbol:String(c?.symbol || ''),
+        side:side || 'NONE',
+        attackRank:finite(c?.attackRank),
+        projectedRank:finite(c?.projectedRank),
+        leaderState:String(c?.leaderState || ''),
+        deepScanReason:String(c?.deepScanReason || ''),
+        eligible:e.eligible && directionAllowed,
+        reasons:[...new Set(reasons)],
+        tradeQuality:e.tradeQuality,
+        directionSupport:e.directionSupport,
+        spreadBps:e.spreadBps,
+        directionalExpansion:e.directionalExpansion,
+        selected:false,
+        stage:'PREFILTER'
+      };
+    });
+    leaderAutoLastDiagnostics = {
+      universeCount:Number(scan?.universeCount || 0),
+      shortlistCount:rows.length,
+      eligibleCount:rows.filter(x => x.eligible).length,
+      candidates:rows.slice(0,16)
+    };
+    return leaderAutoLastDiagnostics;
+  }
+
+  function annotateLeaderDiagnostic(symbol, stage, reasons = [], extra = {}) {
+    const target = leaderAutoLastDiagnostics?.candidates?.find(x => x.symbol === String(symbol || '').toUpperCase());
+    if (!target) return;
+    target.selected = true;
+    target.stage = String(stage || target.stage || '');
+    target.lastReasons = Array.isArray(reasons) ? reasons.slice(0,8) : [];
+    Object.assign(target, extra || {});
+  }
+
   async function executeLeader(body = {}) {
     const policy = readPolicy(root);
     if (!armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['LIVE_NOT_ARMED'] };
@@ -565,7 +609,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LEADER_AUTO_BLOCKED', reasons:['SCANNER_UNAVAILABLE'] };
     }
 
-    const candidates = selectDeepCandidates(scan, 16)
+    const rawCandidates = selectDeepCandidates(scan, 16);
+    setLeaderAutoDiagnostics(scan, rawCandidates, allowLong, allowShort);
+    const candidates = rawCandidates
       .filter(executionEligible)
       .filter(x => {
         const side = String(x?.side || '').toUpperCase();
@@ -578,6 +624,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const selectedIndex = leaderAutoCandidateCursor % candidates.length;
     const candidate = candidates[selectedIndex];
     leaderAutoCandidateCursor = (selectedIndex + 1) % candidates.length;
+    annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_SELECTED', [], { selectedIndex });
 
     let advisory;
     try {
@@ -588,6 +635,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         executionIntent:{ symbol:candidate.symbol }
       });
     } catch (e) {
+      const rs=[String(e?.message || 'LEADER_PLAN_FAILED').slice(0,160)];
+      annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_ERROR', rs);
       return {
         ok:false,
         orderPlaced:false,
@@ -595,22 +644,26 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         retryable:true,
         execution:'LEADER_AUTO_BLOCKED',
         symbol:candidate.symbol,
-        reasons:[String(e?.message || 'LEADER_PLAN_FAILED').slice(0,160)]
+        reasons:rs
       };
     }
 
     if (!advisory?.candidateFound || !advisory?.plan || !advisory?.unifiedContext) {
+      const rs=[advisory?.reason || 'LEADER_PLAN_NOT_READY'];
+      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_READY', rs);
       return {
         ok:true,
         orderPlaced:false,
         liveAllowed:false,
         execution:'LEADER_AUTO_WAIT',
         symbol:candidate.symbol,
-        reasons:[advisory?.reason || 'LEADER_PLAN_NOT_READY']
+        reasons:rs
       };
     }
 
     if (String(advisory.plan.status || '').toUpperCase() !== 'QUALIFIED') {
+      const rs=['LEADER_PLAN_NOT_QUALIFIED'];
+      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, { planStatus:String(advisory.plan.status || '') });
       return {
         ok:true,
         orderPlaced:false,
@@ -618,9 +671,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         execution:'LEADER_AUTO_WAIT',
         symbol:candidate.symbol,
         plan:advisory.plan,
-        reasons:['LEADER_PLAN_NOT_QUALIFIED']
+        reasons:rs
       };
     }
+    annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], { planStatus:'QUALIFIED' });
 
     const creds = currentCredentials();
     if (!credentialsReady(creds)) {
@@ -647,6 +701,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       filters:exchangeFiltersFor(symbolInfo)
     });
     if (!intent.ok) {
+      const rs=intent.reasons || ['LEADER_INTENT_NOT_READY'];
+      annotateLeaderDiagnostic(candidate.symbol, 'INTENT_NOT_READY', rs);
       return {
         ok:true,
         orderPlaced:false,
@@ -655,9 +711,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         symbol:candidate.symbol,
         plan:advisory.plan,
         intent,
-        reasons:intent.reasons || ['LEADER_INTENT_NOT_READY']
+        reasons:rs
       };
     }
+    annotateLeaderDiagnostic(candidate.symbol, 'INTENT_READY', []);
 
     const now = clock();
     const eventBucket = Math.floor(now / 60000);
@@ -690,6 +747,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       requestedMarginQuote:settings.marginQuote,
       requestedLeverage:settings.leverage,
       requestedMaxOpenPositions:settings.maxOpenPositions
+    });
+
+    annotateLeaderDiagnostic(candidate.symbol, result?.orderPlaced === true ? 'ORDER_PLACED' : 'EXECUTION_RESULT', result?.reasons || [], {
+      execution:String(result?.execution || ''),
+      orderPlaced:result?.orderPlaced === true
     });
 
     try {
