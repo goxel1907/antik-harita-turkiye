@@ -137,7 +137,11 @@ test('9TF Vision may use an explicitly opted-in Kiro free-quota route without ch
   child.stderr.on('data',chunk=>{stderr+=String(chunk);});
 
   try {
-    await waitFor('http://127.0.0.1:'+brainPort+'/health');
+    const health=await waitFor('http://127.0.0.1:'+brainPort+'/health');
+    assert.ok(health.features.includes('VISION_PIXEL_PROBE'));
+    assert.ok(health.features.includes('KIRO_FREE_QUOTA_VISION_OPT_IN'));
+    assert.ok(health.features.includes('OPENCODE_OFFICIAL_FREE_INFERENCE'));
+    assert.equal(health.featureCompatibility?.OPENCODE_OFFICIAL_FREE_INFERENCE,'BOOTSTRAP_ALIAS_ONLY');
 
     const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
     const vr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{
