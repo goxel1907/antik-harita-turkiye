@@ -18,7 +18,7 @@ function finite(v) {
 function round(n, places = 6) {
   return n === null || !Number.isFinite(n) ? null : Number(n.toFixed(places));
 }
-function validSymbol(s) { return typeof s === 'string' && /^[A-Z0-9]{2,28}USDT$/.test(s); }
+function validSymbol(s) { return typeof s === 'string' && /^[A-Z0-9]{1,28}USDT$/.test(s); }
 
 function depthImbalance(bids, asks) {
   const parse = side => Array.isArray(side)
