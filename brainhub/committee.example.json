@@ -1,26 +1,31 @@
 ﻿{
-    "analysts":  [
-                     "oc/muse-spark-1.3-contributor-free",
-                     "oc/mimo-v2.5-free",
-                     "oc/nemotron-3.5-lightning-free"
-                 ],
-    "backupAnalysts":  [
-                           "oc/big-pickle",
-                           "oc/ling-3.0-flash-fin-free",
-                           "oc/nemotron-3-ultra-free"
-                       ],
-    "judges":  [
-                   "kr/claude-sonnet-4.5",
-                   "kr/glm-5",
-                   "kr/deepseek-3.2"
-               ],
-    "judgeOnlyOnDisagreement":  true,
-    "minAnalystReplies":  2,
-    "minVisionAnalystReplies":  1,
-    "maxFreeVisionAttempts":  3,
-    "allowKiroVisionFallback":  false,
-    "parallelAnalysts":  3,
-    "visionParallelAnalysts":  1,
-    "visionTimeoutMs":  90000,
-    "kiroCreditSaving":  true
+    "analysts": [
+        "oc/muse-spark-1.3-contributor-free",
+        "oc/mimo-v2.5-free",
+        "oc/nemotron-3.5-lightning-free"
+    ],
+    "backupAnalysts": [
+        "oc/big-pickle",
+        "oc/ling-3.0-flash-fin-free",
+        "oc/nemotron-3-ultra-free"
+    ],
+    "judges": [
+        "kr/claude-sonnet-4.5",
+        "kr/glm-5",
+        "kr/deepseek-3.2"
+    ],
+    "judgeOnlyOnDisagreement": true,
+    "minAnalystReplies": 2,
+    "minVisionAnalystReplies": 1,
+    "maxFreeVisionAttempts": 3,
+    "allowKiroVisionFallback": false,
+    "parallelAnalysts": 3,
+    "visionParallelAnalysts": 1,
+    "visionTimeoutMs": 90000,
+    "kiroCreditSaving": true,
+    "allowKiroFreeQuotaVision": false,
+    "kiroFreeQuotaVisionModels": [
+        "kr/claude-sonnet-4.5",
+        "kr/claude-haiku-4.5"
+    ]
 }
