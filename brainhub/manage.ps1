@@ -193,7 +193,18 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $learn = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/learning' -Headers $headers -TimeoutSec 5
     if (-not $learn.ok) { throw 'SQLite learning testi gecmedi.' }
     if ($IncludeDeep) {
-        $plan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/plan' -Headers $headers -TimeoutSec 120
+        try {
+            $plan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/plan' -Headers $headers -TimeoutSec 180
+        } catch {
+            Write-Host '========== LEADER PLAN HATA ==========' -ForegroundColor Red
+            if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
+            $brainLog = Join-Path $BrainRoot 'logs\brainpub.log'
+            if (Test-Path -LiteralPath $brainLog) {
+                Write-Host '========== BRAINHUB LOG SON 80 ==========' -ForegroundColor Yellow
+                Get-Content -LiteralPath $brainLog -Tail 80
+            }
+            throw
+        }
         if (-not $plan.ok -or $plan.execution -ne 'ADVISORY_ONLY' -or $plan.orderPlaced) { throw 'Leader pipeline guvenlik testi gecmedi.' }
         $committeeCalled = $false
         if ($null -ne $plan.PSObject.Properties['committeeCalled']) { $committeeCalled = [bool]$plan.committeeCalled }
