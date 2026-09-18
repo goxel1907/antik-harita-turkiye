@@ -103,7 +103,8 @@ test('9TF Vision falls back from image-incapable free models to a Kiro vision ro
     baseUrl:'http://127.0.0.1:'+routerPort+'/v1',
     opencode,
     kiro,
-    healthCacheSeconds:1
+    healthCacheSeconds:1,
+    routerOpenRouterVisionDiscovery:false
   }),'utf8');
   fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
     analysts:opencode,
@@ -223,7 +224,8 @@ test('9TF Vision never consumes Kiro when paid fallback is not explicitly enable
     baseUrl:'http://127.0.0.1:'+routerPort+'/v1',
     opencode:['oc/free-only'],
     kiro:['kr/paid-vision'],
-    healthCacheSeconds:1
+    healthCacheSeconds:1,
+    routerOpenRouterVisionDiscovery:false
   }),'utf8');
   fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
     analysts:['oc/free-only'],
@@ -273,3 +275,101 @@ test('9TF Vision never consumes Kiro when paid fallback is not explicitly enable
   }
 });
 
+
+
+test('9TF Vision reuses the OpenRouter provider already configured inside 9Router without a second API key', { timeout:20000 }, async () => {
+  const requested=[];
+  const freeVisionModel='openrouter/qwen/qwen3-vl-free:free';
+  const fakeRouter=http.createServer(async (req,res)=>{
+    if(req.method==='GET'&&req.url==='/v1/models'){
+      res.writeHead(200,{'content-type':'application/json'});
+      return res.end(JSON.stringify({data:[
+        {id:freeVisionModel,modalities:{input:['text','image'],output:['text']}},
+        {id:'openrouter/some-paid-model',modalities:{input:['text','image'],output:['text']}}
+      ]}));
+    }
+    if(req.method!=='POST'||req.url!=='/v1/chat/completions'){
+      res.writeHead(404,{'content-type':'application/json'});
+      return res.end(JSON.stringify({error:'not found'}));
+    }
+    let raw=''; for await(const chunk of req) raw+=chunk;
+    const body=JSON.parse(raw||'{}');
+    const model=String(body.model||'');
+    const vision=hasImageInput(body);
+    requested.push({model,vision});
+    if(vision&&model===freeVisionModel){
+      res.writeHead(200,{'content-type':'application/json'});
+      return res.end(JSON.stringify({model:freeVisionModel,choices:[{message:{content:'VISION_OK: 1m,3m,5m,15m,30m,45m,1h,4h,1d'}}]}));
+    }
+    if(vision&&model.startsWith('oc/')){
+      res.writeHead(403,{'content-type':'application/json'});
+      return res.end(JSON.stringify({error:{message:"OpenCode's free tier can only be used from within OpenCode"}}));
+    }
+    res.writeHead(500,{'content-type':'application/json'});
+    return res.end(JSON.stringify({error:'unexpected model '+model}));
+  });
+
+  const routerPort=await listen(fakeRouter);
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-vision-9router-openrouter-'));
+  const brainPort=await freePort();
+  const configDir=path.join(root,'config');
+  fs.mkdirSync(configDir,{recursive:true});
+  fs.writeFileSync(path.join(configDir,'models.json'),JSON.stringify({
+    baseUrl:'http://127.0.0.1:'+routerPort+'/v1',
+    opencode:['oc/free-only'],
+    kiro:['kr/paid-vision'],
+    healthCacheSeconds:1,
+    routerOpenRouterVisionDiscovery:true,
+    routerOpenRouterFreeModel:'openrouter/openrouter/free',
+    routerDiscoveryCacheMs:1000
+  }),'utf8');
+  fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
+    analysts:['oc/free-only'],
+    backupAnalysts:[],
+    judges:['kr/paid-vision'],
+    minAnalystReplies:2,
+    minVisionAnalystReplies:1,
+    parallelAnalysts:1,
+    visionParallelAnalysts:1,
+    judgeOnlyOnDisagreement:true,
+    allowKiroVisionFallback:false
+  }),'utf8');
+
+  const serverPath=path.join(__dirname,'..','server.js');
+  const child=spawn(process.execPath,[serverPath],{
+    cwd:root,
+    env:{
+      ...process.env,
+      BRAINHUB_ROOT:root,
+      BRAINHUB_ROUTER_KEY:'integration-test-router-key-123456',
+      BRAINHUB_HOST:'127.0.0.1',
+      BRAINHUB_PORT:String(brainPort),
+      BRAINHUB_CLIENT_TOKEN:''
+    },
+    stdio:['ignore','pipe','pipe']
+  });
+
+  try{
+    await waitFor('http://127.0.0.1:'+brainPort+'/health');
+    const status=await (await fetch('http://127.0.0.1:'+brainPort+'/opencode/status')).json();
+    assert.equal(status.openRouterVia9Router,true);
+    assert.ok(status.openRouterFreeVisionModels.includes(freeVisionModel));
+
+    const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+    const r=await fetch('http://127.0.0.1:'+brainPort+'/committee',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({role:'STRUCTURE',prompt:'Vision 9Router OpenRouter regression',images:tfs.map(fakeImage)})
+    });
+    const body=await r.json();
+    assert.equal(r.status,200,JSON.stringify(body));
+    assert.equal(body.model,freeVisionModel);
+    assert.equal(body.analysts?.[0]?.transport,'9router');
+    assert.ok(requested.some(x=>x.model===freeVisionModel&&x.vision));
+    assert.equal(requested.some(x=>x.model.startsWith('kr/')),false);
+  }finally{
+    await stopChild(child);
+    await new Promise(resolve=>fakeRouter.close(resolve));
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
