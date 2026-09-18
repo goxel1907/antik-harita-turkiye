@@ -404,6 +404,11 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
         if("SCANNER_UNAVAILABLE".equals(r))return "scanner erişilemiyor";
         if("BINANCE_EXCHANGE_INFO_UNAVAILABLE".equals(r))return "Binance filtre verisi yok";
         if("BINANCE_SYMBOL_FILTERS_UNAVAILABLE".equals(r))return "sembol filtreleri yok";
+        if("VISION_9TF_INCOMPLETE".equals(r))return "9TF grafik paketi eksik";
+        if("VISION_COMMITTEE_INPUT_INCOMPLETE".equals(r))return "komite 9 grafiğin tamamını alamadı";
+        if("VISION_COMMITTEE_UNAVAILABLE".equals(r))return "Vision/committee erişilemiyor";
+        if("UNSTRUCTURED_COMMITTEE_OUTPUT".equals(r))return "model plan çıktısı şemaya uymadı";
+        if("NO_FRESH_TIMEFRAME_CONTEXT".equals(r))return "taze zaman dilimi verisi yetersiz";
         return r;
     }
 
@@ -445,6 +450,170 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             if(rows!=null&&rows.length()>shown)b.append("\n… +").append(rows.length()-shown).append(" aday");
             return b.toString();
         }catch(Throwable ignored){return "PC tarama teşhisi okunamadı";}
+    }
+
+
+    // V9594_DETAILED_9TF_AUTO_DIAGNOSTICS
+    // Renders model/Vision interpretation and deterministic evidence separately.
+    private String v9594Safe(String x){
+        if(x==null)return "";
+        x=x.trim();
+        return "null".equalsIgnoreCase(x)?"":x;
+    }
+
+    private String v9594ReasonList(org.json.JSONObject row){
+        if(row==null)return "";
+        org.json.JSONArray tr=row.optJSONArray("lastReasonsTr");
+        if(tr==null||tr.length()==0)tr=row.optJSONArray("reasonsTr");
+        StringBuilder b=new StringBuilder();
+        if(tr!=null){
+            for(int i=0;i<Math.min(6,tr.length());i++){
+                String x=v9594Safe(tr.optString(i,""));
+                if(x.isEmpty())continue;
+                if(b.length()>0)b.append("; ");
+                b.append(x);
+            }
+        }
+        if(b.length()>0)return b.toString();
+        org.json.JSONArray raw=row.optJSONArray("lastReasons");
+        if(raw==null||raw.length()==0)raw=row.optJSONArray("reasons");
+        if(raw!=null){
+            for(int i=0;i<Math.min(6,raw.length());i++){
+                String x=v9593ReasonLabel(raw.optString(i,""));
+                if(x==null||x.trim().isEmpty())continue;
+                if(b.length()>0)b.append("; ");
+                b.append(x);
+            }
+        }
+        return b.toString();
+    }
+
+    private String v9594Warnings(org.json.JSONObject row){
+        if(row==null)return "";
+        org.json.JSONArray a=row.optJSONArray("warningsTr");
+        if(a==null||a.length()==0)a=row.optJSONArray("warnings");
+        StringBuilder b=new StringBuilder();
+        if(a!=null){
+            for(int i=0;i<Math.min(6,a.length());i++){
+                String x=v9594Safe(a.optString(i,""));
+                if(x.isEmpty())continue;
+                if(a==row.optJSONArray("warnings"))x=v9593ReasonLabel(x);
+                if(b.length()>0)b.append("; ");
+                b.append(x);
+            }
+        }
+        return b.toString();
+    }
+
+    private String v9594TfLabel(String tf){
+        if("1m".equals(tf))return "1m";
+        if("3m".equals(tf))return "3m";
+        if("5m".equals(tf))return "5m";
+        if("15m".equals(tf))return "15m";
+        if("30m".equals(tf))return "30m";
+        if("45m".equals(tf))return "45m sentetik";
+        if("1h".equals(tf))return "1h";
+        if("4h".equals(tf))return "4h";
+        if("1d".equals(tf))return "1D";
+        return tf;
+    }
+
+    private String v9594SelectedLeaderDetail(android.content.SharedPreferences sp){
+        String raw=sp.getString("v9593_pc_auto_diagnostics","");
+        if(raw==null||raw.trim().isEmpty())return "";
+        try{
+            org.json.JSONObject d=new org.json.JSONObject(raw);
+            org.json.JSONArray rows=d.optJSONArray("candidates");
+            if(rows==null||rows.length()==0)return "";
+            org.json.JSONObject row=null;
+            for(int i=0;i<rows.length();i++){
+                org.json.JSONObject x=rows.optJSONObject(i);
+                if(x!=null&&x.optBoolean("selected",false)){row=x;break;}
+            }
+            if(row==null)return "";
+
+            String symbol=v9594Safe(row.optString("symbol","?"));
+            String side=v9594Safe(row.optString("side","NONE"));
+            String stage=v9594Safe(row.optString("stageTr",row.optString("stage","")));
+            String planStatus=v9594Safe(row.optString("planStatus",""));
+            String setup=v9594Safe(row.optString("setup",""));
+            String execPath=v9594Safe(row.optString("execPath",""));
+            String why=v9594Safe(row.optString("planWhy",""));
+            String waitFor=v9594Safe(row.optString("waitFor",""));
+            String risk=v9594Safe(row.optString("planRisk",""));
+            String visionSummary=v9594Safe(row.optString("visionSummary",""));
+            String origin=v9594Safe(row.optString("originTF",""));
+            String owner=v9594Safe(row.optString("ownerTF",""));
+            double confidence=row.has("confidence")?row.optDouble("confidence",Double.NaN):Double.NaN;
+
+            StringBuilder b=new StringBuilder();
+            b.append("🧠 DETAYLI OTO ANALİZ • ").append(symbol).append(" ").append(side);
+            if(!stage.isEmpty())b.append("\nAşama: ").append(stage);
+            if(!planStatus.isEmpty())b.append(" • Plan ").append(planStatus);
+            if(!Double.isNaN(confidence))b.append(" • Güven ").append(String.format(java.util.Locale.US,"%.0f/100",confidence));
+
+            org.json.JSONObject vision=row.optJSONObject("vision");
+            if(vision!=null){
+                int attached=vision.optInt("attached",0),required=vision.optInt("required",9),bars=vision.optInt("barsRequested",128);
+                String mode=v9594Safe(vision.optString("mode","annotated"));
+                b.append("\nGrafik/Vision: ").append(attached).append("/").append(required)
+                    .append(" TF • ").append(bars).append(" mum/TF");
+                if(!mode.isEmpty())b.append(" • ").append(mode);
+                if(attached<required)b.append(" • EKSİK → canlı karar fail-closed");
+            }
+
+            if(!origin.isEmpty()||!owner.isEmpty()){
+                b.append("\nZaman yolu: origin ").append(origin.isEmpty()?"—":origin)
+                    .append(" → owner ").append(owner.isEmpty()?"—":owner);
+            }
+            if(!setup.isEmpty())b.append("\nSetup: ").append(setup);
+            if(!execPath.isEmpty())b.append(" • Yol: ").append(execPath);
+            if(!why.isEmpty())b.append("\nNeden: ").append(why);
+            if(!waitFor.isEmpty()&&!"NONE".equalsIgnoreCase(waitFor))b.append("\n🎯 Sinyal için beklenen: ").append(waitFor);
+            if(!visionSummary.isEmpty())b.append("\n👁 9TF grafik özeti: ").append(visionSummary);
+            if(!risk.isEmpty())b.append("\n⚠ Risk: ").append(risk);
+
+            String reasons=v9594ReasonList(row);
+            if(!reasons.isEmpty())b.append("\n⛔ İşlem açmama / blok nedeni: ").append(reasons);
+            String warnings=v9594Warnings(row);
+            if(!warnings.isEmpty())b.append("\n🟡 Ön uyarılar: ").append(warnings);
+
+            org.json.JSONObject committee=row.optJSONObject("committee");
+            if(committee!=null){
+                String model=v9594Safe(committee.optString("model",""));
+                String mode=v9594Safe(committee.optString("mode",""));
+                boolean degraded=committee.optBoolean("degraded",false);
+                if(!model.isEmpty()||!mode.isEmpty()||degraded){
+                    b.append("\nKomite: ");
+                    if(!model.isEmpty())b.append(model);
+                    if(!mode.isEmpty())b.append(model.isEmpty()?"":" • ").append(mode);
+                    if(degraded)b.append(" • TEK ANALİST/DEGRADED");
+                }
+            }
+
+            org.json.JSONObject notes=row.optJSONObject("timeframeNotes");
+            org.json.JSONObject evidence=row.optJSONObject("timeframeEvidence");
+            String[] tfs=new String[]{"1m","3m","5m","15m","30m","45m","1h","4h","1d"};
+            boolean anyTf=false;
+            for(String tf:tfs){
+                String note=notes==null?"":v9594Safe(notes.optString(tf,""));
+                org.json.JSONObject ev=evidence==null?null:evidence.optJSONObject(tf);
+                String evSummary=ev==null?"":v9594Safe(ev.optString("summaryTr",""));
+                if(note.isEmpty()&&evSummary.isEmpty())continue;
+                if(!anyTf){b.append("\n\n📊 1m → 1D ZAMAN DİLİMİ KANITLARI");anyTf=true;}
+                b.append("\n[").append(v9594TfLabel(tf)).append("]");
+                if(!note.isEmpty())b.append(" Model: ").append(note);
+                if(!evSummary.isEmpty())b.append("\n   ↳ Veri: ").append(evSummary);
+            }
+
+            if(!anyTf){
+                String fallback=v9594Safe(row.optString("explanationTr",""));
+                if(!fallback.isEmpty())b.append("\n\nPC açıklaması: ").append(fallback);
+                else b.append("\n\n9TF ayrıntısı: bu aday henüz Vision/plan aşamasına ulaşmadı.");
+            }
+            b.append("\n\nKural: forming mum görüntüde/anlık bağlamda vardır; kapanmış mum teyidi yerine kullanılamaz.");
+            return b.toString();
+        }catch(Throwable ignored){return "DETAYLI OTO ANALİZ • PC diagnostik JSON okunamadı";}
     }
 
     private double v9582PrefNumber(android.content.SharedPreferences sp,String primary,String fallback){
@@ -605,6 +774,16 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
         android.widget.LinearLayout.LayoutParams slp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.setMargins(0,dp(6),0,0);box.addView(status,slp);
 
+        String detailedAuto=v9594SelectedLeaderDetail(sp);
+        if(detailedAuto!=null&&!detailedAuto.trim().isEmpty()){
+            android.widget.TextView detail=text(detailedAuto,11.15f,android.graphics.Color.WHITE,false);
+            detail.setPadding(dp(10),dp(9),dp(10),dp(9));
+            detail.setTextIsSelectable(true);
+            detail.setBackgroundColor(android.graphics.Color.rgb(15,44,68));
+            android.widget.LinearLayout.LayoutParams dlp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            dlp.setMargins(0,dp(7),0,0);box.addView(detail,dlp);
+        }
+
         // V9589_MOBILE_REARM: explicit user tap only; never auto-rearms after expiry/restart.
         android.widget.Button armButton=new android.widget.Button(this);
         armButton.setAllCaps(false);
@@ -700,8 +879,8 @@ main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091833',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.93'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091834',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.94'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -725,8 +904,10 @@ checks={
     'explicit mobile rearm':'V9589_MOBILE_REARM' in MAIN.read_text() and 'BrainHubClient.liveArm(this)' in MAIN.read_text() and 'LIVE 24 SAAT BAŞLAT / YENİDEN BAŞLAT' in MAIN.read_text(),
     'blocked telemetry visible':'v9592_pc_auto_last_reasons' in MAIN.read_text() and 'üst üste' in MAIN.read_text() and 'Son PC tick:' in MAIN.read_text(),
     'per coin diagnostics':'v9593_pc_auto_diagnostics' in MAIN.read_text() and 'PC tarama: Evren' in MAIN.read_text() and 'derin kısa liste' in MAIN.read_text(),
-    'identity':"versionName '9.5.93'" in BUILD.read_text() and 'versionCode 26091833' in BUILD.read_text(),
+    'detailed 9TF diagnostics':'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' in MAIN.read_text() and 'DETAYLI OTO ANALİZ' in MAIN.read_text() and 'timeframeNotes' in MAIN.read_text() and 'timeframeEvidence' in MAIN.read_text() and 'Grafik/Vision:' in MAIN.read_text(),
+    'forming candle disclosure':'forming mum görüntüde/anlık bağlamda vardır' in MAIN.read_text(),
+    'identity':"versionName '9.5.94'" in BUILD.read_text() and 'versionCode 26091834' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
 if not all(checks.values()): raise SystemExit('v9.5.93 PC LIVE bridge integration check failed')
-print('v9.5.93 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+print('v9.5.94 OK: detailed Turkish 9TF Vision diagnostics are visible per selected coin; Android remains read-only for analysis and PC owns LIVE execution.')
