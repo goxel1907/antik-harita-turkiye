@@ -1,6 +1,6 @@
 'use strict';
 
-const { pickCandidate } = require('./leader-committee');
+const { pickCandidate, selectDeepCandidates, executionEligible } = require('./leader-committee');
 const { symbolContext, globalContext } = require('./market');
 const { breakoutExecution } = require('./engine');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
@@ -16,6 +16,39 @@ const FRAME_MS = {
 function finite(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+function resolveExecutionCandidate(scan, executionIntent = null) {
+  const requestedSymbol = String(executionIntent?.symbol || '').trim().toUpperCase();
+  if (!requestedSymbol) {
+    const candidate = pickCandidate(scan);
+    return {
+      candidate,
+      requestedSymbol:null,
+      targeted:false,
+      reason:candidate ? null : 'NO_QUALIFIED_EARLY_EXPANSION'
+    };
+  }
+
+  const pool = selectDeepCandidates(scan, 16);
+  const candidate = pool.find(x => String(x?.symbol || '').trim().toUpperCase() === requestedSymbol) || null;
+  if (!candidate) {
+    return {
+      candidate:null,
+      requestedSymbol,
+      targeted:true,
+      reason:'REQUESTED_SYMBOL_NOT_IN_DEEP_SCAN'
+    };
+  }
+  if (!executionEligible(candidate)) {
+    return {
+      candidate:null,
+      requestedSymbol,
+      targeted:true,
+      reason:'REQUESTED_SYMBOL_NOT_EXECUTION_ELIGIBLE'
+    };
+  }
+  return { candidate, requestedSymbol, targeted:true, reason:null };
 }
 function frameFresh(frame, f, now) {
   if (!f?.available || !Number.isFinite(Number(f.asOf))) return false;
@@ -344,8 +377,18 @@ function combineExecutionReadiness(riskGate, dryRunExecutor) {
   };
 }
 async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null }) {
-  const candidate = pickCandidate(scan);
-  if (!candidate) return { ok:true, candidateFound:false, reason:'NO_QUALIFIED_EARLY_EXPANSION', committeeCalled:false, execution:'ADVISORY_ONLY' };
+  const selection = resolveExecutionCandidate(scan, executionIntent);
+  const candidate = selection.candidate;
+  if (!candidate) return {
+    ok:true,
+    candidateFound:false,
+    requestedSymbol:selection.requestedSymbol,
+    targetedExecution:selection.targeted,
+    reason:selection.reason || 'NO_QUALIFIED_EARLY_EXPANSION',
+    committeeCalled:false,
+    execution:'ADVISORY_ONLY',
+    orderPlaced:false
+  };
   const [symbol, global] = await Promise.all([symbolContext(candidate.symbol), globalContext()]);
   const unified = buildUnifiedContext({ symbol, global, candidate });
   if (!unified.dataQuality.advisoryUsable) {
@@ -425,4 +468,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, run, planFields };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields };
