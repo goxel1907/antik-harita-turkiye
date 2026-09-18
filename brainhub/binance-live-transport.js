@@ -103,6 +103,7 @@ class BinanceLiveTransport {
     this.timeoutMs = Math.max(1000, Math.min(30000, Math.round(Number(timeoutMs) || DEFAULT_TIMEOUT_MS)));
     this.clock = clock;
     this.serverOffsetMs = 0;
+    this.exchangeInfoCache = { at:0, value:null };
   }
 
   async _fetchJson(method, path, { params = {}, credentials = null, signed = false } = {}) {
@@ -122,54 +123,87 @@ class BinanceLiveTransport {
     }
 
     const isGet = method === 'GET';
-    const query = payload.toString();
-    const url = `${this.baseUrl}${path}${isGet && query ? `?${query}` : ''}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    let response;
-    try {
-      response = await this.fetchImpl(url, {
-        method,
-        signal:controller.signal,
-        headers:{
-          Accept:'application/json',
-          ...(signed ? { 'X-MBX-APIKEY':apiKey } : {}),
-          ...(!isGet ? { 'Content-Type':'application/x-www-form-urlencoded' } : {})
-        },
-        body:isGet ? undefined : query
-      });
-    } catch (e) {
-      throw new TransportError(e?.name === 'AbortError' ? 'BINANCE_REQUEST_TIMEOUT' : 'BINANCE_NETWORK_ERROR', {
-        endpoint:path,
-        requestSent:true
-      });
-    } finally {
-      clearTimeout(timer);
+    const isExchangeInfo = isGet && path === '/fapi/v1/exchangeInfo' && !signed;
+    const now = this.clock();
+    if (isExchangeInfo && this.exchangeInfoCache.value && Number.isFinite(now) &&
+        now - this.exchangeInfoCache.at >= 0 && now - this.exchangeInfoCache.at <= 60000) {
+      return this.exchangeInfoCache.value;
     }
 
-    let raw = '';
-    try {
-      raw = await response.text();
-    } catch {
-      throw new TransportError('BINANCE_RESPONSE_READ_ERROR', { endpoint:path, status:response.status, requestSent:true });
+    const query = payload.toString();
+    const url = `${this.baseUrl}${path}${isGet && query ? `?${query}` : ''}`;
+    const maxAttempts = isExchangeInfo ? 3 : 1;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      let response;
+      try {
+        response = await this.fetchImpl(url, {
+          method,
+          signal:controller.signal,
+          headers:{
+            Accept:'application/json',
+            ...(signed ? { 'X-MBX-APIKEY':apiKey } : {}),
+            ...(!isGet ? { 'Content-Type':'application/x-www-form-urlencoded' } : {})
+          },
+          body:isGet ? undefined : query
+        });
+
+        let raw = '';
+        try {
+          raw = await response.text();
+        } catch {
+          throw new TransportError('BINANCE_RESPONSE_READ_ERROR', { endpoint:path, status:response.status, requestSent:true });
+        }
+        if (raw.length > MAX_RESPONSE_BYTES) {
+          throw new TransportError('BINANCE_RESPONSE_TOO_LARGE', { endpoint:path, status:response.status, requestSent:true });
+        }
+        let body = null;
+        if (raw) {
+          try { body = JSON.parse(raw); }
+          catch { body = { msg:raw.slice(0,240) }; }
+        }
+        if (!response.ok) {
+          throw new TransportError(`BINANCE_HTTP_${response.status}`, {
+            endpoint:path,
+            status:response.status,
+            requestSent:true,
+            body:sanitizeExchangeError(body)
+          });
+        }
+
+        if (isExchangeInfo) {
+          if (!Array.isArray(body?.symbols) || body.symbols.length < 1) {
+            throw new TransportError('BINANCE_EXCHANGE_INFO_INVALID', { endpoint:path, status:response.status, requestSent:true });
+          }
+          this.exchangeInfoCache = { at:this.clock(), value:body };
+        }
+        return body;
+      } catch (e) {
+        lastError = e instanceof TransportError
+          ? e
+          : new TransportError(e?.name === 'AbortError' ? 'BINANCE_REQUEST_TIMEOUT' : 'BINANCE_NETWORK_ERROR', {
+              endpoint:path,
+              requestSent:true
+            });
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 150 * attempt));
+      }
     }
-    if (raw.length > MAX_RESPONSE_BYTES) {
-      throw new TransportError('BINANCE_RESPONSE_TOO_LARGE', { endpoint:path, status:response.status, requestSent:true });
+
+    if (isExchangeInfo && this.exchangeInfoCache.value) {
+      const age = this.clock() - this.exchangeInfoCache.at;
+      if (Number.isFinite(age) && age >= 0 && age <= 10 * 60 * 1000) {
+        return this.exchangeInfoCache.value;
+      }
     }
-    let body = null;
-    if (raw) {
-      try { body = JSON.parse(raw); }
-      catch { body = { msg:raw.slice(0,240) }; }
-    }
-    if (!response.ok) {
-      throw new TransportError(`BINANCE_HTTP_${response.status}`, {
-        endpoint:path,
-        status:response.status,
-        requestSent:true,
-        body:sanitizeExchangeError(body)
-      });
-    }
-    return body;
+    throw lastError || new TransportError('BINANCE_NETWORK_ERROR', { endpoint:path, requestSent:true });
   }
 
   async _syncServerTime() {
