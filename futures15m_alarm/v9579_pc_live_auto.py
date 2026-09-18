@@ -625,6 +625,16 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                 b.append("\n✅ Destek TF: ").append(sbSup.length()==0?"NONE":sbSup.toString());
                 b.append(" • ⛔ Veto TF: ").append(sbVeto.length()==0?"NONE":sbVeto.toString());
             }
+            org.json.JSONArray roleWarnings=row.optJSONArray("visionContractWarnings");
+            if(roleWarnings!=null&&roleWarnings.length()>0){
+                StringBuilder wb=new StringBuilder();
+                for(int i=0;i<roleWarnings.length();i++){
+                    String x=v9594Safe(roleWarnings.optString(i,""));if(x.isEmpty())continue;
+                    if(wb.length()>0)wb.append(", ");wb.append(x);
+                }
+                if(wb.length()>0)b.append("\n🟡 Model rol-özeti tutarsızlığı: ").append(wb)
+                    .append(" • gösterilen destek/veto, TF bazlı ROLE alanlarından türetildi");
+            }
             if(!formingContext.isEmpty())b.append("\n🕯 Forming bağlamı: ").append(formingContext);
             if(!visionSummary.isEmpty())b.append("\n👁 9TF grafik özeti: ").append(visionSummary);
             if(!risk.isEmpty())b.append("\n⚠ Risk: ").append(risk);
