@@ -7,7 +7,7 @@ AUTO=JAVA/'AutoTradeEngine.java'
 MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (AUTO,MAIN,BUILD):
-    if not p.exists(): raise SystemExit('v9.5.86 missing '+str(p))
+    if not p.exists(): raise SystemExit('v9.5.87 missing '+str(p))
 
 def method_bounds(src, signature_fragment):
     a=src.find(signature_fragment)
@@ -40,12 +40,14 @@ def method_bounds(src, signature_fragment):
     return None if depth else (a,b,i)
 
 auto=AUTO.read_text()
+auto=auto.replace('private static final ExecutorService IO=Executors.newSingleThreadExecutor();',
+                  'private static final java.util.concurrent.ScheduledExecutorService IO=Executors.newSingleThreadScheduledExecutor();')
 if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.86 requires v9.5.78 dry-run lock first')
+    raise SystemExit('v9.5.87 requires v9.5.78 dry-run lock first')
 start=auto.find('    // V9577_DRY_RUN_LOCK:')
 end=auto.find('    private static void run(Context c,String s)',start)
 if start<0 or end<0:
-    raise SystemExit('v9.5.86 AutoTradeEngine dry-run anchor changed')
+    raise SystemExit('v9.5.87 AutoTradeEngine dry-run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
@@ -65,13 +67,30 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             .multiply(java.math.BigDecimal.valueOf(step)).doubleValue();
     }
 
+    // V9587_SAFE_LIVE_RETRY
+    private static void scheduleSafeRetry(Context c,String s,long signalTs,String reason){
+        if(c==null||s==null||signalTs<=0)return;
+        SharedPreferences p=c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE);
+        long now=System.currentTimeMillis(),age=now-signalTs;
+        if(!p.getBoolean("v9576_auto_enabled",false)||age<0||age>105000L)return;
+        long seen=p.getLong("v9587_retry_signal_"+s,0L);
+        int n=(seen==signalTs)?p.getInt("v9587_retry_count_"+s,0):0;
+        if(n>=3)return;
+        n++;
+        p.edit().putLong("v9587_retry_signal_"+s,signalTs)
+            .putInt("v9587_retry_count_"+s,n).apply();
+        status(p,s,"PC LIVE GÜVENLİ RETRY "+n+"/3 • 15 sn sonra • "+(reason==null?"geçici red":reason));
+        IO.schedule(()->runPc(c,s),15L,java.util.concurrent.TimeUnit.SECONDS);
+    }
+
     private static void runPc(Context c,String s){
         SharedPreferences p=c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE);long now=System.currentTimeMillis();
+        long signalTsForRetry=0L;boolean safeRetry=false;String safeRetryReason="";
         try{
             if(!BrainHubClient.configured(c))throw new Exception("PC Brain Hub bağlı değil");
             if(!p.getBoolean("v9576_auto_enabled",false))return;
             if(!p.getBoolean("v9518_signal_active_"+s,false))throw new Exception("aktif sinyal yok");
-            long ts=p.getLong("v9518_signal_time_"+s,0L),age=now-ts;
+            long ts=p.getLong("v9518_signal_time_"+s,0L),age=now-ts;signalTsForRetry=ts;
             if(ts<=0||age<0||age>120000L)throw new Exception("sinyal oto giriş için bayat (>2dk)");
             if(p.getLong("v9522_order_sent_signal_"+s,-1L)==ts)throw new Exception("bu sinyal daha önce PC yürütücüsüne gönderildi");
             if(p.getBoolean("v9522_order_inflight_"+s,false))throw new Exception("bu sembolde LIVE istek zaten işleniyor");
@@ -147,6 +166,7 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             boolean tpProtected=out.optBoolean("tpProtected",false);
             boolean fullyProtected=out.optBoolean("ok",false)&&stopProtectedEntry&&tpProtected;
             boolean uncertain=out.optBoolean("manualReviewRequired",false)||"LIVE_ENTRY_REVIEW_REQUIRED".equals(out.optString("execution"));
+            safeRetry=out.optBoolean("retryable",false)&&!uncertain&&!out.optBoolean("orderPlaced",false);
             if(stopProtectedEntry){
                 android.content.SharedPreferences.Editor ed=p.edit()
                     .putLong("v9522_order_sent_signal_"+s,ts).putLong("v9576_last_auto_"+s,now)
@@ -178,10 +198,12 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             }
             String reason="";org.json.JSONArray rs=out.optJSONArray("reasons");if(rs!=null&&rs.length()>0)reason=rs.optString(0,"");
             if(reason.isEmpty())reason=out.optString("execution","LIVE_BLOCKED");
+            safeRetryReason=reason;
             throw new Exception((uncertain?"MANUEL KONTROL GEREKİR • ":"")+reason);
         }catch(Throwable e){
             String msg="PC LIVE RED/HATA • "+s+" • "+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage());
             status(p,s,msg);BrainLearning.recordExecution(c,s,msg);
+            if(safeRetry&&signalTsForRetry>0)scheduleSafeRetry(c,s,signalTsForRetry,safeRetryReason);
         }finally{
             p.edit().putBoolean("v9522_order_inflight_"+s,false).putLong("v9576_executor_lease_until",0L).apply();
         }
@@ -201,7 +223,7 @@ repls=[
     ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
 ]
 for old,new in repls:
-    if old not in main: raise SystemExit('v9.5.86 MainActivity anchor missing: '+old[:70])
+    if old not in main: raise SystemExit('v9.5.87 MainActivity anchor missing: '+old[:70])
     main=main.replace(old,new,1)
 
 # V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -210,7 +232,7 @@ for old,new in repls:
 # status at a throttled interval. No order/cancel side effects live here.
 if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     pos=main.rfind('}')
-    if pos<0: raise SystemExit('v9.5.86 MainActivity close missing')
+    if pos<0: raise SystemExit('v9.5.87 MainActivity close missing')
     helpers=r'''
     // ============================================================
     // V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -397,7 +419,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     main=main[:pos]+helpers+'\n'+main[pos:]
 
 b=method_bounds(main,'private void v9549FillRecentTradesCard(')
-if not b: raise SystemExit('v9.5.86 recent trades renderer missing')
+if not b: raise SystemExit('v9.5.87 recent trades renderer missing')
 a,_,e=b
 renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout box) {
         if(box==null)return;
@@ -494,8 +516,8 @@ main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091826',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.86'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091827',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.87'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -514,8 +536,9 @@ checks={
     'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'v9583_pc_wallet' in MAIN.read_text() and 'v9583_pc_equity' in MAIN.read_text() and 'v9583_pc_available' in MAIN.read_text(),
     'TPs bound into LIVE intent':'takeProfit1' in AUTO.read_text() and 'takeProfit2' in AUTO.read_text() and 'takeProfit3' in AUTO.read_text() and 'stop/TP geometrisi' in AUTO.read_text(),
     'tick-safe live levels':'V9586_TICK_SAFE_LIVE_LEVELS' in AUTO.read_text() and 'PRICE_FILTER/tickSize geçersiz' in AUTO.read_text() and 'ceilStep(stop,tick)' in AUTO.read_text(),
-    'identity':"versionName '9.5.86'" in BUILD.read_text() and 'versionCode 26091826' in BUILD.read_text(),
+    'safe retry':'V9587_SAFE_LIVE_RETRY' in AUTO.read_text() and 'newSingleThreadScheduledExecutor' in AUTO.read_text() and 'retryable' in AUTO.read_text(),
+    'identity':"versionName '9.5.87'" in BUILD.read_text() and 'versionCode 26091827' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.86 PC LIVE bridge integration check failed')
-print('v9.5.86 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+if not all(checks.values()): raise SystemExit('v9.5.87 PC LIVE bridge integration check failed')
+print('v9.5.87 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
