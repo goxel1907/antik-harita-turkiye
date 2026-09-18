@@ -298,6 +298,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                     .putString("v9592_pc_auto_last_tick_at",la==null?"":la.optString("lastTickAt",""))
                     .putString("v9592_pc_auto_last_healthy_at",la==null?"":la.optString("lastHealthyAt",""))
                     .putString("v9593_pc_auto_diagnostics",la==null||la.optJSONObject("diagnostics")==null?"":la.optJSONObject("diagnostics").toString())
+                    .putString("v9594_pc_analysis_lifecycle",la==null||la.optJSONObject("analysisLifecycle")==null?"":la.optJSONObject("analysisLifecycle").toString())
                     .putLong("v9582_pc_probe_ts",System.currentTimeMillis()).apply();
                 if(now-sp.getLong("v9588_pc_auto_sync_ts",0L)>=60000L){
                     try{
@@ -516,6 +517,42 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
         if("4h".equals(tf))return "4h";
         if("1d".equals(tf))return "1D";
         return tf;
+    }
+
+    private String v9594LifecycleSummary(android.content.SharedPreferences sp){
+        String raw=sp.getString("v9594_pc_analysis_lifecycle","");
+        if(raw==null||raw.trim().isEmpty())return "";
+        try{
+            org.json.JSONObject j=new org.json.JSONObject(raw);
+            int tracked=j.optInt("tracked",0),active=j.optInt("activeTracking",0);
+            StringBuilder b=new StringBuilder();
+            b.append("🔁 KALICI ANALİZ TAKİBİ • ").append(tracked).append(" setup")
+             .append(" • aktif takip ").append(active);
+            org.json.JSONArray rows=j.optJSONArray("rows");
+            if(rows==null||rows.length()==0)return b.toString();
+            int shown=Math.min(6,rows.length());
+            for(int i=0;i<shown;i++){
+                org.json.JSONObject r=rows.optJSONObject(i);if(r==null)continue;
+                String symbol=v9594Safe(r.optString("symbol","?"));
+                String side=v9594Safe(r.optString("side",""));
+                String state=v9594Safe(r.optString("state",""));
+                String plan=v9594Safe(r.optString("planStatus",""));
+                String origin=v9594Safe(r.optString("originTF",""));
+                String owner=v9594Safe(r.optString("ownerTF",""));
+                b.append("\n• ").append(symbol);
+                if(!side.isEmpty())b.append(" ").append(side);
+                if(!state.isEmpty())b.append(" → ").append(state);
+                if(!plan.isEmpty())b.append(" • plan ").append(plan);
+                if(!origin.isEmpty()||!owner.isEmpty())
+                    b.append(" • ").append(origin.isEmpty()?"—":origin).append("→").append(owner.isEmpty()?"—":owner);
+                int rb=r.optInt("rebaseCount",0),inv=r.optInt("invalidationCount",0);
+                if(rb>0||inv>0)b.append(" • rebase ").append(rb).append(" / invalidate ").append(inv);
+                String wait=v9594Safe(r.optString("waitFor",""));
+                if(!wait.isEmpty()&&!"NONE".equalsIgnoreCase(wait))b.append("\n   Beklenen: ").append(wait);
+            }
+            if(rows.length()>shown)b.append("\n… +").append(rows.length()-shown).append(" takip");
+            return b.toString();
+        }catch(Throwable ignored){return "🔁 KALICI ANALİZ TAKİBİ • veri okunamadı";}
     }
 
     private String v9594SelectedLeaderDetail(android.content.SharedPreferences sp){
@@ -783,6 +820,15 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
             android.widget.LinearLayout.LayoutParams dlp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
             dlp.setMargins(0,dp(7),0,0);box.addView(detail,dlp);
         }
+        String lifecycleText=v9594LifecycleSummary(sp);
+        if(lifecycleText!=null&&!lifecycleText.trim().isEmpty()){
+            android.widget.TextView life=text(lifecycleText,10.9f,android.graphics.Color.WHITE,false);
+            life.setPadding(dp(10),dp(8),dp(10),dp(8));
+            life.setTextIsSelectable(true);
+            life.setBackgroundColor(android.graphics.Color.rgb(30,41,59));
+            android.widget.LinearLayout.LayoutParams llp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            llp.setMargins(0,dp(7),0,0);box.addView(life,llp);
+        }
 
         // V9589_MOBILE_REARM: explicit user tap only; never auto-rearms after expiry/restart.
         android.widget.Button armButton=new android.widget.Button(this);
@@ -905,6 +951,7 @@ checks={
     'blocked telemetry visible':'v9592_pc_auto_last_reasons' in MAIN.read_text() and 'üst üste' in MAIN.read_text() and 'Son PC tick:' in MAIN.read_text(),
     'per coin diagnostics':'v9593_pc_auto_diagnostics' in MAIN.read_text() and 'PC tarama: Evren' in MAIN.read_text() and 'derin kısa liste' in MAIN.read_text(),
     'detailed 9TF diagnostics':'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' in MAIN.read_text() and 'DETAYLI OTO ANALİZ' in MAIN.read_text() and 'timeframeNotes' in MAIN.read_text() and 'timeframeEvidence' in MAIN.read_text() and 'Grafik/Vision:' in MAIN.read_text(),
+    'persistent lifecycle visible':'v9594_pc_analysis_lifecycle' in MAIN.read_text() and 'KALICI ANALİZ TAKİBİ' in MAIN.read_text() and 'rebaseCount' in MAIN.read_text() and 'invalidationCount' in MAIN.read_text(),
     'forming candle disclosure':'forming mum görüntüde/anlık bağlamda vardır' in MAIN.read_text(),
     'identity':"versionName '9.5.94'" in BUILD.read_text() and 'versionCode 26091834' in BUILD.read_text(),
 }
