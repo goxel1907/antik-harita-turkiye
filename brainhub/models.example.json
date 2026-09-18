@@ -20,5 +20,7 @@
     "kiroStream": true,
     "probeOnStart": true,
     "healthCacheSeconds": 600,
-    "openRouterFreeVisionFallback": true
+    "routerOpenRouterVisionDiscovery": true,
+    "routerOpenRouterFreeModel": "openrouter/openrouter/free",
+    "routerDiscoveryCacheMs": 60000
 }
