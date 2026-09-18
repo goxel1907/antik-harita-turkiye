@@ -214,6 +214,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   let armState = { armed:false, armedAt:null, expiresAt:null };
   let lastDisarmReason = 'STARTUP_FAIL_CLOSED';
   let accountSummaryCache = { at:0, value:null };
+  let leaderAutoBusy = false;
+  let lastLeaderAutoResult = null;
+  const leaderAutoFile = path.join(root, 'config', 'leader-auto.json');
 
   function currentCredentials() {
     return resolveCredentials(root, credentials);
@@ -231,6 +234,123 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     return true;
   }
 
+  function normalizeLeaderAuto(raw, policy) {
+    const current = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const enabled = current.enabled === true;
+    const marginQuote = finite(current.marginQuote);
+    const leverage = finite(current.leverage);
+    const maxOpenPositions = finite(current.maxOpenPositions);
+    const allowLong = current.allowLong === true;
+    const allowShort = current.allowShort === true;
+    const reasons = [];
+    if (enabled) {
+      if (marginQuote === null || marginQuote <= 0) reasons.push('LEADER_AUTO_MARGIN_INVALID');
+      if (leverage === null || !Number.isInteger(leverage) || leverage < 1 || leverage > 125) reasons.push('LEADER_AUTO_LEVERAGE_INVALID');
+      if (maxOpenPositions === null || !Number.isInteger(maxOpenPositions) || maxOpenPositions < 1 || maxOpenPositions > 5) reasons.push('LEADER_AUTO_MAX_POSITIONS_INVALID');
+      const pcMax = finite(policy?.limits?.maxOpenPositions);
+      if (maxOpenPositions !== null && pcMax !== null && maxOpenPositions > pcMax) reasons.push('LEADER_AUTO_MAX_POSITIONS_EXCEEDS_PC_CAP');
+      if (!allowLong && !allowShort) reasons.push('LEADER_AUTO_DIRECTION_DISABLED');
+    }
+    return {
+      ok:reasons.length === 0,
+      config:{
+        enabled,
+        marginQuote,
+        leverage,
+        maxOpenPositions,
+        allowLong,
+        allowShort,
+        intervalSec:60
+      },
+      reasons:[...new Set(reasons)]
+    };
+  }
+
+  function readLeaderAutoConfig() {
+    let raw = {};
+    try {
+      if (fs.existsSync(leaderAutoFile)) raw = JSON.parse(fs.readFileSync(leaderAutoFile, 'utf8'));
+    } catch {
+      return { ok:false, config:{ enabled:false, marginQuote:null, leverage:null, maxOpenPositions:null, allowLong:false, allowShort:false, intervalSec:60 }, reasons:['LEADER_AUTO_CONFIG_INVALID'] };
+    }
+    return normalizeLeaderAuto(raw, readPolicy(root));
+  }
+
+  function writeLeaderAutoConfig(config) {
+    fs.mkdirSync(path.dirname(leaderAutoFile), { recursive:true });
+    const tmp = leaderAutoFile + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { encoding:'utf8', mode:0o600 });
+    fs.renameSync(tmp, leaderAutoFile);
+  }
+
+  function configureLeaderAuto(body = {}) {
+    const policy = readPolicy(root);
+    if (!policy.ok) return { ok:false, reasons:policy.reasons || ['LIVE_POLICY_REQUIRED'] };
+    const existing = readLeaderAutoConfig().config || {};
+    const merged = {
+      ...existing,
+      ...(body && typeof body === 'object' ? body : {})
+    };
+    const normalized = normalizeLeaderAuto(merged, policy);
+    if (!normalized.ok) return normalized;
+    try { writeLeaderAutoConfig(normalized.config); }
+    catch { return { ok:false, reasons:['LEADER_AUTO_CONFIG_WRITE_FAILED'] }; }
+    return { ok:true, ...normalized.config };
+  }
+
+  function leaderAutoStatus() {
+    const cfg = readLeaderAutoConfig();
+    const c = cfg.config || {};
+    return {
+      ok:cfg.ok,
+      configured:Boolean(c.marginQuote && c.leverage && c.maxOpenPositions),
+      enabled:c.enabled === true,
+      marginQuote:c.marginQuote,
+      leverage:c.leverage,
+      maxOpenPositions:c.maxOpenPositions,
+      allowLong:c.allowLong === true,
+      allowShort:c.allowShort === true,
+      intervalSec:60,
+      busy:leaderAutoBusy,
+      lastExecution:lastLeaderAutoResult?.execution || null,
+      lastSymbol:lastLeaderAutoResult?.symbol || lastLeaderAutoResult?.leaderIntent?.symbol || null,
+      lastOrderPlaced:lastLeaderAutoResult?.orderPlaced === true,
+      reasons:cfg.reasons || []
+    };
+  }
+
+  async function leaderAutoTick() {
+    if (leaderAutoBusy) return { ok:true, skipped:true, execution:'LEADER_AUTO_BUSY', orderPlaced:false };
+    const cfg = readLeaderAutoConfig();
+    if (!cfg.ok) return { ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons };
+    if (!cfg.config.enabled) return { ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false };
+    if (!armedNow()) return { ok:true, skipped:true, execution:'LEADER_AUTO_WAIT_ARM', orderPlaced:false };
+    leaderAutoBusy = true;
+    try {
+      const result = await executeLeader({
+        requestedMarginQuote:cfg.config.marginQuote,
+        requestedLeverage:cfg.config.leverage,
+        requestedMaxOpenPositions:cfg.config.maxOpenPositions,
+        allowLong:cfg.config.allowLong,
+        allowShort:cfg.config.allowShort
+      });
+      lastLeaderAutoResult = result;
+      return result;
+    } catch (e) {
+      const result = {
+        ok:false,
+        orderPlaced:false,
+        liveAllowed:false,
+        execution:'LEADER_AUTO_TICK_FAILED',
+        reasons:[String(e?.message || 'LEADER_AUTO_TICK_FAILED').slice(0,160)]
+      };
+      lastLeaderAutoResult = result;
+      return result;
+    } finally {
+      leaderAutoBusy = false;
+    }
+  }
+
   function status() {
     const policy = readPolicy(root);
     const creds = currentCredentials();
@@ -245,7 +365,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       expiresAt:armed ? new Date(armState.expiresAt).toISOString() : null,
       liveAllowed:false,
       execution:armed ? 'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED' : 'LIVE_DISARMED',
-      lastDisarmReason
+      lastDisarmReason,
+      leaderAuto:leaderAutoStatus()
     };
   }
 
@@ -745,7 +866,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
-  return { status, accountSummary, arm, disarm, execute, executeLeader, readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };
