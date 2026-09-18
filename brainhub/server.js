@@ -150,6 +150,9 @@ function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
   const general=uniqueModels([...(ccfg?.analysts||[]),...(ccfg?.backupAnalysts||[])]).filter(x=>allowed.has(x));
   const freePool=uniqueModels([...explicit.filter(x=>free.includes(x)),...general.filter(x=>free.includes(x)),...free]);
   const kiroPool=uniqueModels([...explicit.filter(x=>kiro.includes(x)),...general.filter(x=>kiro.includes(x)),...kiro]);
+  const configuredQuotaModels=uniqueModels(Array.isArray(ccfg?.kiroFreeQuotaVisionModels)
+    ? ccfg.kiroFreeQuotaVisionModels
+    : ['kr/claude-sonnet-4.5','kr/claude-haiku-4.5']).filter(x=>kiro.includes(x));
   const preferHealthy=xs=>[
     ...xs.filter(x=>visionState.get(x)?.ok===true),
     ...xs.filter(x=>visionState.get(x)?.ok!==true&&(includeCooldown||!visionBlocked(x)))
@@ -159,19 +162,25 @@ function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
     const hint=m=>{
       const z=String(m||'').toLowerCase();
       if(z.includes('vision'))return 0;
-      if(z.includes('muse-spark-1.3'))return 1;
-      if(z.includes('muse-spark-1.2'))return 2;
+      if(z.includes('claude-haiku-4.5'))return 1;
+      if(z.includes('claude-sonnet-4.5'))return 2;
+      if(z.includes('muse-spark-1.3'))return 3;
+      if(z.includes('muse-spark-1.2'))return 4;
       return 9;
     };
     return roleRanked.map((model,index)=>({model,index,hint:hint(model)}))
       .sort((a,b)=>a.hint-b.hint||a.index-b.index).map(x=>x.model);
   };
-  const allowKiro=ccfg?.allowKiroVisionFallback === true;
+  const allowKiroFreeQuota=ccfg?.allowKiroFreeQuotaVision === true;
+  const allowLegacyKiroFallback=ccfg?.allowKiroVisionFallback === true;
   const rankedFree=visionRank(preferHealthy(freePool));
-  const maxFree=allowKiro?Math.max(1,Math.min(6,Number(ccfg?.maxFreeVisionAttempts||3))):rankedFree.length;
+  const kiroCandidates=allowKiroFreeQuota
+    ? configuredQuotaModels
+    : (allowLegacyKiroFallback?kiroPool:[]);
+  const maxFree=kiroCandidates.length?Math.max(1,Math.min(6,Number(ccfg?.maxFreeVisionAttempts||3))):rankedFree.length;
   return uniqueModels([
     ...rankedFree.slice(0,maxFree),
-    ...(allowKiro?visionRank(preferHealthy(kiroPool)):[])
+    ...visionRank(preferHealthy(kiroCandidates))
   ]);
 }
 async function ask(prompt,system,preferred,role='DEFAULT'){
@@ -270,7 +279,7 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','LIVE_FAIL_CLOSED']});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LIVE_FAIL_CLOSED']});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,live.status());
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -320,8 +329,26 @@ const server=http.createServer(async(req,res)=>{
       for(const role of Object.keys(ROLE_HINTS))routes[role]=rankPool(base,role,false);
       const visionRoutes={};
       for(const role of Object.keys(ROLE_HINTS))visionRoutes[role]=orderedVisionModels(ccfg,role);
+      const visionKiroFreeQuota=ccfg.allowKiroFreeQuotaVision===true;
       const visionKiroFallback=ccfg.allowKiroVisionFallback===true;
-      return send(res,200,{ok:true,freeFirst:true,roles:routes,visionRoutes,judges:ccfg.judges||[],kiroJudgeOnly:true,visionKiroFallback,note:visionKiroFallback?'Text-only routes keep Kiro for judge duty; 9TF image requests may use Kiro only after explicit Vision fallback opt-in and failed free OpenCode candidates.':'Kiro Vision fallback is disabled by default; 9TF image analysis remains free-only unless explicitly enabled. API keys are never exposed here.'});
+      const kiroFreeQuotaVisionModels=uniqueModels(Array.isArray(ccfg.kiroFreeQuotaVisionModels)?ccfg.kiroFreeQuotaVisionModels:[]).filter(x=>(cfg.kiro||[]).includes(x));
+      return send(res,200,{
+        ok:true,
+        freeFirst:true,
+        roles:routes,
+        visionRoutes,
+        judges:ccfg.judges||[],
+        kiroJudgeOnly:true,
+        visionKiroFreeQuota,
+        kiroFreeQuotaVisionModels,
+        visionKiroFallback,
+        paidVisionFallbackEnabled:visionKiroFallback,
+        note:visionKiroFreeQuota
+          ? '9TF Vision may use only the explicitly allowlisted Kiro connected-account quota models after free OpenCode attempts. This opt-in does not enable any separate paid API provider.'
+          : (visionKiroFallback
+              ? 'Legacy Kiro Vision fallback is explicitly enabled.'
+              : 'Kiro Vision is disabled until explicit local opt-in; missing Vision remains fail-closed.')
+      });
     }
     if(req.method==='GET'&&u.pathname==='/vision/probe'){
       const symbol=String(u.searchParams.get('symbol')||'BTCUSDT').trim().toUpperCase();
@@ -331,12 +358,28 @@ const server=http.createServer(async(req,res)=>{
       try{
         const out=await committeeCall({
           role:'STRUCTURE',
-          system:'Vision transport diagnostic only. Inspect every attached timeframe image. Do not give trading advice and do not place orders.',
-          prompt:'Return exactly one line in this form: VISION_OK: <comma-separated timeframes you actually received>. Do not infer or invent missing charts.',
+          system:'Vision transport diagnostic only. Inspect every attached timeframe image. Do not give trading advice and do not place orders. The last candle may be forming; identify its visible body direction only for transport verification.',
+          prompt:pipeline.visionPixelProbePrompt(),
           images:pack.images,
           forceVisionProbe:true
         });
-        return send(res,200,{ok:true,symbol,charts:{attached:pack.attached,required:pack.required,barsRequested:pack.barsRequested,mode:pack.mode},vision:out.vision||null,model:out.model||'',mode:out.mode||'',degraded:out.degraded===true,requiredAnalystReplies:out.requiredAnalystReplies||null,requiredVisionAnalystReplies:out.requiredVisionAnalystReplies||null,receivedAnalystReplies:out.receivedAnalystReplies||0,failed:Array.isArray(out.failed)?out.failed:[],text:String(out.text||'').slice(0,500)});
+        const visualVerification=pipeline.evaluateVisionPixelProbe(out.text,pack.frames,8);
+        const payload={
+          symbol,
+          charts:{attached:pack.attached,required:pack.required,barsRequested:pack.barsRequested,mode:pack.mode},
+          vision:out.vision||null,
+          model:out.model||'',
+          mode:out.mode||'',
+          degraded:out.degraded===true,
+          requiredAnalystReplies:out.requiredAnalystReplies||null,
+          requiredVisionAnalystReplies:out.requiredVisionAnalystReplies||null,
+          receivedAnalystReplies:out.receivedAnalystReplies||0,
+          failed:Array.isArray(out.failed)?out.failed:[],
+          visualVerification,
+          text:String(out.text||'').slice(0,1200)
+        };
+        if(!visualVerification.ok)return send(res,503,{ok:false,error:'vision pixel verification failed',...payload});
+        return send(res,200,{ok:true,...payload});
       }catch(e){
         return send(res,503,{ok:false,error:'vision probe failed',symbol,detail:String(e.message||e).slice(0,1200),charts:{attached:pack.attached,required:pack.required,barsRequested:pack.barsRequested,mode:pack.mode},committee:e.committee||null});
       }
@@ -489,7 +532,7 @@ const server=http.createServer(async(req,res)=>{
       }
 
       log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no')+' visionCharts='+vision.images.length);
-      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,forceVisionProbe:forceVisionProbe||false,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
+      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,forceVisionProbe:forceVisionProbe||false,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,visionKiroFreeQuota:hasVision&&ccfg.allowKiroFreeQuotaVision===true,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
