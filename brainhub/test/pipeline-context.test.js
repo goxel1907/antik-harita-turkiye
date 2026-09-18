@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate } = require('../pipeline');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 const { buildDryRunOrder } = require('../binance-dry-run-executor');
 
@@ -51,6 +51,54 @@ function qualifiedPlan() {
     'EXECUTION: ADVISORY_ONLY'
   ].join('\n'));
 }
+
+test('LIVE execution candidate is locked to the requested signal symbol instead of the top scanner pick', () => {
+  const scan = {
+    leaders:[
+      {
+        symbol:'AAAUSDT', side:'LONG', attackRank:1, leaderState:'TOP3_APPROACH',
+        tradeQuality:90, directionSupport:3, spreadBps:1, longExpansionScore:80, shortExpansionScore:2,
+        leaderHunterScore:150, movementPotential:70, expansionScore:80
+      },
+      {
+        symbol:'BBBUSDT', side:'SHORT', attackRank:2, leaderState:'EARLY_TOP5',
+        tradeQuality:76, directionSupport:2, spreadBps:2, longExpansionScore:4, shortExpansionScore:52,
+        leaderHunterScore:95, movementPotential:45, expansionScore:52
+      }
+    ]
+  };
+
+  const advisory = resolveExecutionCandidate(scan, null);
+  assert.equal(advisory.candidate.symbol, 'AAAUSDT');
+
+  const targeted = resolveExecutionCandidate(scan, { symbol:'BBBUSDT' });
+  assert.equal(targeted.targeted, true);
+  assert.equal(targeted.requestedSymbol, 'BBBUSDT');
+  assert.equal(targeted.candidate.symbol, 'BBBUSDT');
+  assert.equal(targeted.reason, null);
+});
+
+test('LIVE execution rejects the requested symbol explicitly when it is not execution eligible', () => {
+  const scan = {
+    leaders:[
+      {
+        symbol:'AAAUSDT', side:'LONG', attackRank:1, leaderState:'TOP3_APPROACH',
+        tradeQuality:90, directionSupport:3, spreadBps:1, longExpansionScore:80, shortExpansionScore:2,
+        leaderHunterScore:150
+      },
+      {
+        symbol:'BBBUSDT', side:'SHORT', attackRank:2, leaderState:'EARLY_TOP5',
+        tradeQuality:40, directionSupport:0, spreadBps:12, longExpansionScore:2, shortExpansionScore:20,
+        leaderHunterScore:60
+      }
+    ]
+  };
+
+  const targeted = resolveExecutionCandidate(scan, { symbol:'BBBUSDT' });
+  assert.equal(targeted.targeted, true);
+  assert.equal(targeted.candidate, null);
+  assert.equal(targeted.reason, 'REQUESTED_SYMBOL_NOT_EXECUTION_ELIGIBLE');
+});
 
 test('Unified Brain can originate at 1m without waiting for 15m and carries observed liquidations as context', () => {
   const { unified:u } = unifiedFixture();
