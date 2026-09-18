@@ -217,6 +217,14 @@ const server=http.createServer(async(req,res)=>{
       const out=await live.execute(body||{});
       return send(res,out.ok?200:409,out);
     }
+    if(req.method==='GET'&&u.pathname==='/live/leader-auto'){
+      return send(res,200,live.leaderAutoStatus());
+    }
+    if(req.method==='POST'&&u.pathname==='/live/leader-auto'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const out=live.configureLeaderAuto(body||{});
+      return send(res,out.ok?200:409,out);
+    }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({model,status:state.has(model)?(state.get(model).ok?'healthy':'cooldown'):'untested',last:state.get(model)?.at||null,error:state.get(model)?.error||null}));
       return send(res,200,{cacheSeconds:TTL/1000,models});
@@ -406,3 +414,17 @@ const server=http.createServer(async(req,res)=>{
 });
 
 server.listen(PORT,HOST,()=>log('BrainHub listening on http://'+HOST+':'+PORT));
+
+const leaderAutoTimer=setInterval(async()=>{
+  try{
+    const out=await live.leaderAutoTick();
+    if(out?.orderPlaced===true){
+      log('LEADER AUTO ORDER symbol='+(out?.leaderIntent?.symbol||out?.symbol||'unknown')+' execution='+(out?.execution||'unknown'));
+    }else if(out?.ok===false&&out?.skipped!==true){
+      log('LEADER AUTO BLOCK execution='+(out?.execution||'unknown')+' reasons='+JSON.stringify(out?.reasons||[]));
+    }
+  }catch(e){
+    log('LEADER AUTO TIMER '+String(e?.message||e).slice(0,200));
+  }
+},60000);
+if(typeof leaderAutoTimer.unref==='function')leaderAutoTimer.unref();
