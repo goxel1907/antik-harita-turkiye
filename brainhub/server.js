@@ -154,10 +154,12 @@ function orderedVisionModels(ccfg,role='STRUCTURE'){
     ...xs.filter(x=>visionState.get(x)?.ok===true),
     ...xs.filter(x=>visionState.get(x)?.ok!==true&&!visionBlocked(x))
   ];
-  const maxFree=Math.max(1,Math.min(6,Number(ccfg?.maxFreeVisionAttempts||3)));
+  const allowKiro=ccfg?.allowKiroVisionFallback === true;
+  const rankedFree=rankPool(preferHealthy(freePool),role,true);
+  const maxFree=allowKiro?Math.max(1,Math.min(6,Number(ccfg?.maxFreeVisionAttempts||3))):rankedFree.length;
   return uniqueModels([
-    ...rankPool(preferHealthy(freePool),role,true).slice(0,maxFree),
-    ...rankPool(preferHealthy(kiroPool),role,true)
+    ...rankedFree.slice(0,maxFree),
+    ...(allowKiro?rankPool(preferHealthy(kiroPool),role,true):[])
   ]);
 }
 async function ask(prompt,system,preferred,role='DEFAULT'){
@@ -306,7 +308,8 @@ const server=http.createServer(async(req,res)=>{
       for(const role of Object.keys(ROLE_HINTS))routes[role]=rankPool(base,role,false);
       const visionRoutes={};
       for(const role of Object.keys(ROLE_HINTS))visionRoutes[role]=orderedVisionModels(ccfg,role);
-      return send(res,200,{ok:true,freeFirst:true,roles:routes,visionRoutes,judges:ccfg.judges||[],kiroJudgeOnly:true,visionKiroFallback:true,note:'Text-only routes keep Kiro for judge duty; 9TF image requests may use Kiro only as a Vision fallback after free OpenCode candidates fail. API keys are never exposed here.'});
+      const visionKiroFallback=ccfg.allowKiroVisionFallback===true;
+      return send(res,200,{ok:true,freeFirst:true,roles:routes,visionRoutes,judges:ccfg.judges||[],kiroJudgeOnly:true,visionKiroFallback,note:visionKiroFallback?'Text-only routes keep Kiro for judge duty; 9TF image requests may use Kiro only after explicit Vision fallback opt-in and failed free OpenCode candidates.':'Kiro Vision fallback is disabled by default; 9TF image analysis remains free-only unless explicitly enabled. API keys are never exposed here.'});
     }
     if(req.method==='GET'&&u.pathname==='/vision/probe'){
       const symbol=String(u.searchParams.get('symbol')||'BTCUSDT').trim().toUpperCase();
@@ -379,13 +382,23 @@ const server=http.createServer(async(req,res)=>{
         }
       }
 
-      let results=await Promise.all(routed.slice(0,parallel).map(probe));
-      let good=results.filter(x=>x.ok&&x.text);
-      for(const m of routed.slice(parallel)){
-        if(good.length>=requiredReplies)break;
-        const r=await probe(m);
-        results.push(r);
-        if(r.ok&&r.text)good.push(r);
+      let results=[];
+      let good=[];
+      if(hasVision){
+        for(let i=0;i<routed.length&&good.length<requiredReplies;i+=parallel){
+          const batch=await Promise.all(routed.slice(i,i+parallel).map(probe));
+          results.push(...batch);
+          good=results.filter(x=>x.ok&&x.text);
+        }
+      }else{
+        results=await Promise.all(routed.slice(0,parallel).map(probe));
+        good=results.filter(x=>x.ok&&x.text);
+        for(const m of routed.slice(parallel)){
+          if(good.length>=requiredReplies)break;
+          const r=await probe(m);
+          results.push(r);
+          if(r.ok&&r.text)good.push(r);
+        }
       }
       if(good.length===0){
         const failures=results.filter(x=>!x.ok).slice(0,12);
