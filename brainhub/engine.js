@@ -145,6 +145,54 @@ function swingStructure(pv, tolerance, lastClose) {
     event
   };
 }
+function smcContext(swings, lastClose, gaps = []) {
+  const high=finite(swings?.lastConfirmedSwingHigh?.price);
+  const low=finite(swings?.lastConfirmedSwingLow?.price);
+  if (high === null || low === null || !(high > low) || !Number.isFinite(lastClose)) {
+    return {
+      available:false,
+      reason:'CONFIRMED_DEALING_RANGE_UNAVAILABLE',
+      semantics:'SOFT_STRUCTURAL_CONTEXT_ONLY'
+    };
+  }
+  const range=high-low;
+  const equilibrium=(high+low)/2;
+  const position=(lastClose-low)/range;
+  const zone=position < 0.45 ? 'DISCOUNT' : position > 0.55 ? 'PREMIUM' : 'EQUILIBRIUM';
+  const longOteLow=low+range*0.21;
+  const longOteHigh=low+range*0.38;
+  const shortOteLow=low+range*0.62;
+  const shortOteHigh=low+range*0.79;
+  const withCe=(Array.isArray(gaps)?gaps:[]).slice(-3).map(g => ({
+    side:g.side,
+    low:round(g.low),
+    high:round(g.high),
+    ce50:round((Number(g.low)+Number(g.high))/2),
+    at:g.at
+  }));
+  return {
+    available:true,
+    source:'CONFIRMED_SWING_RANGE_FROM_CLOSED_CANDLES',
+    swingEvent:swings?.event || null,
+    swingState:swings?.state || null,
+    dealingRange:{
+      low:round(low),
+      high:round(high),
+      equilibrium:round(equilibrium),
+      positionPct:round(position*100,2),
+      zone
+    },
+    oteReference:{
+      longDiscountZone:{ low:round(longOteLow), high:round(longOteHigh) },
+      shortPremiumZone:{ low:round(shortOteLow), high:round(shortOteHigh) },
+      semantics:'REFERENCE_ZONE_NOT_ENTRY_SIGNAL'
+    },
+    fairValueGaps:withCe,
+    semantics:'SOFT_STRUCTURAL_CONTEXT_ONLY',
+    note:'Premium/discount, OTE reference and FVG CE50 are derived from confirmed closed-candle swings. They do not independently qualify or veto a trade.'
+  };
+}
+
 function geometryPatterns(c, pv, a14, tolerance) {
   const out = [];
   if (c.length < 20 || pv.highs.length < 2 || pv.lows.length < 2) return out;
@@ -343,13 +391,14 @@ function structure(c, frame = null) {
     trend:direction, prior20High:round(high), prior20Low:round(low),
     breakOfStructure:breaksHigh ? 'UP' : breaksLow ? 'DOWN' : null,
     buySideLiquidity:round(high), sellSideLiquidity:round(low),
-    recentFairValueGaps:gaps.slice(-3).map(g => ({ ...g, low:round(g.low), high:round(g.high) })),
+    recentFairValueGaps:gaps.slice(-3).map(g => ({ ...g, low:round(g.low), high:round(g.high), ce50:round((g.low+g.high)/2) })),
     returnPct:round((last.close / c.at(-6).close - 1) * 100, 3),
     candle:candleShape(last, a14),
     patterns,
     swingStructure:swings,
     liquidity:{ equalHigh:eqHigh, equalLow:eqLow, lastSweep }
   };
+  base.smcContext = smcContext(swings, last.close, gaps);
   base.opportunity = opportunity(c, frame, a14, base);
   return base;
 }
@@ -404,4 +453,4 @@ function handoff(initialStop, candidateStop, side) {
   const safe = side === 'LONG' ? candidateStop >= initialStop : side === 'SHORT' ? candidateStop <= initialStop : false;
   return { allowed:safe, stop:safe ? candidateStop : initialStop, reason:safe ? 'RISK_NOT_WIDENED' : 'WOULD_WIDEN_RISK' };
 }
-module.exports = { FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, detectPatterns, structure, analyzeFrames, breakoutExecution, microstructure, handoff };
+module.exports = { FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, detectPatterns, structure, analyzeFrames, breakoutExecution, microstructure, handoff };
