@@ -329,14 +329,20 @@ function compactUnifiedContext(u) {
     policy:u.policy
   };
 }
-async function buildVisionCharts(symbol, requestedBars = 128) {
+async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
   const frames = {};
   const images = [];
   const failures = [];
+  const probeCodes={
+    '1m':'0001','3m':'0010','5m':'0011','15m':'0100','30m':'0101',
+    '45m':'0110','1h':'0111','4h':'1000','1d':'1001'
+  };
+  const visionProbe=options?.visionProbe === true;
   const rows = await Promise.all(FRAME_ORDER.map(async frame => {
     try {
       const chart = await chartContext(symbol, frame, requestedBars);
-      const png = renderChartPng(chart, 'annotated');
+      const visionProbeCode=visionProbe ? probeCodes[frame] : null;
+      const png = renderChartPng(chart, 'annotated', visionProbeCode?{visionProbeCode}:{});
       const last=Array.isArray(chart?.candles)&&chart.candles.length?chart.candles[chart.candles.length-1]:null;
       const visualLastCandle=last
         ? (Number(last.close)>=Number(last.open)?'BULL':'BEAR')
@@ -349,6 +355,7 @@ async function buildVisionCharts(symbol, requestedBars = 128) {
         formingBars:Number(chart?.formingBars || 0),
         generatedAt:chart?.generatedAt || null,
         visualLastCandle,
+        visionProbeCode,
         dataUrl:'data:image/png;base64,'+png.toString('base64')
       };
     } catch (e) {
@@ -368,7 +375,8 @@ async function buildVisionCharts(symbol, requestedBars = 128) {
       closedBars:row.closedBars,
       formingBars:row.formingBars,
       generatedAt:row.generatedAt,
-      visualLastCandle:row.visualLastCandle
+      visualLastCandle:row.visualLastCandle,
+      ...(visionProbe ? { visionProbeCode:row.visionProbeCode } : {})
     };
   }
   return {
@@ -386,41 +394,41 @@ async function buildVisionCharts(symbol, requestedBars = 128) {
 function visionPixelProbePrompt() {
   return [
     'Görsel taşıma doğrulaması: dokuz grafiğin HER BİRİNİ gerçekten incele.',
-    'Her grafikte en sağdaki son mumun gövde yönünü yalnız görselden oku. Son mum forming olabilir; bu yalnız Vision diagnostigidir ve işlem teyidi değildir.',
-    'Tam olarak aşağıdaki 9 satırı döndür; başka açıklama ekleme. Her iki noktanın sağında yalnız tek kelime yaz: BULL veya BEAR. Dikey çizgi (|) yazma:',
-    'PROBE_1M: BULL | BEAR',
-    'PROBE_3M: BULL | BEAR',
-    'PROBE_5M: BULL | BEAR',
-    'PROBE_15M: BULL | BEAR',
-    'PROBE_30M: BULL | BEAR',
-    'PROBE_45M: BULL | BEAR',
-    'PROBE_1H: BULL | BEAR',
-    'PROBE_4H: BULL | BEAR',
-    'PROBE_1D: BULL | BEAR'
+    'Her grafiğin sol üst köşesinde beyaz çerçeve içinde dört renkli kare vardır. Soldan sağa YEŞİL=1, KIRMIZI=0 olarak dört bitlik kodu yalnız görselden oku.',
+    'Bu kodlar diagnostik işarettir; piyasa sinyali değildir ve işlem yorumunda kullanılmamalıdır.',
+    'Tam olarak aşağıdaki 9 satırı döndür; başka açıklama ekleme:',
+    'PROBE_1M: 0000',
+    'PROBE_3M: 0000',
+    'PROBE_5M: 0000',
+    'PROBE_15M: 0000',
+    'PROBE_30M: 0000',
+    'PROBE_45M: 0000',
+    'PROBE_1H: 0000',
+    'PROBE_4H: 0000',
+    'PROBE_1D: 0000'
   ].join('\n');
 }
-function evaluateVisionPixelProbe(text, frames, minimumMatches = 8) {
+function evaluateVisionPixelProbe(text, frames) {
   const tfKey={ '1M':'1m','3M':'3m','5M':'5m','15M':'15m','30M':'30m','45M':'45m','1H':'1h','4H':'4h','1D':'1d' };
   const reported={};
-  const re=/^\s*PROBE_(1M|3M|5M|15M|30M|45M|1H|4H|1D)\s*:\s*(BULL|BEAR)\s*$/gim;
+  const re=/^\s*PROBE_(1M|3M|5M|15M|30M|45M|1H|4H|1D)\s*:\s*([01]{4})\s*$/gim;
   let m;
-  while((m=re.exec(String(text||'')))) reported[tfKey[m[1].toUpperCase()]]=m[2].toUpperCase();
+  while((m=re.exec(String(text||'')))) reported[tfKey[m[1].toUpperCase()]]=m[2];
   const details=FRAME_ORDER.map(tf=>{
-    const expected=String(frames?.[tf]?.visualLastCandle||'').toUpperCase();
-    const actual=String(reported[tf]||'').toUpperCase();
+    const expected=String(frames?.[tf]?.visionProbeCode||'');
+    const actual=String(reported[tf]||'');
     return {tf,expected:expected||null,actual:actual||null,match:Boolean(expected&&actual&&expected===actual)};
   });
   const reportedCount=details.filter(x=>x.actual).length;
   const comparable=details.filter(x=>x.expected).length;
   const matched=details.filter(x=>x.match).length;
-  const threshold=Math.max(1,Math.min(FRAME_ORDER.length,Number(minimumMatches)||8));
   return {
-    ok:reportedCount===FRAME_ORDER.length && comparable===FRAME_ORDER.length && matched>=threshold,
+    ok:reportedCount===FRAME_ORDER.length && comparable===FRAME_ORDER.length && matched===FRAME_ORDER.length,
     required:FRAME_ORDER.length,
     reported:reportedCount,
     comparable,
     matched,
-    threshold,
+    threshold:FRAME_ORDER.length,
     details
   };
 }
