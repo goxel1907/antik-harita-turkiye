@@ -18,6 +18,14 @@ try {
         throw 'Guncel BrainHub updater bootstrap isaretleri bulunamadi; eski updater calistirilmadi.'
     }
 
+    $tokens = $null
+    $parseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($tempManage, [ref]$tokens, [ref]$parseErrors) | Out-Null
+    if (@($parseErrors).Count -gt 0) {
+        $detail = (@($parseErrors) | Select-Object -First 5 | ForEach-Object { $_.Message }) -join ' | '
+        throw "Guncel BrainHub manage.ps1 PowerShell parser testini gecmedi: $detail"
+    }
+
     & $tempManage -Action Update @args
 }
 finally {
