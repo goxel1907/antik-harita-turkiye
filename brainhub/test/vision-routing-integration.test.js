@@ -111,6 +111,8 @@ test('9TF Vision falls back from image-incapable free models to a Kiro vision ro
     judges:[],
     minAnalystReplies:2,
     minVisionAnalystReplies:1,
+    maxFreeVisionAttempts:2,
+    allowKiroVisionFallback:true,
     parallelAnalysts:2,
     judgeOnlyOnDisagreement:true
   }),'utf8');
