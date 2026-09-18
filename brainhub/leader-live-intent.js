@@ -37,7 +37,7 @@ function buildLeaderLiveIntent({
   const status = String(plan?.status || '').trim().toUpperCase();
   const originTF = String(plan?.originTF || '').trim().toLowerCase();
 
-  if (!/^[A-Z0-9]{2,24}USDT$/.test(symbol)) reasons.push('INTENT_SYMBOL_INVALID');
+  if (!/^[A-Z0-9]{1,24}USDT$/.test(symbol)) reasons.push('INTENT_SYMBOL_INVALID');
   if (!['LONG','SHORT'].includes(side)) reasons.push('INTENT_SIDE_INVALID');
   if (candidateSide && candidateSide !== side) reasons.push('CANDIDATE_PLAN_SIDE_MISMATCH');
   if (status !== 'QUALIFIED') reasons.push('PLAN_NOT_QUALIFIED');
