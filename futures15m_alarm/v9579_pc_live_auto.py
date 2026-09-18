@@ -7,7 +7,7 @@ AUTO=JAVA/'AutoTradeEngine.java'
 MAIN=JAVA/'MainActivity.java'
 BUILD=APP/'app/build.gradle'
 for p in (AUTO,MAIN,BUILD):
-    if not p.exists(): raise SystemExit('v9.5.85 missing '+str(p))
+    if not p.exists(): raise SystemExit('v9.5.86 missing '+str(p))
 
 def method_bounds(src, signature_fragment):
     a=src.find(signature_fragment)
@@ -41,11 +41,11 @@ def method_bounds(src, signature_fragment):
 
 auto=AUTO.read_text()
 if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.85 requires v9.5.78 dry-run lock first')
+    raise SystemExit('v9.5.86 requires v9.5.78 dry-run lock first')
 start=auto.find('    // V9577_DRY_RUN_LOCK:')
 end=auto.find('    private static void run(Context c,String s)',start)
 if start<0 or end<0:
-    raise SystemExit('v9.5.85 AutoTradeEngine dry-run anchor changed')
+    raise SystemExit('v9.5.86 AutoTradeEngine dry-run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
@@ -55,6 +55,14 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
         if(!p.getBoolean("v9576_auto_enabled",false))return;
         if(!"PC".equals(p.getString("v9576_executor_owner","PC")))return;
         IO.execute(()->runPc(app,s));
+    }
+
+    // V9586_TICK_SAFE_LIVE_LEVELS
+    private static double ceilStep(double v,double step){
+        if(!(step>0))return v;
+        return java.math.BigDecimal.valueOf(v)
+            .divide(java.math.BigDecimal.valueOf(step),0,java.math.RoundingMode.CEILING)
+            .multiply(java.math.BigDecimal.valueOf(step)).doubleValue();
     }
 
     private static void runPc(Context c,String s){
@@ -103,6 +111,19 @@ pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC Br
             if(!(step>0)||!(min>=0)||!(max>0))throw new Exception("lot filtresi geçersiz");
             double qty=floor(margin*configuredLev/live,step);
             if(!(qty>0)||qty<min||qty>max)throw new Exception("hesaplanan miktar Binance lot sınırı dışında");
+
+            JSONObject pf=filter(si,"PRICE_FILTER");
+            double tick=pf==null?0.0:pf.optDouble("tickSize",0.0);
+            if(!(tick>0))throw new Exception("PRICE_FILTER/tickSize geçersiz");
+            if(lng){
+                stop=ceilStep(stop,tick);
+                tp1=floor(tp1,tick);tp2=floor(tp2,tick);tp3=floor(tp3,tick);
+                if(!(stop<live&&live<tp1&&tp1<tp2&&tp2<tp3))throw new Exception("LONG tick-normalize sonrası stop/TP geometrisi geçersiz");
+            }else{
+                stop=floor(stop,tick);
+                tp1=ceilStep(tp1,tick);tp2=ceilStep(tp2,tick);tp3=ceilStep(tp3,tick);
+                if(!(stop>live&&live>tp1&&tp1>tp2&&tp2>tp3))throw new Exception("SHORT tick-normalize sonrası stop/TP geometrisi geçersiz");
+            }
 
             String tsText=Long.toString(ts),tail=tsText.substring(Math.max(0,tsText.length()-10));
             String hash=Integer.toHexString(s.hashCode());
@@ -180,7 +201,7 @@ repls=[
     ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
 ]
 for old,new in repls:
-    if old not in main: raise SystemExit('v9.5.85 MainActivity anchor missing: '+old[:70])
+    if old not in main: raise SystemExit('v9.5.86 MainActivity anchor missing: '+old[:70])
     main=main.replace(old,new,1)
 
 # V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -189,7 +210,7 @@ for old,new in repls:
 # status at a throttled interval. No order/cancel side effects live here.
 if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     pos=main.rfind('}')
-    if pos<0: raise SystemExit('v9.5.85 MainActivity close missing')
+    if pos<0: raise SystemExit('v9.5.86 MainActivity close missing')
     helpers=r'''
     // ============================================================
     // V9582_VISIBLE_LIVE_STATUS_PANEL
@@ -376,7 +397,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
     main=main[:pos]+helpers+'\n'+main[pos:]
 
 b=method_bounds(main,'private void v9549FillRecentTradesCard(')
-if not b: raise SystemExit('v9.5.85 recent trades renderer missing')
+if not b: raise SystemExit('v9.5.86 recent trades renderer missing')
 a,_,e=b
 renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout box) {
         if(box==null)return;
@@ -473,8 +494,8 @@ main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091825',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.85'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091826',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.86'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -492,8 +513,9 @@ checks={
     'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
     'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'v9583_pc_wallet' in MAIN.read_text() and 'v9583_pc_equity' in MAIN.read_text() and 'v9583_pc_available' in MAIN.read_text(),
     'TPs bound into LIVE intent':'takeProfit1' in AUTO.read_text() and 'takeProfit2' in AUTO.read_text() and 'takeProfit3' in AUTO.read_text() and 'stop/TP geometrisi' in AUTO.read_text(),
-    'identity':"versionName '9.5.85'" in BUILD.read_text() and 'versionCode 26091825' in BUILD.read_text(),
+    'tick-safe live levels':'V9586_TICK_SAFE_LIVE_LEVELS' in AUTO.read_text() and 'PRICE_FILTER/tickSize geçersiz' in AUTO.read_text() and 'ceilStep(stop,tick)' in AUTO.read_text(),
+    'identity':"versionName '9.5.86'" in BUILD.read_text() and 'versionCode 26091826' in BUILD.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.85 PC LIVE bridge integration check failed')
-print('v9.5.85 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
+if not all(checks.values()): raise SystemExit('v9.5.86 PC LIVE bridge integration check failed')
+print('v9.5.86 OK: deterministic mobile signals can request PC LIVE execution; Android does not sign Binance orders and PC arm/gates remain mandatory.')
