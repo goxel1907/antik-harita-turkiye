@@ -500,7 +500,7 @@ const server=http.createServer(async(req,res)=>{
 
       if(needJudge&&judges.length){
         const jp=[
-          {role:'system',content:'You are the committee judge. Resolve conflicts using only supplied analyst answers and source context. Preserve the exact output schema and every required field requested in ORIGINAL REQUEST, including all TF_* lines and VISION_SUMMARY when present. Do not invent facts, do not infer hidden market-maker intent, and do not place orders.'},
+          {role:'system',content:'You are the committee judge. Resolve conflicts using only supplied analyst answers and source context. Preserve the exact output schema and every required field requested in ORIGINAL REQUEST, including SUPPORT_TFS, VETO_TFS, FORMING_CONTEXT, all TF_* summary/WHY/WAIT/ROLE/FORMING/RISK lines, and VISION_SUMMARY when present. Do not invent facts, do not infer hidden market-maker intent, and do not place orders.'},
           {role:'user',content:'ROLE: '+role+'\nORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
         ];
         for(const m of judges){
