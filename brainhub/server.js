@@ -118,8 +118,7 @@ async function callOpenRouterFreeVision(messages,timeoutMs){
     },
     body:JSON.stringify({
       model:'openrouter/free',
-      messages,
-      provider:{data_collection:'deny'}
+      messages
     }),
     signal:AbortSignal.timeout(Math.max(30000,Number(timeoutMs)||90000))
   });
