@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract } = require('../pipeline');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 const { buildDryRunOrder } = require('../binance-dry-run-executor');
 
@@ -51,6 +51,49 @@ function qualifiedPlan() {
     'EXECUTION: ADVISORY_ONLY'
   ].join('\n'));
 }
+
+test('targeted Vision plan contract requires Turkish diagnostics for all 9 timeframes', () => {
+  const complete = planFields([
+    'STATUS: WATCH',
+    'SIDE: LONG',
+    'CONFIDENCE: 70',
+    'ORIGIN_TF: 1m',
+    'OWNER_TF: 5m',
+    'SETUP: continuation',
+    'EXEC_PATH: reclaim',
+    'WHY: Türkçe somut gerekçe',
+    'RISK_NOTE: Türkçe ana risk',
+    'WAIT_FOR: 1m kapanmış mum reclaim teyidi',
+    'TF_1M: Türkçe 1m yorum',
+    'TF_3M: Türkçe 3m yorum',
+    'TF_5M: Türkçe 5m yorum',
+    'TF_15M: Türkçe 15m yorum',
+    'TF_30M: Türkçe 30m yorum',
+    'TF_45M: Türkçe sentetik 45m yorum',
+    'TF_1H: Türkçe 1h yorum',
+    'TF_4H: Türkçe 4h yorum',
+    'TF_1D: Türkçe 1D yorum',
+    'VISION_SUMMARY: Dokuz grafiğin ortak yapısı ve çelişkisi',
+    'EXECUTION: ADVISORY_ONLY'
+  ].join('\n'));
+  assert.deepEqual(visionPlanContract(complete), { ok:true, missing:[] });
+
+  const incomplete = planFields([
+    'STATUS: QUALIFIED',
+    'SIDE: LONG',
+    'CONFIDENCE: 80',
+    'ORIGIN_TF: 1m',
+    'OWNER_TF: 5m',
+    'WHY: gerekçe var',
+    'RISK_NOTE: risk var',
+    'TF_1M: yalnız 1m yorumlandı',
+    'VISION_SUMMARY: özet var'
+  ].join('\n'));
+  const contract = visionPlanContract(incomplete);
+  assert.equal(contract.ok,false);
+  assert.ok(contract.missing.includes('TF_3M'));
+  assert.ok(contract.missing.includes('TF_1D'));
+});
 
 test('LIVE execution candidate is locked to the requested signal symbol instead of the top scanner pick', () => {
   const scan = {
