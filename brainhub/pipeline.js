@@ -387,7 +387,7 @@ function visionPixelProbePrompt() {
   return [
     'Görsel taşıma doğrulaması: dokuz grafiğin HER BİRİNİ gerçekten incele.',
     'Her grafikte en sağdaki son mumun gövde yönünü yalnız görselden oku. Son mum forming olabilir; bu yalnız Vision diagnostigidir ve işlem teyidi değildir.',
-    'Tam olarak aşağıdaki 9 satırı döndür; başka açıklama ekleme:',
+    'Tam olarak aşağıdaki 9 satırı döndür; başka açıklama ekleme. Her iki noktanın sağında yalnız tek kelime yaz: BULL veya BEAR. Dikey çizgi (|) yazma:',
     'PROBE_1M: BULL | BEAR',
     'PROBE_3M: BULL | BEAR',
     'PROBE_5M: BULL | BEAR',
