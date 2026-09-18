@@ -545,6 +545,93 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
+  const LEADER_REASON_TR = {
+    SIDE_NOT_LONG_OR_SHORT:'LONG/SHORT yönü belirlenemedi',
+    SPREAD_ABOVE_8_BPS:'alış-satış farkı 8 bps sınırının üzerinde',
+    TRADE_QUALITY_BELOW_58:'işlem kalitesi 58 eşiğinin altında',
+    DIRECTION_SUPPORT_MISSING:'seçilen yön için yeterli zaman dilimi desteği yok',
+    LONG_EXPANSION_BELOW_35:'LONG genişleme gücü 35 eşiğinin altında',
+    SHORT_EXPANSION_BELOW_35:'SHORT genişleme gücü 35 eşiğinin altında',
+    LONG_DISABLED_BY_USER:'LONG otomatik işlem kullanıcı tarafından kapalı',
+    SHORT_DISABLED_BY_USER:'SHORT otomatik işlem kullanıcı tarafından kapalı',
+    DIRECTION_DISABLED:'bu yön otomatik işlem için kapalı',
+    COMMITTEE_UNAVAILABLE:'9Router analiz komitesi/model erişimi hazır değil',
+    LEADER_PLAN_NOT_READY:'9 zaman dilimli analiz planı henüz hazır değil',
+    LEADER_PLAN_NOT_QUALIFIED:'9 zaman dilimli plan henüz işlem açma niteliğine ulaşmadı',
+    NO_FRESH_TIMEFRAME_CONTEXT:'taze zaman dilimi verisi yetersiz',
+    NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER:'ön kontrolden geçen izinli aday yok',
+    SCANNER_UNAVAILABLE:'evren tarayıcısına ulaşılamadı',
+    BINANCE_EXCHANGE_INFO_UNAVAILABLE:'Binance sembol/filtre bilgisi alınamadı',
+    BINANCE_SYMBOL_FILTERS_UNAVAILABLE:'coin için Binance işlem filtreleri bulunamadı',
+    BINANCE_CREDENTIALS_REQUIRED:'Binance Futures API kimliği PC tarafında hazır değil',
+    LIVE_NOT_ARMED:'PC LIVE yetkisi açık değil',
+    LEADER_INTENT_NOT_READY:'giriş, stop veya miktar henüz güvenli emir niyetine dönüşmedi',
+    EXECUTION_LINEAGE_MISMATCH:'sinyal ile emir soy zinciri eşleşmedi',
+    DUPLICATE_EVENT:'aynı sinyal olayı daha önce işlendi',
+    DUPLICATE_LINEAGE:'aynı işlem fikri daha önce işlendi'
+  };
+
+  const LEADER_STAGE_TR = {
+    PREFILTER:'Ön tarama',
+    PIPELINE_SELECTED:'Derin 9TF analiz için seçildi',
+    PIPELINE_ERROR:'Derin analiz hattında hata',
+    PLAN_NOT_READY:'9TF planı hazırlanamadı',
+    PLAN_NOT_QUALIFIED:'9TF planı henüz işlem için yeterli değil',
+    PLAN_QUALIFIED:'9TF planı işlem adayı olarak nitelikli',
+    INTENT_NOT_READY:'Emir niyeti henüz hazır değil',
+    INTENT_READY:'Emir niyeti deterministik kontroller için hazır',
+    ORDER_PLACED:'Canlı emir gönderildi',
+    EXECUTION_RESULT:'Canlı yürütme sonucu alındı'
+  };
+
+  function leaderReasonTr(reason) {
+    const key=String(reason || '').trim();
+    if (!key) return '';
+    if (LEADER_REASON_TR[key]) return LEADER_REASON_TR[key];
+    if (/committee/i.test(key)) return '9Router analiz komitesi/model erişimi hazır değil';
+    if (/spread/i.test(key)) return 'alış-satış farkı izin verilen sınırı aşıyor';
+    if (/quality/i.test(key)) return 'işlem kalitesi gerekli eşiğe ulaşmadı';
+    if (/expansion/i.test(key)) return 'seçilen yöndeki genişleme/momentum gücü henüz yeterli değil';
+    if (/invalid USDT perpetual symbol/i.test(key)) return 'sembol Binance USDT perpetual evreniyle eşleşmedi';
+    return key;
+  }
+
+  function leaderCandidateExplanationTr(row) {
+    const side=row?.side === 'LONG' ? 'LONG' : row?.side === 'SHORT' ? 'SHORT' : 'YÖNSÜZ';
+    const rank=finite(row?.attackRank), projected=finite(row?.projectedRank);
+    const quality=finite(row?.tradeQuality), spread=finite(row?.spreadBps);
+    const support=finite(row?.directionSupport), expansion=finite(row?.directionalExpansion);
+    const parts=[];
+    parts.push(`${row?.symbol || 'COIN'} ${side}: ${LEADER_STAGE_TR[row?.stage] || row?.stage || 'Tarama'}.`);
+    const metrics=[];
+    if(rank!==null) metrics.push(`iç saldırı sırası ${rank}`);
+    if(projected!==null) metrics.push(`projeksiyon ${projected}`);
+    if(quality!==null) metrics.push(`kalite ${quality}`);
+    if(expansion!==null) metrics.push(`${side} genişleme ${expansion}`);
+    if(support!==null) metrics.push(`yön desteği ${support}`);
+    if(spread!==null) metrics.push(`spread ${spread} bps`);
+    if(metrics.length) parts.push('Ölçümler: '+metrics.join(', ')+'.');
+    if(row?.leaderState) parts.push(`Erken fırsat durumu: ${row.leaderState}.`);
+    if(row?.deepScanReason) parts.push(`Derin tarama nedeni: ${row.deepScanReason}.`);
+    const activeReasons=[
+      ...(Array.isArray(row?.lastReasons) ? row.lastReasons : []),
+      ...(Array.isArray(row?.reasons) ? row.reasons : [])
+    ].filter(Boolean);
+    const warnings=Array.isArray(row?.warnings) ? row.warnings : [];
+    const reasonText=[...new Set(activeReasons)].map(leaderReasonTr).filter(Boolean);
+    const warningText=[...new Set(warnings)].map(leaderReasonTr).filter(Boolean);
+    if(reasonText.length) parts.push('İşlem açmama nedeni: '+reasonText.join('; ')+'.');
+    else if(row?.eligible) parts.push('Ön yürütme filtresi geçti; grafik, 9TF plan, risk ve canlı emir kontrolleri ayrıca geçmek zorunda.');
+    if(warningText.length) parts.push('Uyarı: '+warningText.join('; ')+'.');
+    if(row?.originTF || row?.ownerTF) parts.push(`Plan zaman dilimi: başlangıç ${row.originTF || '-'}, sahip ${row.ownerTF || '-'}.`);
+    if(finite(row?.confidence)!==null) parts.push(`Model güveni: ${finite(row.confidence)}/100.`);
+    if(row?.setup) parts.push(`Kurulum: ${row.setup}.`);
+    if(row?.planWhy) parts.push(`Plan gerekçesi: ${row.planWhy}`);
+    if(row?.planRisk) parts.push(`Risk notu: ${row.planRisk}`);
+    if(row?.orderPlaced === true) parts.push('Sonuç: Binance Futures canlı emri gönderildi; koruma ve yürütme sonucu ayrıca izleniyor.');
+    return parts.join(' ');
+  }
+
   function setLeaderAutoDiagnostics(scan, rawCandidates, allowLong, allowShort) {
     const rows = (Array.isArray(rawCandidates) ? rawCandidates : []).map(c => {
       const e = executionEligibility(c);
@@ -552,7 +639,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       const directionAllowed = (side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
       const reasons = [...(e.reasons || [])];
       if (!directionAllowed) reasons.push(side === 'LONG' ? 'LONG_DISABLED_BY_USER' : side === 'SHORT' ? 'SHORT_DISABLED_BY_USER' : 'DIRECTION_DISABLED');
-      return {
+      const row = {
         symbol:String(c?.symbol || ''),
         side:side || 'NONE',
         attackRank:finite(c?.attackRank),
@@ -561,13 +648,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         deepScanReason:String(c?.deepScanReason || ''),
         eligible:e.eligible && directionAllowed,
         reasons:[...new Set(reasons)],
+        warnings:[...(e.warnings || [])],
+        reasonsTr:[...new Set(reasons)].map(leaderReasonTr),
+        warningsTr:[...(e.warnings || [])].map(leaderReasonTr),
         tradeQuality:e.tradeQuality,
         directionSupport:e.directionSupport,
         spreadBps:e.spreadBps,
         directionalExpansion:e.directionalExpansion,
         selected:false,
-        stage:'PREFILTER'
+        stage:'PREFILTER',
+        stageTr:LEADER_STAGE_TR.PREFILTER
       };
+      row.explanationTr=leaderCandidateExplanationTr(row);
+      return row;
     });
     leaderAutoLastDiagnostics = {
       universeCount:Number(scan?.universeCount || 0),
@@ -583,8 +676,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if (!target) return;
     target.selected = true;
     target.stage = String(stage || target.stage || '');
+    target.stageTr = LEADER_STAGE_TR[target.stage] || target.stage;
     target.lastReasons = Array.isArray(reasons) ? reasons.slice(0,8) : [];
+    target.lastReasonsTr = target.lastReasons.map(leaderReasonTr);
     Object.assign(target, extra || {});
+    target.explanationTr=leaderCandidateExplanationTr(target);
   }
 
   async function executeLeader(body = {}) {
@@ -663,7 +759,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
     if (String(advisory.plan.status || '').toUpperCase() !== 'QUALIFIED') {
       const rs=['LEADER_PLAN_NOT_QUALIFIED'];
-      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, { planStatus:String(advisory.plan.status || '') });
+      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, {
+        planStatus:String(advisory.plan.status || ''),
+        confidence:finite(advisory.plan.confidence),
+        originTF:String(advisory.plan.originTF || ''),
+        ownerTF:String(advisory.plan.ownerTF || ''),
+        setup:String(advisory.plan.setup || ''),
+        execPath:String(advisory.plan.execPath || ''),
+        planWhy:String(advisory.plan.why || ''),
+        planRisk:String(advisory.plan.riskNote || '')
+      });
       return {
         ok:true,
         orderPlaced:false,
@@ -674,7 +779,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         reasons:rs
       };
     }
-    annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], { planStatus:'QUALIFIED' });
+    annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], {
+      planStatus:'QUALIFIED',
+      confidence:finite(advisory.plan.confidence),
+      originTF:String(advisory.plan.originTF || ''),
+      ownerTF:String(advisory.plan.ownerTF || ''),
+      setup:String(advisory.plan.setup || ''),
+      execPath:String(advisory.plan.execPath || ''),
+      planWhy:String(advisory.plan.why || ''),
+      planRisk:String(advisory.plan.riskNote || '')
+    });
 
     const creds = currentCredentials();
     if (!credentialsReady(creds)) {
