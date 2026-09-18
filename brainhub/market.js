@@ -31,6 +31,68 @@ function depthImbalance(bids, asks) {
   return bn + an > 0 ? (bn - an) / (bn + an) : null;
 }
 
+function depthSoftContext(bids, asks) {
+  const parse = side => Array.isArray(side)
+    ? side.slice(0, 20).map(x => ({
+        price:finite(x?.[0]),
+        qty:finite(x?.[1])
+      })).filter(x => x.price > 0 && x.qty > 0)
+    : [];
+  const b = parse(bids), a = parse(asks);
+  if (!b.length || !a.length) return null;
+
+  const sideStats = rows => {
+    const notionals=rows.map(x => x.price * x.qty).filter(x => Number.isFinite(x) && x > 0);
+    const total=notionals.reduce((sum,x) => sum + x,0);
+    if (!(total > 0) || !notionals.length) return null;
+    let entropy=0;
+    for(const n of notionals){
+      const p=n/total;
+      if(p>0) entropy -= p*Math.log(p);
+    }
+    const normalized=notionals.length > 1 ? entropy/Math.log(notionals.length) : 0;
+    const max=Math.max(...notionals);
+    return {
+      totalQuote:total,
+      normalizedEntropy:Math.max(0,Math.min(1,normalized)),
+      concentration:Math.max(0,Math.min(1,1-normalized)),
+      maxWallShare:Math.max(0,Math.min(1,max/total))
+    };
+  };
+
+  const bidStats=sideStats(b), askStats=sideStats(a);
+  if(!bidStats || !askStats) return null;
+
+  const bestBid=b[0], bestAsk=a[0];
+  const mid=(bestBid.price+bestAsk.price)/2;
+  const denom=bestBid.qty+bestAsk.qty;
+  const microprice=denom>0
+    ? (bestAsk.price*bestBid.qty + bestBid.price*bestAsk.qty)/denom
+    : null;
+  const micropriceBps=microprice && mid>0 ? (microprice-mid)/mid*10000 : null;
+
+  const combinedTotal=bidStats.totalQuote+askStats.totalQuote;
+  const weightedEntropy=combinedTotal>0
+    ? (bidStats.normalizedEntropy*bidStats.totalQuote + askStats.normalizedEntropy*askStats.totalQuote)/combinedTotal
+    : null;
+  const weightedConcentration=weightedEntropy===null ? null : 1-weightedEntropy;
+
+  return {
+    source:'BINANCE_DEPTH20_PARTIAL_BOOK',
+    normalizedEntropy:round(weightedEntropy,4),
+    concentration:round(weightedConcentration,4),
+    bidEntropy:round(bidStats.normalizedEntropy,4),
+    askEntropy:round(askStats.normalizedEntropy,4),
+    bidWallShare:round(bidStats.maxWallShare,4),
+    askWallShare:round(askStats.maxWallShare,4),
+    wallPressure:round(bidStats.maxWallShare-askStats.maxWallShare,4),
+    microprice:round(microprice),
+    micropriceBps:round(micropriceBps,4),
+    semantics:'SOFT_MICROSTRUCTURE_CONTEXT_ONLY',
+    note:'Depth entropy, wall concentration and microprice are partial-book descriptors only; they do not prove spoofing, hidden liquidity or market-maker intent.'
+  };
+}
+
 function liquidationZones(records, mid, bucketBps = 10) {
   if (!Array.isArray(records) || !records.length || !(mid > 0)) return [];
   const step = Math.max(mid * bucketBps / 10000, Number.EPSILON);
@@ -215,6 +277,8 @@ class StreamingMarket {
     const longLiqQuote = state.liquidations.filter(x => x.side === 'LONG_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
     const shortLiqQuote = state.liquidations.filter(x => x.side === 'SHORT_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
     const zones = liquidationZones(state.liquidations, mid || state.book?.bid || state.book?.ask || 0);
+    const depthFresh = Boolean(state.depth && now >= state.depth.at && now - state.depth.at <= this.staleMs);
+    const softDepth = depthFresh ? depthSoftContext(state.depth.bids, state.depth.asks) : null;
     const available = Boolean(bookFresh && ageMs !== null && ageMs <= this.staleMs);
     return {
       available,
@@ -228,8 +292,9 @@ class StreamingMarket {
       bid:round(bid),
       ask:round(ask),
       spreadBps:mid ? round((ask - bid) / mid * 10000, 3) : null,
-      depth20Imbalance:state.depth && now - state.depth.at <= this.staleMs ? round(state.depth.imbalance, 4) : null,
+      depth20Imbalance:depthFresh ? round(state.depth.imbalance, 4) : null,
       depthAsOf:state.depthAt || null,
+      depthSoftContext:softDepth,
       cvdQuote120s:state.trades.length ? round(cvdQuote, 2) : null,
       cvdTrades120s:state.trades.length,
       cvdAsOf:state.tradeAt || null,
@@ -246,6 +311,7 @@ class StreamingMarket {
       },
       limitations:[
         'Partial depth20 stream is not a locally sequenced full order book and is not true OFI.',
+        'Depth entropy, wall concentration and microprice are soft descriptors; no spoofing/hidden-liquidity claim is made.',
         'CVD covers the retained public aggTrade window only.',
         'Force-order records are observed liquidation prints, not all future liquidation levels.'
       ]
@@ -334,6 +400,7 @@ async function symbolContext(symbol) {
     if (streaming.ask !== null) micro.ask = streaming.ask;
     if (streaming.spreadBps !== null) micro.spreadBps = streaming.spreadBps;
     if (streaming.depth20Imbalance !== null) micro.depth20Imbalance = streaming.depth20Imbalance;
+    if (streaming.depthSoftContext) micro.depthSoftContext = streaming.depthSoftContext;
     if (streaming.cvdQuote120s !== null) {
       micro.cvdSampleQuote = streaming.cvdQuote120s;
       micro.cvdSampleTrades = streaming.cvdTrades120s;
@@ -628,4 +695,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { globalContext, symbolContext, chartContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, depthImbalance };
+module.exports = { globalContext, symbolContext, chartContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, depthImbalance, depthSoftContext };
