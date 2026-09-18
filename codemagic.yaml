@@ -80,6 +80,17 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9565b_external_chat_ui_compile_safe.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9577_brainhub_dry_run.py"
 
+          APP=/tmp/futures15m-build/Futures15mAlarm
+          MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
+          BUILD="$APP/app/build.gradle"
+          grep -q 'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' "$MAIN"
+          grep -q 'DETAYLI OTO ANALİZ' "$MAIN"
+          grep -q 'timeframeNotes' "$MAIN"
+          grep -q 'timeframeEvidence' "$MAIN"
+          grep -q "versionName '9.5.94'" "$BUILD"
+          grep -q 'versionCode 26091834' "$BUILD"
+          echo 'V9594_ANDROID_VISION_DIAGNOSTICS_OK'
+
       - name: Set Android SDK location
         script: |
           set -euo pipefail
