@@ -357,38 +357,110 @@ async function symbolContext(symbol) {
     ]
   };
 }
+function parseChartKlines(raw, now = Date.now()) {
+  if (!Array.isArray(raw)) throw new Error('klines must be an array');
+  return raw.map(k => ({
+    openTime:finite(k?.[0]), open:finite(k?.[1]), high:finite(k?.[2]),
+    low:finite(k?.[3]), close:finite(k?.[4]), volume:finite(k?.[5]),
+    closeTime:finite(k?.[6]), quoteVolume:finite(k?.[7]), takerBuyQuote:finite(k?.[10])
+  })).filter(k =>
+    Object.values(k).every(v => v !== null) &&
+    k.openTime < k.closeTime &&
+    k.high >= k.low &&
+    k.high >= Math.max(k.open, k.close) &&
+    k.low <= Math.min(k.open, k.close)
+  ).map(k => ({ ...k, forming:k.closeTime >= now }));
+}
+
+function aggregate45mChart(candles15m, now = Date.now()) {
+  const FIFTEEN_MS = 15 * 60 * 1000;
+  const FORTYFIVE_MS = 45 * 60 * 1000;
+  const buckets = new Map();
+  for (const c of Array.isArray(candles15m) ? candles15m : []) {
+    const bucket = Math.floor(c.openTime / FORTYFIVE_MS) * FORTYFIVE_MS;
+    if (!buckets.has(bucket)) buckets.set(bucket, []);
+    buckets.get(bucket).push(c);
+  }
+  const out = [];
+  for (const [bucket, rows0] of [...buckets.entries()].sort((a,b) => a[0] - b[0])) {
+    const rows = rows0
+      .filter(x => x.openTime >= bucket && x.openTime < bucket + FORTYFIVE_MS)
+      .sort((a,b) => a.openTime - b.openTime);
+    if (!rows.length) continue;
+    const first = rows[0], last = rows.at(-1);
+    const expectedClose = bucket + FORTYFIVE_MS - 1;
+    const complete = rows.length === 3 &&
+      rows[0].openTime === bucket &&
+      rows[1].openTime === bucket + FIFTEEN_MS &&
+      rows[2].openTime === bucket + 2 * FIFTEEN_MS &&
+      expectedClose < now;
+    out.push({
+      openTime:bucket,
+      open:first.open,
+      high:Math.max(...rows.map(x => x.high)),
+      low:Math.min(...rows.map(x => x.low)),
+      close:last.close,
+      volume:rows.reduce((sum,x) => sum + x.volume, 0),
+      closeTime:expectedClose,
+      quoteVolume:rows.reduce((sum,x) => sum + x.quoteVolume, 0),
+      takerBuyQuote:rows.reduce((sum,x) => sum + x.takerBuyQuote, 0),
+      forming:!complete,
+      componentCount:rows.length
+    });
+  }
+  return out;
+}
+
 async function chartContext(symbol, frame, requestedBars = 128) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
   frame = String(frame || '').toLowerCase();
   if (!FRAMES.includes(frame)) throw new Error('invalid timeframe');
-  const bars = Math.max(64, Math.min(256, Number(requestedBars) || 128));
+  const bars = Math.max(100, Math.min(256, Number(requestedBars) || 128));
   const now = Date.now();
   const sourceFrame = frame === '45m' ? '15m' : frame;
   const sourceLimit = frame === '45m' ? Math.min(1000, bars * 3 + 12) : Math.min(500, bars + 4);
   const raw = await getJson(FUTURES, `/fapi/v1/klines?symbol=${symbol}&interval=${sourceFrame}&limit=${sourceLimit}`, 15000);
-  let candles = parseKlines(raw, now);
-  if (frame === '45m') candles = aggregate45m(candles, now);
-  candles = candles.slice(-bars);
-  if (candles.length < 2) throw new Error('insufficient closed candles for chart');
-  const analysis = structure(candles, frame);
+
+  let chartCandles = parseChartKlines(raw, now);
+  let closedCandles = parseKlines(raw, now);
+  if (frame === '45m') {
+    chartCandles = aggregate45mChart(chartCandles, now);
+    closedCandles = aggregate45m(closedCandles, now);
+  }
+
+  chartCandles = chartCandles.slice(-bars);
+  closedCandles = closedCandles.slice(-bars);
+  if (closedCandles.length < 52) throw new Error('insufficient closed candles for chart analysis');
+  if (chartCandles.length < 2) throw new Error('insufficient candles for chart');
+
+  const analysis = structure(closedCandles, frame);
+  const forming = chartCandles.filter(x => x.forming === true);
   return {
-    ok: true,
+    ok:true,
     symbol,
     frame,
-    bars: candles.length,
-    requestedBars: bars,
-    generatedAt: new Date(now).toISOString(),
-    synthetic: frame === '45m',
-    source: frame === '45m' ? 'Binance 15m closed candles; causal UTC-aligned 3x aggregation' : `Binance USDT-M ${frame} closed candles`,
-    candles: candles.map(x => ({
+    bars:chartCandles.length,
+    closedBars:closedCandles.length,
+    formingBars:forming.length,
+    requestedBars:bars,
+    generatedAt:new Date(now).toISOString(),
+    synthetic:frame === '45m',
+    source:frame === '45m'
+      ? 'Binance 15m candles; closed 45m analysis plus current partial 45m visual context'
+      : `Binance USDT-M ${frame}; closed-candle analysis plus current forming candle visual context`,
+    candles:chartCandles.map(x => ({
       openTime:x.openTime, closeTime:x.closeTime, open:x.open, high:x.high, low:x.low, close:x.close,
-      volume:x.volume, quoteVolume:x.quoteVolume, takerBuyQuote:x.takerBuyQuote
+      volume:x.volume, quoteVolume:x.quoteVolume, takerBuyQuote:x.takerBuyQuote,
+      forming:x.forming === true,
+      ...(frame === '45m' ? { componentCount:Number(x.componentCount || 3) } : {})
     })),
     analysis,
-    imageContract: {
-      clean:'candles + volume only',
-      annotated:'candles + volume + EMA20/EMA50 + structural liquidity/FVG overlays',
-      formingCandlesIncluded:false,
+    imageContract:{
+      clean:'candles + volume only; current forming candle included and explicitly marked in data',
+      annotated:'candles + volume + EMA20/EMA50 + structural liquidity/FVG overlays; confirmed overlays come only from closed candles',
+      formingCandlesIncluded:true,
+      formingCandleMayConfirmSignal:false,
+      structuralAnalysisUsesClosedCandlesOnly:true,
       futureLeakageAllowed:false
     }
   };
