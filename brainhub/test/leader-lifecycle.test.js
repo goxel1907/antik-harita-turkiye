@@ -1,0 +1,211 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { createLiveController } = require('../live-controller');
+
+function policy() {
+  return {
+    armMinutes:1440,
+    expectedLeverage:10,
+    maxEntryDeviationPct:1,
+    limits:{
+      maxRiskPctPerTrade:5,
+      maxNotionalPctPerTrade:100,
+      maxDailyLossPct:20,
+      maxOpenPositions:3,
+      maxFamilyExposurePct:100
+    },
+    apiPermissions:{
+      configured:true,
+      futuresEnabled:true,
+      withdrawalsEnabled:false,
+      ipRestricted:true
+    }
+  };
+}
+
+function response(body, status = 200) {
+  return {
+    ok:status >= 200 && status < 300,
+    status,
+    async text(){ return JSON.stringify(body); }
+  };
+}
+
+function candidateScan() {
+  return {
+    universeCount:528,
+    leaders:[{
+      symbol:'AAAUSDT',
+      side:'LONG',
+      attackRank:1,
+      projectedRank:1,
+      leaderState:'TOP3_APPROACH',
+      tradeQuality:90,
+      directionSupport:3,
+      spreadBps:1,
+      longExpansionScore:80,
+      shortExpansionScore:5,
+      expansionScore:80,
+      leaderHunterScore:150,
+      movementPotential:75
+    }],
+    top3Approach:[],
+    top10Approach:[],
+    earlyTop5:[],
+    earlyExpansion:[]
+  };
+}
+
+function advisory(status, side = 'LONG') {
+  return {
+    ok:true,
+    candidateFound:true,
+    symbol:'AAAUSDT',
+    candidate:{ symbol:'AAAUSDT', side },
+    plan:{
+      valid:status === 'QUALIFIED',
+      status,
+      side,
+      confidence:status === 'REJECT' ? 20 : 72,
+      originTF:'1m',
+      ownerTF:'5m',
+      setup:'LIFECYCLE_REGRESSION',
+      execPath:'VISION_9TF',
+      why:'lifecycle regression fixture',
+      riskNote:'fixture risk',
+      waitFor:status === 'WATCH' ? '1m closed-candle continuation' : 'NONE',
+      timeframeNotes:{ '1m':'fixture' },
+      visionSummary:'fixture 9TF summary',
+      execution:'ADVISORY_ONLY'
+    },
+    unifiedContext:{
+      opportunityPaths:{
+        LONG:{
+          originTF:'1m',
+          ownerTF:'5m',
+          continuity:[{ frame:'1m', score:70, immediateEligible:true, state:'ACTIVE_CONTEXT' }]
+        },
+        SHORT:{ originTF:null, ownerTF:null, continuity:[] }
+      },
+      frames:{}
+    },
+    vision:{ ok:true, attached:9, required:9, barsRequested:128, mode:'annotated', failures:[] },
+    committee:{ vision:{ attached:9 }, model:'fixture-model', mode:'consensus', degraded:false },
+    execution:'ADVISORY_ONLY',
+    orderPlaced:false
+  };
+}
+
+function makeFetch(clockRef, calls) {
+  return async url => {
+    calls.push(String(url));
+    const u=new URL(String(url));
+    if (u.pathname === '/fapi/v1/time') return response({ serverTime:clockRef.now });
+    if (u.pathname === '/fapi/v3/account') return response({
+      totalWalletBalance:'100',
+      totalMarginBalance:'100',
+      availableBalance:'100',
+      totalUnrealizedProfit:'0',
+      positions:[]
+    });
+    if (u.pathname === '/fapi/v1/positionSide/dual') return response({ dualSidePosition:false });
+    throw new Error('unexpected Binance fetch in lifecycle test: '+u.pathname);
+  };
+}
+
+test('leader lifecycle persists across restart and reanalysis remains analysis-only', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-leader-life-'));
+  const cfg=path.join(root,'config');
+  fs.mkdirSync(cfg,{recursive:true});
+  fs.writeFileSync(path.join(cfg,'live-policy.json'),JSON.stringify(policy(),null,2));
+
+  const clockRef={ now:Date.UTC(2026,8,18,13,0,0) };
+  const calls=[];
+  const fetchImpl=makeFetch(clockRef,calls);
+  const store={
+    journal(){ return '00000000-0000-0000-0000-000000000001'; }
+  };
+  const committee=async()=>({ ok:true, text:'' });
+
+  let primaryCalls=0;
+  const firstPipeline={
+    async run(input){
+      primaryCalls++;
+      assert.equal(input.executionIntent.symbol,'AAAUSDT');
+      assert.notEqual(input.executionIntent.analysisTracking,true);
+      return advisory('WATCH');
+    }
+  };
+  const firstScanner={ async scan(){ return candidateScan(); } };
+
+  const first=createLiveController({
+    root,store,scanner:firstScanner,pipeline:firstPipeline,committee,
+    credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' },
+    fetchImpl,clock:()=>clockRef.now
+  });
+  assert.equal((await first.arm({confirmed:true})).armed,true);
+  assert.equal(first.configureLeaderAuto({
+    enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
+  }).ok,true);
+
+  const initial=await first.leaderAutoTick();
+  assert.equal(initial.execution,'LEADER_AUTO_WAIT');
+  assert.equal(primaryCalls,1);
+
+  const stateFile=path.join(root,'data','leader-analysis-state.json');
+  assert.equal(fs.existsSync(stateFile),true);
+  const disk=JSON.parse(fs.readFileSync(stateFile,'utf8'));
+  assert.equal(disk.bySymbol.AAAUSDT.state,'WATCH');
+  assert.equal(disk.bySymbol.AAAUSDT.reanalysisEligible,true);
+
+  let trackedCalls=0;
+  const statuses=['REJECT','WATCH'];
+  const secondPipeline={
+    async run(input){
+      trackedCalls++;
+      assert.equal(input.executionIntent.symbol,'AAAUSDT');
+      assert.equal(input.executionIntent.side,'LONG');
+      assert.equal(input.executionIntent.analysisTracking,true);
+      return advisory(statuses[Math.min(trackedCalls-1,statuses.length-1)]);
+    }
+  };
+  const emptyScanner={ async scan(){ return { universeCount:528, leaders:[] }; } };
+
+  const second=createLiveController({
+    root,store,scanner:emptyScanner,pipeline:secondPipeline,committee,
+    credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' },
+    fetchImpl,clock:()=>clockRef.now
+  });
+
+  const restored=second.leaderAutoStatus().analysisLifecycle;
+  assert.equal(restored.tracked,1);
+  assert.equal(restored.rows[0].symbol,'AAAUSDT');
+  assert.equal(restored.rows[0].state,'WATCH');
+
+  assert.equal((await second.arm({confirmed:true})).armed,true);
+  const fetchesAfterArm=calls.length;
+
+  clockRef.now += 60_000;
+  const invalidated=await second.leaderAutoTick();
+  assert.equal(invalidated.execution,'LEADER_AUTO_WAIT');
+  assert.equal(trackedCalls,1);
+  assert.equal(second.leaderAutoStatus().analysisLifecycle.rows[0].state,'INVALIDATED');
+  assert.equal(second.leaderAutoStatus().analysisLifecycle.rows[0].reanalysisEligible,true);
+  assert.equal(calls.length,fetchesAfterArm,'analysis-only reanalysis must not contact Binance order/account endpoints');
+
+  clockRef.now += 60_000;
+  const rebased=await second.leaderAutoTick();
+  assert.equal(rebased.execution,'LEADER_AUTO_WAIT');
+  assert.equal(trackedCalls,2);
+  const afterRebase=second.leaderAutoStatus().analysisLifecycle.rows[0];
+  assert.equal(afterRebase.state,'REBASE');
+  assert.equal(afterRebase.rebaseCount,1);
+  assert.equal(calls.length,fetchesAfterArm,'REBASE analysis-only pass must remain non-executing');
+
+  fs.rmSync(root,{recursive:true,force:true});
+});
