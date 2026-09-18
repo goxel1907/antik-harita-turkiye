@@ -27,7 +27,7 @@ $f=Join-Path $env:TEMP 'brainhub-manage.ps1'; Invoke-WebRequest -UseBasicParsing
 
 Leader AUTO için 1m, 3m, 5m, 15m, 30m, sentetik 45m, 1h, 4h ve 1D grafik paketinin üretilmesi tek başına "grafik okundu" sayılmaz. Targeted/analysis-tracking akışında dokuz grafik `/committee` üzerinden gerçek multimodal modele ulaşmalı; model ayrıca `WHY`, `RISK_NOTE`, `WAIT_FOR`, `VISION_SUMMARY` ve dokuz `TF_*` alanının tamamını üretmelidir. Eksik görsel girişi, model erişim hatası veya eksik sözleşme çıktısı `REVIEW_REQUIRED` ile fail-closed kalır.
 
-Vision isteklerinde ücretsiz OpenCode modelleri önce denenir. Görsel girişi desteklemeyen ücretsiz modeller Vision cooldown'a alınır; metin istekleri için ayrıca kullanılabilir kalırlar. Kiro Vision fallback **varsayılan olarak kapalıdır**; ücretli/kredili modele sessiz geçiş yapılmaz. Kullanıcı bunu bilerek açmak isterse `config/committee.json` içine `"allowKiroVisionFallback": true` koyabilir. Bu durumda önce sınırlı ücretsiz Vision denemeleri yapılır, yalnız başarısız olurlarsa Kiro denenir. Metin-only SCALP/FAST rotası her durumda free-first davranışını korur ve Kiro'yu normal analist havuzuna taşımaz.
+Vision isteklerinde ücretsiz OpenCode rotaları önce denenebilir; provider-restricted/başarısız olanlar Vision cooldown'a alınır ve aynı turda tekrar zorlanmaz. Kiro'nun bağlı hesaptaki **ücretsiz kotasını** Vision için kullanmak ayrı ve açık bir yerel onaydır; varsayılan kapalıdır. Güncellemeden sonra `& 'C:\BrainHub\manage.ps1' -Action VisionFreeSetup` çalıştırılır ve ekranda yalnız `KIRO_FREE` onayı verildiğinde `allowKiroFreeQuotaVision=true` olur. Bu yalnız allowlist içindeki `kr/claude-sonnet-4.5` ve `kr/claude-haiku-4.5` Vision rotalarını açar; legacy `allowKiroVisionFallback` kapalı tutulur ve ayrı ücretli API/provider fallback'i etkinleştirilmez. Metin-only SCALP/FAST rotası free-first davranışını korur.
 
 Gerçek uçtan uca test için:
 
@@ -35,7 +35,7 @@ Gerçek uçtan uca test için:
 & 'C:\\BrainHub\\TEST.ps1' -Deep
 ```
 
-Bu test `/vision/probe?symbol=BTCUSDT` üzerinden 9/9 grafiğin hazırlanmasını ve en az bir modelin görselleri gerçekten almasını doğrular. `9TF Vision model okuma testi gecmedi` hatası alınırsa APK/Android tarafını değil, PC 9Router/model Vision rotasını inceleyin. `/models/healthy` çıktısındaki `visionStatus` ve `visionError` alanları hangi modelin görsel girişini kabul/reddettiğini gösterir.
+Bu test `/vision/probe?symbol=BTCUSDT` üzerinden 9/9 grafiğin hazırlanmasını, modelin dokuz TF'nin tamamını raporlamasını ve modelden gizlenen gerçek son-mum yönlerine karşı pixel-read doğrulamasını çalıştırır. Probe'un başarılı sayılması için 9 TF'nin tamamı raporlanmalı ve en az 8/9 görsel yön eşleşmelidir. Bu son mum forming olabilir; test yalnız gerçek Vision taşımacılığını doğrular, işlem teyidi değildir. `9TF Vision model okuma testi gecmedi` veya pixel doğrulama hatası alınırsa APK/Android tarafını değil, PC 9Router/model Vision rotasını inceleyin. `/models/healthy` çıktısındaki `visionStatus` ve `visionError` alanları hangi modelin görsel girişini kabul/reddettiğini gösterir.
 
 ## Android bağlantısı
 
