@@ -282,6 +282,10 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
 
             $supportText = @($supportObj) -join ','
             $vetoText = @($vetoObj) -join ','
+            $contractWarnings = @(Get-PropValue $leaderPlan "visionContractWarnings" @())
+            if ($contractWarnings.Count -gt 0) {
+                Write-Host ("LEADER_9TF_MODEL_WARNING " + ($contractWarnings -join ',')) -ForegroundColor Yellow
+            }
             $detailCandidate = Get-PropValue $detailPlanResult "candidate" $null
             $detailSymbol = [string](Get-PropValue $detailCandidate "symbol" "")
             $detailSide = [string](Get-PropValue $leaderPlan "side" "")
