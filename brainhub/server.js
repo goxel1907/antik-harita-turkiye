@@ -6,7 +6,6 @@ const market=require('./market');
 const pipeline=require('./pipeline');
 const {openStore}=require('./store');
 const {createLiveController}=require('./live-controller');
-const {isOpenCodeFreeRestriction,runOpenCodeCli,probeOpenCodeCli}=require('./opencode-cli-transport');
 
 const ROOT=process.env.BRAINHUB_ROOT||path.resolve(__dirname,'..');
 const CFG=path.join(ROOT,'config','models.json');
@@ -96,6 +95,44 @@ function authorized(req){
   if(supplied.length!==CLIENT_TOKEN.length)return false;
   return require('crypto').timingSafeEqual(Buffer.from(supplied),Buffer.from(CLIENT_TOKEN));
 }
+const OPENCODE_OFFICIAL_FREE_INFERENCE='https://opencode.ai/inference/openai/v1/chat/completions';
+const OPENCODE_OFFICIAL_FREE_MODELS=new Set(['mimo-v2.5-free','big-pickle']);
+function isOpenCodeFreeRestriction(status,raw){
+  const text=String(raw||'');
+  return Number(status)===403 && /FreeTierError|free tier can only be used from within OpenCode/i.test(text);
+}
+function openCodeFreeId(model){
+  const m=String(model||'').trim();
+  return m.startsWith('oc/')?m.slice(3):'';
+}
+async function callOfficialOpenCodeFree(model,messages,timeoutMs){
+  const id=openCodeFreeId(model);
+  if(!OPENCODE_OFFICIAL_FREE_MODELS.has(id))throw new Error('official free inference model not allowed: '+id);
+  const r=await fetch(OPENCODE_OFFICIAL_FREE_INFERENCE,{
+    method:'POST',
+    headers:{'content-type':'application/json','accept':'application/json'},
+    body:JSON.stringify({model:id,messages}),
+    signal:AbortSignal.timeout(Math.max(30000,Number(timeoutMs)||90000))
+  });
+  const raw=await r.text();
+  if(!r.ok)throw new Error('OpenCode official free inference HTTP '+r.status+' '+raw.slice(0,500));
+  const text=extract(raw);
+  if(!text)throw new Error('OpenCode official free inference empty response');
+  return {model,text,transport:'opencode-official-free-inference'};
+}
+async function probeOfficialOpenCodeFree(){
+  try{
+    const r=await fetch('https://opencode.ai/zen/v1/models',{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
+    const raw=await r.text();
+    if(!r.ok)return {ok:false,status:r.status,error:raw.slice(0,300)};
+    const j=JSON.parse(raw||'{}');
+    const ids=new Set((Array.isArray(j?.data)?j.data:[]).map(x=>String(x?.id||'')));
+    return {ok:true,status:r.status,mimoListed:ids.has('mimo-v2.5-free'),bigPickleListed:ids.has('big-pickle')};
+  }catch(e){
+    return {ok:false,error:String(e?.message||e).slice(0,400)};
+  }
+}
+
 function extract(raw){
   raw=String(raw||'');
   let out='';
@@ -131,18 +168,17 @@ async function callModel(model,messages,timeoutMs=12000){
   const r=await fetch(url,{method:'POST',headers:{authorization:'Bearer '+KEY,'content-type':'application/json'},body:JSON.stringify({model,messages}),signal:AbortSignal.timeout(timeoutMs)});
   const raw=await r.text();
   if(!r.ok){
-    const canCli=String(model||'').startsWith('oc/') && cfg.opencodeCliFallback!==false && isOpenCodeFreeRestriction(r.status,raw);
-    if(canCli){
+    const id=openCodeFreeId(model);
+    const canOfficial=cfg.opencodeOfficialFreeInferenceFallback!==false && OPENCODE_OFFICIAL_FREE_MODELS.has(id) && isOpenCodeFreeRestriction(r.status,raw);
+    if(canOfficial){
       try{
-        const cli=await runOpenCodeCli({model,messages,timeoutMs:Math.max(30000,timeoutMs)});
-        state.set(model,{ok:true,at:Date.now(),error:null,transport:'opencode-cli'});
-        log('OPENCODE CLI FALLBACK OK model='+model+' images='+Number(cli.attachedImages||0));
-        return cli;
+        const official=await callOfficialOpenCodeFree(model,messages,timeoutMs);
+        state.set(model,{ok:true,at:Date.now(),error:null,transport:official.transport});
+        log('OPENCODE OFFICIAL FREE FALLBACK OK model='+model);
+        return official;
       }catch(e){
         const detail=String(e?.message||e).slice(0,700);
-        const err=new Error('OpenCode free REST blocked; official CLI fallback failed: '+detail);
-        err.code=e?.code||'OPENCODE_CLI_FALLBACK_FAILED';
-        throw err;
+        throw new Error('OpenCode 9Router free route blocked; official free inference fallback failed: '+detail);
       }
     }
     throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
@@ -175,9 +211,10 @@ function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
     const roleRanked=rankPool(xs,role,true);
     const hint=m=>{
       const z=String(m||'').toLowerCase();
-      if(z.includes('vision'))return 0;
-      if(z.includes('muse-spark-1.3'))return 1;
-      if(z.includes('muse-spark-1.2'))return 2;
+      if(z.includes('mimo-v2.5-free'))return 0;
+      if(z.includes('vision'))return 1;
+      if(z.includes('muse-spark-1.3'))return 2;
+      if(z.includes('muse-spark-1.2'))return 3;
       return 9;
     };
     return roleRanked.map((model,index)=>({model,index,hint:hint(model)}))
@@ -287,7 +324,7 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','OPENCODE_OFFICIAL_CLI_FALLBACK','LIVE_FAIL_CLOSED']});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED']});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,live.status());
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -318,8 +355,8 @@ const server=http.createServer(async(req,res)=>{
       return send(res,out.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/opencode/status'){
-      const cli=await probeOpenCodeCli();
-      return send(res,cli.ok?200:503,{ok:cli.ok,cli,restFallbackEnabled:cfg.opencodeCliFallback!==false,note:cli.ok?'Official OpenCode CLI is available for oc/* free-tier fallback.':'Install the official OpenCode CLI or set BRAINHUB_OPENCODE_BIN; 9Router OpenCode free REST may return 403.'});
+      const official=await probeOfficialOpenCodeFree();
+      return send(res,official.ok?200:503,{ok:official.ok,official,freeInferenceFallbackEnabled:cfg.opencodeOfficialFreeInferenceFallback!==false,models:[...OPENCODE_OFFICIAL_FREE_MODELS],note:official.ok?'Official OpenCode free model catalog is reachable; supported BrainHub fallback uses the documented free inference endpoint without paid/Kiro routing.':'Official OpenCode model catalog is not reachable from this PC.'});
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({
