@@ -154,12 +154,24 @@ function orderedVisionModels(ccfg,role='STRUCTURE'){
     ...xs.filter(x=>visionState.get(x)?.ok===true),
     ...xs.filter(x=>visionState.get(x)?.ok!==true&&!visionBlocked(x))
   ];
+  const visionRank=xs=>{
+    const roleRanked=rankPool(xs,role,true);
+    const hint=m=>{
+      const z=String(m||'').toLowerCase();
+      if(z.includes('vision'))return 0;
+      if(z.includes('muse-spark-1.3'))return 1;
+      if(z.includes('muse-spark-1.2'))return 2;
+      return 9;
+    };
+    return roleRanked.map((model,index)=>({model,index,hint:hint(model)}))
+      .sort((a,b)=>a.hint-b.hint||a.index-b.index).map(x=>x.model);
+  };
   const allowKiro=ccfg?.allowKiroVisionFallback === true;
-  const rankedFree=rankPool(preferHealthy(freePool),role,true);
+  const rankedFree=visionRank(preferHealthy(freePool));
   const maxFree=allowKiro?Math.max(1,Math.min(6,Number(ccfg?.maxFreeVisionAttempts||3))):rankedFree.length;
   return uniqueModels([
     ...rankedFree.slice(0,maxFree),
-    ...(allowKiro?rankPool(preferHealthy(kiroPool),role,true):[])
+    ...(allowKiro?visionRank(preferHealthy(kiroPool)):[])
   ]);
 }
 async function ask(prompt,system,preferred,role='DEFAULT'){
