@@ -89,7 +89,12 @@ workflows:
           grep -q 'SADECE DETERMINİSTİK KANIT' "$MAIN"
           grep -q 'DETAYLI OTO ANALİZ' "$MAIN"
           grep -q 'timeframeNotes' "$MAIN"
+          grep -q 'timeframeDiagnostics' "$MAIN"
           grep -q 'timeframeEvidence' "$MAIN"
+          grep -q 'Destek TF:' "$MAIN"
+          grep -q 'Veto TF:' "$MAIN"
+          grep -q 'Model özet:' "$MAIN"
+          grep -q 'Deterministik veri:' "$MAIN"
           grep -q "versionName '9.5.95'" "$BUILD"
           grep -q 'versionCode 26091835' "$BUILD"
           echo 'V9595_ANDROID_VISION_DIAGNOSTICS_OK'
