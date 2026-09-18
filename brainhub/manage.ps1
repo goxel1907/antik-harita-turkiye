@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','LiveSetup','LiveStatus','LiveArm','LiveDisarm')][string]$Action = 'Update',
+    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionFreeSetup','VisionStatus','LiveSetup','LiveStatus','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
@@ -166,11 +166,12 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.95 BrainHub Vision feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.95 BrainHub 9TF Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
-    if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly -or $null -eq $routes.visionKiroFallback) { throw '9Router rol/Vision yonlendirme testi gecmedi.' }
+    if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly -or $null -eq $routes.visionKiroFallback -or $null -eq $routes.visionKiroFreeQuota) { throw '9Router rol/Vision yonlendirme testi gecmedi.' }
+    Write-Host "VISION_POLICY kiroFreeQuota=$($routes.visionKiroFreeQuota) paidFallback=$($routes.paidVisionFallbackEnabled)"
     if ($null -eq $routes.roles.SCALP -or @($routes.roles.SCALP).Count -lt 1) { throw '9Router SCALP rol rotasi eksik.' }
     if ((@($routes.roles.SCALP) -join '|') -ne (@($routes.roles.FAST) -join '|')) { throw 'SCALP rotasi FAST ile ayni hizli model havuzunu kullanmiyor.' }
     $scan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/scanner' -Headers $headers -TimeoutSec 90
@@ -231,7 +232,10 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         if (-not $vision.ok -or $vision.charts.attached -lt 9 -or $vision.vision.attached -lt 9 -or [string]::IsNullOrWhiteSpace([string]$vision.model)) {
             throw '9TF Vision model okuma testi gecmedi; grafikler uretilse bile model tarafinda gercek gorsel okuma dogrulanamadi.'
         }
-        Write-Host "VISION model=$($vision.model) mode=$($vision.mode) charts=$($vision.vision.attached)/9 degraded=$($vision.degraded)"
+        if (-not $vision.visualVerification -or -not $vision.visualVerification.ok -or $vision.visualVerification.reported -lt 9 -or $vision.visualVerification.matched -lt $vision.visualVerification.threshold) {
+            throw '9TF Vision pixel okuma testi gecmedi; model dokuz grafigin gorunen son mum yonlerini yeterli dogrulukla okuyamadi.'
+        }
+        Write-Host "VISION model=$($vision.model) mode=$($vision.mode) charts=$($vision.vision.attached)/9 degraded=$($vision.degraded) pixel=$($vision.visualVerification.matched)/9 threshold=$($vision.visualVerification.threshold)"
     }
     Write-Host "BRAINHUB_TEST_OK feature=$($h.featureVersion) models=$($h.configured.total) universe=$($scan.activeUsdtPerpetuals) tf45=$($symbol.timeframes.'45m'.available) unified=$($unified.dataQuality.advisoryUsable) chart=$($chart.bars) sqlite=$($learn.ok) liveArmed=$($live.armed)"
 }
@@ -257,7 +261,7 @@ function Backup-Brain([string]$BrainRoot) {
     New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
     $target = Join-Path $targetRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
     New-Item -ItemType Directory -Force -Path $target | Out-Null
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
         $p = Join-Path $BrainRoot $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $target -Recurse -Force }
     }
@@ -268,6 +272,41 @@ function Backup-Brain([string]$BrainRoot) {
 $rootFull = [IO.Path]::GetFullPath($Root)
 $node = Resolve-Node
 if ($Action -eq 'Test') { Test-Brain $rootFull -IncludeDeep:$Deep; exit 0 }
+if ($Action -eq 'VisionStatus') {
+    $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
+    [ordered]@{
+        ok = $routes.ok
+        freeFirst = $routes.freeFirst
+        kiroFreeQuotaVision = $routes.visionKiroFreeQuota
+        kiroFreeQuotaVisionModels = @($routes.kiroFreeQuotaVisionModels)
+        paidVisionFallbackEnabled = $routes.paidVisionFallbackEnabled
+        visionRoutes = $routes.visionRoutes
+        note = $routes.note
+    } | ConvertTo-Json -Depth 8
+    exit 0
+}
+if ($Action -eq 'VisionFreeSetup') {
+    $confirm = (Read-Host 'Kiro hesabinin mevcut ucretsiz kotasini 9TF Vision icin kullanmak istiyorsaniz KIRO_FREE yazin').Trim().ToUpperInvariant()
+    if ($confirm -ne 'KIRO_FREE') { throw 'Kiro free-quota Vision acik onayi verilmedi.' }
+    $committeePath = Join-Path $rootFull 'config\committee.json'
+    if (-not (Test-Path -LiteralPath $committeePath)) { throw 'committee.json bulunamadi; once BrainHub Update/Install calistirin.' }
+    $committee = Get-Content -LiteralPath $committeePath -Raw | ConvertFrom-Json
+    $committee | Add-Member -NotePropertyName allowKiroFreeQuotaVision -NotePropertyValue $true -Force
+    $committee | Add-Member -NotePropertyName kiroFreeQuotaVisionModels -NotePropertyValue @('kr/claude-sonnet-4.5','kr/claude-haiku-4.5') -Force
+    $committee | Add-Member -NotePropertyName allowKiroVisionFallback -NotePropertyValue $false -Force
+    $committee | Add-Member -NotePropertyName minVisionAnalystReplies -NotePropertyValue 1 -Force
+    $committee | Add-Member -NotePropertyName visionParallelAnalysts -NotePropertyValue 1 -Force
+    $committee | Add-Member -NotePropertyName kiroCreditSaving -NotePropertyValue $true -Force
+    $committee | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $committeePath -Encoding UTF8
+    $key = Router-Key $rootFull
+    Stop-Brain $rootFull
+    Start-Brain $rootFull $node $key
+    Test-Brain $rootFull
+    $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
+    if (-not $routes.visionKiroFreeQuota -or $routes.paidVisionFallbackEnabled) { throw 'Kiro free-quota Vision ayari fail-closed dogrulanamadi.' }
+    Write-Host ("BRAINHUB_VISION_FREE_SETUP_OK models=" + (@($routes.kiroFreeQuotaVisionModels) -join ','))
+    exit 0
+}
 if ($Action -eq 'LiveStatus') {
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 5
     $live | ConvertTo-Json -Depth 6
@@ -400,7 +439,7 @@ if ($Action -eq 'Restore') {
     if (-not $resolved.StartsWith($backupRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore yolu BrainHubBackups icinde olmali.' }
     $key = Router-Key $rootFull
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
         $p = Join-Path $resolved $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }
@@ -437,7 +476,7 @@ try {
         $dst = Join-Path (Join-Path $rootFull 'config') $cfg[1]
         if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $sourceDir $cfg[0]) -Destination $dst }
     }
-    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1')) {
+    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
         Copy-Item -LiteralPath (Join-Path $sourceDir $script) -Destination $rootFull -Force
     }
     Start-Brain $rootFull $node $key
@@ -446,7 +485,7 @@ try {
 } catch {
     Write-Warning "Update dogrulanamadi: $($_.Exception.Message). Geri alma deneniyor."
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
         $p = Join-Path $backup $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }
