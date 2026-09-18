@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.77 compile check
+name: Futures 15m Alarm v9.5.95 compile check
 
 on:
   push:
@@ -31,8 +31,12 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Brain Hub safety tests
-        run: node --test brainhub/test/engine-store.test.js
+      - name: Brain Hub syntax and Vision regression tests
+        run: |
+          node --check brainhub/server.js
+          node --check brainhub/pipeline.js
+          node --check brainhub/live-controller.js
+          node --test brainhub/test/engine-store.test.js brainhub/test/pipeline-context.test.js brainhub/test/vision-routing-integration.test.js
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -42,7 +46,7 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Prepare v9.5.77 source
+      - name: Prepare v9.5.95 source
         shell: bash
         run: |
           set -euo pipefail
