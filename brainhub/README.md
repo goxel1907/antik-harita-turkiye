@@ -29,6 +29,8 @@ Leader AUTO için 1m, 3m, 5m, 15m, 30m, sentetik 45m, 1h, 4h ve 1D grafik paketi
 
 Vision isteklerinde ücretsiz OpenCode modelleri önce denenir. Görsel girişi desteklemeyen ücretsiz modeller Vision cooldown'a alınır; metin istekleri için ayrıca kullanılabilir kalırlar. Kiro Vision fallback **varsayılan olarak kapalıdır**; ücretli/kredili modele sessiz geçiş yapılmaz. Kullanıcı bunu bilerek açmak isterse `config/committee.json` içine `"allowKiroVisionFallback": true` koyabilir. Bu durumda önce sınırlı ücretsiz Vision denemeleri yapılır, yalnız başarısız olurlarsa Kiro denenir. Metin-only SCALP/FAST rotası her durumda free-first davranışını korur ve Kiro'yu normal analist havuzuna taşımaz.
 
+OpenCode sağlayıcısı ücretsiz katmanı 9Router REST proxy üzerinden `403 FreeTierError` ile reddederse BrainHub aynı `oc/*` modeli resmi OpenCode CLI üzerinden tekrar dener. Bu fallback yalnız `oc/*` ücretsiz modelleri içindir; Kiro/ücretli modele geçiş yapmaz. CLI çağrısı geçici bir klasörde, `--pure` modunda ve tüm araç izinleri kapalı özel `brainhub` ajanıyla çalışır; grafikler dosya eki olarak verilir. Windows'ta resmi CLI yoksa `npm install -g @opencode/cli` ile kurulabilir; `opencode --version` ve `opencode run --model opencode/muse-spark-1.3-contributor-free "Sadece OK yaz"` ile ayrı doğrulanmalıdır.
+
 Gerçek uçtan uca test için:
 
 ```powershell
