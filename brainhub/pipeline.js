@@ -473,8 +473,8 @@ function planFields(raw) {
   const text = String(raw || '');
   const cleanValue = value => String(value || '')
     .trim()
-    .replace(/^[\"'`*_\s]+/, '')
-    .replace(/[\"'`*_,;\s]+$/, '')
+    .replace(/^[\"'`*\s]+/, '')
+    .replace(/[\"'`*,;\s]+$/, '')
     .trim()
     .slice(0, 700);
   const field = name => {
@@ -485,7 +485,7 @@ function planFields(raw) {
       line=line.replace(/^(?:[-*+]\s+|\d+[.)]\s+)/,'').trim();
       const colon=line.indexOf(':');
       if(colon<1)continue;
-      const lhs=line.slice(0,colon).replace(/[\"'`*_]/g,'').trim().toUpperCase();
+      const lhs=line.slice(0,colon).replace(/[\"'`*]/g,'').trim().toUpperCase();
       if(lhs!==wanted)continue;
       return cleanValue(line.slice(colon+1));
     }
