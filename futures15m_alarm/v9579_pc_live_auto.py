@@ -610,6 +610,35 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             if(!visionSummary.isEmpty())b.append("\n👁 9TF grafik özeti: ").append(visionSummary);
             if(!risk.isEmpty())b.append("\n⚠ Risk: ").append(risk);
 
+            org.json.JSONObject cost=row.optJSONObject("costModel");
+            if(cost!=null){
+                double feeRt=cost.optDouble("feeRoundTripBps",Double.NaN);
+                double spreadRt=cost.optDouble("spreadRoundTripBps",Double.NaN);
+                double slipRt=cost.optDouble("slippageRoundTripBps",Double.NaN);
+                double total=cost.optDouble("estimatedRoundTripCostBps",Double.NaN);
+                double edge=cost.optDouble("tp1DistanceBps",Double.NaN);
+                double multiple=cost.optDouble("costEdgeMultiple",Double.NaN);
+                boolean scalpGate=cost.optBoolean("scalpGateApplied",false);
+                StringBuilder cb=new StringBuilder("\n💸 İşlem maliyeti");
+                if(scalpGate)cb.append(" • SCALP KAPISI");
+                if(!Double.isNaN(feeRt))cb.append(" • komisyon RT ").append(String.format(java.util.Locale.US,"%.2f bps",feeRt));
+                if(!Double.isNaN(spreadRt))cb.append(" • spread ").append(String.format(java.util.Locale.US,"%.2f bps",spreadRt));
+                if(!Double.isNaN(slipRt))cb.append(" • slippage ").append(String.format(java.util.Locale.US,"%.2f bps",slipRt));
+                if(!Double.isNaN(total))cb.append("\n   Toplam tahmin: ").append(String.format(java.util.Locale.US,"%.2f bps",total));
+                if(!Double.isNaN(edge))cb.append(" • TP1 edge ").append(String.format(java.util.Locale.US,"%.2f bps",edge));
+                if(!Double.isNaN(multiple))cb.append(" • edge/maliyet ").append(String.format(java.util.Locale.US,"%.2fx",multiple));
+                b.append(cb);
+            }
+            org.json.JSONObject commission=row.optJSONObject("commission");
+            if(commission!=null&&commission.optBoolean("ok",false)){
+                double rate=commission.optDouble("rate",Double.NaN);
+                if(!Double.isNaN(rate)){
+                    b.append("\n   Binance taker oranı: ").append(String.format(java.util.Locale.US,"%.5f%%",rate*100.0));
+                    if(commission.optBoolean("cached",false))b.append(" • cache");
+                    if(commission.optBoolean("stale",false))b.append(" • geçici eski cache");
+                }
+            }
+
             String reasons=v9594ReasonList(row);
             if(!reasons.isEmpty())b.append("\n⛔ İşlem açmama / blok nedeni: ").append(reasons);
             String warnings=v9594Warnings(row);
@@ -952,6 +981,7 @@ checks={
     'per coin diagnostics':'v9593_pc_auto_diagnostics' in MAIN.read_text() and 'PC tarama: Evren' in MAIN.read_text() and 'derin kısa liste' in MAIN.read_text(),
     'detailed 9TF diagnostics':'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' in MAIN.read_text() and 'DETAYLI OTO ANALİZ' in MAIN.read_text() and 'timeframeNotes' in MAIN.read_text() and 'timeframeEvidence' in MAIN.read_text() and 'Grafik/Vision:' in MAIN.read_text(),
     'persistent lifecycle visible':'v9594_pc_analysis_lifecycle' in MAIN.read_text() and 'KALICI ANALİZ TAKİBİ' in MAIN.read_text() and 'rebaseCount' in MAIN.read_text() and 'invalidationCount' in MAIN.read_text(),
+    'scalp cost detail visible':'İşlem maliyeti' in MAIN.read_text() and 'edge/maliyet' in MAIN.read_text() and 'Binance taker oranı' in MAIN.read_text(),
     'forming candle disclosure':'forming mum görüntüde/anlık bağlamda vardır' in MAIN.read_text(),
     'identity':"versionName '9.5.94'" in BUILD.read_text() and 'versionCode 26091834' in BUILD.read_text(),
 }
