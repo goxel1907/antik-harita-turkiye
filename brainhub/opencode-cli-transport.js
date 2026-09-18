@@ -79,11 +79,21 @@ function safeEnv(){
   };
 }
 
+function cmdQuote(v){
+  const s=String(v==null?'':v);
+  return '"'+s.replace(/"/g,'""').replace(/%/g,'%%')+'"';
+}
 function spawnCapture(command,args,{cwd,env,timeoutMs}){
   return new Promise((resolve,reject)=>{
     let child;
     try{
-      child=spawn(command,args,{cwd,env,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});
+      if(process.platform==='win32'&&!/\.(exe|com)$/i.test(String(command||''))){
+        const comspec=process.env.ComSpec||process.env.COMSPEC||'cmd.exe';
+        const line=[command,...args].map(cmdQuote).join(' ');
+        child=spawn(comspec,['/d','/v:off','/s','/c',line],{cwd,env,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});
+      }else{
+        child=spawn(command,args,{cwd,env,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe']});
+      }
     }catch(e){
       e.code=e.code||'OPENCODE_CLI_SPAWN_FAILED';
       return reject(e);
