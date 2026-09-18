@@ -214,6 +214,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   let armState = { armed:false, armedAt:null, expiresAt:null };
   let lastDisarmReason = 'STARTUP_FAIL_CLOSED';
   let accountSummaryCache = { at:0, value:null };
+  const commissionRateCache = new Map();
   let leaderAutoBusy = false;
   let lastLeaderAutoResult = null;
   let leaderAutoCandidateCursor = 0;
@@ -718,6 +719,39 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
+  async function takerCommissionRateFor(symbol, creds) {
+    const key=String(symbol || '').toUpperCase();
+    const now=clock();
+    const cached=commissionRateCache.get(key);
+    if (cached && Number.isFinite(now) && now-cached.at >= 0 && now-cached.at <= 10*60*1000) {
+      return { ok:true, rate:cached.rate, cached:true, stale:false };
+    }
+    try {
+      await transport._syncServerTime();
+      const body=await transport._fetchJson('GET','/fapi/v1/commissionRate',{
+        params:{ symbol:key },
+        credentials:creds,
+        signed:true
+      });
+      const rate=finite(body?.takerCommissionRate);
+      if (rate === null || rate < 0 || rate > 0.01) throw new Error('BINANCE_TAKER_COMMISSION_RATE_INVALID');
+      commissionRateCache.set(key,{ at:now, rate });
+      return { ok:true, rate, cached:false, stale:false };
+    } catch (e) {
+      if (cached && Number.isFinite(now) && now-cached.at >= 0 && now-cached.at <= 60*60*1000) {
+        return { ok:true, rate:cached.rate, cached:true, stale:true };
+      }
+      return {
+        ok:false,
+        rate:null,
+        cached:false,
+        stale:false,
+        reason:'BINANCE_COMMISSION_RATE_UNAVAILABLE',
+        detail:String(e?.message || e).slice(0,160)
+      };
+    }
+  }
+
   function exchangeFiltersFor(symbolInfo) {
     const filters = Array.isArray(symbolInfo?.filters) ? symbolInfo.filters : [];
     const byType = type => filters.find(x => x?.filterType === type) || null;
@@ -751,6 +785,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     SCANNER_UNAVAILABLE:'evren tarayıcısına ulaşılamadı',
     BINANCE_EXCHANGE_INFO_UNAVAILABLE:'Binance sembol/filtre bilgisi alınamadı',
     BINANCE_SYMBOL_FILTERS_UNAVAILABLE:'coin için Binance işlem filtreleri bulunamadı',
+    BINANCE_COMMISSION_RATE_UNAVAILABLE:'kullanıcıya özel Binance taker komisyon oranı alınamadı; scalp maliyet hesabı yapılamadı',
+    SCALP_COMMISSION_RATE_REQUIRED:'1m/3m/5m işlem için gerçek taker komisyon oranı gerekli',
+    SCALP_SPREAD_COST_REQUIRED:'1m/3m/5m işlem için güncel spread maliyeti gerekli',
+    SCALP_COST_EDGE_NOT_VIABLE:'TP1 mesafesi ücret + spread + slippage tahminine göre yeterli net avantaj bırakmıyor',
     BINANCE_CREDENTIALS_REQUIRED:'Binance Futures API kimliği PC tarafında hazır değil',
     LIVE_NOT_ARMED:'PC LIVE yetkisi açık değil',
     LEADER_INTENT_NOT_READY:'giriş, stop veya miktar henüz güvenli emir niyetine dönüşmedi',
@@ -1099,6 +1137,29 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['BINANCE_CREDENTIALS_REQUIRED'] };
     }
 
+    const scalpCostGate=['1m','3m','5m'].includes(String(advisory.plan.originTF || '').toLowerCase());
+    let commissionRate=null;
+    let commissionMeta=null;
+    if (scalpCostGate) {
+      commissionMeta=await takerCommissionRateFor(candidate.symbol,creds);
+      if (!commissionMeta.ok) {
+        const rs=[commissionMeta.reason || 'BINANCE_COMMISSION_RATE_UNAVAILABLE'];
+        annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{ commission:commissionMeta });
+        return {
+          ok:true,
+          orderPlaced:false,
+          liveAllowed:false,
+          retryable:true,
+          execution:'LEADER_AUTO_WAIT',
+          symbol:candidate.symbol,
+          plan:advisory.plan,
+          reasons:rs,
+          commission:commissionMeta
+        };
+      }
+      commissionRate=commissionMeta.rate;
+    }
+
     let symbolInfo;
     try {
       const ex = await transport._fetchJson('GET', '/fapi/v1/exchangeInfo');
@@ -1116,11 +1177,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       plan:advisory.plan,
       marginQuote:settings.marginQuote,
       leverage:settings.leverage,
-      filters:exchangeFiltersFor(symbolInfo)
+      filters:exchangeFiltersFor(symbolInfo),
+      takerCommissionRate:commissionRate
     });
     if (!intent.ok) {
       const rs=intent.reasons || ['LEADER_INTENT_NOT_READY'];
-      annotateLeaderDiagnostic(candidate.symbol, 'INTENT_NOT_READY', rs);
+      annotateLeaderDiagnostic(candidate.symbol, 'INTENT_NOT_READY', rs, {
+        costModel:intent.costModel || null,
+        commission:commissionMeta
+      });
       return {
         ok:true,
         orderPlaced:false,
@@ -1133,7 +1198,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       };
     }
     const enterableLifecycle=upsertLeaderLifecycle(candidate,advisory,'ENTERABLE','LIVE_INTENT_READY');
-    annotateLeaderDiagnostic(candidate.symbol, 'INTENT_READY', [], { lifecycle:enterableLifecycle });
+    annotateLeaderDiagnostic(candidate.symbol, 'INTENT_READY', [], {
+      lifecycle:enterableLifecycle,
+      costModel:intent.costModel || null,
+      commission:commissionMeta
+    });
 
     const now = clock();
     const eventBucket = Math.floor(now / 60000);
@@ -1194,8 +1263,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
           takeProfit3:intent.takeProfit3,
           quantity:intent.quantity,
           riskQuote:intent.riskQuote,
-          notionalQuote:intent.notionalQuote
+          notionalQuote:intent.notionalQuote,
+          costModel:intent.costModel || null
         },
+        commission:commissionMeta,
         result
       });
     } catch {}
