@@ -383,6 +383,48 @@ async function buildVisionCharts(symbol, requestedBars = 128) {
   };
 }
 
+function visionPixelProbePrompt() {
+  return [
+    'Görsel taşıma doğrulaması: dokuz grafiğin HER BİRİNİ gerçekten incele.',
+    'Her grafikte en sağdaki son mumun gövde yönünü yalnız görselden oku. Son mum forming olabilir; bu yalnız Vision diagnostigidir ve işlem teyidi değildir.',
+    'Tam olarak aşağıdaki 9 satırı döndür; başka açıklama ekleme:',
+    'PROBE_1M: BULL | BEAR',
+    'PROBE_3M: BULL | BEAR',
+    'PROBE_5M: BULL | BEAR',
+    'PROBE_15M: BULL | BEAR',
+    'PROBE_30M: BULL | BEAR',
+    'PROBE_45M: BULL | BEAR',
+    'PROBE_1H: BULL | BEAR',
+    'PROBE_4H: BULL | BEAR',
+    'PROBE_1D: BULL | BEAR'
+  ].join('\n');
+}
+function evaluateVisionPixelProbe(text, frames, minimumMatches = 8) {
+  const tfKey={ '1M':'1m','3M':'3m','5M':'5m','15M':'15m','30M':'30m','45M':'45m','1H':'1h','4H':'4h','1D':'1d' };
+  const reported={};
+  const re=/^\s*PROBE_(1M|3M|5M|15M|30M|45M|1H|4H|1D)\s*:\s*(BULL|BEAR)\s*$/gim;
+  let m;
+  while((m=re.exec(String(text||'')))) reported[tfKey[m[1].toUpperCase()]]=m[2].toUpperCase();
+  const details=FRAME_ORDER.map(tf=>{
+    const expected=String(frames?.[tf]?.visualLastCandle||'').toUpperCase();
+    const actual=String(reported[tf]||'').toUpperCase();
+    return {tf,expected:expected||null,actual:actual||null,match:Boolean(expected&&actual&&expected===actual)};
+  });
+  const reportedCount=details.filter(x=>x.actual).length;
+  const comparable=details.filter(x=>x.expected).length;
+  const matched=details.filter(x=>x.match).length;
+  const threshold=Math.max(1,Math.min(FRAME_ORDER.length,Number(minimumMatches)||8));
+  return {
+    ok:reportedCount===FRAME_ORDER.length && comparable===FRAME_ORDER.length && matched>=threshold,
+    required:FRAME_ORDER.length,
+    reported:reportedCount,
+    comparable,
+    matched,
+    threshold,
+    details
+  };
+}
+
 function deterministicFallbackPlan(candidate, unified, detail = '') {
   const side = String(candidate?.side || '').toUpperCase();
   const path = ['LONG','SHORT'].includes(side) ? unified?.opportunityPaths?.[side] : null;
@@ -731,4 +773,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, visionPlanContract, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, visionPlanContract, deterministicFallbackPlan };
