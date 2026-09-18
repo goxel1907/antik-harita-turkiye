@@ -478,18 +478,19 @@ function planFields(raw) {
     .trim()
     .slice(0, 700);
   const field = name => {
-    const safe=String(name).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    const patterns=[
-      new RegExp('^\\s*(?:[-*+]\\s+|\\d+[.)]\\s+)?(?:[*_`]*)'+safe+'(?:[*_`]*)\\s*:\\s*(.+?)\\s*$','mi'),
-      new RegExp('^\\s*(?:[-*+]\\s+|\\d+[.)]\\s+)?[\"\\']?'+safe+'[\"\\']?\\s*:\\s*(.+?)\\s*,?\\s*$','mi')
-    ];
-    for(const re of patterns){
-      const match=text.match(re);
-      if(match)return cleanValue(match[1]);
+    const wanted=String(name || '').trim().toUpperCase();
+    for(const rawLine of text.split(/\r?\n/)){
+      let line=String(rawLine || '').trim();
+      if(!line || /^```/.test(line))continue;
+      line=line.replace(/^(?:[-*+]\s+|\d+[.)]\s+)/,'').trim();
+      const colon=line.indexOf(':');
+      if(colon<1)continue;
+      const lhs=line.slice(0,colon).replace(/[\"'`*_]/g,'').trim().toUpperCase();
+      if(lhs!==wanted)continue;
+      return cleanValue(line.slice(colon+1));
     }
     return null;
-  };
-  const rawStatus = field('STATUS');
+  };  const rawStatus = field('STATUS');
   const rawSide = field('SIDE');
   const status = String(rawStatus || '').toUpperCase();
   const side = String(rawSide || '').toUpperCase();
