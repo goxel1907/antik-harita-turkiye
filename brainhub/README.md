@@ -27,7 +27,7 @@ $f=Join-Path $env:TEMP 'brainhub-manage.ps1'; Invoke-WebRequest -UseBasicParsing
 
 Leader AUTO için 1m, 3m, 5m, 15m, 30m, sentetik 45m, 1h, 4h ve 1D grafik paketinin üretilmesi tek başına "grafik okundu" sayılmaz. Targeted/analysis-tracking akışında dokuz grafik `/committee` üzerinden gerçek multimodal modele ulaşmalı; model ayrıca `WHY`, `RISK_NOTE`, `WAIT_FOR`, `VISION_SUMMARY` ve dokuz `TF_*` alanının tamamını üretmelidir. Eksik görsel girişi, model erişim hatası veya eksik sözleşme çıktısı `REVIEW_REQUIRED` ile fail-closed kalır.
 
-Vision isteklerinde ücretsiz OpenCode modelleri önce denenir. Görsel girişi desteklemeyen ücretsiz modeller Vision cooldown'a alınır; metin istekleri için ayrıca kullanılabilir kalırlar. Ücretsiz Vision rotası bulunamazsa yalnız görsel analiz isteği için Kiro modelleri fallback olarak denenebilir. Metin-only SCALP/FAST rotası free-first davranışını korur ve Kiro'yu normal analist havuzuna taşımaz.
+Vision isteklerinde ücretsiz OpenCode modelleri önce denenir. Görsel girişi desteklemeyen ücretsiz modeller Vision cooldown'a alınır; metin istekleri için ayrıca kullanılabilir kalırlar. Kiro Vision fallback **varsayılan olarak kapalıdır**; ücretli/kredili modele sessiz geçiş yapılmaz. Kullanıcı bunu bilerek açmak isterse `config/committee.json` içine `"allowKiroVisionFallback": true` koyabilir. Bu durumda önce sınırlı ücretsiz Vision denemeleri yapılır, yalnız başarısız olurlarsa Kiro denenir. Metin-only SCALP/FAST rotası her durumda free-first davranışını korur ve Kiro'yu normal analist havuzuna taşımaz.
 
 Gerçek uçtan uca test için:
 
