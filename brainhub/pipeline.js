@@ -478,19 +478,23 @@ function planFields(raw) {
     .trim()
     .slice(0, 700);
   const field = name => {
-    const safe=String(name).replace(/[.*+?^${}()|[\]\\]/g,'\\function planFields(raw) {
-  const text = String(raw || '');
-  const field = name => {
-    const match = text.match(new RegExp(`^${name}:\\s*(.+)$`, 'mi'));
-    return match ? match[1].trim().slice(0, 700) : null;
-  };
-  const status = field('STATUS');
-  const side = field('SIDE');
-  if (!['WATCH','QUALIFIED','REJECT'].includes(status) || !['LONG','SHORT'].includes(side)) {
-    return { valid:false, status:'REVIEW_REQUIRED', reason:'UNSTRUCTURED_COMMITTEE_OUTPUT' };
-  }');
+    const safe=String(name).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     const patterns=[
-      new RegExp('^\\s*(?:[-*+]\\s+|\\d+[.)]\\s+)?(?:[*_`]*)'+safe+'(?:[*_`]*)\\s*:\\s*(.+?)\\s*
+      new RegExp('^\\s*(?:[-*+]\\s+|\\d+[.)]\\s+)?(?:[*_`]*)'+safe+'(?:[*_`]*)\\s*:\\s*(.+?)\\s*$','mi'),
+      new RegExp('^\\s*(?:[-*+]\\s+|\\d+[.)]\\s+)?[\"\\']?'+safe+'[\"\\']?\\s*:\\s*(.+?)\\s*,?\\s*$','mi')
+    ];
+    for(const re of patterns){
+      const match=text.match(re);
+      if(match)return cleanValue(match[1]);
+    }
+    return null;
+  };
+  const rawStatus = field('STATUS');
+  const rawSide = field('SIDE');
+  const status = String(rawStatus || '').toUpperCase();
+  const side = String(rawSide || '').toUpperCase();
+  const statusOk = ['WATCH','QUALIFIED','REJECT'].includes(status);
+  const sideOk = ['LONG','SHORT'].includes(side);
 
   const tf = value => FRAME_ORDER.includes(String(value || '').toLowerCase()) ? String(value).toLowerCase() : null;
   const tfTags = { '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
