@@ -570,7 +570,7 @@ function encodePng(width, height, rgba) {
   }
   return Buffer.concat([signature, pngChunk('IHDR', ihdr), pngChunk('IDAT', zlib.deflateSync(raw, { level:9 })), pngChunk('IEND', Buffer.alloc(0))]);
 }
-function renderChartPng(chart, mode = 'clean') {
+function renderChartPng(chart, mode = 'clean', options = {}) {
   mode = String(mode || 'clean').toLowerCase();
   if (!['clean','annotated'].includes(mode)) throw new Error('invalid chart mode');
   const candles = Array.isArray(chart?.candles) ? chart.candles : [];
@@ -654,6 +654,19 @@ function renderChartPng(chart, mode = 'clean') {
     }
   }
   line(left,volumeTop-8,right,volumeTop-8,grid);
+
+  const probeCode=String(options?.visionProbeCode||'');
+  if(/^[01]{4}$/.test(probeCode)){
+    const on=[0,255,120,255], off=[255,70,70,255], border=[255,255,255,255];
+    const mx=30,my=30,cell=22,gap=6;
+    fillRect(mx-4,my-4,mx+4*(cell+gap)-gap+3,my+cell+3,border);
+    fillRect(mx-2,my-2,mx+4*(cell+gap)-gap+1,my+cell+1,bg);
+    for(let i=0;i<4;i++){
+      const x0=mx+i*(cell+gap);
+      fillRect(x0,my,x0+cell-1,my+cell-1,probeCode[i]==='1'?on:off);
+    }
+  }
+
   return encodePng(width,height,pixels);
 }
 
