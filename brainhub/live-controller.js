@@ -807,6 +807,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       }
       const opp=f.opportunity?.available === false ? null : f.opportunity;
       const patterns=(Array.isArray(f.patterns)?f.patterns:[]).map(shortPatternName).filter(Boolean).slice(-3);
+      const smc=f.smcContext?.available === true ? f.smcContext : null;
+      const dealing=smc?.dealingRange || null;
+      const latestFvg=Array.isArray(f.liquidity?.fairValueGaps) && f.liquidity.fairValueGaps.length
+        ? f.liquidity.fairValueGaps.at(-1) : null;
       const sweep=f.liquidity?.lastSweep;
       const sweepText=sweep
         ? String(sweep.side || sweep.type || sweep.state || sweep.direction || 'sweep')
@@ -816,6 +820,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         f.trend ? 'trend '+f.trend : '',
         finite(f.rsi14)!==null ? 'RSI '+finite(f.rsi14).toFixed(1) : '',
         f.breakOfStructure ? 'BOS '+f.breakOfStructure : '',
+        smc?.swingEvent ? 'swing '+smc.swingEvent : '',
+        dealing?.zone ? 'SMC '+dealing.zone+(finite(dealing.positionPct)!==null?' %'+finite(dealing.positionPct).toFixed(1):'') : '',
+        latestFvg && finite(latestFvg.ce50)!==null ? 'FVG CE50 '+finite(latestFvg.ce50) : '',
         opp?.preferredSide ? 'fırsat '+opp.preferredSide : '',
         opp && finite(opp.longScore)!==null ? 'L '+finite(opp.longScore).toFixed(0) : '',
         opp && finite(opp.shortScore)!==null ? 'S '+finite(opp.shortScore).toFixed(0) : '',
@@ -835,6 +842,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         preferredSide:opp?.preferredSide || null,
         breakoutStatus:f.breakoutExecution?.status || null,
         patterns,
+        smc:smc ? {
+          swingEvent:smc.swingEvent || null,
+          swingState:smc.swingState || null,
+          dealingRange:smc.dealingRange || null,
+          oteReference:smc.oteReference || null,
+          semantics:smc.semantics || 'SOFT_STRUCTURAL_CONTEXT_ONLY'
+        } : { available:false },
         liquidity:{
           buySide:f.liquidity?.buySide || null,
           sellSide:f.liquidity?.sellSide || null,
