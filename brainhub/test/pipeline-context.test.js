@@ -87,7 +87,7 @@ test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK 
     'EXECUTION: ADVISORY_ONLY'
   ].join('\n'));
 
-  assert.deepEqual(visionPlanContract(complete), { ok:true, missing:[] });
+  assert.deepEqual(visionPlanContract(complete), { ok:true, missing:[], warnings:[] });
   assert.deepEqual(complete.supportTFs,['1m','3m','1h']);
   assert.deepEqual(complete.vetoTFs,['15m']);
   assert.equal(complete.timeframeDiagnostics['1m'].role,'SUPPORT');
@@ -117,6 +117,33 @@ test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK 
   assert.equal(contract.ok,false);
   assert.ok(contract.missing.includes('TF_3M_WAIT'));
   assert.ok(contract.missing.includes('SUPPORT_TFS_ROLE_MISMATCH'));
+});
+test('per-TF roles are canonical while contradictory SUPPORT_TFS/VETO_TFS summaries stay visible as warnings', () => {
+  const tags={ '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
+  const roles={ '1m':'SUPPORT','3m':'SUPPORT','5m':'SUPPORT','15m':'NEUTRAL','30m':'VETO','45m':'NEUTRAL','1h':'NEUTRAL','4h':'VETO','1d':'NEUTRAL' };
+  const tfLines=[];
+  for(const tf of Object.keys(tags)){
+    const tag=tags[tf];
+    tfLines.push(
+      'TF_'+tag+': Türkçe özet',
+      'TF_'+tag+'_WHY: somut neden',
+      'TF_'+tag+'_WAIT: NONE',
+      'TF_'+tag+'_ROLE: '+roles[tf],
+      'TF_'+tag+'_FORMING: forming yalnız bağlamdır',
+      'TF_'+tag+'_RISK: ana risk'
+    );
+  }
+  const plan=planFields([
+    'STATUS: WATCH','SIDE: SHORT','CONFIDENCE: 72','ORIGIN_TF: 3m','OWNER_TF: 5m',
+    'SETUP: support flip','EXEC_PATH: retest','WHY: somut','RISK_NOTE: risk','WAIT_FOR: NONE',
+    'SUPPORT_TFS: 1m,3m,5m','VETO_TFS: 30m,1h,4h',
+    'FORMING_CONTEXT: forming bağlamdır',...tfLines,'VISION_SUMMARY: ortak yapı','EXECUTION: ADVISORY_ONLY'
+  ].join('\n'));
+  assert.deepEqual(plan.supportTFs,['1m','3m','5m']);
+  assert.deepEqual(plan.vetoTFs,['30m','4h']);
+  assert.deepEqual(plan.declaredVetoTFs,['30m','1h','4h']);
+  assert.deepEqual(plan.roleConsistencyWarnings,['VETO_TFS_ROLE_MISMATCH']);
+  assert.deepEqual(visionPlanContract(plan),{ok:true,missing:[],warnings:['VETO_TFS_ROLE_MISMATCH']});
 });
 test('plan parser accepts harmless Markdown/JSON-like label decoration without inventing missing KKK fields', () => {
   const tags=['1M','3M','5M','15M','30M','45M','1H','4H','1D'];
@@ -152,7 +179,7 @@ test('plan parser accepts harmless Markdown/JSON-like label decoration without i
   assert.equal(plan.valid,true);
   assert.equal(plan.status,'WATCH');
   assert.equal(plan.side,'LONG');
-  assert.deepEqual(visionPlanContract(plan),{ok:true,missing:[]});
+  assert.deepEqual(visionPlanContract(plan),{ok:true,missing:[],warnings:[]});
   assert.match(plan.rawOutputSnippet,/\*\*STATUS:/);
 
   const partial=planFields('**STATUS:** WATCH\n**SIDE:** sideways\n**WHY:** korunmalı');
