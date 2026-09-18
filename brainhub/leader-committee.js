@@ -87,16 +87,24 @@ function selectDeepCandidates(scan, limit = 16) {
 
 function executionEligibility(c) {
   const reasons = [];
+  const warnings = [];
   const side = String(c?.side || '').toUpperCase();
+
+  // Hard pre-analysis gates only protect basic execution viability.
+  // Signal quality belongs to the unified 9TF plan/risk path; rejecting it here
+  // made PC LIVE materially stricter than the manual chart-analysis workflow.
   if (!c || !['LONG','SHORT'].includes(side)) reasons.push('SIDE_NOT_LONG_OR_SHORT');
-  if (num(c?.tradeQuality) < 58) reasons.push('TRADE_QUALITY_BELOW_58');
-  if (num(c?.directionSupport) < 1) reasons.push('DIRECTION_SUPPORT_MISSING');
   if (num(c?.spreadBps) > 8) reasons.push('SPREAD_ABOVE_8_BPS');
+
+  if (num(c?.tradeQuality) < 58) warnings.push('TRADE_QUALITY_BELOW_58');
+  if (num(c?.directionSupport) < 1) warnings.push('DIRECTION_SUPPORT_MISSING');
   const directional = side === 'LONG' ? num(c?.longExpansionScore) : side === 'SHORT' ? num(c?.shortExpansionScore) : 0;
-  if (directional < 35) reasons.push(side === 'SHORT' ? 'SHORT_EXPANSION_BELOW_35' : 'LONG_EXPANSION_BELOW_35');
+  if (directional < 35) warnings.push(side === 'SHORT' ? 'SHORT_EXPANSION_BELOW_35' : 'LONG_EXPANSION_BELOW_35');
+
   return {
     eligible:reasons.length === 0,
     reasons,
+    warnings,
     side:side || 'NONE',
     tradeQuality:num(c?.tradeQuality),
     directionSupport:num(c?.directionSupport),
