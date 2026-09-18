@@ -222,6 +222,191 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   let leaderAutoLastHealthyAt = null;
   let leaderAutoLastDiagnostics = { universeCount:0, shortlistCount:0, eligibleCount:0, candidates:[] };
   const leaderAutoFile = path.join(root, 'config', 'leader-auto.json');
+  const leaderAnalysisFile = path.join(root, 'data', 'leader-analysis-state.json');
+  const LEADER_ANALYSIS_VERSION = 1;
+  const LEADER_ANALYSIS_MAX_TRACKS = 24;
+  const LEADER_ANALYSIS_RETENTION_MS = 24 * 60 * 60 * 1000;
+  let leaderAnalysisState = readLeaderAnalysisState();
+
+  function emptyLeaderAnalysisState() {
+    return { version:LEADER_ANALYSIS_VERSION, updatedAt:0, cursor:0, bySymbol:{} };
+  }
+
+  function readLeaderAnalysisState() {
+    try {
+      if (!fs.existsSync(leaderAnalysisFile)) return emptyLeaderAnalysisState();
+      const raw=JSON.parse(fs.readFileSync(leaderAnalysisFile,'utf8'));
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyLeaderAnalysisState();
+      const bySymbol=raw.bySymbol && typeof raw.bySymbol === 'object' && !Array.isArray(raw.bySymbol) ? raw.bySymbol : {};
+      return {
+        version:LEADER_ANALYSIS_VERSION,
+        updatedAt:Number(raw.updatedAt || 0),
+        cursor:Number.isInteger(raw.cursor) && raw.cursor >= 0 ? raw.cursor : 0,
+        bySymbol
+      };
+    } catch {
+      return emptyLeaderAnalysisState();
+    }
+  }
+
+  function writeLeaderAnalysisState() {
+    const now=clock();
+    const rows=Object.entries(leaderAnalysisState.bySymbol || {})
+      .filter(([symbol,row]) => /^[A-Z0-9]{1,28}USDT$/.test(symbol) && row && typeof row === 'object')
+      .filter(([,row]) => {
+        const last=Number(row.lastAnalyzedAt || row.detectedAt || 0);
+        return !last || !Number.isFinite(now) || now-last <= LEADER_ANALYSIS_RETENTION_MS || row.state === 'ACTIVE';
+      })
+      .sort((a,b) => Number(b[1].lastAnalyzedAt || b[1].detectedAt || 0) - Number(a[1].lastAnalyzedAt || a[1].detectedAt || 0))
+      .slice(0,LEADER_ANALYSIS_MAX_TRACKS);
+    leaderAnalysisState.bySymbol=Object.fromEntries(rows);
+    leaderAnalysisState.updatedAt=Number.isFinite(now) ? now : Date.now();
+    fs.mkdirSync(path.dirname(leaderAnalysisFile),{recursive:true});
+    const tmp=leaderAnalysisFile+'.'+process.pid+'.tmp';
+    fs.writeFileSync(tmp,JSON.stringify(leaderAnalysisState,null,2),{encoding:'utf8',mode:0o600});
+    fs.renameSync(tmp,leaderAnalysisFile);
+  }
+
+  function journalLeaderLifecycle(symbol, previousState, nextState, row, detail = null) {
+    if (previousState === nextState && !detail) return;
+    try {
+      store.journal('LEADER_LIFECYCLE', symbol, {
+        previousState:previousState || null,
+        state:nextState,
+        side:row?.side || null,
+        setupId:row?.setupId || null,
+        planStatus:row?.planStatus || null,
+        originTF:row?.originTF || null,
+        ownerTF:row?.ownerTF || null,
+        rebaseCount:Number(row?.rebaseCount || 0),
+        invalidationCount:Number(row?.invalidationCount || 0),
+        detail:detail ? String(detail).slice(0,240) : null
+      });
+    } catch {}
+  }
+
+  function bestTrackedSide(unified, fallbackSide) {
+    const score = side => {
+      const p=unified?.opportunityPaths?.[side];
+      const rows=Array.isArray(p?.continuity) ? p.continuity.filter(x => x?.immediateEligible === true) : [];
+      return rows.reduce((sum,x) => sum + (finite(x?.score) || 0),0) + rows.length*100;
+    };
+    const l=score('LONG'), sh=score('SHORT');
+    if (l > sh && l > 0) return 'LONG';
+    if (sh > l && sh > 0) return 'SHORT';
+    return ['LONG','SHORT'].includes(String(fallbackSide||'').toUpperCase()) ? String(fallbackSide).toUpperCase() : null;
+  }
+
+  function upsertLeaderLifecycle(candidate, advisory, forcedState = null, detail = null) {
+    const symbol=String(candidate?.symbol || advisory?.symbol || '').toUpperCase();
+    if (!/^[A-Z0-9]{1,28}USDT$/.test(symbol)) return null;
+    const now=clock();
+    const old=leaderAnalysisState.bySymbol?.[symbol] || null;
+    const oldState=String(old?.state || '');
+    const plan=advisory?.plan || {};
+    const planStatus=String(plan.status || '').toUpperCase();
+    const requestedSide=String(plan.side || candidate?.side || old?.side || '').toUpperCase();
+    const side=['LONG','SHORT'].includes(requestedSide) ? requestedSide : bestTrackedSide(advisory?.unifiedContext, old?.side);
+    const stillOpportunity=Boolean(
+      side && Array.isArray(advisory?.unifiedContext?.opportunityPaths?.[side]?.continuity) &&
+      advisory.unifiedContext.opportunityPaths[side].continuity.length
+    );
+    let nextState=forcedState;
+    if (!nextState) {
+      if (!old) nextState='DETECTED';
+      if (planStatus === 'QUALIFIED') nextState=oldState === 'INVALIDATED' ? 'REBASE' : 'ARMED';
+      else if (planStatus === 'WATCH') nextState=oldState === 'INVALIDATED' ? 'REBASE' : 'WATCH';
+      else if (planStatus === 'REJECT') nextState='INVALIDATED';
+      else if (!nextState) nextState=oldState || 'DETECTED';
+    }
+
+    let rebaseCount=Number(old?.rebaseCount || 0);
+    let invalidationCount=Number(old?.invalidationCount || 0);
+    if (nextState === 'INVALIDATED' && oldState !== 'INVALIDATED') invalidationCount += 1;
+    if (nextState === 'REBASE' && oldState !== 'REBASE') rebaseCount += 1;
+    const setupChanged=nextState === 'REBASE' || !old?.setupId;
+    const setupId=setupChanged
+      ? 'LHSET:'+symbol+':'+(side || 'NONE')+':'+Math.floor((Number.isFinite(now)?now:Date.now())/60000).toString(36)
+      : old.setupId;
+
+    const row={
+      symbol,
+      side,
+      state:nextState,
+      setupId,
+      detectedAt:Number(old?.detectedAt || (Number.isFinite(now)?now:Date.now())),
+      lastAnalyzedAt:Number.isFinite(now)?now:Date.now(),
+      lastStateChangeAt:nextState !== oldState ? (Number.isFinite(now)?now:Date.now()) : Number(old?.lastStateChangeAt || old?.detectedAt || 0),
+      planStatus:planStatus || String(old?.planStatus || ''),
+      originTF:String(plan.originTF || old?.originTF || ''),
+      ownerTF:String(plan.ownerTF || old?.ownerTF || ''),
+      setup:String(plan.setup || old?.setup || ''),
+      waitFor:String(plan.waitFor || old?.waitFor || ''),
+      why:String(plan.why || old?.why || ''),
+      riskNote:String(plan.riskNote || old?.riskNote || ''),
+      confidence:finite(plan.confidence) ?? finite(old?.confidence),
+      visionAttached:Number(advisory?.vision?.attached || advisory?.committee?.vision?.attached || old?.visionAttached || 0),
+      visionRequired:Number(advisory?.vision?.required || old?.visionRequired || 9),
+      stillOpportunity,
+      reanalysisEligible:nextState !== 'ACTIVE' && (nextState !== 'INVALIDATED' || stillOpportunity),
+      rebaseCount,
+      invalidationCount,
+      lastDetail:detail ? String(detail).slice(0,240) : null
+    };
+    if (!leaderAnalysisState.bySymbol || typeof leaderAnalysisState.bySymbol !== 'object') leaderAnalysisState.bySymbol={};
+    leaderAnalysisState.bySymbol[symbol]=row;
+    writeLeaderAnalysisState();
+    journalLeaderLifecycle(symbol,oldState,nextState,row,detail);
+    return row;
+  }
+
+  function leaderLifecycleSummary() {
+    const rows=Object.values(leaderAnalysisState.bySymbol || {})
+      .filter(x => x && typeof x === 'object')
+      .sort((a,b) => Number(b.lastAnalyzedAt || 0)-Number(a.lastAnalyzedAt || 0))
+      .slice(0,LEADER_ANALYSIS_MAX_TRACKS);
+    return {
+      version:LEADER_ANALYSIS_VERSION,
+      tracked:rows.length,
+      activeTracking:rows.filter(x => x.reanalysisEligible === true).length,
+      rows
+    };
+  }
+
+  async function refreshOneTrackedAnalysis(scan) {
+    const rows=Object.values(leaderAnalysisState.bySymbol || {})
+      .filter(x => x && x.reanalysisEligible === true && ['LONG','SHORT'].includes(String(x.side || '').toUpperCase()))
+      .sort((a,b) => Number(a.lastAnalyzedAt || 0)-Number(b.lastAnalyzedAt || 0));
+    if (!rows.length) return null;
+    const idx=leaderAnalysisState.cursor % rows.length;
+    const tracked=rows[idx];
+    leaderAnalysisState.cursor=(idx+1)%rows.length;
+    writeLeaderAnalysisState();
+    try {
+      const advisory=await pipeline.run({
+        scan,
+        store,
+        committee,
+        executionIntent:{ symbol:tracked.symbol, side:tracked.side, analysisTracking:true }
+      });
+      const planStatus=String(advisory?.plan?.status || '').toUpperCase();
+      if (advisory?.candidateFound && advisory?.unifiedContext && advisory?.plan) {
+        const before=String(tracked.state || '');
+        const row=upsertLeaderLifecycle({symbol:tracked.symbol,side:tracked.side},advisory,null,'BACKGROUND_9TF_REANALYSIS');
+        // A rejected structure that still has a deterministic opportunity path is
+        // retained for a fresh rebase on the next analysis-only pass.
+        if (planStatus === 'REJECT' && row?.stillOpportunity) {
+          row.reanalysisEligible=true;
+          leaderAnalysisState.bySymbol[tracked.symbol]=row;
+          writeLeaderAnalysisState();
+        }
+        return { ok:true, symbol:tracked.symbol, previousState:before, state:row?.state || null, planStatus };
+      }
+      return { ok:false, symbol:tracked.symbol, reason:advisory?.reason || 'TRACK_ANALYSIS_NOT_READY' };
+    } catch (e) {
+      return { ok:false, symbol:tracked.symbol, reason:String(e?.message || e).slice(0,160) };
+    }
+  }
 
   function currentCredentials() {
     return resolveCredentials(root, credentials);
@@ -326,6 +511,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       consecutiveBlocked:leaderAutoConsecutiveBlocked,
       candidateCursor:leaderAutoCandidateCursor,
       diagnostics:leaderAutoLastDiagnostics,
+      analysisLifecycle:leaderLifecycleSummary(),
       reasons:cfg.reasons || []
     };
   }
@@ -805,6 +991,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
     const rawCandidates = selectDeepCandidates(scan, 16);
     setLeaderAutoDiagnostics(scan, rawCandidates, allowLong, allowShort);
+
+    // Follow one existing setup every tick in analysis-only mode. This may refresh
+    // a coin that temporarily fell out of the deep shortlist, but it can never
+    // submit a LIVE order. Normal fresh-candidate hunting continues below.
+    const trackedRefresh = await refreshOneTrackedAnalysis(scan);
+    if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
     const candidates = rawCandidates
       .filter(executionEligible)
       .filter(x => {
@@ -818,6 +1010,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const selectedIndex = leaderAutoCandidateCursor % candidates.length;
     const candidate = candidates[selectedIndex];
     leaderAutoCandidateCursor = (selectedIndex + 1) % candidates.length;
+    upsertLeaderLifecycle(candidate,null,'DETECTED','FRESH_SCANNER_SELECTION');
     annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_SELECTED', [], { selectedIndex });
 
     let advisory;
@@ -845,6 +1038,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if (!advisory?.candidateFound || !advisory?.plan || !advisory?.unifiedContext) {
       const rs=[advisory?.reason || 'LEADER_PLAN_NOT_READY'];
       annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_READY', rs, visionDiagnosticExtras(advisory));
+      const existingTrack=leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()];
+      if (existingTrack) {
+        existingTrack.lastAnalyzedAt=clock();
+        existingTrack.lastDetail=String(rs[0] || 'PLAN_NOT_READY').slice(0,240);
+        leaderAnalysisState.bySymbol[String(candidate.symbol || '').toUpperCase()]=existingTrack;
+        writeLeaderAnalysisState();
+      }
       return {
         ok:true,
         orderPlaced:false,
@@ -858,6 +1058,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if (String(advisory.plan.status || '').toUpperCase() !== 'QUALIFIED') {
       const rs=[...new Set(['LEADER_PLAN_NOT_QUALIFIED', advisory.plan.reason].filter(Boolean))];
       annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, visionDiagnosticExtras(advisory));
+      const lifecycle=upsertLeaderLifecycle(candidate,advisory,null,'PLAN_'+String(advisory.plan.status || 'REVIEW_REQUIRED').toUpperCase());
+      annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, { ...visionDiagnosticExtras(advisory), lifecycle });
       return {
         ok:true,
         orderPlaced:false,
@@ -868,7 +1070,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         reasons:rs
       };
     }
-    annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], visionDiagnosticExtras(advisory));
+    const qualifiedLifecycle=upsertLeaderLifecycle(candidate,advisory,'ARMED','PLAN_QUALIFIED');
+    annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], { ...visionDiagnosticExtras(advisory), lifecycle:qualifiedLifecycle });
 
     const creds = currentCredentials();
     if (!credentialsReady(creds)) {
@@ -908,7 +1111,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         reasons:rs
       };
     }
-    annotateLeaderDiagnostic(candidate.symbol, 'INTENT_READY', []);
+    const enterableLifecycle=upsertLeaderLifecycle(candidate,advisory,'ENTERABLE','LIVE_INTENT_READY');
+    annotateLeaderDiagnostic(candidate.symbol, 'INTENT_READY', [], { lifecycle:enterableLifecycle });
 
     const now = clock();
     const eventBucket = Math.floor(now / 60000);
@@ -943,9 +1147,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       requestedMaxOpenPositions:settings.maxOpenPositions
     });
 
+    const executionLifecycle=result?.orderPlaced === true
+      ? upsertLeaderLifecycle(candidate,advisory,'ACTIVE','LIVE_ORDER_PLACED')
+      : upsertLeaderLifecycle(candidate,advisory,'ENTERABLE','LIVE_EXECUTION_NO_ORDER:'+String(result?.execution || ''));
     annotateLeaderDiagnostic(candidate.symbol, result?.orderPlaced === true ? 'ORDER_PLACED' : 'EXECUTION_RESULT', result?.reasons || [], {
       execution:String(result?.execution || ''),
-      orderPlaced:result?.orderPlaced === true
+      orderPlaced:result?.orderPlaced === true,
+      lifecycle:executionLifecycle
     });
 
     try {
@@ -976,7 +1184,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       leaderAuto:true,
       leaderCandidate:candidate,
       leaderPlan:advisory.plan,
-      leaderIntent:intent
+      leaderIntent:intent,
+      analysisLifecycle:leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null
     };
   }
 
