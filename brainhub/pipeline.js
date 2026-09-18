@@ -531,6 +531,12 @@ function planFields(raw) {
 
   const supportDecl=parseTfList(field('SUPPORT_TFS'));
   const vetoDecl=parseTfList(field('VETO_TFS'));
+  const roleSupport=FRAME_ORDER.filter(tf=>timeframeDiagnostics?.[tf]?.role==='SUPPORT');
+  const roleVeto=FRAME_ORDER.filter(tf=>timeframeDiagnostics?.[tf]?.role==='VETO');
+  const sameTfSet=(a,b)=>a.length===b.length && a.every(x=>b.includes(x));
+  const roleConsistencyWarnings=[];
+  if (supportDecl.declared && !sameTfSet(roleSupport,supportDecl.values)) roleConsistencyWarnings.push('SUPPORT_TFS_ROLE_MISMATCH');
+  if (vetoDecl.declared && !sameTfSet(roleVeto,vetoDecl.values)) roleConsistencyWarnings.push('VETO_TFS_ROLE_MISMATCH');
 
   return {
     valid:statusOk && sideOk,
@@ -546,10 +552,13 @@ function planFields(raw) {
     why:field('WHY'),
     riskNote:field('RISK_NOTE'),
     waitFor:field('WAIT_FOR'),
-    supportTFs:supportDecl.values,
-    vetoTFs:vetoDecl.values,
+    supportTFs:roleSupport,
+    vetoTFs:roleVeto,
+    declaredSupportTFs:supportDecl.values,
+    declaredVetoTFs:vetoDecl.values,
     supportTFsDeclared:supportDecl.declared,
     vetoTFsDeclared:vetoDecl.declared,
+    roleConsistencyWarnings,
     invalidSupportTFs:supportDecl.invalid,
     invalidVetoTFs:vetoDecl.invalid,
     formingContext:field('FORMING_CONTEXT'),
@@ -593,13 +602,11 @@ function visionPlanContract(plan) {
   const vetoSet=new Set(Array.isArray(plan?.vetoTFs)?plan.vetoTFs:[]);
   if ([...supportSet].some(tf=>vetoSet.has(tf))) missing.push('SUPPORT_VETO_OVERLAP');
 
-  const roleSupport=FRAME_ORDER.filter(tf=>plan?.timeframeDiagnostics?.[tf]?.role==='SUPPORT');
-  const roleVeto=FRAME_ORDER.filter(tf=>plan?.timeframeDiagnostics?.[tf]?.role==='VETO');
-  const sameSet=(a,b)=>a.length===b.size && a.every(x=>b.has(x));
-  if (!sameSet(roleSupport,supportSet)) missing.push('SUPPORT_TFS_ROLE_MISMATCH');
-  if (!sameSet(roleVeto,vetoSet)) missing.push('VETO_TFS_ROLE_MISMATCH');
-
-  return { ok:missing.length===0, missing:[...new Set(missing)] };
+  return {
+    ok:missing.length===0,
+    missing:[...new Set(missing)],
+    warnings:[...new Set(Array.isArray(plan?.roleConsistencyWarnings)?plan.roleConsistencyWarnings:[])]
+  };
 }
 
 function combineRiskGate(preflight, accountCaps, structuralStop, killSwitch, executionClaim) {
@@ -741,7 +748,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     '',
     'VISION_INPUT: 1m/3m/5m/15m/30m/45m/1h/4h/1d annotated charts are attached when available; each uses '+vision.barsRequested+' recent candles and includes the current forming candle for visual context.',
     'Vision rule: read every attached chart image together with UNIFIED_CONTEXT_JSON. The current forming candle may shape a WATCH idea but MUST NOT be used as closed-candle confirmation. Do not ignore a visible structural conflict merely because numeric scores are high.',
-    'Explanation rule: WHY, RISK_NOTE, WAIT_FOR, FORMING_CONTEXT, TF_* and VISION_SUMMARY must be in Turkish, coin-specific and evidence-based. Every TF must separately state WHY, WAIT, ROLE, FORMING and RISK. SUPPORT_TFS/VETO_TFS must exactly agree with the TF_*_ROLE fields. State what supports the setup, what blocks it, and the exact condition that would change WATCH/REJECT into QUALIFIED. Avoid generic filler.',
+    'Explanation rule: WHY, RISK_NOTE, WAIT_FOR, FORMING_CONTEXT, TF_* and VISION_SUMMARY must be in Turkish, coin-specific and evidence-based. Every TF must separately state WHY, WAIT, ROLE, FORMING and RISK. SUPPORT_TFS/VETO_TFS are summary fields and should copy exactly the timeframes marked SUPPORT/VETO in TF_*_ROLE; never list a NEUTRAL timeframe. State what supports the setup, what blocks it, and the exact condition that would change WATCH/REJECT into QUALIFIED. Avoid generic filler.',
     'Rules: any fresh timeframe may originate an opportunity. A valid 1m/3m/5m opportunity must not wait for 15m merely because 15m is higher. The legacy 15m strategy still keeps its own completed-15m confirmation rule.',
     'Timeframes are context, not votes. Synthetic 45m is derived from closed 15m candles and is not an independent vote.',
     'A FAILED_BREAKOUT timeframe is not an immediate breakout entry; require reclaim or another valid execution path.',
