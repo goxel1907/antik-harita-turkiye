@@ -91,8 +91,10 @@ workflows:
           grep -q 'timeframeNotes' "$MAIN"
           grep -q 'timeframeDiagnostics' "$MAIN"
           grep -q 'timeframeEvidence' "$MAIN"
+          grep -q 'visionContractWarnings' "$MAIN"
           grep -q 'Destek TF:' "$MAIN"
           grep -q 'Veto TF:' "$MAIN"
+          grep -q 'Model rol-özeti tutarsızlığı:' "$MAIN"
           grep -q 'Model özet:' "$MAIN"
           grep -q 'Deterministik veri:' "$MAIN"
           grep -q "versionName '9.5.95'" "$BUILD"
@@ -315,7 +317,16 @@ workflows:
           fi
           test -s app/build/outputs/apk/release/app-release.apk
           cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.95.apk"
-          ls -lh "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.95.apk"
+
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.95.apk"
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          echo '========== RELEASE APK SHA256 =========='
+          shasum -a 256 "$APK"
+          ls -lh "$APK"
+          echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
       - Futures15mAlarm-PRO-v9.5.95.apk
