@@ -333,16 +333,16 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
   const frames = {};
   const images = [];
   const failures = [];
-  const probeCodes={
-    '1m':'0001','3m':'0010','5m':'0011','15m':'0100','30m':'0101',
-    '45m':'0110','1h':'0111','4h':'1000','1d':'1001'
+  const probeCells={
+    '1m':7,'3m':2,'5m':9,'15m':4,'30m':1,
+    '45m':8,'1h':5,'4h':3,'1d':6
   };
   const visionProbe=options?.visionProbe === true;
   const rows = await Promise.all(FRAME_ORDER.map(async frame => {
     try {
       const chart = await chartContext(symbol, frame, requestedBars);
-      const visionProbeCode=visionProbe ? probeCodes[frame] : null;
-      const png = renderChartPng(chart, 'annotated', visionProbeCode?{visionProbeCode}:{});
+      const visionProbeCell=visionProbe ? probeCells[frame] : null;
+      const png = renderChartPng(chart, 'annotated', visionProbeCell?{visionProbeCell}:{});
       const last=Array.isArray(chart?.candles)&&chart.candles.length?chart.candles[chart.candles.length-1]:null;
       const visualLastCandle=last
         ? (Number(last.close)>=Number(last.open)?'BULL':'BEAR')
@@ -355,7 +355,7 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
         formingBars:Number(chart?.formingBars || 0),
         generatedAt:chart?.generatedAt || null,
         visualLastCandle,
-        visionProbeCode,
+        visionProbeCell,
         dataUrl:'data:image/png;base64,'+png.toString('base64')
       };
     } catch (e) {
@@ -376,7 +376,7 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
       formingBars:row.formingBars,
       generatedAt:row.generatedAt,
       visualLastCandle:row.visualLastCandle,
-      ...(visionProbe ? { visionProbeCode:row.visionProbeCode } : {})
+      ...(visionProbe ? { visionProbeCell:row.visionProbeCell } : {})
     };
   }
   return {
@@ -394,29 +394,30 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
 function visionPixelProbePrompt() {
   return [
     'Görsel taşıma doğrulaması: dokuz grafiğin HER BİRİNİ gerçekten incele.',
-    'Her grafiğin sol üst köşesinde beyaz çerçeve içinde dört renkli kare vardır. Soldan sağa YEŞİL=1, KIRMIZI=0 olarak dört bitlik kodu yalnız görselden oku.',
-    'Bu kodlar diagnostik işarettir; piyasa sinyali değildir ve işlem yorumunda kullanılmamalıdır.',
+    'Her grafiğin sol üstünde büyük beyaz çerçeveli 3x3 bir ızgara vardır. Yalnız bir hücre parlak MOR/MAGENTA, diğer sekiz hücre koyu renktir.',
+    'Hücreleri soldan sağa, yukarıdan aşağı 1..9 numarala: üst sıra 1,2,3; orta sıra 4,5,6; alt sıra 7,8,9.',
+    'Her grafik için yalnız parlak hücrenin numarasını oku. Bu ızgara diagnostiktir; piyasa sinyali değildir.',
     'Tam olarak aşağıdaki 9 satırı döndür; başka açıklama ekleme:',
-    'PROBE_1M: 0000',
-    'PROBE_3M: 0000',
-    'PROBE_5M: 0000',
-    'PROBE_15M: 0000',
-    'PROBE_30M: 0000',
-    'PROBE_45M: 0000',
-    'PROBE_1H: 0000',
-    'PROBE_4H: 0000',
-    'PROBE_1D: 0000'
+    'PROBE_1M: N',
+    'PROBE_3M: N',
+    'PROBE_5M: N',
+    'PROBE_15M: N',
+    'PROBE_30M: N',
+    'PROBE_45M: N',
+    'PROBE_1H: N',
+    'PROBE_4H: N',
+    'PROBE_1D: N'
   ].join('\n');
 }
 function evaluateVisionPixelProbe(text, frames) {
   const tfKey={ '1M':'1m','3M':'3m','5M':'5m','15M':'15m','30M':'30m','45M':'45m','1H':'1h','4H':'4h','1D':'1d' };
   const reported={};
-  const re=/^\s*PROBE_(1M|3M|5M|15M|30M|45M|1H|4H|1D)\s*:\s*([01]{4})\s*$/gim;
+  const re=/^\s*PROBE_(1M|3M|5M|15M|30M|45M|1H|4H|1D)\s*:\s*([1-9])\s*$/gim;
   let m;
-  while((m=re.exec(String(text||'')))) reported[tfKey[m[1].toUpperCase()]]=m[2];
+  while((m=re.exec(String(text||'')))) reported[tfKey[m[1].toUpperCase()]]=Number(m[2]);
   const details=FRAME_ORDER.map(tf=>{
-    const expected=String(frames?.[tf]?.visionProbeCode||'');
-    const actual=String(reported[tf]||'');
+    const expected=Number(frames?.[tf]?.visionProbeCell||0);
+    const actual=Number(reported[tf]||0);
     return {tf,expected:expected||null,actual:actual||null,match:Boolean(expected&&actual&&expected===actual)};
   });
   const reportedCount=details.filter(x=>x.actual).length;
