@@ -797,6 +797,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     DUPLICATE_LINEAGE:'aynı işlem fikri daha önce işlendi',
     VISION_9TF_INCOMPLETE:'9 zaman diliminin grafik paketi eksik; grafik görmeden canlı karar verilmedi',
     VISION_COMMITTEE_INPUT_INCOMPLETE:'9Router komitesi 9 grafiğin tamamını alamadı; canlı karar bloke edildi',
+    VISION_COMMITTEE_OUTPUT_INCOMPLETE:'Vision modeli 9TF analiz sözleşmesindeki zorunlu Türkçe alanların tamamını üretmedi; canlı karar bloke edildi',
     VISION_COMMITTEE_UNAVAILABLE:'Vision/9Router analiz komitesi erişilemiyor; grafik analizi tamamlanmadı',
     UNSTRUCTURED_COMMITTEE_OUTPUT:'model çıktısı beklenen plan şemasına uymadı',
     NO_FRESH_TIMEFRAME_CONTEXT:'taze zaman dilimi bağlamı yetersiz'
@@ -924,9 +925,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         failures:Array.isArray(vision?.failures) ? vision.failures.slice(0,9) : []
       },
       committee:{
+        ok:advisory?.committee?.ok === true,
+        available:advisory?.committee?.available !== false && advisory?.committee?.mode !== 'unavailable',
         model:String(advisory?.committee?.model || ''),
         mode:String(advisory?.committee?.mode || ''),
-        degraded:advisory?.committee?.degraded === true
+        degraded:advisory?.committee?.degraded === true,
+        error:String(advisory?.committee?.error || ''),
+        detail:String(advisory?.committee?.detail || '').slice(0,1200),
+        requiredAnalystReplies:Number(advisory?.committee?.requiredAnalystReplies || 0),
+        receivedAnalystReplies:Number(advisory?.committee?.receivedAnalystReplies || 0),
+        attemptedModels:Array.isArray(advisory?.committee?.attemptedModels) ? advisory.committee.attemptedModels.slice(0,12) : [],
+        failed:Array.isArray(advisory?.committee?.failed) ? advisory.committee.failed.slice(0,8).map(x=>({model:String(x?.model||''),error:String(x?.error||'').slice(0,400)})) : []
       }
     };
   }
