@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionStatus','LiveSetup','LiveStatus','LiveArm','LiveDisarm')][string]$Action = 'Update',
+    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','LiveSetup','LiveStatus','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
@@ -166,7 +166,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'NINEROUTER_OPENROUTER_VISION_DISCOVERY') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.95 BrainHub Vision/9Router OpenRouter feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.95 BrainHub Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
@@ -209,14 +209,6 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         $committeeCalled = $false
         if ($null -ne $plan.PSObject.Properties['committeeCalled']) { $committeeCalled = [bool]$plan.committeeCalled }
         Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
-        try {
-            $oc = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/opencode/status' -Headers $headers -TimeoutSec 15
-            $routerVisionModels = @($oc.openRouterFreeVisionModels)
-            Write-Host "VISION_FREE_PROVIDER ok=$($oc.ok) transport=$($oc.transport) openRouterVia9Router=$($oc.openRouterVia9Router) freeModels=$($routerVisionModels.Count)"
-            if ($routerVisionModels.Count -gt 0) { Write-Host ("VISION_FREE_MODELS " + ($routerVisionModels -join ',')) }
-        } catch {
-            Write-Host 'VISION_FREE_PROVIDER durumu 9Router uzerinden okunamadi. 9TF Vision fail-closed kalacak.' -ForegroundColor Yellow
-        }
         try {
             $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 240
         } catch {
@@ -265,7 +257,7 @@ function Backup-Brain([string]$BrainRoot) {
     New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
     $target = Join-Path $targetRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
     New-Item -ItemType Directory -Force -Path $target | Out-Null
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-STATUS.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1')) {
         $p = Join-Path $BrainRoot $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $target -Recurse -Force }
     }
@@ -276,11 +268,6 @@ function Backup-Brain([string]$BrainRoot) {
 $rootFull = [IO.Path]::GetFullPath($Root)
 $node = Resolve-Node
 if ($Action -eq 'Test') { Test-Brain $rootFull -IncludeDeep:$Deep; exit 0 }
-if ($Action -eq 'VisionStatus') {
-    $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/opencode/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
-    $status | ConvertTo-Json -Depth 6
-    exit 0
-}
 if ($Action -eq 'LiveStatus') {
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 5
     $live | ConvertTo-Json -Depth 6
@@ -413,7 +400,7 @@ if ($Action -eq 'Restore') {
     if (-not $resolved.StartsWith($backupRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore yolu BrainHubBackups icinde olmali.' }
     $key = Router-Key $rootFull
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-STATUS.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1')) {
         $p = Join-Path $resolved $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }
@@ -424,14 +411,10 @@ if ($Action -eq 'Restore') {
 if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); Test-Brain $rootFull; exit 0 }
 
 $sourceDir = Get-Source $Source
-$requiredFiles = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js')
-foreach ($name in $requiredFiles) {
-    $p = Join-Path $sourceDir $name
-    if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
-}
-$files = @(Get-ChildItem -LiteralPath $sourceDir -Filter '*.js' -File | Sort-Object Name | Select-Object -ExpandProperty Name)
+$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js')
 foreach ($name in $files) {
     $p = Join-Path $sourceDir $name
+    if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
     & $node --check $p
     if ($LASTEXITCODE -ne 0) { throw "Node syntax hatasi: $name" }
 }
@@ -454,7 +437,7 @@ try {
         $dst = Join-Path (Join-Path $rootFull 'config') $cfg[1]
         if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $sourceDir $cfg[0]) -Destination $dst }
     }
-    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-STATUS.ps1')) {
+    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1')) {
         Copy-Item -LiteralPath (Join-Path $sourceDir $script) -Destination $rootFull -Force
     }
     Start-Brain $rootFull $node $key
@@ -463,7 +446,7 @@ try {
 } catch {
     Write-Warning "Update dogrulanamadi: $($_.Exception.Message). Geri alma deneniyor."
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-STATUS.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1')) {
         $p = Join-Path $backup $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }

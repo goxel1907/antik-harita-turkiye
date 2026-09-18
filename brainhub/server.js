@@ -20,8 +20,6 @@ const BINANCE_CREDENTIALS={
   apiSecret:(process.env.BRAINHUB_BINANCE_API_SECRET||'').trim()
 };
 const TTL=(Number(cfg.healthCacheSeconds)||600)*1000;
-const ROUTER_DISCOVERY_TTL=Math.max(15000,Math.min(300000,Number(cfg.routerDiscoveryCacheMs||60000)));
-let routerDiscovery={at:0,models:[],error:null};
 if(!KEY){console.error('BRAINHUB_ROUTER_KEY missing');process.exit(2);}
 if(HOST!=='127.0.0.1'&&HOST!=='::1'&&CLIENT_TOKEN.length<32){console.error('BRAINHUB_CLIENT_TOKEN (32+ chars) required for non-loopback binding');process.exit(2);}
 const store=openStore(ROOT);
@@ -97,46 +95,6 @@ function authorized(req){
   if(supplied.length!==CLIENT_TOKEN.length)return false;
   return require('crypto').timingSafeEqual(Buffer.from(supplied),Buffer.from(CLIENT_TOKEN));
 }
-function routerModelRows(payload){
-  if(Array.isArray(payload?.data))return payload.data;
-  if(Array.isArray(payload?.models))return payload.models;
-  if(Array.isArray(payload))return payload;
-  return [];
-}
-function modelId(row){ return String(typeof row==='string'?row:(row?.id||row?.model||'')).trim(); }
-function isFreeOpenRouterId(id){
-  const z=String(id||'').toLowerCase();
-  return z.startsWith('openrouter/') && (z.endsWith(':free')||z==='openrouter/openrouter/free'||z.endsWith('/free'));
-}
-function rowSupportsImage(row){
-  const inputs=row?.modalities?.input||row?.input_modalities||row?.inputModalities||[];
-  return Array.isArray(inputs)&&inputs.map(x=>String(x).toLowerCase()).includes('image');
-}
-async function discoverRouterFreeVisionModels(force=false){
-  if(!force&&routerDiscovery.at&&Date.now()-routerDiscovery.at<ROUTER_DISCOVERY_TTL)return routerDiscovery;
-  try{
-    const r=await fetch(cfg.baseUrl+'/models',{headers:{authorization:'Bearer '+KEY,accept:'application/json'},signal:AbortSignal.timeout(10000)});
-    const raw=await r.text();
-    if(!r.ok)throw new Error('9Router models HTTP '+r.status+' '+raw.slice(0,300));
-    let payload={};try{payload=JSON.parse(raw||'{}');}catch{throw new Error('9Router models invalid JSON');}
-    const rows=routerModelRows(payload);
-    const found=rows
-      .map(row=>({id:modelId(row),image:rowSupportsImage(row)}))
-      .filter(x=>isFreeOpenRouterId(x.id))
-      .sort((a,b)=>Number(b.image)-Number(a.image)||a.id.localeCompare(b.id));
-    const configured=String(cfg.routerOpenRouterFreeModel||'openrouter/openrouter/free').trim();
-    const models=uniqueModels([
-      ...found.map(x=>x.id),
-      ...(cfg.routerOpenRouterVisionDiscovery===false?[]:[configured])
-    ]);
-    routerDiscovery={at:Date.now(),models,error:null,listed:found};
-    return routerDiscovery;
-  }catch(e){
-    const configured=String(cfg.routerOpenRouterFreeModel||'openrouter/openrouter/free').trim();
-    routerDiscovery={at:Date.now(),models:cfg.routerOpenRouterVisionDiscovery===false?[]:uniqueModels([configured]),error:String(e?.message||e).slice(0,500),listed:[]};
-    return routerDiscovery;
-  }
-}
 function extract(raw){
   raw=String(raw||'');
   let out='';
@@ -171,13 +129,11 @@ async function callModel(model,messages,timeoutMs=12000){
   const url=cfg.baseUrl+'/chat/completions';
   const r=await fetch(url,{method:'POST',headers:{authorization:'Bearer '+KEY,'content-type':'application/json'},body:JSON.stringify({model,messages}),signal:AbortSignal.timeout(timeoutMs)});
   const raw=await r.text();
-  if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,500));
+  if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
   const text=extract(raw);
   if(!text)throw new Error('empty response');
-  state.set(model,{ok:true,at:Date.now(),error:null,transport:'9router'});
-  let actualModel=model;
-  try{actualModel=String(JSON.parse(raw)?.model||model);}catch{}
-  return {model:actualModel,routeModel:model,text,transport:'9router'};
+  state.set(model,{ok:true,at:Date.now(),error:null});
+  return {model,text};
 }
 function recentFailure(map,model){
   const s=map.get(model);
@@ -186,8 +142,8 @@ function recentFailure(map,model){
 function blocked(model){ return recentFailure(state,model); }
 function visionBlocked(model){ return recentFailure(visionState,model); }
 function uniqueModels(xs){ return [...new Set((xs||[]).filter(Boolean))]; }
-function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false,routerOpenRouterFree=[]){
-  const free=uniqueModels([...(routerOpenRouterFree||[]),...(cfg.opencode||[])]);
+function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
+  const free=uniqueModels(cfg.opencode||[]);
   const kiro=uniqueModels(cfg.kiro||[]);
   const allowed=new Set([...free,...kiro]);
   const explicit=uniqueModels([...(ccfg?.visionAnalysts||[]),...(ccfg?.visionBackupAnalysts||[])]).filter(x=>allowed.has(x));
@@ -202,11 +158,9 @@ function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false,routerO
     const roleRanked=rankPool(xs,role,true);
     const hint=m=>{
       const z=String(m||'').toLowerCase();
-      if(isFreeOpenRouterId(z))return 0;
-      if(z.includes('mimo-v2.5-free'))return 1;
-      if(z.includes('vision'))return 2;
-      if(z.includes('muse-spark-1.3'))return 3;
-      if(z.includes('muse-spark-1.2'))return 4;
+      if(z.includes('vision'))return 0;
+      if(z.includes('muse-spark-1.3'))return 1;
+      if(z.includes('muse-spark-1.2'))return 2;
       return 9;
     };
     return roleRanked.map((model,index)=>({model,index,hint:hint(model)}))
@@ -316,7 +270,7 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','OPENROUTER_FREE_VISION_FALLBACK','NINEROUTER_OPENROUTER_VISION_DISCOVERY','LIVE_FAIL_CLOSED']});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.95-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','LIVE_FAIL_CLOSED']});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,live.status());
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -346,19 +300,6 @@ const server=http.createServer(async(req,res)=>{
       const out=live.configureLeaderAuto(body||{});
       return send(res,out.ok?200:409,out);
     }
-    if(req.method==='GET'&&u.pathname==='/opencode/status'){
-      const discovered=await discoverRouterFreeVisionModels(true);
-      return send(res,200,{
-        ok:true,
-        transport:'9router',
-        openCodeFreeVia9Router:true,
-        openRouterVia9Router:true,
-        openRouterFreeVisionModels:discovered.models,
-        listedOpenRouterFreeVisionModels:discovered.listed,
-        discoveryError:discovered.error,
-        note:'BrainHub reuses the OpenRouter provider already configured inside 9Router. No second OpenRouter API key is stored by BrainHub.'
-      });
-    }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({
         model,
@@ -377,9 +318,8 @@ const server=http.createServer(async(req,res)=>{
       const base=configured.length?configured:[...(cfg.opencode||[])];
       const routes={};
       for(const role of Object.keys(ROLE_HINTS))routes[role]=rankPool(base,role,false);
-      const discovered=await discoverRouterFreeVisionModels();
       const visionRoutes={};
-      for(const role of Object.keys(ROLE_HINTS))visionRoutes[role]=orderedVisionModels(ccfg,role,false,discovered.models);
+      for(const role of Object.keys(ROLE_HINTS))visionRoutes[role]=orderedVisionModels(ccfg,role);
       const visionKiroFallback=ccfg.allowKiroVisionFallback===true;
       return send(res,200,{ok:true,freeFirst:true,roles:routes,visionRoutes,judges:ccfg.judges||[],kiroJudgeOnly:true,visionKiroFallback,note:visionKiroFallback?'Text-only routes keep Kiro for judge duty; 9TF image requests may use Kiro only after explicit Vision fallback opt-in and failed free OpenCode candidates.':'Kiro Vision fallback is disabled by default; 9TF image analysis remains free-only unless explicitly enabled. API keys are never exposed here.'});
     }
@@ -429,9 +369,8 @@ const server=http.createServer(async(req,res)=>{
       const eligible=(configured.length?configured:[...(cfg.opencode||[])]).filter(x=>freeSet.has(x));
       const hasVision=vision.images.length>0;
       const forceVisionProbe=hasVision&&j.forceVisionProbe===true;
-      const discovered=hasVision?await discoverRouterFreeVisionModels(forceVisionProbe):{models:[]};
       const routed=hasVision
-        ? orderedVisionModels(ccfg,role,forceVisionProbe,discovered.models)
+        ? orderedVisionModels(ccfg,role,forceVisionProbe)
         : rankPool(eligible.length?eligible:[...(cfg.opencode||[])],role,true);
       const judges=Array.isArray(ccfg.judges)?ccfg.judges:[];
       const minReplies=Math.max(1,Number(ccfg.minAnalystReplies||2));
@@ -452,10 +391,8 @@ const server=http.createServer(async(req,res)=>{
         try{
           const r=await callModel(model,messages,hasVision?visionTimeoutMs:20000);
           const durationMs=Date.now()-started;
-          const actualModel=String(r?.model||model);
-          const transport=String(r?.transport||'9router');
-          if(hasVision)visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs,actualModel,transport});
-          return {ok:true,model:actualModel,routeModel:model,transport,text:r.text,durationMs};
+          if(hasVision)visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs});
+          return {ok:true,model,text:r.text,durationMs};
         }catch(e){
           const durationMs=Date.now()-started;
           const msg=String(e.message||e).slice(0,400);

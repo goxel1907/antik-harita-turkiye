@@ -29,8 +29,6 @@ Leader AUTO için 1m, 3m, 5m, 15m, 30m, sentetik 45m, 1h, 4h ve 1D grafik paketi
 
 Vision isteklerinde ücretsiz OpenCode modelleri önce denenir. Görsel girişi desteklemeyen ücretsiz modeller Vision cooldown'a alınır; metin istekleri için ayrıca kullanılabilir kalırlar. Kiro Vision fallback **varsayılan olarak kapalıdır**; ücretli/kredili modele sessiz geçiş yapılmaz. Kullanıcı bunu bilerek açmak isterse `config/committee.json` içine `"allowKiroVisionFallback": true` koyabilir. Bu durumda önce sınırlı ücretsiz Vision denemeleri yapılır, yalnız başarısız olurlarsa Kiro denenir. Metin-only SCALP/FAST rotası her durumda free-first davranışını korur ve Kiro'yu normal analist havuzuna taşımaz.
 
-OpenCode sağlayıcısı ücretsiz katmanı 9Router üzerinden `403 FreeTierError` ile reddederse BrainHub ikinci bir OpenRouter anahtarı istemez. 9Router'da zaten bağlı olan OpenRouter provider'ını yeniden kullanır: `/v1/models` üzerinden `openrouter/*:free` ve `openrouter/openrouter/free` adaylarını keşfeder ve 9TF Vision çağrısını yine aynı yerel 9Router `/v1/chat/completions` uç noktasına gönderir. Kiro/ücretli fallback varsayılan kapalı kalır. `/opencode/status` veya `VISION-STATUS.ps1` keşfedilen ücretsiz OpenRouter Vision rotalarını gösterir; BrainHub ayrı OpenRouter secret saklamaz. Gerçek 9TF görsel okuma başarısı yine `TEST.ps1 -Deep` ve `/vision/probe` ile doğrulanır.
-
 Gerçek uçtan uca test için:
 
 ```powershell
