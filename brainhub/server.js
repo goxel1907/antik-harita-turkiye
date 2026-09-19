@@ -125,9 +125,28 @@ function extract(raw){
   while((m=re.exec(raw))){try{out+=JSON.parse('"'+m[1]+'"');}catch{}}
   return out.trim();
 }
+function localVisionConfig(){
+  const raw=cfg.localVision && typeof cfg.localVision==='object' && !Array.isArray(cfg.localVision) ? cfg.localVision : {};
+  const requested=Array.isArray(raw.models)?raw.models:[];
+  const models=uniqueModels(requested.map(x=>String(x||'').trim()).filter(x=>/^[A-Za-z0-9._:+-]{1,120}$/.test(x)))
+    .map(x=>'local/'+x);
+  const candidate=String(raw.baseUrl||'http://127.0.0.1:11434/v1').trim().replace(/\/+$/,'');
+  let baseUrl='';
+  try{
+    const u=new URL(candidate);
+    if(u.protocol==='http:'&&['127.0.0.1','localhost','::1'].includes(u.hostname))baseUrl=candidate;
+  }catch{}
+  return {enabled:raw.enabled===true&&!!baseUrl&&models.length>0,baseUrl,models};
+}
 async function callModel(model,messages,timeoutMs=12000){
-  const url=cfg.baseUrl+'/chat/completions';
-  const r=await fetch(url,{method:'POST',headers:{authorization:'Bearer '+KEY,'content-type':'application/json'},body:JSON.stringify({model,messages}),signal:AbortSignal.timeout(timeoutMs)});
+  const local=localVisionConfig();
+  const isLocal=String(model||'').startsWith('local/');
+  if(isLocal&&(!local.enabled||!local.models.includes(model)))throw new Error('local vision model not enabled');
+  const baseUrl=isLocal?local.baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,'');
+  const wireModel=isLocal?String(model).slice('local/'.length):model;
+  const url=baseUrl+'/chat/completions';
+  const headers=isLocal?{'content-type':'application/json'}:{authorization:'Bearer '+KEY,'content-type':'application/json'};
+  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify({model:wireModel,messages,stream:false}),signal:AbortSignal.timeout(timeoutMs)});
   const raw=await r.text();
   if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
   const text=extract(raw);
@@ -150,6 +169,7 @@ function visionAvailability(){
     if(s?.ok===true && Date.now()-s.at<TTL) reason='AVAILABLE';
     else if(/MONTHLY_REQUEST_COUNT|reached the limit/i.test(error)) reason='QUOTA_EXHAUSTED';
     else if(/only be used from within OpenCode|FreeTierError/i.test(error)) reason='PROVIDER_RESTRICTED';
+    else if(String(model).startsWith('local/')&&/fetch failed|ECONNREFUSED|connect/i.test(error)) reason='LOCAL_UNAVAILABLE';
     else if(/timeout|aborted/i.test(error)) reason='TIMEOUT';
     else if(error) reason='PROVIDER_UNAVAILABLE';
     return {model,reason,lastCheckedAt:s?.at||null};
@@ -158,6 +178,7 @@ function visionAvailability(){
   const notes=[];
   if(models.some(x=>x.reason==='PROVIDER_RESTRICTED')) notes.push('OpenCode dış uygulama erişimini reddediyor');
   if(models.some(x=>x.reason==='QUOTA_EXHAUSTED')) notes.push('Kiro model kotası dolu');
+  if(models.some(x=>x.reason==='LOCAL_UNAVAILABLE')) notes.push('yerel Ollama Vision kullanılamıyor');
   if(models.some(x=>x.reason==='TIMEOUT')) notes.push('model yanıtı süre aşımına uğradı');
   return {verifiedModels:verified,models,summaryTr:(verified?'Görsel model yanıtı doğrulandı: '+verified:'Görsel model erişimi doğrulanamadı')+(notes.length?' • '+notes.join(' • '):'')};
 }
@@ -165,6 +186,7 @@ function uniqueModels(xs){ return [...new Set((xs||[]).filter(Boolean))]; }
 function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
   const free=uniqueModels(cfg.opencode||[]);
   const kiro=uniqueModels(cfg.kiro||[]);
+  const local=localVisionConfig();
   const allowed=new Set([...free,...kiro]);
   const explicit=uniqueModels([...(ccfg?.visionAnalysts||[]),...(ccfg?.visionBackupAnalysts||[])]).filter(x=>allowed.has(x));
   const general=uniqueModels([...(ccfg?.analysts||[]),...(ccfg?.backupAnalysts||[])]).filter(x=>allowed.has(x));
@@ -199,6 +221,7 @@ function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
     : (allowLegacyKiroFallback?kiroPool:[]);
   const maxFree=kiroCandidates.length?Math.max(1,Math.min(6,Number(ccfg?.maxFreeVisionAttempts||3))):rankedFree.length;
   return uniqueModels([
+    ...visionRank(preferHealthy(local.enabled?local.models:[])),
     ...rankedFree.slice(0,maxFree),
     ...visionRank(preferHealthy(kiroCandidates))
   ]);
@@ -302,7 +325,8 @@ const server=http.createServer(async(req,res)=>{
     if(!authorized(req))return send(res,401,{ok:false,error:'unauthorized'});
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
+      const local=localVisionConfig();
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -338,7 +362,8 @@ const server=http.createServer(async(req,res)=>{
       return send(res,out.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
-      const models=[...(cfg.opencode||[]),...(cfg.kiro||[])].map(model=>({
+      const local=localVisionConfig();
+      const models=[...(cfg.opencode||[]),...(cfg.kiro||[]),...(local.enabled?local.models:[])].map(model=>({
         model,
         status:state.has(model)?(state.get(model).ok?'healthy':'cooldown'):'untested',
         last:state.get(model)?.at||null,
@@ -359,6 +384,7 @@ const server=http.createServer(async(req,res)=>{
       for(const role of Object.keys(ROLE_HINTS))visionRoutes[role]=orderedVisionModels(ccfg,role);
       const visionKiroFreeQuota=ccfg.allowKiroFreeQuotaVision===true;
       const visionKiroFallback=ccfg.allowKiroVisionFallback===true;
+      const local=localVisionConfig();
       const kiroFreeQuotaVisionModels=uniqueModels(Array.isArray(ccfg.kiroFreeQuotaVisionModels)?ccfg.kiroFreeQuotaVisionModels:[]).filter(x=>(cfg.kiro||[]).includes(x));
       return send(res,200,{
         ok:true,
@@ -367,15 +393,21 @@ const server=http.createServer(async(req,res)=>{
         visionRoutes,
         judges:ccfg.judges||[],
         kiroJudgeOnly:true,
+        localVisionEnabled:local.enabled,
+        localVisionModels:local.models,
+        localVisionBaseUrl:local.baseUrl||null,
+        localVisionFirst:true,
         visionKiroFreeQuota,
         kiroFreeQuotaVisionModels,
         visionKiroFallback,
         paidVisionFallbackEnabled:visionKiroFallback,
-        note:visionKiroFreeQuota
-          ? '9TF Vision may use only the explicitly allowlisted Kiro connected-account quota models after free OpenCode attempts. This opt-in does not enable any separate paid API provider.'
-          : (visionKiroFallback
-              ? 'Legacy Kiro Vision fallback is explicitly enabled.'
-              : 'Kiro Vision is disabled until explicit local opt-in; missing Vision remains fail-closed.')
+        note:local.enabled
+          ? '9TF Vision uses explicitly enabled loopback-only local Ollama first; text-only routing remains on 9Router. Missing local Vision remains fail-closed and no paid provider is enabled.'
+          : (visionKiroFreeQuota
+              ? '9TF Vision may use only the explicitly allowlisted Kiro connected-account quota models after free OpenCode attempts. This opt-in does not enable any separate paid API provider.'
+              : (visionKiroFallback
+                  ? 'Legacy Kiro Vision fallback is explicitly enabled.'
+                  : 'Local/Kiro Vision is disabled until explicit opt-in; missing Vision remains fail-closed.'))
       });
     }
     if(req.method==='GET'&&u.pathname==='/vision/probe'){

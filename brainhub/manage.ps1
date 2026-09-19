@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionFreeSetup','VisionStatus','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
+    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
@@ -172,12 +172,12 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
-    if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly -or $null -eq $routes.visionKiroFallback -or $null -eq $routes.visionKiroFreeQuota) { throw '9Router rol/Vision yonlendirme testi gecmedi.' }
-    Write-Host "VISION_POLICY kiroFreeQuota=$($routes.visionKiroFreeQuota) paidFallback=$($routes.paidVisionFallbackEnabled)"
+    if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly -or $null -eq $routes.localVisionEnabled -or $null -eq $routes.visionKiroFallback -or $null -eq $routes.visionKiroFreeQuota) { throw '9Router rol/Vision yonlendirme testi gecmedi.' }
+    Write-Host "VISION_POLICY local=$($routes.localVisionEnabled) kiroFreeQuota=$($routes.visionKiroFreeQuota) paidFallback=$($routes.paidVisionFallbackEnabled)"
     if ($null -eq $routes.roles.SCALP -or @($routes.roles.SCALP).Count -lt 1) { throw '9Router SCALP rol rotasi eksik.' }
     if ((@($routes.roles.SCALP) -join '|') -ne (@($routes.roles.FAST) -join '|')) { throw 'SCALP rotasi FAST ile ayni hizli model havuzunu kullanmiyor.' }
     $scan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/scanner' -Headers $headers -TimeoutSec 90
@@ -404,10 +404,56 @@ if ($Action -eq 'VisionStatus') {
         freeFirst = $routes.freeFirst
         kiroFreeQuotaVision = $routes.visionKiroFreeQuota
         kiroFreeQuotaVisionModels = @($routes.kiroFreeQuotaVisionModels)
+        localVisionEnabled = $routes.localVisionEnabled
+        localVisionModels = @($routes.localVisionModels)
+        localVisionBaseUrl = $routes.localVisionBaseUrl
         paidVisionFallbackEnabled = $routes.paidVisionFallbackEnabled
         visionRoutes = $routes.visionRoutes
         note = $routes.note
     } | ConvertTo-Json -Depth 8
+    exit 0
+}
+if ($Action -eq 'VisionLocalSetup') {
+    $modelName = 'qwen3-vl:4b-instruct-q4_K_M'
+    $ollamaApi = 'http://127.0.0.1:11434'
+    try {
+        $tags = Invoke-RestMethod -Uri ($ollamaApi + '/api/tags') -TimeoutSec 8
+    } catch {
+        throw 'Yerel Ollama yanit vermiyor. Once Ollama servisinin calistigini dogrulayin.'
+    }
+    $installed = @($tags.models | ForEach-Object { [string]$_.name })
+    if ($installed -notcontains $modelName) {
+        throw "Yerel Vision modeli bulunamadi. Once: ollama pull $modelName"
+    }
+    $modelsPath = Join-Path $rootFull 'config\models.json'
+    if (-not (Test-Path -LiteralPath $modelsPath)) { throw 'models.json bulunamadi; once BrainHub Update/Install calistirin.' }
+    $key = Router-Key $rootFull
+    $wasRunning = [bool](Brain-Pid $rootFull)
+    if ($wasRunning) { Stop-Brain $rootFull }
+    $backup = Backup-Brain $rootFull
+    try {
+        $models = Get-Content -LiteralPath $modelsPath -Raw | ConvertFrom-Json
+        $local = [ordered]@{
+            enabled = $true
+            baseUrl = 'http://127.0.0.1:11434/v1'
+            models = @($modelName)
+        }
+        $models | Add-Member -NotePropertyName localVision -NotePropertyValue $local -Force
+        $models | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $modelsPath -Encoding UTF8
+        Start-Brain $rootFull $node $key
+        Test-Brain $rootFull
+        $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
+        if (-not $routes.localVisionEnabled -or @($routes.localVisionModels) -notcontains ('local/' + $modelName)) {
+            throw 'Yerel Ollama Vision rotasi etkinlesmedi.'
+        }
+        Write-Host "BRAINHUB_LOCAL_VISION_SETUP_OK model=$modelName backup=$backup"
+    } catch {
+        Stop-Brain $rootFull
+        $backupModels = Join-Path $backup 'config\models.json'
+        if (Test-Path -LiteralPath $backupModels) { Copy-Item -LiteralPath $backupModels -Destination $modelsPath -Force }
+        if ($wasRunning) { Start-Brain $rootFull $node $key -AcceptLegacy }
+        throw
+    }
     exit 0
 }
 if ($Action -eq 'VisionFreeSetup') {

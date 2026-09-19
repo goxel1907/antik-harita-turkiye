@@ -65,6 +65,55 @@ function fakeImage(tf) {
   return { tf, mode:'annotated', dataUrl:'data:image/png;base64,'+bytes.toString('base64') };
 }
 
+test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it for text-only committee calls', { timeout:20000 }, async () => {
+  const routerRequested=[];
+  const localRequested=[];
+  const fakeRouter=http.createServer(async (req,res)=>{
+    if(req.method!=='POST'||req.url!=='/v1/chat/completions'){res.writeHead(404,{'content-type':'application/json'});return res.end(JSON.stringify({error:'not found'}));}
+    let raw=''; for await(const chunk of req) raw+=chunk;
+    const body=JSON.parse(raw||'{}'); const model=String(body.model||''); const vision=hasImageInput(body);
+    routerRequested.push({model,vision});
+    if(vision){res.writeHead(500,{'content-type':'application/json'});return res.end(JSON.stringify({error:'router vision should not be reached when local succeeds'}));}
+    res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({choices:[{message:{content:'NO_TRADE'}}]}));
+  });
+  const fakeOllama=http.createServer(async (req,res)=>{
+    if(req.method!=='POST'||req.url!=='/v1/chat/completions'){res.writeHead(404,{'content-type':'application/json'});return res.end(JSON.stringify({error:'not found'}));}
+    let raw=''; for await(const chunk of req) raw+=chunk;
+    const body=JSON.parse(raw||'{}');
+    localRequested.push({model:String(body.model||''),vision:hasImageInput(body),authorization:req.headers.authorization||''});
+    res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({choices:[{message:{content:'VISION_OK: local 9TF'}}]}));
+  });
+  const routerPort=await listen(fakeRouter), localPort=await listen(fakeOllama);
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-local-vision-route-')), brainPort=await freePort(), configDir=path.join(root,'config');
+  fs.mkdirSync(configDir,{recursive:true});
+  fs.writeFileSync(path.join(configDir,'models.json'),JSON.stringify({
+    baseUrl:'http://127.0.0.1:'+routerPort+'/v1',opencode:['oc/text-a','oc/text-b'],kiro:['kr/not-needed'],
+    localVision:{enabled:true,baseUrl:'http://127.0.0.1:'+localPort+'/v1',models:['qwen3-vl:test']},healthCacheSeconds:1
+  }),'utf8');
+  fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
+    analysts:['oc/text-a','oc/text-b'],backupAnalysts:[],judges:[],minAnalystReplies:2,minVisionAnalystReplies:1,maxFreeVisionAttempts:2,
+    allowKiroFreeQuotaVision:false,allowKiroVisionFallback:false,parallelAnalysts:2,visionParallelAnalysts:1,judgeOnlyOnDisagreement:true
+  }),'utf8');
+  const serverPath=path.join(__dirname,'..','server.js');
+  const child=spawn(process.execPath,[serverPath],{cwd:root,env:{...process.env,BRAINHUB_ROOT:root,BRAINHUB_ROUTER_KEY:'integration-test-router-key-123456',BRAINHUB_HOST:'127.0.0.1',BRAINHUB_PORT:String(brainPort),BRAINHUB_CLIENT_TOKEN:''},stdio:['ignore','pipe','pipe']});
+  try{
+    const health=await waitFor('http://127.0.0.1:'+brainPort+'/health');
+    assert.ok(health.features.includes('LOCAL_OLLAMA_VISION_FALLBACK')); assert.equal(health.configured.localVision,1);
+    const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+    const vr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'Local Vision routing regression',images:tfs.map(fakeImage)})});
+    const vision=await vr.json(); assert.equal(vr.status,200,JSON.stringify(vision)); assert.equal(vision.model,'local/qwen3-vl:test'); assert.equal(vision.vision?.attached,9);
+    assert.equal(localRequested.length,1); assert.equal(localRequested[0].model,'qwen3-vl:test'); assert.equal(localRequested[0].vision,true); assert.equal(localRequested[0].authorization,''); assert.equal(routerRequested.some(x=>x.vision),false);
+    const routes=await (await fetch('http://127.0.0.1:'+brainPort+'/models/routes')).json();
+    assert.equal(routes.localVisionEnabled,true); assert.equal(routes.localVisionFirst,true); assert.equal(routes.localVisionModels[0],'local/qwen3-vl:test'); assert.equal(routes.visionRoutes.STRUCTURE[0],'local/qwen3-vl:test'); assert.equal(routes.paidVisionFallbackEnabled,false);
+    const beforeLocal=localRequested.length;
+    const tr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'SCALP',prompt:'Return NO_TRADE'})});
+    assert.equal(tr.status,200); assert.equal(localRequested.length,beforeLocal); assert.ok(routerRequested.filter(x=>!x.vision).length>=2);
+    const liveStatus=await (await fetch('http://127.0.0.1:'+brainPort+'/live/status')).json(); assert.equal(liveStatus.armed,false); assert.equal(liveStatus.visionAvailability.verifiedModels,1);
+  } finally {
+    await stopChild(child); await new Promise(resolve=>fakeRouter.close(resolve)); await new Promise(resolve=>fakeOllama.close(resolve)); fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
 test('9TF Vision may use an explicitly opted-in Kiro free-quota route without changing text-only routing', { timeout:20000 }, async () => {
   const requested = [];
   const fakeRouter = http.createServer(async (req, res) => {
