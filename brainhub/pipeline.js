@@ -344,8 +344,8 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
       const visionProbeCell=visionProbe ? probeCells[frame] : null;
       const png = renderChartPng(chart, 'annotated', {
         ...(visionProbeCell?{visionProbeCell}:{}),
-        outputWidth:896,
-        outputHeight:504
+        outputWidth:640,
+        outputHeight:360
       });
       const last=Array.isArray(chart?.candles)&&chart.candles.length?chart.candles[chart.candles.length-1]:null;
       const visualLastCandle=last
@@ -389,7 +389,7 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
     attached:images.length,
     barsRequested:Math.max(100, Math.min(256, Number(requestedBars) || 128)),
     mode:'annotated',
-    imageSize:{width:896,height:504},
+    imageSize:{width:640,height:360},
     frames,
     failures,
     images

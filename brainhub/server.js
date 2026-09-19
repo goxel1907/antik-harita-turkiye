@@ -302,22 +302,34 @@ function multimodalUserContent(prompt,images){
   }
   return {content,images:normalized};
 }
-function localVisionExtractionPrompt(){
+function tfPromptTag(tf){
+  return String(tf||'').toUpperCase();
+}
+function localVisionExtractionPrompt(images){
+  const tfs=normalizeVisionImages(images).map(x=>x.tf);
   return [
-    'LOCAL_VISION_STAGE_1. Dokuz ekli 9TF grafiğin her birini gerçekten incele.',
+    'LOCAL_VISION_STAGE_1_BATCH. Yalnız ekli '+tfs.length+' grafiği gerçekten incele.',
     'Amaç yalnız görsel kanıt çıkarmaktır; nihai işlem planı yazma.',
-    'Her TF için tek kısa satır döndür. Şema tam olarak:',
-    'VIS_1M: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'VIS_3M: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'VIS_5M: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'VIS_15M: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'VIS_30M: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'VIS_45M: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'VIS_1H: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'VIS_4H: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'VIS_1D: trend/structure; support-resistance-liquidity; forming-context; conflict',
-    'Son forming mum bağlamdır, teyit değildir. Görmediğin şeyi uydurma. Başka açıklama ekleme.'
+    'Her ekli TF için tam bir kısa satır döndür:',
+    ...tfs.map(tf=>'VIS_'+tfPromptTag(tf)+': trend/structure; support-resistance-liquidity; forming-context; conflict'),
+    'Son forming mum bağlamdır, teyit değildir. Görmediğin şeyi uydurma. Ekli olmayan TF hakkında satır yazma. Başka açıklama ekleme.'
   ].join('\n');
+}
+function localPixelBatchPrompt(images){
+  const tfs=normalizeVisionImages(images).map(x=>x.tf);
+  return [
+    'LOCAL_PIXEL_BATCH. Yalnız ekli grafiklerdeki sol üst 3x3 diagnostik ızgarayı oku.',
+    'Hücreler soldan sağa, yukarıdan aşağı 1..9. Yalnız parlak MOR/MAGENTA hücrenin numarasını yaz.',
+    'Tam olarak şu satırları döndür; ekli olmayan TF yazma:',
+    ...tfs.map(tf=>'PROBE_'+tfPromptTag(tf)+': N'),
+    'Başka açıklama ekleme.'
+  ].join('\n');
+}
+function visionBatches(images,size=3){
+  const xs=normalizeVisionImages(images);
+  const out=[];
+  for(let i=0;i<xs.length;i+=size)out.push(xs.slice(i,i+size));
+  return out;
 }
 function localVisionFinalizeMessages(role,system,prompt,visionText){
   const sys=[
@@ -366,7 +378,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','VISION_CHART_896X504','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','VISION_CHART_896X504','VISION_CHART_640X360','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -440,6 +452,7 @@ const server=http.createServer(async(req,res)=>{
         localVisionTimeoutMs:local.timeoutMs,
         localVisionOnly:local.localOnly,
         localVisionTwoStage:true,
+        localVisionBatchSize:3,
         localVisionFirst:true,
         visionKiroFreeQuota,
         kiroFreeQuotaVisionModels,
@@ -544,18 +557,26 @@ const server=http.createServer(async(req,res)=>{
             ? Math.max(visionTimeoutMs,localVision.timeoutMs)
             : (hasVision?visionTimeoutMs:20000);
           if(localTwoStage&&String(model).startsWith('local/')){
-            const visualInput=multimodalUserContent(localVisionExtractionPrompt(),j.images);
-            const visualMessages=[
-              {role:'system',content:'You are the local Brain Hub visual extractor. Read every attached timeframe image. Return only the requested VIS_* lines. Do not place orders.'},
-              {role:'user',content:visualInput.content}
-            ];
+            const batchTexts=[];
+            const batchDurations=[];
             const visionStarted=Date.now();
-            const visual=await callModel(model,visualMessages,modelTimeoutMs,{temperature:0,maxTokens:1400});
+            for(const batch of visionBatches(j.images,3)){
+              const visualInput=multimodalUserContent(localVisionExtractionPrompt(batch),batch);
+              const visualMessages=[
+                {role:'system',content:'You are the local Brain Hub visual extractor. Read every attached timeframe image. Return only the requested VIS_* lines. Do not place orders.'},
+                {role:'user',content:visualInput.content}
+              ];
+              const batchStarted=Date.now();
+              const visual=await callModel(model,visualMessages,modelTimeoutMs,{temperature:0,maxTokens:600});
+              batchDurations.push(Date.now()-batchStarted);
+              batchTexts.push(String(visual.text||'').trim());
+            }
             const visionDurationMs=Date.now()-visionStarted;
+            const visionText=batchTexts.filter(Boolean).join('\n');
             const finalizeStarted=Date.now();
             const finalized=await callModel(
               model,
-              localVisionFinalizeMessages(role,j.system||'',j.prompt,visual.text),
+              localVisionFinalizeMessages(role,j.system||'',j.prompt,visionText),
               Math.max(120000,localVision.timeoutMs),
               {temperature:0,maxTokens:4096}
             );
@@ -565,9 +586,29 @@ const server=http.createServer(async(req,res)=>{
             return {
               ok:true,model,text:finalized.text,durationMs,
               localVisionTwoStage:true,
-              visionExtractionText:String(visual.text||'').slice(0,5000),
-              visionDurationMs,finalizeDurationMs
+              localVisionBatchSize:3,
+              visionExtractionText:visionText.slice(0,5000),
+              visionDurationMs,batchDurations,finalizeDurationMs
             };
+          }
+          if(forceVisionProbe&&localVision.enabled&&localVision.localOnly&&String(model).startsWith('local/')&&vision.images.length>3){
+            const batchTexts=[];
+            const batchDurations=[];
+            for(const batch of visionBatches(j.images,3)){
+              const visualInput=multimodalUserContent(localPixelBatchPrompt(batch),batch);
+              const visualMessages=[
+                {role:'system',content:'You are a visual transport diagnostic. Read only the magenta 3x3 probe cells in the attached charts. Return only requested PROBE_* lines.'},
+                {role:'user',content:visualInput.content}
+              ];
+              const batchStarted=Date.now();
+              const visual=await callModel(model,visualMessages,modelTimeoutMs,{temperature:0,maxTokens:192});
+              batchDurations.push(Date.now()-batchStarted);
+              batchTexts.push(String(visual.text||'').trim());
+            }
+            const durationMs=Date.now()-started;
+            const text=batchTexts.filter(Boolean).join('\n');
+            visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs});
+            return {ok:true,model,text,durationMs,localVisionTwoStage:false,localVisionPixelBatched:true,localVisionBatchSize:3,batchDurations};
           }
           const r=await callModel(model,messages,modelTimeoutMs);
           const durationMs=Date.now()-started;
@@ -639,6 +680,7 @@ const server=http.createServer(async(req,res)=>{
           visionTimeoutMs:hasVision?visionTimeoutMs:null,
           visionParallelAnalysts:hasVision?visionParallel:null,
           localVisionTwoStage:localTwoStage,
+          localVisionBatchSize:(localTwoStage||(forceVisionProbe&&localVision.enabled&&localVision.localOnly))?3:null,
           failures
         });
       }
@@ -695,7 +737,7 @@ const server=http.createServer(async(req,res)=>{
       }
 
       log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no')+' visionCharts='+vision.images.length);
-      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,forceVisionProbe:forceVisionProbe||false,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,localVisionTwoStage:localTwoStage,visionKiroFreeQuota:hasVision&&ccfg.allowKiroFreeQuotaVision===true,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
+      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,forceVisionProbe:forceVisionProbe||false,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,localVisionTwoStage:localTwoStage,localVisionBatchSize:(localTwoStage||(forceVisionProbe&&localVision.enabled&&localVision.localOnly))?3:null,visionKiroFreeQuota:hasVision&&ccfg.allowKiroFreeQuotaVision===true,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
