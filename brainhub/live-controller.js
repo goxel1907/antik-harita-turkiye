@@ -305,11 +305,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
           ? (directionAllowed ? ((e?.reasons || [])[0] || 'NOT_EXECUTION_ELIGIBLE_NOW') : 'DIRECTION_DISABLED')
           : 'NOT_IN_CURRENT_DEEP_SHORTLIST';
         changed=true;
-      } else if (row.executionEligibleNow !== false) {
+      } else {
+        if (row.executionEligibleNow !== true || row.eligibilityReason) changed=true;
         row.executionEligibleNow=true;
         row.lastEligibilityCheckAt=now;
         row.eligibilityReason=null;
-        changed=true;
       }
       leaderAnalysisState.bySymbol[symbol]=row;
     }
