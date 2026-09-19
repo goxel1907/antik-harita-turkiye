@@ -1,0 +1,134 @@
+"""Reuse the existing manual chart/plan-code flow for selected AUTO candidates."""
+from pathlib import Path
+import re
+
+APP = Path('/tmp/futures15m-build/Futures15mAlarm')
+JAVA = APP / 'app/src/main/java/com/futuresalarm/app'
+main_path = JAVA / 'MainActivity.java'
+analysis_path = JAVA / 'AnalysisPackActivity.java'
+main = main_path.read_text()
+analysis = analysis_path.read_text()
+
+anchor = '        String detailedAuto=v9594SelectedLeaderDetail(sp);'
+if main.count(anchor) != 1:
+    raise SystemExit('v9.5.97 AUTO review anchor missing/ambiguous')
+main = main.replace(anchor, r'''
+        // V9597_AUTO_CHAT_REVIEW: user-selected analysis only, no order side effect.
+        android.widget.Button extraReview=new android.widget.Button(this);
+        extraReview.setAllCaps(false);
+        extraReview.setText("OTO ADAYI • EK ANALİZ PAKETİ");
+        extraReview.setOnClickListener(v -> v9597ChooseAutoReview());
+        box.addView(extraReview,new android.widget.LinearLayout.LayoutParams(-1,dp(48)));
+''' + anchor, 1)
+
+methods = r'''
+    private void v9597ChooseAutoReview() {
+        android.content.SharedPreferences sp=getSharedPreferences(MonitorService.PREFS,MODE_PRIVATE);
+        java.util.LinkedHashSet<String> unique=new java.util.LinkedHashSet<>();
+        try {
+            org.json.JSONObject diagnostics=new org.json.JSONObject(sp.getString("v9593_pc_auto_diagnostics","{}"));
+            org.json.JSONArray candidates=diagnostics.optJSONArray("candidates");
+            if(candidates!=null)for(int i=0;i<candidates.length();i++){
+                org.json.JSONObject row=candidates.optJSONObject(i); if(row==null)continue;
+                String sym=row.optString("symbol","").toUpperCase(java.util.Locale.US);
+                if(sym.matches("[A-Z0-9]{1,28}USDT"))unique.add(sym);
+            }
+            org.json.JSONObject lifecycle=new org.json.JSONObject(sp.getString("v9594_pc_analysis_lifecycle","{}"));
+            org.json.JSONArray rows=lifecycle.optJSONArray("rows");
+            if(rows!=null)for(int i=0;i<rows.length();i++){
+                org.json.JSONObject row=rows.optJSONObject(i); if(row==null)continue;
+                String sym=row.optString("symbol","").toUpperCase(java.util.Locale.US);
+                if(sym.matches("[A-Z0-9]{1,28}USDT"))unique.add(sym);
+            }
+        } catch(Exception ignored) {}
+        if(unique.isEmpty()){
+            Toast.makeText(this,"Henüz PC adayı yok; manuel coin seçimi açılıyor.",Toast.LENGTH_LONG).show();
+            startActivity(new android.content.Intent(this,AnalysisPackActivity.class).putExtra("v9597_auto_review",true));
+            return;
+        }
+        String[] symbols=unique.toArray(new String[0]);
+        boolean[] checked=new boolean[symbols.length];
+        android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this)
+            .setTitle("Ek analiz için 1-8 OTO adayı seç")
+            .setMultiChoiceItems(symbols,checked,(d,which,on)->checked[which]=on)
+            .setNegativeButton("Vazgeç",null).setPositiveButton("Grafik paketini hazırla",null).create();
+        dialog.setOnShowListener(d -> dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            java.util.ArrayList<String> selected=new java.util.ArrayList<>();
+            for(int i=0;i<symbols.length;i++)if(checked[i])selected.add(symbols[i]);
+            if(selected.isEmpty()||selected.size()>8){Toast.makeText(this,"1-8 coin seçmelisiniz.",Toast.LENGTH_SHORT).show();return;}
+            android.content.Intent intent=new android.content.Intent(this,AnalysisPackActivity.class);
+            intent.putExtra("v9597_auto_review",true);
+            if(selected.size()==1){intent.putExtra("v9538_symbol",selected.get(0));intent.putExtra("v9538_autobuild",true);}
+            else intent.putStringArrayListExtra("v9545_batch_symbols",selected);
+            dialog.dismiss();startActivity(intent);
+        }));
+        dialog.show();
+    }
+'''
+pos=main.rfind('}')
+main=main[:pos]+methods+'\n'+main[pos:]
+
+anchor='                String prompt = buildPrompt(symbol, candles, forming, metrics, now);'
+if analysis.count(anchor)!=1:
+    raise SystemExit('v9.5.97 manual buildPrompt anchor missing/ambiguous')
+analysis=analysis.replace(anchor,anchor+'\n                prompt = v9597WithAutoEvidence(symbol,prompt,now);',1)
+chart_anchor='                Bitmap image = renderPack(symbol, candles, forming, metrics, now);'
+if analysis.count(chart_anchor)!=1:
+    raise SystemExit('v9.5.97 chart render anchor missing/ambiguous')
+analysis=analysis.replace(chart_anchor,'''                boolean autoReview=getIntent()!=null&&getIntent().getBooleanExtra("v9597_auto_review",false);
+                Bitmap image = autoReview ? BrainHubClient.reviewCharts(this,symbol) : renderPack(symbol, candles, forming, metrics, now);''',1)
+success_anchor='                    // V9545_BATCH_SUCCESS_HOOK'
+if analysis.count(success_anchor)!=1:
+    raise SystemExit('v9.5.97 package success hook missing/ambiguous')
+analysis=analysis.replace(success_anchor,'''                    if(autoReview)status.setText("OTO ek analiz paketi hazır: 1D/4h/1h/45m/30m/15m/5m/3m/1m • 9 PC grafiği. Mevcut sohbet düğmesi promptu panoya, grafikleri Galeri'ye hazırlar; gönderimi siz yaparsınız.");
+'''+success_anchor,1)
+review_method=r'''
+    private String v9597WithAutoEvidence(String symbol,String prompt,long packageTime) {
+        if(getIntent()==null||!getIntent().getBooleanExtra("v9597_auto_review",false))return prompt;
+        StringBuilder note=new StringBuilder("OTO ADAYI EK İNCELEME • ").append(symbol)
+            .append("\nBu pakette manuel analiz motorunun güncel grafikleri, verileri ve mevcut kaynak/kuralları kullanılır.")
+            .append("\nEkli PC grafik ızgarası, soldan sağa satır sırasıyla: 1D/4h/1h, 45m/30m/15m, 5m/3m/1m. Her grafik 128 mum içerir; 45m sentetiktir. Manuel metindeki eski altı-grafik yerleşimi yerine bu 9TF yerleşimini kullan.")
+            .append("\nAşağıdaki PC kaydı önceki analizin bağlamıdır; güncel teyit veya bağımsız oy değildir. Çelişkileri mevcut grafik/veriyle yeniden değerlendir.")
+            .append("\nForming mum teyit değildir. Eksik veriyi uydurma. Mevcut plan kodu sözleşmesini koru; yanıt emir yetkisi vermez.")
+            .append("\nPaket zamanı(ms): ").append(packageTime);
+        try {
+            if(!BrainHubClient.configured(this))throw new Exception("PC yapılandırılmamış");
+            note.append("\nPC_9TF_MARKET_CONTEXT_JSON:\n").append(BrainHubClient.reviewContext(this,symbol).toString());
+            org.json.JSONObject status=BrainHubClient.liveStatus(this);
+            org.json.JSONObject auto=status.optJSONObject("leaderAuto");
+            org.json.JSONObject diagnostics=auto==null?null:auto.optJSONObject("diagnostics");
+            org.json.JSONArray candidates=diagnostics==null?null:diagnostics.optJSONArray("candidates");
+            org.json.JSONObject row=null;
+            if(candidates!=null)for(int i=0;i<candidates.length();i++){
+                org.json.JSONObject candidate=candidates.optJSONObject(i);
+                if(candidate!=null&&symbol.equals(candidate.optString("symbol",""))){row=candidate;break;}
+            }
+            note.append("\nPC son tur: ").append(auto==null?"bilinmiyor":auto.optString("lastTickAt","bilinmiyor"));
+            org.json.JSONObject safe=new org.json.JSONObject();
+            if(row!=null){
+                String[] fields={"symbol","side","stage","reasons","explanationTr","vision","timeframeEvidence","lifecycle"};
+                for(String field:fields)if(row.has(field))safe.put(field,row.get(field));
+                org.json.JSONObject committee=row.optJSONObject("committee");
+                if(committee!=null)safe.put("model",committee.optString("model","bilinmiyor"));
+                note.append("\nPC_ADVISORY_CONTEXT_JSON:\n").append(safe.toString());
+            }else note.append("\nBu coin için PC kısa listesinde kayıt yok; paket yine güncel manuel grafiklerle değerlendirilmelidir.");
+        } catch(Exception ex) {
+            note.append("\nPC bağlamı alınamadı; yalnız bu paketin güncel manuel verileri kullanılmalıdır.");
+        }
+        // Prefix keeps existing batch protocol deduplication and plan-code output intact.
+        return note.toString()+"\n\n"+prompt;
+    }
+'''
+pos=analysis.rfind('}')
+analysis=analysis[:pos]+review_method+'\n'+analysis[pos:]
+main_path.write_text(main)
+analysis_path.write_text(analysis)
+build=APP/'app/build.gradle'
+text=build.read_text()
+text=re.sub(r'versionCode\s+\d+','versionCode 26091902',text)
+text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.97'",text)
+build.write_text(text)
+assert 'v9597ChooseAutoReview' in main
+assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
+assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
+print('v9.5.97 AUTO candidate review reuses manual chart/source/plan-code flow; user opens chat; no order action added.')

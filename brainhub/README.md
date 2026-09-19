@@ -1,5 +1,13 @@
 # PC Brain Hub
 
+## 9.5.97 - OTO adayını mevcut manuel sohbet akışında inceleme
+
+Android OTO durum kartındaki **OTO ADAYI • EK ANALİZ PAKETİ**, son PC kısa listesinden ve takip edilen kurulumlardan 1-8 coin seçtirir. Var olan manuel AnalysisPackActivity, kaynak/SMC/mikro yapı kuralları ve plan-kodu aktarım akışı yeniden kullanılır. Ek incelemede PC'den 128 mumlu dokuz annotated grafik alınır: 1D/4h/1h, 45m/30m/15m, 5m/3m/1m. 45m sentetiktir. Grafik eksikse paket başarıyla hazırlanmış sayılmaz.
+
+Paket güncel piyasa bağlamını ve önceki PC yorumunun zamanını taşır; önceki yorum bağımsız teyit değildir. Hesap bakiyesi ve API/token bilgileri eklenmez. Mevcut sohbet düğmesi promptu panoya, grafik görüntüsünü Galeri'ye hazırlar; kullanıcı gönderir. ChatGPT sohbeti otomatik yürütücü veya sürekli açık model API'si gibi kullanılmaz. Gelen plan mevcut kullanıcı incelemesi ve risk kontrollerine tabidir.
+
+PC tarafında mobil ve Leader AUTO istekleri aynı yürütücü kilidinden geçer. Başka istek sürerken yeni istek `LIVE_EXECUTOR_BUSY` ile reddedilir; bayat istekler sıraya konmaz. Acil durdurma, devam eden arm ön kontrolünün sonradan canlı modu tekrar açmasını da engeller.
+
 Node.js 24 önerilir. v9.5.96 PC Brain Hub; 9TF piyasa/grafik analizi, SQLite günlük, kalıcı aday takibi ve kullanıcı tarafından yönetilen Binance yürütücüsünü içerir. PC yeniden başladığında LIVE kapalıdır. Bir APK derlemesinin geçmesi canlı işlem hazırlığının geçtiği anlamına gelmez.
 
 v9.5.96 düzeltmeleri: mobil marj/kaldıraç ayarları PC risk tavanlarını yükseltemez; eski yön/setup kimliği uyuşmazlıkları yeni analiz gerektirecek şekilde onarılır; başarısız yeni Vision sonucu eski 9/9 bilgisini taşımaz. Android model erişim/kota durumunu gösterir. Yayın APK'si yalnız mevcut `futures15m_stable` imzasıyla üretilir.

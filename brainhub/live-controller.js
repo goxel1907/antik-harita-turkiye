@@ -213,6 +213,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
   const leaseToken = crypto.randomBytes(32).toString('base64url');
   let armState = { armed:false, armedAt:null, expiresAt:null };
+  let armGeneration = 0;
+  let executionBusy = false;
   let lastDisarmReason = 'STARTUP_FAIL_CLOSED';
   let accountSummaryCache = { at:0, value:null };
   const commissionRateCache = new Map();
@@ -1074,6 +1076,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   }
 
   async function arm({ confirmed = false } = {}) {
+    const generation = ++armGeneration;
     registry.revokeAll();
     armState = { armed:false, armedAt:null, expiresAt:null };
     const policy = readPolicy(root);
@@ -1100,6 +1103,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       };
     }
 
+    if (generation !== armGeneration) return { ok:false, armed:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_ARM_CANCELLED'] };
     const now = clock();
     armState = { armed:true, armedAt:now, expiresAt:now + policy.armMinutes * 60000 };
     lastDisarmReason = null;
@@ -1116,6 +1120,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   }
 
   function disarm(reason = 'USER_DISARM') {
+    armGeneration++;
     const revoked = registry.revokeAll();
     armState = { armed:false, armedAt:null, expiresAt:null };
     lastDisarmReason = text(reason) || 'USER_DISARM';
@@ -1782,6 +1787,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   }
 
   async function execute(body = {}) {
+    // Mobile and Leader AUTO share this gate. Reject concurrent requests rather
+    // than queueing stale market intents behind a potentially slow Vision call.
+    if (executionBusy) return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_BUSY'] };
+    executionBusy = true;
+    const generation = armGeneration;
+    try { return await executeExclusive(body, generation); }
+    finally { executionBusy = false; }
+  }
+
+  async function executeExclusive(body = {}, generation) {
     const policy = readPolicy(root);
     const creds = currentCredentials();
     if (!armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_NOT_ARMED'] };
@@ -1875,7 +1890,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       return { ok:false, orderPlaced:false, liveAllowed:false, retryable:claimRelease?.released === true, execution:'LIVE_BLOCKED', claim, claimRelease, reasons:[String(e.message || 'PIPELINE_FAILED').slice(0,160)] };
     }
 
-    if (!armedNow()) {
+    if (!armedNow() || generation !== armGeneration) {
       const claimRelease = releaseClaim();
       return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', claim, claimRelease, plan:planResult?.plan || null, reasons:['LIVE_DISARMED_DURING_PREFLIGHT'] };
     }

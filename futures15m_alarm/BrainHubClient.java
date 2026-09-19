@@ -194,4 +194,55 @@ public final class BrainHubClient {
         return "PC BRAIN HUB / " + symbol + " • analiz; LIVE emri yalnız /live/execute güvenlik zinciriyle\n" + market.toString() + "\nGLOBAL:\n" + global.toString();
     }
     public static String endpoint(Context c) { return prefs(c).getString("endpoint", ""); }
+
+    // Analysis export only: reads public market charts through the paired PC.
+    public static android.graphics.Bitmap reviewCharts(Context c,String symbol) throws Exception {
+        if(symbol==null||!symbol.matches("[A-Z0-9]{1,28}USDT"))throw new Exception("Sembol geçersiz");
+        String base=endpoint(c);validate(base);String bearer=token(c);
+        if(bearer.isEmpty())throw new Exception("BrainHub token gerekli");
+        String[] frames={"1d","4h","1h","45m","30m","15m","5m","3m","1m"};
+        android.graphics.Bitmap sheet=android.graphics.Bitmap.createBitmap(3840,2160,android.graphics.Bitmap.Config.RGB_565);
+        android.graphics.Canvas canvas=new android.graphics.Canvas(sheet);
+        try {
+            for(int i=0;i<frames.length;i++) {
+                HttpURLConnection conn=(HttpURLConnection)new URL(base+"/chart/png?symbol="+symbol+"&tf="+frames[i]+"&bars=128&mode=annotated").openConnection();
+                conn.setConnectTimeout(4000);conn.setReadTimeout(22000);conn.setInstanceFollowRedirects(false);
+                conn.setRequestProperty("Authorization","Bearer "+bearer);
+                try {
+                    if(conn.getResponseCode()!=200)throw new Exception(frames[i]+" PC grafiği alınamadı");
+                    byte[] bytes;
+                    try(InputStream in=conn.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()) {
+                        byte[] buf=new byte[8192];int n;
+                        while((n=in.read(buf))!=-1){out.write(buf,0,n);if(out.size()>2097152)throw new Exception("PC grafiği çok büyük");}
+                        bytes=out.toByteArray();
+                    }
+                    android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();
+                    bounds.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length,bounds);
+                    if(bounds.outWidth!=1280||bounds.outHeight!=720)throw new Exception("PC grafik boyutu geçersiz");
+                    android.graphics.Bitmap chart=android.graphics.BitmapFactory.decodeByteArray(bytes,0,bytes.length);
+                    if(chart==null)throw new Exception("PC grafiği çözülemedi");
+                    try{canvas.drawBitmap(chart,(i%3)*1280,(i/3)*720,null);}finally{chart.recycle();}
+                } finally {conn.disconnect();}
+            }
+            return sheet;
+        } catch(Exception ex){sheet.recycle();throw ex;}
+    }
+
+    public static JSONObject reviewContext(Context c,String symbol) throws Exception {
+        if(symbol==null||!symbol.matches("[A-Z0-9]{1,28}USDT"))throw new Exception("Sembol geçersiz");
+        JSONObject market=get(c,"/context/symbol?symbol="+symbol);
+        JSONObject result=new JSONObject(),frames=new JSONObject(),raw=market.optJSONObject("frames");
+        String[] order={"1m","3m","5m","15m","30m","45m","1h","4h","1d"};
+        String[] fields={"available","asOf","close","trend","rsi14","atr14","ema9","ema21","patterns","swing","smc","breakOfStructure","prior20High","prior20Low"};
+        for(String tf:order){
+            JSONObject frame=raw==null?null:raw.optJSONObject(tf),safe=new JSONObject();
+            if(frame!=null){for(String field:fields)if(frame.has(field))safe.put(field,frame.get(field));}
+            else safe.put("available",false);
+            frames.put(tf,safe);
+        }
+        result.put("symbol",symbol);result.put("receivedAt",System.currentTimeMillis());result.put("frames",frames);
+        if(market.has("microstructure"))result.put("microstructure",market.get("microstructure"));
+        result.put("note","Chart and data requests have separate capture times; refresh before any decision. 45m is synthetic, forming is context only. No account or credentials included.");
+        return result;
+    }
 }

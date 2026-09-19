@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.96 compile check
+name: Futures 15m Alarm v9.5.97 compile check
 
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Prepare v9.5.96 source
+      - name: Prepare v9.5.97 source
         shell: bash
         run: |
           set -euo pipefail
