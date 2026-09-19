@@ -32,6 +32,8 @@ try {
         $text -notmatch 'LOCAL_OLLAMA_VISION_BATCH3' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_SINGLE_TF' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_COMPACT_FINALIZE' -or
+        $text -notmatch 'LOCAL_OLLAMA_VISION_TF_CONTRACT' -or
+        $text -notmatch 'LOCAL_OLLAMA_VISION_SPLIT_GLOBAL' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or

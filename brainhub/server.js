@@ -383,28 +383,101 @@ function localRoleSummary(tfEvidence){
     vetoLine:'VETO_TFS: '+(veto.length?veto.join(','):'NONE')
   };
 }
-function localVisionFinalizeMessages(role,system,visionText,localContext){
+function tfEvidenceContract(tf,text){
+  const tag=tfPromptTag(tf);
+  const required=[
+    'TF_'+tag,
+    'TF_'+tag+'_WHY',
+    'TF_'+tag+'_WAIT',
+    'TF_'+tag+'_ROLE',
+    'TF_'+tag+'_FORMING',
+    'TF_'+tag+'_RISK'
+  ];
+  const found=new Set();
+  for(const rawLine of String(text||'').split(/\r?\n/)){
+    const line=String(rawLine||'').trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+)/,'');
+    const colon=line.indexOf(':');
+    if(colon<1)continue;
+    found.add(line.slice(0,colon).replace(/[\`*"']/g,'').trim().toUpperCase());
+  }
+  const missing=required.filter(x=>!found.has(x));
+  return {ok:missing.length===0,required,missing};
+}
+function localTfRepairPrompt(tf,missing,localContext){
+  const tag=tfPromptTag(tf);
+  const tfContext=localContext?.frames?.[tf]||{available:false};
+  return [
+    'LOCAL_TF_SCHEMA_REPAIR. Aynı ekli '+tf+' grafiğini tekrar incele.',
+    'Yalnız eksik etiketleri tamamla. Başka etiket veya açıklama yazma.',
+    'Eksik etiketler: '+missing.join(', '),
+    'ROLE yalnız SUPPORT | VETO | NEUTRAL olabilir.',
+    'FORMING alanı bunun kapanmış mum teyidi olmadığını açıkça söylemeli.',
+    'Görmediğin şeyi uydurma.',
+    'TF_CONTEXT_JSON: '+JSON.stringify(tfContext)
+  ].join('\n');
+}
+function labeledContract(text,labels){
+  const lines=new Map();
+  for(const rawLine of String(text||'').split(/\r?\n/)){
+    const line=String(rawLine||'').trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+)/,'');
+    const colon=line.indexOf(':');
+    if(colon<1)continue;
+    const label=line.slice(0,colon).replace(/[\`*"']/g,'').trim().toUpperCase();
+    if(!lines.has(label))lines.set(label,line.slice(colon+1).trim());
+  }
+  const missing=labels.filter(x=>!String(lines.get(x)||'').trim());
+  return {ok:missing.length===0,missing,lines};
+}
+function normalizedLabeledText(contract,labels,maxChars=240){
+  return labels.map(label=>{
+    const raw=String(contract?.lines?.get(label)||'').replace(/\s+/g,' ').trim();
+    return label+': '+raw.slice(0,maxChars);
+  }).join('\n');
+}
+function localGlobalCoreMessages(role,visionText,localContext){
   const sys=[
     roleInstruction(role),
-    'LOCAL_VISION_GLOBAL_FINALIZE: The nine timeframe images were already read one-by-one by the same local model. Use only COMPACT_CONTEXT_JSON and TF_EVIDENCE. Never invent visual facts, news, hidden liquidity or market-maker intent. Forming candles are context only, never confirmation. Synthetic 45m is context, not an independent vote. Failed breakout requires reclaim or another valid execution path. Advisory only.'
+    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. Advisory only.'
   ].join(' ');
-  const globalSchema=[
-    'STATUS: WATCH | QUALIFIED | REJECT',
-    'SIDE: LONG | SHORT',
-    'CONFIDENCE: 0-100',
-    'ORIGIN_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
-    'OWNER_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
-    'SETUP: short setup name',
-    'EXEC_PATH: short path name',
-    'WHY: Türkçe, net ve somut global gerekçe',
-    'RISK_NOTE: Türkçe, işlemi bozabilecek ana risk',
-    'WAIT_FOR: Türkçe, sinyal için tam koşul; QUALIFIED ise NONE',
-    'FORMING_CONTEXT: Türkçe, 9TF forming bağlam özeti ve teyit olmadığı açıkça',
-    'VISION_SUMMARY: Türkçe, 9TF ortak yapı/çelişki/origin-owner devamlılığı'
-  ].join('\n');
   return [
     {role:'system',content:sys},
-    {role:'user',content:'Return exactly these 12 LABEL: value lines, no Markdown, JSON, headings or extra prose:\n'+globalSchema+'\n\nTF_EVIDENCE:\n'+String(visionText||'')+'\n\nCOMPACT_CONTEXT_JSON:\n'+JSON.stringify(localContext||{})}
+    {role:'user',content:[
+      'STATUS: WATCH | QUALIFIED | REJECT',
+      'SIDE: LONG | SHORT',
+      'CONFIDENCE: 0-100',
+      'ORIGIN_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
+      'OWNER_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
+      'SETUP: en fazla 5 kelime',
+      'EXEC_PATH: en fazla 5 kelime',
+      '',
+      'TF_EVIDENCE:',
+      String(visionText||''),
+      '',
+      'COMPACT_CONTEXT_JSON:',
+      JSON.stringify(localContext||{})
+    ].join('\n')}
+  ];
+}
+function localGlobalNarrativeMessages(role,visionText,localContext){
+  const sys=[
+    roleInstruction(role),
+    'LOCAL_GLOBAL_NARRATIVE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly five labeled Turkish lines. Each value must be concise: maximum 220 characters. Do not repeat patterns or timeframe names more than necessary. Forming candles are context only, never confirmation. Advisory only.'
+  ].join(' ');
+  return [
+    {role:'system',content:sys},
+    {role:'user',content:[
+      'WHY: en fazla 220 karakter; ortak ana kanıt ve çelişki',
+      'RISK_NOTE: en fazla 180 karakter; ana bozulma riski',
+      'WAIT_FOR: en fazla 180 karakter; tam koşul; QUALIFIED ise NONE',
+      'FORMING_CONTEXT: en fazla 180 karakter; forming bağlamı ve teyit olmadığı',
+      'VISION_SUMMARY: en fazla 220 karakter; 9TF ortak yapı, destek/veto ve origin→owner',
+      '',
+      'TF_EVIDENCE:',
+      String(visionText||''),
+      '',
+      'COMPACT_CONTEXT_JSON:',
+      JSON.stringify(localContext||{})
+    ].join('\n')}
   ];
 }
 function readCommitteeConfig(){
@@ -459,29 +532,55 @@ async function runLocalVisionCommittee(body){
       for(const batch of visionBatches(j.images,1)){
         const visualInput=multimodalUserContent(localVisionExtractionPrompt(batch,j.localContext||{}),batch);
         const visualMessages=[
-          {role:'system',content:'You are the local Brain Hub visual extractor. Read every attached timeframe image. Return only the requested VIS_* lines. Do not place orders.'},
+          {role:'system',content:'You are the local Brain Hub single-timeframe visual extractor. Read the attached chart. Return exactly the requested TF_* labeled lines, never VIS_* labels. Do not place orders.'},
           {role:'user',content:visualInput.content}
         ];
         const batchStarted=Date.now();
         const tf=String(batch[0]?.tf||'?');
-        const visual=await callLocalStage('VISUAL_TF='+tf,model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:360});
+        let visual=await callLocalStage('VISUAL_TF='+tf,model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:420});
+        let contract=tfEvidenceContract(tf,visual.text);
+        if(!contract.ok){
+          const repairInput=multimodalUserContent(localTfRepairPrompt(tf,contract.missing,j.localContext||{}),batch);
+          const repairMessages=[
+            {role:'system',content:'Repair only the missing TF_* labels from the attached single timeframe chart. Return exact LABEL: value lines only.'},
+            {role:'user',content:repairInput.content}
+          ];
+          const repair=await callLocalStage('VISUAL_REPAIR_TF='+tf,model,repairMessages,local.timeoutMs,{temperature:0,maxTokens:260});
+          visual={...visual,text:[String(visual.text||'').trim(),String(repair.text||'').trim()].filter(Boolean).join('\n')};
+          contract=tfEvidenceContract(tf,visual.text);
+          if(!contract.ok)throw new Error('TF_CONTRACT='+tf+' missing='+contract.missing.join(','));
+        }
         batchDurations.push(Date.now()-batchStarted);
         batchTexts.push(String(visual.text||'').trim());
       }
       const visionDurationMs=Date.now()-visionStarted;
       const visionText=batchTexts.filter(Boolean).join('\n');
       const finalizeStarted=Date.now();
-      const finalized=await callLocalStage(
-        'FINALIZE_GLOBAL',
+      const core=await callLocalStage(
+        'FINALIZE_CORE',
         model,
-        localVisionFinalizeMessages(role,j.system||'',visionText,j.localContext||{}),
+        localGlobalCoreMessages(role,visionText,j.localContext||{}),
         local.timeoutMs,
-        {temperature:0,maxTokens:900}
+        {temperature:0,maxTokens:320}
       );
+      const coreLabels=['STATUS','SIDE','CONFIDENCE','ORIGIN_TF','OWNER_TF','SETUP','EXEC_PATH'];
+      const coreContract=labeledContract(core.text,coreLabels);
+      if(!coreContract.ok)throw new Error('GLOBAL_CORE_CONTRACT missing='+coreContract.missing.join(','));
+      const narrative=await callLocalStage(
+        'FINALIZE_NARRATIVE',
+        model,
+        localGlobalNarrativeMessages(role,visionText,j.localContext||{}),
+        local.timeoutMs,
+        {temperature:0,maxTokens:520}
+      );
+      const narrativeLabels=['WHY','RISK_NOTE','WAIT_FOR','FORMING_CONTEXT','VISION_SUMMARY'];
+      const narrativeContract=labeledContract(narrative.text,narrativeLabels);
+      if(!narrativeContract.ok)throw new Error('GLOBAL_NARRATIVE_CONTRACT missing='+narrativeContract.missing.join(','));
       const finalizeDurationMs=Date.now()-finalizeStarted;
       const roleSummary=localRoleSummary(visionText);
       text=[
-        String(finalized.text||'').trim(),
+        normalizedLabeledText(coreContract,coreLabels,80),
+        normalizedLabeledText(narrativeContract,narrativeLabels,240),
         roleSummary.supportLine,
         roleSummary.vetoLine,
         visionText,
@@ -493,7 +592,8 @@ async function runLocalVisionCommittee(body){
         visionExtractionText:visionText.slice(0,5000),
         visionDurationMs,
         batchDurations,
-        finalizeDurationMs
+        finalizeDurationMs,
+        globalFinalizeSplit:true
       };
     }
     const durationMs=Date.now()-started;
@@ -569,7 +669,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -646,6 +746,8 @@ const server=http.createServer(async(req,res)=>{
         localVisionBatchSize:1,
         localVisionSingleTf:true,
         localVisionCompactFinalize:true,
+        localVisionTfContract:true,
+        localVisionSplitGlobal:true,
         localVisionDirectPipeline:true,
         localVisionFirst:true,
         visionKiroFreeQuota,
