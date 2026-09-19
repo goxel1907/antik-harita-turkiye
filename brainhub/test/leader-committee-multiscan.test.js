@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { selectDeepCandidates, pickCandidate, buildPrompt } = require('../leader-committee');
+const { selectDeepCandidates, detailProbeCandidate, pickCandidate, buildPrompt } = require('../leader-committee');
 
 function row(symbol, attackRank, leaderState, overrides = {}) {
   return {
@@ -95,6 +95,23 @@ test('low-quality current top10 stays in review package but cannot become execut
   assert.ok(deep.some(x => x.symbol === 'WEAKTOPUSDT'));
   assert.equal(pickCandidate(scan)?.symbol, 'STRONGSHORTUSDT');
   assert.equal(pickCandidate(scan)?.side, 'SHORT');
+});
+
+test('detail probe skips malformed symbols and normalizes the next valid USDT candidate', () => {
+  const malformed = row('BAD/USDT', 1, 'TOP5_CONFIRMED', { side:'SHORT' });
+  const valid = row('  GOODUSDT  ', 2, 'TOP5_CONFIRMED', { side:'long' });
+  const picked = detailProbeCandidate({
+    leaders:[malformed,valid],
+    top3Approach:[],top10Approach:[],earlyTop5:[],earlyExpansion:[]
+  },16);
+  assert.equal(picked.symbol,'GOODUSDT');
+  assert.equal(picked.side,'LONG');
+
+  const none = detailProbeCandidate({
+    leaders:[malformed],
+    top3Approach:[],top10Approach:[],earlyTop5:[],earlyExpansion:[]
+  },16);
+  assert.equal(none,null);
 });
 
 test('deep-scan prompt explicitly requires independent LONG and SHORT review for every symbol', () => {
