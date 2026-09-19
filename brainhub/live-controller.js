@@ -630,7 +630,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     }
   }
 
-  async function liveReadiness() {
+  async function liveReadiness({ symbol = '' } = {}) {
     const policy = readPolicy(root);
     const creds = currentCredentials();
     const armed = armedNow();
@@ -687,7 +687,33 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       };
     }
 
-    const candidate=candidates[0];
+    const requestedSymbol=String(symbol || '').trim().toUpperCase();
+    if (requestedSymbol && !/^[A-Z0-9]{1,28}USDT$/.test(requestedSymbol)) {
+      return { ...base, reasons:['READINESS_SYMBOL_INVALID'], requestedSymbol, policy:publicPolicy(policy) };
+    }
+
+    let candidate=null;
+    if (requestedSymbol) {
+      candidate=candidates.find(x=>String(x?.symbol || '').toUpperCase()===requestedSymbol) || null;
+      if (!candidate) {
+        return {
+          ...base,
+          requestedSymbol,
+          reasons:['READINESS_SYMBOL_NOT_EXECUTION_ELIGIBLE'],
+          policy:publicPolicy(policy),
+          universeCount:Number(scan?.universeCount || 0),
+          shortlistCount:rawCandidates.length
+        };
+      }
+    } else {
+      // Prefer a currently tracked plan that has already reached ARMED/ENTERABLE,
+      // but always re-run fresh 9TF analysis before declaring readiness.
+      candidate=candidates.find(x=>{
+        const row=leaderAnalysisState.bySymbol?.[String(x?.symbol || '').toUpperCase()];
+        return row && ['ARMED','ENTERABLE'].includes(String(row.state || '').toUpperCase()) &&
+          String(row.planStatus || '').toUpperCase()==='QUALIFIED';
+      }) || candidates[0];
+    }
     let advisory;
     try {
       advisory=await pipeline.run({
