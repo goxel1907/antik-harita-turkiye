@@ -169,6 +169,128 @@ test('Leader Auto keeps 9TF analysis running while LIVE arm stays off and never 
   fs.rmSync(root,{recursive:true,force:true});
 });
 
+test('LiveReadiness stays disarmed, sends only read-only Binance requests and validates dry-run plus one-shot fingerprint', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-live-readiness-'));
+  const cfg=path.join(root,'config');
+  fs.mkdirSync(cfg,{recursive:true});
+  fs.writeFileSync(path.join(cfg,'live-policy.json'),JSON.stringify(policy(),null,2));
+
+  const clockRef={ now:Date.UTC(2026,8,19,1,20,0) };
+  const calls=[];
+  const fetchImpl=async (url,options={}) => {
+    const u=new URL(String(url));
+    const method=String(options?.method || 'GET').toUpperCase();
+    calls.push({ path:u.pathname, method });
+    assert.equal(method,'GET','readiness must never submit a Binance write request');
+
+    if(u.pathname==='/fapi/v1/time') return response({ serverTime:clockRef.now });
+    if(u.pathname==='/fapi/v3/account') return response({
+      totalWalletBalance:'100',
+      totalMarginBalance:'100',
+      availableBalance:'100',
+      totalUnrealizedProfit:'0',
+      positions:[]
+    });
+    if(u.pathname==='/fapi/v1/income') return response([]);
+    if(u.pathname==='/fapi/v1/positionSide/dual') return response({ dualSidePosition:false });
+    if(u.pathname==='/fapi/v1/exchangeInfo') return response({
+      symbols:[{
+        symbol:'AAAUSDT',status:'TRADING',contractType:'PERPETUAL',quoteAsset:'USDT',
+        filters:[
+          {filterType:'MARKET_LOT_SIZE',minQty:'0.001',maxQty:'1000',stepSize:'0.001'},
+          {filterType:'PRICE_FILTER',minPrice:'0.1',maxPrice:'100000',tickSize:'0.1'},
+          {filterType:'MIN_NOTIONAL',notional:'5'}
+        ]
+      }]
+    });
+    if(u.pathname==='/fapi/v1/ticker/price') return response({ symbol:'AAAUSDT', price:'100' });
+    throw new Error('unexpected readiness Binance fetch: '+u.pathname);
+  };
+
+  const scan=candidateScan();
+  const readinessAdvisory={
+    ...advisory('QUALIFIED'),
+    plan:{
+      ...advisory('QUALIFIED').plan,
+      originTF:'15m',
+      ownerTF:'1h',
+      waitFor:'NONE'
+    },
+    unifiedContext:{
+      symbol:'AAAUSDT',
+      livePrice:100,
+      dataQuality:{ advisoryUsable:true },
+      microstructure:{ spreadBps:1 },
+      frames:{
+        '15m':{
+          available:true,fresh:true,atrPct:1,prior20Low:99,prior20High:104,
+          breakoutExecution:{status:'NO_ACTIVE_BREAKOUT'}
+        },
+        '1h':{
+          available:true,fresh:true,atrPct:2,prior20Low:96,prior20High:108,
+          breakoutExecution:{status:'NO_ACTIVE_BREAKOUT'}
+        }
+      },
+      opportunityPaths:{
+        LONG:{
+          originTF:'15m',
+          ownerTF:'1h',
+          continuity:[
+            {frame:'15m',score:72,immediateEligible:true,state:'ACTIVE_CONTEXT'},
+            {frame:'1h',score:65,immediateEligible:false,state:'ACTIVE_CONTEXT'}
+          ]
+        },
+        SHORT:{ originTF:null,ownerTF:null,continuity:[] }
+      }
+    },
+    vision:{ ok:true,attached:9,required:9,barsRequested:128,mode:'annotated',failures:[] },
+    committee:{ vision:{attached:9},model:'fixture-model',mode:'consensus',degraded:false }
+  };
+
+  const store={ journal(){ return '00000000-0000-0000-0000-000000000020'; } };
+  const pipeline={ async run(input){
+    assert.equal(input.executionIntent.symbol,'AAAUSDT');
+    assert.equal(input.executionIntent.analysisTracking,true);
+    return readinessAdvisory;
+  }};
+  const scanner={ async scan(){ return scan; } };
+
+  const controller=createLiveController({
+    root,store,scanner,pipeline,committee:async()=>({ok:true,text:''}),
+    credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' },
+    fetchImpl,clock:()=>clockRef.now
+  });
+
+  assert.equal(controller.status().armed,false);
+  assert.equal(controller.configureLeaderAuto({
+    enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
+  }).ok,true);
+
+  const out=await controller.liveReadiness();
+  assert.equal(out.ok,true);
+  assert.equal(out.readyForUserArm,true);
+  assert.equal(out.armed,false);
+  assert.equal(out.liveAllowed,false);
+  assert.equal(out.orderPlaced,false);
+  assert.equal(out.orderRequestSent,false);
+  assert.equal(out.symbol,'AAAUSDT');
+  assert.equal(out.planStatus,'QUALIFIED');
+  assert.equal(out.vision.attached,9);
+  assert.equal(out.dryRun.ok,true);
+  assert.equal(out.dryRun.simulated,true);
+  assert.equal(out.dryRun.submitted,false);
+  assert.equal(out.dryRun.requestSent,false);
+  assert.equal(out.exchangeRules.ok,true);
+  assert.equal(out.authorizationSimulation.issueOk,true);
+  assert.equal(out.authorizationSimulation.consumeOnceOk,true);
+  assert.equal(out.authorizationSimulation.replayBlocked,true);
+  assert.ok(calls.length>0);
+  assert.ok(calls.every(x=>x.method==='GET'));
+  assert.equal(controller.status().armed,false,'readiness must not arm LIVE');
+
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('leader lifecycle persists across restart and reanalysis remains analysis-only', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-leader-life-'));
   const cfg=path.join(root,'config');
