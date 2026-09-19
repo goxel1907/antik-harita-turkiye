@@ -231,17 +231,33 @@ public final class BrainHubClient {
     public static JSONObject reviewContext(Context c,String symbol) throws Exception {
         if(symbol==null||!symbol.matches("[A-Z0-9]{1,28}USDT"))throw new Exception("Sembol geçersiz");
         JSONObject market=get(c,"/context/symbol?symbol="+symbol);
-        JSONObject result=new JSONObject(),frames=new JSONObject(),raw=market.optJSONObject("frames");
+        JSONObject result=new JSONObject(),frames=new JSONObject();
+        // BrainHub /context/symbol contract uses "timeframes". Keep "frames" only
+        // as a backward-compatible fallback for an older paired PC.
+        JSONObject raw=market.optJSONObject("timeframes");
+        if(raw==null)raw=market.optJSONObject("frames");
         String[] order={"1m","3m","5m","15m","30m","45m","1h","4h","1d"};
-        String[] fields={"available","asOf","close","trend","rsi14","atr14","ema9","ema21","patterns","swing","smc","breakOfStructure","prior20High","prior20Low"};
+        String[] fields={
+            "available","frame","asOf","closedCandles","close","trend","rsi14","atr14","atrPct",
+            "ema20","ema50","patterns","candle","swingStructure","smcContext","liquidity",
+            "buySideLiquidity","sellSideLiquidity","recentFairValueGaps","breakOfStructure",
+            "prior20High","prior20Low","returnPct","opportunity"
+        };
         for(String tf:order){
             JSONObject frame=raw==null?null:raw.optJSONObject(tf),safe=new JSONObject();
-            if(frame!=null){for(String field:fields)if(frame.has(field))safe.put(field,frame.get(field));}
-            else safe.put("available",false);
+            if(frame!=null){
+                for(String field:fields)if(frame.has(field))safe.put(field,frame.get(field));
+                if(!safe.has("available"))safe.put("available",frame.optBoolean("available",false));
+            } else safe.put("available",false);
             frames.put(tf,safe);
         }
-        result.put("symbol",symbol);result.put("receivedAt",System.currentTimeMillis());result.put("frames",frames);
+        result.put("symbol",symbol);
+        result.put("receivedAt",System.currentTimeMillis());
+        result.put("marketGeneratedAt",market.optString("generatedAt",""));
+        result.put("frames",frames);
         if(market.has("microstructure"))result.put("microstructure",market.get("microstructure"));
+        if(market.has("streamHealth"))result.put("streamHealth",market.get("streamHealth"));
+        if(market.has("limitations"))result.put("limitations",market.get("limitations"));
         result.put("note","Chart and data requests have separate capture times; refresh before any decision. 45m is synthetic, forming is context only. No account or credentials included.");
         return result;
     }

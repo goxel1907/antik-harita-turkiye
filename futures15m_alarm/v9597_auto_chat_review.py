@@ -9,6 +9,19 @@ analysis_path = JAVA / 'AnalysisPackActivity.java'
 main = main_path.read_text()
 analysis = analysis_path.read_text()
 
+brain_client_path = JAVA / 'BrainHubClient.java'
+if not brain_client_path.exists():
+    raise SystemExit('v9.5.97 BrainHubClient missing after v9577 source preparation')
+brain_client = brain_client_path.read_text()
+required_client_markers = [
+    'optJSONObject("timeframes")',
+    '"ema20"','"ema50"','"atrPct"','"swingStructure"','"smcContext"','"liquidity"','"opportunity"',
+    'marketGeneratedAt'
+]
+missing_client_markers = [m for m in required_client_markers if m not in brain_client]
+if missing_client_markers:
+    raise SystemExit('v9.5.97 AUTO review BrainHub context contract mismatch: ' + ','.join(missing_client_markers))
+
 anchor = '        String detailedAuto=v9594SelectedLeaderDetail(sp);'
 if main.count(anchor) != 1:
     raise SystemExit('v9.5.97 AUTO review anchor missing/ambiguous')

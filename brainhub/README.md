@@ -4,7 +4,7 @@
 
 Android OTO durum kartındaki **OTO ADAYI • EK ANALİZ PAKETİ**, son PC kısa listesinden ve takip edilen kurulumlardan 1-8 coin seçtirir. Var olan manuel AnalysisPackActivity, kaynak/SMC/mikro yapı kuralları ve plan-kodu aktarım akışı yeniden kullanılır. Ek incelemede PC'den 128 mumlu dokuz annotated grafik alınır: 1D/4h/1h, 45m/30m/15m, 5m/3m/1m. 45m sentetiktir. Grafik eksikse paket başarıyla hazırlanmış sayılmaz.
 
-Paket güncel piyasa bağlamını ve önceki PC yorumunun zamanını taşır; önceki yorum bağımsız teyit değildir. Hesap bakiyesi ve API/token bilgileri eklenmez. Mevcut sohbet düğmesi promptu panoya, grafik görüntüsünü Galeri'ye hazırlar; kullanıcı gönderir. ChatGPT sohbeti otomatik yürütücü veya sürekli açık model API'si gibi kullanılmaz. Gelen plan mevcut kullanıcı incelemesi ve risk kontrollerine tabidir.
+Paket güncel piyasa bağlamını ve önceki PC yorumunun zamanını taşır; önceki yorum bağımsız teyit değildir. Hesap bakiyesi ve API/token bilgileri eklenmez. Mevcut sohbet düğmesi promptu panoya, grafik görüntüsünü Galeri'ye hazırlar; kullanıcı gönderir. ChatGPT sohbeti otomatik yürütücü veya sürekli açık model API'si gibi kullanılmaz. Gelen plan mevcut kullanıcı incelemesi ve risk kontrollerine tabidir. Android aktarımı BrainHub `/context/symbol.timeframes` sözleşmesini kullanır; EMA20/EMA50, ATR/ATR%, swingStructure, SMC, liquidity ve opportunity alanları ek analiz bağlamına dahil edilir.
 
 PC tarafında mobil ve Leader AUTO istekleri aynı yürütücü kilidinden geçer. Başka istek sürerken yeni istek `LIVE_EXECUTOR_BUSY` ile reddedilir; bayat istekler sıraya konmaz. Acil durdurma, devam eden arm ön kontrolünün sonradan canlı modu tekrar açmasını da engeller.
 
