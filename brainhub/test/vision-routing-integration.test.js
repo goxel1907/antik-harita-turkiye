@@ -82,12 +82,28 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
     const body=JSON.parse(raw||'{}');
     const vision=hasImageInput(body);
     localRequested.push({model:String(body.model||''),vision,authorization:req.headers.authorization||'',temperature:body.temperature,maxTokens:body.max_tokens||null});
-    let content='VISION_OK: local staged final';
+    let content=[
+      'STATUS: WATCH','SIDE: LONG','CONFIDENCE: 55','ORIGIN_TF: 1m','OWNER_TF: 1h',
+      'SETUP: TEST','EXEC_PATH: WATCH','WHY: test','RISK_NOTE: test','WAIT_FOR: test',
+      'FORMING_CONTEXT: test','VISION_SUMMARY: test'
+    ].join('\n');
     if(vision){
       const texts=body.messages.flatMap(m=>Array.isArray(m?.content)?m.content.filter(x=>x?.type==='text').map(x=>String(x.text||'')):[]);
       const joined=texts.join('\n');
-      const labels=[...joined.matchAll(/(?:VIS|PROBE)_(1M|3M|5M|15M|30M|45M|1H|4H|1D):/g)].map(m=>m[0].slice(0,-1));
-      content=[...new Set(labels)].map(label=>label.startsWith('PROBE_')?(label+': 1'):(label+': up; level; forming; none')).join('\n') || 'VISION_OK';
+      const probe=[...joined.matchAll(/PROBE_(1M|3M|5M|15M|30M|45M|1H|4H|1D):/g)].map(m=>m[1]);
+      if(probe.length){
+        content=[...new Set(probe)].map(tag=>'PROBE_'+tag+': 1').join('\n');
+      }else{
+        const tf=[...joined.matchAll(/TF_(1M|3M|5M|15M|30M|45M|1H|4H|1D):/g)].map(m=>m[1])[0]||'1M';
+        content=[
+          'TF_'+tf+': test summary',
+          'TF_'+tf+'_WHY: test why',
+          'TF_'+tf+'_WAIT: test wait',
+          'TF_'+tf+'_ROLE: SUPPORT',
+          'TF_'+tf+'_FORMING: test forming',
+          'TF_'+tf+'_RISK: test risk'
+        ].join('\n');
+      }
     }
     res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({choices:[{message:{content}}]}));
   });
@@ -110,9 +126,9 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
     const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
     const vr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'Local Vision routing regression',images:tfs.map(fakeImage)})});
     const vision=await vr.json(); assert.equal(vr.status,200,JSON.stringify(vision)); assert.equal(vision.model,'local/qwen3-vl:test'); assert.equal(vision.vision?.attached,9);
-    assert.equal(localRequested.length,10); assert.ok(localRequested.slice(0,9).every(x=>x.model==='qwen3-vl:test'&&x.vision===true&&x.authorization===''&&x.temperature===0&&x.maxTokens===220)); assert.equal(localRequested[9].vision,false); assert.equal(localRequested[9].maxTokens,2800); assert.equal(vision.localVisionTwoStage,true); assert.equal(vision.localVisionBatchSize,1); assert.equal(routerRequested.some(x=>x.vision),false);
+    assert.equal(localRequested.length,10); assert.ok(localRequested.slice(0,9).every(x=>x.model==='qwen3-vl:test'&&x.vision===true&&x.authorization===''&&x.temperature===0&&x.maxTokens===360)); assert.equal(localRequested[9].vision,false); assert.equal(localRequested[9].maxTokens,900); assert.equal(vision.localVisionTwoStage,true); assert.equal(vision.localVisionBatchSize,1); assert.match(vision.text,/TF_1M_WHY:/); assert.match(vision.text,/SUPPORT_TFS:/); assert.equal(routerRequested.some(x=>x.vision),false);
     const routes=await (await fetch('http://127.0.0.1:'+brainPort+'/models/routes')).json();
-    assert.equal(routes.localVisionEnabled,true); assert.equal(routes.localVisionFirst,true); assert.equal(routes.localVisionModels[0],'local/qwen3-vl:test'); assert.equal(routes.localVisionContextSize,16384); assert.equal(routes.localVisionTimeoutMs,300000); assert.equal(routes.localVisionOnly,true); assert.equal(routes.localVisionTwoStage,true); assert.equal(routes.localVisionBatchSize,1); assert.equal(routes.localVisionSingleTf,true); assert.equal(routes.localVisionDirectPipeline,true); assert.deepEqual(routes.visionRoutes.STRUCTURE,['local/qwen3-vl:test']); assert.equal(routes.paidVisionFallbackEnabled,false);
+    assert.equal(routes.localVisionEnabled,true); assert.equal(routes.localVisionFirst,true); assert.equal(routes.localVisionModels[0],'local/qwen3-vl:test'); assert.equal(routes.localVisionContextSize,16384); assert.equal(routes.localVisionTimeoutMs,300000); assert.equal(routes.localVisionOnly,true); assert.equal(routes.localVisionTwoStage,true); assert.equal(routes.localVisionBatchSize,1); assert.equal(routes.localVisionSingleTf,true); assert.equal(routes.localVisionCompactFinalize,true); assert.equal(routes.localVisionDirectPipeline,true); assert.deepEqual(routes.visionRoutes.STRUCTURE,['local/qwen3-vl:test']); assert.equal(routes.paidVisionFallbackEnabled,false);
     const beforeForce=localRequested.length;
     const fr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'raw pixel probe',images:tfs.map(fakeImage),forceVisionProbe:true})});
     assert.equal(fr.status,200); assert.equal(localRequested.length,beforeForce+9); assert.ok(localRequested.slice(-9).every(x=>x.vision===true&&x.maxTokens===64));

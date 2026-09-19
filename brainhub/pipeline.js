@@ -329,6 +329,67 @@ function compactUnifiedContext(u) {
     policy:u.policy
   };
 }
+function compactLocalModelContext(u) {
+  const frames=Object.fromEntries(FRAME_ORDER.map(tf=>{
+    const f=u?.frames?.[tf];
+    if(!f?.available)return [tf,{available:false,reason:f?.reason||'UNAVAILABLE'}];
+    return [tf,{
+      available:true,
+      fresh:Boolean(f.fresh),
+      close:f.close,
+      trend:f.trend,
+      rsi14:f.rsi14,
+      atrPct:f.atrPct,
+      breakOfStructure:f.breakOfStructure,
+      prior20High:f.prior20High,
+      prior20Low:f.prior20Low,
+      candle:f.candle||null,
+      patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[],
+      liquidity:{
+        buySide:f.liquidity?.buySide??null,
+        sellSide:f.liquidity?.sellSide??null,
+        equalHigh:f.liquidity?.equalHigh??null,
+        equalLow:f.liquidity?.equalLow??null,
+        lastSweep:f.liquidity?.lastSweep??null,
+        fairValueGaps:Array.isArray(f.liquidity?.fairValueGaps)?f.liquidity.fairValueGaps.slice(-2):[]
+      },
+      smcContext:f.smcContext||null,
+      opportunity:f.opportunity||null,
+      breakoutExecution:f.breakoutExecution?{status:f.breakoutExecution.status,allowed:f.breakoutExecution.allowed}:null
+    }];
+  }));
+  const m=u?.microstructure;
+  return {
+    symbol:u?.symbol||null,
+    livePrice:u?.livePrice??null,
+    sourceCandidate:u?.sourceCandidate||null,
+    frames,
+    opportunityPaths:u?.opportunityPaths||{},
+    microstructure:m?.available?{
+      available:true,
+      quality:m.sourceQuality||u?.dataQuality?.microstructureQuality||null,
+      spreadBps:m.spreadBps??null,
+      depth20Imbalance:m.depth20Imbalance??null,
+      cvdSampleQuote:m.cvdSampleQuote??null,
+      cvdSampleTrades:m.cvdSampleTrades??null,
+      ofiProxyQuote:m.ofiProxyQuote??null,
+      depthSoftContext:m.depthSoftContext||null,
+      streaming:m.streaming?{
+        available:Boolean(m.streaming.available),
+        connected:Boolean(m.streaming.connected),
+        ageMs:m.streaming.ageMs??null,
+        cvdQuote120s:m.streaming.cvdQuote120s??null,
+        cvdTrades120s:m.streaming.cvdTrades120s??null,
+        depth20Imbalance:m.streaming.depth20Imbalance??null
+      }:{available:false}
+    }:{available:false,reason:m?.reason||'UNAVAILABLE'},
+    liquidationContext:u?.liquidationContext||null,
+    global:u?.global||null,
+    dataQuality:u?.dataQuality||null,
+    policy:u?.policy||null
+  };
+}
+
 async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
   const frames = {};
   const images = [];
@@ -822,7 +883,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       role:'STRUCTURE',
       system:'You are the Brain Hub multi-timeframe futures structure analyst. Analyze the attached 9-timeframe charts and supplied market data together. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. The forming candle is visual context only and cannot confirm a setup. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. Produce detailed coin-specific Turkish diagnostic explanations for every timeframe and the exact missing trigger when not qualified. Output must follow the requested labels exactly as plain text: no Markdown, bullets, tables, JSON, code fences, headings or extra prose. This endpoint is advisory only.',
       prompt,
-      images:vision.images
+      images:vision.images,
+      localContext:compactLocalModelContext(unified)
     });
     plan = planFields(result.text);
     if (Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
@@ -851,7 +913,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
             role:'STRUCTURE',
             system:'You are repairing an incomplete Brain Hub 9TF Vision schema. Use the attached charts and supplied market context. Return only the requested missing LABEL: value lines. Do not place an order and do not invent facts.',
             prompt:visionRepairPrompt(prompt,plan,contract.missing),
-            images:vision.images
+            images:vision.images,
+            localContext:compactLocalModelContext(unified)
           });
           const mergedText=mergeVisionRepairText(result.text,repair?.text);
           const repairedPlan=planFields(mergedText);
