@@ -453,6 +453,53 @@ test('tracked ARMED row is presented as WATCH when targeted readiness says symbo
   fs.rmSync(root,{recursive:true,force:true});
 });
 
+test('leader lifecycle creates a new setupId when a non-active tracked direction flips', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-side-lineage-'));
+  const cfg=path.join(root,'config');
+  fs.mkdirSync(cfg,{recursive:true});
+  fs.writeFileSync(path.join(cfg,'live-policy.json'),JSON.stringify(policy(),null,2));
+
+  const clockRef={ now:Date.UTC(2026,8,19,3,0,0) };
+  const fetchImpl=async()=>{ throw new Error('analysis-only side flip must not contact Binance'); };
+  const store={ journal(){ return '00000000-0000-0000-0000-000000000033'; } };
+  let calls=0;
+  const pipeline={
+    async run(){
+      calls++;
+      return calls===1 ? advisory('QUALIFIED','LONG') : advisory('WATCH','SHORT');
+    }
+  };
+  const scanner={ async scan(){ return candidateScan(); } };
+  const controller=createLiveController({
+    root,store,scanner,pipeline,committee:async()=>({ok:true,text:''}),
+    credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' },
+    fetchImpl,clock:()=>clockRef.now
+  });
+
+  assert.equal(controller.configureLeaderAuto({
+    enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
+  }).ok,true);
+
+  const first=await controller.leaderAutoTick();
+  assert.equal(first.execution,'LEADER_AUTO_WAIT_ARM');
+  const before=controller.leaderAutoStatus().analysisLifecycle.rows.find(x=>x.symbol==='AAAUSDT');
+  assert.equal(before.side,'LONG');
+  assert.match(before.setupId,/^LHSET:AAAUSDT:LONG:/);
+
+  clockRef.now += 60_000;
+  const second=await controller.leaderAutoTick();
+  assert.equal(second.execution,'LEADER_AUTO_WAIT');
+  const after=controller.leaderAutoStatus().analysisLifecycle.rows.find(x=>x.symbol==='AAAUSDT');
+  assert.equal(after.side,'SHORT');
+  assert.equal(after.state,'WATCH');
+  assert.notEqual(after.setupId,before.setupId);
+  assert.match(after.setupId,/^LHSET:AAAUSDT:SHORT:/);
+  assert.equal(after.lineageSideChanged,true);
+  assert.equal(after.previousSetupId,before.setupId);
+
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('leader lifecycle persists across restart and reanalysis remains analysis-only', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-leader-life-'));
   const cfg=path.join(root,'config');
