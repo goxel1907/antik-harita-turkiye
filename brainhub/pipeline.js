@@ -623,6 +623,10 @@ function visionPlanContract(plan) {
   if (!String(plan?.why || '').trim()) missing.push('WHY');
   if (!String(plan?.riskNote || '').trim()) missing.push('RISK_NOTE');
   if (!String(plan?.waitFor || '').trim()) missing.push('WAIT_FOR');
+  if (String(plan?.status || '').toUpperCase() === 'QUALIFIED' &&
+      String(plan?.waitFor || '').trim().toUpperCase() !== 'NONE') {
+    missing.push('QUALIFIED_WAIT_FOR_NOT_NONE');
+  }
   if (!String(plan?.visionSummary || '').trim()) missing.push('VISION_SUMMARY');
   if (!String(plan?.formingContext || '').trim()) missing.push('FORMING_CONTEXT');
   if (plan?.supportTFsDeclared !== true) missing.push('SUPPORT_TFS');
@@ -835,7 +839,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       // repair pass with the same 9 images instead of accepting the omission.
       // Nothing is fabricated locally: repaired fields must still come from a
       // real Vision model and the full contract is re-validated fail-closed.
-      if (!contract.ok && plan?.valid === true && contract.missing.length > 0 && contract.missing.length <= 24) {
+      const semanticContradiction=contract.missing.includes('QUALIFIED_WAIT_FOR_NOT_NONE');
+      if (!semanticContradiction && !contract.ok && plan?.valid === true && contract.missing.length > 0 && contract.missing.length <= 24) {
         try {
           const repair=await committee({
             role:'STRUCTURE',
