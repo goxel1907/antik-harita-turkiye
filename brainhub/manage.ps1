@@ -441,54 +441,57 @@ if ($Action -eq 'LiveStatus') {
 if ($Action -eq 'LiveReadiness') {
     $headers = Auth-Headers $rootFull
     $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
-    if ($status.armed) { throw 'Readiness testi yalnız PC LIVE kapalıyken çalışır; önce LiveDisarm kullanın.' }
+    if ($status.armed) { throw 'Readiness testi yalniz PC LIVE kapaliyken calisir; once LiveDisarm kullanin.' }
     $readinessUri = 'http://127.0.0.1:8787/live/readiness'
     $requestedSymbol = ([string]$Symbol).Trim().ToUpperInvariant()
     if ($requestedSymbol) {
-        if ($requestedSymbol -notmatch '^[A-Z0-9]{1,28}USDT
+        if ($requestedSymbol.Length -lt 5 -or $requestedSymbol.Length -gt 32) { throw 'Readiness symbol gecersiz.' }
+        $readinessUri = $readinessUri + '?symbol=' + [Uri]::EscapeDataString($requestedSymbol)
+    }
+    $out = Invoke-RestMethod -Uri $readinessUri -Headers $headers -TimeoutSec 300
     Write-Host '========== LIVE READINESS =========='
-    $ready = Get-PropValue $out "readyForUserArm" $false
-    $execution = [string](Get-PropValue $out "execution" "LIVE_READINESS_CHECK")
-    $armed = Get-PropValue $out "armed" $false
-    $orderPlaced = Get-PropValue $out "orderPlaced" $false
-    $orderRequestSent = Get-PropValue $out "orderRequestSent" $false
-    Write-Host ("readyForUserArm={0} execution={1} armed={2} orderPlaced={3} orderRequestSent={4}" -f $ready,$execution,$armed,$orderPlaced,$orderRequestSent)
+    $ready = Get-PropValue $out 'readyForUserArm' $false
+    $execution = [string](Get-PropValue $out 'execution' 'LIVE_READINESS_CHECK')
+    $armed = Get-PropValue $out 'armed' $false
+    $orderPlaced = Get-PropValue $out 'orderPlaced' $false
+    $orderRequestSent = Get-PropValue $out 'orderRequestSent' $false
+    Write-Host ('readyForUserArm={0} execution={1} armed={2} orderPlaced={3} orderRequestSent={4}' -f $ready,$execution,$armed,$orderPlaced,$orderRequestSent)
 
-    $symbol = [string](Get-PropValue $out "symbol" "")
-    if (-not [string]::IsNullOrWhiteSpace($symbol)) {
-        $side = [string](Get-PropValue $out "side" "")
-        $planStatus = [string](Get-PropValue $out "planStatus" "")
-        $originTF = [string](Get-PropValue $out "originTF" "")
-        $ownerTF = [string](Get-PropValue $out "ownerTF" "")
-        $visionObj = Get-PropValue $out "vision" $null
-        $visionAttached = if ($null -ne $visionObj) { Get-PropValue $visionObj "attached" 0 } else { 0 }
-        $visionRequired = if ($null -ne $visionObj) { Get-PropValue $visionObj "required" 9 } else { 9 }
-        Write-Host ("symbol={0} side={1} plan={2} origin={3} owner={4} vision={5}/{6}" -f $symbol,$side,$planStatus,$originTF,$ownerTF,$visionAttached,$visionRequired)
+    $symbolOut = [string](Get-PropValue $out 'symbol' '')
+    if (-not [string]::IsNullOrWhiteSpace($symbolOut)) {
+        $side = [string](Get-PropValue $out 'side' '')
+        $planStatus = [string](Get-PropValue $out 'planStatus' '')
+        $originTF = [string](Get-PropValue $out 'originTF' '')
+        $ownerTF = [string](Get-PropValue $out 'ownerTF' '')
+        $visionObj = Get-PropValue $out 'vision' $null
+        $visionAttached = if ($null -ne $visionObj) { Get-PropValue $visionObj 'attached' 0 } else { 0 }
+        $visionRequired = if ($null -ne $visionObj) { Get-PropValue $visionObj 'required' 9 } else { 9 }
+        Write-Host ('symbol={0} side={1} plan={2} origin={3} owner={4} vision={5}/{6}' -f $symbolOut,$side,$planStatus,$originTF,$ownerTF,$visionAttached,$visionRequired)
     }
 
-    $dryRunObj = Get-PropValue $out "dryRun" $null
+    $dryRunObj = Get-PropValue $out 'dryRun' $null
     if ($null -ne $dryRunObj) {
-        Write-Host ("dryRun ok={0} simulated={1} submitted={2} requestSent={3}" -f (Get-PropValue $dryRunObj "ok" $false),(Get-PropValue $dryRunObj "simulated" $false),(Get-PropValue $dryRunObj "submitted" $false),(Get-PropValue $dryRunObj "requestSent" $false))
+        Write-Host ('dryRun ok={0} simulated={1} submitted={2} requestSent={3}' -f (Get-PropValue $dryRunObj 'ok' $false),(Get-PropValue $dryRunObj 'simulated' $false),(Get-PropValue $dryRunObj 'submitted' $false),(Get-PropValue $dryRunObj 'requestSent' $false))
     }
 
-    $exchangeRulesObj = Get-PropValue $out "exchangeRules" $null
+    $exchangeRulesObj = Get-PropValue $out 'exchangeRules' $null
     if ($null -ne $exchangeRulesObj) {
-        Write-Host ("exchangeRules ok={0} livePrice={1}" -f (Get-PropValue $exchangeRulesObj "ok" $false),(Get-PropValue $exchangeRulesObj "livePrice" ""))
-        $exchangeRuleReasons = @(Get-PropValue $exchangeRulesObj "reasons" @())
-        if ($exchangeRuleReasons.Count -gt 0) { Write-Host ("exchangeRuleReasons=" + ($exchangeRuleReasons -join ',')) -ForegroundColor Yellow }
+        Write-Host ('exchangeRules ok={0} livePrice={1}' -f (Get-PropValue $exchangeRulesObj 'ok' $false),(Get-PropValue $exchangeRulesObj 'livePrice' ''))
+        $exchangeRuleReasons = @(Get-PropValue $exchangeRulesObj 'reasons' @())
+        if ($exchangeRuleReasons.Count -gt 0) { Write-Host ('exchangeRuleReasons=' + ($exchangeRuleReasons -join ',')) -ForegroundColor Yellow }
     }
 
-    $authSimObj = Get-PropValue $out "authorizationSimulation" $null
+    $authSimObj = Get-PropValue $out 'authorizationSimulation' $null
     if ($null -ne $authSimObj) {
-        Write-Host ("authSim issue={0} consumeOnce={1} replayBlocked={2}" -f (Get-PropValue $authSimObj "issueOk" $false),(Get-PropValue $authSimObj "consumeOnceOk" $false),(Get-PropValue $authSimObj "replayBlocked" $false))
+        Write-Host ('authSim issue={0} consumeOnce={1} replayBlocked={2}' -f (Get-PropValue $authSimObj 'issueOk' $false),(Get-PropValue $authSimObj 'consumeOnceOk' $false),(Get-PropValue $authSimObj 'replayBlocked' $false))
     }
 
-    $reasons = @(Get-PropValue $out "reasons" @())
-    if ($reasons.Count -gt 0) { Write-Host ("reasons=" + ($reasons -join ',')) -ForegroundColor Yellow }
+    $reasons = @(Get-PropValue $out 'reasons' @())
+    if ($reasons.Count -gt 0) { Write-Host ('reasons=' + ($reasons -join ',')) -ForegroundColor Yellow }
     if ($ready) {
-        Write-Host 'BRAINHUB_LIVE_READINESS_OK — hiçbir canlı emir gönderilmedi; PC LIVE hâlâ kapalı.' -ForegroundColor Green
+        Write-Host 'BRAINHUB_LIVE_READINESS_OK - hicbir canli emir gonderilmedi; PC LIVE hala kapali.' -ForegroundColor Green
     } else {
-        Write-Host 'BRAINHUB_LIVE_READINESS_WAIT — canlıya geçmeyin; yukarıdaki blok nedenini çözün.' -ForegroundColor Yellow
+        Write-Host 'BRAINHUB_LIVE_READINESS_WAIT - canliya gecmeyin; yukaridaki blok nedenini cozun.' -ForegroundColor Yellow
     }
     exit 0
 }
