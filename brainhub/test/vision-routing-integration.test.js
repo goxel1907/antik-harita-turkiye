@@ -185,6 +185,10 @@ test('9TF Vision may use an explicitly opted-in Kiro free-quota route without ch
     const kiroHealth=health.models.find(x=>x.model==='kr/vision-backup');
     assert.ok(freeHealth.every(x=>x.visionStatus==='cooldown'));
     assert.equal(kiroHealth.visionStatus,'healthy');
+    const liveStatus=await (await fetch('http://127.0.0.1:'+brainPort+'/live/status')).json();
+    assert.equal(liveStatus.armed,false);
+    assert.equal(liveStatus.visionAvailability.verifiedModels,1);
+    assert.ok(liveStatus.visionAvailability.models.some(x=>x.reason==='PROVIDER_UNAVAILABLE'));
 
     const beforeText=requested.length;
     const tr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{

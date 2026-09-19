@@ -1,6 +1,8 @@
 # PC Brain Hub
 
-Node.js 22+ gerekir. Bu servis yalnız piyasa analizi, günlük ve tek yürütücü kilidi sağlar; Binance emir API'si veya borsa anahtarı içermez. Android v9.5.77 otomatik canlı emir tetikleyicisi kilitlidir ve sinyalleri dry-run olarak kaydeder.
+Node.js 24 önerilir. v9.5.96 PC Brain Hub; 9TF piyasa/grafik analizi, SQLite günlük, kalıcı aday takibi ve kullanıcı tarafından yönetilen Binance yürütücüsünü içerir. PC yeniden başladığında LIVE kapalıdır. Bir APK derlemesinin geçmesi canlı işlem hazırlığının geçtiği anlamına gelmez.
+
+v9.5.96 düzeltmeleri: mobil marj/kaldıraç ayarları PC risk tavanlarını yükseltemez; eski yön/setup kimliği uyuşmazlıkları yeni analiz gerektirecek şekilde onarılır; başarısız yeni Vision sonucu eski 9/9 bilgisini taşımaz. Android model erişim/kota durumunu gösterir. Yayın APK'si yalnız mevcut `futures15m_stable` imzasıyla üretilir.
 
 ## Bu PC'de tek komutlar
 
@@ -46,10 +48,11 @@ Bu test `/vision/probe?symbol=BTCUSDT` üzerinden 9/9 grafiğin hazırlanmasın�
 ## API ve veri sınırları
 
 - `/context/global`: BTC, ETH ve ETHBTC kapanmış mumları; CoinGecko `/global` üzerinden USDT baskınlığı ve **türetilmiş** TOTAL2/TOTAL3 piyasa değeri yaklaşık değerleri. TradingView endeksleriyle birebir eşit oldukları iddia edilmez.
-- `/context/symbol?symbol=BTCUSDT`: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d; EMA, RSI, ATR, swing ve FVG bağlamı.
-- L2 dengesizliği REST derinlik anlık görüntüsüdür. OFI alanı iki anlık görüntüden türetilmiş bir yaklaşık değerdir. CVD yalnız dönen son aggTrades örneğidir; seansın eksiksiz CVD'si değildir.
-- `/leader/plan`: yalnız `EARLY_TOP5` adayı için komiteye gider. Eksik/bayat veri veya yetersiz model yanıtı `REVIEW_REQUIRED` üretir; emir vermez.
+- `/context/symbol?symbol=BTCUSDT`: 1m, 3m, 5m, 15m, 30m, sentetik 45m, 1h, 4h, 1d; EMA, RSI, ATR, swing ve FVG bağlamı.
+- L2/CVD/OFI alanlarında REST örneği ve bağlantı sırasında gözlenen WebSocket akışı ayrı kalite etiketleri taşır; eksiksiz tarihçe veya gizli likidite olduğu iddia edilmez.
+- `/leader/plan`: scanner kısa listesinden veya açık analiz hedefinden 9TF komiteye gider. Eksik/bayat veri veya yetersiz model yanıtı `REVIEW_REQUIRED` üretir; emir vermez.
 - `/journal`, `/learning`: SQLite günlük ve yalnız açıkça etiketlenmiş sonuç istatistikleri. Öğrenim sert risk kurallarını otomatik değiştirmez.
-- `/lease`, `/execution/claim`: atomik sahiplik ve tekrar işlem kimliği kaydı. Bu sürümde PC ve Android'in gerçek emir yolu bu API'ye bağlanmadığı için canlı otomatik işlem kapalıdır.
+- `/lease`, `/execution/claim`: atomik sahiplik ve tekrar işlem kimliği kaydı. Canlı yol ayrıca PC arm, tek kullanımlık yetki, taze veri ve bağımsız risk kontrolleri ister. API sırları DPAPI ile saklanır ve modele gönderilmez.
+- `/live/status`: emir vermeden PC, aday takibi ve doğrulanmış görsel model erişim durumunu gösterir. Sağlayıcı kısıtı/kota hatası modelin kullanılabilir olduğu anlamına gelmez.
 
 Kaynak API'ler: [Binance USDT-M market data](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api), [CoinGecko global data](https://docs.coingecko.com/reference/crypto-global).

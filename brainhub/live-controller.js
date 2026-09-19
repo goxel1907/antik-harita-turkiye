@@ -156,6 +156,8 @@ function requestedExecutionSettings(body, policy) {
 
   const pcMax = finite(policy?.limits?.maxOpenPositions);
   if (maxOpenPositions !== null && pcMax !== null && maxOpenPositions > pcMax) reasons.push('REQUESTED_MAX_OPEN_POSITIONS_EXCEEDS_PC_CAP');
+  const pcLeverage = finite(policy?.expectedLeverage);
+  if (leverage !== null && pcLeverage !== null && leverage > pcLeverage) reasons.push('REQUESTED_LEVERAGE_EXCEEDS_PC_CAP');
 
   return {
     ok:reasons.length === 0,
@@ -178,22 +180,18 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
 
   if (availableBalance === null || availableBalance < settings.marginQuote) reasons.push('REQUESTED_MARGIN_EXCEEDS_AVAILABLE_BALANCE');
   if (notionalQuote === null || notionalQuote <= 0) reasons.push('TRADE_NOTIONAL_INVALID');
+  if (familyExposureAfterQuote === null || familyExposureAfterQuote < 0) reasons.push('FAMILY_EXPOSURE_INVALID');
   if (Number.isFinite(expectedNotional) && expectedNotional > 0 && notionalQuote !== null && notionalQuote > expectedNotional * 1.02) {
     reasons.push('ORDER_NOTIONAL_EXCEEDS_REQUESTED_MARGIN_LEVERAGE');
   }
   if (equity === null || equity <= 0) reasons.push('ACCOUNT_EQUITY_INVALID');
   if (reasons.length) return { ok:false, accountRisk, reasons:[...new Set(reasons)] };
 
-  // App-selected margin/leverage define position size. PC keeps independent stop-risk,
-  // daily-loss and max-position guards; legacy notional/exposure percentages no longer
-  // shrink an explicitly selected margin after those hard controls have passed.
-  const notionalPct = notionalQuote / equity * 100;
-  const familyPct = familyExposureAfterQuote / equity * 100;
+  // Mobile sizing requests never raise the separately configured PC risk ceilings.
+  // accountRiskCaps evaluates the requested order against these unchanged limits.
   const effectiveLimits = {
     ...policy.limits,
-    maxOpenPositions:settings.maxOpenPositions,
-    maxNotionalPctPerTrade:Math.max(policy.limits.maxNotionalPctPerTrade, notionalPct + 1e-9),
-    maxFamilyExposurePct:Math.max(policy.limits.maxFamilyExposurePct, familyPct + 1e-9)
+    maxOpenPositions:Math.min(policy.limits.maxOpenPositions, settings.maxOpenPositions)
   };
   return {
     ok:true,
@@ -230,7 +228,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   const LEADER_ANALYSIS_VERSION = 1;
   const LEADER_ANALYSIS_MAX_TRACKS = 24;
   const LEADER_ANALYSIS_RETENTION_MS = 24 * 60 * 60 * 1000;
+  let lifecycleMigrationNeeded = false;
   let leaderAnalysisState = readLeaderAnalysisState();
+  if (lifecycleMigrationNeeded) writeLeaderAnalysisState();
+
+  function newLeaderSetupId(symbol, side) {
+    return 'LHSET:'+symbol+':'+(side || 'NONE')+':'+clock().toString(36)+':'+crypto.randomBytes(6).toString('hex');
+  }
+
+  function lineageMismatch(row, symbol, side) {
+    const parts=String(row?.setupId || '').split(':');
+    return parts[0] !== 'LHSET' || parts[1] !== symbol || parts[2] !== side;
+  }
 
   function emptyLeaderAnalysisState() {
     return { version:LEADER_ANALYSIS_VERSION, updatedAt:0, cursor:0, bySymbol:{} };
@@ -242,6 +251,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       const raw=JSON.parse(fs.readFileSync(leaderAnalysisFile,'utf8'));
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyLeaderAnalysisState();
       const bySymbol=raw.bySymbol && typeof raw.bySymbol === 'object' && !Array.isArray(raw.bySymbol) ? raw.bySymbol : {};
+      for (const [symbol,row] of Object.entries(bySymbol)) {
+        if (!row || row.state === 'ACTIVE' || !['LONG','SHORT'].includes(row.side) || !lineageMismatch(row,symbol,row.side)) continue;
+        row.previousSetupId=row.setupId || null;
+        row.setupId=newLeaderSetupId(symbol,row.side);
+        row.state=row.state === 'INVALIDATED' ? 'INVALIDATED' : 'WATCH';
+        row.planStatus='REVIEW_REQUIRED';
+        row.planReason='LINEAGE_MIGRATION_REQUIRES_REANALYSIS';
+        row.executionEligibleNow=false;
+        row.eligibilityReason='LINEAGE_MIGRATION_REQUIRES_REANALYSIS';
+        row.lineageSideChanged=true;
+        lifecycleMigrationNeeded=true;
+      }
       return {
         version:LEADER_ANALYSIS_VERSION,
         updatedAt:Number(raw.updatedAt || 0),
@@ -382,13 +403,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       } else if (!nextState) nextState=oldState || 'DETECTED';
     }
 
+    if (oldState === 'ACTIVE') nextState='ACTIVE';
     let rebaseCount=Number(old?.rebaseCount || 0);
     let invalidationCount=Number(old?.invalidationCount || 0);
     if (nextState === 'INVALIDATED' && oldState !== 'INVALIDATED') invalidationCount += 1;
     if (nextState === 'REBASE' && oldState !== 'REBASE') rebaseCount += 1;
-    const setupChanged=sideChanged || nextState === 'REBASE' || !old?.setupId;
+    const setupChanged=oldState !== 'ACTIVE' && (sideChanged || nextState === 'REBASE' || lineageMismatch(old,symbol,side));
     const setupId=setupChanged
-      ? 'LHSET:'+symbol+':'+(side || 'NONE')+':'+Math.floor((Number.isFinite(now)?now:Date.now())/60000).toString(36)
+      ? newLeaderSetupId(symbol,side)
       : old.setupId;
 
     const row={
@@ -406,9 +428,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       waitFor:String(plan.waitFor || old?.waitFor || ''),
       why:String(plan.why || old?.why || ''),
       riskNote:String(plan.riskNote || old?.riskNote || ''),
-      planReason:String(plan.reason || old?.planReason || ''),
-      confidence:finite(plan.confidence) ?? finite(old?.confidence),
-      visionAttached:Number(advisory?.vision?.attached || advisory?.committee?.vision?.attached || old?.visionAttached || 0),
+      planReason:String(advisory ? (plan.reason || '') : (old?.planReason || '')),
+      confidence:advisory ? finite(plan.confidence) : finite(old?.confidence),
+      visionAttached:Number(advisory ? (advisory.vision?.attached ?? advisory.committee?.vision?.attached ?? 0) : (old?.visionAttached || 0)),
       visionRequired:Number(advisory?.vision?.required || old?.visionRequired || 9),
       executionEligibleNow:typeof old?.executionEligibleNow === 'boolean' ? old.executionEligibleNow : undefined,
       lastEligibilityCheckAt:Number(old?.lastEligibilityCheckAt || 0) || null,

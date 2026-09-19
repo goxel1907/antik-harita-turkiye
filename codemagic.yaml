@@ -12,10 +12,16 @@ workflows:
           source: true
     environment:
       java: 17
+      node: 24
       android_signing:
         - futures15m_stable
     scripts:
-      - name: Prepare Futures Alarm v9.5.95 Vision lifecycle source
+      - name: Brain Hub risk and lifecycle regression tests
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+          node --test brainhub/test/*.test.js
+      - name: Prepare Futures Alarm v9.5.96 Vision lifecycle source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -97,8 +103,8 @@ workflows:
           grep -q 'Model rol-özeti tutarsızlığı:' "$MAIN"
           grep -q 'Model özet:' "$MAIN"
           grep -q 'Deterministik veri:' "$MAIN"
-          grep -q "versionName '9.5.95'" "$BUILD"
-          grep -q 'versionCode 26091835' "$BUILD"
+          grep -q "versionName '9.5.96'" "$BUILD"
+          grep -q 'versionCode 26091901' "$BUILD"
           echo 'V9595_ANDROID_VISION_DIAGNOSTICS_OK'
 
       - name: Set Android SDK location
@@ -270,7 +276,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.95 signed APK
+      - name: Build installable v9.5.96 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -316,9 +322,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.95.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.96.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.95.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.96.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -329,5 +335,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.95.apk
+      - Futures15mAlarm-PRO-v9.5.96.apk
       - v9595-gradle.log

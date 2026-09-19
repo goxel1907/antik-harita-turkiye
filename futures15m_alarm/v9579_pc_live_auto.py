@@ -287,6 +287,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                 org.json.JSONObject st=BrainHubClient.liveStatus(this);
                 org.json.JSONObject la=st.optJSONObject("leaderAuto");
                 sp.edit().putBoolean("v9582_pc_probe_ok",true)
+                    .putString("v9596_vision_availability",st.optJSONObject("visionAvailability")==null?"Görsel model durumu alınamadı":st.optJSONObject("visionAvailability").optString("summaryTr",""))
                     .putBoolean("v9582_pc_armed",st.optBoolean("armed",false))
                     .putString("v9582_pc_expires_at",st.optString("expiresAt",""))
                     .putString("v9582_pc_execution",st.optString("execution",""))
@@ -908,6 +909,9 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
         st.append("\nAyar: ").append(margin).append(" USDT • ").append(lev).append("x • max ").append(max)
           .append(" • ").append(lng?"LONG ":"").append(sht?"SHORT":"");
         if(pcFresh){
+            // V9596_MODEL_AVAILABILITY: configuration alone is not a successful model response.
+            st.append("\n").append(sp.getString("v9596_vision_availability","Görsel model durumu bekleniyor"));
+            st.append("\nMarj/kaldıraç seçimi PC risk tavanlarını yükseltmez.");
             st.append("\nPC LIVE: ").append(armed?"ARMED":"KAPALI");
             if(armed)st.append(" • kalan ").append(v9582ArmRemaining(sp.getString("v9582_pc_expires_at","")));
             st.append("\nPC LEADER AUTO: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");
@@ -1044,8 +1048,8 @@ main=main[:a]+renderer+main[e:]
 MAIN.write_text(main)
 
 build=BUILD.read_text()
-build=re.sub(r'versionCode\s+\d+','versionCode 26091835',build,count=1)
-build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.95'",build,count=1)
+build=re.sub(r'versionCode\s+\d+','versionCode 26091901',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.96'",build,count=1)
 BUILD.write_text(build)
 
 checks={
@@ -1073,9 +1077,9 @@ checks={
     'persistent lifecycle visible':'v9594_pc_analysis_lifecycle' in MAIN.read_text() and 'KALICI ANALİZ TAKİBİ' in MAIN.read_text() and 'rebaseCount' in MAIN.read_text() and 'invalidationCount' in MAIN.read_text(),
     'scalp cost detail visible':'İşlem maliyeti' in MAIN.read_text() and 'edge/maliyet' in MAIN.read_text() and 'Binance taker oranı' in MAIN.read_text(),
     'forming candle disclosure':'forming mum görüntüde/anlık bağlamda vardır' in MAIN.read_text(),
-    'identity':"versionName '9.5.95'" in BUILD.read_text() and 'versionCode 26091835' in BUILD.read_text(),
+    'identity':"versionName '9.5.96'" in BUILD.read_text() and 'versionCode 26091901' in BUILD.read_text(),
     'vision failure diagnostic':'V9595_VISION_ROUTING_DIAGNOSTICS' in MAIN.read_text() and 'GÖRSEL OKUMA TAMAMLANMADI' in MAIN.read_text() and 'SADECE DETERMINİSTİK KANIT' in MAIN.read_text(),
 }
 for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
-if not all(checks.values()): raise SystemExit('v9.5.95 Vision routing integration check failed')
-print('v9.5.95 OK: 9TF Vision routing failures are explicit, deterministic evidence is never mislabeled as model chart reading, and PC remains the only LIVE executor.')
+if not all(checks.values()): raise SystemExit('v9.5.96 Vision routing integration check failed')
+print('v9.5.96 OK: 9TF Vision routing failures are explicit, deterministic evidence is never mislabeled as model chart reading, and PC remains the only LIVE executor.')

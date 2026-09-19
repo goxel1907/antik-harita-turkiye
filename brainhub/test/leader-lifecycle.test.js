@@ -281,7 +281,7 @@ test('LiveReadiness stays disarmed, sends only read-only Binance requests and va
 
   assert.equal(controller.status().armed,false);
   assert.equal(controller.configureLeaderAuto({
-    enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
+    enabled:true,marginQuote:5,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
   }).ok,true);
 
   const out=await controller.liveReadiness({symbol:'AAAUSDT'});
@@ -498,6 +498,49 @@ test('leader lifecycle creates a new setupId when a non-active tracked direction
   assert.equal(after.previousSetupId,before.setupId);
 
   fs.rmSync(root,{recursive:true,force:true});
+});
+
+test('restart repairs historical side/setup mismatch once and preserves active lineage', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-lineage-migration-'));
+  try {
+    fs.mkdirSync(path.join(root,'data'));
+    const filename=path.join(root,'data','leader-analysis-state.json');
+    const now=Date.UTC(2026,8,19,10,0,0);
+    const broken={symbol:'AAAUSDT',side:'SHORT',setupId:'LHSET:AAAUSDT:LONG:legacy',state:'ARMED',planStatus:'QUALIFIED',lastAnalyzedAt:now};
+    const active={...broken,symbol:'BBBUSDT',setupId:'LHSET:BBBUSDT:LONG:active',state:'ACTIVE'};
+    fs.writeFileSync(filename,JSON.stringify({bySymbol:{AAAUSDT:broken,BBBUSDT:active}}));
+    const deps={root,store:{journal(){}},scanner:{},pipeline:{},committee:async()=>({}),clock:()=>now};
+    const first=createLiveController(deps).leaderAutoStatus().analysisLifecycle.rows;
+    const repaired=first.find(x=>x.symbol==='AAAUSDT');
+    assert.match(repaired.setupId,/^LHSET:AAAUSDT:SHORT:/);
+    assert.equal(repaired.previousSetupId,broken.setupId);
+    assert.equal(repaired.state,'WATCH');
+    assert.equal(repaired.planStatus,'REVIEW_REQUIRED');
+    assert.equal(repaired.executionEligibleNow,false);
+    assert.deepEqual(first.find(x=>x.symbol==='BBBUSDT'),active);
+    const second=createLiveController(deps).leaderAutoStatus().analysisLifecycle.rows.find(x=>x.symbol==='AAAUSDT');
+    assert.equal(second.setupId,repaired.setupId);
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
+test('fresh failed vision cannot retain an earlier nine-chart success', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-fresh-vision-'));
+  try {
+    fs.mkdirSync(path.join(root,'config'));
+    fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify(policy()));
+    let failed=false;
+    const controller=createLiveController({root,store:{journal(){}},scanner:{async scan(){return candidateScan();}},
+      pipeline:{async run(){const out=advisory(failed?'REVIEW_REQUIRED':'WATCH'); if(failed){out.vision.attached=0;out.committee=null;out.plan.confidence=null;} return out;}},
+      committee:async()=>({}),fetchImpl:async()=>{throw Error('must not contact exchange');}});
+    controller.configureLeaderAuto({enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true});
+    await controller.leaderAutoTick();
+    assert.equal(controller.leaderAutoStatus().analysisLifecycle.rows[0].visionAttached,9);
+    failed=true;
+    await controller.leaderAutoTick();
+    const row=controller.leaderAutoStatus().analysisLifecycle.rows[0];
+    assert.equal(row.visionAttached,0);
+    assert.equal(row.confidence,null);
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
 
 test('leader lifecycle persists across restart and reanalysis remains analysis-only', async () => {
