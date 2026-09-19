@@ -262,9 +262,16 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
                 if ([string]::IsNullOrWhiteSpace($value)) { throw "Leader KKK genel $name alani eksik." }
             }
 
-            $supportObj = Get-PropValue $leaderPlan "supportTFs" $null
-            $vetoObj = Get-PropValue $leaderPlan "vetoTFs" $null
-            if ($null -eq $supportObj -or $null -eq $vetoObj) { throw 'Leader KKK SUPPORT_TFS/VETO_TFS alanlari eksik.' }
+            # Empty support/veto arrays are valid (NONE). Do not route them through
+            # Get-PropValue because PowerShell unrolls an empty array to no pipeline output,
+            # which becomes $null and falsely looks like a missing property under StrictMode.
+            $supportProp = $leaderPlan.PSObject.Properties['supportTFs']
+            $vetoProp = $leaderPlan.PSObject.Properties['vetoTFs']
+            if ($null -eq $supportProp -or $null -eq $vetoProp -or $null -eq $supportProp.Value -or $null -eq $vetoProp.Value) {
+                throw 'Leader KKK SUPPORT_TFS/VETO_TFS alanlari eksik.'
+            }
+            $supportObj = @($supportProp.Value)
+            $vetoObj = @($vetoProp.Value)
 
             $tfDiagnostics = Get-PropValue $leaderPlan "timeframeDiagnostics" $null
             if ($null -eq $tfDiagnostics) { throw 'Leader KKK timeframeDiagnostics alani eksik.' }
