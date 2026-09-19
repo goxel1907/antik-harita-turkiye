@@ -24,9 +24,9 @@
         "enabled": false,
         "baseUrl": "http://127.0.0.1:11434/v1",
         "models": [
-            "brainhub-qwen3-vl-4b-16k"
+            "brainhub-qwen3-vl-4b-32k"
         ],
-        "contextSize": 16384,
+        "contextSize": 32768,
         "timeoutMs": 180000
     }
 }

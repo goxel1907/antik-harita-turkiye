@@ -670,7 +670,24 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     }
   }
 
-  return encodePng(width,height,pixels);
+  const requestedWidth=Number(options?.outputWidth||width);
+  const requestedHeight=Number(options?.outputHeight||height);
+  const outWidth=Math.max(320,Math.min(width,Number.isFinite(requestedWidth)?Math.round(requestedWidth):width));
+  const outHeight=Math.max(180,Math.min(height,Number.isFinite(requestedHeight)?Math.round(requestedHeight):height));
+  if(outWidth===width&&outHeight===height)return encodePng(width,height,pixels);
+  const scaled=Buffer.alloc(outWidth*outHeight*4);
+  for(let y=0;y<outHeight;y++){
+    const sy=Math.min(height-1,Math.floor(y*height/outHeight));
+    for(let x=0;x<outWidth;x++){
+      const sx=Math.min(width-1,Math.floor(x*width/outWidth));
+      const si=(sy*width+sx)*4, di=(y*outWidth+x)*4;
+      scaled[di]=pixels[si];
+      scaled[di+1]=pixels[si+1];
+      scaled[di+2]=pixels[si+2];
+      scaled[di+3]=pixels[si+3];
+    }
+  }
+  return encodePng(outWidth,outHeight,scaled);
 }
 
 async function globalContext() {

@@ -57,6 +57,18 @@ test('diagnostic Vision marker changes only the requested probe render', () => {
   assert.equal(renderChartPng(c,'annotated',{visionProbeCell:10}).toString('base64'),normal.toString('base64'));
 });
 
+test('Vision transport render can downscale PNG without changing default renderer contract', () => {
+  const c=chartFixture();
+  const full=renderChartPng(c,'annotated');
+  const compact=renderChartPng(c,'annotated',{visionProbeCell:5,outputWidth:896,outputHeight:504});
+  assert.equal(full.readUInt32BE(16),1280);
+  assert.equal(full.readUInt32BE(20),720);
+  assert.equal(compact.readUInt32BE(16),896);
+  assert.equal(compact.readUInt32BE(20),504);
+  assert.ok(compact.length>1000);
+  assert.notEqual(compact.toString('base64'),full.toString('base64'));
+});
+
 test('invalid chart mode is rejected', () => {
   assert.throws(()=>renderChartPng(chartFixture(),'future-vision'),/invalid chart mode/);
 });
