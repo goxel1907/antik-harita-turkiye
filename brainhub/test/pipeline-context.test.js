@@ -119,6 +119,44 @@ test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK 
   assert.ok(!contract.missing.includes('SUPPORT_TFS_ROLE_MISMATCH'));
   assert.ok(contract.warnings.includes('SUPPORT_TFS_ROLE_MISMATCH'));
 });
+test('QUALIFIED Vision plan is rejected when WAIT_FOR still contains a pending trigger', () => {
+  const tags={ '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
+  const tfLines=[];
+  for (const [tf,tag] of Object.entries(tags)) {
+    tfLines.push(
+      'TF_'+tag+': '+tf+' özet',
+      'TF_'+tag+'_WHY: '+tf+' somut neden',
+      'TF_'+tag+'_WAIT: NONE',
+      'TF_'+tag+'_ROLE: '+(tf==='1m'||tf==='5m'?'SUPPORT':'NEUTRAL'),
+      'TF_'+tag+'_FORMING: forming mum yalnız bağlamdır; kapanış teyidi değildir',
+      'TF_'+tag+'_RISK: '+tf+' ana risk'
+    );
+  }
+  const plan=planFields([
+    'STATUS: QUALIFIED',
+    'SIDE: LONG',
+    'CONFIDENCE: 81',
+    'ORIGIN_TF: 1m',
+    'OWNER_TF: 5m',
+    'SETUP: continuation',
+    'EXEC_PATH: direct',
+    'WHY: kapalı mum yapısı destekliyor',
+    'RISK_NOTE: yapı bozulursa geçersiz',
+    'WAIT_FOR: 5m kapanışı ayrıca onaylanmalı',
+    'SUPPORT_TFS: 1m,5m',
+    'VETO_TFS: NONE',
+    'FORMING_CONTEXT: forming mum teyit değildir',
+    ...tfLines,
+    'VISION_SUMMARY: 9TF ortak yapı özeti',
+    'EXECUTION: ADVISORY_ONLY'
+  ].join('\n'));
+  const contract=visionPlanContract(plan);
+  assert.equal(plan.valid,true);
+  assert.equal(plan.status,'QUALIFIED');
+  assert.equal(contract.ok,false);
+  assert.ok(contract.missing.includes('QUALIFIED_WAIT_FOR_NOT_NONE'));
+});
+
 test('Vision repair pass can fill omitted TF fields without changing existing parsed fields', () => {
   const tags={ '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
   const roles={ '1m':'SUPPORT','3m':'SUPPORT','5m':'SUPPORT','15m':'VETO','30m':'NEUTRAL','45m':'NEUTRAL','1h':'NEUTRAL','4h':'NEUTRAL','1d':'NEUTRAL' };
