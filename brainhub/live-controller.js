@@ -352,10 +352,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const now=clock();
     const old=leaderAnalysisState.bySymbol?.[symbol] || null;
     const oldState=String(old?.state || '');
+    const oldSide=String(old?.side || '').toUpperCase();
     const plan=advisory?.plan || {};
     const planStatus=String(plan.status || '').toUpperCase();
     const requestedSide=String(plan.side || candidate?.side || old?.side || '').toUpperCase();
-    const side=['LONG','SHORT'].includes(requestedSide) ? requestedSide : bestTrackedSide(advisory?.unifiedContext, old?.side);
+    const proposedSide=['LONG','SHORT'].includes(requestedSide) ? requestedSide : bestTrackedSide(advisory?.unifiedContext, old?.side);
+    // ACTIVE tracks the exchange-authoritative position direction. Analysis must
+    // never silently flip its lineage side. Non-active tracked ideas may change
+    // direction, but that direction change must start a new setupId.
+    const side=oldState === 'ACTIVE' && ['LONG','SHORT'].includes(oldSide) ? oldSide : proposedSide;
+    const sideChanged=Boolean(old && ['LONG','SHORT'].includes(oldSide) && ['LONG','SHORT'].includes(side) && oldSide !== side);
     const stillOpportunity=Boolean(
       side && Array.isArray(advisory?.unifiedContext?.opportunityPaths?.[side]?.continuity) &&
       advisory.unifiedContext.opportunityPaths[side].continuity.length
@@ -380,7 +386,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     let invalidationCount=Number(old?.invalidationCount || 0);
     if (nextState === 'INVALIDATED' && oldState !== 'INVALIDATED') invalidationCount += 1;
     if (nextState === 'REBASE' && oldState !== 'REBASE') rebaseCount += 1;
-    const setupChanged=nextState === 'REBASE' || !old?.setupId;
+    const setupChanged=sideChanged || nextState === 'REBASE' || !old?.setupId;
     const setupId=setupChanged
       ? 'LHSET:'+symbol+':'+(side || 'NONE')+':'+Math.floor((Number.isFinite(now)?now:Date.now())/60000).toString(36)
       : old.setupId;
@@ -411,6 +417,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       reanalysisEligible:nextState !== 'ACTIVE' && (nextState !== 'INVALIDATED' || stillOpportunity),
       rebaseCount,
       invalidationCount,
+      lineageSideChanged:sideChanged,
+      previousSetupId:sideChanged && old?.setupId ? old.setupId : (old?.previousSetupId || null),
       lastDetail:detail ? String(detail).slice(0,240) : null
     };
     if (!leaderAnalysisState.bySymbol || typeof leaderAnalysisState.bySymbol !== 'object') leaderAnalysisState.bySymbol={};
