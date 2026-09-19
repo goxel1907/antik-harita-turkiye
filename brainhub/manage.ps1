@@ -254,6 +254,24 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
                     Write-Host '========== MODEL HAM CIKTI OZETI ==========' -ForegroundColor Yellow
                     Write-Host $rawSnippet
                 }
+                if ($reason -eq 'VISION_COMMITTEE_UNAVAILABLE') {
+                    $committeeDetail = [string](Get-PropValue $leaderPlan "committeeDetail" "")
+                    if (-not [string]::IsNullOrWhiteSpace($committeeDetail)) {
+                        Write-Host '========== VISION COMMITTEE HATA DETAYI ==========' -ForegroundColor Yellow
+                        Write-Host $committeeDetail
+                    }
+                    $committeeObj = Get-PropValue $detailPlanResult "committee" $null
+                    if ($null -ne $committeeObj) {
+                        $attempted = @(Get-PropValue $committeeObj "attemptedModels" @())
+                        $failed = @(Get-PropValue $committeeObj "failed" @())
+                        if ($attempted.Count -gt 0) { Write-Host ("ATTEMPTED_MODELS " + ($attempted -join ',')) }
+                        foreach ($failure in $failed) {
+                            $fm = [string](Get-PropValue $failure "model" "?")
+                            $fe = [string](Get-PropValue $failure "error" "error")
+                            Write-Host ("VISION_MODEL_FAIL {0} :: {1}" -f $fm,$fe) -ForegroundColor Yellow
+                        }
+                    }
+                }
                 throw "Leader KKK 9TF model detay sozlesmesi gecmedi. reason=$reason missing=$missing"
             }
 
