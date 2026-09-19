@@ -271,6 +271,51 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     fs.renameSync(tmp,leaderAnalysisFile);
   }
 
+  function markLeaderEligibility(symbol, eligible, detail = '') {
+    const key=String(symbol || '').trim().toUpperCase();
+    const row=leaderAnalysisState.bySymbol?.[key];
+    if (!row || typeof row !== 'object') return null;
+    row.executionEligibleNow=eligible === true;
+    row.lastEligibilityCheckAt=clock();
+    row.eligibilityReason=eligible === true ? null : String(detail || 'NOT_EXECUTION_ELIGIBLE_NOW').slice(0,160);
+    leaderAnalysisState.bySymbol[key]=row;
+    writeLeaderAnalysisState();
+    return row;
+  }
+
+  function reconcileLeaderEligibility(rawCandidates, allowLong, allowShort) {
+    const current=new Map();
+    for (const c of Array.isArray(rawCandidates) ? rawCandidates : []) {
+      const symbol=String(c?.symbol || '').trim().toUpperCase();
+      if (symbol) current.set(symbol,c);
+    }
+    let changed=false;
+    const now=clock();
+    for (const [symbol,row] of Object.entries(leaderAnalysisState.bySymbol || {})) {
+      if (!row || typeof row !== 'object') continue;
+      const c=current.get(symbol);
+      const e=c ? executionEligibility(c) : null;
+      const side=String(c?.side || row?.side || '').toUpperCase();
+      const directionAllowed=(side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
+      const eligibleNow=Boolean(c && e?.eligible === true && directionAllowed);
+      if (!eligibleNow) {
+        row.executionEligibleNow=false;
+        row.lastEligibilityCheckAt=now;
+        row.eligibilityReason=c
+          ? (directionAllowed ? ((e?.reasons || [])[0] || 'NOT_EXECUTION_ELIGIBLE_NOW') : 'DIRECTION_DISABLED')
+          : 'NOT_IN_CURRENT_DEEP_SHORTLIST';
+        changed=true;
+      } else if (row.executionEligibleNow !== false) {
+        row.executionEligibleNow=true;
+        row.lastEligibilityCheckAt=now;
+        row.eligibilityReason=null;
+        changed=true;
+      }
+      leaderAnalysisState.bySymbol[symbol]=row;
+    }
+    if (changed) writeLeaderAnalysisState();
+  }
+
   function journalLeaderLifecycle(symbol, previousState, nextState, row, detail = null) {
     if (previousState === nextState && !detail) return;
     try {
@@ -365,10 +410,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   }
 
   function leaderLifecycleSummary() {
-    const rows=Object.values(leaderAnalysisState.bySymbol || {})
+    const rawRows=Object.values(leaderAnalysisState.bySymbol || {})
       .filter(x => x && typeof x === 'object')
       .sort((a,b) => Number(b.lastAnalyzedAt || 0)-Number(a.lastAnalyzedAt || 0))
       .slice(0,LEADER_ANALYSIS_MAX_TRACKS);
+    const rows=rawRows.map(row => {
+      const state=String(row.state || '').toUpperCase();
+      const planStatus=String(row.planStatus || '').toUpperCase();
+      if (row.executionEligibleNow === false && ['ARMED','ENTERABLE'].includes(state)) {
+        return {
+          ...row,
+          persistedState:row.state,
+          persistedPlanStatus:row.planStatus,
+          state:'WATCH',
+          planStatus:'REVIEW_REQUIRED',
+          statusReason:row.eligibilityReason || 'NOT_EXECUTION_ELIGIBLE_NOW'
+        };
+      }
+      return { ...row };
+    });
     return {
       version:LEADER_ANALYSIS_VERSION,
       tracked:rows.length,
@@ -696,9 +756,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if (requestedSymbol) {
       candidate=candidates.find(x=>String(x?.symbol || '').toUpperCase()===requestedSymbol) || null;
       if (!candidate) {
+        markLeaderEligibility(requestedSymbol,false,'READINESS_SYMBOL_NOT_EXECUTION_ELIGIBLE');
         return {
           ...base,
+          symbol:requestedSymbol,
           requestedSymbol,
+          planStatus:'REVIEW_REQUIRED',
           reasons:['READINESS_SYMBOL_NOT_EXECUTION_ELIGIBLE'],
           policy:publicPolicy(policy),
           universeCount:Number(scan?.universeCount || 0),
@@ -728,8 +791,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
     const plan=advisory?.plan || null;
     if (!advisory?.candidateFound || !plan || !advisory?.unifiedContext) {
+      markLeaderEligibility(candidate.symbol,false,advisory?.reason || 'LEADER_PLAN_NOT_READY');
       return { ...base, symbol:candidate.symbol, reasons:[advisory?.reason || 'LEADER_PLAN_NOT_READY'], policy:publicPolicy(policy) };
     }
+    markLeaderEligibility(candidate.symbol,true,'FRESH_READINESS_ANALYSIS');
+    upsertLeaderLifecycle(candidate,advisory,String(plan.status || '').toUpperCase()==='QUALIFIED'?'ARMED':null,'READINESS_'+String(plan.status || 'REVIEW_REQUIRED').toUpperCase());
     if (plan.valid !== true || String(plan.status || '').toUpperCase() !== 'QUALIFIED') {
       return {
         ...base,
@@ -1405,6 +1471,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
     const rawCandidates = selectDeepCandidates(scan, 16);
     setLeaderAutoDiagnostics(scan, rawCandidates, allowLong, allowShort);
+    reconcileLeaderEligibility(rawCandidates, allowLong, allowShort);
 
     const candidates = rawCandidates
       .filter(executionEligible)
@@ -1455,6 +1522,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     }
 
     if (!advisory?.candidateFound || !advisory?.plan || !advisory?.unifiedContext) {
+      markLeaderEligibility(candidate.symbol,false,advisory?.reason || 'LEADER_PLAN_NOT_READY');
       const rs=[advisory?.reason || 'LEADER_PLAN_NOT_READY'];
       annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_READY', rs, visionDiagnosticExtras(advisory));
       const existingTrack=leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()];
@@ -1477,6 +1545,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         reasons:rs
       };
     }
+
+    markLeaderEligibility(candidate.symbol,true,'FRESH_PIPELINE_ANALYSIS');
 
     if (String(advisory.plan.status || '').toUpperCase() !== 'QUALIFIED') {
       const rs=[...new Set(['LEADER_PLAN_NOT_QUALIFIED', advisory.plan.reason].filter(Boolean))];
