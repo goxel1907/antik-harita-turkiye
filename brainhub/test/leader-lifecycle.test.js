@@ -309,6 +309,99 @@ test('LiveReadiness stays disarmed, sends only read-only Binance requests and va
   fs.rmSync(root,{recursive:true,force:true});
 });
 
+test('targeted LiveReadiness refreshes persisted ARMED lifecycle when fresh 9TF plan falls back to WATCH', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-readiness-sync-watch-'));
+  const cfg=path.join(root,'config');
+  fs.mkdirSync(cfg,{recursive:true});
+  fs.writeFileSync(path.join(cfg,'live-policy.json'),JSON.stringify(policy(),null,2));
+
+  const clockRef={ now:Date.UTC(2026,8,19,2,0,0) };
+  const fetchImpl=async()=>{ throw new Error('WATCH readiness must not contact Binance'); };
+  const store={ journal(){ return '00000000-0000-0000-0000-000000000030'; } };
+  let calls=0;
+  const pipeline={
+    async run(input){
+      calls++;
+      assert.equal(input.executionIntent.symbol,'AAAUSDT');
+      return advisory(calls===1?'QUALIFIED':'WATCH');
+    }
+  };
+  const scanner={ async scan(){ return candidateScan(); } };
+  const controller=createLiveController({
+    root,store,scanner,pipeline,committee:async()=>({ok:true,text:''}),
+    credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' },
+    fetchImpl,clock:()=>clockRef.now
+  });
+
+  assert.equal(controller.configureLeaderAuto({
+    enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
+  }).ok,true);
+
+  const first=await controller.leaderAutoTick();
+  assert.equal(first.execution,'LEADER_AUTO_WAIT_ARM');
+  assert.equal(controller.leaderAutoStatus().analysisLifecycle.rows[0].state,'ARMED');
+
+  clockRef.now += 60_000;
+  const readiness=await controller.liveReadiness({symbol:'AAAUSDT'});
+  assert.equal(readiness.readyForUserArm,false);
+  assert.equal(readiness.planStatus,'WATCH');
+
+  const row=controller.leaderAutoStatus().analysisLifecycle.rows.find(x=>x.symbol==='AAAUSDT');
+  assert.equal(row.state,'WATCH');
+  assert.equal(row.planStatus,'WATCH');
+  assert.equal(row.executionEligibleNow,true);
+
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
+test('tracked ARMED row is presented as WATCH when targeted readiness says symbol is no longer execution eligible', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-readiness-sync-ineligible-'));
+  const cfg=path.join(root,'config');
+  fs.mkdirSync(cfg,{recursive:true});
+  fs.writeFileSync(path.join(cfg,'live-policy.json'),JSON.stringify(policy(),null,2));
+
+  const clockRef={ now:Date.UTC(2026,8,19,2,20,0) };
+  const fetchImpl=async()=>{ throw new Error('ineligible readiness must not contact Binance'); };
+  const store={ journal(){ return '00000000-0000-0000-0000-000000000031'; } };
+  const pipeline={ async run(){ return advisory('QUALIFIED'); } };
+  let current='AAAUSDT';
+  const scanner={
+    async scan(){
+      const scan=candidateScan();
+      scan.leaders[0].symbol=current;
+      return scan;
+    }
+  };
+  const controller=createLiveController({
+    root,store,scanner,pipeline,committee:async()=>({ok:true,text:''}),
+    credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' },
+    fetchImpl,clock:()=>clockRef.now
+  });
+
+  assert.equal(controller.configureLeaderAuto({
+    enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
+  }).ok,true);
+  await controller.leaderAutoTick();
+  assert.equal(controller.leaderAutoStatus().analysisLifecycle.rows[0].state,'ARMED');
+
+  current='BBBUSDT';
+  clockRef.now += 60_000;
+  const readiness=await controller.liveReadiness({symbol:'AAAUSDT'});
+  assert.equal(readiness.readyForUserArm,false);
+  assert.equal(readiness.symbol,'AAAUSDT');
+  assert.ok(readiness.reasons.includes('READINESS_SYMBOL_NOT_EXECUTION_ELIGIBLE'));
+
+  const row=controller.leaderAutoStatus().analysisLifecycle.rows.find(x=>x.symbol==='AAAUSDT');
+  assert.equal(row.state,'WATCH');
+  assert.equal(row.planStatus,'REVIEW_REQUIRED');
+  assert.equal(row.persistedState,'ARMED');
+  assert.equal(row.persistedPlanStatus,'QUALIFIED');
+  assert.equal(row.executionEligibleNow,false);
+  assert.equal(row.statusReason,'READINESS_SYMBOL_NOT_EXECUTION_ELIGIBLE');
+
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('leader lifecycle persists across restart and reanalysis remains analysis-only', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-leader-life-'));
   const cfg=path.join(root,'config');
