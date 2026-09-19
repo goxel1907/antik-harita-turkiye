@@ -446,17 +446,19 @@ if ($Action -eq 'JevProbe') {
     exit 0
 }
 if ($Action -eq 'OpenRouterSetup') {
-    $candidate = (Get-Clipboard -Raw -ErrorAction SilentlyContinue | Out-String).Trim()
+    $keyPath = Join-Path $rootFull 'config\openrouter-api-key.dpapi'
+    $jevPath = Join-Path $rootFull 'config\jev.json'
+    $clipboardCandidate = (Get-Clipboard -Raw -ErrorAction SilentlyContinue | Out-String).Trim()
+    $savedCandidate = Read-Dpapi $keyPath
+    $candidate = if ($clipboardCandidate -match '^sk-or-v1-[A-Za-z0-9_-]{20,}$') { $clipboardCandidate } elseif ($savedCandidate -match '^sk-or-v1-[A-Za-z0-9_-]{20,}$') { $savedCandidate } else { '' }
     if ($candidate -notmatch '^sk-or-v1-[A-Za-z0-9_-]{20,}$') {
-        throw 'Panoda gecerli OpenRouter API key bulunamadi. Yeni BrainHub-JEV keyini panoya kopyalayip komutu tekrar calistirin.'
+        throw 'Gecerli OpenRouter API key bulunamadi. Yeni BrainHub-JEV keyini panoya kopyalayip komutu tekrar calistirin.'
     }
     try {
         $remote = Invoke-RestMethod -Uri 'https://openrouter.ai/api/v1/key' -Headers @{ Authorization = "Bearer $candidate" } -TimeoutSec 20
     } catch {
         throw 'OpenRouter API key dogrulanamadi; keyi yenileyip panoya tekrar kopyalayin.'
     }
-    $keyPath = Join-Path $rootFull 'config\openrouter-api-key.dpapi'
-    $jevPath = Join-Path $rootFull 'config\jev.json'
     New-Item -ItemType Directory -Force -Path (Join-Path $rootFull 'config') | Out-Null
     Save-Dpapi $keyPath $candidate
     [ordered]@{
@@ -469,7 +471,9 @@ if ($Action -eq 'OpenRouterSetup') {
         timeoutMs = 30000
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jevPath -Encoding UTF8
     $candidate = ''
-    Set-Clipboard -Value ''
+    $savedCandidate = ''
+    $clipboardCandidate = ''
+    try { Set-Clipboard -Value ' ' -ErrorAction Stop } catch { }
     $routerKey = Router-Key $rootFull
     Stop-Brain $rootFull
     Start-Brain $rootFull $node $routerKey
