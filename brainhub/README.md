@@ -6,7 +6,7 @@ Android OTO durum kartındaki **OTO ADAYI • EK ANALİZ PAKETİ**, son PC kısa
 
 Paket güncel piyasa bağlamını ve önceki PC yorumunun zamanını taşır; önceki yorum bağımsız teyit değildir. Hesap bakiyesi ve API/token bilgileri eklenmez. Mevcut sohbet düğmesi promptu panoya, grafik görüntüsünü Galeri'ye hazırlar; kullanıcı gönderir. ChatGPT sohbeti otomatik yürütücü veya sürekli açık model API'si gibi kullanılmaz. Gelen plan mevcut kullanıcı incelemesi ve risk kontrollerine tabidir. Android aktarımı BrainHub `/context/symbol.timeframes` sözleşmesini kullanır; EMA20/EMA50, ATR/ATR%, swingStructure, SMC, liquidity ve opportunity alanları ek analiz bağlamına dahil edilir.
 
-PC tarafında mobil ve Leader AUTO istekleri aynı yürütücü kilidinden geçer. Başka istek sürerken yeni istek `LIVE_EXECUTOR_BUSY` ile reddedilir; bayat istekler sıraya konmaz. Acil durdurma, devam eden arm ön kontrolünün sonradan canlı modu tekrar açmasını da engeller.
+PC tarafında mobil ve Leader AUTO istekleri aynı yürütücü kilidini tüm analiz→risk→emir yaşam döngüsü boyunca paylaşır. Başka istek sürerken yeni istek `LIVE_EXECUTOR_BUSY` ile reddedilir; bayat istekler sıraya konmaz. Leader AUTO başladığı arm generation'a bağlanır; arada disarm/re-arm olursa eski plan yeni arm oturumunda yürütülemez. Acil durdurma, devam eden arm ön kontrolünün sonradan canlı modu tekrar açmasını da engeller.
 
 Node.js 24 önerilir. v9.5.96 PC Brain Hub; 9TF piyasa/grafik analizi, SQLite günlük, kalıcı aday takibi ve kullanıcı tarafından yönetilen Binance yürütücüsünü içerir. PC yeniden başladığında LIVE kapalıdır. Bir APK derlemesinin geçmesi canlı işlem hazırlığının geçtiği anlamına gelmez.
 

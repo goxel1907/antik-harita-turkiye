@@ -1494,6 +1494,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   }
 
   async function executeLeader(body = {}) {
+    if (executionBusy) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LEADER_AUTO_BUSY', reasons:['LIVE_EXECUTOR_BUSY'] };
+    }
+    executionBusy = true;
+    const generation = armGeneration;
+    try { return await executeLeaderExclusive(body, generation); }
+    finally { executionBusy = false; }
+  }
+
+  async function executeLeaderExclusive(body = {}, generation) {
     const policy = readPolicy(root);
     const analysisOnly = body?.analysisOnly === true;
     if (!analysisOnly && !armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['LIVE_NOT_ARMED'] };
@@ -1636,6 +1646,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       };
     }
 
+    if (!armedNow() || generation !== armGeneration) {
+      const rs=['LIVE_DISARMED_DURING_PREFLIGHT'];
+      annotateLeaderDiagnostic(candidate.symbol,'EXECUTION_RESULT',rs,{execution:'LEADER_AUTO_BLOCKED',orderPlaced:false});
+      return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LEADER_AUTO_BLOCKED', symbol:candidate.symbol, plan:advisory.plan, reasons:rs };
+    }
+
     const creds = currentCredentials();
     if (!credentialsReady(creds)) {
       return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['BINANCE_CREDENTIALS_REQUIRED'] };
@@ -1730,7 +1746,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       lineageId
     };
 
-    const result = await execute({
+    const result = await executeExclusive({
       eventId,
       order,
       structuralInvalidationPrice:intent.structuralInvalidationPrice,
@@ -1739,7 +1755,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       requestedMarginQuote:settings.marginQuote,
       requestedLeverage:settings.leverage,
       requestedMaxOpenPositions:settings.maxOpenPositions
-    });
+    }, generation);
 
     const executionLifecycle=result?.orderPlaced === true
       ? upsertLeaderLifecycle(candidate,advisory,'ACTIVE','LIVE_ORDER_PLACED')
@@ -1797,6 +1813,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   }
 
   async function executeExclusive(body = {}, generation) {
+    if (generation !== armGeneration) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LIVE_BLOCKED', reasons:['LIVE_ARM_GENERATION_CHANGED'] };
+    }
     const policy = readPolicy(root);
     const creds = currentCredentials();
     if (!armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_NOT_ARMED'] };

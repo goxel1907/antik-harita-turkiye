@@ -7,7 +7,7 @@ const path=require('node:path');
 const {createLiveController}=require('../live-controller');
 const reply=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
 function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
-function fixture(t, hook=async()=>{}){
+function fixture(t, hook=async()=>{}, deps={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-concurrency-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   fs.mkdirSync(path.join(root,'config'));
@@ -27,7 +27,10 @@ function fixture(t, hook=async()=>{}){
     throw new Error('MOCK_STOP_BEFORE_ORDER');
   };
   return {calls,controller:createLiveController({root,credentials:{apiKey:'test-api-key',apiSecret:'test-api-secret'},fetchImpl,
-    store:{journal(){}},scanner:{async scan(){throw new Error('unused');}},pipeline:{async run(){throw new Error('unused');}},committee:async()=>({})})};
+    store:deps.store||{journal(){}},
+    scanner:deps.scanner||{async scan(){throw new Error('unused');}},
+    pipeline:deps.pipeline||{async run(){throw new Error('unused');}},
+    committee:async()=>({})})};
 }
 test('emergency disarm cancels an in-flight arm credential probe',async t=>{
   const entered=deferred(),release=deferred();
@@ -39,7 +42,7 @@ test('emergency disarm cancels an in-flight arm credential probe',async t=>{
   assert.equal(result.armed,false);assert.ok(result.reasons.includes('LIVE_ARM_CANCELLED'));
   assert.equal(controller.status().armed,false);
 });
-test('mobile and AUTO intents cannot overlap account-risk evaluation; gate releases on failure',async t=>{
+test('two mobile intents cannot overlap account-risk evaluation; gate releases on failure',async t=>{
   let pause=false;const entered=deferred(),release=deferred();
   const {controller,calls}=fixture(t,async p=>{if(pause&&p==='/fapi/v3/account'){entered.resolve();await release.promise;}});
   assert.equal((await controller.arm({confirmed:true})).armed,true);
@@ -54,4 +57,49 @@ test('mobile and AUTO intents cannot overlap account-risk evaluation; gate relea
   const third=await controller.execute({...intent,eventId:'event-concurrency-3'});
   assert.equal(third.reasons.includes('LIVE_EXECUTOR_BUSY'),false);
   assert.equal(third.orderPlaced,false);
+});
+
+
+function autoCandidate(){
+  return {symbol:'BTCUSDT',side:'LONG',attackRank:1,spreadBps:1,tradeQuality:80,directionSupport:1,longExpansionScore:70,shortExpansionScore:10,leaderState:'RISING',leaderHunterScore:80};
+}
+
+test('Leader AUTO holds the shared executor gate across analysis so mobile cannot overlap',async t=>{
+  const entered=deferred(),release=deferred();
+  const scanner={async scan(){return {leaders:[autoCandidate()]};}};
+  const pipeline={async run(){entered.resolve();await release.promise;return {candidateFound:true,plan:{status:'WATCH',reason:'TEST_WAIT'},unifiedContext:{}};}};
+  const {controller,calls}=fixture(t,async()=>{}, {scanner,pipeline});
+  assert.equal((await controller.arm({confirmed:true})).armed,true);
+  const auto=controller.executeLeader({analysisOnly:true,allowLong:true,allowShort:false});
+  await entered.promise;
+  const before=calls.length;
+  const mobile=await controller.execute({eventId:'event-auto-lock-1',order:{lineageId:'lineage-auto-lock-1',symbol:'BTCUSDT',side:'LONG'}});
+  assert.ok(mobile.reasons.includes('LIVE_EXECUTOR_BUSY'));
+  assert.equal(calls.length,before);
+  release.resolve();
+  const result=await auto;
+  assert.equal(result.orderPlaced,false);
+  assert.equal(result.execution,'LEADER_AUTO_WAIT');
+});
+
+test('disarm and re-arm invalidates an in-flight Leader AUTO plan generation',async t=>{
+  const entered=deferred(),release=deferred();
+  const scanner={async scan(){return {leaders:[autoCandidate()]};}};
+  const pipeline={async run(){entered.resolve();await release.promise;return {candidateFound:true,plan:{status:'QUALIFIED',side:'LONG',originTF:'5m',ownerTF:'15m'},unifiedContext:{}};}};
+  const {controller,calls}=fixture(t,async()=>{}, {scanner,pipeline});
+  assert.equal((await controller.arm({confirmed:true})).armed,true);
+  const auto=controller.executeLeader({
+    requestedMarginQuote:5,requestedLeverage:5,requestedMaxOpenPositions:1,
+    allowLong:true,allowShort:false
+  });
+  await entered.promise;
+  controller.disarm('TEST_EMERGENCY');
+  assert.equal((await controller.arm({confirmed:true})).armed,true);
+  const before=calls.length;
+  release.resolve();
+  const result=await auto;
+  assert.equal(result.orderPlaced,false);
+  assert.ok(result.reasons.includes('LIVE_DISARMED_DURING_PREFLIGHT'));
+  assert.equal(calls.length,before,'stale AUTO plan must not continue into exchange filters or writes after re-arm');
+  assert.equal(controller.status().armed,true,'new arm session remains armed; only stale AUTO generation is rejected');
 });
