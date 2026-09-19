@@ -570,6 +570,49 @@ function planFields(raw) {
     execution:'ADVISORY_ONLY'
   };
 }
+function visionRepairLabels(missing = []) {
+  const out=[];
+  for (const raw of Array.isArray(missing)?missing:[]) {
+    const name=String(raw || '').trim();
+    if (!name) continue;
+    if (name === 'STATUS_SIDE') { out.push('STATUS','SIDE'); continue; }
+    if (name === 'SUPPORT_TFS_INVALID' || name === 'SUPPORT_TFS_ROLE_MISMATCH') { out.push('SUPPORT_TFS'); continue; }
+    if (name === 'VETO_TFS_INVALID' || name === 'VETO_TFS_ROLE_MISMATCH') { out.push('VETO_TFS'); continue; }
+    if (name === 'SUPPORT_VETO_OVERLAP') { out.push('SUPPORT_TFS','VETO_TFS'); continue; }
+    out.push(name);
+  }
+  return [...new Set(out)];
+}
+
+function visionRepairPrompt(basePrompt, plan, missing = []) {
+  const labels=visionRepairLabels(missing);
+  const snapshot={
+    status:plan?.status || null,
+    side:plan?.side || null,
+    originTF:plan?.originTF || null,
+    ownerTF:plan?.ownerTF || null,
+    setup:plan?.setup || null,
+    execPath:plan?.execPath || null,
+    supportTFs:Array.isArray(plan?.supportTFs)?plan.supportTFs:[],
+    vetoTFs:Array.isArray(plan?.vetoTFs)?plan.vetoTFs:[]
+  };
+  return [
+    basePrompt,
+    '',
+    'REPAIR_PASS:',
+    'The previous Vision answer was structurally usable but omitted mandatory labels.',
+    'Do NOT change the existing direction/status/setup unless the attached chart evidence makes the previous value impossible.',
+    'Return ONLY the missing labels listed below, one exact LABEL: value line each. No Markdown, bullets, JSON, headings or extra prose.',
+    'Every repaired value must be Turkish, coin-specific and evidence-based from the same attached charts and UNIFIED_CONTEXT_JSON. Do not invent missing market facts.',
+    'MISSING_LABELS: '+labels.join(', '),
+    'CURRENT_PARSED_PLAN: '+JSON.stringify(snapshot)
+  ].join('\n');
+}
+
+function mergeVisionRepairText(baseText, repairText) {
+  return [String(baseText || '').trim(), String(repairText || '').trim()].filter(Boolean).join('\n');
+}
+
 function visionPlanContract(plan) {
   const missing=[];
   if (!plan || plan.valid !== true) missing.push('STATUS_SIDE');
@@ -784,10 +827,53 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
         execution:'ADVISORY_ONLY'
       };
     } else {
-      const contract=visionPlanContract(plan);
+      let contract=visionPlanContract(plan);
+      let repairMeta=null;
+
+      // A multimodal model may occasionally omit a small subset of mandatory
+      // labels while still returning a coherent plan. Make one analysis-only
+      // repair pass with the same 9 images instead of accepting the omission.
+      // Nothing is fabricated locally: repaired fields must still come from a
+      // real Vision model and the full contract is re-validated fail-closed.
+      if (!contract.ok && plan?.valid === true && contract.missing.length > 0 && contract.missing.length <= 24) {
+        try {
+          const repair=await committee({
+            role:'STRUCTURE',
+            system:'You are repairing an incomplete Brain Hub 9TF Vision schema. Use the attached charts and supplied market context. Return only the requested missing LABEL: value lines. Do not place an order and do not invent facts.',
+            prompt:visionRepairPrompt(prompt,plan,contract.missing),
+            images:vision.images
+          });
+          const mergedText=mergeVisionRepairText(result.text,repair?.text);
+          const repairedPlan=planFields(mergedText);
+          const repairedContract=visionPlanContract(repairedPlan);
+          repairMeta={
+            attempted:true,
+            model:String(repair?.model || ''),
+            missingBefore:contract.missing.slice(0,32),
+            missingAfter:repairedContract.missing.slice(0,32),
+            ok:repairedContract.ok
+          };
+          result={
+            ...result,
+            text:mergedText,
+            visionRepair:repairMeta
+          };
+          plan=repairedPlan;
+          contract=repairedContract;
+        } catch (repairError) {
+          repairMeta={
+            attempted:true,
+            ok:false,
+            error:String(repairError?.message || repairError).slice(0,400),
+            missingBefore:contract.missing.slice(0,32)
+          };
+        }
+      }
+
       plan = {
         ...plan,
         visionContractWarnings:Array.isArray(contract.warnings)?contract.warnings:[],
+        visionRepair:repairMeta,
         execution:'ADVISORY_ONLY'
       };
       if (!contract.ok) {
@@ -882,4 +968,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, visionPlanContract, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
