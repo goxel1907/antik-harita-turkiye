@@ -289,6 +289,10 @@ const server=http.createServer(async(req,res)=>{
       const out=await live.accountSummary();
       return send(res,out?.ok?200:503,out);
     }
+    if(req.method==='GET'&&u.pathname==='/live/readiness'){
+      const out=await live.liveReadiness();
+      return send(res,200,out);
+    }
     if(req.method==='POST'&&u.pathname==='/live/arm'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
       if(body?.confirm!=='LIVE')return send(res,400,{ok:false,armed:false,liveAllowed:false,execution:'LIVE_BLOCKED',reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']});
