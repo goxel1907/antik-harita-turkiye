@@ -37,6 +37,8 @@ try {
         $text -notmatch 'LOCAL_OLLAMA_VISION_PROGRESS' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE' -or
+        $text -notmatch 'OPENROUTER_DPAPI_SECRET' -or
+        $text -notmatch 'OPENROUTER_JEV_DECISIONS_PROBE' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
         $text -notmatch 'VISION_CHART_448X252' -or

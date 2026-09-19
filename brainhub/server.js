@@ -7,6 +7,7 @@ const market=require('./market');
 const pipeline=require('./pipeline');
 const {openStore}=require('./store');
 const {createLiveController}=require('./live-controller');
+const {createJevClient}=require('./jev-decision');
 
 const ROOT=process.env.BRAINHUB_ROOT||path.resolve(__dirname,'..');
 const CFG=path.join(ROOT,'config','models.json');
@@ -16,6 +17,7 @@ const KEY=(process.env.BRAINHUB_ROUTER_KEY||'').trim();
 const HOST=process.env.BRAINHUB_HOST||'127.0.0.1';
 const PORT=Number(process.env.BRAINHUB_PORT||8787);
 const CLIENT_TOKEN=(process.env.BRAINHUB_CLIENT_TOKEN||'').trim();
+const OPENROUTER_API_KEY=(process.env.BRAINHUB_OPENROUTER_API_KEY||'').trim();
 const BINANCE_CREDENTIALS={
   apiKey:(process.env.BRAINHUB_BINANCE_API_KEY||'').trim(),
   apiSecret:(process.env.BRAINHUB_BINANCE_API_SECRET||'').trim()
@@ -24,6 +26,7 @@ const TTL=(Number(cfg.healthCacheSeconds)||600)*1000;
 if(!KEY){console.error('BRAINHUB_ROUTER_KEY missing');process.exit(2);}
 if(HOST!=='127.0.0.1'&&HOST!=='::1'&&CLIENT_TOKEN.length<32){console.error('BRAINHUB_CLIENT_TOKEN (32+ chars) required for non-loopback binding');process.exit(2);}
 const store=openStore(ROOT);
+const jev=createJevClient({root:ROOT,apiKey:OPENROUTER_API_KEY});
 
 fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
@@ -772,7 +775,16 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+    }
+    if(req.method==='GET'&&u.pathname==='/openrouter/status'){
+      const remote=u.searchParams.get('remote')==='1';
+      const out=remote?await jev.remoteStatus():jev.localStatus();
+      return send(res,out.ok===false?503:200,out);
+    }
+    if(req.method==='POST'&&u.pathname==='/jev/probe'){
+      const out=await jev.probe();
+      return send(res,out.ok?200:503,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -857,6 +869,7 @@ const server=http.createServer(async(req,res)=>{
         kiroFreeQuotaVisionModels,
         visionKiroFallback,
         paidVisionFallbackEnabled:visionKiroFallback,
+        openRouterJev:jev.localStatus(),
         note:local.enabled
           ? (local.localOnly
               ? '9TF Vision uses only the explicitly enabled loopback Ollama model; text-only routing remains on 9Router. Local Vision failure is fail-closed and no remote Vision fallback is attempted.'

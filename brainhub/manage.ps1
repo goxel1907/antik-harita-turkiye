@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
+    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','OpenRouterSetup','OpenRouterStatus','JevProbe','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
@@ -132,6 +132,8 @@ function Start-Brain([string]$BrainRoot, [string]$Node, [string]$Key, [switch]$A
     $env:BRAINHUB_ROOT = $BrainRoot
     $token = Client-Token $BrainRoot
     if ($token) { $env:BRAINHUB_CLIENT_TOKEN = $token }
+    $openRouterApiKey = Read-Dpapi (Join-Path $BrainRoot 'config\openrouter-api-key.dpapi')
+    if ($openRouterApiKey) { $env:BRAINHUB_OPENROUTER_API_KEY = $openRouterApiKey }
     $binanceApiKey = Read-Dpapi (Join-Path $BrainRoot 'config\binance-api-key.dpapi')
     $binanceApiSecret = Read-Dpapi (Join-Path $BrainRoot 'config\binance-api-secret.dpapi')
     if ($binanceApiKey -and $binanceApiSecret) {
@@ -145,8 +147,10 @@ function Start-Brain([string]$BrainRoot, [string]$Node, [string]$Key, [switch]$A
         Remove-Item Env:BRAINHUB_ROUTER_KEY -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_ROOT -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_CLIENT_TOKEN -ErrorAction SilentlyContinue
+        Remove-Item Env:BRAINHUB_OPENROUTER_API_KEY -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_BINANCE_API_KEY -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_BINANCE_API_SECRET -ErrorAction SilentlyContinue
+        $openRouterApiKey = ''
         $binanceApiKey = ''
         $binanceApiSecret = ''
     }
@@ -172,7 +176,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TWO_STAGE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_BATCH3') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SINGLE_TF') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_COMPACT_FINALIZE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TF_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SPLIT_GLOBAL') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_PROGRESS') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE') -or -not ($h.features -contains 'VISION_CHART_896X504') -or -not ($h.features -contains 'VISION_CHART_640X360') -or -not ($h.features -contains 'VISION_CHART_448X252') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TWO_STAGE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_BATCH3') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SINGLE_TF') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_COMPACT_FINALIZE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TF_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SPLIT_GLOBAL') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_PROGRESS') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE') -or -not ($h.features -contains 'OPENROUTER_DPAPI_SECRET') -or -not ($h.features -contains 'OPENROUTER_JEV_DECISIONS_PROBE') -or -not ($h.features -contains 'VISION_CHART_896X504') -or -not ($h.features -contains 'VISION_CHART_640X360') -or -not ($h.features -contains 'VISION_CHART_448X252') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
@@ -419,7 +423,7 @@ function Backup-Brain([string]$BrainRoot) {
     New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
     $target = Join-Path $targetRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
     New-Item -ItemType Directory -Force -Path $target | Out-Null
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
         $p = Join-Path $BrainRoot $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $target -Recurse -Force }
     }
@@ -430,6 +434,63 @@ function Backup-Brain([string]$BrainRoot) {
 $rootFull = [IO.Path]::GetFullPath($Root)
 $node = Resolve-Node
 if ($Action -eq 'Test') { Test-Brain $rootFull -IncludeDeep:$Deep; exit 0 }
+if ($Action -eq 'OpenRouterStatus') {
+    $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/openrouter/status?remote=1' -Headers (Auth-Headers $rootFull) -TimeoutSec 20
+    $status | ConvertTo-Json -Depth 12
+    exit 0
+}
+if ($Action -eq 'JevProbe') {
+    $status = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/jev/probe' -Headers (Auth-Headers $rootFull) -ContentType 'application/json' -Body '{}' -TimeoutSec 60
+    $status | ConvertTo-Json -Depth 12
+    if (-not $status.ok) { throw 'Jev probe basarisiz.' }
+    exit 0
+}
+if ($Action -eq 'OpenRouterSetup') {
+    $candidate = (Get-Clipboard -Raw -ErrorAction SilentlyContinue | Out-String).Trim()
+    if ($candidate -notmatch '^sk-or-v1-[A-Za-z0-9_-]{20,}$') {
+        throw 'Panoda gecerli OpenRouter API key bulunamadi. Yeni BrainHub-JEV keyini panoya kopyalayip komutu tekrar calistirin.'
+    }
+    try {
+        $remote = Invoke-RestMethod -Uri 'https://openrouter.ai/api/v1/key' -Headers @{ Authorization = "Bearer $candidate" } -TimeoutSec 20
+    } catch {
+        throw 'OpenRouter API key dogrulanamadi; keyi yenileyip panoya tekrar kopyalayin.'
+    }
+    $keyPath = Join-Path $rootFull 'config\openrouter-api-key.dpapi'
+    $jevPath = Join-Path $rootFull 'config\jev.json'
+    New-Item -ItemType Directory -Force -Path (Join-Path $rootFull 'config') | Out-Null
+    Save-Dpapi $keyPath $candidate
+    [ordered]@{
+        enabled = $true
+        model = 'typesafe/jev-1.13'
+        decisionsUrl = 'https://openrouter.ai/api/alpha/decisions'
+        keyUrl = 'https://openrouter.ai/api/v1/key'
+        mode = 'ADVISORY_VETO_ONLY'
+        dailyCapUsd = 0.25
+        timeoutMs = 30000
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jevPath -Encoding UTF8
+    $candidate = ''
+    Set-Clipboard -Value ''
+    $routerKey = Router-Key $rootFull
+    Stop-Brain $rootFull
+    Start-Brain $rootFull $node $routerKey
+    Test-Brain $rootFull
+    $local = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/openrouter/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
+    if (-not $local.configured -or -not $local.keyLoaded -or $local.model -ne 'typesafe/jev-1.13' -or $local.mode -ne 'ADVISORY_VETO_ONLY') {
+        throw 'OpenRouter/Jev yerel yapilandirmasi dogrulanamadi.'
+    }
+    $probeOk = $false
+    try {
+        $probe = Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/jev/probe' -Headers (Auth-Headers $rootFull) -ContentType 'application/json' -Body '{}' -TimeoutSec 60
+        $probeOk = [bool]$probe.ok
+        if ($probeOk) {
+            Write-Host ("JEV_PROBE_OK model={0} durationMs={1}" -f $probe.model,$probe.durationMs) -ForegroundColor Green
+        }
+    } catch {
+        Write-Warning 'OpenRouter key DPAPI ile guvenli kaydedildi ancak Jev alpha probe su anda tamamlanamadi. JEV-PROBE.ps1 ile tekrar denenebilir.'
+    }
+    Write-Host ("BRAINHUB_OPENROUTER_SETUP_OK model=typesafe/jev-1.13 mode=ADVISORY_VETO_ONLY dailyCapUsd=0.25 probe={0}" -f $probeOk) -ForegroundColor Green
+    exit 0
+}
 if ($Action -eq 'VisionStatus') {
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
     [ordered]@{
@@ -732,7 +793,7 @@ if ($Action -eq 'Restore') {
     if (-not $resolved.StartsWith($backupRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore yolu BrainHubBackups icinde olmali.' }
     $key = Router-Key $rootFull
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
         $p = Join-Path $resolved $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }
@@ -743,7 +804,7 @@ if ($Action -eq 'Restore') {
 if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); Test-Brain $rootFull; exit 0 }
 
 $sourceDir = Get-Source $Source
-$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js')
+$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','jev-decision.js')
 foreach ($name in $files) {
     $p = Join-Path $sourceDir $name
     if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
@@ -769,7 +830,7 @@ try {
         $dst = Join-Path (Join-Path $rootFull 'config') $cfg[1]
         if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $sourceDir $cfg[0]) -Destination $dst }
     }
-    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
+    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
         Copy-Item -LiteralPath (Join-Path $sourceDir $script) -Destination $rootFull -Force
     }
     Start-Brain $rootFull $node $key
@@ -778,7 +839,7 @@ try {
 } catch {
     Write-Warning "Update dogrulanamadi: $($_.Exception.Message). Geri alma deneniyor."
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
         $p = Join-Path $backup $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }

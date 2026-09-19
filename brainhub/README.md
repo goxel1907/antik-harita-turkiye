@@ -64,3 +64,21 @@ Bu test `/vision/probe?symbol=BTCUSDT` üzerinden 9/9 grafiğin hazırlanmasın�
 - `/live/status`: emir vermeden PC, aday takibi ve doğrulanmış görsel model erişim durumunu gösterir. Sağlayıcı kısıtı/kota hatası modelin kullanılabilir olduğu anlamına gelmez.
 
 Kaynak API'ler: [Binance USDT-M market data](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api), [CoinGecko global data](https://docs.coingecko.com/reference/crypto-global).
+
+
+## OpenRouter / Jev decision provider
+
+OpenRouter is optional and does not replace 9Router or local Ollama Vision. The API key is stored only as Windows-user DPAPI ciphertext in `config/openrouter-api-key.dpapi`; it is never written into JSON, logs, GitHub, Android packages, prompts, or backups in plaintext.
+
+Initial Jev integration is deliberately staged:
+- model is pinned to `typesafe/jev-1.13`;
+- endpoint is OpenRouter alpha Decisions API;
+- mode is `ADVISORY_VETO_ONLY`;
+- OpenRouter is not a general paid fallback;
+- the first rollout exposes status and a synthetic paid probe only; it does not authorize or place orders;
+- default local budget policy is USD 0.25/day before the later decision-gate rollout.
+
+Setup from a fresh key already copied to the Windows clipboard:
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\BrainHub\OPENROUTER-SETUP.ps1`
+
+The setup validates the key with OpenRouter, stores it with DPAPI, clears the clipboard, restarts BrainHub, and performs one tiny synthetic Jev Decisions probe.
