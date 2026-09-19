@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionFreeSetup','VisionStatus','LiveSetup','LiveStatus','LiveArm','LiveDisarm')][string]$Action = 'Update',
+    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionFreeSetup','VisionStatus','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
@@ -435,6 +435,34 @@ if ($Action -eq 'VisionFreeSetup') {
 if ($Action -eq 'LiveStatus') {
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 5
     $live | ConvertTo-Json -Depth 6
+    exit 0
+}
+if ($Action -eq 'LiveReadiness') {
+    $headers = Auth-Headers $rootFull
+    $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
+    if ($status.armed) { throw 'Readiness testi yalnız PC LIVE kapalıyken çalışır; önce LiveDisarm kullanın.' }
+    $out = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/readiness' -Headers $headers -TimeoutSec 300
+    Write-Host '========== LIVE READINESS =========='
+    Write-Host ("readyForUserArm={0} execution={1} armed={2} orderPlaced={3} orderRequestSent={4}" -f $out.readyForUserArm,$out.execution,$out.armed,$out.orderPlaced,$out.orderRequestSent)
+    if ($out.symbol) {
+        Write-Host ("symbol={0} side={1} plan={2} origin={3} owner={4} vision={5}/{6}" -f $out.symbol,$out.side,$out.planStatus,$out.originTF,$out.ownerTF,$out.vision.attached,$out.vision.required)
+    }
+    if ($out.dryRun) {
+        Write-Host ("dryRun ok={0} simulated={1} submitted={2} requestSent={3}" -f $out.dryRun.ok,$out.dryRun.simulated,$out.dryRun.submitted,$out.dryRun.requestSent)
+    }
+    if ($out.exchangeRules) {
+        Write-Host ("exchangeRules ok={0} livePrice={1}" -f $out.exchangeRules.ok,$out.exchangeRules.livePrice)
+    }
+    if ($out.authorizationSimulation) {
+        Write-Host ("authSim issue={0} consumeOnce={1} replayBlocked={2}" -f $out.authorizationSimulation.issueOk,$out.authorizationSimulation.consumeOnceOk,$out.authorizationSimulation.replayBlocked)
+    }
+    $reasons = @($out.reasons)
+    if ($reasons.Count -gt 0) { Write-Host ("reasons=" + ($reasons -join ',')) -ForegroundColor Yellow }
+    if ($out.readyForUserArm) {
+        Write-Host 'BRAINHUB_LIVE_READINESS_OK — hiçbir canlı emir gönderilmedi; PC LIVE hâlâ kapalı.' -ForegroundColor Green
+    } else {
+        Write-Host 'BRAINHUB_LIVE_READINESS_WAIT — canlıya geçmeyin; yukarıdaki blok nedenini çözün.' -ForegroundColor Yellow
+    }
     exit 0
 }
 if ($Action -eq 'LiveSetup') {
