@@ -1088,10 +1088,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const candidate = candidates[selectedIndex];
     leaderAutoCandidateCursor = (selectedIndex + 1) % candidates.length;
 
-    // Follow one other existing setup every tick in analysis-only mode. Skip the
-    // primary symbol so the same 9TF chart package is never sent twice in one tick.
-    const trackedRefresh = await refreshOneTrackedAnalysis(scan, candidate.symbol);
-    if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
+    // Primary scanner candidate has priority. A tracked setup refresh runs only
+    // after the primary row has been annotated, so background 9TF work cannot hide
+    // the selected candidate at PIPELINE_SELECTED for several minutes.
+    let trackedRefresh = null;
     const existingLifecycle=leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null;
     if (!existingLifecycle) upsertLeaderLifecycle(candidate,null,'DETECTED','FRESH_SCANNER_SELECTION');
     annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_SELECTED', [], { selectedIndex, lifecycle:existingLifecycle || leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null });
@@ -1128,6 +1128,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         leaderAnalysisState.bySymbol[String(candidate.symbol || '').toUpperCase()]=existingTrack;
         writeLeaderAnalysisState();
       }
+      if (analysisOnly) {
+        trackedRefresh = await refreshOneTrackedAnalysis(scan, candidate.symbol);
+        if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
+      }
       return {
         ok:true,
         orderPlaced:false,
@@ -1143,6 +1147,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, visionDiagnosticExtras(advisory));
       const lifecycle=upsertLeaderLifecycle(candidate,advisory,null,'PLAN_'+String(advisory.plan.status || 'REVIEW_REQUIRED').toUpperCase());
       annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, { ...visionDiagnosticExtras(advisory), lifecycle });
+      if (analysisOnly) {
+        trackedRefresh = await refreshOneTrackedAnalysis(scan, candidate.symbol);
+        if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
+      }
       return {
         ok:true,
         orderPlaced:false,
@@ -1157,6 +1165,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], { ...visionDiagnosticExtras(advisory), lifecycle:qualifiedLifecycle });
 
     if (analysisOnly) {
+      trackedRefresh = await refreshOneTrackedAnalysis(scan, candidate.symbol);
+      if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
       return {
         ok:true,
         orderPlaced:false,
