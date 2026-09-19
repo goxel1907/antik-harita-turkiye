@@ -52,12 +52,20 @@ async function fetchJson(fetchImpl,url,options,timeoutMs){
     return {ok:r.ok,status:r.status,data};
   }finally{clearTimeout(timer);}
 }
+function probabilityValue(value){
+  if(value===null||value===undefined)return null;
+  if(typeof value==='string'&&!value.trim())return null;
+  if(typeof value==='boolean')return null;
+  const n=Number(value);
+  return Number.isFinite(n)?Math.max(0,Math.min(1,n)):null;
+}
 function noulProbability(answer){
-  if(Number.isFinite(Number(answer)))return Math.max(0,Math.min(1,Number(answer)));
-  if(!answer||typeof answer!=='object')return null;
+  const direct=probabilityValue(answer);
+  if(direct!==null)return direct;
+  if(!answer||typeof answer!=='object'||Array.isArray(answer))return null;
   for(const k of ['noul','probability','yes','true']){
-    const n=Number(answer[k]);
-    if(Number.isFinite(n))return Math.max(0,Math.min(1,n));
+    const n=probabilityValue(answer[k]);
+    if(n!==null)return n;
   }
   return null;
 }

@@ -19,10 +19,17 @@ function rootWithConfig(extra={}){
 function response(status,obj){return {ok:status>=200&&status<300,status,async text(){return JSON.stringify(obj);}};}
 const key='sk-or-v1-test_key_12345678901234567890';
 
-test('noul probability parser accepts numeric Jev shape',()=>{
+test('noul probability parser accepts numeric Jev shape and rejects missing values',()=>{
   assert.equal(noulProbability({noul:0.82}),0.82);
   assert.equal(noulProbability({noul:2}),1);
+  assert.equal(noulProbability(0),0);
+  assert.equal(noulProbability('0.35'),0.35);
   assert.equal(noulProbability(null),null);
+  assert.equal(noulProbability(undefined),null);
+  assert.equal(noulProbability(''),null);
+  assert.equal(noulProbability(false),null);
+  assert.equal(noulProbability({noul:null}),null);
+  assert.equal(noulProbability({probability:''}),null);
 });
 
 test('Jev client stays fail-closed without key and never calls network',async()=>{
