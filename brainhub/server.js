@@ -581,9 +581,8 @@ const server=http.createServer(async(req,res)=>{
       try{
         const scan=await scanner.scan();
         const leaderCommittee=require('./leader-committee');
-        const pool=leaderCommittee.selectDeepCandidates(scan,16);
-        const candidate=pool.find(x=>['LONG','SHORT'].includes(String(x?.side||'').toUpperCase()))||null;
-        if(!candidate)return send(res,200,{ok:true,candidateFound:false,reason:'NO_DIRECTIONAL_DEEP_SCAN_CANDIDATE',analysisOnly:true,execution:'ADVISORY_ONLY',orderPlaced:false});
+        const candidate=leaderCommittee.detailProbeCandidate(scan,16);
+        if(!candidate)return send(res,200,{ok:true,candidateFound:false,reason:'NO_VALID_USDT_PERPETUAL_DEEP_SCAN_CANDIDATE',analysisOnly:true,execution:'ADVISORY_ONLY',orderPlaced:false});
         const out=await pipeline.run({
           scan,
           store,
