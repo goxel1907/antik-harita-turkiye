@@ -676,7 +676,32 @@ function visionRepairPrompt(basePrompt, plan, missing = []) {
 }
 
 function mergeVisionRepairText(baseText, repairText) {
-  return [String(baseText || '').trim(), String(repairText || '').trim()].filter(Boolean).join('\n');
+  const repairMap=new Map();
+  for(const rawLine of String(repairText||'').split(/\r?\n/)){
+    let line=String(rawLine||'').trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+)/,'');
+    const colon=line.indexOf(':');
+    if(colon<1)continue;
+    const label=line.slice(0,colon).replace(/["'\`*]/g,'').trim().toUpperCase();
+    const value=line.slice(colon+1).trim();
+    if(label&&value)repairMap.set(label,label+': '+value);
+  }
+  const out=[];
+  const replaced=new Set();
+  for(const rawLine of String(baseText||'').split(/\r?\n/)){
+    let line=String(rawLine||'').trim();
+    const clean=line.replace(/^(?:[-*+]\s+|\d+[.)]\s+)/,'');
+    const colon=clean.indexOf(':');
+    if(colon>0){
+      const label=clean.slice(0,colon).replace(/["'\`*]/g,'').trim().toUpperCase();
+      if(repairMap.has(label)){
+        if(!replaced.has(label)){out.push(repairMap.get(label));replaced.add(label);}
+        continue;
+      }
+    }
+    if(line)out.push(line);
+  }
+  for(const [label,line] of repairMap.entries())if(!replaced.has(label))out.push(line);
+  return out.join('\n');
 }
 
 function visionPlanContract(plan) {
