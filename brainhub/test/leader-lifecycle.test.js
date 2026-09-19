@@ -208,6 +208,24 @@ test('LiveReadiness stays disarmed, sends only read-only Binance requests and va
   };
 
   const scan=candidateScan();
+  scan.leaders.unshift({
+    symbol:'FIRSTUSDT',
+    side:'LONG',
+    attackRank:1,
+    projectedRank:1,
+    leaderState:'TOP3_APPROACH',
+    tradeQuality:95,
+    directionSupport:3,
+    spreadBps:1,
+    longExpansionScore:90,
+    shortExpansionScore:5,
+    expansionScore:90,
+    leaderHunterScore:180,
+    movementPotential:80
+  });
+  scan.leaders[1].attackRank=2;
+  scan.leaders[1].projectedRank=2;
+
   const readinessAdvisory={
     ...advisory('QUALIFIED'),
     plan:{
@@ -266,7 +284,7 @@ test('LiveReadiness stays disarmed, sends only read-only Binance requests and va
     enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
   }).ok,true);
 
-  const out=await controller.liveReadiness();
+  const out=await controller.liveReadiness({symbol:'AAAUSDT'});
   assert.equal(out.ok,true);
   assert.equal(out.readyForUserArm,true);
   assert.equal(out.armed,false);
