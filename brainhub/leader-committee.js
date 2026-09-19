@@ -101,6 +101,8 @@ function executionEligibility(c) {
   const reasons = [];
   const warnings = [];
   const side = String(c?.side || '').toUpperCase();
+  const symbol = String(c?.symbol || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,28}USDT$/.test(symbol)) reasons.push('INVALID_USDT_PERPETUAL_SYMBOL');
 
   // Hard pre-analysis gates only protect basic execution viability.
   // Signal quality belongs to the unified 9TF plan/risk path; rejecting it here
