@@ -60,11 +60,11 @@ test('diagnostic Vision marker changes only the requested probe render', () => {
 test('Vision transport render can downscale PNG without changing default renderer contract', () => {
   const c=chartFixture();
   const full=renderChartPng(c,'annotated');
-  const compact=renderChartPng(c,'annotated',{visionProbeCell:5,outputWidth:640,outputHeight:360});
+  const compact=renderChartPng(c,'annotated',{visionProbeCell:5,outputWidth:448,outputHeight:252});
   assert.equal(full.readUInt32BE(16),1280);
   assert.equal(full.readUInt32BE(20),720);
-  assert.equal(compact.readUInt32BE(16),640);
-  assert.equal(compact.readUInt32BE(20),360);
+  assert.equal(compact.readUInt32BE(16),448);
+  assert.equal(compact.readUInt32BE(20),252);
   assert.ok(compact.length>1000);
   assert.notEqual(compact.toString('base64'),full.toString('base64'));
 });

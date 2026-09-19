@@ -30,9 +30,11 @@ try {
         $text -notmatch 'LOCAL_OLLAMA_VISION_ONLY' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_TWO_STAGE' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_BATCH3' -or
+        $text -notmatch 'LOCAL_OLLAMA_VISION_SINGLE_TF' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
+        $text -notmatch 'VISION_CHART_448X252' -or
         $text -notmatch 'VISION_PIXEL_PROBE' -or
         $text -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or
         $text -notmatch 'LEADER_DETAIL_PROBE'
