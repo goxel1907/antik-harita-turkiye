@@ -290,7 +290,8 @@ const server=http.createServer(async(req,res)=>{
       return send(res,out?.ok?200:503,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/readiness'){
-      const out=await live.liveReadiness();
+      const symbol=String(u.searchParams.get('symbol')||'').trim().toUpperCase();
+      const out=await live.liveReadiness({symbol});
       return send(res,200,out);
     }
     if(req.method==='POST'&&u.pathname==='/live/arm'){
