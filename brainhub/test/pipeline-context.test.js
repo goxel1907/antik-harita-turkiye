@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText } = require('../pipeline');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 const { buildDryRunOrder } = require('../binance-dry-run-executor');
 
@@ -119,6 +119,53 @@ test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK 
   assert.ok(!contract.missing.includes('SUPPORT_TFS_ROLE_MISMATCH'));
   assert.ok(contract.warnings.includes('SUPPORT_TFS_ROLE_MISMATCH'));
 });
+test('Vision repair pass can fill omitted TF fields without changing existing parsed fields', () => {
+  const tags={ '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
+  const roles={ '1m':'SUPPORT','3m':'SUPPORT','5m':'SUPPORT','15m':'VETO','30m':'NEUTRAL','45m':'NEUTRAL','1h':'NEUTRAL','4h':'NEUTRAL','1d':'NEUTRAL' };
+  const tfLines=[];
+  for(const tf of Object.keys(tags)){
+    if(tf==='30m'||tf==='45m')continue;
+    const tag=tags[tf];
+    tfLines.push(
+      'TF_'+tag+': '+tf+' özet',
+      'TF_'+tag+'_WHY: '+tf+' neden',
+      'TF_'+tag+'_WAIT: NONE',
+      'TF_'+tag+'_ROLE: '+roles[tf],
+      'TF_'+tag+'_FORMING: forming bağlam',
+      'TF_'+tag+'_RISK: '+tf+' risk'
+    );
+  }
+  const baseText=[
+    'STATUS: WATCH','SIDE: SHORT','CONFIDENCE: 66','ORIGIN_TF: 1m','OWNER_TF: 5m',
+    'SETUP: reclaim','EXEC_PATH: retest','WHY: ana neden','RISK_NOTE: ana risk','WAIT_FOR: 30m ve 45m bağlamı',
+    'SUPPORT_TFS: 1m,3m,5m','VETO_TFS: 15m','FORMING_CONTEXT: forming teyit değildir',
+    ...tfLines,'VISION_SUMMARY: ortak yapı','EXECUTION: ADVISORY_ONLY'
+  ].join('\n');
+  const before=planFields(baseText);
+  const contractBefore=visionPlanContract(before);
+  assert.equal(contractBefore.ok,false);
+  assert.ok(contractBefore.missing.includes('TF_30M'));
+  assert.ok(contractBefore.missing.includes('TF_45M_RISK'));
+
+  const labels=visionRepairLabels(contractBefore.missing);
+  assert.ok(labels.includes('TF_30M'));
+  assert.ok(labels.includes('TF_45M_RISK'));
+  const repairPrompt=visionRepairPrompt('ORIGINAL',before,contractBefore.missing);
+  assert.match(repairPrompt,/MISSING_LABELS:/);
+  assert.match(repairPrompt,/TF_30M/);
+
+  const repairText=[
+    'TF_30M: 30m özet','TF_30M_WHY: 30m neden','TF_30M_WAIT: NONE','TF_30M_ROLE: NEUTRAL','TF_30M_FORMING: 30m forming bağlam','TF_30M_RISK: 30m risk',
+    'TF_45M: sentetik 45m özet','TF_45M_WHY: 45m neden','TF_45M_WAIT: NONE','TF_45M_ROLE: NEUTRAL','TF_45M_FORMING: 45m forming bağlam','TF_45M_RISK: 45m risk'
+  ].join('\n');
+  const repaired=planFields(mergeVisionRepairText(baseText,repairText));
+  const contractAfter=visionPlanContract(repaired);
+  assert.equal(repaired.status,'WATCH');
+  assert.equal(repaired.side,'SHORT');
+  assert.equal(repaired.why,'ana neden');
+  assert.deepEqual(contractAfter,{ok:true,missing:[],warnings:[]});
+});
+
 test('per-TF roles are canonical while contradictory SUPPORT_TFS/VETO_TFS summaries stay visible as warnings', () => {
   const tags={ '1m':'1M','3m':'3M','5m':'5M','15m':'15M','30m':'30M','45m':'45M','1h':'1H','4h':'4H','1d':'1D' };
   const roles={ '1m':'SUPPORT','3m':'SUPPORT','5m':'SUPPORT','15m':'NEUTRAL','30m':'VETO','45m':'NEUTRAL','1h':'NEUTRAL','4h':'VETO','1d':'NEUTRAL' };
