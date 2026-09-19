@@ -439,7 +439,7 @@ if ($Action -eq 'VisionLocalSetup') {
             "PARAMETER num_ctx $contextSize"
         ) | Set-Content -LiteralPath $modelFile -Encoding ASCII
         & $ollamaExe create $runtimeModel -f $modelFile
-        if ($LASTEXITCODE -ne 0) { throw '16K yerel Vision modeli olusturulamadi.' }
+        if ($LASTEXITCODE -ne 0) { throw '32K yerel Vision modeli olusturulamadi.' }
         $showText = (& $ollamaExe show $runtimeModel --modelfile | Out-String)
         if ($LASTEXITCODE -ne 0 -or $showText -notmatch '(?im)^\s*PARAMETER\s+num_ctx\s+32768\s*$') {
             throw 'Yerel Vision modelinin 32K context ayari dogrulanamadi.'
