@@ -118,6 +118,57 @@ function makeFetch(clockRef, calls) {
   };
 }
 
+test('Leader Auto keeps 9TF analysis running while LIVE arm stays off and never contacts Binance', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-leader-analysis-disarmed-'));
+  const cfg=path.join(root,'config');
+  fs.mkdirSync(cfg,{recursive:true});
+  fs.writeFileSync(path.join(cfg,'live-policy.json'),JSON.stringify(policy(),null,2));
+
+  const clockRef={ now:Date.UTC(2026,8,19,0,10,0) };
+  const fetchCalls=[];
+  const fetchImpl=async url => {
+    fetchCalls.push(String(url));
+    throw new Error('analysis-only disarmed tick must not contact Binance');
+  };
+  const store={ journal(){ return '00000000-0000-0000-0000-000000000010'; } };
+  let pipelineCalls=0;
+  const pipeline={
+    async run(input){
+      pipelineCalls++;
+      assert.equal(input.executionIntent.symbol,'AAAUSDT');
+      return advisory('QUALIFIED');
+    }
+  };
+  const scanner={ async scan(){ return candidateScan(); } };
+  const controller=createLiveController({
+    root,store,scanner,pipeline,committee:async()=>({ok:true,text:''}),
+    credentials:{ apiKey:'unused', apiSecret:'unused' },
+    fetchImpl,clock:()=>clockRef.now
+  });
+
+  assert.equal(controller.status().armed,false);
+  assert.equal(controller.configureLeaderAuto({
+    enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
+  }).ok,true);
+
+  const result=await controller.leaderAutoTick();
+  assert.equal(result.execution,'LEADER_AUTO_WAIT_ARM');
+  assert.equal(result.analysisOnly,true);
+  assert.equal(result.orderPlaced,false);
+  assert.equal(result.liveAllowed,false);
+  assert.equal(result.symbol,'AAAUSDT');
+  assert.equal(pipelineCalls,1);
+  assert.equal(fetchCalls.length,0);
+
+  const st=controller.leaderAutoStatus();
+  assert.equal(st.lastExecution,'LEADER_AUTO_WAIT_ARM');
+  assert.equal(st.diagnostics.candidates[0].selected,true);
+  assert.equal(st.diagnostics.candidates[0].planStatus,'QUALIFIED');
+  assert.equal(st.diagnostics.candidates[0].vision.attached,9);
+
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('leader lifecycle persists across restart and reanalysis remains analysis-only', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-leader-life-'));
   const cfg=path.join(root,'config');
