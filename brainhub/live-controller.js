@@ -366,7 +366,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       if (planStatus === 'QUALIFIED') nextState=oldState === 'INVALIDATED' ? 'REBASE' : 'ARMED';
       else if (planStatus === 'WATCH') nextState=oldState === 'INVALIDATED' ? 'REBASE' : 'WATCH';
       else if (planStatus === 'REJECT') nextState='INVALIDATED';
-      else if (!nextState) nextState=oldState || 'DETECTED';
+      else if (planStatus === 'REVIEW_REQUIRED') {
+        // A fresh fail-closed review must never leave an old ARMED/ENTERABLE badge visible.
+        // ACTIVE remains exchange-authoritative and INVALIDATED is terminal until a real
+        // opportunity rebase occurs.
+        if (oldState === 'ACTIVE') nextState='ACTIVE';
+        else if (oldState === 'INVALIDATED') nextState='INVALIDATED';
+        else nextState='WATCH';
+      } else if (!nextState) nextState=oldState || 'DETECTED';
     }
 
     let rebaseCount=Number(old?.rebaseCount || 0);
@@ -393,6 +400,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       waitFor:String(plan.waitFor || old?.waitFor || ''),
       why:String(plan.why || old?.why || ''),
       riskNote:String(plan.riskNote || old?.riskNote || ''),
+      planReason:String(plan.reason || old?.planReason || ''),
       confidence:finite(plan.confidence) ?? finite(old?.confidence),
       visionAttached:Number(advisory?.vision?.attached || advisory?.committee?.vision?.attached || old?.visionAttached || 0),
       visionRequired:Number(advisory?.vision?.required || old?.visionRequired || 9),
@@ -420,14 +428,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const rows=rawRows.map(row => {
       const state=String(row.state || '').toUpperCase();
       const planStatus=String(row.planStatus || '').toUpperCase();
-      if (row.executionEligibleNow === false && ['ARMED','ENTERABLE'].includes(state)) {
+      if (['ARMED','ENTERABLE'].includes(state) &&
+          (row.executionEligibleNow === false || planStatus !== 'QUALIFIED')) {
         return {
           ...row,
           persistedState:row.state,
           persistedPlanStatus:row.planStatus,
           state:'WATCH',
           planStatus:'REVIEW_REQUIRED',
-          statusReason:row.eligibilityReason || 'NOT_EXECUTION_ELIGIBLE_NOW'
+          statusReason:row.eligibilityReason || row.planReason || 'PLAN_NOT_CURRENTLY_QUALIFIED'
         };
       }
       return { ...row };
@@ -798,7 +807,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       return { ...base, symbol:candidate.symbol, reasons:[advisory?.reason || 'LEADER_PLAN_NOT_READY'], policy:publicPolicy(policy) };
     }
     markLeaderEligibility(candidate.symbol,true,'FRESH_READINESS_ANALYSIS');
-    upsertLeaderLifecycle(candidate,advisory,String(plan.status || '').toUpperCase()==='QUALIFIED'?'ARMED':null,'READINESS_'+String(plan.status || 'REVIEW_REQUIRED').toUpperCase());
+    const readinessStatus=String(plan.status || 'REVIEW_REQUIRED').toUpperCase();
+    const readinessDetail='READINESS_'+readinessStatus+(plan.reason?':'+String(plan.reason).slice(0,120):'');
+    upsertLeaderLifecycle(candidate,advisory,readinessStatus==='QUALIFIED'?'ARMED':null,readinessDetail);
     if (plan.valid !== true || String(plan.status || '').toUpperCase() !== 'QUALIFIED') {
       return {
         ...base,
