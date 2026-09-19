@@ -172,7 +172,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
@@ -200,29 +200,32 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $learn = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/learning' -Headers $headers -TimeoutSec 5
     if (-not $learn.ok) { throw 'SQLite learning testi gecmedi.' }
     if ($IncludeDeep) {
-        try {
-            $plan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/plan' -Headers $headers -TimeoutSec 180
-        } catch {
-            Write-Host '========== LEADER PLAN HATA ==========' -ForegroundColor Red
-            if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
-            $brainLog = Join-Path $BrainRoot 'logs\brainpub.log'
-            if (Test-Path -LiteralPath $brainLog) {
-                Write-Host '========== BRAINHUB LOG SON 80 ==========' -ForegroundColor Yellow
-                Get-Content -LiteralPath $brainLog -Tail 80
+        if (-not $routes.localVisionEnabled) {
+            try {
+                $plan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/plan' -Headers $headers -TimeoutSec 330
+            } catch {
+                Write-Host '========== LEADER PLAN HATA ==========' -ForegroundColor Red
+                if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
+                $brainLog = Join-Path $BrainRoot 'logs\brainpub.log'
+                if (Test-Path -LiteralPath $brainLog) {
+                    Write-Host '========== BRAINHUB LOG SON 80 ==========' -ForegroundColor Yellow
+                    Get-Content -LiteralPath $brainLog -Tail 80
+                }
+                throw
             }
-            throw
+            if (-not $plan.ok -or $plan.execution -ne 'ADVISORY_ONLY' -or $plan.orderPlaced) { throw 'Leader pipeline guvenlik testi gecmedi.' }
+            $committeeCalled = $false
+            if ($null -ne $plan.PSObject.Properties['committeeCalled']) { $committeeCalled = [bool]$plan.committeeCalled }
+            Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
+        } else {
+            Write-Host 'PIPELINE leaderPlan=SKIPPED_DUPLICATE_LOCAL_VISION detailProbeWillValidate=True'
         }
-        if (-not $plan.ok -or $plan.execution -ne 'ADVISORY_ONLY' -or $plan.orderPlaced) { throw 'Leader pipeline guvenlik testi gecmedi.' }
-        $committeeCalled = $false
-        if ($null -ne $plan.PSObject.Properties['committeeCalled']) { $committeeCalled = [bool]$plan.committeeCalled }
-        Write-Host "PIPELINE candidate=$($plan.candidateFound) committee=$committeeCalled"
 
-        # /leader/plan may legitimately fall back to deterministic advisory output when the
-        # committee is unavailable. KKK Vision detail verification must never treat that
-        # fallback as a model-generated 9TF analysis, so Deep always uses the targeted
-        # analysis-only endpoint below. That endpoint is fail-closed for Vision/model failure.
+        # Local Vision is intentionally not executed twice in Deep mode. The targeted
+        # analysis-only detail probe below exercises the same pipeline fail-closed and
+        # is the authoritative 9TF model contract check.
         try {
-            $detailPlanResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $headers -TimeoutSec 330
+            $detailPlanResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $headers -TimeoutSec 660
         } catch {
             Write-Host '========== LEADER DETAIL PROBE HATA ==========' -ForegroundColor Red
             if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
@@ -236,6 +239,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
 
         if ($detailCandidateFound) {
             if (-not $detailAnalysisOnly) { throw 'Leader detay probe analysis-only kilidi bozuldu.' }
+            if ($detailPlanResult.execution -ne 'ADVISORY_ONLY' -or [bool](Get-PropValue $detailPlanResult "orderPlaced" $false)) { throw 'Leader detay probe guvenlik kilidi bozuldu.' }
             if (-not $detailCommitteeCalled) { throw 'Leader detay probe model/committee cagrisini tamamlamadi.' }
 
             $detailVision = Get-PropValue $detailPlanResult "vision" $null
@@ -321,7 +325,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
             Write-Host "LEADER_9TF_DETAIL skipped=$detailReason"
         }
         try {
-            $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 330
+            $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 660
         } catch {
             Write-Host '========== 9TF VISION PROBE HATA ==========' -ForegroundColor Red
             if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
@@ -409,6 +413,7 @@ if ($Action -eq 'VisionStatus') {
         localVisionBaseUrl = $routes.localVisionBaseUrl
         localVisionContextSize = $routes.localVisionContextSize
         localVisionTimeoutMs = $routes.localVisionTimeoutMs
+        localVisionOnly = $routes.localVisionOnly
         paidVisionFallbackEnabled = $routes.paidVisionFallbackEnabled
         visionRoutes = $routes.visionRoutes
         note = $routes.note
@@ -460,15 +465,16 @@ if ($Action -eq 'VisionLocalSetup') {
             baseUrl = 'http://127.0.0.1:11434/v1'
             models = @($runtimeModel)
             contextSize = $contextSize
-            timeoutMs = 180000
+            timeoutMs = 300000
+            localOnly = $true
         }
         $models | Add-Member -NotePropertyName localVision -NotePropertyValue $local -Force
         $models | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $modelsPath -Encoding UTF8
         Start-Brain $rootFull $node $key
         Test-Brain $rootFull
         $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
-        if (-not $routes.localVisionEnabled -or @($routes.localVisionModels) -notcontains ('local/' + $runtimeModel) -or [int]$routes.localVisionContextSize -lt $contextSize) {
-            throw 'Yerel Ollama Vision 32K rotasi etkinlesmedi.'
+        if (-not $routes.localVisionEnabled -or -not $routes.localVisionOnly -or @($routes.localVisionModels) -notcontains ('local/' + $runtimeModel) -or [int]$routes.localVisionContextSize -lt $contextSize) {
+            throw 'Yerel Ollama Vision 32K local-only rotasi etkinlesmedi.'
         }
         Write-Host "BRAINHUB_LOCAL_VISION_SETUP_OK model=$runtimeModel context=$contextSize backup=$backup"
     } catch {

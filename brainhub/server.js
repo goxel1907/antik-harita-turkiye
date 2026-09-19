@@ -136,9 +136,10 @@ function localVisionConfig(){
     const u=new URL(candidate);
     if(u.protocol==='http:'&&['127.0.0.1','localhost','::1'].includes(u.hostname))baseUrl=candidate;
   }catch{}
-  const contextSize=Math.max(4096,Math.min(65536,Number(raw.contextSize||16384)));
-  const timeoutMs=Math.max(60000,Math.min(240000,Number(raw.timeoutMs||180000)));
-  return {enabled:raw.enabled===true&&!!baseUrl&&models.length>0,baseUrl,models,contextSize,timeoutMs};
+  const contextSize=Math.max(4096,Math.min(65536,Number(raw.contextSize||32768)));
+  const timeoutMs=Math.max(60000,Math.min(600000,Number(raw.timeoutMs||300000)));
+  const localOnly=raw.localOnly!==false;
+  return {enabled:raw.enabled===true&&!!baseUrl&&models.length>0,baseUrl,models,contextSize,timeoutMs,localOnly};
 }
 async function callModel(model,messages,timeoutMs=12000){
   const local=localVisionConfig();
@@ -226,8 +227,10 @@ function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
     ? configuredQuotaModels
     : (allowLegacyKiroFallback?kiroPool:[]);
   const maxFree=kiroCandidates.length?Math.max(1,Math.min(6,Number(ccfg?.maxFreeVisionAttempts||3))):rankedFree.length;
+  const localRoutes=visionRank(preferHealthy(local.enabled?local.models:[]));
+  if(local.enabled&&local.localOnly)return uniqueModels(localRoutes);
   return uniqueModels([
-    ...visionRank(preferHealthy(local.enabled?local.models:[])),
+    ...localRoutes,
     ...rankedFree.slice(0,maxFree),
     ...visionRank(preferHealthy(kiroCandidates))
   ]);
@@ -312,7 +315,7 @@ async function committeeCall(body){
   // /committee may try several Vision routes sequentially. The bridge timeout must
   // be longer than one provider's visionTimeoutMs (default 90s), otherwise a healthy
   // Kiro reply near the provider deadline is aborted by this local hop first.
-  const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(330000)});
+  const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(660000)});
   const data=await r.json();
   if(!r.ok){
     const failures=Array.isArray(data?.failures)?data.failures:[];
@@ -332,7 +335,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','VISION_CHART_896X504','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','VISION_CHART_896X504','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -404,13 +407,16 @@ const server=http.createServer(async(req,res)=>{
         localVisionBaseUrl:local.baseUrl||null,
         localVisionContextSize:local.contextSize,
         localVisionTimeoutMs:local.timeoutMs,
+        localVisionOnly:local.localOnly,
         localVisionFirst:true,
         visionKiroFreeQuota,
         kiroFreeQuotaVisionModels,
         visionKiroFallback,
         paidVisionFallbackEnabled:visionKiroFallback,
         note:local.enabled
-          ? '9TF Vision uses explicitly enabled loopback-only local Ollama first; text-only routing remains on 9Router. Missing local Vision remains fail-closed and no paid provider is enabled.'
+          ? (local.localOnly
+              ? '9TF Vision uses only the explicitly enabled loopback Ollama model; text-only routing remains on 9Router. Local Vision failure is fail-closed and no remote Vision fallback is attempted.'
+              : '9TF Vision uses explicitly enabled loopback Ollama first; text-only routing remains on 9Router. Missing local Vision remains fail-closed and no paid provider is enabled.')
           : (visionKiroFreeQuota
               ? '9TF Vision may use only the explicitly allowlisted Kiro connected-account quota models after free OpenCode attempts. This opt-in does not enable any separate paid API provider.'
               : (visionKiroFallback

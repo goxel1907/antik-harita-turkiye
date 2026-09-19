@@ -27,6 +27,7 @@
             "brainhub-qwen3-vl-4b-32k"
         ],
         "contextSize": 32768,
-        "timeoutMs": 180000
+        "timeoutMs": 300000,
+        "localOnly": true
     }
 }
