@@ -471,7 +471,31 @@ const server=http.createServer(async(req,res)=>{
         }
       }
       if(good.length===0){
-        const failures=results.filter(x=>!x.ok).slice(0,12);
+        const directFailures=results.filter(x=>!x.ok).slice(0,12);
+        const allVisionCandidates=hasVision?orderedVisionModels(ccfg,role,true):[];
+        const cooldownFailures=hasVision
+          ? allVisionCandidates
+              .filter(model=>visionBlocked(model))
+              .map(model=>{
+                const st=visionState.get(model) || {};
+                return {
+                  model,
+                  error:String(st.error || 'vision cooldown').slice(0,400),
+                  durationMs:Number(st.durationMs || 0),
+                  lastFailureAt:Number(st.at || 0),
+                  cooldown:true
+                };
+              })
+          : [];
+        const seen=new Set();
+        const failures=[...directFailures,...cooldownFailures]
+          .filter(x=>{
+            const key=String(x?.model || '')+'|'+String(x?.error || '');
+            if(seen.has(key))return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0,12);
         return send(res,503,{
           ok:false,
           error:hasVision?'no vision analyst replies':'no analyst replies',
@@ -480,6 +504,7 @@ const server=http.createServer(async(req,res)=>{
           received:0,
           vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},
           attemptedModels:results.map(x=>x.model),
+          cooldownModels:cooldownFailures.map(x=>x.model),
           forceVisionProbe:forceVisionProbe||false,
           visionTimeoutMs:hasVision?visionTimeoutMs:null,
           visionParallelAnalysts:hasVision?visionParallel:null,
