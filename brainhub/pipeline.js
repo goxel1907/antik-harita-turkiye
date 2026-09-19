@@ -814,7 +814,24 @@ function combineExecutionReadiness(riskGate, dryRunExecutor) {
     remainingMandatoryControls:[...new Set(remaining)]
   };
 }
-async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null }) {
+function applyDecisionJudgeResult(plan,decision){
+  const status=String(plan?.status||'').toUpperCase();
+  if(status!=='QUALIFIED')return {...plan,jevDecision:decision||null};
+  if(!decision||decision.required!==true)return {...plan,jevDecision:decision||null};
+  if(decision.ok===true&&decision.veto!==true)return {...plan,jevDecision:decision};
+  const reasons=Array.isArray(decision?.vetoReasons)&&decision.vetoReasons.length?decision.vetoReasons:[String(decision?.reason||'JEV_REQUIRED_UNAVAILABLE')];
+  return {
+    ...plan,
+    previousStatus:'QUALIFIED',
+    status:'WATCH',
+    reason:reasons[0],
+    confidence:Math.min(Number(plan?.confidence)||0,49),
+    jevDecision:{...decision,veto:true,vetoReasons:reasons},
+    execution:'ADVISORY_ONLY'
+  };
+}
+
+async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null, decisionJudge = null }) {
   const selection = resolveExecutionCandidate(scan, executionIntent);
   const candidate = selection.candidate;
   if (!candidate) return {
@@ -1027,6 +1044,18 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       });
     } catch {}
   }
+  let jevDecision=null;
+  if(typeof decisionJudge==='function'&&String(plan?.status||'').toUpperCase()==='QUALIFIED'){
+    try{
+      jevDecision=await decisionJudge({candidate,plan,unified});
+    }catch(e){
+      jevDecision={ok:false,configured:true,required:true,called:true,veto:true,reason:'JEV_JUDGE_EXCEPTION',detail:String(e?.message||e).slice(0,300)};
+    }
+    plan=applyDecisionJudgeResult(plan,jevDecision);
+  }else if(typeof decisionJudge==='function'){
+    jevDecision={ok:true,configured:null,required:false,called:false,veto:false,reason:'JEV_NOT_NEEDED_FOR_NON_QUALIFIED'};
+    plan={...plan,jevDecision};
+  }
   const preflight = preflightRiskGate({ plan, unified });
   const accountCaps = accountRiskCaps(accountRisk || {});
   const structuralStop = structuralStopGate({ ...(stopRisk || {}), side:plan.side });
@@ -1056,6 +1085,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     vision:{ ok:vision.ok, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures },
     committee:result,
     plan,
+    jevDecision:plan?.jevDecision||jevDecision,
     riskGate,
     dryRunExecutor,
     executionReadiness,
@@ -1066,4 +1096,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };

@@ -82,3 +82,12 @@ Setup from a fresh key already copied to the Windows clipboard:
 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\BrainHub\OPENROUTER-SETUP.ps1`
 
 The setup validates the key with OpenRouter, stores it with DPAPI, clears the clipboard, restarts BrainHub, and performs one tiny synthetic Jev Decisions probe.
+
+
+### Jev advisory/veto gate
+
+After the secure probe is verified, Jev is attached to the central pipeline only for plans that are already `QUALIFIED`. This keeps paid traffic low. It cannot upgrade WATCH/REJECT, cannot create trade parameters, cannot bypass deterministic risk controls, and cannot authorize orders.
+
+If Jev reports structural veto, forming-candle confirmation dependency, insufficient data quality, or material directional conflict above the configured threshold, a QUALIFIED plan is downgraded to WATCH. If Jev is configured as the required final judge but the Decisions API fails, its schema is invalid, or the local daily budget is exhausted, QUALIFIED is also downgraded fail-closed.
+
+The local Jev budget is persisted under `data/jev-usage.json`. Setup defaults to USD 0.25/day and reserves a conservative USD 0.01 before each paid call, settling to reported usage cost afterward. Normal WATCH/REJECT plans do not call Jev.
