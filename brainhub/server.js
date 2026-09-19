@@ -260,7 +260,10 @@ function candidateForSymbol(scan,symbol){
   return null;
 }
 async function committeeCall(body){
-  const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
+  // /committee may try several Vision routes sequentially. The bridge timeout must
+  // be longer than one provider's visionTimeoutMs (default 90s), otherwise a healthy
+  // Kiro reply near the provider deadline is aborted by this local hop first.
+  const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(210000)});
   const data=await r.json();
   if(!r.ok){
     const failures=Array.isArray(data?.failures)?data.failures:[];
