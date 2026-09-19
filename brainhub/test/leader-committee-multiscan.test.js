@@ -114,6 +114,18 @@ test('detail probe skips malformed symbols and normalizes the next valid USDT ca
   assert.equal(none,null);
 });
 
+test('malformed non-ASCII symbols are review-only and never execution eligible', () => {
+  const malformed = row('龙虾USDT', 1, 'TOP5_CONFIRMED', { side:'LONG' });
+  const valid = row('GOODUSDT', 2, 'TOP5_CONFIRMED', { side:'SHORT', shortExpansionScore:55, longExpansionScore:15 });
+  const scan = {
+    leaders:[malformed,valid],
+    top3Approach:[],top10Approach:[],earlyTop5:[],earlyExpansion:[]
+  };
+  const deep = selectDeepCandidates(scan,16);
+  assert.ok(deep.some(x=>x.symbol==='龙虾USDT'));
+  assert.equal(pickCandidate(scan)?.symbol,'GOODUSDT');
+});
+
 test('deep-scan prompt explicitly requires independent LONG and SHORT review for every symbol', () => {
   const longRow = row('LONGUSDT', 3, 'TOP5_CONFIRMED');
   const shortRow = row('SHORTUSDT', 11, 'TOP10_APPROACH', {
