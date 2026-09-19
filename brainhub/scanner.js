@@ -23,6 +23,7 @@ function round(v, d = 4) {
   return Math.round(num(v) * p) / p;
 }
 function cap100(v) { return Math.max(0, Math.min(100, num(v))); }
+function validUsdtSymbol(s) { return typeof s === 'string' && /^[A-Z0-9]{1,28}USDT$/.test(s); }
 
 async function jget(endpoint, timeoutMs = 10000) {
   const r = await fetch(BASE + endpoint, { signal: AbortSignal.timeout(timeoutMs) });
@@ -272,7 +273,7 @@ async function performScan() {
     jget('/fapi/v1/ticker/bookTicker', 12000),
     jget('/fapi/v1/premiumIndex', 12000)
   ]);
-  const allowed = new Set((ex.symbols || []).filter(x => x.quoteAsset === 'USDT' && x.contractType === 'PERPETUAL' && x.status === 'TRADING').map(x => x.symbol));
+  const allowed = new Set((ex.symbols || []).filter(x => x.quoteAsset === 'USDT' && x.contractType === 'PERPETUAL' && x.status === 'TRADING' && validUsdtSymbol(x.symbol)).map(x => x.symbol));
   const bookMap = new Map((books || []).map(x => [x.symbol, x]));
   const premiumMap = new Map((premiums || []).map(x => [x.symbol, x]));
   const universe = (tickers || [])
@@ -363,4 +364,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={scan,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields};
+module.exports={scan,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol};
