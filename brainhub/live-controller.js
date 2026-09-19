@@ -9,6 +9,9 @@ const { BinanceLiveTransport } = require('./binance-live-transport');
 const { assessApiPermissionDeclaration, containsSecretLikeKey } = require('./binance-account-context');
 const { selectDeepCandidates, executionEligibility, executionEligible } = require('./leader-committee');
 const { buildLeaderLiveIntent } = require('./leader-live-intent');
+const { buildDryRunOrder } = require('./binance-dry-run-executor');
+const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
+const { combineRiskGate:combineReadinessRiskGate, enforceExecutionLineage:enforceReadinessLineage, combineExecutionReadiness:combineReadiness } = require('./pipeline');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -625,6 +628,313 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         reasons:[String(e?.message || 'BINANCE_ACCOUNT_SUMMARY_FAILED').slice(0,160)]
       };
     }
+  }
+
+  async function liveReadiness() {
+    const policy = readPolicy(root);
+    const creds = currentCredentials();
+    const armed = armedNow();
+    const base = {
+      ok:false,
+      readyForUserArm:false,
+      armed,
+      liveAllowed:false,
+      orderPlaced:false,
+      orderRequestSent:false,
+      execution:'LIVE_READINESS_CHECK',
+      reasons:[]
+    };
+
+    // Readiness is intentionally evaluated only while disarmed. This endpoint
+    // never arms LIVE, never acquires the live lease/claim and never submits an order.
+    if (armed) return { ...base, reasons:['READINESS_REQUIRES_LIVE_DISARMED'] };
+    if (!policy.ok) return { ...base, reasons:policy.reasons || ['LIVE_POLICY_REQUIRED'], policy:publicPolicy(policy) };
+    if (!credentialsReady(creds)) return { ...base, reasons:['BINANCE_CREDENTIALS_REQUIRED'], policy:publicPolicy(policy) };
+
+    const cfg = readLeaderAutoConfig();
+    if (!cfg.ok) return { ...base, reasons:cfg.reasons || ['LEADER_AUTO_CONFIG_INVALID'], policy:publicPolicy(policy) };
+    if (!cfg.config.enabled) return { ...base, reasons:['LEADER_AUTO_DISABLED'], policy:publicPolicy(policy) };
+
+    const settings = requestedExecutionSettings({
+      requestedMarginQuote:cfg.config.marginQuote,
+      requestedLeverage:cfg.config.leverage,
+      requestedMaxOpenPositions:cfg.config.maxOpenPositions
+    }, policy);
+    if (!settings.ok || !settings.dynamic) {
+      return { ...base, reasons:settings.reasons?.length ? settings.reasons : ['LEADER_AUTO_DYNAMIC_SETTINGS_REQUIRED'], policy:publicPolicy(policy) };
+    }
+
+    let scan;
+    try { scan = await scanner.scan(); }
+    catch {
+      return { ...base, reasons:['SCANNER_UNAVAILABLE'], policy:publicPolicy(policy) };
+    }
+
+    const rawCandidates = selectDeepCandidates(scan,16);
+    const candidates = rawCandidates
+      .filter(executionEligible)
+      .filter(x => {
+        const side=String(x?.side || '').toUpperCase();
+        return (side === 'LONG' && cfg.config.allowLong) || (side === 'SHORT' && cfg.config.allowShort);
+      });
+    if (!candidates.length) {
+      return {
+        ...base,
+        reasons:['NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER'],
+        policy:publicPolicy(policy),
+        universeCount:Number(scan?.universeCount || 0),
+        shortlistCount:rawCandidates.length
+      };
+    }
+
+    const candidate=candidates[0];
+    let advisory;
+    try {
+      advisory=await pipeline.run({
+        scan,
+        store,
+        committee,
+        executionIntent:{ symbol:candidate.symbol, side:candidate.side, analysisTracking:true }
+      });
+    } catch (e) {
+      return { ...base, symbol:candidate.symbol, reasons:[String(e?.message || 'LEADER_PLAN_FAILED').slice(0,160)], policy:publicPolicy(policy) };
+    }
+
+    const plan=advisory?.plan || null;
+    if (!advisory?.candidateFound || !plan || !advisory?.unifiedContext) {
+      return { ...base, symbol:candidate.symbol, reasons:[advisory?.reason || 'LEADER_PLAN_NOT_READY'], policy:publicPolicy(policy) };
+    }
+    if (plan.valid !== true || String(plan.status || '').toUpperCase() !== 'QUALIFIED') {
+      return {
+        ...base,
+        symbol:candidate.symbol,
+        planStatus:String(plan.status || 'REVIEW_REQUIRED'),
+        reasons:[...new Set(['LEADER_PLAN_NOT_QUALIFIED', plan.reason].filter(Boolean))],
+        vision:{ attached:Number(advisory?.vision?.attached || 0), required:Number(advisory?.vision?.required || 9) },
+        policy:publicPolicy(policy)
+      };
+    }
+    if (Number(advisory?.vision?.attached || 0) < 9) {
+      return { ...base, symbol:candidate.symbol, planStatus:'QUALIFIED', reasons:['VISION_9TF_INCOMPLETE'], policy:publicPolicy(policy) };
+    }
+
+    let commissionRate=null;
+    let commissionMeta=null;
+    if (['1m','3m','5m'].includes(String(plan.originTF || '').toLowerCase())) {
+      commissionMeta=await takerCommissionRateFor(candidate.symbol,creds);
+      if (!commissionMeta.ok) {
+        return { ...base, symbol:candidate.symbol, planStatus:'QUALIFIED', reasons:[commissionMeta.reason || 'BINANCE_COMMISSION_RATE_UNAVAILABLE'], commission:commissionMeta, policy:publicPolicy(policy) };
+      }
+      commissionRate=commissionMeta.rate;
+    }
+
+    let exchangeInfo;
+    let symbolInfo;
+    let positionMode;
+    try {
+      await transport._syncServerTime();
+      exchangeInfo=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');
+      symbolInfo=Array.isArray(exchangeInfo?.symbols)
+        ? exchangeInfo.symbols.find(x=>String(x?.symbol || '').toUpperCase()===String(candidate.symbol).toUpperCase())
+        : null;
+      positionMode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{ credentials:creds, signed:true });
+    } catch (e) {
+      return {
+        ...base,
+        symbol:candidate.symbol,
+        planStatus:'QUALIFIED',
+        reasons:['BINANCE_READONLY_PREFLIGHT_FAILED',String(e?.message || e).slice(0,160)],
+        exchangeError:e?.body || null,
+        policy:publicPolicy(policy)
+      };
+    }
+    if (!symbolInfo) {
+      return { ...base, symbol:candidate.symbol, planStatus:'QUALIFIED', reasons:['BINANCE_SYMBOL_FILTERS_UNAVAILABLE'], policy:publicPolicy(policy) };
+    }
+
+    const intent=buildLeaderLiveIntent({
+      candidate,
+      unified:advisory.unifiedContext,
+      plan,
+      marginQuote:settings.marginQuote,
+      leverage:settings.leverage,
+      filters:exchangeFiltersFor(symbolInfo),
+      takerCommissionRate:commissionRate
+    });
+    if (!intent.ok) {
+      return {
+        ...base,
+        symbol:candidate.symbol,
+        planStatus:'QUALIFIED',
+        reasons:intent.reasons || ['LEADER_INTENT_NOT_READY'],
+        intent,
+        policy:publicPolicy(policy)
+      };
+    }
+
+    const now=clock();
+    const bucket=Math.floor(now/60000);
+    const lineageId=`READINESS:${intent.symbol}:${intent.side}:${bucket.toString(36)}`;
+    const clientOrderId=`RD${intent.symbol.slice(0,8)}${intent.side[0]}${bucket.toString(36)}`.slice(0,36);
+    const order={
+      action:'OPEN',
+      symbol:intent.symbol,
+      side:intent.side,
+      orderType:'MARKET',
+      quantity:intent.quantity,
+      entryPrice:intent.entryPrice,
+      stopPrice:intent.stopPrice,
+      takeProfit1:intent.takeProfit1,
+      takeProfit2:intent.takeProfit2,
+      takeProfit3:intent.takeProfit3,
+      clientOrderId,
+      lineageId
+    };
+
+    let accountRisk;
+    try { accountRisk=await accountRiskFor(order,policy,creds); }
+    catch (e) {
+      return {
+        ...base,
+        symbol:candidate.symbol,
+        planStatus:'QUALIFIED',
+        order,
+        reasons:['BINANCE_ACCOUNT_PREFLIGHT_FAILED',String(e?.message || e).slice(0,160)],
+        exchangeError:e?.body || null,
+        policy:publicPolicy(policy)
+      };
+    }
+
+    const sizing=applyDynamicSizingGuards(accountRisk,settings,policy);
+    if (!sizing.ok) {
+      return { ...base, symbol:candidate.symbol, planStatus:'QUALIFIED', order, reasons:sizing.reasons || ['DYNAMIC_SIZING_GUARD_FAILED'], sizing:sizing.sizing || null, policy:publicPolicy(policy) };
+    }
+    accountRisk=sizing.accountRisk;
+
+    const preflight=preflightRiskGate({ plan, unified:advisory.unifiedContext });
+    const accountCaps=accountRiskCaps(accountRisk);
+    const stopGate=structuralStopGate({
+      side:intent.side,
+      entryPrice:intent.entryPrice,
+      stopPrice:intent.stopPrice,
+      structuralInvalidationPrice:intent.structuralInvalidationPrice,
+      bufferQuote:intent.buffer,
+      initialStopPrice:intent.stopPrice
+    });
+
+    // The real lease/claim and kill switch are runtime controls after explicit arm.
+    // For readiness we validate the same gate geometry with a synthetic non-persistent
+    // claim. No store claim/lease is acquired here.
+    const killGate=killSwitchGate({ control:{ available:true, tripped:false, dryRunEnabled:true } });
+    const claimGate=executionClaimGate({ claim:{ claimed:true, lineageId } });
+    let riskGate=combineReadinessRiskGate(preflight,accountCaps,stopGate,killGate,claimGate);
+    riskGate=enforceReadinessLineage(riskGate,claimGate,order);
+
+    const dryRun=buildDryRunOrder({
+      intent:{ ...order, mode:'DRY_RUN', live:false },
+      riskGate
+    });
+    const executionReadiness=combineReadiness(riskGate,dryRun);
+
+    let livePrice=null;
+    let transportRuleReasons=[];
+    try {
+      const ticker=await transport._fetchJson('GET','/fapi/v1/ticker/price',{ params:{ symbol:order.symbol } });
+      livePrice=finite(ticker?.price);
+      transportRuleReasons=transport._validateRules(order,symbolInfo,livePrice,{
+        expectedLeverage:settings.leverage,
+        maxEntryDeviationPct:policy.maxEntryDeviationPct
+      });
+    } catch (e) {
+      transportRuleReasons=['BINANCE_LIVE_RULE_PREFLIGHT_FAILED',String(e?.message || e).slice(0,160)];
+    }
+
+    // Exercise the exact one-shot authorization/fingerprint logic in an isolated
+    // temporary registry. The simulated grant can never reach Binance transport.
+    const simulationRegistry=new LiveAuthorizationRegistry();
+    const simulatedIssue=simulationRegistry.issue({
+      executionReadiness,
+      apiPolicy:policy.apiPolicy,
+      userApproved:true,
+      order,
+      now
+    });
+    let simulatedConsume={ ok:false };
+    let simulatedReplay={ ok:false };
+    if (simulatedIssue.ok) {
+      simulatedConsume=simulationRegistry.consume({ grantId:simulatedIssue.grant.grantId, order, now });
+      simulatedReplay=simulationRegistry.consume({ grantId:simulatedIssue.grant.grantId, order, now });
+    }
+    const authorizationSimulationOk=simulatedIssue.ok === true &&
+      simulatedConsume.ok === true &&
+      simulatedReplay.ok === false;
+
+    const reasons=[
+      ...(executionReadiness?.reasons || []),
+      ...transportRuleReasons,
+      ...(authorizationSimulationOk?[]:['ONE_SHOT_AUTHORIZATION_SIMULATION_FAILED'])
+    ];
+    const uniqueReasons=[...new Set(reasons.filter(Boolean))];
+    const ready=executionReadiness?.ok === true && transportRuleReasons.length===0 && authorizationSimulationOk;
+
+    return {
+      ok:true,
+      readyForUserArm:ready,
+      armed:false,
+      liveAllowed:false,
+      orderPlaced:false,
+      orderRequestSent:false,
+      execution:ready?'LIVE_READINESS_OK':'LIVE_READINESS_WAIT',
+      symbol:order.symbol,
+      side:order.side,
+      planStatus:String(plan.status || ''),
+      originTF:String(plan.originTF || ''),
+      ownerTF:String(plan.ownerTF || ''),
+      vision:{ attached:Number(advisory?.vision?.attached || 0), required:Number(advisory?.vision?.required || 9) },
+      settings:{
+        marginQuote:settings.marginQuote,
+        leverage:settings.leverage,
+        maxOpenPositions:settings.maxOpenPositions
+      },
+      account:{
+        equity:finite(accountRisk?.account?.equity),
+        availableBalance:finite(accountRisk?.account?.availableBalance),
+        dailyRealizedPnl:finite(accountRisk?.account?.dailyRealizedPnl),
+        openPositions:finite(accountRisk?.account?.openPositions)
+      },
+      intent:{
+        entryPrice:intent.entryPrice,
+        stopPrice:intent.stopPrice,
+        takeProfit1:intent.takeProfit1,
+        takeProfit2:intent.takeProfit2,
+        takeProfit3:intent.takeProfit3,
+        quantity:intent.quantity,
+        riskQuote:intent.riskQuote,
+        notionalQuote:intent.notionalQuote,
+        costModel:intent.costModel || null
+      },
+      dryRun:{
+        ok:dryRun?.ok === true,
+        simulated:dryRun?.simulated === true,
+        submitted:dryRun?.submitted === true,
+        requestSent:dryRun?.transport?.requestSent === true
+      },
+      exchangeRules:{
+        ok:transportRuleReasons.length===0,
+        livePrice,
+        reasons:transportRuleReasons
+      },
+      authorizationSimulation:{
+        issueOk:simulatedIssue.ok === true,
+        consumeOnceOk:simulatedConsume.ok === true,
+        replayBlocked:simulatedReplay.ok === false
+      },
+      apiPolicy:policy.apiPolicy,
+      positionModeDual:positionMode?.dualSidePosition === true,
+      remainingRuntimeControls:['EXPLICIT_USER_LIVE_ARM','REAL_LEASE_AND_LINEAGE_CLAIM','ONE_SHOT_GRANT_AT_EXECUTION'],
+      reasons:uniqueReasons,
+      policy:publicPolicy(policy)
+    };
   }
 
   async function arm({ confirmed = false } = {}) {
@@ -1497,7 +1807,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
-  return { status, accountSummary, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };
