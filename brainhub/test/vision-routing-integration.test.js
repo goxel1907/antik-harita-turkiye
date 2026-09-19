@@ -80,15 +80,19 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
     if(req.method!=='POST'||req.url!=='/v1/chat/completions'){res.writeHead(404,{'content-type':'application/json'});return res.end(JSON.stringify({error:'not found'}));}
     let raw=''; for await(const chunk of req) raw+=chunk;
     const body=JSON.parse(raw||'{}');
-    localRequested.push({model:String(body.model||''),vision:hasImageInput(body),authorization:req.headers.authorization||'',temperature:body.temperature});
-    res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({choices:[{message:{content:'VISION_OK: local 9TF'}}]}));
+    const vision=hasImageInput(body);
+    localRequested.push({model:String(body.model||''),vision,authorization:req.headers.authorization||'',temperature:body.temperature,maxTokens:body.max_tokens||null});
+    const content=vision
+      ? 'VIS_1M: up; level; forming; none\nVIS_3M: up; level; forming; none\nVIS_5M: up; level; forming; none\nVIS_15M: flat; level; forming; conflict\nVIS_30M: flat; level; forming; conflict\nVIS_45M: flat; level; forming; conflict\nVIS_1H: up; level; forming; none\nVIS_4H: up; level; forming; none\nVIS_1D: up; level; forming; none'
+      : 'VISION_OK: local staged final';
+    res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({choices:[{message:{content}}]}));
   });
   const routerPort=await listen(fakeRouter), localPort=await listen(fakeOllama);
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-local-vision-route-')), brainPort=await freePort(), configDir=path.join(root,'config');
   fs.mkdirSync(configDir,{recursive:true});
   fs.writeFileSync(path.join(configDir,'models.json'),JSON.stringify({
     baseUrl:'http://127.0.0.1:'+routerPort+'/v1',opencode:['oc/text-a','oc/text-b'],kiro:['kr/not-needed'],
-    localVision:{enabled:true,baseUrl:'http://127.0.0.1:'+localPort+'/v1',models:['qwen3-vl:test'],contextSize:32768,timeoutMs:300000,localOnly:true},healthCacheSeconds:1
+    localVision:{enabled:true,baseUrl:'http://127.0.0.1:'+localPort+'/v1',models:['qwen3-vl:test'],contextSize:16384,timeoutMs:300000,localOnly:true},healthCacheSeconds:1
   }),'utf8');
   fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
     analysts:['oc/text-a','oc/text-b'],backupAnalysts:[],judges:[],minAnalystReplies:2,minVisionAnalystReplies:1,maxFreeVisionAttempts:2,
@@ -102,9 +106,13 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
     const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
     const vr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'Local Vision routing regression',images:tfs.map(fakeImage)})});
     const vision=await vr.json(); assert.equal(vr.status,200,JSON.stringify(vision)); assert.equal(vision.model,'local/qwen3-vl:test'); assert.equal(vision.vision?.attached,9);
-    assert.equal(localRequested.length,1); assert.equal(localRequested[0].model,'qwen3-vl:test'); assert.equal(localRequested[0].vision,true); assert.equal(localRequested[0].authorization,''); assert.equal(localRequested[0].temperature,0); assert.equal(routerRequested.some(x=>x.vision),false);
+    assert.equal(localRequested.length,2); assert.equal(localRequested[0].model,'qwen3-vl:test'); assert.equal(localRequested[0].vision,true); assert.equal(localRequested[0].authorization,''); assert.equal(localRequested[0].temperature,0); assert.equal(localRequested[0].maxTokens,1400); assert.equal(localRequested[1].vision,false); assert.equal(localRequested[1].maxTokens,4096); assert.equal(vision.localVisionTwoStage,true); assert.equal(routerRequested.some(x=>x.vision),false);
     const routes=await (await fetch('http://127.0.0.1:'+brainPort+'/models/routes')).json();
-    assert.equal(routes.localVisionEnabled,true); assert.equal(routes.localVisionFirst,true); assert.equal(routes.localVisionModels[0],'local/qwen3-vl:test'); assert.equal(routes.localVisionContextSize,32768); assert.equal(routes.localVisionTimeoutMs,300000); assert.equal(routes.localVisionOnly,true); assert.deepEqual(routes.visionRoutes.STRUCTURE,['local/qwen3-vl:test']); assert.equal(routes.paidVisionFallbackEnabled,false);
+    assert.equal(routes.localVisionEnabled,true); assert.equal(routes.localVisionFirst,true); assert.equal(routes.localVisionModels[0],'local/qwen3-vl:test'); assert.equal(routes.localVisionContextSize,16384); assert.equal(routes.localVisionTimeoutMs,300000); assert.equal(routes.localVisionOnly,true); assert.equal(routes.localVisionTwoStage,true); assert.deepEqual(routes.visionRoutes.STRUCTURE,['local/qwen3-vl:test']); assert.equal(routes.paidVisionFallbackEnabled,false);
+    const beforeForce=localRequested.length;
+    const fr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'raw pixel probe',images:tfs.map(fakeImage),forceVisionProbe:true})});
+    assert.equal(fr.status,200); assert.equal(localRequested.length,beforeForce+1); assert.equal(localRequested.at(-1).vision,true);
+    const forceBody=await fr.json(); assert.equal(forceBody.localVisionTwoStage,false);
     const beforeLocal=localRequested.length;
     const tr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'SCALP',prompt:'Return NO_TRADE'})});
     assert.equal(tr.status,200); assert.equal(localRequested.length,beforeLocal); assert.ok(routerRequested.filter(x=>!x.vision).length>=2);

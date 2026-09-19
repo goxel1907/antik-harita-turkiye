@@ -172,7 +172,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'VISION_CHART_896X504') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TWO_STAGE') -or -not ($h.features -contains 'VISION_CHART_896X504') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
@@ -414,6 +414,7 @@ if ($Action -eq 'VisionStatus') {
         localVisionContextSize = $routes.localVisionContextSize
         localVisionTimeoutMs = $routes.localVisionTimeoutMs
         localVisionOnly = $routes.localVisionOnly
+        localVisionTwoStage = $routes.localVisionTwoStage
         paidVisionFallbackEnabled = $routes.paidVisionFallbackEnabled
         visionRoutes = $routes.visionRoutes
         note = $routes.note
@@ -422,8 +423,8 @@ if ($Action -eq 'VisionStatus') {
 }
 if ($Action -eq 'VisionLocalSetup') {
     $sourceModel = 'qwen3-vl:4b-instruct-q4_K_M'
-    $runtimeModel = 'brainhub-qwen3-vl-4b-32k'
-    $contextSize = 32768
+    $runtimeModel = 'brainhub-qwen3-vl-4b-16k'
+    $contextSize = 16384
     $ollamaApi = 'http://127.0.0.1:11434'
     try {
         $tags = Invoke-RestMethod -Uri ($ollamaApi + '/api/tags') -TimeoutSec 8
@@ -444,10 +445,10 @@ if ($Action -eq 'VisionLocalSetup') {
             "PARAMETER num_ctx $contextSize"
         ) | Set-Content -LiteralPath $modelFile -Encoding ASCII
         & $ollamaExe create $runtimeModel -f $modelFile
-        if ($LASTEXITCODE -ne 0) { throw '32K yerel Vision modeli olusturulamadi.' }
+        if ($LASTEXITCODE -ne 0) { throw '16K staged yerel Vision modeli olusturulamadi.' }
         $showText = (& $ollamaExe show $runtimeModel --modelfile | Out-String)
-        if ($LASTEXITCODE -ne 0 -or $showText -notmatch '(?im)^\s*PARAMETER\s+num_ctx\s+32768\s*$') {
-            throw 'Yerel Vision modelinin 32K context ayari dogrulanamadi.'
+        if ($LASTEXITCODE -ne 0 -or $showText -notmatch '(?im)^\s*PARAMETER\s+num_ctx\s+16384\s*$') {
+            throw 'Yerel Vision modelinin 16K staged context ayari dogrulanamadi.'
         }
     } finally {
         Remove-Item -LiteralPath $modelFile -Force -ErrorAction SilentlyContinue
@@ -473,8 +474,8 @@ if ($Action -eq 'VisionLocalSetup') {
         Start-Brain $rootFull $node $key
         Test-Brain $rootFull
         $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
-        if (-not $routes.localVisionEnabled -or -not $routes.localVisionOnly -or @($routes.localVisionModels) -notcontains ('local/' + $runtimeModel) -or [int]$routes.localVisionContextSize -lt $contextSize) {
-            throw 'Yerel Ollama Vision 32K local-only rotasi etkinlesmedi.'
+        if (-not $routes.localVisionEnabled -or -not $routes.localVisionOnly -or -not $routes.localVisionTwoStage -or @($routes.localVisionModels) -notcontains ('local/' + $runtimeModel) -or [int]$routes.localVisionContextSize -lt $contextSize) {
+            throw 'Yerel Ollama Vision staged 16K local-only rotasi etkinlesmedi.'
         }
         Write-Host "BRAINHUB_LOCAL_VISION_SETUP_OK model=$runtimeModel context=$contextSize backup=$backup"
     } catch {

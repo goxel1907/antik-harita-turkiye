@@ -141,7 +141,7 @@ function localVisionConfig(){
   const localOnly=raw.localOnly!==false;
   return {enabled:raw.enabled===true&&!!baseUrl&&models.length>0,baseUrl,models,contextSize,timeoutMs,localOnly};
 }
-async function callModel(model,messages,timeoutMs=12000){
+async function callModel(model,messages,timeoutMs=12000,requestOptions={}){
   const local=localVisionConfig();
   const isLocal=String(model||'').startsWith('local/');
   if(isLocal&&(!local.enabled||!local.models.includes(model)))throw new Error('local vision model not enabled');
@@ -150,7 +150,10 @@ async function callModel(model,messages,timeoutMs=12000){
   const url=baseUrl+'/chat/completions';
   const headers=isLocal?{'content-type':'application/json'}:{authorization:'Bearer '+KEY,'content-type':'application/json'};
   const request={model:wireModel,messages,stream:false};
-  if(isLocal)request.temperature=0;
+  if(isLocal)request.temperature=Number.isFinite(Number(requestOptions.temperature))?Number(requestOptions.temperature):0;
+  if(Number.isInteger(Number(requestOptions.maxTokens))&&Number(requestOptions.maxTokens)>0){
+    request.max_tokens=Math.max(64,Math.min(8192,Number(requestOptions.maxTokens)));
+  }
   const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(request),signal:AbortSignal.timeout(timeoutMs)});
   const raw=await r.text();
   if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
@@ -299,6 +302,34 @@ function multimodalUserContent(prompt,images){
   }
   return {content,images:normalized};
 }
+function localVisionExtractionPrompt(){
+  return [
+    'LOCAL_VISION_STAGE_1. Dokuz ekli 9TF grafiğin her birini gerçekten incele.',
+    'Amaç yalnız görsel kanıt çıkarmaktır; nihai işlem planı yazma.',
+    'Her TF için tek kısa satır döndür. Şema tam olarak:',
+    'VIS_1M: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'VIS_3M: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'VIS_5M: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'VIS_15M: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'VIS_30M: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'VIS_45M: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'VIS_1H: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'VIS_4H: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'VIS_1D: trend/structure; support-resistance-liquidity; forming-context; conflict',
+    'Son forming mum bağlamdır, teyit değildir. Görmediğin şeyi uydurma. Başka açıklama ekleme.'
+  ].join('\n');
+}
+function localVisionFinalizeMessages(role,system,prompt,visionText){
+  const sys=[
+    roleInstruction(role),
+    String(system||'').trim(),
+    'LOCAL_VISION_STAGE_2: Attached images were already inspected by the same local model in stage 1. Use only ORIGINAL_REQUEST, deterministic context inside it, and VISION_OBSERVATIONS below. Do not invent any visual fact not present in VISION_OBSERVATIONS. Preserve the exact requested output schema. Advisory only; never place an order.'
+  ].filter(Boolean).join(' ');
+  return [
+    {role:'system',content:sys},
+    {role:'user',content:'ORIGINAL_REQUEST:\n'+String(prompt||'')+'\n\nVISION_OBSERVATIONS:\n'+String(visionText||'')}
+  ];
+}
 function readCommitteeConfig(){
   const cpath=path.join(ROOT,'config','committee.json');
   return JSON.parse(fs.readFileSync(cpath,'utf8').replace(/^\uFEFF/,''));
@@ -335,7 +366,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','VISION_CHART_896X504','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','VISION_CHART_896X504','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -408,6 +439,7 @@ const server=http.createServer(async(req,res)=>{
         localVisionContextSize:local.contextSize,
         localVisionTimeoutMs:local.timeoutMs,
         localVisionOnly:local.localOnly,
+        localVisionTwoStage:true,
         localVisionFirst:true,
         visionKiroFreeQuota,
         kiroFreeQuotaVisionModels,
@@ -498,6 +530,7 @@ const server=http.createServer(async(req,res)=>{
       const parallel=hasVision?visionParallel:textParallel;
       const visionTimeoutMs=Math.max(30000,Math.min(180000,Number(ccfg.visionTimeoutMs||90000)));
       const localVision=localVisionConfig();
+      const localTwoStage=hasVision&&!forceVisionProbe&&localVision.enabled&&localVision.localOnly&&routed.length===1&&String(routed[0]||'').startsWith('local/');
       const messages=[];
       const system=[roleInstruction(role),String(j.system||'').trim()].filter(Boolean).join(' ');
       if(system)messages.push({role:'system',content:system});
@@ -510,10 +543,36 @@ const server=http.createServer(async(req,res)=>{
           const modelTimeoutMs=hasVision&&String(model).startsWith('local/')
             ? Math.max(visionTimeoutMs,localVision.timeoutMs)
             : (hasVision?visionTimeoutMs:20000);
+          if(localTwoStage&&String(model).startsWith('local/')){
+            const visualInput=multimodalUserContent(localVisionExtractionPrompt(),j.images);
+            const visualMessages=[
+              {role:'system',content:'You are the local Brain Hub visual extractor. Read every attached timeframe image. Return only the requested VIS_* lines. Do not place orders.'},
+              {role:'user',content:visualInput.content}
+            ];
+            const visionStarted=Date.now();
+            const visual=await callModel(model,visualMessages,modelTimeoutMs,{temperature:0,maxTokens:1400});
+            const visionDurationMs=Date.now()-visionStarted;
+            const finalizeStarted=Date.now();
+            const finalized=await callModel(
+              model,
+              localVisionFinalizeMessages(role,j.system||'',j.prompt,visual.text),
+              Math.max(120000,localVision.timeoutMs),
+              {temperature:0,maxTokens:4096}
+            );
+            const finalizeDurationMs=Date.now()-finalizeStarted;
+            const durationMs=Date.now()-started;
+            visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs});
+            return {
+              ok:true,model,text:finalized.text,durationMs,
+              localVisionTwoStage:true,
+              visionExtractionText:String(visual.text||'').slice(0,5000),
+              visionDurationMs,finalizeDurationMs
+            };
+          }
           const r=await callModel(model,messages,modelTimeoutMs);
           const durationMs=Date.now()-started;
           if(hasVision)visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs});
-          return {ok:true,model,text:r.text,durationMs};
+          return {ok:true,model,text:r.text,durationMs,localVisionTwoStage:false};
         }catch(e){
           const durationMs=Date.now()-started;
           const msg=String(e.message||e).slice(0,400);
@@ -579,6 +638,7 @@ const server=http.createServer(async(req,res)=>{
           forceVisionProbe:forceVisionProbe||false,
           visionTimeoutMs:hasVision?visionTimeoutMs:null,
           visionParallelAnalysts:hasVision?visionParallel:null,
+          localVisionTwoStage:localTwoStage,
           failures
         });
       }
@@ -635,7 +695,7 @@ const server=http.createServer(async(req,res)=>{
       }
 
       log('COMMITTEE OK role='+role+' analysts='+good.length+' degraded='+(degraded?'yes':'no')+' disagreement='+disagreement+' judge='+(judge&&judge.used?judge.model:'no')+' visionCharts='+vision.images.length);
-      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,forceVisionProbe:forceVisionProbe||false,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,visionKiroFreeQuota:hasVision&&ccfg.allowKiroFreeQuotaVision===true,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
+      return send(res,200,{ok:true,role,mode:degraded?'degraded_single':(judge&&judge.used?'judge':'consensus'),degraded,degradedReason:degraded?'DEGRADED_1_ANALYST':null,requiredAnalystReplies:minReplies,requiredVisionAnalystReplies:hasVision?minVisionReplies:null,receivedAnalystReplies:good.length,forceVisionProbe:forceVisionProbe||false,visionTimeoutMs:hasVision?visionTimeoutMs:null,visionParallelAnalysts:hasVision?visionParallel:null,localVisionTwoStage:localTwoStage,visionKiroFreeQuota:hasVision&&ccfg.allowKiroFreeQuotaVision===true,disagreement,verdictConsensus:verdictConsensus?(vs[0]||null):null,vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},analysts:good,failed:results.filter(x=>!x.ok),judge:judge||{used:false},model:finalModel,text:finalText});
     }
 
     if(req.method==='GET'&&u.pathname==='/scanner'){
