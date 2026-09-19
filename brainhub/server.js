@@ -136,7 +136,9 @@ function localVisionConfig(){
     const u=new URL(candidate);
     if(u.protocol==='http:'&&['127.0.0.1','localhost','::1'].includes(u.hostname))baseUrl=candidate;
   }catch{}
-  return {enabled:raw.enabled===true&&!!baseUrl&&models.length>0,baseUrl,models};
+  const contextSize=Math.max(4096,Math.min(65536,Number(raw.contextSize||16384)));
+  const timeoutMs=Math.max(60000,Math.min(240000,Number(raw.timeoutMs||180000)));
+  return {enabled:raw.enabled===true&&!!baseUrl&&models.length>0,baseUrl,models,contextSize,timeoutMs};
 }
 async function callModel(model,messages,timeoutMs=12000){
   const local=localVisionConfig();
@@ -146,7 +148,9 @@ async function callModel(model,messages,timeoutMs=12000){
   const wireModel=isLocal?String(model).slice('local/'.length):model;
   const url=baseUrl+'/chat/completions';
   const headers=isLocal?{'content-type':'application/json'}:{authorization:'Bearer '+KEY,'content-type':'application/json'};
-  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify({model:wireModel,messages,stream:false}),signal:AbortSignal.timeout(timeoutMs)});
+  const request={model:wireModel,messages,stream:false};
+  if(isLocal)request.temperature=0;
+  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(request),signal:AbortSignal.timeout(timeoutMs)});
   const raw=await r.text();
   if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
   const text=extract(raw);
@@ -169,6 +173,7 @@ function visionAvailability(){
     if(s?.ok===true && Date.now()-s.at<TTL) reason='AVAILABLE';
     else if(/MONTHLY_REQUEST_COUNT|reached the limit/i.test(error)) reason='QUOTA_EXHAUSTED';
     else if(/only be used from within OpenCode|FreeTierError/i.test(error)) reason='PROVIDER_RESTRICTED';
+    else if(String(model).startsWith('local/')&&/exceeds the available context size|exceed_context_size/i.test(error)) reason='LOCAL_CONTEXT_TOO_SMALL';
     else if(String(model).startsWith('local/')&&/fetch failed|ECONNREFUSED|connect/i.test(error)) reason='LOCAL_UNAVAILABLE';
     else if(/timeout|aborted/i.test(error)) reason='TIMEOUT';
     else if(error) reason='PROVIDER_UNAVAILABLE';
@@ -178,6 +183,7 @@ function visionAvailability(){
   const notes=[];
   if(models.some(x=>x.reason==='PROVIDER_RESTRICTED')) notes.push('OpenCode dış uygulama erişimini reddediyor');
   if(models.some(x=>x.reason==='QUOTA_EXHAUSTED')) notes.push('Kiro model kotası dolu');
+  if(models.some(x=>x.reason==='LOCAL_CONTEXT_TOO_SMALL')) notes.push('yerel Ollama Vision context penceresi 9TF için yetersiz');
   if(models.some(x=>x.reason==='LOCAL_UNAVAILABLE')) notes.push('yerel Ollama Vision kullanılamıyor');
   if(models.some(x=>x.reason==='TIMEOUT')) notes.push('model yanıtı süre aşımına uğradı');
   return {verifiedModels:verified,models,summaryTr:(verified?'Görsel model yanıtı doğrulandı: '+verified:'Görsel model erişimi doğrulanamadı')+(notes.length?' • '+notes.join(' • '):'')};
@@ -306,7 +312,7 @@ async function committeeCall(body){
   // /committee may try several Vision routes sequentially. The bridge timeout must
   // be longer than one provider's visionTimeoutMs (default 90s), otherwise a healthy
   // Kiro reply near the provider deadline is aborted by this local hop first.
-  const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(210000)});
+  const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(330000)});
   const data=await r.json();
   if(!r.ok){
     const failures=Array.isArray(data?.failures)?data.failures:[];
@@ -326,7 +332,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -396,6 +402,8 @@ const server=http.createServer(async(req,res)=>{
         localVisionEnabled:local.enabled,
         localVisionModels:local.models,
         localVisionBaseUrl:local.baseUrl||null,
+        localVisionContextSize:local.contextSize,
+        localVisionTimeoutMs:local.timeoutMs,
         localVisionFirst:true,
         visionKiroFreeQuota,
         kiroFreeQuotaVisionModels,
@@ -483,6 +491,7 @@ const server=http.createServer(async(req,res)=>{
       const visionParallel=Math.max(1,Math.min(2,Number(ccfg.visionParallelAnalysts||1),routed.length||1));
       const parallel=hasVision?visionParallel:textParallel;
       const visionTimeoutMs=Math.max(30000,Math.min(180000,Number(ccfg.visionTimeoutMs||90000)));
+      const localVision=localVisionConfig();
       const messages=[];
       const system=[roleInstruction(role),String(j.system||'').trim()].filter(Boolean).join(' ');
       if(system)messages.push({role:'system',content:system});
@@ -492,7 +501,10 @@ const server=http.createServer(async(req,res)=>{
         if(hasVision?!forceVisionProbe&&visionBlocked(model):blocked(model))return {ok:false,model,error:hasVision?'vision cooldown':'cooldown',durationMs:0};
         const started=Date.now();
         try{
-          const r=await callModel(model,messages,hasVision?visionTimeoutMs:20000);
+          const modelTimeoutMs=hasVision&&String(model).startsWith('local/')
+            ? Math.max(visionTimeoutMs,localVision.timeoutMs)
+            : (hasVision?visionTimeoutMs:20000);
+          const r=await callModel(model,messages,modelTimeoutMs);
           const durationMs=Date.now()-started;
           if(hasVision)visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs});
           return {ok:true,model,text:r.text,durationMs};

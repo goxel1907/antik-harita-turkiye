@@ -25,6 +25,7 @@ try {
         $text -notmatch 'SOURCE_HEAD' -or
         $text -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or
         $text -notmatch 'LOCAL_OLLAMA_VISION_FALLBACK' -or
+        $text -notmatch 'LOCAL_OLLAMA_VISION_16K' -or
         $text -notmatch 'VISION_PIXEL_PROBE' -or
         $text -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or
         $text -notmatch 'LEADER_DETAIL_PROBE'
