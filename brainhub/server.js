@@ -327,13 +327,13 @@ function localVisionExtractionPrompt(images,localContext){
   return [
     'LOCAL_VISION_SINGLE_TF. Yalnız ekli '+tf+' grafiğini gerçekten incele.',
     'Görsel kanıt ile DETERMINISTIC_CONTEXT_JSON içeriğini birlikte değerlendir. Nihai global planı burada yazma.',
-    'Tam olarak şu 6 satırı Türkçe ve coin-specific döndür:',
-    'TF_'+tag+': kısa grafik/veri özeti ve LONG/SHORT etkisi',
-    'TF_'+tag+'_WHY: sinyal/kurulum neden oluştu veya oluşmadı; somut görsel + deterministik kanıt',
-    'TF_'+tag+'_WAIT: bu TF için beklenen tam koşul; ek koşul yoksa NONE',
-    'TF_'+tag+'_ROLE: SUPPORT | VETO | NEUTRAL',
-    'TF_'+tag+'_FORMING: forming mumun bağlamı; kapanmış mum teyidi olmadığı açıkça belirtilsin',
-    'TF_'+tag+'_RISK: bu TF özelindeki ana bozulma/yanlış okuma riski',
+    'Tam olarak şu 6 satırı Türkçe ve coin-specific döndür. Kısa yaz; etiketlerden hiçbirini atlama:',
+    'TF_'+tag+': en fazla 110 karakter; kısa grafik/veri özeti ve LONG/SHORT etkisi',
+    'TF_'+tag+'_WHY: en fazla 180 karakter; somut görsel + deterministik ana kanıt',
+    'TF_'+tag+'_WAIT: en fazla 100 karakter; beklenen tam koşul; yoksa NONE',
+    'TF_'+tag+'_ROLE: yalnız SUPPORT veya VETO veya NEUTRAL',
+    'TF_'+tag+'_FORMING: en fazla 120 karakter; forming bağlamı ve kapanmış mum teyidi olmadığı',
+    'TF_'+tag+'_RISK: en fazla 120 karakter; ana bozulma/yanlış okuma riski',
     tf==='45m'?'Sentetik 45m bağımsız oy değildir.':'',
     'Görmediğin şeyi uydurma. Market-maker niyeti çıkarma. Başka satır veya açıklama ekleme.',
     'DETERMINISTIC_CONTEXT_JSON:',
@@ -450,16 +450,18 @@ function canonicalTfEvidence(tf,contract){
   const labels=['TF_'+tag,'TF_'+tag+'_WHY','TF_'+tag+'_WAIT','TF_'+tag+'_ROLE','TF_'+tag+'_FORMING','TF_'+tag+'_RISK'];
   return labels.map(label=>label+': '+String(contract?.lines?.get(label)||'').replace(/\s+/g,' ').trim().slice(0,520)).join('\n');
 }
-function localTfRepairPrompt(tf,missing,localContext){
-  const tag=tfPromptTag(tf);
+function localTfRepairPrompt(tf,missing,localContext,visualText){
   const tfContext=localContext?.frames?.[tf]||{available:false};
   return [
-    'LOCAL_TF_SCHEMA_REPAIR. Aynı ekli '+tf+' grafiğini tekrar incele.',
-    'Yalnız eksik etiketleri tamamla. Başka etiket veya açıklama yazma.',
-    'Eksik etiketler: '+missing.join(', '),
-    'ROLE yalnız SUPPORT | VETO | NEUTRAL olabilir.',
-    'FORMING alanı bunun kapanmış mum teyidi olmadığını açıkça söylemeli.',
-    'Görmediğin şeyi uydurma.',
+    'LOCAL_TF_SCHEMA_REPAIR. Bu bir metin şema onarımıdır; yeni görsel yorumu yapma.',
+    'Yalnız eksik/geçersiz etiketleri ALREADY_EXTRACTED_VISUAL_EVIDENCE ve TF_CONTEXT_JSON içinden tamamla.',
+    'Başka etiket veya açıklama yazma. Yeni piyasa iddiası uydurma.',
+    'Eksik/geçersiz etiketler: '+missing.join(', '),
+    'ROLE yalnız SUPPORT veya VETO veya NEUTRAL olabilir.',
+    'FORMING alanı kapanmış mum teyidi olmadığını açıkça söylemeli.',
+    'Her değer kısa olsun; WHY<=180, WAIT<=100, FORMING<=120, RISK<=120 karakter.',
+    'ALREADY_EXTRACTED_VISUAL_EVIDENCE:',
+    String(visualText||'').slice(0,2200),
     'TF_CONTEXT_JSON: '+JSON.stringify(tfContext)
   ].join('\n');
 }
@@ -626,15 +628,14 @@ async function runLocalVisionCommittee(body){
         ];
         const batchStarted=Date.now();
         const tf=String(batch[0]?.tf||'?');
-        const visual=await callLocalStage('VISUAL_TF='+tf,model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:420});
+        const visual=await callLocalStage('VISUAL_TF='+tf,model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:300});
         let contract=tfEvidenceContract(tf,visual.text);
         if(!contract.ok){
-          const repairInput=multimodalUserContent(localTfRepairPrompt(tf,contract.missing,j.localContext||{}),batch);
           const repairMessages=[
-            {role:'system',content:'Repair the requested TF_* labels from the attached single timeframe chart. For ROLE choose exactly one of SUPPORT, VETO, NEUTRAL. Return exact LABEL: value lines only.'},
-            {role:'user',content:repairInput.content}
+            {role:'system',content:'LOCAL_TF_SCHEMA_REPAIR. Repair only requested TF_* labels from already extracted evidence. Do not invent new visual claims. ROLE must be exactly SUPPORT, VETO, or NEUTRAL. Return LABEL: value lines only.'},
+            {role:'user',content:localTfRepairPrompt(tf,contract.missing,j.localContext||{},visual.text)}
           ];
-          const repair=await callLocalStage('VISUAL_REPAIR_TF='+tf,model,repairMessages,local.timeoutMs,{temperature:0,maxTokens:260});
+          const repair=await callLocalStage('TF_SCHEMA_REPAIR='+tf,model,repairMessages,local.timeoutMs,{temperature:0,maxTokens:180});
           const repairContract=tfEvidenceContract(tf,repair.text);
           contract=mergeLabelContracts(contract,repairContract,contract.missing);
           const canonical=canonicalTfEvidence(tf,contract);
@@ -776,7 +777,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';

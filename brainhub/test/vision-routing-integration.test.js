@@ -83,11 +83,15 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
     const vision=hasImageInput(body);
     localRequested.push({model:String(body.model||''),vision,authorization:req.headers.authorization||'',temperature:body.temperature,maxTokens:body.max_tokens||null});
     const joinedAll=(body.messages||[]).map(m=>typeof m?.content==='string'?m.content:'').join('\n');
-    let content=/LOCAL_GLOBAL_CORE_REPAIR/.test(joinedAll)
-      ? ['STATUS: WATCH','SIDE: LONG','CONFIDENCE: 55','ORIGIN_TF: 1m','OWNER_TF: 1h','SETUP: TEST','EXEC_PATH: WATCH'].join('\n')
-      : /WHY: en fazla 220 karakter/.test(joinedAll)
-        ? ['WHY: test why','RISK_NOTE: test risk','WAIT_FOR: test wait','FORMING_CONTEXT: test forming','VISION_SUMMARY: test vision'].join('\n')
-        : ['STATUS: WATCH | QUALIFIED | REJECT','SIDE: LONG | SHORT','CONFIDENCE: 0-100','ORIGIN_TF: 1m | 3m | 5m','OWNER_TF: 1m | 1h','SETUP: en fazla 5 kelime','EXEC_PATH: en fazla 5 kelime'].join('\n');
+    const textRepair=/LOCAL_TF_SCHEMA_REPAIR/.test(joinedAll);
+    const repairTf=textRepair?([...(joinedAll.matchAll(/TF_(1M|3M|5M|15M|30M|45M|1H|4H|1D)(?=[:_])/g))].map(m=>m[1])[0]||'1M'):null;
+    let content=textRepair
+      ? ['TF_'+repairTf+': test summary','TF_'+repairTf+'_WHY: test why','TF_'+repairTf+'_WAIT: test wait','TF_'+repairTf+'_ROLE: SUPPORT','TF_'+repairTf+'_FORMING: test forming','TF_'+repairTf+'_RISK: test risk'].join('\n')
+      : /LOCAL_GLOBAL_CORE_REPAIR/.test(joinedAll)
+        ? ['STATUS: WATCH','SIDE: LONG','CONFIDENCE: 55','ORIGIN_TF: 1m','OWNER_TF: 1h','SETUP: TEST','EXEC_PATH: WATCH'].join('\n')
+        : /WHY: en fazla 220 karakter/.test(joinedAll)
+          ? ['WHY: test why','RISK_NOTE: test risk','WAIT_FOR: test wait','FORMING_CONTEXT: test forming','VISION_SUMMARY: test vision'].join('\n')
+          : ['STATUS: WATCH | QUALIFIED | REJECT','SIDE: LONG | SHORT','CONFIDENCE: 0-100','ORIGIN_TF: 1m | 3m | 5m','OWNER_TF: 1m | 1h','SETUP: en fazla 5 kelime','EXEC_PATH: en fazla 5 kelime'].join('\n');
     if(vision){
       const texts=body.messages.flatMap(m=>Array.isArray(m?.content)?m.content.filter(x=>x?.type==='text').map(x=>String(x.text||'')):[]);
       const joined=texts.join('\n');
@@ -96,12 +100,11 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
         content=[...new Set(probe)].map(tag=>'PROBE_'+tag+': 1').join('\n');
       }else{
         const tf=[...joined.matchAll(/TF_(1M|3M|5M|15M|30M|45M|1H|4H|1D)(?=[:_])/g)].map(m=>m[1])[0]||'1M';
-        const repair=/LOCAL_TF_SCHEMA_REPAIR/.test(joined);
         content=[
           'TF_'+tf+': test summary',
           'TF_'+tf+'_WHY: test why',
           'TF_'+tf+'_WAIT: test wait',
-          'TF_'+tf+'_ROLE: '+((tf==='1H'&&!repair)?'SUPPORT | VETO | NEUTRAL':'SUPPORT'),
+          'TF_'+tf+'_ROLE: '+(tf==='1H'?'SUPPORT | VETO | NEUTRAL':'SUPPORT'),
           'TF_'+tf+'_FORMING: test forming',
           'TF_'+tf+'_RISK: test risk'
         ].join('\n');
@@ -130,7 +133,7 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
     const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
     const vr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'Local Vision routing regression',images:tfs.map(fakeImage)})});
     const vision=await vr.json(); assert.equal(vr.status,200,JSON.stringify(vision)); assert.equal(vision.model,'local/qwen3-vl:test'); assert.equal(vision.vision?.attached,9);
-    assert.equal(localRequested.length,13); assert.equal(localRequested.filter(x=>x.vision===true).length,10); assert.equal((vision.text.match(/^TF_1H_ROLE: SUPPORT$/gm)||[]).length,1); assert.doesNotMatch(vision.text,/^TF_1H_ROLE: SUPPORT \| VETO \| NEUTRAL$/m); assert.equal(localRequested.filter(x=>x.vision===true&&x.maxTokens===420).length,9); assert.equal(localRequested.filter(x=>x.vision===true&&x.maxTokens===260).length,1); assert.ok(localRequested.filter(x=>x.vision===true).every(x=>x.model==='qwen3-vl:test'&&x.authorization===''&&x.temperature===0)); assert.ok(localRequested.some(x=>x.vision===false&&x.maxTokens===320)); assert.ok(localRequested.some(x=>x.vision===false&&x.maxTokens===220)); assert.ok(localRequested.some(x=>x.vision===false&&x.maxTokens===520)); assert.equal(vision.localVisionTwoStage,true); assert.equal(vision.localVisionBatchSize,1); assert.match(vision.text,/TF_1M_WHY:/); assert.match(vision.text,/SUPPORT_TFS:/); assert.equal(routerRequested.some(x=>x.vision),false);
+    assert.equal(localRequested.length,13); assert.equal(localRequested.filter(x=>x.vision===true).length,9); assert.equal((vision.text.match(/^TF_1H_ROLE: SUPPORT$/gm)||[]).length,1); assert.doesNotMatch(vision.text,/^TF_1H_ROLE: SUPPORT \| VETO \| NEUTRAL$/m); assert.equal(localRequested.filter(x=>x.vision===true&&x.maxTokens===300).length,9); assert.equal(localRequested.filter(x=>x.vision===false&&x.maxTokens===180).length,1); assert.ok(localRequested.filter(x=>x.vision===true).every(x=>x.model==='qwen3-vl:test'&&x.authorization===''&&x.temperature===0)); assert.ok(localRequested.some(x=>x.vision===false&&x.maxTokens===320)); assert.ok(localRequested.some(x=>x.vision===false&&x.maxTokens===220)); assert.ok(localRequested.some(x=>x.vision===false&&x.maxTokens===520)); assert.equal(vision.localVisionTwoStage,true); assert.equal(vision.localVisionBatchSize,1); assert.match(vision.text,/TF_1M_WHY:/); assert.match(vision.text,/SUPPORT_TFS:/); assert.equal(routerRequested.some(x=>x.vision),false);
     const routes=await (await fetch('http://127.0.0.1:'+brainPort+'/models/routes')).json();
     assert.equal(routes.localVisionEnabled,true); assert.equal(routes.localVisionFirst,true); assert.equal(routes.localVisionModels[0],'local/qwen3-vl:test'); assert.equal(routes.localVisionContextSize,16384); assert.equal(routes.localVisionTimeoutMs,300000); assert.equal(routes.localVisionOnly,true); assert.equal(routes.localVisionTwoStage,true); assert.equal(routes.localVisionBatchSize,1); assert.equal(routes.localVisionSingleTf,true); assert.equal(routes.localVisionCompactFinalize,true); assert.equal(routes.localVisionTfContract,true); assert.equal(routes.localVisionSplitGlobal,true); assert.equal(routes.localVisionDirectPipeline,true); assert.deepEqual(routes.visionRoutes.STRUCTURE,['local/qwen3-vl:test']); assert.equal(routes.paidVisionFallbackEnabled,false);
     const beforeForce=localRequested.length;
