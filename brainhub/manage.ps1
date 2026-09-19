@@ -225,7 +225,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         # analysis-only detail probe below exercises the same pipeline fail-closed and
         # is the authoritative 9TF model contract check.
         try {
-            $detailPlanResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $headers -TimeoutSec 660
+            $detailPlanResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $headers -TimeoutSec 1500
         } catch {
             Write-Host '========== LEADER DETAIL PROBE HATA ==========' -ForegroundColor Red
             if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
@@ -325,7 +325,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
             Write-Host "LEADER_9TF_DETAIL skipped=$detailReason"
         }
         try {
-            $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 660
+            $vision = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/probe?symbol=BTCUSDT' -Headers $headers -TimeoutSec 1500
         } catch {
             Write-Host '========== 9TF VISION PROBE HATA ==========' -ForegroundColor Red
             if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
