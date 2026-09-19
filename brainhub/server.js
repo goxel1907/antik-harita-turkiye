@@ -354,10 +354,126 @@ function candidateForSymbol(scan,symbol){
   }
   return null;
 }
+async function runLocalVisionCommittee(body){
+  const j=body&&typeof body==='object'?body:{};
+  const role=normalizeRole(j.role||'DEFAULT');
+  const vision=multimodalUserContent(j.prompt,j.images);
+  if(!vision.images.length)throw new Error('local vision images required');
+  const local=localVisionConfig();
+  if(!local.enabled||!local.localOnly||!local.models.length)throw new Error('local-only vision route is not enabled');
+  let ccfg={};try{ccfg=readCommitteeConfig();}catch{}
+  const routed=orderedVisionModels(ccfg,role,true);
+  const model=String(routed[0]||local.models[0]||'');
+  if(!model.startsWith('local/'))throw new Error('local-only vision model unavailable');
+  const forceVisionProbe=j.forceVisionProbe===true;
+  const started=Date.now();
+  try{
+    let text='';
+    let analystMeta={};
+    if(forceVisionProbe){
+      const batchTexts=[];
+      const batchDurations=[];
+      for(const batch of visionBatches(j.images,3)){
+        const visualInput=multimodalUserContent(localPixelBatchPrompt(batch),batch);
+        const visualMessages=[
+          {role:'system',content:'You are a visual transport diagnostic. Read only the magenta 3x3 probe cells in the attached charts. Return only requested PROBE_* lines.'},
+          {role:'user',content:visualInput.content}
+        ];
+        const batchStarted=Date.now();
+        const visual=await callModel(model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:192});
+        batchDurations.push(Date.now()-batchStarted);
+        batchTexts.push(String(visual.text||'').trim());
+      }
+      text=batchTexts.filter(Boolean).join('\n');
+      analystMeta={localVisionTwoStage:false,localVisionPixelBatched:true,localVisionBatchSize:3,batchDurations};
+    }else{
+      const batchTexts=[];
+      const batchDurations=[];
+      const visionStarted=Date.now();
+      for(const batch of visionBatches(j.images,3)){
+        const visualInput=multimodalUserContent(localVisionExtractionPrompt(batch),batch);
+        const visualMessages=[
+          {role:'system',content:'You are the local Brain Hub visual extractor. Read every attached timeframe image. Return only the requested VIS_* lines. Do not place orders.'},
+          {role:'user',content:visualInput.content}
+        ];
+        const batchStarted=Date.now();
+        const visual=await callModel(model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:600});
+        batchDurations.push(Date.now()-batchStarted);
+        batchTexts.push(String(visual.text||'').trim());
+      }
+      const visionDurationMs=Date.now()-visionStarted;
+      const visionText=batchTexts.filter(Boolean).join('\n');
+      const finalizeStarted=Date.now();
+      const finalized=await callModel(
+        model,
+        localVisionFinalizeMessages(role,j.system||'',j.prompt,visionText),
+        local.timeoutMs,
+        {temperature:0,maxTokens:4096}
+      );
+      const finalizeDurationMs=Date.now()-finalizeStarted;
+      text=finalized.text;
+      analystMeta={
+        localVisionTwoStage:true,
+        localVisionBatchSize:3,
+        visionExtractionText:visionText.slice(0,5000),
+        visionDurationMs,
+        batchDurations,
+        finalizeDurationMs
+      };
+    }
+    const durationMs=Date.now()-started;
+    visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs});
+    const analyst={ok:true,model,text,durationMs,...analystMeta};
+    const minReplies=Math.max(1,Number(ccfg.minAnalystReplies||2));
+    const minVisionReplies=Math.max(1,Number(ccfg.minVisionAnalystReplies||1));
+    const out={
+      ok:true,role,mode:'degraded_single',degraded:minReplies>1,
+      degradedReason:minReplies>1?'DEGRADED_1_ANALYST':null,
+      requiredAnalystReplies:minReplies,
+      requiredVisionAnalystReplies:minVisionReplies,
+      receivedAnalystReplies:1,
+      forceVisionProbe,
+      visionTimeoutMs:local.timeoutMs,
+      visionParallelAnalysts:1,
+      localVisionTwoStage:!forceVisionProbe,
+      localVisionBatchSize:3,
+      visionKiroFreeQuota:false,
+      disagreement:false,
+      verdictConsensus:null,
+      vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},
+      analysts:[analyst],
+      failed:[],
+      judge:{used:false},
+      model,
+      text
+    };
+    log('COMMITTEE LOCAL_DIRECT OK role='+role+' model='+model+' visionCharts='+vision.images.length+' batched=3 forceProbe='+(forceVisionProbe?'yes':'no'));
+    return out;
+  }catch(e){
+    const durationMs=Date.now()-started;
+    const cause=String(e?.cause?.message||e?.cause||'').slice(0,240);
+    const msg=(String(e?.message||e)+(cause?' | cause='+cause:'')).slice(0,500);
+    visionState.set(model,{ok:false,at:Date.now(),error:msg,durationMs});
+    const committee={
+      ok:false,error:'no vision analyst replies',role,
+      required:1,received:0,
+      vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},
+      attemptedModels:[model],
+      localVisionDirect:true,
+      localVisionBatchSize:3,
+      failures:[{model,error:msg,durationMs}]
+    };
+    const err=new Error('committee unavailable: no vision analyst replies | '+model+': '+msg);
+    err.committee=committee;
+    throw err;
+  }
+}
 async function committeeCall(body){
-  // /committee may try several Vision routes sequentially. The bridge timeout must
-  // be longer than one provider's visionTimeoutMs (default 90s), otherwise a healthy
-  // Kiro reply near the provider deadline is aborted by this local hop first.
+  const local=localVisionConfig();
+  const hasVision=normalizeVisionImages(body?.images).length>0;
+  if(hasVision&&local.enabled&&local.localOnly){
+    return runLocalVisionCommittee(body);
+  }
   const r=await fetch('http://127.0.0.1:'+PORT+'/committee',{method:'POST',headers:{'content-type':'application/json',...(CLIENT_TOKEN?{authorization:'Bearer '+CLIENT_TOKEN}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(1500000)});
   const data=await r.json();
   if(!r.ok){
@@ -378,7 +494,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','VISION_CHART_896X504','VISION_CHART_640X360','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.96-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CHART_896X504','VISION_CHART_640X360','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -453,6 +569,7 @@ const server=http.createServer(async(req,res)=>{
         localVisionOnly:local.localOnly,
         localVisionTwoStage:true,
         localVisionBatchSize:3,
+        localVisionDirectPipeline:true,
         localVisionFirst:true,
         visionKiroFreeQuota,
         kiroFreeQuotaVisionModels,
@@ -524,6 +641,16 @@ const server=http.createServer(async(req,res)=>{
       try{j=JSON.parse(raw||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
       if(!j.prompt||typeof j.prompt!=='string')return send(res,400,{ok:false,error:'prompt required'});
       const vision=multimodalUserContent(j.prompt,j.images);
+      const directLocal=localVisionConfig();
+      if(vision.images.length&&directLocal.enabled&&directLocal.localOnly){
+        try{
+          const out=await runLocalVisionCommittee(j);
+          return send(res,200,out);
+        }catch(e){
+          const c=e&&e.committee&&typeof e.committee==='object'?e.committee:null;
+          return send(res,503,c||{ok:false,error:'no vision analyst replies',detail:String(e?.message||e).slice(0,800)});
+        }
+      }
 
       const role=normalizeRole(j.role||'DEFAULT');
       const configured=[...(Array.isArray(ccfg.analysts)?ccfg.analysts:[]),...(Array.isArray(ccfg.backupAnalysts)?ccfg.backupAnalysts:[])];
