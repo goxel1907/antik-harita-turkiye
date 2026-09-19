@@ -1,6 +1,7 @@
 const http=require('http');
 const fs=require('fs');
 const path=require('path');
+const nodeCrypto=require('crypto');
 const scanner=require('./scanner');
 const market=require('./market');
 const pipeline=require('./pipeline');
@@ -93,7 +94,7 @@ function authorized(req){
   if(!CLIENT_TOKEN)return isLoopback(req);
   const supplied=(req.headers.authorization||'').replace(/^Bearer\s+/i,'');
   if(supplied.length!==CLIENT_TOKEN.length)return false;
-  return require('crypto').timingSafeEqual(Buffer.from(supplied),Buffer.from(CLIENT_TOKEN));
+  return nodeCrypto.timingSafeEqual(Buffer.from(supplied),Buffer.from(CLIENT_TOKEN));
 }
 function extract(raw){
   raw=String(raw||'');
@@ -588,7 +589,7 @@ async function runLocalVisionCommittee(body){
   if(!model.startsWith('local/'))throw new Error('local-only vision model unavailable');
   const forceVisionProbe=j.forceVisionProbe===true;
   const started=Date.now();
-  const runId=crypto.randomBytes(6).toString('hex');
+  const runId=nodeCrypto.randomBytes(6).toString('hex');
   setLocalVisionProgress(forceVisionProbe?'PIXEL_RUN_START':'DETAIL_RUN_START',{runId,startedMs:started,model,error:null,lastStage:null,lastStageDurationMs:null});
   try{
     let text='';
