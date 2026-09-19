@@ -121,7 +121,9 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
   const child=spawn(process.execPath,[serverPath],{cwd:root,env:{...process.env,BRAINHUB_ROOT:root,BRAINHUB_ROUTER_KEY:'integration-test-router-key-123456',BRAINHUB_HOST:'127.0.0.1',BRAINHUB_PORT:String(brainPort),BRAINHUB_CLIENT_TOKEN:''},stdio:['ignore','pipe','pipe']});
   try{
     const health=await waitFor('http://127.0.0.1:'+brainPort+'/health');
-    assert.ok(health.features.includes('LOCAL_OLLAMA_VISION_FALLBACK')); assert.equal(health.configured.localVision,1);
+    assert.ok(health.features.includes('LOCAL_OLLAMA_VISION_FALLBACK')); assert.ok(health.features.includes('LOCAL_OLLAMA_VISION_PROGRESS')); assert.equal(health.configured.localVision,1);
+    const initialProgress=await (await fetch('http://127.0.0.1:'+brainPort+'/vision/progress')).json();
+    assert.equal(initialProgress.ok,true); assert.equal(typeof initialProgress.stage,'string');
     const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
     const vr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'Local Vision routing regression',images:tfs.map(fakeImage)})});
     const vision=await vr.json(); assert.equal(vr.status,200,JSON.stringify(vision)); assert.equal(vision.model,'local/qwen3-vl:test'); assert.equal(vision.vision?.attached,9);

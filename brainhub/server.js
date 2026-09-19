@@ -352,17 +352,37 @@ function visionBatches(images,size=1){
   for(let i=0;i<xs.length;i+=size)out.push(xs.slice(i,i+size));
   return out;
 }
+let localVisionProgress={runId:null,stage:'IDLE',startedAt:null,updatedAt:new Date().toISOString(),durationMs:0,model:null,error:null};
+function setLocalVisionProgress(stage,extra={}){
+  const now=Date.now();
+  const started=Number(extra.startedMs||0) || Number(localVisionProgress.startedAtMs||0) || now;
+  localVisionProgress={
+    ...localVisionProgress,
+    ...extra,
+    stage:String(stage||'UNKNOWN'),
+    startedAtMs:started,
+    startedAt:new Date(started).toISOString(),
+    updatedAt:new Date(now).toISOString(),
+    durationMs:Math.max(0,now-started)
+  };
+  delete localVisionProgress.startedMs;
+  return localVisionProgress;
+}
 async function callLocalStage(label,model,messages,timeoutMs,requestOptions){
   const started=Date.now();
+  setLocalVisionProgress(label,{model,stageStartedAt:new Date(started).toISOString(),error:null});
   try{
     const out=await callModel(model,messages,timeoutMs,requestOptions);
-    return {...out,stageDurationMs:Date.now()-started};
+    const durationMs=Date.now()-started;
+    setLocalVisionProgress(label+'_DONE',{model,lastStage:label,lastStageDurationMs:durationMs,error:null});
+    return {...out,stageDurationMs:durationMs};
   }catch(e){
     const cause=String(e?.cause?.message||e?.cause||'').slice(0,180);
     const detail=String(e?.message||e).slice(0,260);
     const err=new Error(label+': '+detail+(cause?' | cause='+cause:''));
     err.stage=label;
     err.stageDurationMs=Date.now()-started;
+    setLocalVisionProgress(label+'_ERROR',{model,lastStage:label,lastStageDurationMs:err.stageDurationMs,error:err.message.slice(0,500)});
     throw err;
   }
 }
@@ -505,6 +525,8 @@ async function runLocalVisionCommittee(body){
   if(!model.startsWith('local/'))throw new Error('local-only vision model unavailable');
   const forceVisionProbe=j.forceVisionProbe===true;
   const started=Date.now();
+  const runId=crypto.randomBytes(6).toString('hex');
+  setLocalVisionProgress(forceVisionProbe?'PIXEL_RUN_START':'DETAIL_RUN_START',{runId,startedMs:started,model,error:null,lastStage:null,lastStageDurationMs:null});
   try{
     let text='';
     let analystMeta={};
@@ -598,6 +620,7 @@ async function runLocalVisionCommittee(body){
     }
     const durationMs=Date.now()-started;
     visionState.set(model,{ok:true,at:Date.now(),error:null,durationMs});
+    setLocalVisionProgress(forceVisionProbe?'PIXEL_RUN_COMPLETE':'DETAIL_RUN_COMPLETE',{runId,model,lastStageDurationMs:durationMs,error:null});
     const analyst={ok:true,model,text,durationMs,...analystMeta};
     const minReplies=Math.max(1,Number(ccfg.minAnalystReplies||2));
     const minVisionReplies=Math.max(1,Number(ccfg.minVisionAnalystReplies||1));
@@ -626,6 +649,7 @@ async function runLocalVisionCommittee(body){
     return out;
   }catch(e){
     const durationMs=Date.now()-started;
+    setLocalVisionProgress(forceVisionProbe?'PIXEL_RUN_ERROR':'DETAIL_RUN_ERROR',{runId,model,lastStageDurationMs:durationMs,error:String(e?.message||e).slice(0,500)});
     const cause=String(e?.cause?.message||e?.cause||'').slice(0,240);
     const msg=(String(e?.message||e)+(cause?' | cause='+cause:'')).slice(0,500);
     visionState.set(model,{ok:false,at:Date.now(),error:msg,durationMs});
@@ -669,7 +693,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
@@ -764,6 +788,9 @@ const server=http.createServer(async(req,res)=>{
                   ? 'Legacy Kiro Vision fallback is explicitly enabled.'
                   : 'Local/Kiro Vision is disabled until explicit opt-in; missing Vision remains fail-closed.'))
       });
+    }
+    if(req.method==='GET'&&u.pathname==='/vision/progress'){
+      return send(res,200,{ok:true,...localVisionProgress});
     }
     if(req.method==='GET'&&u.pathname==='/vision/probe'){
       const symbol=String(u.searchParams.get('symbol')||'BTCUSDT').trim().toUpperCase();

@@ -172,7 +172,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TWO_STAGE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_BATCH3') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SINGLE_TF') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_COMPACT_FINALIZE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TF_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SPLIT_GLOBAL') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE') -or -not ($h.features -contains 'VISION_CHART_896X504') -or -not ($h.features -contains 'VISION_CHART_640X360') -or -not ($h.features -contains 'VISION_CHART_448X252') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TWO_STAGE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_BATCH3') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SINGLE_TF') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_COMPACT_FINALIZE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TF_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SPLIT_GLOBAL') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_PROGRESS') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE') -or -not ($h.features -contains 'VISION_CHART_896X504') -or -not ($h.features -contains 'VISION_CHART_640X360') -or -not ($h.features -contains 'VISION_CHART_448X252') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
@@ -224,12 +224,41 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         # Local Vision is intentionally not executed twice in Deep mode. The targeted
         # analysis-only detail probe below exercises the same pipeline fail-closed and
         # is the authoritative 9TF model contract check.
+        $detailJob = $null
         try {
-            $detailPlanResult = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $headers -TimeoutSec 1500
+            $jobAuthorization = ''
+            if ($headers.ContainsKey('Authorization')) { $jobAuthorization = [string]$headers['Authorization'] }
+            $detailJob = Start-Job -ArgumentList $jobAuthorization -ScriptBlock {
+                param($authorization)
+                $jobHeaders = @{}
+                if (-not [string]::IsNullOrWhiteSpace($authorization)) { $jobHeaders['Authorization'] = $authorization }
+                Invoke-RestMethod -Uri 'http://127.0.0.1:8787/leader/detail-probe' -Headers $jobHeaders -TimeoutSec 1500
+            }
+            $lastVisionStage = ''
+            while ((Get-Job -Id $detailJob.Id).State -eq 'Running') {
+                Start-Sleep -Seconds 2
+                try {
+                    $progress = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/progress' -Headers $headers -TimeoutSec 3
+                    $stage = [string](Get-PropValue $progress "stage" "")
+                    if ($stage -and $stage -ne $lastVisionStage) {
+                        $elapsed = [int]([double](Get-PropValue $progress "durationMs" 0) / 1000)
+                        Write-Host ("VISION_PROGRESS stage={0} elapsedSec={1}" -f $stage,$elapsed) -ForegroundColor Cyan
+                        $lastVisionStage = $stage
+                    }
+                } catch { }
+            }
+            $job = Get-Job -Id $detailJob.Id
+            if ($job.State -ne 'Completed') {
+                $jobReason = $job.ChildJobs[0].JobStateInfo.Reason
+                throw ("Leader detail probe job failed: " + [string]$jobReason)
+            }
+            $detailPlanResult = Receive-Job -Id $detailJob.Id -ErrorAction Stop
         } catch {
             Write-Host '========== LEADER DETAIL PROBE HATA ==========' -ForegroundColor Red
             if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message }
             throw
+        } finally {
+            if ($null -ne $detailJob) { Remove-Job -Id $detailJob.Id -Force -ErrorAction SilentlyContinue }
         }
 
         $detailCandidateFound = [bool](Get-PropValue $detailPlanResult "candidateFound" $false)
