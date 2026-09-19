@@ -85,6 +85,18 @@ function selectDeepCandidates(scan, limit = 16) {
   return out.slice(0, Math.max(1, limit));
 }
 
+function detailProbeCandidate(scan, limit = 16) {
+  const pool = selectDeepCandidates(scan, limit);
+  for (const c of pool) {
+    const side=String(c?.side || '').trim().toUpperCase();
+    const symbol=String(c?.symbol || '').trim().toUpperCase();
+    if (!['LONG','SHORT'].includes(side)) continue;
+    if (!/^[A-Z0-9]{1,28}USDT$/.test(symbol)) continue;
+    return { ...c, symbol, side };
+  }
+  return null;
+}
+
 function executionEligibility(c) {
   const reasons = [];
   const warnings = [];
@@ -211,4 +223,4 @@ async function run({ scan, port = 8787, token = '' }) {
   };
 }
 
-module.exports = { run, pickCandidate, selectDeepCandidates, executionEligibility, executionEligible, compactCandidate, buildPrompt };
+module.exports = { run, pickCandidate, selectDeepCandidates, detailProbeCandidate, executionEligibility, executionEligible, compactCandidate, buildPrompt };
