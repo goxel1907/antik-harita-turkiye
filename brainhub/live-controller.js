@@ -538,7 +538,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const cfg = readLeaderAutoConfig();
     if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
     if (!cfg.config.enabled) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });
-    if (!armedNow()) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_WAIT_ARM', orderPlaced:false });
+    const analysisOnly = !armedNow();
     leaderAutoBusy = true;
     try {
       const result = await executeLeader({
@@ -546,7 +546,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
         requestedLeverage:cfg.config.leverage,
         requestedMaxOpenPositions:cfg.config.maxOpenPositions,
         allowLong:cfg.config.allowLong,
-        allowShort:cfg.config.allowShort
+        allowShort:cfg.config.allowShort,
+        analysisOnly
       });
       return recordLeaderAutoResult(result);
     } catch (e) {
@@ -1043,10 +1044,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
 
   async function executeLeader(body = {}) {
     const policy = readPolicy(root);
-    if (!armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['LIVE_NOT_ARMED'] };
-    if (!policy.ok) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:policy.reasons || ['LIVE_POLICY_REQUIRED'] };
+    const analysisOnly = body?.analysisOnly === true;
+    if (!analysisOnly && !armedNow()) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:['LIVE_NOT_ARMED'] };
+    if (!analysisOnly && !policy.ok) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:policy.reasons || ['LIVE_POLICY_REQUIRED'] };
 
-    const settings = requestedExecutionSettings(body, policy);
+    const settings = analysisOnly
+      ? { ok:true, dynamic:true, marginQuote:null, leverage:null, maxOpenPositions:null }
+      : requestedExecutionSettings(body, policy);
     if (!settings.ok || !settings.dynamic) {
       return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:settings.reasons?.length ? settings.reasons : ['LEADER_AUTO_DYNAMIC_SETTINGS_REQUIRED'] };
     }
@@ -1151,6 +1155,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     }
     const qualifiedLifecycle=upsertLeaderLifecycle(candidate,advisory,'ARMED','PLAN_QUALIFIED');
     annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], { ...visionDiagnosticExtras(advisory), lifecycle:qualifiedLifecycle });
+
+    if (analysisOnly) {
+      return {
+        ok:true,
+        orderPlaced:false,
+        liveAllowed:false,
+        analysisOnly:true,
+        execution:'LEADER_AUTO_WAIT_ARM',
+        symbol:candidate.symbol,
+        plan:advisory.plan,
+        reasons:['LIVE_NOT_ARMED'],
+        trackedRefresh,
+        analysisLifecycle:leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null
+      };
+    }
 
     const creds = currentCredentials();
     if (!credentialsReady(creds)) {
