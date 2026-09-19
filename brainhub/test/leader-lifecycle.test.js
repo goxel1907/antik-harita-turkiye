@@ -354,6 +354,57 @@ test('targeted LiveReadiness refreshes persisted ARMED lifecycle when fresh 9TF 
   fs.rmSync(root,{recursive:true,force:true});
 });
 
+test('fresh REVIEW_REQUIRED readiness demotes a persisted ARMED lifecycle to WATCH', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-readiness-review-required-'));
+  const cfg=path.join(root,'config');
+  fs.mkdirSync(cfg,{recursive:true});
+  fs.writeFileSync(path.join(cfg,'live-policy.json'),JSON.stringify(policy(),null,2));
+
+  const clockRef={ now:Date.UTC(2026,8,19,2,10,0) };
+  const fetchImpl=async()=>{ throw new Error('review-required readiness must not contact Binance'); };
+  const store={ journal(){ return '00000000-0000-0000-0000-000000000032'; } };
+  let calls=0;
+  const pipeline={
+    async run(input){
+      calls++;
+      assert.equal(input.executionIntent.symbol,'AAAUSDT');
+      if(calls===1) return advisory('QUALIFIED');
+      const out=advisory('REVIEW_REQUIRED');
+      out.plan.reason='VISION_COMMITTEE_UNAVAILABLE';
+      out.plan.valid=false;
+      return out;
+    }
+  };
+  const scanner={ async scan(){ return candidateScan(); } };
+  const controller=createLiveController({
+    root,store,scanner,pipeline,committee:async()=>({ok:true,text:''}),
+    credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' },
+    fetchImpl,clock:()=>clockRef.now
+  });
+
+  assert.equal(controller.configureLeaderAuto({
+    enabled:true,marginQuote:20,leverage:10,maxOpenPositions:3,allowLong:true,allowShort:true
+  }).ok,true);
+
+  const first=await controller.leaderAutoTick();
+  assert.equal(first.execution,'LEADER_AUTO_WAIT_ARM');
+  assert.equal(controller.leaderAutoStatus().analysisLifecycle.rows[0].state,'ARMED');
+
+  clockRef.now += 60_000;
+  const readiness=await controller.liveReadiness({symbol:'AAAUSDT'});
+  assert.equal(readiness.readyForUserArm,false);
+  assert.equal(readiness.planStatus,'REVIEW_REQUIRED');
+  assert.ok(readiness.reasons.includes('VISION_COMMITTEE_UNAVAILABLE'));
+
+  const row=controller.leaderAutoStatus().analysisLifecycle.rows.find(x=>x.symbol==='AAAUSDT');
+  assert.equal(row.state,'WATCH');
+  assert.equal(row.planStatus,'REVIEW_REQUIRED');
+  assert.equal(row.planReason,'VISION_COMMITTEE_UNAVAILABLE');
+  assert.equal(row.executionEligibleNow,true);
+
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('tracked ARMED row is presented as WATCH when targeted readiness says symbol is no longer execution eligible', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-readiness-sync-ineligible-'));
   const cfg=path.join(root,'config');
