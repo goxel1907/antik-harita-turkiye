@@ -443,22 +443,45 @@ if ($Action -eq 'LiveReadiness') {
     if ($status.armed) { throw 'Readiness testi yalnız PC LIVE kapalıyken çalışır; önce LiveDisarm kullanın.' }
     $out = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/readiness' -Headers $headers -TimeoutSec 300
     Write-Host '========== LIVE READINESS =========='
-    Write-Host ("readyForUserArm={0} execution={1} armed={2} orderPlaced={3} orderRequestSent={4}" -f $out.readyForUserArm,$out.execution,$out.armed,$out.orderPlaced,$out.orderRequestSent)
-    if ($out.symbol) {
-        Write-Host ("symbol={0} side={1} plan={2} origin={3} owner={4} vision={5}/{6}" -f $out.symbol,$out.side,$out.planStatus,$out.originTF,$out.ownerTF,$out.vision.attached,$out.vision.required)
+    $ready = Get-PropValue $out "readyForUserArm" $false
+    $execution = [string](Get-PropValue $out "execution" "LIVE_READINESS_CHECK")
+    $armed = Get-PropValue $out "armed" $false
+    $orderPlaced = Get-PropValue $out "orderPlaced" $false
+    $orderRequestSent = Get-PropValue $out "orderRequestSent" $false
+    Write-Host ("readyForUserArm={0} execution={1} armed={2} orderPlaced={3} orderRequestSent={4}" -f $ready,$execution,$armed,$orderPlaced,$orderRequestSent)
+
+    $symbol = [string](Get-PropValue $out "symbol" "")
+    if (-not [string]::IsNullOrWhiteSpace($symbol)) {
+        $side = [string](Get-PropValue $out "side" "")
+        $planStatus = [string](Get-PropValue $out "planStatus" "")
+        $originTF = [string](Get-PropValue $out "originTF" "")
+        $ownerTF = [string](Get-PropValue $out "ownerTF" "")
+        $visionObj = Get-PropValue $out "vision" $null
+        $visionAttached = if ($null -ne $visionObj) { Get-PropValue $visionObj "attached" 0 } else { 0 }
+        $visionRequired = if ($null -ne $visionObj) { Get-PropValue $visionObj "required" 9 } else { 9 }
+        Write-Host ("symbol={0} side={1} plan={2} origin={3} owner={4} vision={5}/{6}" -f $symbol,$side,$planStatus,$originTF,$ownerTF,$visionAttached,$visionRequired)
     }
-    if ($out.dryRun) {
-        Write-Host ("dryRun ok={0} simulated={1} submitted={2} requestSent={3}" -f $out.dryRun.ok,$out.dryRun.simulated,$out.dryRun.submitted,$out.dryRun.requestSent)
+
+    $dryRunObj = Get-PropValue $out "dryRun" $null
+    if ($null -ne $dryRunObj) {
+        Write-Host ("dryRun ok={0} simulated={1} submitted={2} requestSent={3}" -f (Get-PropValue $dryRunObj "ok" $false),(Get-PropValue $dryRunObj "simulated" $false),(Get-PropValue $dryRunObj "submitted" $false),(Get-PropValue $dryRunObj "requestSent" $false))
     }
-    if ($out.exchangeRules) {
-        Write-Host ("exchangeRules ok={0} livePrice={1}" -f $out.exchangeRules.ok,$out.exchangeRules.livePrice)
+
+    $exchangeRulesObj = Get-PropValue $out "exchangeRules" $null
+    if ($null -ne $exchangeRulesObj) {
+        Write-Host ("exchangeRules ok={0} livePrice={1}" -f (Get-PropValue $exchangeRulesObj "ok" $false),(Get-PropValue $exchangeRulesObj "livePrice" ""))
+        $exchangeRuleReasons = @(Get-PropValue $exchangeRulesObj "reasons" @())
+        if ($exchangeRuleReasons.Count -gt 0) { Write-Host ("exchangeRuleReasons=" + ($exchangeRuleReasons -join ',')) -ForegroundColor Yellow }
     }
-    if ($out.authorizationSimulation) {
-        Write-Host ("authSim issue={0} consumeOnce={1} replayBlocked={2}" -f $out.authorizationSimulation.issueOk,$out.authorizationSimulation.consumeOnceOk,$out.authorizationSimulation.replayBlocked)
+
+    $authSimObj = Get-PropValue $out "authorizationSimulation" $null
+    if ($null -ne $authSimObj) {
+        Write-Host ("authSim issue={0} consumeOnce={1} replayBlocked={2}" -f (Get-PropValue $authSimObj "issueOk" $false),(Get-PropValue $authSimObj "consumeOnceOk" $false),(Get-PropValue $authSimObj "replayBlocked" $false))
     }
-    $reasons = @($out.reasons)
+
+    $reasons = @(Get-PropValue $out "reasons" @())
     if ($reasons.Count -gt 0) { Write-Host ("reasons=" + ($reasons -join ',')) -ForegroundColor Yellow }
-    if ($out.readyForUserArm) {
+    if ($ready) {
         Write-Host 'BRAINHUB_LIVE_READINESS_OK — hiçbir canlı emir gönderilmedi; PC LIVE hâlâ kapalı.' -ForegroundColor Green
     } else {
         Write-Host 'BRAINHUB_LIVE_READINESS_WAIT — canlıya geçmeyin; yukarıdaki blok nedenini çözün.' -ForegroundColor Yellow
