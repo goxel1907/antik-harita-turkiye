@@ -3,7 +3,6 @@ param(
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
-    [string]$Symbol = '',
     [switch]$Deep
 )
 $ErrorActionPreference = 'Stop'
@@ -443,9 +442,8 @@ if ($Action -eq 'LiveReadiness') {
     $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if ($status.armed) { throw 'Readiness testi yalnız PC LIVE kapalıyken çalışır; önce LiveDisarm kullanın.' }
     $readinessUri = 'http://127.0.0.1:8787/live/readiness'
-    $requestedSymbol = ([string]$Symbol).Trim().ToUpperInvariant()
+    $requestedSymbol = ([string]$env:BRAINHUB_READINESS_SYMBOL).Trim().ToUpperInvariant()
     if ($requestedSymbol) {
-        if ($requestedSymbol.Length -lt 5 -or $requestedSymbol.Length -gt 32) { throw 'Readiness symbol gecersiz.' }
         $readinessUri = $readinessUri + '?symbol=' + [Uri]::EscapeDataString($requestedSymbol)
     }
     $out = Invoke-RestMethod -Uri $readinessUri -Headers $headers -TimeoutSec 300
@@ -489,9 +487,9 @@ if ($Action -eq 'LiveReadiness') {
     $reasons = @(Get-PropValue $out "reasons" @())
     if ($reasons.Count -gt 0) { Write-Host ("reasons=" + ($reasons -join ',')) -ForegroundColor Yellow }
     if ($ready) {
-        Write-Host 'BRAINHUB_LIVE_READINESS_OK — hiçbir canlı emir gönderilmedi; PC LIVE hâlâ kapalı.' -ForegroundColor Green
+        Write-Host 'BRAINHUB_LIVE_READINESS_OK - hicbir canli emir gonderilmedi; PC LIVE hala kapali.' -ForegroundColor Green
     } else {
-        Write-Host 'BRAINHUB_LIVE_READINESS_WAIT — canlıya geçmeyin; yukarıdaki blok nedenini çözün.' -ForegroundColor Yellow
+        Write-Host 'BRAINHUB_LIVE_READINESS_WAIT - canliya gecmeyin; yukaridaki blok nedenini cozun.' -ForegroundColor Yellow
     }
     exit 0
 }
