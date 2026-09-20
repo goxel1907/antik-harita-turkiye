@@ -170,6 +170,7 @@ ui_tr_methods=r'''
         s=s.replace("REQUESTED_LEVERAGE_EXCEEDS_PC_CAP","İstenen kaldıraç PC güvenlik tavanını aşıyor");
         s=s.replace("REQUESTED_MAX_OPEN_POSITIONS_EXCEEDS_PC_CAP","İstenen eşzamanlı pozisyon sayısı PC güvenlik tavanını aşıyor");
         s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU");
+        s=s.replace("LEADER_AUTO_DISABLED","OTO İŞLEM KAPALI");
         s=s.replace("LEADER_AUTO_WAIT","OTO İŞLEM UYGUN FIRSAT BEKLİYOR");
         s=s.replace("LEADER_AUTO_TICK_FAILED","OTO İŞLEM TARAMASI TEKNİK HATA VERDİ");
         s=s.replace("LEADER_AUTO_CONFIG_INVALID","OTO İŞLEM AYARLARI GEÇERSİZ");
@@ -179,11 +180,11 @@ ui_tr_methods=r'''
         s=s.replace("FINALIZE_SEMANTIC_REPAIR","karar çelişkisi düzeltiliyor");
         s=s.replace("FINALIZE_NARRATIVE","genel karar açıklaması hazırlanıyor");
         s=s.replace("FINALIZE_CORE","ana karar hazırlanıyor");
-        s=s.replace("TOP3_APPROACH","ilk 3'e yaklaşıyor").replace("CURRENT_ATTACK_TOP10","anlık atak ilk 10");
+        s=s.replace("TOP3_APPROACH","ilk 3'e yaklaşıyor").replace("TOP5_CONFIRMED","ilk 5 teyitli").replace("CURRENT_ATTACK_TOP10","anlık atak ilk 10");
         s=s.replace("degraded_single","tek analist modu").replace("TEK ANALIST/DEGRADED","tek analist modu");
         s=s.replace("REVIEW_REQUIRED","yeniden inceleme gerekli").replace("QUALIFIED","işlem adayı").replace("WATCH","izle / bekle");
         s=s.replace("SUPPORT","destek").replace("VETO","engel").replace("NEUTRAL","nötr");
-        s=s.replace("NONE","yok").replace("annotated","işaretlenmiş grafik");
+        s=s.replace("VISUAL_TF=","görsel zaman dilimi=").replace("INSIDE_BAR","iç bar").replace("NONE","yok").replace("annotated","işaretlenmiş grafik");
         s=s.replace("bullish confirmation","yükseliş teyidi").replace("trend support","trend desteği");
         s=s.replace("inside bar not confirmed","iç bar teyit edilmedi").replace("forming","oluşan");
         s=s.replace("continuity","süreklilik").replace("tradeQuality","işlem kalitesi").replace("longScore","LONG puanı").replace("shortScore","SHORT puanı");
@@ -202,6 +203,8 @@ main=main.replace('else if(inflight) state="🔵 SİNYAL İŞLENİYOR • RİSK 
                   'else if(inflight) state="🔵 SİNYAL İŞLENİYOR • RİSK / İŞLEM KİMLİĞİ / YETKİ KONTROLÜ";')
 main=main.replace('st.append("\\nPC LIVE: ").append(armed?"ARMED":"KAPALI");',
                   'st.append("\\nPC CANLI İŞLEM: ").append(armed?"AÇIK":"KAPALI");')
+main=main.replace('st.append("\\nPC LEADER AUTO: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");',
+                  'st.append("\\nPC OTO İŞLEM: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");')
 main=main.replace('if(lex!=null&&!lex.trim().isEmpty())st.append(" • son ").append(lex.trim());',
                   'if(lex!=null&&!lex.trim().isEmpty())st.append(" • son ").append(v9599UiTr(lex.trim()));')
 main=main.replace('if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\\nNeden: ").append(lastPcReasons.trim());',
@@ -213,16 +216,16 @@ main=main.replace('android.widget.TextView detail=text(detailedAuto,11.15f,andro
 main=main.replace('android.widget.TextView life=text(lifecycleText,10.9f,android.graphics.Color.WHITE,false);',
                   'android.widget.TextView life=text(v9599UiTr(lifecycleText),10.9f,android.graphics.Color.WHITE,false);')
 main_path.write_text(main)
-analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.101')
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.102')
 analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
-text=re.sub(r'versionCode\s+\d+','versionCode 26092004',text)
-text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.101'",text)
+text=re.sub(r'versionCode\s+\d+','versionCode 26092005',text)
+text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.102'",text)
 build.write_text(text)
-assert "versionName '9.5.101'" in text
-assert 'versionCode 26092004' in text
+assert "versionName '9.5.102'" in text
+assert 'versionCode 26092005' in text
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
-print('v9.5.101 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
+print('v9.5.102 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
