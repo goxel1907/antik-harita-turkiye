@@ -247,6 +247,99 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
   let leaderAutoLastTickAt = null;
   let leaderAutoLastHealthyAt = null;
   let leaderAutoLastDiagnostics = { universeCount:0, shortlistCount:0, eligibleCount:0, candidates:[] };
+  const LEADER_AUTO_HEALTH_WINDOW_MS = 60 * 60 * 1000;
+  const LEADER_AUTO_REANALYSIS_COOLDOWN_MS = 5 * 60 * 1000;
+  const leaderAutoHealthStartedAt = Number.isFinite(clock()) ? clock() : Date.now();
+  let leaderAutoHealthEvents = [];
+
+  function trimLeaderAutoHealth(now = clock()) {
+    const ts = Number.isFinite(now) ? now : Date.now();
+    const cutoff = ts - LEADER_AUTO_HEALTH_WINDOW_MS;
+    leaderAutoHealthEvents = leaderAutoHealthEvents.filter(x => Number(x?.at || 0) >= cutoff).slice(-720);
+    return ts;
+  }
+
+  function leaderHealthEvent(kind, data = {}) {
+    const at = trimLeaderAutoHealth();
+    leaderAutoHealthEvents.push({ at, kind:String(kind || 'EVENT'), ...(data || {}) });
+    if (leaderAutoHealthEvents.length > 720) leaderAutoHealthEvents = leaderAutoHealthEvents.slice(-720);
+  }
+
+  function leaderAutoHealthSnapshot() {
+    const now = trimLeaderAutoHealth();
+    const ev = leaderAutoHealthEvents;
+    const analyses = ev.filter(x => x.kind === 'ANALYSIS');
+    const scans = ev.filter(x => x.kind === 'SCAN');
+    const skips = ev.filter(x => x.kind === 'SKIP');
+    const ticks = ev.filter(x => x.kind === 'TICK_RESULT');
+    const durations = analyses.map(x => Number(x.durationMs)).filter(Number.isFinite);
+    const reasonCounts = new Map();
+    for (const x of [...analyses,...ticks]) {
+      for (const r of Array.isArray(x.reasons) ? x.reasons : []) {
+        const key=String(r || '').trim();
+        if (key) reasonCounts.set(key,(reasonCounts.get(key)||0)+1);
+      }
+      const one=String(x.reason || '').trim();
+      if (one) reasonCounts.set(one,(reasonCounts.get(one)||0)+1);
+    }
+    const topReasons=[...reasonCounts.entries()]
+      .sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]))
+      .slice(0,6)
+      .map(([reason,count])=>({reason,count}));
+    const statusCount = status => analyses.filter(x => String(x.planStatus || '').toUpperCase() === status).length;
+    const uniqueAnalyzedSymbols=[...new Set(analyses.map(x=>String(x.symbol||'')).filter(Boolean))];
+    const latestScan=scans.at(-1) || null;
+    const windowStart=Math.max(leaderAutoHealthStartedAt,now-LEADER_AUTO_HEALTH_WINDOW_MS);
+    return {
+      windowMinutes:60,
+      observedMinutes:Math.max(0,Math.round((now-windowStart)/6000)/10),
+      scanRuns:scans.length,
+      tickResults:ticks.length,
+      skippedBusy:skips.length,
+      skippedPipelineBusy:skips.filter(x=>x.reason==='LEADER_AUTO_PIPELINE_BUSY').length,
+      skippedExecutorBusy:skips.filter(x=>x.reason==='LEADER_AUTO_BUSY').length,
+      skippedPositionReviewBusy:skips.filter(x=>x.reason==='LEADER_AUTO_BACKGROUND_BUSY').length,
+      deepAnalyses:analyses.length,
+      uniqueAnalyzedSymbols:uniqueAnalyzedSymbols.length,
+      qualified:statusCount('QUALIFIED'),
+      watch:statusCount('WATCH'),
+      reviewRequired:statusCount('REVIEW_REQUIRED'),
+      reject:statusCount('REJECT'),
+      visionUnavailable:analyses.filter(x=>x.visionUnavailable===true).length,
+      ordersPlaced:ticks.filter(x=>x.orderPlaced===true).length,
+      avgAnalysisMs:durations.length?Math.round(durations.reduce((a,b)=>a+b,0)/durations.length):null,
+      lastAnalysisAt:analyses.length?new Date(analyses.at(-1).at).toISOString():null,
+      lastQualifiedAt:(analyses.filter(x=>String(x.planStatus||'').toUpperCase()==='QUALIFIED').at(-1)?.at)
+        ? new Date(analyses.filter(x=>String(x.planStatus||'').toUpperCase()==='QUALIFIED').at(-1).at).toISOString()
+        : null,
+      latestUniverseCount:latestScan?.universeCount ?? leaderAutoLastDiagnostics.universeCount ?? 0,
+      latestShortlistCount:latestScan?.shortlistCount ?? leaderAutoLastDiagnostics.shortlistCount ?? 0,
+      latestEligibleCount:latestScan?.eligibleCount ?? leaderAutoLastDiagnostics.eligibleCount ?? 0,
+      topReasons
+    };
+  }
+
+  function pickLeaderCandidate(candidates) {
+    if (!Array.isArray(candidates) || !candidates.length) return {candidate:null,index:-1,reason:'NO_CANDIDATE'};
+    const now=Number.isFinite(clock()) ? clock() : Date.now();
+    // Coverage-first within the existing scanner priority order: a never-analyzed
+    // or stale candidate is selected before repeating a recently analyzed one.
+    // This avoids repeatedly spending 9TF Vision time on the same symbol while
+    // keeping scanner ordering authoritative.
+    let index=candidates.findIndex(c=>{
+      const row=leaderAnalysisState.bySymbol?.[String(c?.symbol || '').toUpperCase()];
+      const last=Number(row?.lastAnalyzedAt || 0);
+      return !last || now-last >= LEADER_AUTO_REANALYSIS_COOLDOWN_MS;
+    });
+    let reason='COVERAGE_STALE_OR_NEW';
+    if (index < 0) {
+      index=leaderAutoCandidateCursor % candidates.length;
+      reason='ROUND_ROBIN_RECENT_SET';
+    }
+    const candidate=candidates[index];
+    leaderAutoCandidateCursor=(index+1)%candidates.length;
+    return {candidate,index,reason};
+  }
   let positionReviewBusy = false;
   let positionReviewCursor = 0;
   let positionManagerState = { lastReview:null, history:[], lastTickAt:null, lastError:null };
@@ -802,7 +895,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       sizingAdjustments:[],
       allowLong:c.allowLong === true,
       allowShort:c.allowShort === true,
-      intervalSec:60,
+      intervalSec:30,
       busy:leaderAutoBusy,
       lastExecution:suppressStaleDisabled ? null : (lastExecutionRaw || null),
       lastSymbol:lastLeaderAutoResult?.symbol || lastLeaderAutoResult?.leaderIntent?.symbol || null,
@@ -814,6 +907,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       candidateCursor:leaderAutoCandidateCursor,
       diagnostics:leaderAutoLastDiagnostics,
       analysisLifecycle:leaderLifecycleSummary(),
+      health:leaderAutoHealthSnapshot(),
       reasons:cfg.reasons || []
     };
   }
@@ -822,6 +916,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     const nowIso = new Date(clock()).toISOString();
     leaderAutoLastTickAt = nowIso;
     lastLeaderAutoResult = result;
+    leaderHealthEvent('TICK_RESULT',{
+      execution:String(result?.execution || ''),
+      symbol:String(result?.symbol || result?.leaderIntent?.symbol || ''),
+      orderPlaced:result?.orderPlaced === true,
+      reasons:Array.isArray(result?.reasons)?result.reasons.slice(0,8):[]
+    });
     const execution = String(result?.execution || '');
     const blocked = execution === 'LEADER_AUTO_BLOCKED' || execution === 'LEADER_AUTO_TICK_FAILED' || execution === 'LEADER_AUTO_CONFIG_INVALID';
     if (blocked) leaderAutoConsecutiveBlocked += 1;
@@ -833,9 +933,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
   }
 
   async function leaderAutoTick() {
-    if (leaderAutoBusy) return { ok:true, skipped:true, execution:'LEADER_AUTO_BUSY', orderPlaced:false };
-    if (positionReviewBusy) return { ok:true, skipped:true, execution:'LEADER_AUTO_BACKGROUND_BUSY', orderPlaced:false };
-    if (typeof pipeline?.isBusy==='function' && pipeline.isBusy()) return { ok:true, skipped:true, execution:'LEADER_AUTO_PIPELINE_BUSY', orderPlaced:false };
+    if (leaderAutoBusy) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BUSY', orderPlaced:false }; }
+    if (positionReviewBusy) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BACKGROUND_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BACKGROUND_BUSY', orderPlaced:false }; }
+    if (typeof pipeline?.isBusy==='function' && pipeline.isBusy()) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_PIPELINE_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_PIPELINE_BUSY', orderPlaced:false }; }
     const cfg = readLeaderAutoConfig();
     if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
     if (!cfg.config.enabled) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });
@@ -1672,11 +1772,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       return row;
     });
     leaderAutoLastDiagnostics = {
+      generatedAt:new Date(clock()).toISOString(),
       universeCount:Number(scan?.universeCount || 0),
       shortlistCount:rows.length,
       eligibleCount:rows.filter(x => x.eligible).length,
       candidates:rows.slice(0,16)
     };
+    leaderHealthEvent('SCAN',{
+      universeCount:leaderAutoLastDiagnostics.universeCount,
+      shortlistCount:leaderAutoLastDiagnostics.shortlistCount,
+      eligibleCount:leaderAutoLastDiagnostics.eligibleCount
+    });
     return leaderAutoLastDiagnostics;
   }
 
@@ -1745,9 +1851,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
       return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', reasons:['NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER'], trackedRefresh };
     }
-    const selectedIndex = leaderAutoCandidateCursor % candidates.length;
-    const candidate = candidates[selectedIndex];
-    leaderAutoCandidateCursor = (selectedIndex + 1) % candidates.length;
+    const pick = pickLeaderCandidate(candidates);
+    const selectedIndex = pick.index;
+    const candidate = pick.candidate;
+    leaderAutoLastDiagnostics.selectionReason=pick.reason;
 
     // Primary scanner candidate has priority. A tracked setup refresh runs only
     // after the primary row has been annotated, so background 9TF work cannot hide
@@ -1758,6 +1865,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_SELECTED', [], { selectedIndex, lifecycle:existingLifecycle || leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null });
 
     let advisory;
+    const analysisStartedAt=Number.isFinite(clock()) ? clock() : Date.now();
     try {
       advisory = await pipeline.run({
         scan,
@@ -1765,8 +1873,31 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
         committee,
         executionIntent:{ symbol:candidate.symbol }
       });
+      const analysisEndedAt=Number.isFinite(clock()) ? clock() : Date.now();
+      const planStatus=String(advisory?.plan?.status || advisory?.status || 'REVIEW_REQUIRED').toUpperCase();
+      const planReason=String(advisory?.plan?.reason || advisory?.reason || '');
+      const visionUnavailable=planReason==='VISION_COMMITTEE_UNAVAILABLE' || advisory?.committee?.available===false || advisory?.committee?.mode==='unavailable';
+      leaderHealthEvent('ANALYSIS',{
+        symbol:String(candidate.symbol || ''),
+        planStatus,
+        reason:planReason,
+        reasons:[...new Set([planReason].filter(Boolean))],
+        durationMs:Math.max(0,analysisEndedAt-analysisStartedAt),
+        visionAttached:Number(advisory?.vision?.attached || 0),
+        visionRequired:Number(advisory?.vision?.required || 9),
+        visionUnavailable
+      });
     } catch (e) {
+      const analysisEndedAt=Number.isFinite(clock()) ? clock() : Date.now();
       const rs=[String(e?.message || 'LEADER_PLAN_FAILED').slice(0,160)];
+      leaderHealthEvent('ANALYSIS',{
+        symbol:String(candidate.symbol || ''),
+        planStatus:'ERROR',
+        reason:rs[0],
+        reasons:rs,
+        durationMs:Math.max(0,analysisEndedAt-analysisStartedAt),
+        visionUnavailable:/VISION|COMMITTEE|MODEL/i.test(rs[0])
+      });
       annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_ERROR', rs);
       return {
         ok:false,
