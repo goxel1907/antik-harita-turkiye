@@ -165,4 +165,4 @@ build.write_text(text)
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
-print('v9.5.97 AUTO candidate review reuses manual chart/source/plan-code flow; user opens chat; no order action added.')
+print('v9.5.98 AUTO candidate review + read-only decision card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
