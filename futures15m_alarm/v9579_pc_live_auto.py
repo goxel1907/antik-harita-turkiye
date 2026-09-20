@@ -441,12 +441,22 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
         try{
             org.json.JSONObject d=new org.json.JSONObject(raw);
             int universe=d.optInt("universeCount",0);
+            int lightweight=d.optInt("lightweightUniverseCount",0);
             int shortlist=d.optInt("shortlistCount",0);
             int eligible=d.optInt("eligibleCount",0);
             StringBuilder b=new StringBuilder();
-            b.append("PC tarama: Evren ").append(universe>0?String.valueOf(universe):"—")
-             .append(" • derin kısa liste ").append(shortlist)
-             .append(" • eligible ").append(eligible);
+            b.append("PC tarama: hedef evren ").append(universe>0?String.valueOf(universe):"—");
+            if(lightweight>0)b.append(" • hafif Binance görünümü ").append(lightweight);
+            b.append(" • derin kısa liste ").append(shortlist)
+             .append(" • uygun ").append(eligible);
+            org.json.JSONObject pb=d.optJSONObject("priorityBuckets");
+            if(pb!=null){
+                b.append("\nÖncelik havuzları: ilk 3 ").append(pb.optJSONArray("previousTop3")==null?0:pb.optJSONArray("previousTop3").length())
+                 .append(" • 4-10 ").append(pb.optJSONArray("previousTop4to10")==null?0:pb.optJSONArray("previousTop4to10").length())
+                 .append(" • Binance ilk 24 yükselen ").append(pb.optJSONArray("top24Gainers")==null?0:pb.optJSONArray("top24Gainers").length())
+                 .append(" • birikim/patlama proxy ").append(pb.optJSONArray("accumulationProxy")==null?0:pb.optJSONArray("accumulationProxy").length())
+                 .append(" • erken ilgi ").append(pb.optJSONArray("appEarlyAttention")==null?0:pb.optJSONArray("appEarlyAttention").length());
+            }
             org.json.JSONArray rows=d.optJSONArray("candidates");
             int shown=rows==null?0:Math.min(9,rows.length());
             for(int i=0;i<shown;i++){
@@ -1142,7 +1152,7 @@ checks={
     'PC leader auto sync':'BrainHubClient.configureLeaderAuto(this' in MAIN.read_text() and 'v9588_pc_auto_enabled' in MAIN.read_text() and 'PC LEADER AUTO:' in MAIN.read_text(),
     'explicit mobile rearm':'V9589_MOBILE_REARM' in MAIN.read_text() and 'BrainHubClient.liveArm(this)' in MAIN.read_text() and 'LIVE 24 SAAT BAŞLAT / YENİDEN BAŞLAT' in MAIN.read_text(),
     'blocked telemetry visible':'v9592_pc_auto_last_reasons' in MAIN.read_text() and 'üst üste' in MAIN.read_text() and 'Son PC tick:' in MAIN.read_text(),
-    'per coin diagnostics':'v9593_pc_auto_diagnostics' in MAIN.read_text() and 'PC tarama: Evren' in MAIN.read_text() and 'derin kısa liste' in MAIN.read_text(),
+    'per coin diagnostics':'v9593_pc_auto_diagnostics' in MAIN.read_text() and 'PC tarama: hedef evren' in MAIN.read_text() and 'derin kısa liste' in MAIN.read_text(),
     'detailed 9TF diagnostics':'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' in MAIN.read_text() and 'DETAYLI OTO ANALİZ' in MAIN.read_text() and 'timeframeNotes' in MAIN.read_text() and 'timeframeDiagnostics' in MAIN.read_text() and 'timeframeEvidence' in MAIN.read_text() and 'Destek TF:' in MAIN.read_text() and 'Veto TF:' in MAIN.read_text() and 'Model özet:' in MAIN.read_text() and 'Deterministik veri:' in MAIN.read_text() and 'Grafik/Vision:' in MAIN.read_text(),
     'persistent lifecycle visible':'v9594_pc_analysis_lifecycle' in MAIN.read_text() and 'KALICI ANALİZ TAKİBİ' in MAIN.read_text() and 'rebaseCount' in MAIN.read_text() and 'invalidationCount' in MAIN.read_text(),
     'scalp cost detail visible':'İşlem maliyeti' in MAIN.read_text() and 'edge/maliyet' in MAIN.read_text() and 'Binance taker oranı' in MAIN.read_text(),
