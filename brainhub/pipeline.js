@@ -330,6 +330,45 @@ function compactUnifiedContext(u) {
     learning:u.learning||null
   };
 }
+function compactOutcomeLearningContext(learning) {
+  const src=learning&&typeof learning==='object'?learning:{};
+  const recent=Array.isArray(src.recent)?src.recent:[];
+  const stats=Array.isArray(src.stats)?src.stats:[];
+  const recentOutcomes=recent
+    .filter(row=>Number.isFinite(Number(row?.outcomePct)))
+    .slice(0,8)
+    .map(row=>({
+      symbol:String(row?.symbol||'').slice(0,28)||null,
+      side:['LONG','SHORT'].includes(String(row?.side||'').toUpperCase())?String(row.side).toUpperCase():null,
+      setup:String(row?.setup||'').slice(0,80)||null,
+      originTF:String(row?.originTF||'').slice(0,8)||null,
+      ownerTF:String(row?.ownerTF||'').slice(0,8)||null,
+      decision:String(row?.decision||'').slice(0,48)||null,
+      outcomePct:Number(Number(row.outcomePct).toFixed(4))
+    }));
+  const outcomeStats=stats
+    .filter(row=>Number(row?.samples)>0 && Number.isFinite(Number(row?.avgOutcomePct)))
+    .slice(0,8)
+    .map(row=>({
+      side:['LONG','SHORT'].includes(String(row?.side||'').toUpperCase())?String(row.side).toUpperCase():null,
+      setup:String(row?.setup||'').slice(0,80)||null,
+      originTF:String(row?.originTF||'').slice(0,8)||null,
+      ownerTF:String(row?.ownerTF||'').slice(0,8)||null,
+      samples:Math.max(0,Math.trunc(Number(row.samples)||0)),
+      winRate:Number.isFinite(Number(row?.winRate))?Number(row.winRate):null,
+      avgOutcomePct:Number(Number(row.avgOutcomePct).toFixed(4))
+    }));
+  const outcomeSamples=outcomeStats.reduce((sum,row)=>sum+Math.max(0,Number(row.samples)||0),0);
+  return {
+    available:recentOutcomes.length>0 || outcomeStats.length>0,
+    outcomeSamples,
+    recentOutcomes,
+    stats:outcomeStats,
+    semantics:'OUTCOME_BACKED_SOFT_CONTEXT_ONLY',
+    note:'Yalnız sonucu ölçülmüş kapanmış işlemler kullanılır. Etiketsiz PLAN/WATCH geçmişi karar kanıtı değildir; öğrenme tek başına QUALIFIED/VETO üretemez ve hard risk kurallarını değiştiremez.'
+  };
+}
+
 function compactLocalModelContext(u) {
   const frames=Object.fromEntries(FRAME_ORDER.map(tf=>{
     const f=u?.frames?.[tf];
@@ -1161,4 +1200,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
