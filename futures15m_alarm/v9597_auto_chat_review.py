@@ -169,8 +169,6 @@ ui_tr_methods=r'''
         String s=raw;
         s=s.replace("REQUESTED_LEVERAGE_EXCEEDS_PC_CAP","İstenen kaldıraç PC güvenlik tavanını aşıyor");
         s=s.replace("REQUESTED_MAX_OPEN_POSITIONS_EXCEEDS_PC_CAP","İstenen eşzamanlı pozisyon sayısı PC güvenlik tavanını aşıyor");
-        s=s.replace("LEVERAGE_CLAMPED_TO_PC_CAP","Kaldıraç PC güvenlik tavanına düşürüldü");
-        s=s.replace("MAX_OPEN_POSITIONS_CLAMPED_TO_PC_CAP","Pozisyon sayısı PC güvenlik tavanına düşürüldü");
         s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU");
         s=s.replace("LEADER_AUTO_WAIT","OTO İŞLEM UYGUN FIRSAT BEKLİYOR");
         s=s.replace("LEADER_AUTO_TICK_FAILED","OTO İŞLEM TARAMASI TEKNİK HATA VERDİ");
@@ -215,16 +213,16 @@ main=main.replace('android.widget.TextView detail=text(detailedAuto,11.15f,andro
 main=main.replace('android.widget.TextView life=text(lifecycleText,10.9f,android.graphics.Color.WHITE,false);',
                   'android.widget.TextView life=text(v9599UiTr(lifecycleText),10.9f,android.graphics.Color.WHITE,false);')
 main_path.write_text(main)
-analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.100')
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.101')
 analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
-text=re.sub(r'versionCode\s+\d+','versionCode 26092003',text)
-text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.99'",text)
+text=re.sub(r'versionCode\s+\d+','versionCode 26092004',text)
+text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.101'",text)
 build.write_text(text)
-assert "versionName '9.5.99'" in text
-assert 'versionCode 26092003' in text
+assert "versionName '9.5.101'" in text
+assert 'versionCode 26092004' in text
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
-print('v9.5.100 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
+print('v9.5.101 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')

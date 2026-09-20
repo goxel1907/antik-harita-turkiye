@@ -145,60 +145,30 @@ function requestedExecutionSettings(body, policy) {
       maxOpenPositions:policy?.limits?.maxOpenPositions ?? null,
       requestedLeverage:null,
       requestedMaxOpenPositions:null,
+      sizingAuthority:'PC_DEFAULT',
       adjustments:[],
       reasons:[]
     };
   }
 
   const reasons = [];
-  const adjustments = [];
   const marginQuote = finite(body?.requestedMarginQuote);
-  const requestedLeverage = finite(body?.requestedLeverage);
-  const requestedMaxOpenPositions = finite(body?.requestedMaxOpenPositions);
+  const leverage = finite(body?.requestedLeverage);
+  const maxOpenPositions = finite(body?.requestedMaxOpenPositions);
   if (marginQuote === null || marginQuote <= 0) reasons.push('REQUESTED_MARGIN_INVALID');
-  if (requestedLeverage === null || !Number.isInteger(requestedLeverage) || requestedLeverage < 1 || requestedLeverage > 125) reasons.push('REQUESTED_LEVERAGE_INVALID');
-  if (requestedMaxOpenPositions === null || !Number.isInteger(requestedMaxOpenPositions) || requestedMaxOpenPositions < 1 || requestedMaxOpenPositions > 5) reasons.push('REQUESTED_MAX_OPEN_POSITIONS_INVALID');
-
-  const pcLeverage = finite(policy?.expectedLeverage);
-  const pcMax = finite(policy?.limits?.maxOpenPositions);
-  let leverage=requestedLeverage;
-  let maxOpenPositions=requestedMaxOpenPositions;
-
-  // Mobile may ask for more, but it can never raise PC risk ceilings.
-  // A valid over-cap request is clamped downward instead of discarding an
-  // otherwise valid opportunity. Invalid values still fail closed.
-  if (!reasons.includes('REQUESTED_LEVERAGE_INVALID') &&
-      requestedLeverage !== null && pcLeverage !== null && pcLeverage >= 1 &&
-      requestedLeverage > pcLeverage) {
-    leverage=pcLeverage;
-    adjustments.push({
-      code:'LEVERAGE_CLAMPED_TO_PC_CAP',
-      requested:requestedLeverage,
-      applied:leverage,
-      explanationTr:'İstenen kaldıraç PC güvenlik tavanını aştığı için aşağı düşürüldü.'
-    });
-  }
-  if (!reasons.includes('REQUESTED_MAX_OPEN_POSITIONS_INVALID') &&
-      requestedMaxOpenPositions !== null && pcMax !== null && pcMax >= 1 &&
-      requestedMaxOpenPositions > pcMax) {
-    maxOpenPositions=pcMax;
-    adjustments.push({
-      code:'MAX_OPEN_POSITIONS_CLAMPED_TO_PC_CAP',
-      requested:requestedMaxOpenPositions,
-      applied:maxOpenPositions,
-      explanationTr:'İstenen eşzamanlı pozisyon sayısı PC güvenlik tavanına düşürüldü.'
-    });
-  }
+  if (leverage === null || !Number.isInteger(leverage) || leverage < 1 || leverage > 125) reasons.push('REQUESTED_LEVERAGE_INVALID');
+  if (maxOpenPositions === null || !Number.isInteger(maxOpenPositions) || maxOpenPositions < 1 || maxOpenPositions > 5) reasons.push('REQUESTED_MAX_OPEN_POSITIONS_INVALID');
 
   return {
     ok:reasons.length === 0,
     dynamic:true,
     marginQuote,
-    requestedLeverage,
-    requestedMaxOpenPositions,
     leverage,
     maxOpenPositions,
-    adjustments,
+    requestedLeverage:leverage,
+    requestedMaxOpenPositions:maxOpenPositions,
+    sizingAuthority:'USER_PANEL_EXACT',
+    adjustments:[],
     reasons:[...new Set(reasons)]
   };
 }
@@ -221,23 +191,38 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
   if (equity === null || equity <= 0) reasons.push('ACCOUNT_EQUITY_INVALID');
   if (reasons.length) return { ok:false, accountRisk, reasons:[...new Set(reasons)] };
 
-  // Mobile sizing requests never raise the separately configured PC risk ceilings.
-  // accountRiskCaps evaluates the requested order against these unchanged limits.
+  // USER_PANEL_EXACT: panelde seçilen boyutlandırma yürütme otoritesidir.
+  // Eski PC yüzde varsayımları seçilen boyutu küçültmez/veto etmez. Account risk
+  // kapısı yine seçilenden daha büyük emir oluşmasını ve portföy/günlük limitleri denetler.
+  const riskPct = equity > 0 && finite(accountRisk?.intent?.riskQuote)!==null
+    ? (Math.max(0,finite(accountRisk.intent.riskQuote)) / equity) * 100
+    : null;
+  const notionalPct = equity > 0 && notionalQuote!==null
+    ? (Math.max(0,notionalQuote) / equity) * 100
+    : null;
   const effectiveLimits = {
     ...policy.limits,
-    maxOpenPositions:Math.min(policy.limits.maxOpenPositions, settings.maxOpenPositions)
+    maxRiskPctPerTrade:riskPct===null
+      ? policy.limits.maxRiskPctPerTrade
+      : Math.max(Number(policy.limits.maxRiskPctPerTrade)||0,riskPct*1.001),
+    maxNotionalPctPerTrade:notionalPct===null
+      ? policy.limits.maxNotionalPctPerTrade
+      : Math.max(Number(policy.limits.maxNotionalPctPerTrade)||0,notionalPct*1.001),
+    maxOpenPositions:settings.maxOpenPositions
   };
   return {
     ok:true,
     reasons:[],
     accountRisk:{ ...accountRisk, limits:effectiveLimits },
     sizing:{
+      sizingAuthority:'USER_PANEL_EXACT',
       requestedMarginQuote:settings.marginQuote,
-      requestedLeverage:settings.requestedLeverage ?? settings.leverage,
+      appliedMarginQuote:settings.marginQuote,
+      requestedLeverage:settings.leverage,
       appliedLeverage:settings.leverage,
-      requestedMaxOpenPositions:settings.requestedMaxOpenPositions ?? settings.maxOpenPositions,
+      requestedMaxOpenPositions:settings.maxOpenPositions,
       appliedMaxOpenPositions:settings.maxOpenPositions,
-      adjustments:Array.isArray(settings.adjustments)?settings.adjustments:[],
+      adjustments:[],
       expectedNotionalQuote:expectedNotional,
       effectiveLimits
     }
@@ -740,8 +725,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       if (marginQuote === null || marginQuote <= 0) reasons.push('LEADER_AUTO_MARGIN_INVALID');
       if (leverage === null || !Number.isInteger(leverage) || leverage < 1 || leverage > 125) reasons.push('LEADER_AUTO_LEVERAGE_INVALID');
       if (maxOpenPositions === null || !Number.isInteger(maxOpenPositions) || maxOpenPositions < 1 || maxOpenPositions > 5) reasons.push('LEADER_AUTO_MAX_POSITIONS_INVALID');
-      const pcMax = finite(policy?.limits?.maxOpenPositions);
-      if (maxOpenPositions !== null && pcMax !== null && maxOpenPositions > pcMax) reasons.push('LEADER_AUTO_MAX_POSITIONS_EXCEEDS_PC_CAP');
       if (!allowLong && !allowShort) reasons.push('LEADER_AUTO_DIRECTION_DISABLED');
     }
     return {
@@ -811,7 +794,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       maxOpenPositions:c.maxOpenPositions,
       effectiveLeverage:effective?.leverage ?? c.leverage ?? null,
       effectiveMaxOpenPositions:effective?.maxOpenPositions ?? c.maxOpenPositions ?? null,
-      sizingAdjustments:Array.isArray(effective?.adjustments)?effective.adjustments:[],
+      sizingAuthority:effective?.sizingAuthority || 'USER_PANEL_EXACT',
+      sizingAdjustments:[],
       allowLong:c.allowLong === true,
       allowShort:c.allowShort === true,
       intervalSec:60,
@@ -1460,8 +1444,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     VISION_COMMITTEE_INPUT_INCOMPLETE:'9Router komitesi 9 grafiğin tamamını alamadı; canlı karar bloke edildi',
     VISION_COMMITTEE_OUTPUT_INCOMPLETE:'Vision modeli 9TF analiz sözleşmesindeki zorunlu Türkçe alanların tamamını üretmedi; canlı karar bloke edildi',
     VISION_COMMITTEE_UNAVAILABLE:'Vision/9Router analiz komitesi erişilemiyor; grafik analizi tamamlanmadı',
-    LEVERAGE_CLAMPED_TO_PC_CAP:'istenen kaldıraç PC güvenlik tavanına düşürüldü; fırsat bu daha düşük kaldıraçla değerlendirilir',
-    MAX_OPEN_POSITIONS_CLAMPED_TO_PC_CAP:'istenen eşzamanlı pozisyon sayısı PC güvenlik tavanına düşürüldü',
     UNSTRUCTURED_COMMITTEE_OUTPUT:'model çıktısı beklenen plan şemasına uymadı',
     NO_FRESH_TIMEFRAME_CONTEXT:'taze zaman dilimi bağlamı yetersiz'
   };

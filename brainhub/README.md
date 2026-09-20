@@ -134,3 +134,8 @@ Leader AUTO ve ACTIVE pozisyon yöneticisi, başka bir 9TF pipeline veya local V
 Mobil uygulamadaki geçerli kaldıraç veya azami açık pozisyon isteği PC'deki daha düşük güvenlik tavanını aşarsa fırsat artık yalnız bu nedenle tamamen bloke edilmez. Brain Hub isteği yalnız aşağı yönlü olarak PC tavanına kırpar; PC tavanını hiçbir zaman yükseltmez. Örneğin mobil 10x isterken PC politikası 3x ise Leader AUTO niyeti 3x ile yeniden boyutlandırılır ve diğer bütün notional, stop, aile maruziyeti, günlük kayıp, kill-switch, stale, lineage ve one-shot yürütme kapıları aynen kalır. Geçersiz/bozuk değerler yine fail-closed engellenir.
 
 Android durum paneli istenen ve uygulanan güvenli kaldıraç/pozisyon sınırını ayrı gösterir. Kullanıcıya yönelik yürütme ve analiz durumları Türkçeleştirilir; iç protokol kodları yalnız teknik günlüklerde kalabilir.
+
+
+### Kullanıcı paneli kesin boyutlandırma otoritesi (v9.5.101)
+
+OTO işlemde uygulamada seçilen marj, kaldıraç ve azami açık pozisyon değeri Brain Hub tarafından başka bir PC varsayılanına düşürülmez. Örneğin panel 20 USDT / 10x / max 3 ise niyet, miktar hesabı ve Binance kaldıraç ayarı aynı değerlerle yürür. Eski expectedLeverage veya maxNotional/maxRisk yüzde varsayımları seçilen boyutu tek başına veto edemez; per-order kapı yalnız seçilenden daha büyük bir emir oluşmasını yakalayacak şekilde o emir için uyarlanır. Bakiye yetersizliği, Binance teknik sınırları, günlük zarar kesici, aile maruziyeti, yapısal stop, stale veri, duplicate/lineage, kill-switch ve model/Jev karar kapıları ayrı kalır.

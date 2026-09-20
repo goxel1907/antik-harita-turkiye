@@ -4,34 +4,67 @@ const assert=require('node:assert/strict');
 const {requestedExecutionSettings,applyDynamicSizingGuards}=require('../live-controller');
 const {accountRiskCaps}=require('../risk-gate');
 
-const policy={expectedLeverage:5,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:10,maxDailyLossPct:2,maxOpenPositions:3,maxFamilyExposurePct:30}};
-test('valid mobile over-cap requests are clamped downward without raising PC ceilings',()=>{
-  const out=requestedExecutionSettings({requestedMarginQuote:20,requestedLeverage:10,requestedMaxOpenPositions:4},policy);
+const policy={expectedLeverage:5,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:10,maxDailyLossPct:2,maxOpenPositions:1,maxFamilyExposurePct:80}};
+
+test('panel leverage and max positions remain exact even above old PC defaults',()=>{
+  const out=requestedExecutionSettings({requestedMarginQuote:20,requestedLeverage:10,requestedMaxOpenPositions:3},policy);
   assert.equal(out.ok,true);
-  assert.equal(out.requestedLeverage,10);
-  assert.equal(out.leverage,5);
-  assert.equal(out.requestedMaxOpenPositions,4);
+  assert.equal(out.marginQuote,20);
+  assert.equal(out.leverage,10);
   assert.equal(out.maxOpenPositions,3);
-  assert.deepEqual(out.adjustments.map(x=>x.code),['LEVERAGE_CLAMPED_TO_PC_CAP','MAX_OPEN_POSITIONS_CLAMPED_TO_PC_CAP']);
-  assert.equal(out.reasons.length,0);
+  assert.equal(out.sizingAuthority,'USER_PANEL_EXACT');
+  assert.deepEqual(out.adjustments,[]);
 });
-test('invalid mobile leverage still fails closed instead of being clamped',()=>{
+
+test('invalid panel leverage still fails closed',()=>{
   const out=requestedExecutionSettings({requestedMarginQuote:20,requestedLeverage:130,requestedMaxOpenPositions:2},policy);
   assert.equal(out.ok,false);
   assert.ok(out.reasons.includes('REQUESTED_LEVERAGE_INVALID'));
 });
-test('explicit mobile sizing cannot rewrite notional or family exposure ceilings',()=>{
-  const accountRisk={account:{available:true,equity:1000,availableBalance:1000,dailyRealizedPnl:0,openPositions:0},intent:{family:'ALT_LONG',riskQuote:1,notionalQuote:200,familyExposureAfterQuote:400},limits:policy.limits};
-  const before=JSON.stringify(accountRisk);
-  const result=applyDynamicSizingGuards(accountRisk,{dynamic:true,marginQuote:40,leverage:5,maxOpenPositions:2},policy);
+
+test('exact panel sizing raises only per-order risk/notional envelopes enough for the chosen order',()=>{
+  const accountRisk={
+    account:{available:true,equity:1000,availableBalance:1000,dailyRealizedPnl:0,openPositions:0},
+    intent:{family:'ALT_LONG',riskQuote:25,notionalQuote:200,familyExposureAfterQuote:200},
+    limits:policy.limits
+  };
+  const result=applyDynamicSizingGuards(accountRisk,{dynamic:true,marginQuote:20,leverage:10,maxOpenPositions:3},policy);
   assert.equal(result.ok,true);
-  assert.equal(result.accountRisk.limits.maxNotionalPctPerTrade,10);
-  assert.equal(result.accountRisk.limits.maxFamilyExposurePct,30);
-  assert.equal(result.accountRisk.limits.maxOpenPositions,2);
-  assert.equal(accountRiskCaps(result.accountRisk).ok,false);
-  assert.equal(JSON.stringify(accountRisk),before);
+  assert.equal(result.sizing.appliedMarginQuote,20);
+  assert.equal(result.sizing.appliedLeverage,10);
+  assert.equal(result.sizing.appliedMaxOpenPositions,3);
+  assert.equal(result.sizing.expectedNotionalQuote,200);
+  assert.ok(result.accountRisk.limits.maxRiskPctPerTrade>=2.5);
+  assert.ok(result.accountRisk.limits.maxNotionalPctPerTrade>=20);
+  assert.equal(result.accountRisk.limits.maxOpenPositions,3);
+  assert.equal(result.accountRisk.limits.maxDailyLossPct,2);
+  assert.equal(result.accountRisk.limits.maxFamilyExposurePct,80);
+  assert.equal(accountRiskCaps(result.accountRisk).ok,true);
 });
-test('missing family exposure fails closed during mobile sizing',()=>{
+
+test('panel sizing cannot silently create an order larger than margin times leverage',()=>{
+  const accountRisk={
+    account:{available:true,equity:1000,availableBalance:1000,dailyRealizedPnl:0,openPositions:0},
+    intent:{family:'ALT_LONG',riskQuote:5,notionalQuote:250,familyExposureAfterQuote:250},
+    limits:policy.limits
+  };
+  const result=applyDynamicSizingGuards(accountRisk,{dynamic:true,marginQuote:20,leverage:10,maxOpenPositions:3},policy);
+  assert.equal(result.ok,false);
+  assert.ok(result.reasons.includes('ORDER_NOTIONAL_EXCEEDS_REQUESTED_MARGIN_LEVERAGE'));
+});
+
+test('requested margin above available balance is blocked rather than silently reduced',()=>{
+  const accountRisk={
+    account:{available:true,equity:100,availableBalance:15,dailyRealizedPnl:0,openPositions:0},
+    intent:{family:'ALT_LONG',riskQuote:1,notionalQuote:200,familyExposureAfterQuote:200},
+    limits:policy.limits
+  };
+  const result=applyDynamicSizingGuards(accountRisk,{dynamic:true,marginQuote:20,leverage:10,maxOpenPositions:3},policy);
+  assert.equal(result.ok,false);
+  assert.ok(result.reasons.includes('REQUESTED_MARGIN_EXCEEDS_AVAILABLE_BALANCE'));
+});
+
+test('missing family exposure still fails closed',()=>{
   const out=applyDynamicSizingGuards({account:{equity:1000,availableBalance:1000},intent:{notionalQuote:100}}, {dynamic:true,marginQuote:20,leverage:5,maxOpenPositions:1},policy);
   assert.equal(out.ok,false);
   assert.ok(out.reasons.includes('FAMILY_EXPOSURE_INVALID'));

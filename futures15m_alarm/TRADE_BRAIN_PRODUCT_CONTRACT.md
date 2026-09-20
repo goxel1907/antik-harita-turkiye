@@ -117,3 +117,12 @@ No component may claim guaranteed profit or guaranteed prediction accuracy.
 - Geçersiz kaldıraç/pozisyon değeri otomatik düzeltilmemeli; fail-closed kalmalıdır.
 - Uygulama kullanıcıya “istenen → uygulanan” değeri Türkçe ve açık biçimde göstermelidir.
 - Kullanıcı yüzeyinde ham `LEADER_AUTO_*`, `PLAN_NOT_QUALIFIED`, `REQUESTED_*`, `WATCH`, `NONE`, `SUPPORT`, `VETO`, `degraded_single` ve benzeri iç kodlar açıklama olarak gösterilmemelidir.
+
+
+## Kullanıcı paneli boyutlandırma otoritesi — v9.5.101
+
+- OTO işlemde kullanıcı panelindeki marj, kaldıraç ve azami açık pozisyon değerleri kesin yürütme girdisidir.
+- Brain Hub bu değerleri PC'deki eski expectedLeverage, maxRiskPctPerTrade veya maxNotionalPctPerTrade varsayımları nedeniyle aşağı kırpamaz.
+- Açık emir miktarı paneldeki marj × kaldıraç değerini aşamaz; aşarsa yürütme fail-closed durur.
+- Yetersiz kullanılabilir bakiye veya Binance'in seçilen kaldıraç değerini kabul etmemesi durumunda değer sessizce değiştirilmez; işlem açılmaz ve kullanıcıya neden gösterilir.
+- Günlük zarar, aile maruziyeti, yapısal stop/no-widen, stale veri, duplicate/lineage, kill-switch ve Jev/9TF karar kontrolleri bu boyutlandırma otoritesinden bağımsız kalır.

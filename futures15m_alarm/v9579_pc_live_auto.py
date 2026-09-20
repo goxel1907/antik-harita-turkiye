@@ -914,20 +914,11 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
         st.append("\nAyar: ").append(margin).append(" USDT • ").append(lev).append("x • max ").append(max)
           .append(" • ").append(lng?"LONG ":"").append(sht?"SHORT":"");
         if(pcFresh){
-            String effectiveLev=sp.getString("v9599_pc_effective_leverage","");
-            String effectiveMax=sp.getString("v9599_pc_effective_max_positions","");
-            if(effectiveLev!=null&&!effectiveLev.isEmpty()&&!effectiveLev.equals(lev)){
-                st.append("\nUygulanan güvenli kaldıraç: ").append(effectiveLev).append("x")
-                  .append(" • istenen ").append(lev).append("x → PC güvenlik tavanı");
-            }
-            if(effectiveMax!=null&&!effectiveMax.isEmpty()&&!effectiveMax.equals(String.valueOf(max))){
-                st.append("\nUygulanan azami açık pozisyon: ").append(effectiveMax)
-                  .append(" • istenen ").append(max).append(" → PC güvenlik tavanı");
-            }
+            st.append("\nBoyutlandırma: uygulamadaki marj / kaldıraç / azami pozisyon değerleri aynen kullanılır.");
             // V9596_MODEL_AVAILABILITY: configuration alone is not a successful model response.
             st.append("\n").append(sp.getString("v9596_vision_availability","Görsel model durumu bekleniyor"));
             st.append("\n").append(sp.getString("v9597_jev_status","Jev durumu bekleniyor"));
-            st.append("\nMarj/kaldıraç seçimi PC risk tavanlarını yükseltmez.");
+            st.append("\nBrain Hub marj veya kaldıraç değerini sessizce düşürmez.");
             st.append("\nPC LIVE: ").append(armed?"ARMED":"KAPALI");
             if(armed)st.append(" • kalan ").append(v9582ArmRemaining(sp.getString("v9582_pc_expires_at","")));
             st.append("\nPC LEADER AUTO: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");
