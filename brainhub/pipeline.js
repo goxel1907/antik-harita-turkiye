@@ -1104,6 +1104,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       });
     } catch {}
   }
+  const preJevPlan=plan&&typeof plan==='object'?{...plan}:null;
   let jevDecision=null;
   if(typeof decisionJudge==='function'&&executionIntent?.positionReviewOnly!==true&&String(plan?.status||'').toUpperCase()==='QUALIFIED'){
     try{
@@ -1145,6 +1146,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     vision:{ ok:vision.ok, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures },
     committee:result,
     plan,
+    preJevPlan,
     jevDecision:plan?.jevDecision||jevDecision,
     riskGate,
     dryRunExecutor,
