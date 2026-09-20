@@ -176,6 +176,9 @@ ui_tr_methods=r'''
         s=s.replace("LEADER_AUTO_CONFIG_INVALID","OTO İŞLEM AYARLARI GEÇERSİZ");
         s=s.replace("LEADER_PLAN_NOT_QUALIFIED","9 zaman dilimli plan henüz işlem adayı değil");
         s=s.replace("PLAN_NOT_QUALIFIED","plan henüz işlem adayı değil");
+        s=s.replace("QUALIFIED_WAIT_REQUIRED","işlem için beklenen koşul henüz tamamlanmadı");
+        s=s.replace("QUALIFIED_ORIGIN_OWNER_VETO","başlangıç veya sahip zaman dilimi işlemi engelliyor");
+        s=s.replace("JEV_NOT_NEEDED_FOR_NON_QUALIFIED","plan henüz işlem adayı olmadığı için Jev çağrılmadı");
         s=s.replace("DETAIL_RUN_COMPLETE","9 zaman dilimi analizi tamamlandı");
         s=s.replace("FINALIZE_SEMANTIC_REPAIR","karar çelişkisi düzeltiliyor");
         s=s.replace("FINALIZE_NARRATIVE","genel karar açıklaması hazırlanıyor");
@@ -184,7 +187,15 @@ ui_tr_methods=r'''
         s=s.replace("degraded_single","tek analist modu").replace("TEK ANALIST/DEGRADED","tek analist modu");
         s=s.replace("REVIEW_REQUIRED","yeniden inceleme gerekli").replace("QUALIFIED","işlem adayı").replace("WATCH","izle / bekle");
         s=s.replace("SUPPORT","destek").replace("VETO","engel").replace("NEUTRAL","nötr");
-        s=s.replace("VISUAL_TF=","görsel zaman dilimi=").replace("INSIDE_BAR","iç bar").replace("NONE","yok").replace("annotated","işaretlenmiş grafik");
+        s=s.replace("TF_SCHEMA_REPAIR=","zaman dilimi şeması düzeltiliyor: ")
+             .replace("PIXEL_TF=","görsel taşıma kontrolü: ")
+             .replace("VISUAL_TF=","görsel zaman dilimi: ")
+             .replace("DETAIL_RUN_START","9 zaman dilimi analizi başladı")
+             .replace("DETAIL_RUN_ERROR","9 zaman dilimi analizi hata verdi")
+             .replace("PIXEL_RUN_START","görsel taşıma kontrolü başladı")
+             .replace("PIXEL_RUN_ERROR","görsel taşıma kontrolü hata verdi")
+             .replace("_DONE"," • tamamlandı").replace("_ERROR"," • hata")
+             .replace("INSIDE_BAR","iç bar").replace("NONE","yok").replace("annotated","işaretlenmiş grafik");
         s=s.replace("bullish confirmation","yükseliş teyidi").replace("trend support","trend desteği");
         s=s.replace("inside bar not confirmed","iç bar teyit edilmedi").replace("forming","oluşan");
         s=s.replace("continuity","süreklilik").replace("tradeQuality","işlem kalitesi").replace("longScore","LONG puanı").replace("shortScore","SHORT puanı");
@@ -216,16 +227,16 @@ main=main.replace('android.widget.TextView detail=text(detailedAuto,11.15f,andro
 main=main.replace('android.widget.TextView life=text(lifecycleText,10.9f,android.graphics.Color.WHITE,false);',
                   'android.widget.TextView life=text(v9599UiTr(lifecycleText),10.9f,android.graphics.Color.WHITE,false);')
 main_path.write_text(main)
-analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.102')
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.103')
 analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
-text=re.sub(r'versionCode\s+\d+','versionCode 26092005',text)
-text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.102'",text)
+text=re.sub(r'versionCode\s+\d+','versionCode 26092006',text)
+text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.103'",text)
 build.write_text(text)
-assert "versionName '9.5.102'" in text
-assert 'versionCode 26092005' in text
+assert "versionName '9.5.103'" in text
+assert 'versionCode 26092006' in text
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
-print('v9.5.102 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
+print('v9.5.103 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
