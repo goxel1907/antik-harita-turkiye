@@ -704,6 +704,39 @@ function mergeVisionRepairText(baseText, repairText) {
   return out.join('\n');
 }
 
+function reconcileVisionPlanSemantics(plan) {
+  if (!plan || String(plan.status || '').toUpperCase() !== 'QUALIFIED') return plan;
+  const reasons=[];
+  const wait=String(plan.waitFor || '').trim();
+  const vetoTFs=Array.isArray(plan.vetoTFs) ? plan.vetoTFs.filter(Boolean) : [];
+  if (wait.toUpperCase() !== 'NONE') reasons.push('QUALIFIED_WAIT_REQUIRED');
+  if (vetoTFs.length) reasons.push('QUALIFIED_HAS_VETO_TFS');
+  if (!reasons.length) return plan;
+  return {
+    ...plan,
+    previousStatus:'QUALIFIED',
+    status:'WATCH',
+    reason:reasons[0],
+    semanticDowngradeReasons:reasons,
+    confidence:Math.min(Number(plan.confidence) || 0, 49),
+    execution:'ADVISORY_ONLY'
+  };
+}
+
+function shouldAttemptVisionRepair(result, contract, plan) {
+  const localDirect=Boolean(
+    result?.localVisionTwoStage===true ||
+    result?.localVisionDirect===true ||
+    String(result?.model || '').startsWith('local/')
+  );
+  if (localDirect) return false;
+  if (!contract || contract.ok) return false;
+  if (!plan || plan.valid !== true) return false;
+  if (!Array.isArray(contract.missing) || contract.missing.length < 1 || contract.missing.length > 24) return false;
+  if (contract.missing.includes('QUALIFIED_WAIT_FOR_NOT_NONE')) return false;
+  return true;
+}
+
 function visionPlanContract(plan) {
   const missing=[];
   if (!plan || plan.valid !== true) missing.push('STATUS_SIDE');
@@ -893,7 +926,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'EXEC_PATH: short path name',
     'WHY: Türkçe, net ve somut gerekçe; grafik + veri birlikte değerlendirilsin',
     'RISK_NOTE: Türkçe, işlemi bozabilecek ana risk',
-    'WAIT_FOR: Türkçe, sinyal için tam olarak ne beklendiği; QUALIFIED ise NONE',
+    'WAIT_FOR: Türkçe, sinyal için tam olarak ne beklendiği; QUALIFIED ise değer TAM OLARAK NONE olmalı',
+    'QUALIFIED güvenlik kuralı: herhangi bir TF_*_ROLE VETO ise veya herhangi bir bekleyen teyit/reclaim/closed-candle koşulu varsa STATUS QUALIFIED olamaz; WATCH veya REJECT seç.',
     'SUPPORT_TFS: TF_... değil, yalnız virgülle 1m,3m,5m,15m,30m,45m,1h,4h,1d değerleri; destek yoksa NONE',
     'VETO_TFS: TF_... değil, yalnız virgülle 1m,3m,5m,15m,30m,45m,1h,4h,1d değerleri; veto yoksa NONE',
     'FORMING_CONTEXT: Türkçe; 9TF forming mum bağlamının özeti ve kapanmış mum teyidi yerine geçmediği açıkça yazılsın',
@@ -929,6 +963,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       localContext:compactLocalModelContext(unified)
     });
     plan = planFields(result.text);
+    plan = reconcileVisionPlanSemantics(plan);
     if (Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
       plan = {
         ...plan,
@@ -943,13 +978,11 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       let contract=visionPlanContract(plan);
       let repairMeta=null;
 
-      // A multimodal model may occasionally omit a small subset of mandatory
-      // labels while still returning a coherent plan. Make one analysis-only
-      // repair pass with the same 9 images instead of accepting the omission.
-      // Nothing is fabricated locally: repaired fields must still come from a
-      // real Vision model and the full contract is re-validated fail-closed.
-      const semanticContradiction=contract.missing.includes('QUALIFIED_WAIT_FOR_NOT_NONE');
-      if (!semanticContradiction && !contract.ok && plan?.valid === true && contract.missing.length > 0 && contract.missing.length <= 24) {
+      // Non-local multimodal routes may still make one schema repair pass.
+      // Local Qwen already performs TF/core/narrative text-only repairs inside
+      // runLocalVisionCommittee; re-sending all 9 images here would duplicate
+      // the expensive Vision pass. Missing local fields therefore fail closed.
+      if (shouldAttemptVisionRepair(result,contract,plan)) {
         try {
           const repair=await committee({
             role:'STRUCTURE',
@@ -959,7 +992,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
             localContext:compactLocalModelContext(unified)
           });
           const mergedText=mergeVisionRepairText(result.text,repair?.text);
-          const repairedPlan=planFields(mergedText);
+          const repairedPlan=reconcileVisionPlanSemantics(planFields(mergedText));
           const repairedContract=visionPlanContract(repairedPlan);
           repairMeta={
             attempted:true,
@@ -1096,4 +1129,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };

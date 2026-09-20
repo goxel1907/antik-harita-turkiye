@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, reconcileVisionPlanSemantics, shouldAttemptVisionRepair } = require('../pipeline');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 const { buildDryRunOrder } = require('../binance-dry-run-executor');
 
@@ -155,6 +155,36 @@ test('QUALIFIED Vision plan is rejected when WAIT_FOR still contains a pending t
   assert.equal(plan.status,'QUALIFIED');
   assert.equal(contract.ok,false);
   assert.ok(contract.missing.includes('QUALIFIED_WAIT_FOR_NOT_NONE'));
+});
+
+test('semantic reconciliation downgrades contradictory QUALIFIED plans to WATCH without inventing approval', () => {
+  const contradictory={
+    valid:true,status:'QUALIFIED',side:'SHORT',confidence:85,
+    waitFor:'NONE — kapanmış mum teyidi hâlâ bekleniyor',
+    vetoTFs:['1m','3m','15m'],
+    execution:'ADVISORY_ONLY'
+  };
+  const out=reconcileVisionPlanSemantics(contradictory);
+  assert.equal(out.status,'WATCH');
+  assert.equal(out.previousStatus,'QUALIFIED');
+  assert.equal(out.reason,'QUALIFIED_WAIT_REQUIRED');
+  assert.deepEqual(out.semanticDowngradeReasons,['QUALIFIED_WAIT_REQUIRED','QUALIFIED_HAS_VETO_TFS']);
+  assert.ok(out.confidence<=49);
+  assert.equal(out.execution,'ADVISORY_ONLY');
+
+  const clean=reconcileVisionPlanSemantics({
+    valid:true,status:'QUALIFIED',side:'LONG',confidence:81,waitFor:'NONE',vetoTFs:[],execution:'ADVISORY_ONLY'
+  });
+  assert.equal(clean.status,'QUALIFIED');
+  assert.equal(clean.confidence,81);
+});
+
+test('local Vision contract failures never trigger a second full-image repair pass', () => {
+  const contract={ok:false,missing:['TF_4H_RISK']};
+  const plan={valid:true,status:'WATCH'};
+  assert.equal(shouldAttemptVisionRepair({model:'local/qwen3-vl:test',localVisionTwoStage:true},contract,plan),false);
+  assert.equal(shouldAttemptVisionRepair({model:'kiro/vision-model'},contract,plan),true);
+  assert.equal(shouldAttemptVisionRepair({model:'kiro/vision-model'},{ok:false,missing:['QUALIFIED_WAIT_FOR_NOT_NONE']},{valid:true,status:'QUALIFIED'}),false);
 });
 
 test('Vision repair pass can fill omitted TF fields without changing existing parsed fields', () => {
