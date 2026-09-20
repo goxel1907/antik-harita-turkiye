@@ -611,6 +611,8 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             if(!why.isEmpty())b.append("\nNeden: ").append(why);
             if(!waitFor.isEmpty())b.append("\n🎯 Sinyal için beklenen: ").append(waitFor);
 
+            org.json.JSONObject jevDecision=row.optJSONObject("jevDecision");
+            if(jevDecision!=null)b.append("\nJev: ").append(jevDecision.optString("summaryTr",jevDecision.optString("reason","Henüz değerlendirilmedi")));
             org.json.JSONArray supportTf=row.optJSONArray("supportTFs");
             org.json.JSONArray vetoTf=row.optJSONArray("vetoTFs");
             if(supportTf!=null||vetoTf!=null){
@@ -911,6 +913,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
         if(pcFresh){
             // V9596_MODEL_AVAILABILITY: configuration alone is not a successful model response.
             st.append("\n").append(sp.getString("v9596_vision_availability","Görsel model durumu bekleniyor"));
+            st.append("\n").append(sp.getString("v9597_jev_status","Jev durumu bekleniyor"));
             st.append("\nMarj/kaldıraç seçimi PC risk tavanlarını yükseltmez.");
             st.append("\nPC LIVE: ").append(armed?"ARMED":"KAPALI");
             if(armed)st.append(" • kalan ").append(v9582ArmRemaining(sp.getString("v9582_pc_expires_at","")));

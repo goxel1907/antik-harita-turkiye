@@ -1025,6 +1025,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       execution:ready?'LIVE_READINESS_OK':'LIVE_READINESS_WAIT',
       symbol:order.symbol,
       side:order.side,
+      jevDecision:plan.jevDecision||null,
       planStatus:String(plan.status || ''),
       originTF:String(plan.originTF || ''),
       ownerTF:String(plan.ownerTF || ''),
@@ -1437,6 +1438,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     if(row?.formingContext) parts.push(`Forming bağlamı: ${row.formingContext}`);
     if(row?.visionSummary) parts.push(`9TF grafik özeti: ${row.visionSummary}`);
     if(row?.vision) parts.push(`Vision: ${Number(row.vision.attached||0)}/${Number(row.vision.required||9)} grafik, ${Number(row.vision.barsRequested||128)} mum, ${row.vision.mode||'annotated'}.`);
+    if(row?.jevDecision?.summaryTr) parts.push(row.jevDecision.summaryTr);
     if(row?.planRisk) parts.push(`Risk notu: ${row.planRisk}`);
     if(row?.orderPlaced === true) parts.push('Sonuç: Binance Futures canlı emri gönderildi; koruma ve yürütme sonucu ayrıca izleniyor.');
     return parts.join(' ');

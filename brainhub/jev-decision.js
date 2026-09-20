@@ -13,13 +13,36 @@ const DEFAULTS={
   reservePerCallUsd:0.01
 };
 
+const CHECKS = [
+  ['structural_veto','structuralVeto','JEV_STRUCTURAL_VETO','Yapısal çelişki', 'BOS/CHoCH, failed breakout, body/wick or candle-pattern evidence contradicts the existing setup.'],
+  ['forming_dependency','formingDependency','JEV_FORMING_CONFIRMATION_DEPENDENCY','Açık mum teyit yerine kullanılmış','The plan needs a forming candle as confirmation rather than context.'],
+  ['data_quality_insufficient','dataQualityInsufficient','JEV_DATA_QUALITY_INSUFFICIENT','Veri kalitesi yetersiz','Critical timestamps, closed candles or evidence are missing/stale; auxiliary unavailable data alone is scoreless.'],
+  ['direction_conflict','directionConflict','JEV_DIRECTION_CONFLICT','Yön çelişkisi','The proposed LONG/SHORT direction contradicts supplied structure or global BTC/ETH context.'],
+  ['symbol_package_integrity','symbolPackageIntegrity','JEV_PACKAGE_INTEGRITY','Coin/paket uyuşmazlığı','Candidate, context and chart-evidence symbols differ, or the nine-frame package is incomplete.'],
+  ['origin_owner_continuity','originOwnerContinuity','JEV_CONTINUITY_CONFLICT','Başlangıç-sahip sürekliliği bozuk','The stated origin-to-owner handoff lacks supplied continuity evidence or widens invalidation risk.'],
+  ['tf_conflict','tfConflict','JEV_TF_CONFLICT','Zaman dilimleri çelişiyor','The setup ignores a material timeframe veto or counts synthetic 45m as an independent confirming vote. Timeframes are roles, not majority votes.'],
+  ['smc_liquidity_conflict','smcLiquidityConflict','JEV_SMC_LIQUIDITY_CONFLICT','SMC/likidite çelişkisi','Supplied FVG, OB/breaker, BSL/SSL, sweep/reclaim or invalidation evidence contradicts the setup; do not infer hidden market-maker intent.'],
+  ['microstructure_reliability','microstructureReliability','JEV_MICROSTRUCTURE_UNRELIABLE','Mikro yapı kanıtı yanlış kullanılmış','The plan treats stale/partial depth, sampled CVD, proxy OFI or observed liquidations as reliable proof; correlated measures must stay one soft family.'],
+  ['closed_candle_confirmation','closedCandleConfirmation','JEV_CLOSED_CONFIRMATION_MISSING','Kapanmış mum teyidi eksik','Required closed-candle breakout/reclaim/body-wick confirmation is absent in the supplied evidence.'],
+  ['visual_data_consistency','visualDataConsistency','JEV_VISUAL_DATA_CONFLICT','Grafik-veri çelişkisi','Text extracted from the actual charts conflicts with deterministic candle/price evidence. You cannot see PNGs; missing visual evidence must not be invented.'],
+  ['wait_required','waitRequired','JEV_WAIT_REQUIRED','Bekleme koşulu tamamlanmamış','A stated setup-specific wait/reclaim/invalidation condition remains unresolved, so QUALIFIED should wait.']
+];
+const FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+function decisionQuestions(){
+  const questions=Object.fromEntries(CHECKS.map(([id,,,,evidence])=>[id,{type:'noul',instructions:'Does this veto condition apply? '+evidence,criteria:{true:evidence,false:'Supplied evidence does not establish this veto condition.'}}]));
+  for(const tf of FRAMES)questions['conflict_'+tf]={type:'noul',instructions:'Does '+tf+' contain a material setup contradiction requiring a wait? Use supplied evidence only; 45m is synthetic.',criteria:{true:'Explicit evidence in this timeframe contradicts the proposed setup.',false:'No material contradiction is established in this timeframe.'}};
+  return questions;
+}
+
 function readJson(file){
   try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}
   catch{return {};}
 }
 function writeJsonAtomic(file,obj){
   fs.mkdirSync(path.dirname(file),{recursive:true});
-  fs.writeFileSync(file,JSON.stringify(obj,null,2),'utf8');
+  const tmp=file+'.tmp';
+  fs.writeFileSync(tmp,JSON.stringify(obj,null,2),'utf8');
+  fs.renameSync(tmp,file);
 }
 function utcDay(now=Date.now()){return new Date(now).toISOString().slice(0,10);}
 function normalizeConfig(root){
@@ -56,8 +79,9 @@ function probabilityValue(value){
   if(value===null||value===undefined)return null;
   if(typeof value==='string'&&!value.trim())return null;
   if(typeof value==='boolean')return null;
+  if(typeof value!=='number'&&typeof value!=='string')return null;
   const n=Number(value);
-  return Number.isFinite(n)?Math.max(0,Math.min(1,n)):null;
+  return Number.isFinite(n)&&n>=0&&n<=1?n:null;
 }
 function noulProbability(answer){
   const direct=probabilityValue(answer);
@@ -75,6 +99,8 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
     const d=plan?.timeframeDiagnostics?.[tf]||{};
     const f=unified?.frames?.[tf]||{};
     frames[tf]={
+      available:f.available===true, asOf:f.asOf||null, summary:String(d.summary||'').slice(0,240),
+      candle:f.candle||null, patterns:f.patterns||[], smcContext:f.smcContext||null, liquidity:f.liquidity||null,
       role:d.role||null,
       why:String(d.why||'').slice(0,240),
       waitFor:String(d.waitFor||'').slice(0,180),
@@ -98,6 +124,8 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
   const record={
     symbol:String(candidate?.symbol||unified?.symbol||'').slice(0,32),
     candidateSide:String(candidate?.side||'').toUpperCase()||null,
+    contextSymbol:unified?.symbol||null, generatedAt:unified?.generatedAt||null,
+    global:unified?.global||null, liquidationContext:unified?.liquidationContext||null,
     plan:{
       status:plan?.status||null,
       side:plan?.side||null,
@@ -122,6 +150,8 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
       sourceQuality:unified.microstructure.sourceQuality||null,
       spreadBps:unified.microstructure.spreadBps??null,
       depth20Imbalance:unified.microstructure.depth20Imbalance??null,
+      cvdSampleQuote:unified.microstructure.cvdSampleQuote??null, cvdSource:unified.microstructure.cvdSource||null,
+      ofiProxyQuote:unified.microstructure.ofiProxyQuote??null, trueOfiClaimed:false,
       streaming:unified.microstructure.streaming?{
         available:Boolean(unified.microstructure.streaming.available),
         connected:Boolean(unified.microstructure.streaming.connected),
@@ -132,14 +162,15 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
     execution:'ADVISORY_ONLY'
   };
   const raw=JSON.stringify(record);
-  return raw.length<=maxChars?raw:raw.slice(0,maxChars);
+  if(raw.length>maxChars)throw new Error('JEV_EVIDENCE_PAYLOAD_TOO_LARGE');
+  return raw;
 }
 function usageCost(data,reserve,body){
   const u=data?.usage&&typeof data.usage==='object'?data.usage:null;
-  const direct=Number(u?.cost);
-  if(Number.isFinite(direct)&&direct>=0)return Math.min(reserve,direct);
+  const direct=u?.cost==null?NaN:Number(u.cost);
+  if(Number.isFinite(direct)&&direct>=0)return direct;
   const tokens=Number(u?.prompt_tokens??u?.input_tokens);
-  if(Number.isFinite(tokens)&&tokens>=0)return Math.min(reserve,tokens*0.042/1_000_000);
+  if(Number.isFinite(tokens)&&tokens>=0)return tokens*0.042/1_000_000;
   const chars=JSON.stringify(body||{}).length;
   const conservativeTokens=Math.max(1,Math.ceil(chars/3));
   return Math.min(reserve,conservativeTokens*0.042/1_000_000*1.5);
@@ -155,7 +186,12 @@ function createJevClient({root,apiKey='',fetchImpl=globalThis.fetch,clock=()=>Da
 
   function readUsage(){
     const day=utcDay(clock());
-    const raw=readJson(usageFile);
+    let raw={};
+    if(fs.existsSync(usageFile)){
+      try{raw=JSON.parse(fs.readFileSync(usageFile,'utf8'));}
+      catch{throw new Error('JEV_BUDGET_FILE_INVALID');}
+      if(!raw.day||!Number.isFinite(raw.spentUsd)||raw.spentUsd<0)throw new Error('JEV_BUDGET_FILE_INVALID');
+    }
     if(raw.day!==day)return {day,spentUsd:0,calls:0,lastAt:null};
     return {day,spentUsd:Math.max(0,Number(raw.spentUsd)||0),calls:Math.max(0,Number(raw.calls)||0),lastAt:raw.lastAt||null};
   }
@@ -174,7 +210,8 @@ function createJevClient({root,apiKey='',fetchImpl=globalThis.fetch,clock=()=>Da
   function settleBudget(reservation,actualUsd){
     if(!reservation?.ok)return readUsage();
     const u=readUsage();
-    const actual=Math.max(0,Math.min(reservation.reservedUsd,Number(actualUsd)||0));
+    if(u.day!==reservation.usage.day)return u;
+    const actual=Math.max(0,Number(actualUsd)||0);
     const settled={...u,spentUsd:Math.max(0,u.spentUsd-reservation.reservedUsd+actual),lastAt:new Date(clock()).toISOString()};
     writeUsage(settled);
     return settled;
@@ -228,40 +265,35 @@ function createJevClient({root,apiKey='',fetchImpl=globalThis.fetch,clock=()=>Da
     return {...localStatus(),ok:true,reachable:true,probe:'PASS',durationMs:out.durationMs,answerShape:Object.keys(answer||{}).slice(0,12),usage:{cost:out.costUsd},budget:out.budget};
   }
   async function judge({candidate,plan,unified}={}){
-    if(!configured)return {ok:true,configured:false,required:false,called:false,veto:false,reason:'OPENROUTER_NOT_CONFIGURED'};
+    if(!configured)return {ok:!cfg.enabled,configured:false,required:cfg.enabled,called:false,veto:cfg.enabled,reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     if(String(plan?.status||'').toUpperCase()!=='QUALIFIED')return {ok:true,configured:true,required:true,called:false,veto:false,reason:'JEV_NOT_NEEDED_FOR_NON_QUALIFIED',budget:budgetStatus()};
-    const record=compactDecisionRecord({candidate,plan,unified},cfg.maxPayloadChars);
+    let record;
+    try{record=compactDecisionRecord({candidate,plan,unified},cfg.maxPayloadChars);}
+    catch(e){return {ok:false,configured:true,required:true,called:false,veto:true,reason:e.message,budget:budgetStatus()};}
     const body={
       model:cfg.model,
       state:{
         description:'One compact BrainHub crypto-futures advisory plan. Judge only whether existing QUALIFIED status must be vetoed or held for review. Never create a trade, entry, stop, target, leverage, size, or order.',
         record
       },
-      questions:{
-        structural_veto:{type:'noul',instructions:'Does the supplied evidence contain a structural contradiction or veto that makes keeping QUALIFIED unsafe?',criteria:{true:'A supplied timeframe veto, failed structure, invalid continuation, or explicit contradiction blocks keeping QUALIFIED.',false:'No supplied structural veto or contradiction blocks keeping QUALIFIED.'}},
-        forming_dependency:{type:'noul',instructions:'Does the QUALIFIED decision depend materially on a forming candle being treated as confirmation?',criteria:{true:'The decision needs an unclosed/forming candle as confirmation.',false:'Closed-candle evidence is sufficient and forming candles are context only.'}},
-        data_quality_insufficient:{type:'noul',instructions:'Is supplied data quality insufficient to keep the plan QUALIFIED?',criteria:{true:'Freshness, missing context, stale/partial critical data, or explicit quality limits prevent QUALIFIED.',false:'Supplied data quality is adequate for advisory qualification.'}},
-        direction_conflict:{type:'noul',instructions:'Is the proposed LONG/SHORT direction materially contradicted by the supplied 9TF evidence?',criteria:{true:'The proposed direction conflicts with supplied support/veto or deterministic structure.',false:'No material directional contradiction is present.'}}
-      }
+      questions:decisionQuestions()
     };
     const out=await decisions(body,{reserve:true});
     if(!out.ok)return {...out,called:true,veto:true,mode:cfg.mode};
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
-    const probabilities={
-      structuralVeto:noulProbability(answers.structural_veto),
-      formingDependency:noulProbability(answers.forming_dependency),
-      dataQualityInsufficient:noulProbability(answers.data_quality_insufficient),
-      directionConflict:noulProbability(answers.direction_conflict)
-    };
-    const missing=Object.entries(probabilities).filter(([,v])=>v===null).map(([k])=>k);
-    if(missing.length)return {ok:false,configured:true,required:true,called:true,veto:true,reason:'JEV_DECISION_SCHEMA_MISMATCH',missing,budget:out.budget,costUsd:out.costUsd,mode:cfg.mode};
-    const vetoReasons=[];
-    if(probabilities.structuralVeto>=0.65)vetoReasons.push('JEV_STRUCTURAL_VETO');
-    if(probabilities.formingDependency>=0.70)vetoReasons.push('JEV_FORMING_CONFIRMATION_DEPENDENCY');
-    if(probabilities.dataQualityInsufficient>=0.65)vetoReasons.push('JEV_DATA_QUALITY_INSUFFICIENT');
-    if(probabilities.directionConflict>=0.65)vetoReasons.push('JEV_DIRECTION_CONFLICT');
-    return {ok:true,configured:true,required:true,called:true,veto:vetoReasons.length>0,vetoReasons,probabilities,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    const probabilities=Object.fromEntries(CHECKS.map(([id,key])=>[key,noulProbability(answers[id])]));
+    const timeframeConflicts=Object.fromEntries(FRAMES.map(tf=>[tf,noulProbability(answers['conflict_'+tf])]));
+    const missing=Object.entries({...probabilities,...timeframeConflicts}).filter(([,v])=>v===null).map(([k])=>k);
+    if(missing.length)return {ok:false,configured:true,required:true,called:true,veto:true,reason:'JEV_DECISION_SCHEMA_MISMATCH',missing,probabilities,timeframeConflicts,budget:out.budget,costUsd:out.costUsd,mode:cfg.mode};
+    const failed=CHECKS.filter(([,key])=>probabilities[key]>=(key==='formingDependency'?0.70:0.65));
+    const conflictingTFs=FRAMES.filter(tf=>timeframeConflicts[tf]>=0.65);
+    const vetoReasons=failed.map(([, ,reason])=>reason);
+    if(conflictingTFs.length&&!vetoReasons.includes('JEV_TF_CONFLICT'))vetoReasons.push('JEV_TF_CONFLICT');
+    const summaryTr=(vetoReasons.length?'Jev bekletiyor: '+failed.map(x=>x[3]).join('; '):'Jev ek veto bulmadı; yürütme ve risk kontrolleri ayrıca gereklidir.')+
+      (conflictingTFs.length?' Çelişen TF: '+conflictingTFs.join(', ')+'.':'')+
+      (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
+    return {ok:true,configured:true,required:true,called:true,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
   return {config:cfg,localStatus,remoteStatus,probe,judge,budgetStatus};
 }
-module.exports={DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,compactDecisionRecord,createJevClient};
+module.exports={CHECKS,decisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,compactDecisionRecord,createJevClient};

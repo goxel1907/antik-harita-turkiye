@@ -123,7 +123,12 @@ public final class BrainHubClient {
     }
     public static JSONObject liveStatus(Context c) throws Exception {
         check(c);
-        return get(c, "/live/status");
+        JSONObject status=get(c, "/live/status");
+        JSONObject jev=status.optJSONObject("jev"), budget=jev==null?null:jev.optJSONObject("budget");
+        String label=jev==null?"Jev durumu alınamadı":("Jev: "+(jev.optBoolean("configured")?"hazır • veto denetimi":"yapılandırma/anahtar eksik"));
+        if(budget!=null)label+=String.format(java.util.Locale.US," • bugün $%.4f / $%.2f",budget.optDouble("spentUsd",0),budget.optDouble("dailyCapUsd",0));
+        c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE).edit().putString("v9597_jev_status",label).apply();
+        return status;
     }
     public static JSONObject liveAccount(Context c) throws Exception {
         check(c);

@@ -91,3 +91,12 @@ After the secure probe is verified, Jev is attached to the central pipeline only
 If Jev reports structural veto, forming-candle confirmation dependency, insufficient data quality, or material directional conflict above the configured threshold, a QUALIFIED plan is downgraded to WATCH. If Jev is configured as the required final judge but the Decisions API fails, its schema is invalid, or the local daily budget is exhausted, QUALIFIED is also downgraded fail-closed.
 
 The local Jev budget is persisted under `data/jev-usage.json`. Setup defaults to USD 0.25/day and reserves a conservative USD 0.01 before each paid call, settling to reported usage cost afterward. Normal WATCH/REJECT plans do not call Jev.
+
+
+### Jev detailed advisory review (20 September 2026)
+
+The existing OpenRouter DPAPI key remains PC-only. Jev reviews QUALIFIED plans with 12 typed veto checks and nine per-timeframe contradiction probabilities. Evidence includes closed/forming candle semantics, synthetic 45m, SMC/liquidity, continuity, sampled microstructure and global context. Jev sees extracted text, not PNGs. No price, position size or order is produced by this review. WATCH plans incur no Jev request.
+
+The selected AUTO row exposes `jevDecision` with probabilities and a Turkish summary; Android shows the daily local budget. This is an advisory model result, not proof of market truth. Invalid/missing probabilities, missing configured credentials, oversized evidence and unavailable Jev fail closed. Evidence is never truncated into invalid JSON. Reported charges above a reservation remain counted; old-day reservations never subtract from new-day spend.
+
+Local Vision single-flight serialization from 88f8e4a is preserved. Do not launch overlapping deep tests. No actual exchange orders are sent by the regression tests. A passing APK build does not establish 24-hour shadow reliability or live readiness.

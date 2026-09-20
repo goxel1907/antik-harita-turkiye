@@ -809,7 +809,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/jev/budget'){
       return send(res,200,{ok:true,...jev.budgetStatus(),model:jev.config.model,mode:jev.config.mode});
     }
-    if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability()});
+    if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability(),jev:jev.localStatus()});
     if(req.method==='GET'&&u.pathname==='/live/account'){
       const out=await live.accountSummary();
       return send(res,out?.ok?200:503,out);
