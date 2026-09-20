@@ -63,10 +63,10 @@ test('deep 9TF priority is top3, ranks4-10, gainers, accumulation, then app atte
   assert.deepEqual(
     out.map(x=>[x.symbol,x.deepScanReason]),
     [
-      ['TOP1USDT','CURRENT_ATTACK_TOP3'],
-      ['TOP2USDT','CURRENT_ATTACK_TOP3'],
-      ['TOP4USDT','CURRENT_ATTACK_4_10'],
-      ['TOP7USDT','CURRENT_ATTACK_4_10'],
+      ['TOP1USDT','CURRENT_ATTACK_TOP10'],
+      ['TOP2USDT','CURRENT_ATTACK_TOP10'],
+      ['TOP4USDT','CURRENT_ATTACK_TOP10'],
+      ['TOP7USDT','CURRENT_ATTACK_TOP10'],
       ['GAINUSDT','BINANCE_TOP24_GAINER'],
       ['ACCUSDT','ACCUMULATION_BREAKOUT_PROXY'],
       ['ATTNUSDT','APP_EARLY_ATTENTION']
