@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { FRAME_ORDER, visionPixelProbePrompt, evaluateVisionPixelProbe } = require('../pipeline');
+const { FRAME_ORDER, formatSingleVisionPixelReply, visionPixelProbePrompt, evaluateVisionPixelProbe } = require('../pipeline');
 
 const CELLS={
   '1m':7,'3m':2,'5m':9,'15m':4,'30m':1,
@@ -43,4 +43,13 @@ test('Vision pixel verification requires exact hidden cell matches for all 9 ima
   const missing=evaluateVisionPixelProbe(response().split('\n').slice(0,8).join('\n'),expected);
   assert.equal(missing.ok,false);
   assert.equal(missing.reported,8);
+});
+
+
+test('single-image pixel formatting labels only an exact observed digit and never guesses malformed replies',()=>{
+  assert.equal(formatSingleVisionPixelReply('1m',' 3\n'),'PROBE_1M: 3');
+  assert.equal(formatSingleVisionPixelReply('4h','7'),'PROBE_4H: 7');
+  for(const bad of ['PROBE_7M: N','PROBE_4H: 3','3 or 7','0','10','',null,'The cell is 3'])
+    assert.throws(()=>formatSingleVisionPixelReply('4h',bad),/PIXEL_CELL_CONTRACT/);
+  assert.throws(()=>formatSingleVisionPixelReply('7m','3'),/PIXEL_TIMEFRAME_INVALID/);
 });

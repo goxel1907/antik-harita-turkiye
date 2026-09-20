@@ -342,13 +342,11 @@ function localVisionExtractionPrompt(images,localContext){
   ].filter(Boolean).join('\n');
 }
 function localPixelBatchPrompt(images){
-  const tfs=normalizeVisionImages(images).map(x=>x.tf);
+  if(normalizeVisionImages(images).length!==1)throw new Error('PIXEL_SINGLE_IMAGE_REQUIRED');
   return [
-    'LOCAL_PIXEL_BATCH. Read only the large 3x3 diagnostic grid in the upper left of each attached chart.',
+    'LOCAL_PIXEL_SINGLE. Read only the large 3x3 diagnostic grid in the upper left of the attached chart.',
     'Number cells left-to-right, top-to-bottom, 1..9: first row 1,2,3; second row 4,5,6; last row 7,8,9.',
-    'Identify the single bright MAGENTA cell by its position. Return exactly these labels; do not report a timeframe without an attached image:',
-    ...tfs.map(tf=>'PROBE_'+tfPromptTag(tf)+': N'),
-    'Replace N with the observed cell number. No other explanation.'
+    'Which cell is bright MAGENTA? Reply with only one digit: the observed cell number. No timeframe, labels or explanation.'
   ].join('\n');
 }
 function visionBatches(images,size=1){
@@ -714,14 +712,14 @@ async function runLocalVisionCommitteeUnlocked(body){
       for(const batch of visionBatches(j.images,1)){
         const visualInput=multimodalUserContent(localPixelBatchPrompt(batch),batch);
         const visualMessages=[
-          {role:'system',content:'You are a visual transport diagnostic. Read only the magenta 3x3 probe cells in the attached charts. Return only requested PROBE_* lines.'},
+          {role:'system',content:'You are a visual transport diagnostic. Read the magenta cell position in the attached grid. Return exactly one digit from 1 to 9, with no labels or explanation.'},
           {role:'user',content:visualInput.content}
         ];
         const batchStarted=Date.now();
         const tf=String(batch[0]?.tf||'?');
         const visual=await callLocalStage('PIXEL_TF='+tf,model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:64});
         batchDurations.push(Date.now()-batchStarted);
-        batchTexts.push(String(visual.text||'').trim());
+        batchTexts.push(pipeline.formatSingleVisionPixelReply(String(batch[0]?.tf||''),visual.text));
       }
       text=batchTexts.filter(Boolean).join('\n');
       analystMeta={localVisionTwoStage:false,localVisionPixelBatched:true,localVisionBatchSize:1,batchDurations};
@@ -1121,7 +1119,7 @@ const server=http.createServer(async(req,res)=>{
               const batchStarted=Date.now();
               const visual=await callModel(model,visualMessages,modelTimeoutMs,{temperature:0,maxTokens:600});
               batchDurations.push(Date.now()-batchStarted);
-              batchTexts.push(String(visual.text||'').trim());
+              batchTexts.push(pipeline.formatSingleVisionPixelReply(String(batch[0]?.tf||''),visual.text));
             }
             const visionDurationMs=Date.now()-visionStarted;
             const visionText=batchTexts.filter(Boolean).join('\n');
@@ -1149,13 +1147,13 @@ const server=http.createServer(async(req,res)=>{
             for(const batch of visionBatches(j.images,3)){
               const visualInput=multimodalUserContent(localPixelBatchPrompt(batch),batch);
               const visualMessages=[
-                {role:'system',content:'You are a visual transport diagnostic. Read only the magenta 3x3 probe cells in the attached charts. Return only requested PROBE_* lines.'},
+                {role:'system',content:'You are a visual transport diagnostic. Read the magenta cell position in the attached grid. Return exactly one digit from 1 to 9, with no labels or explanation.'},
                 {role:'user',content:visualInput.content}
               ];
               const batchStarted=Date.now();
               const visual=await callModel(model,visualMessages,modelTimeoutMs,{temperature:0,maxTokens:192});
               batchDurations.push(Date.now()-batchStarted);
-              batchTexts.push(String(visual.text||'').trim());
+              batchTexts.push(pipeline.formatSingleVisionPixelReply(String(batch[0]?.tf||''),visual.text));
             }
             const durationMs=Date.now()-started;
             const text=batchTexts.filter(Boolean).join('\n');

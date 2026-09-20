@@ -98,7 +98,9 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
       const texts=body.messages.flatMap(m=>Array.isArray(m?.content)?m.content.filter(x=>x?.type==='text').map(x=>String(x.text||'')):[]);
       const joined=texts.join('\n');
       const probe=[...joined.matchAll(/PROBE_(1M|3M|5M|15M|30M|45M|1H|4H|1D):/g)].map(m=>m[1]);
-      if(probe.length){
+      if(joined.includes('LOCAL_PIXEL_SINGLE')){
+        content='1';
+      }else if(probe.length){
         content=[...new Set(probe)].map(tag=>'PROBE_'+tag+': 1').join('\n');
       }else{
         const tf=[...joined.matchAll(/TF_(1M|3M|5M|15M|30M|45M|1H|4H|1D)(?=[:_])/g)].map(m=>m[1])[0]||'1M';
@@ -141,7 +143,7 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
     const beforeForce=localRequested.length;
     const fr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'raw pixel probe',images:tfs.map(fakeImage),forceVisionProbe:true})});
     assert.equal(fr.status,200); assert.equal(localRequested.length,beforeForce+9); assert.ok(localRequested.slice(-9).every(x=>x.vision===true&&x.maxTokens===64));
-    const forceBody=await fr.json(); assert.equal(forceBody.localVisionTwoStage,false); assert.equal(forceBody.localVisionBatchSize,1);
+    const forceBody=await fr.json(); assert.equal(forceBody.localVisionTwoStage,false); assert.equal(forceBody.localVisionBatchSize,1); assert.match(forceBody.text,/PROBE_1M: 1/); assert.match(forceBody.text,/PROBE_1D: 1/);
     const beforeLocal=localRequested.length;
     const tr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'SCALP',prompt:'Return NO_TRADE'})});
     assert.equal(tr.status,200); assert.equal(localRequested.length,beforeLocal); assert.ok(routerRequested.filter(x=>!x.vision).length>=2);

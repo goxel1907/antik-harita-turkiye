@@ -475,6 +475,14 @@ function visionPixelProbePrompt() {
     'PROBE_1D: N'
   ].join('\n');
 }
+// The caller owns the timeframe label; only the observed value comes from the model.
+// Never recover values from malformed tags, explanations, or the hidden mapping.
+function formatSingleVisionPixelReply(tf,text) {
+  if(!FRAME_ORDER.includes(tf))throw new Error('PIXEL_TIMEFRAME_INVALID');
+  const match=/^\s*([1-9])\s*$/.exec(String(text||''));
+  if(!match)throw new Error('PIXEL_CELL_CONTRACT='+tf+' expected=single-digit');
+  return 'PROBE_'+tf.toUpperCase()+': '+match[1];
+}
 function evaluateVisionPixelProbe(text, frames) {
   const tfKey={ '1M':'1m','3M':'3m','5M':'5m','15M':'15m','30M':'30m','45M':'45m','1H':'1h','4H':'4h','1D':'1d' };
   const reported={};
@@ -1129,4 +1137,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
