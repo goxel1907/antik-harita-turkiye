@@ -36,6 +36,16 @@ public final class AutoDecisionCard {
         m.put("JEV_DAILY_BUDGET_EXHAUSTED","Jev günlük güvenlik bütçesi doldu");
         m.put("JEV_KEY_UNAVAILABLE","Jev anahtarı kullanılamıyor");
         m.put("JEV_JUDGE_EXCEPTION","Jev değerlendirmesinde teknik hata oluştu");
+        m.put("LEADER_PLAN_NOT_QUALIFIED","9 zaman dilimli plan henüz işlem adayı değil");
+        m.put("VISION_COMMITTEE_UNAVAILABLE","Görsel analiz/komite bu turda yanıt veremedi");
+        m.put("VISION_COMMITTEE_OUTPUT_INCOMPLETE","Görsel analiz plan şeması eksik kaldı");
+        m.put("VISION_COMMITTEE_INPUT_INCOMPLETE","9 zaman dilimi grafik paketinin tamamı komiteye ulaşmadı");
+        m.put("VISION_9TF_INCOMPLETE","9 zaman dilimi grafik paketi eksik");
+        m.put("NO_FRESH_TIMEFRAME_CONTEXT","Taze zaman dilimi verisi yetersiz");
+        m.put("NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER","Ön filtreden geçen uygun aday yok");
+        m.put("LEADER_AUTO_PIPELINE_BUSY","Derin analiz hattı meşgul");
+        m.put("LEADER_AUTO_BACKGROUND_BUSY","Açık pozisyon değerlendirmesi meşgul");
+        m.put("LEADER_AUTO_BUSY","OTO yürütme hattı meşgul");
         String v=m.get(s);return v!=null?v:"Teknik karar kodu: "+s.replace('_',' ');
     }
     private static String trText(String x){
