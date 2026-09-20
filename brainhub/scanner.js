@@ -461,7 +461,7 @@ async function performScan() {
 
   const attention=readAttention();
   const selection = selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
-  const { previousTop3, previousTop4to10, top24Gainers, accumulationPool, attentionPool, attentionStatus, candidates, targetSymbols } = selection;
+  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, attentionStatus, candidates, targetSymbols } = selection;
 
   const enriched = await mapLimit(candidates,8,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
