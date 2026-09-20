@@ -72,3 +72,31 @@ test('Vision transport render can downscale PNG without changing default rendere
 test('invalid chart mode is rejected', () => {
   assert.throws(()=>renderChartPng(chartFixture(),'future-vision'),/invalid chart mode/);
 });
+
+test('all diagnostic cells remain large and correctly ordered after actual PNG downscale', () => {
+  const centers=[];
+  for(let cell=1;cell<=9;cell++) {
+    const png=renderChartPng(chartFixture(),'annotated',{visionProbeCell:cell,outputWidth:448,outputHeight:252});
+    const chunks=[];
+    for(let offset=8;offset<png.length;){
+      const n=png.readUInt32BE(offset), type=png.toString('ascii',offset+4,offset+8);
+      if(type==='IDAT')chunks.push(png.subarray(offset+8,offset+8+n));
+      offset+=n+12;
+    }
+    const raw=require('node:zlib').inflateSync(Buffer.concat(chunks));
+    const points=[];
+    for(let y=0;y<252;y++){
+      assert.equal(raw[y*(448*4+1)],0);
+      for(let x=0;x<448;x++){
+        const i=y*(448*4+1)+1+x*4;
+        if(raw[i]===255&&raw[i+1]===0&&raw[i+2]===255)points.push([x,y]);
+      }
+    }
+    assert.ok(points.length>=2500,'diagnostic cell must survive downscale with enough visible area');
+    const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
+    assert.ok(Math.max(...xs)-Math.min(...xs)>=50);
+    assert.ok(Math.max(...ys)-Math.min(...ys)>=50);
+    centers.push({cell,x:(Math.max(...xs)+Math.min(...xs))/2,y:(Math.max(...ys)+Math.min(...ys))/2});
+  }
+  assert.deepEqual(centers.sort((a,b)=>a.y-b.y||a.x-b.x).map(p=>p.cell),[1,2,3,4,5,6,7,8,9]);
+});

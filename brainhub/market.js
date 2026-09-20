@@ -658,14 +658,16 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
   const probeCell=Number(options?.visionProbeCell);
   if(Number.isInteger(probeCell)&&probeCell>=1&&probeCell<=9){
     const active=[255,0,255,255], inactive=[30,34,42,255], border=[255,255,255,255];
-    const mx=36,my=36,cell=64,gap=12,pad=10;
+    // Diagnostic only: at 448x252 the old 64px cells became 22px and
+    // subpixel borders disappeared. Keep each cell 56px with visible gutters.
+    const mx=36,my=36,cell=160,gap=24,pad=16;
     const grid=3*cell+2*gap;
     fillRect(mx-pad,my-pad,mx+grid+pad-1,my+grid+pad-1,border);
-    fillRect(mx-pad+4,my-pad+4,mx+grid+pad-5,my+grid+pad-5,bg);
+    fillRect(mx-pad+8,my-pad+8,mx+grid+pad-9,my+grid+pad-9,bg);
     for(let i=0;i<9;i++){
       const row=Math.floor(i/3), col=i%3;
       const x0=mx+col*(cell+gap), y0=my+row*(cell+gap);
-      fillRect(x0-2,y0-2,x0+cell+1,y0+cell+1,border);
+      fillRect(x0-6,y0-6,x0+cell+5,y0+cell+5,border);
       fillRect(x0,y0,x0+cell-1,y0+cell-1,(i+1)===probeCell?active:inactive);
     }
   }

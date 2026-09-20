@@ -344,11 +344,11 @@ function localVisionExtractionPrompt(images,localContext){
 function localPixelBatchPrompt(images){
   const tfs=normalizeVisionImages(images).map(x=>x.tf);
   return [
-    'LOCAL_PIXEL_BATCH. Yalnız ekli grafiklerdeki sol üst 3x3 diagnostik ızgarayı oku.',
-    'Hücreler soldan sağa, yukarıdan aşağı 1..9. Yalnız parlak MOR/MAGENTA hücrenin numarasını yaz.',
-    'Tam olarak şu satırları döndür; ekli olmayan TF yazma:',
+    'LOCAL_PIXEL_BATCH. Read only the large 3x3 diagnostic grid in the upper left of each attached chart.',
+    'Number cells left-to-right, top-to-bottom, 1..9: first row 1,2,3; second row 4,5,6; last row 7,8,9.',
+    'Identify the single bright MAGENTA cell by its position. Return exactly these labels; do not report a timeframe without an attached image:',
     ...tfs.map(tf=>'PROBE_'+tfPromptTag(tf)+': N'),
-    'Başka açıklama ekleme.'
+    'Replace N with the observed cell number. No other explanation.'
   ].join('\n');
 }
 function visionBatches(images,size=1){
