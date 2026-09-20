@@ -526,20 +526,26 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             org.json.JSONObject h=new org.json.JSONObject(raw);
             double observed=h.optDouble("observedMinutes",0);
             int scans=h.optInt("scanRuns",0),deep=h.optInt("deepAnalyses",0),unique=h.optInt("uniqueAnalyzedSymbols",0);
+            int preQualified=h.optInt("preJevQualified",0),jevCalled=h.optInt("jevCalled",0),jevVeto=h.optInt("jevVetoed",0);
             int qualified=h.optInt("qualified",0),watch=h.optInt("watch",0),review=h.optInt("reviewRequired",0),reject=h.optInt("reject",0);
+            int intentReady=h.optInt("intentReady",0),execResults=h.optInt("executionResults",0);
             int vision=h.optInt("visionUnavailable",0),busy=h.optInt("skippedBusy",0),orders=h.optInt("ordersPlaced",0);
             long avg=h.optLong("avgAnalysisMs",-1L);
             StringBuilder b=new StringBuilder();
             b.append("OTO sağlık • gözlenen ").append(String.format(java.util.Locale.US,"%.1f",observed)).append(" dk")
              .append(" • tarama ").append(scans)
              .append(" • derin 9TF ").append(deep).append(" / ").append(unique).append(" coin")
-             .append(" • işlem adayı ").append(qualified)
+             .append(" • Vision ön aday ").append(preQualified)
+             .append(" • Jev ").append(jevCalled).append("/veto ").append(jevVeto)
+             .append(" • final aday ").append(qualified)
              .append(" • izle ").append(watch)
              .append(" • yeniden incele ").append(review)
              .append(" • red ").append(reject);
-            b.append("\nVision kesinti ").append(vision)
-             .append(" • yoğunluk nedeniyle atlanan tur ").append(busy)
-             .append(" • açılan emir ").append(orders);
+            b.append("\nCanlı intent ").append(intentReady)
+             .append(" • yürütme sonucu ").append(execResults)
+             .append(" • açılan emir ").append(orders)
+             .append(" • Vision kesinti ").append(vision)
+             .append(" • yoğunluk nedeniyle atlanan tur ").append(busy);
             if(avg>=0)b.append(" • ort analiz ").append(String.format(java.util.Locale.US,"%.1f sn",avg/1000.0));
             org.json.JSONArray top=h.optJSONArray("topReasons");
             if(top!=null&&top.length()>0){
