@@ -189,7 +189,13 @@ function candidatePreScore(x, prevRow = null) {
     continuityBoost;
 }
 
-function selectCandidates(universe, prevState = {}, attention = readAttention(), limit = TARGET_DETAIL_LIMIT) {
+function selectCandidates(universe, prevState = {}, attentionOrLimit = readAttention(), limit = TARGET_DETAIL_LIMIT) {
+  let attention=attentionOrLimit;
+  if(Number.isFinite(Number(attentionOrLimit)) && typeof attentionOrLimit!=='object'){
+    limit=Math.max(1,Math.trunc(Number(attentionOrLimit)));
+    attention=readAttention();
+  }
+  if(!attention || typeof attention!=='object' || Array.isArray(attention)) attention=readAttention();
   const universeMap=new Map(universe.map(x=>[x.symbol,x]));
   const prevRows=Object.entries(prevState?.bySymbol || {})
     .filter(([symbol])=>universeMap.has(symbol))
@@ -204,6 +210,19 @@ function selectCandidates(universe, prevState = {}, attention = readAttention(),
     .filter(z=>num(z.row?.rank)>=4&&num(z.row?.rank)<=10)
     .sort((a,b)=>num(a.row.rank)-num(b.row.rank))
     .map(z=>z.x);
+
+  const continuity=prevRows
+    .filter(z=>{
+      const state=String(z.row?.leaderState||'').toUpperCase();
+      const projected=num(z.row?.projectedRank);
+      return state==='TOP3_APPROACH' || state==='TOP10_APPROACH' ||
+        (projected>=1&&projected<=10&&num(z.row?.rank)>10&&num(z.row?.rankVelocity)>0);
+    })
+    .sort((a,b)=>
+      num(a.row?.projectedRank)-num(b.row?.projectedRank) ||
+      num(b.row?.rankVelocity)-num(a.row?.rankVelocity) ||
+      num(b.row?.leaderHunterScore)-num(a.row?.leaderHunterScore))
+    .map(z=>({...z.x,continuityState:z.row}));
 
   const top24Gainers=[...universe]
     .filter(x=>num(x.priceChangePercent)>0)
@@ -241,7 +260,13 @@ function selectCandidates(universe, prevState = {}, attention = readAttention(),
         if(raw.attention)existing.attention=raw.attention;
         continue;
       }
-      targetMap.set(symbol,{...raw,targetSources:[source]});
+      targetMap.set(symbol,{
+        ...raw,
+        preScore:Number.isFinite(Number(raw?.preScore))
+          ? Number(raw.preScore)
+          : candidatePreScore(raw,prevState?.bySymbol?.[symbol]),
+        targetSources:[source]
+      });
       added++;
     }
   };
@@ -250,9 +275,10 @@ function selectCandidates(universe, prevState = {}, attention = readAttention(),
   // lightweight and is used only to discover these priority buckets.
   add(previousTop3,'PREV_ATTACK_TOP3',3);
   add(previousTop4to10,'PREV_ATTACK_4_10',7);
-  add(top24Gainers,'BINANCE_TOP24_GAINER',6);
-  add(accumulationPool,'ACCUMULATION_PROXY',4);
-  add(attentionPool,'APP_EARLY_ATTENTION',4);
+  add(top24Gainers,'BINANCE_TOP24_GAINER',5);
+  add(continuity,'APPROACH_CONTINUITY',3);
+  add(accumulationPool,'ACCUMULATION_PROXY',3);
+  add(attentionPool,'APP_EARLY_ATTENTION',3);
 
   // Fill any unused slots with the strongest remaining candidates by a cheap
   // pre-score; this avoids an empty scanner after restart without returning to
@@ -270,6 +296,7 @@ function selectCandidates(universe, prevState = {}, attention = readAttention(),
   return {
     previousTop3,
     previousTop4to10,
+    continuity,
     top24Gainers,
     accumulationPool,
     attentionPool,
@@ -480,6 +507,7 @@ async function performScan() {
     priorityBuckets:{
       previousTop3:previousTop3.map(x=>x.symbol),
       previousTop4to10:previousTop4to10.map(x=>x.symbol),
+      approachContinuity:continuity.map(x=>x.symbol),
       top24Gainers:top24Gainers.map(x=>x.symbol),
       accumulationProxy:accumulationPool.map(x=>x.symbol),
       appEarlyAttention:attentionPool.map(x=>x.symbol)
