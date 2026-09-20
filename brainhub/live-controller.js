@@ -1856,9 +1856,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     const candidate = pick.candidate;
     leaderAutoLastDiagnostics.selectionReason=pick.reason;
 
-    // Primary scanner candidate has priority. A tracked setup refresh runs only
-    // after the primary row has been annotated, so background 9TF work cannot hide
-    // the selected candidate at PIPELINE_SELECTED for several minutes.
+    // Primary scanner candidate has priority. When fresh candidates exist this tick
+    // performs exactly one deep 9TF analysis; tracked-only refreshes are reserved for
+    // the no-fresh-candidate path so Vision throughput is spent on opportunity coverage.
     let trackedRefresh = null;
     const existingLifecycle=leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null;
     if (!existingLifecycle) upsertLeaderLifecycle(candidate,null,'DETECTED','FRESH_SCANNER_SELECTION');
