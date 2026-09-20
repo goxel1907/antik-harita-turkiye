@@ -2,7 +2,11 @@
 
 const test=require('node:test');
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
 const {compactOutcomeLearningContext}=require('../pipeline');
+const {openStore}=require('../store');
 
 test('Brain Learning excludes unlabeled PLAN/WATCH history from local decision context',()=>{
   const out=compactOutcomeLearningContext({
@@ -49,4 +53,24 @@ test('Brain Learning context never exposes hard-risk mutation flags',()=>{
   });
   assert.equal(Object.prototype.hasOwnProperty.call(out,'changesAppliedToHardRisk'),false);
   assert.match(out.note,/hard risk/i);
+});
+
+
+test('recordLearning keeps null outcome as unknown instead of 0 percent',()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-learning-null-'));
+  try{
+    const store=openStore(root);
+    store.recordLearning('POSITION_CLOSED','AAAUSDT',{
+      side:'LONG',setup:'X',originTF:'1m',ownerTF:'5m',decision:'CLOSED',outcomePct:null
+    });
+    const ctx=store.learningContext({symbol:'AAAUSDT'});
+    assert.equal(ctx.recent.length,1);
+    assert.equal(ctx.recent[0].outcomePct,null);
+    assert.equal(ctx.stats.length,0);
+    const compact=compactOutcomeLearningContext(ctx);
+    assert.equal(compact.available,false);
+    assert.equal(compact.outcomeSamples,0);
+  }finally{
+    fs.rmSync(root,{recursive:true,force:true});
+  }
 });
