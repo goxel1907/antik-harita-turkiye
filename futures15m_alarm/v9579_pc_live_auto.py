@@ -420,6 +420,14 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
         if("LEADER_AUTO_PIPELINE_BUSY".equals(r))return "derin analiz hattı meşgul";
         if("LEADER_AUTO_BACKGROUND_BUSY".equals(r))return "açık pozisyon değerlendirmesi meşgul";
         if("LEADER_AUTO_BUSY".equals(r))return "OTO yürütme hattı meşgul";
+        if("FAMILY_EXPOSURE_CAP_EXCEEDED".equals(r))return "toplam maruziyet tavanı işlemi engelledi";
+        if("REQUESTED_SIDE_NO_LONGER_EXECUTION_ELIGIBLE".equals(r))return "aday yönü canlı ön kontrolde değişti";
+        if("LEADER_APPROVAL_STALE".equals(r))return "9TF/Jev onayı canlı yürütmeye ulaşmadan eskidi";
+        if("LEADER_APPROVAL_NOT_QUALIFIED".equals(r))return "canlı yürütmeye taşınan plan işlem adayı değil";
+        if("LEADER_APPROVAL_ORDER_MISMATCH".equals(r))return "onaylı plan ile emir uyuşmuyor";
+        if("LEADER_APPROVAL_FRESH_SCAN_MISMATCH".equals(r))return "taze tarama sembol/yön onayıyla uyuşmuyor";
+        if("SCALP_COST_EDGE_NOT_VIABLE".equals(r))return "hedef işlem maliyetine göre yetersiz";
+        if("LIVE_PRICE_DEVIATION_TOO_HIGH".equals(r))return "canlı fiyat girişten fazla uzaklaştı";
         if("UNSTRUCTURED_COMMITTEE_OUTPUT".equals(r))return "model plan çıktısı şemaya uymadı";
         if("NO_FRESH_TIMEFRAME_CONTEXT".equals(r))return "taze zaman dilimi verisi yetersiz";
         return r;
