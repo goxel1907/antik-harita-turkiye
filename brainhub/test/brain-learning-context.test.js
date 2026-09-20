@@ -58,8 +58,9 @@ test('Brain Learning context never exposes hard-risk mutation flags',()=>{
 
 test('recordLearning keeps null outcome as unknown instead of 0 percent',()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-learning-null-'));
+  let store=null;
   try{
-    const store=openStore(root);
+    store=openStore(root);
     store.recordLearning('POSITION_CLOSED','AAAUSDT',{
       side:'LONG',setup:'X',originTF:'1m',ownerTF:'5m',decision:'CLOSED',outcomePct:null
     });
@@ -71,6 +72,7 @@ test('recordLearning keeps null outcome as unknown instead of 0 percent',()=>{
     assert.equal(compact.available,false);
     assert.equal(compact.outcomeSamples,0);
   }finally{
-    fs.rmSync(root,{recursive:true,force:true});
+    try{ store?.db?.close?.(); }catch{}
+    fs.rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
   }
 });
