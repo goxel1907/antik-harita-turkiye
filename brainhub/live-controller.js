@@ -785,6 +785,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
           requestedMaxOpenPositions:c.maxOpenPositions
         },policy)
       : null;
+    const lastExecutionRaw=String(lastLeaderAutoResult?.execution || '');
+    // LEADER_STATUS_STALE_SUPPRESSION: Android may re-enable Leader AUTO immediately
+    // after a PC restart. Do not present the pre-sync DISABLED tick as the current state.
+    const suppressStaleDisabled=c.enabled === true && lastExecutionRaw === 'LEADER_AUTO_DISABLED';
     return {
       ok:cfg.ok,
       configured:Boolean(c.marginQuote && c.leverage && c.maxOpenPositions),
@@ -800,13 +804,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       allowShort:c.allowShort === true,
       intervalSec:60,
       busy:leaderAutoBusy,
-      lastExecution:lastLeaderAutoResult?.execution || null,
+      lastExecution:suppressStaleDisabled ? null : (lastExecutionRaw || null),
       lastSymbol:lastLeaderAutoResult?.symbol || lastLeaderAutoResult?.leaderIntent?.symbol || null,
       lastOrderPlaced:lastLeaderAutoResult?.orderPlaced === true,
-      lastReasons:Array.isArray(lastLeaderAutoResult?.reasons) ? lastLeaderAutoResult.reasons.slice(0,8) : [],
-      lastTickAt:leaderAutoLastTickAt,
+      lastReasons:suppressStaleDisabled ? [] : (Array.isArray(lastLeaderAutoResult?.reasons) ? lastLeaderAutoResult.reasons.slice(0,8) : []),
+      lastTickAt:suppressStaleDisabled ? null : leaderAutoLastTickAt,
       lastHealthyAt:leaderAutoLastHealthyAt,
-      consecutiveBlocked:leaderAutoConsecutiveBlocked,
+      consecutiveBlocked:suppressStaleDisabled ? 0 : leaderAutoConsecutiveBlocked,
       candidateCursor:leaderAutoCandidateCursor,
       diagnostics:leaderAutoLastDiagnostics,
       analysisLifecycle:leaderLifecycleSummary(),
