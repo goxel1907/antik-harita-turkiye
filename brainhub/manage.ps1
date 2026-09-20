@@ -440,22 +440,40 @@ function Migrate-JevBudgetPolicy([string]$BrainRoot) {
     if (-not (Test-Path -LiteralPath $jevPath)) { return }
     try { $jev = Get-Content -LiteralPath $jevPath -Raw | ConvertFrom-Json }
     catch { throw 'jev.json okunamadi; Jev butce politikasi migrate edilmedi.' }
+    if ($null -eq $jev -or $jev -is [Array]) { throw 'jev.json nesne biciminde degil; Jev butce politikasi migrate edilmedi.' }
+
     $softProp = $jev.PSObject.Properties['softBudgetUsd']
-    $daily = [double](Get-PropValue $jev 'dailyCapUsd' 0.25)
-    $reserve = [double](Get-PropValue $jev 'reservePerCallUsd' 0.01)
+    $dailyProp = $jev.PSObject.Properties['dailyCapUsd']
+    $reserveProp = $jev.PSObject.Properties['reservePerCallUsd']
     $changed = $false
+
     if ($null -eq $softProp) {
         $jev | Add-Member -NotePropertyName softBudgetUsd -NotePropertyValue 0.25 -Force
         $changed = $true
     }
-    if ([Math]::Abs($daily - 0.25) -lt 0.0000001) {
-        $jev.dailyCapUsd = 2.00
+
+    if ($null -eq $dailyProp) {
+        $jev | Add-Member -NotePropertyName dailyCapUsd -NotePropertyValue 2.00 -Force
         $changed = $true
+    } else {
+        $daily = [double](Get-PropValue $jev 'dailyCapUsd' 0.25)
+        if ([Math]::Abs($daily - 0.25) -lt 0.0000001) {
+            $jev.dailyCapUsd = 2.00
+            $changed = $true
+        }
     }
-    if ([Math]::Abs($reserve - 0.01) -lt 0.0000001) {
-        $jev.reservePerCallUsd = 0.002
+
+    if ($null -eq $reserveProp) {
+        $jev | Add-Member -NotePropertyName reservePerCallUsd -NotePropertyValue 0.002 -Force
         $changed = $true
+    } else {
+        $reserve = [double](Get-PropValue $jev 'reservePerCallUsd' 0.01)
+        if ([Math]::Abs($reserve - 0.01) -lt 0.0000001) {
+            $jev.reservePerCallUsd = 0.002
+            $changed = $true
+        }
     }
+
     if ($changed) {
         $jev | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jevPath -Encoding UTF8
         Write-Host 'JEV_BUDGET_POLICY_MIGRATED softUsd=0.25 hardUsd=2.00 reserveUsd=0.002'
