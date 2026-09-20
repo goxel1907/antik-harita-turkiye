@@ -22,7 +22,7 @@ test('invalid panel leverage still fails closed',()=>{
   assert.ok(out.reasons.includes('REQUESTED_LEVERAGE_INVALID'));
 });
 
-test('exact panel sizing raises only per-order risk/notional envelopes enough for the chosen order',()=>{
+test('exact panel sizing raises per-order and total family envelopes from the chosen user settings',()=>{
   const accountRisk={
     account:{available:true,equity:1000,availableBalance:1000,dailyRealizedPnl:0,openPositions:0},
     intent:{family:'ALT_LONG',riskQuote:25,notionalQuote:200,familyExposureAfterQuote:200},
@@ -38,7 +38,7 @@ test('exact panel sizing raises only per-order risk/notional envelopes enough fo
   assert.ok(result.accountRisk.limits.maxNotionalPctPerTrade>=20);
   assert.equal(result.accountRisk.limits.maxOpenPositions,3);
   assert.equal(result.accountRisk.limits.maxDailyLossPct,2);
-  assert.equal(result.accountRisk.limits.maxFamilyExposurePct,80);
+  assert.ok(result.accountRisk.limits.maxFamilyExposurePct>=60);
   assert.equal(accountRiskCaps(result.accountRisk).ok,true);
 });
 
@@ -68,4 +68,43 @@ test('missing family exposure still fails closed',()=>{
   const out=applyDynamicSizingGuards({account:{equity:1000,availableBalance:1000},intent:{notionalQuote:100}}, {dynamic:true,marginQuote:20,leverage:5,maxOpenPositions:1},policy);
   assert.equal(out.ok,false);
   assert.ok(out.reasons.includes('FAMILY_EXPOSURE_INVALID'));
+});
+
+
+test('exact panel sizing with 25 USDT 10x max2 is not blocked by legacy 100 percent family cap',()=>{
+  const tightPolicy={
+    expectedLeverage:3,
+    limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:25,maxDailyLossPct:5,maxOpenPositions:1,maxFamilyExposurePct:100}
+  };
+  const accountRisk={
+    account:{available:true,equity:80.54,availableBalance:80.54,dailyRealizedPnl:0,openPositions:0},
+    intent:{family:'ALL_USDT_PERP',riskQuote:4,notionalQuote:250,familyExposureAfterQuote:250},
+    limits:tightPolicy.limits
+  };
+  const settings={dynamic:true,marginQuote:25,leverage:10,maxOpenPositions:2};
+  const result=applyDynamicSizingGuards(accountRisk,settings,tightPolicy);
+  assert.equal(result.ok,true);
+  assert.equal(result.sizing.expectedNotionalQuote,250);
+  assert.equal(result.sizing.requestedFamilyExposureQuote,500);
+  assert.ok(result.accountRisk.limits.maxFamilyExposurePct>620);
+  const gate=accountRiskCaps(result.accountRisk);
+  assert.equal(gate.ok,true,JSON.stringify(gate.reasons));
+});
+
+test('exact panel total family envelope still blocks exposure beyond margin x leverage x max positions',()=>{
+  const tightPolicy={
+    expectedLeverage:3,
+    limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:25,maxDailyLossPct:5,maxOpenPositions:1,maxFamilyExposurePct:100}
+  };
+  const accountRisk={
+    account:{available:true,equity:80.54,availableBalance:80.54,dailyRealizedPnl:0,openPositions:1},
+    intent:{family:'ALL_USDT_PERP',riskQuote:4,notionalQuote:250,familyExposureAfterQuote:700},
+    limits:tightPolicy.limits
+  };
+  const settings={dynamic:true,marginQuote:25,leverage:10,maxOpenPositions:2};
+  const result=applyDynamicSizingGuards(accountRisk,settings,tightPolicy);
+  assert.equal(result.ok,true);
+  const gate=accountRiskCaps(result.accountRisk);
+  assert.equal(gate.ok,false);
+  assert.ok(gate.reasons.includes('FAMILY_EXPOSURE_CAP_EXCEEDED'));
 });
