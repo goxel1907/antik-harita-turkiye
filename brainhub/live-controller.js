@@ -286,6 +286,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     const scans = ev.filter(x => x.kind === 'SCAN');
     const skips = ev.filter(x => x.kind === 'SKIP');
     const ticks = ev.filter(x => x.kind === 'TICK_RESULT');
+    const executionStages = ev.filter(x => x.kind === 'EXECUTION_STAGE');
     const durations = analyses.map(x => Number(x.durationMs)).filter(Number.isFinite);
     const reasonCounts = new Map();
     for (const x of [...analyses,...ticks]) {
@@ -315,12 +316,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       skippedPositionReviewBusy:skips.filter(x=>x.reason==='LEADER_AUTO_BACKGROUND_BUSY').length,
       deepAnalyses:analyses.length,
       uniqueAnalyzedSymbols:uniqueAnalyzedSymbols.length,
+      preJevQualified:analyses.filter(x=>String(x.preJevStatus||'').toUpperCase()==='QUALIFIED').length,
+      jevCalled:analyses.filter(x=>x.jevCalled===true).length,
+      jevVetoed:analyses.filter(x=>x.jevVeto===true).length,
       qualified:statusCount('QUALIFIED'),
       watch:statusCount('WATCH'),
       reviewRequired:statusCount('REVIEW_REQUIRED'),
       reject:statusCount('REJECT'),
       visionUnavailable:analyses.filter(x=>x.visionUnavailable===true).length,
-      ordersPlaced:ticks.filter(x=>x.orderPlaced===true).length,
+      intentReady:executionStages.filter(x=>x.stage==='INTENT_READY').length,
+      executionResults:executionStages.filter(x=>x.stage==='EXECUTION_RESULT').length,
+      ordersPlaced:executionStages.filter(x=>x.stage==='ORDER_PLACED').length,
       avgAnalysisMs:durations.length?Math.round(durations.reduce((a,b)=>a+b,0)/durations.length):null,
       lastAnalysisAt:analyses.length?new Date(analyses.at(-1).at).toISOString():null,
       lastQualifiedAt:(analyses.filter(x=>String(x.planStatus||'').toUpperCase()==='QUALIFIED').at(-1)?.at)
@@ -1889,13 +1895,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       });
       const analysisEndedAt=Number.isFinite(clock()) ? clock() : Date.now();
       const planStatus=String(advisory?.plan?.status || advisory?.status || 'REVIEW_REQUIRED').toUpperCase();
+      const preJevStatus=String(advisory?.preJevPlan?.status || advisory?.plan?.previousStatus || planStatus).toUpperCase();
       const planReason=String(advisory?.plan?.reason || advisory?.reason || '');
+      const jevDecision=advisory?.jevDecision || advisory?.plan?.jevDecision || null;
       const visionUnavailable=planReason==='VISION_COMMITTEE_UNAVAILABLE' || advisory?.committee?.available===false || advisory?.committee?.mode==='unavailable';
       leaderHealthEvent('ANALYSIS',{
         symbol:String(candidate.symbol || ''),
+        preJevStatus,
         planStatus,
+        jevCalled:jevDecision?.called===true,
+        jevVeto:jevDecision?.veto===true,
+        jevReasons:Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons.slice(0,8):[],
         reason:planReason,
-        reasons:[...new Set([planReason].filter(Boolean))],
+        reasons:[...new Set([planReason,...(Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons:[])].filter(Boolean))],
         durationMs:Math.max(0,analysisEndedAt-analysisStartedAt),
         visionAttached:Number(advisory?.vision?.attached || 0),
         visionRequired:Number(advisory?.vision?.required || 9),
