@@ -41,6 +41,13 @@ public final class AutoDecisionCard {
     private static String trText(String x){
         if(x==null)return "";
         String s=x;
+        // Uzun karar kodlarını önce çevir. Aksi halde QUALIFIED gibi alt parçalar
+        // ham kodun ortasında çevrilip LEADER_PLAN_NOT_İŞLEM ADAYI benzeri metin üretir.
+        s=s.replace("LEADER_PLAN_NOT_QUALIFIED","9 ZAMAN DİLİMLİ PLAN HENÜZ İŞLEM ADAYI DEĞİL");
+        s=s.replace("PLAN_NOT_QUALIFIED","PLAN HENÜZ İŞLEM ADAYI DEĞİL");
+        s=s.replace("QUALIFIED_WAIT_REQUIRED","İŞLEM İÇİN BEKLENEN KOŞUL HENÜZ TAMAMLANMADI");
+        s=s.replace("QUALIFIED_ORIGIN_OWNER_VETO","BAŞLANGIÇ VEYA SAHİP ZAMAN DİLİMİ İŞLEMİ ENGELLİYOR");
+        s=s.replace("JEV_NOT_NEEDED_FOR_NON_QUALIFIED","PLAN HENÜZ İŞLEM ADAYI OLMADIĞI İÇİN JEV ÇAĞRILMADI");
         s=s.replace("QUALIFIED","İŞLEM ADAYI").replace("REVIEW_REQUIRED","YENİDEN İNCELEME GEREKLİ").replace("WATCH","İZLE / BEKLE").replace("REJECT","RED");
         s=s.replace("SUPPORT","DESTEK").replace("VETO","ENGEL").replace("NEUTRAL","NÖTR");
         s=s.replace("FORMING","OLUŞUYOR").replace("CONFIRMED","TEYİTLİ").replace("FAILED","BAŞARISIZ").replace("INVALIDATED","GEÇERSİZ");
@@ -52,11 +59,16 @@ public final class AutoDecisionCard {
         s=s.replace("SELL_SIDE_SWEEP_RECLAIM","SATIŞ TARAFI SÜPÜRME SONRASI GERİ KAZANIM").replace("BUY_SIDE_SWEEP_REJECT","ALIŞ TARAFI SÜPÜRME SONRASI RET");
         s=s.replace("SUPPORT_FLIP_ACCEPTANCE","DESTEK KIRILIM KABULÜ").replace("RESISTANCE_FLIP_ACCEPTANCE","DİRENÇ KIRILIM KABULÜ");
         s=s.replace("FAILED_BREAKOUT","BAŞARISIZ KIRILIM").replace("VOLATILITY_COMPRESSION","VOLATİLİTE SIKIŞMASI").replace("DISPLACEMENT","GÜÇLÜ YÖNLÜ HAREKET");
-        s=s.replace("DETAIL_RUN_COMPLETE","9 ZAMAN DİLİMİ ANALİZİ TAMAMLANDI");
+        s=s.replace("DETAIL_RUN_COMPLETE","9 ZAMAN DİLİMİ ANALİZİ TAMAMLANDI")
+             .replace("DETAIL_RUN_START","9 ZAMAN DİLİMİ ANALİZİ BAŞLADI")
+             .replace("DETAIL_RUN_ERROR","9 ZAMAN DİLİMİ ANALİZİ HATA VERDİ")
+             .replace("PIXEL_RUN_COMPLETE","GÖRSEL TAŞIMA KONTROLÜ TAMAMLANDI")
+             .replace("PIXEL_RUN_START","GÖRSEL TAŞIMA KONTROLÜ BAŞLADI")
+             .replace("PIXEL_RUN_ERROR","GÖRSEL TAŞIMA KONTROLÜ HATA VERDİ");
         s=s.replace("FINALIZE_NARRATIVE_REPAIR","GENEL AÇIKLAMA DÜZELTİLİYOR").replace("FINALIZE_NARRATIVE","GENEL KARAR AÇIKLAMASI HAZIRLANIYOR");
         s=s.replace("FINALIZE_SEMANTIC_REPAIR","KARAR ÇELİŞKİSİ DÜZELTİLİYOR").replace("FINALIZE_CORE_REPAIR","ANA KARAR DÜZELTİLİYOR").replace("FINALIZE_CORE","ANA KARAR HAZIRLANIYOR");
         s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU").replace("LEADER_AUTO_WAIT","OTO İŞLEM UYGUN FIRSAT BEKLİYOR").replace("LEADER_AUTO_DISABLED","OTO İŞLEM KAPALI");
-        s=s.replace("PLAN_NOT_QUALIFIED","PLAN HENÜZ İŞLEM ADAYI DEĞİL").replace("REQUESTED_LEVERAGE_EXCEEDS_PC_CAP","İSTENEN KALDIRAÇ PC GÜVENLİK TAVANINI AŞIYOR");
+        s=s.replace("REQUESTED_LEVERAGE_EXCEEDS_PC_CAP","İSTENEN KALDIRAÇ PC GÜVENLİK TAVANINI AŞIYOR");
         s=s.replace("TOP3_APPROACH","İLK 3'E YAKLAŞIYOR").replace("TOP5_CONFIRMED","İLK 5 TEYİTLİ").replace("CURRENT_ATTACK_TOP10","ANLIK ATAK İLK 10");
         s=s.replace("degraded_single","TEK ANALİST MODU").replace("annotated","işaretlenmiş grafik");
         s=s.replace("inside bar not confirmed","iç bar teyit edilmedi").replace("bullish confirmation","yükseliş teyidi").replace("trend support","trend desteği");
@@ -64,7 +76,11 @@ public final class AutoDecisionCard {
         s=s.replace("PIPELINE_SELECTED","DERİN ANALİZ İÇİN SEÇİLDİ").replace("PIPELINE_ERROR","DERİN ANALİZ HATASI");
         s=s.replace("PLAN_NOT_READY","PLAN HAZIR DEĞİL").replace("INTENT_NOT_READY","EMİR NİYETİ HAZIR DEĞİL").replace("INTENT_READY","EMİR NİYETİ HAZIR");
         s=s.replace("ORDER_PLACED","CANLI EMİR GÖNDERİLDİ").replace("EXECUTION_RESULT","YÜRÜTME SONUCU");
-        s=s.replace("VISUAL_TF=","GÖRSEL ZAMAN DİLİMİ=").replace("INSIDE_BAR","İÇ BAR").replace("NONE","YOK");
+        s=s.replace("TF_SCHEMA_REPAIR=","ZAMAN DİLİMİ ŞEMASI DÜZELTİLİYOR: ")
+             .replace("PIXEL_TF=","GÖRSEL TAŞIMA KONTROLÜ: ")
+             .replace("VISUAL_TF=","GÖRSEL ZAMAN DİLİMİ: ")
+             .replace("_DONE"," • TAMAMLANDI").replace("_ERROR"," • HATA")
+             .replace("INSIDE_BAR","İÇ BAR").replace("NONE","YOK");
         s=s.replace("UP","YÜKSELİŞ").replace("DOWN","DÜŞÜŞ").replace("MIXED","KARMA");
         return s;
     }
@@ -140,7 +156,7 @@ public final class AutoDecisionCard {
         JSONObject learning=json(sp.getString("v9599_learning","{}"));
         org.json.JSONArray recent=learning.optJSONArray("recent"),stats=learning.optJSONArray("stats");
         b.append("\n\nBEYİN ÖĞRENME HAFIZASI");
-        b.append("\nKaydedilen son karar/işlem örneği: ").append(recent==null?0:recent.length());
+        b.append("\nEkranda gösterilen son karar/işlem örneği: ").append(recent==null?0:recent.length()).append(" (geçmiş veritabanında tutulur)");
         b.append("\nSonuç istatistiği grubu: ").append(stats==null?0:stats.length());
         b.append("\nÖğrenme stop/risk güvenlik kurallarını otomatik gevşetmez.");
         JSONObject diag=json(sp.getString("v9593_pc_auto_diagnostics","{}"));
