@@ -55,16 +55,16 @@ public final class AutoDecisionCard {
         s=s.replace("DETAIL_RUN_COMPLETE","9 ZAMAN DİLİMİ ANALİZİ TAMAMLANDI");
         s=s.replace("FINALIZE_NARRATIVE_REPAIR","GENEL AÇIKLAMA DÜZELTİLİYOR").replace("FINALIZE_NARRATIVE","GENEL KARAR AÇIKLAMASI HAZIRLANIYOR");
         s=s.replace("FINALIZE_SEMANTIC_REPAIR","KARAR ÇELİŞKİSİ DÜZELTİLİYOR").replace("FINALIZE_CORE_REPAIR","ANA KARAR DÜZELTİLİYOR").replace("FINALIZE_CORE","ANA KARAR HAZIRLANIYOR");
-        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU").replace("LEADER_AUTO_WAIT","OTO İŞLEM UYGUN FIRSAT BEKLİYOR");
+        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU").replace("LEADER_AUTO_WAIT","OTO İŞLEM UYGUN FIRSAT BEKLİYOR").replace("LEADER_AUTO_DISABLED","OTO İŞLEM KAPALI");
         s=s.replace("PLAN_NOT_QUALIFIED","PLAN HENÜZ İŞLEM ADAYI DEĞİL").replace("REQUESTED_LEVERAGE_EXCEEDS_PC_CAP","İSTENEN KALDIRAÇ PC GÜVENLİK TAVANINI AŞIYOR");
-        s=s.replace("TOP3_APPROACH","İLK 3'E YAKLAŞIYOR").replace("CURRENT_ATTACK_TOP10","ANLIK ATAK İLK 10");
+        s=s.replace("TOP3_APPROACH","İLK 3'E YAKLAŞIYOR").replace("TOP5_CONFIRMED","İLK 5 TEYİTLİ").replace("CURRENT_ATTACK_TOP10","ANLIK ATAK İLK 10");
         s=s.replace("degraded_single","TEK ANALİST MODU").replace("annotated","işaretlenmiş grafik");
         s=s.replace("inside bar not confirmed","iç bar teyit edilmedi").replace("bullish confirmation","yükseliş teyidi").replace("trend support","trend desteği");
         s=s.replace("continuity","süreklilik").replace("tradeQuality","işlem kalitesi").replace("longScore","LONG puanı").replace("shortScore","SHORT puanı");
         s=s.replace("PIPELINE_SELECTED","DERİN ANALİZ İÇİN SEÇİLDİ").replace("PIPELINE_ERROR","DERİN ANALİZ HATASI");
         s=s.replace("PLAN_NOT_READY","PLAN HAZIR DEĞİL").replace("INTENT_NOT_READY","EMİR NİYETİ HAZIR DEĞİL").replace("INTENT_READY","EMİR NİYETİ HAZIR");
         s=s.replace("ORDER_PLACED","CANLI EMİR GÖNDERİLDİ").replace("EXECUTION_RESULT","YÜRÜTME SONUCU");
-        s=s.replace("NONE","YOK");
+        s=s.replace("VISUAL_TF=","GÖRSEL ZAMAN DİLİMİ=").replace("INSIDE_BAR","İÇ BAR").replace("NONE","YOK");
         s=s.replace("UP","YÜKSELİŞ").replace("DOWN","DÜŞÜŞ").replace("MIXED","KARMA");
         return s;
     }
