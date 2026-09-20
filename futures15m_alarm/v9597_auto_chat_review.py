@@ -168,8 +168,10 @@ analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
 text=re.sub(r'versionCode\s+\d+','versionCode 26092002',text)
-text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.98'",text)
+text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.99'",text)
 build.write_text(text)
+assert "versionName '9.5.99'" in text
+assert 'versionCode 26092002' in text
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
