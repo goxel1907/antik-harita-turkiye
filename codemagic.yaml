@@ -120,6 +120,8 @@ workflows:
           grep -q 'PREJEV_EXECUTION_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'OUTCOME_BACKED_SOFT_CONTEXT_ONLY' "$CM_BUILD_DIR/brainhub/pipeline.js"
+          grep -q 'LEARNING_NULL_OUTCOME_GUARD' "$CM_BUILD_DIR/brainhub/store.js"
+          grep -q 'v95105_pc_feature_version' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
           grep -q 'Sonucu ölçülmüş kapanmış OTO işlem henüz yok' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
