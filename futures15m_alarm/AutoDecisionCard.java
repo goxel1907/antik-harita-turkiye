@@ -40,7 +40,12 @@ public final class AutoDecisionCard {
         b.append("\nJev: ").append(jev.optBoolean("configured")?"yapılandırılmış":"kullanılamıyor / yapılandırılmamış");
         line(b,"Jev modeli: ",jev,"model");
         JSONObject budget=jev.optJSONObject("budget");
-        if(budget!=null)b.append(String.format(java.util.Locale.US,"\nBugün %d çağrı • $%.4f / $%.2f",budget.optInt("calls"),budget.optDouble("spentUsd",0),budget.optDouble("dailyCapUsd",0)));
+        if(budget!=null){
+            double spent=budget.optDouble("spentUsd",0), soft=budget.optDouble("softBudgetUsd",0.25), hard=budget.optDouble("dailyCapUsd",2.0);
+            b.append(String.format(java.util.Locale.US,"\nBugün %d çağrı • $%.4f • uyarı $%.2f • hard $%.2f",budget.optInt("calls"),spent,soft,hard));
+            if(budget.optBoolean("softLimitReached",false)&&!budget.optBoolean("hardLimitReached",false))b.append("\nJev bütçe uyarı eşiği aşıldı; Jev çalışmaya devam eder.");
+            if(budget.optBoolean("hardLimitReached",false))b.append("\nJev hard günlük bütçe sınırında; bypass edilmez, QUALIFIED fail-closed bekler.");
+        }
         b.append("\nJev yalnız QUALIFIED planın ek veto denetimidir.");
         JSONObject diag=json(sp.getString("v9593_pc_auto_diagnostics","{}"));
         line(b,"Aday turu: ",diag,"generatedAt");

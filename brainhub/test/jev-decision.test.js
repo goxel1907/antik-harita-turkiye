@@ -140,6 +140,24 @@ test('Jev QUALIFIED judge uses pinned alpha Decisions API and can veto',async()=
   fs.rmSync(root,{recursive:true,force:true});
 });
 
+test('Jev soft budget threshold warns but does not disable the required judge',async()=>{
+  const root=rootWithConfig({softBudgetUsd:0.01,dailyCapUsd:0.05,reservePerCallUsd:0.002});
+  fs.mkdirSync(path.join(root,'data'),{recursive:true});
+  fs.writeFileSync(path.join(root,'data','jev-usage.json'),JSON.stringify({day:new Date().toISOString().slice(0,10),spentUsd:0.02,calls:5}));
+  let calls=0;
+  const client=createJevClient({root,apiKey:key,fetchImpl:async()=>{calls++;return response(200,{answers:completeAnswers(),usage:{cost:0.0001}});}});
+  const before=client.budgetStatus();
+  assert.equal(before.softLimitReached,true);
+  assert.equal(before.hardLimitReached,false);
+  const j=await client.judge({plan:{status:'QUALIFIED'},candidate:{},unified:{}});
+  assert.equal(j.ok,true);
+  assert.equal(j.called,true);
+  assert.equal(calls,1);
+  assert.equal(j.budget.softLimitReached,true);
+  assert.equal(j.budget.hardLimitReached,false);
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('Jev budget blocks calls before network when daily cap cannot reserve another call',async()=>{
   const root=rootWithConfig({dailyCapUsd:0.01,reservePerCallUsd:0.01});
   fs.mkdirSync(path.join(root,'data'),{recursive:true});

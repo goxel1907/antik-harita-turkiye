@@ -76,7 +76,7 @@ Initial Jev integration is deliberately staged:
 - mode is `ADVISORY_VETO_ONLY`;
 - OpenRouter is not a general paid fallback;
 - the first rollout exposes status and a synthetic paid probe only; it does not authorize or place orders;
-- default local budget policy is USD 0.25/day before the later decision-gate rollout.
+- local Jev budget uses a USD 0.25/day soft warning threshold and a USD 2.00/day hard safety ceiling; crossing the soft threshold does not disable Jev.
 
 Setup from a fresh key already copied to the Windows clipboard:
 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\BrainHub\OPENROUTER-SETUP.ps1`
@@ -90,7 +90,7 @@ After the secure probe is verified, Jev is attached to the central pipeline only
 
 If Jev reports structural veto, forming-candle confirmation dependency, insufficient data quality, or material directional conflict above the configured threshold, a QUALIFIED plan is downgraded to WATCH. If Jev is configured as the required final judge but the Decisions API fails, its schema is invalid, or the local daily budget is exhausted, QUALIFIED is also downgraded fail-closed.
 
-The local Jev budget is persisted under `data/jev-usage.json`. Setup defaults to USD 0.25/day and reserves a conservative USD 0.01 before each paid call, settling to reported usage cost afterward. Normal WATCH/REJECT plans do not call Jev.
+The local Jev budget is persisted under `data/jev-usage.json`. Setup uses a USD 0.25/day soft warning threshold, a USD 2.00/day hard safety ceiling, and a conservative USD 0.002 reservation before each paid call, settling to reported usage cost afterward. Crossing the soft threshold does not disable Jev. If the hard ceiling is actually reached, Jev is never bypassed: QUALIFIED stays fail-closed until budget becomes available. Normal WATCH/REJECT plans do not call Jev.
 
 
 ### Jev detailed advisory review (20 September 2026)

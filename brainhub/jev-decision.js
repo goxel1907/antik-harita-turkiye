@@ -7,10 +7,11 @@ const DEFAULTS={
   decisionsUrl:'https://openrouter.ai/api/alpha/decisions',
   keyUrl:'https://openrouter.ai/api/v1/key',
   mode:'ADVISORY_VETO_ONLY',
-  dailyCapUsd:0.25,
+  softBudgetUsd:0.25,
+  dailyCapUsd:2.00,
   timeoutMs:30000,
   maxPayloadChars:48000,
-  reservePerCallUsd:0.01
+  reservePerCallUsd:0.002
 };
 
 const CHECKS = [
@@ -52,9 +53,10 @@ function normalizeConfig(root){
   const keyUrl=String(raw.keyUrl||DEFAULTS.keyUrl).trim();
   const timeoutMs=Math.max(5000,Math.min(120000,Number(raw.timeoutMs||DEFAULTS.timeoutMs)));
   const dailyCapUsd=Math.max(0.01,Math.min(100,Number(raw.dailyCapUsd||DEFAULTS.dailyCapUsd)));
+  const softBudgetUsd=Math.max(0,Math.min(dailyCapUsd,Number(raw.softBudgetUsd??DEFAULTS.softBudgetUsd)));
   const maxPayloadChars=Math.max(4000,Math.min(64000,Number(raw.maxPayloadChars||DEFAULTS.maxPayloadChars)));
   const reservePerCallUsd=Math.max(0.001,Math.min(0.05,Number(raw.reservePerCallUsd||DEFAULTS.reservePerCallUsd)));
-  return {enabled:raw.enabled===true,model,decisionsUrl,keyUrl,mode:'ADVISORY_VETO_ONLY',dailyCapUsd,timeoutMs,maxPayloadChars,reservePerCallUsd};
+  return {enabled:raw.enabled===true,model,decisionsUrl,keyUrl,mode:'ADVISORY_VETO_ONLY',softBudgetUsd,dailyCapUsd,timeoutMs,maxPayloadChars,reservePerCallUsd};
 }
 function sanitizedKeyMetadata(data){
   const d=data&&typeof data==='object'?data:{};
@@ -198,7 +200,16 @@ function createJevClient({root,apiKey='',fetchImpl=globalThis.fetch,clock=()=>Da
   function writeUsage(u){writeJsonAtomic(usageFile,u);}
   function budgetStatus(){
     const u=readUsage();
-    return {...u,dailyCapUsd:cfg.dailyCapUsd,remainingUsd:Math.max(0,cfg.dailyCapUsd-u.spentUsd),reservePerCallUsd:cfg.reservePerCallUsd};
+    const remainingUsd=Math.max(0,cfg.dailyCapUsd-u.spentUsd);
+    return {
+      ...u,
+      softBudgetUsd:cfg.softBudgetUsd,
+      dailyCapUsd:cfg.dailyCapUsd,
+      remainingUsd,
+      reservePerCallUsd:cfg.reservePerCallUsd,
+      softLimitReached:cfg.softBudgetUsd>0&&u.spentUsd>=cfg.softBudgetUsd,
+      hardLimitReached:remainingUsd<=0
+    };
   }
   function reserveBudget(){
     const u=readUsage();
@@ -219,7 +230,7 @@ function createJevClient({root,apiKey='',fetchImpl=globalThis.fetch,clock=()=>Da
   function localStatus(){
     return {
       ok:true,configured,enabled:cfg.enabled,keyLoaded:!!key,model:cfg.model,mode:cfg.mode,
-      dailyCapUsd:cfg.dailyCapUsd,decisionsApi:'OPENROUTER_ALPHA_DECISIONS',
+      softBudgetUsd:cfg.softBudgetUsd,dailyCapUsd:cfg.dailyCapUsd,decisionsApi:'OPENROUTER_ALPHA_DECISIONS',
       paidFallbackEnabled:false,budget:budgetStatus()
     };
   }

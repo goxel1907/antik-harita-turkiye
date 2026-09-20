@@ -176,7 +176,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TWO_STAGE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_BATCH3') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SINGLE_TF') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_COMPACT_FINALIZE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TF_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SPLIT_GLOBAL') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_PROGRESS') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TEXT_REPAIR') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SINGLE_FLIGHT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR') -or -not ($h.features -contains 'VISION_SEMANTIC_DOWNGRADE') -or -not ($h.features -contains 'LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE') -or -not ($h.features -contains 'OPENROUTER_DPAPI_SECRET') -or -not ($h.features -contains 'OPENROUTER_JEV_DECISIONS_PROBE') -or -not ($h.features -contains 'OPENROUTER_JEV_ADVISORY_VETO_GATE') -or -not ($h.features -contains 'OPENROUTER_JEV_DAILY_BUDGET') -or -not ($h.features -contains 'VISION_CHART_896X504') -or -not ($h.features -contains 'VISION_CHART_640X360') -or -not ($h.features -contains 'VISION_CHART_448X252') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
+    if (-not $h.featureVersion -or -not ($h.features -contains 'UNIFIED_9TF') -or -not ($h.features -contains 'CHART_PNG_CLEAN') -or -not ($h.features -contains 'VISION_CAPABILITY_FALLBACK') -or -not ($h.features -contains 'VISION_PROBE') -or -not ($h.features -contains 'VISION_PIXEL_PROBE') -or -not ($h.features -contains 'KIRO_FREE_QUOTA_VISION_OPT_IN') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_FALLBACK') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_16K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_32K') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_ONLY') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TWO_STAGE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_BATCH3') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SINGLE_TF') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_COMPACT_FINALIZE') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TF_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SPLIT_GLOBAL') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_PROGRESS') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_TEXT_REPAIR') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_SINGLE_FLIGHT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR') -or -not ($h.features -contains 'VISION_SEMANTIC_DOWNGRADE') -or -not ($h.features -contains 'LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR') -or -not ($h.features -contains 'LOCAL_OLLAMA_VISION_DIRECT_PIPELINE') -or -not ($h.features -contains 'OPENROUTER_DPAPI_SECRET') -or -not ($h.features -contains 'OPENROUTER_JEV_DECISIONS_PROBE') -or -not ($h.features -contains 'OPENROUTER_JEV_ADVISORY_VETO_GATE') -or -not ($h.features -contains 'OPENROUTER_JEV_DAILY_BUDGET') -or -not ($h.features -contains 'OPENROUTER_JEV_SOFT_HARD_BUDGET') -or -not ($h.features -contains 'VISION_CHART_896X504') -or -not ($h.features -contains 'VISION_CHART_640X360') -or -not ($h.features -contains 'VISION_CHART_448X252') -or -not ($h.features -contains 'KKK_DETAILED_9TF_DIAGNOSTICS') -or -not ($h.features -contains 'LEADER_DETAIL_PROBE') -or -not ($h.features -contains 'LIVE_FAIL_CLOSED')) { throw 'v9.5.96 BrainHub KKK detayli 9TF Vision feature set eksik.' }
     $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 5
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
@@ -431,6 +431,33 @@ function Backup-Brain([string]$BrainRoot) {
     return $target
 }
 
+function Migrate-JevBudgetPolicy([string]$BrainRoot) {
+    $jevPath = Join-Path $BrainRoot 'config\jev.json'
+    if (-not (Test-Path -LiteralPath $jevPath)) { return }
+    try { $jev = Get-Content -LiteralPath $jevPath -Raw | ConvertFrom-Json }
+    catch { throw 'jev.json okunamadi; Jev butce politikasi migrate edilmedi.' }
+    $softProp = $jev.PSObject.Properties['softBudgetUsd']
+    $daily = [double](Get-PropValue $jev 'dailyCapUsd' 0.25)
+    $reserve = [double](Get-PropValue $jev 'reservePerCallUsd' 0.01)
+    $changed = $false
+    if ($null -eq $softProp) {
+        $jev | Add-Member -NotePropertyName softBudgetUsd -NotePropertyValue 0.25 -Force
+        $changed = $true
+    }
+    if ([Math]::Abs($daily - 0.25) -lt 0.0000001) {
+        $jev.dailyCapUsd = 2.00
+        $changed = $true
+    }
+    if ([Math]::Abs($reserve - 0.01) -lt 0.0000001) {
+        $jev.reservePerCallUsd = 0.002
+        $changed = $true
+    }
+    if ($changed) {
+        $jev | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jevPath -Encoding UTF8
+        Write-Host 'JEV_BUDGET_POLICY_MIGRATED softUsd=0.25 hardUsd=2.00 reserveUsd=0.002'
+    }
+}
+
 $rootFull = [IO.Path]::GetFullPath($Root)
 $node = Resolve-Node
 if ($Action -eq 'Test') { Test-Brain $rootFull -IncludeDeep:$Deep; exit 0 }
@@ -467,10 +494,11 @@ if ($Action -eq 'OpenRouterSetup') {
         decisionsUrl = 'https://openrouter.ai/api/alpha/decisions'
         keyUrl = 'https://openrouter.ai/api/v1/key'
         mode = 'ADVISORY_VETO_ONLY'
-        dailyCapUsd = 0.25
+        softBudgetUsd = 0.25
+        dailyCapUsd = 2.00
         timeoutMs = 30000
         maxPayloadChars = 24000
-        reservePerCallUsd = 0.01
+        reservePerCallUsd = 0.002
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jevPath -Encoding UTF8
     $candidate = ''
     $savedCandidate = ''
@@ -494,7 +522,7 @@ if ($Action -eq 'OpenRouterSetup') {
     } catch {
         Write-Warning 'OpenRouter key DPAPI ile guvenli kaydedildi ancak Jev alpha probe su anda tamamlanamadi. JEV-PROBE.ps1 ile tekrar denenebilir.'
     }
-    Write-Host ("BRAINHUB_OPENROUTER_SETUP_OK model=typesafe/jev-1.13 mode=ADVISORY_VETO_ONLY dailyCapUsd=0.25 probe={0}" -f $probeOk) -ForegroundColor Green
+    Write-Host ("BRAINHUB_OPENROUTER_SETUP_OK model=typesafe/jev-1.13 mode=ADVISORY_VETO_ONLY softBudgetUsd=0.25 dailyCapUsd=2.00 probe={0}" -f $probeOk) -ForegroundColor Green
     exit 0
 }
 if ($Action -eq 'VisionStatus') {
@@ -839,6 +867,7 @@ try {
     foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
         Copy-Item -LiteralPath (Join-Path $sourceDir $script) -Destination $rootFull -Force
     }
+    Migrate-JevBudgetPolicy $rootFull
     Start-Brain $rootFull $node $key
     Test-Brain $rootFull -IncludeDeep:$Deep
     Write-Host "BRAINHUB_$($Action.ToUpperInvariant())_OK backup=$backup"
