@@ -200,6 +200,12 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
   const notionalPct = equity > 0 && notionalQuote!==null
     ? (Math.max(0,notionalQuote) / equity) * 100
     : null;
+  const requestedFamilyExposureQuote = Number.isFinite(expectedNotional) && expectedNotional > 0
+    ? expectedNotional * settings.maxOpenPositions
+    : null;
+  const requestedFamilyExposurePct = equity > 0 && requestedFamilyExposureQuote!==null
+    ? (requestedFamilyExposureQuote / equity) * 100
+    : null;
   const effectiveLimits = {
     ...policy.limits,
     maxRiskPctPerTrade:riskPct===null
@@ -208,6 +214,12 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
     maxNotionalPctPerTrade:notionalPct===null
       ? policy.limits.maxNotionalPctPerTrade
       : Math.max(Number(policy.limits.maxNotionalPctPerTrade)||0,notionalPct*1.001),
+    // USER_PANEL_EXACT_TOTAL_EXPOSURE: derive the total family envelope from
+    // the user's own margin × leverage × max-position contract instead of the
+    // legacy PC percentage, so exact sizing cannot be silently made impossible.
+    maxFamilyExposurePct:requestedFamilyExposurePct===null
+      ? policy.limits.maxFamilyExposurePct
+      : Math.max(Number(policy.limits.maxFamilyExposurePct)||0,requestedFamilyExposurePct*1.001),
     maxOpenPositions:settings.maxOpenPositions
   };
   return {
@@ -224,6 +236,8 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
       appliedMaxOpenPositions:settings.maxOpenPositions,
       adjustments:[],
       expectedNotionalQuote:expectedNotional,
+      requestedFamilyExposureQuote,
+      requestedFamilyExposurePct,
       effectiveLimits
     }
   };
