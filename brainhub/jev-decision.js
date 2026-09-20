@@ -192,7 +192,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   const key=String(apiKey||'').trim();
   const management=String(managementKey||'').trim();
   const configured=cfg.enabled&&key.startsWith('sk-or-v1-');
-  const managementConfigured=management.startsWith('sk-or-v1-');
+  const managementConfigured=management.length>=20&&!/\s/.test(management);
   const usageFile=path.join(root,'data','jev-usage.json');
   let billingCache={at:0,value:null};
 
