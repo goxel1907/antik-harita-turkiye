@@ -9,7 +9,7 @@ const DEFAULTS={
   mode:'ADVISORY_VETO_ONLY',
   dailyCapUsd:0.25,
   timeoutMs:30000,
-  maxPayloadChars:24000,
+  maxPayloadChars:48000,
   reservePerCallUsd:0.01
 };
 
