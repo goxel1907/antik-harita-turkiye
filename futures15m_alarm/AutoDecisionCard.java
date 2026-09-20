@@ -182,8 +182,10 @@ public final class AutoDecisionCard {
         b.append("\nÖğrenme tek başına işlem adayı/engel üretemez; stop/risk güvenlik kurallarını otomatik gevşetmez.");
 
         JSONObject health=json(sp.getString("v95104_pc_auto_health","{}"));
+        String pcFeatureVersion=sp.getString("v95105_pc_feature_version","");
         b.append("\n\nOTO SAĞLIK / FIRSAT AKIŞI");
-        if(health.length()==0)b.append("\nHenüz sağlık telemetrisi birikmedi.");
+        if(pcFeatureVersion!=null&&!pcFeatureVersion.trim().isEmpty())b.append("\nPC Brain Hub sürümü: ").append(pcFeatureVersion.trim());
+        if(health.length()==0)b.append("\nHenüz sağlık telemetrisi alınmadı. PC Brain Hub 9.5.104+ değilse önce PC güncellenmelidir.");
         else{
             b.append(String.format(java.util.Locale.US,"\nGözlenen pencere: %.1f dk / son 60 dk",health.optDouble("observedMinutes",0)));
             b.append("\nTarama turu: ").append(health.optInt("scanRuns",0));
