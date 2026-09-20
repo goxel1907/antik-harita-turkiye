@@ -303,6 +303,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                     .putString("v9592_pc_auto_last_healthy_at",la==null?"":la.optString("lastHealthyAt",""))
                     .putString("v9593_pc_auto_diagnostics",la==null||la.optJSONObject("diagnostics")==null?"":la.optJSONObject("diagnostics").toString())
                     .putString("v9594_pc_analysis_lifecycle",la==null||la.optJSONObject("analysisLifecycle")==null?"":la.optJSONObject("analysisLifecycle").toString())
+                    .putString("v95104_pc_auto_health",la==null||la.optJSONObject("health")==null?"":la.optJSONObject("health").toString())
                     .putLong("v9582_pc_probe_ts",System.currentTimeMillis()).apply();
                 if(now-sp.getLong("v9588_pc_auto_sync_ts",0L)>=60000L){
                     try{
@@ -509,6 +510,42 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             }
         }
         return b.toString();
+    }
+
+    private String v95104OtoHealthSummary(android.content.SharedPreferences sp){
+        String raw=sp.getString("v95104_pc_auto_health","");
+        if(raw==null||raw.trim().isEmpty())return "OTO sağlık: veri birikiyor";
+        try{
+            org.json.JSONObject h=new org.json.JSONObject(raw);
+            double observed=h.optDouble("observedMinutes",0);
+            int scans=h.optInt("scanRuns",0),deep=h.optInt("deepAnalyses",0),unique=h.optInt("uniqueAnalyzedSymbols",0);
+            int qualified=h.optInt("qualified",0),watch=h.optInt("watch",0),review=h.optInt("reviewRequired",0),reject=h.optInt("reject",0);
+            int vision=h.optInt("visionUnavailable",0),busy=h.optInt("skippedBusy",0),orders=h.optInt("ordersPlaced",0);
+            long avg=h.optLong("avgAnalysisMs",-1L);
+            StringBuilder b=new StringBuilder();
+            b.append("OTO sağlık • gözlenen ").append(String.format(java.util.Locale.US,"%.1f",observed)).append(" dk")
+             .append(" • tarama ").append(scans)
+             .append(" • derin 9TF ").append(deep).append(" / ").append(unique).append(" coin")
+             .append(" • işlem adayı ").append(qualified)
+             .append(" • izle ").append(watch)
+             .append(" • yeniden incele ").append(review)
+             .append(" • red ").append(reject);
+            b.append("\nVision kesinti ").append(vision)
+             .append(" • yoğunluk nedeniyle atlanan tur ").append(busy)
+             .append(" • açılan emir ").append(orders);
+            if(avg>=0)b.append(" • ort analiz ").append(String.format(java.util.Locale.US,"%.1f sn",avg/1000.0));
+            org.json.JSONArray top=h.optJSONArray("topReasons");
+            if(top!=null&&top.length()>0){
+                b.append("\nEn sık bekleme nedeni: ");
+                int n=Math.min(3,top.length());
+                for(int i=0;i<n;i++){
+                    if(i>0)b.append(" • ");
+                    org.json.JSONObject x=top.optJSONObject(i);if(x==null)continue;
+                    b.append(v9593ReasonLabel(x.optString("reason","?"))).append(" ×").append(x.optInt("count",0));
+                }
+            }
+            return b.toString();
+        }catch(Throwable ignored){return "OTO sağlık: veri okunamadı";}
     }
 
     private String v9594TfLabel(String tf){
@@ -929,6 +966,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
             String tickAt=sp.getString("v9592_pc_auto_last_tick_at","");
             if(tickAt!=null&&!tickAt.trim().isEmpty())st.append("\nSon PC tick: ").append(tickAt.trim());
             st.append("\n").append(v9593LeaderDiagnosticsSummary(sp));
+            st.append("\n").append(v95104OtoHealthSummary(sp));
         }
         String last=sp.getString("v9576_auto_last_status","");
         if(last!=null&&!last.trim().isEmpty())st.append("\nSon motor durumu: ").append(last.trim());
