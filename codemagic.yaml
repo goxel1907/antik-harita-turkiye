@@ -21,7 +21,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.103 Turkish position-manager source
+      - name: Prepare Futures Alarm v9.5.104 Turkish position-manager source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -110,9 +110,14 @@ workflows:
           grep -q 'TF_SCHEMA_REPAIR=","ZAMAN DİLİMİ ŞEMASI DÜZELTİLİYOR' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
           grep -q 'QUALIFIED_WAIT_REQUIRED","İŞLEM İÇİN BEKLENEN KOŞUL HENÜZ TAMAMLANMADI' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
           grep -q 'Ekranda gösterilen son karar/işlem örneği' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.103'" "$BUILD"
-          grep -q 'versionCode 26092006' "$BUILD"
-          echo 'V95103_TURKISH_STATUS_CLEANUP_OK'
+          grep -q 'OTO SAĞLIK / FIRSAT AKIŞI' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
+          grep -q 'v95104_pc_auto_health' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
+          grep -q 'LEADER_AUTO_HEALTH_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LEADER_AUTO_COVERAGE_SCHEDULER' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'COVERAGE_STALE_OR_NEW' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q "versionName '9.5.104'" "$BUILD"
+          grep -q 'versionCode 26092007' "$BUILD"
+          echo 'V95104_OTO_HEALTH_TELEMETRY_OK'
 
       - name: Set Android SDK location
         script: |
@@ -283,7 +288,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.103 signed APK
+      - name: Build installable v9.5.104 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -329,9 +334,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.103.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.104.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.103.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.104.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -342,5 +347,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.103.apk
+      - Futures15mAlarm-PRO-v9.5.104.apk
       - v9595-gradle.log
