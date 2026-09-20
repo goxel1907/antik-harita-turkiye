@@ -287,6 +287,8 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                 org.json.JSONObject st=BrainHubClient.liveStatus(this);
                 org.json.JSONObject la=st.optJSONObject("leaderAuto");
                 sp.edit().putBoolean("v9582_pc_probe_ok",true)
+                    .putString("v95105_pc_feature_version",st.optString("featureVersion",""))
+                    .putString("v95105_pc_sizing_authority",st.optString("sizingAuthority",""))
                     .putString("v9596_vision_availability",st.optJSONObject("visionAvailability")==null?"Görsel model durumu alınamadı":st.optJSONObject("visionAvailability").optString("summaryTr",""))
                     .putBoolean("v9582_pc_armed",st.optBoolean("armed",false))
                     .putString("v9582_pc_expires_at",st.optString("expiresAt",""))
@@ -973,6 +975,8 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
           .append(" • ").append(lng?"LONG ":"").append(sht?"SHORT":"");
         if(pcFresh){
             st.append("\nBoyutlandırma: uygulamadaki marj / kaldıraç / azami pozisyon değerleri aynen kullanılır.");
+            String pcFeatureVersion=sp.getString("v95105_pc_feature_version","");
+            if(pcFeatureVersion!=null&&!pcFeatureVersion.trim().isEmpty())st.append("\nPC Brain Hub sürümü: ").append(pcFeatureVersion.trim());
             // V9596_MODEL_AVAILABILITY: configuration alone is not a successful model response.
             st.append("\n").append(sp.getString("v9596_vision_availability","Görsel model durumu bekleniyor"));
             st.append("\n").append(sp.getString("v9597_jev_status","Jev durumu bekleniyor"));
