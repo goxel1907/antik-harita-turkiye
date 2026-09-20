@@ -121,8 +121,44 @@ public final class BrainHubClient {
         if (!health.optBoolean("ok") || !"brainhub-pro-1".equals(health.optString("version")) || !modeOk) throw new Exception("BrainHub sürümü veya güvenlik modu uygun değil");
         return health;
     }
+    // V95106_ATTENTION_SYNC: sends only sanitized public discovery scores to the paired PC.
+    public static void syncAttentionSnapshot(Context c, JSONObject root) {
+        if(c==null||root==null||!configured(c))return;
+        try {
+            long now=System.currentTimeMillis();
+            SharedPreferences p=prefs(c);
+            long last=p.getLong("attention_sync_at",0L);
+            long srcAt=root.optLong("updatedAt",0L);
+            long lastSrc=p.getLong("attention_sync_source_at",0L);
+            if(srcAt>0&&srcAt==lastSrc&&now-last<60000L)return;
+            JSONArray rows=root.optJSONArray("rows"),safe=new JSONArray();
+            if(rows!=null)for(int i=0;i<Math.min(12,rows.length());i++){
+                JSONObject r=rows.optJSONObject(i);if(r==null)continue;
+                String symbol=r.optString("symbol","").trim().toUpperCase(java.util.Locale.US);
+                if(!symbol.matches("[A-Z0-9]{1,28}USDT"))continue;
+                JSONObject x=new JSONObject();
+                x.put("symbol",symbol);
+                x.put("talkScore",r.optInt("talkScore",0));
+                x.put("earlyMoveScore",r.optInt("earlyMoveScore",0));
+                x.put("sourceConfidence",r.optInt("sourceConfidence",0));
+                x.put("preMoveState",r.optString("preMoveState",""));
+                x.put("direction",r.optString("direction",""));
+                safe.put(x);
+            }
+            JSONObject payload=new JSONObject();
+            payload.put("updatedAt",srcAt>0?srcAt:now);
+            payload.put("rows",safe);
+            JSONObject out=post(c,"/scanner/attention",payload,true);
+            if(out.optInt("_httpStatus",200)<400){
+                p.edit().putLong("attention_sync_at",now)
+                    .putLong("attention_sync_source_at",srcAt).apply();
+            }
+        } catch(Throwable ignored) {}
+    }
+
     public static JSONObject liveStatus(Context c) throws Exception {
         check(c);
+        try { syncAttentionSnapshot(c,new JSONObject(V9542AttentionRadar.latestJson(c))); } catch(Throwable ignored) {}
         JSONObject status=get(c, "/live/status");
         JSONObject jev=status.optJSONObject("jev"), budget=jev==null?null:jev.optJSONObject("budget");
         String label=jev==null?"Jev durumu alınamadı":("Jev: "+(jev.optBoolean("configured")?"hazır • veto denetimi":"yapılandırma/anahtar eksik"));
