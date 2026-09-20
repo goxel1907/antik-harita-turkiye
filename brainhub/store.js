@@ -78,8 +78,13 @@ function openStore(root) {
     const originTF=String(body.originTF||body.plan?.originTF||'').slice(0,8)||null;
     const ownerTF=String(body.ownerTF||body.plan?.ownerTF||'').slice(0,8)||null;
     const decision=String(body.decision||body.action||body.plan?.status||'').slice(0,80)||null;
-    const confidence=Number(body.confidence??body.plan?.confidence);
-    const outcomePct=Number(body.outcomePct);
+    const rawConfidence=body.confidence??body.plan?.confidence;
+    const confidence=rawConfidence===null||rawConfidence===undefined||(typeof rawConfidence==='string'&&rawConfidence.trim()==='')
+      ? null : Number(rawConfidence);
+    const rawOutcome=body.outcomePct;
+    // LEARNING_NULL_OUTCOME_GUARD: null is unknown, never a synthetic 0% result.
+    const outcomePct=rawOutcome===null||rawOutcome===undefined||(typeof rawOutcome==='string'&&rawOutcome.trim()==='')
+      ? null : Number(rawOutcome);
     const safe=JSON.stringify(body).slice(0,32000);
     const id=crypto.randomUUID();
     learnInsert.run(id,Date.now(),k,symbol||null,['LONG','SHORT'].includes(side)?side:null,setup,originTF,ownerTF,decision,Number.isFinite(confidence)?confidence:null,Number.isFinite(outcomePct)?outcomePct:null,safe);
