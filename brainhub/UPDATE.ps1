@@ -65,6 +65,10 @@ try {
         $text -notmatch 'LEADER_APPROVED_ANALYSIS_REUSE' -or
         $text -notmatch 'PREJEV_EXECUTION_TELEMETRY' -or
         $text -notmatch 'BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE' -or
+        $text -notmatch 'TARGETED_PRIORITY_UNIVERSE_24' -or
+        $text -notmatch 'BINANCE_TOP24_GAINER_DISCOVERY' -or
+        $text -notmatch 'ACCUMULATION_PROXY_DISCOVERY' -or
+        $text -notmatch 'ANDROID_ATTENTION_SYNC' -or
         $text -notmatch 'ANDROID_FULL_TURKISH_STATUS' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
