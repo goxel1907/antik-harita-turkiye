@@ -46,6 +46,14 @@ public final class AutoDecisionCard {
         m.put("LEADER_AUTO_PIPELINE_BUSY","Derin analiz hattı meşgul");
         m.put("LEADER_AUTO_BACKGROUND_BUSY","Açık pozisyon değerlendirmesi meşgul");
         m.put("LEADER_AUTO_BUSY","OTO yürütme hattı meşgul");
+        m.put("FAMILY_EXPOSURE_CAP_EXCEEDED","Eski toplam maruziyet tavanı işlemi engelledi");
+        m.put("REQUESTED_SIDE_NO_LONGER_EXECUTION_ELIGIBLE","Adayın yönü canlı ön kontrolde değişti");
+        m.put("LEADER_APPROVAL_STALE","9TF/Jev onayı canlı yürütmeye ulaşmadan eskidi");
+        m.put("LEADER_APPROVAL_NOT_QUALIFIED","Canlı yürütmeye taşınan plan işlem adayı değil");
+        m.put("LEADER_APPROVAL_ORDER_MISMATCH","Onaylı plan ile hazırlanmış emir uyuşmuyor");
+        m.put("LEADER_APPROVAL_FRESH_SCAN_MISMATCH","Taze tarama onaylı sembol/yön ile uyuşmuyor");
+        m.put("SCALP_COST_EDGE_NOT_VIABLE","Kısa vadeli hedef işlem maliyetine göre yetersiz");
+        m.put("LIVE_PRICE_DEVIATION_TOO_HIGH","Canlı fiyat onaylı girişten fazla uzaklaştı");
         String v=m.get(s);return v!=null?v:"Teknik karar kodu: "+s.replace('_',' ');
     }
     private static String trText(String x){
@@ -178,16 +186,21 @@ public final class AutoDecisionCard {
             b.append("\nTarama turu: ").append(health.optInt("scanRuns",0));
             b.append("\nDerin 9TF analizi: ").append(health.optInt("deepAnalyses",0))
              .append(" • farklı coin ").append(health.optInt("uniqueAnalyzedSymbols",0));
-            b.append("\nSonuç: işlem adayı ").append(health.optInt("qualified",0))
+            b.append("\nVision ön kararında işlem adayı: ").append(health.optInt("preJevQualified",0))
+             .append(" • Jev çağrısı ").append(health.optInt("jevCalled",0))
+             .append(" • Jev veto ").append(health.optInt("jevVetoed",0));
+            b.append("\nJev sonrası sonuç: işlem adayı ").append(health.optInt("qualified",0))
              .append(" • izle/bekle ").append(health.optInt("watch",0))
              .append(" • yeniden incele ").append(health.optInt("reviewRequired",0))
              .append(" • red ").append(health.optInt("reject",0));
+            b.append("\nCanlı intent hazır: ").append(health.optInt("intentReady",0))
+             .append(" • yürütme sonucu ").append(health.optInt("executionResults",0))
+             .append(" • açılan emir ").append(health.optInt("ordersPlaced",0));
             b.append("\nVision/komite erişim kesintisi: ").append(health.optInt("visionUnavailable",0));
             b.append("\nYoğunluk nedeniyle atlanan tur: ").append(health.optInt("skippedBusy",0))
              .append(" • pipeline yoğun ").append(health.optInt("skippedPipelineBusy",0));
             long avg=health.optLong("avgAnalysisMs",-1L);
             if(avg>=0)b.append(String.format(java.util.Locale.US,"\nOrtalama derin analiz: %.1f sn",avg/1000.0));
-            b.append("\nAçılan canlı emir: ").append(health.optInt("ordersPlaced",0));
             JSONArray top=health.optJSONArray("topReasons");
             if(top!=null&&top.length()>0){
                 b.append("\nEn sık bekleme/engel nedenleri:");
