@@ -31,6 +31,20 @@ const CHECKS = [
   ['wait_required','waitRequired','JEV_WAIT_REQUIRED','Bekleme koşulu tamamlanmamış','A stated setup-specific wait/reclaim/invalidation condition remains unresolved, so QUALIFIED should wait.']
 ];
 const FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+const EXIT_CHECKS=[
+  ['owner_structure_failure','ownerStructureFailure','Sahip zaman dilimi yapısı bozuldu','Owner TF üzerinde kapanmış mum/yapısal kanıt mevcut pozisyon yönünü bozuyor.'],
+  ['anchor_structure_failure','anchorStructureFailure','Büyük resim yapısı bozuldu','15m/30m/1h/4h/1d bağlamında pozisyon yönüne karşı anlamlı ve kalıcı yapısal bozulma var.'],
+  ['low_tf_noise_only','lowTfNoiseOnly','Yalnız düşük zaman dilimi gürültüsü','Ters sinyaller yalnız 1m/3m/5m gürültüsünde; owner ve büyük resim yapısı bozulmuş değil.'],
+  ['momentum_decay','momentumDecay','Momentum belirgin zayıfladı','Momentum/akış zayıflaması tek mumluk değil ve pozisyon kârını koruma ihtiyacını artırıyor.'],
+  ['liquidity_reversal','liquidityReversal','Likidite dönüş riski','Sweep/reclaim/likidite yapısı pozisyon yönünün devamını anlamlı biçimde zayıflatıyor.'],
+  ['profit_at_risk','profitAtRisk','Açık kâr geri verme riski','Pozisyon kârda ve mevcut kanıtlar kârın önemli bölümünün geri verilme riskini artırıyor.'],
+  ['data_quality_insufficient','exitDataQualityInsufficient','Pozisyon yönetimi verisi yetersiz','Owner/büyük resim veya pozisyon verisi eksik/stale; agresif çıkış kararı verilmemeli.']
+];
+function exitDecisionQuestions(){
+  return Object.fromEntries(EXIT_CHECKS.map(([id,,,evidence])=>[id,{type:'noul',instructions:
+    'Açık pozisyon yönetimi. '+evidence+' 1m/3m/5m tek başına yapısal çıkış değildir; owner TF ve büyük resim daha ağırdır. Sadece verilen kanıtı kullan.',
+    criteria:{true:evidence,false:'Verilen kanıt bu koşulu yeterince göstermiyor.'}}]));
+}
 function decisionQuestions(){
   const questions=Object.fromEntries(CHECKS.map(([id,,,,evidence])=>[id,{type:'noul',instructions:'Does this veto condition apply? '+evidence,criteria:{true:evidence,false:'Supplied evidence does not establish this veto condition.'}}]));
   for(const tf of FRAMES)questions['conflict_'+tf]={type:'noul',instructions:'Does '+tf+' contain a material setup contradiction requiring a wait? Use supplied evidence only; 45m is synthetic.',criteria:{true:'Explicit evidence in this timeframe contradicts the proposed setup.',false:'No material contradiction is established in this timeframe.'}};
@@ -154,6 +168,7 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
     frames,
     dataQuality:unified?.dataQuality||null,
     opportunityPaths:unified?.opportunityPaths||null,
+    learning:unified?.learning||null,
     microstructure:unified?.microstructure?.available?{
       available:true,
       sourceQuality:unified.microstructure.sourceQuality||null,
@@ -313,6 +328,41 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       return {ok:false,configured:true,required:true,reason:'JEV_REQUEST_ERROR',durationMs:clock()-started,detail:String(e?.message||e).slice(0,300),budget:budgetStatus()};
     }
   }
+  async function judgeExit({position,lifecycle,currentPlan,unified}={}){
+    if(!configured)return {ok:!cfg.enabled,configured:false,required:cfg.enabled,called:false,action:'HOLD_REVIEW',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
+    const entry=Number(position?.entryPrice),mark=Number(position?.markPrice);
+    const side=String(position?.side||lifecycle?.side||'').toUpperCase();
+    const pnlPct=Number.isFinite(entry)&&entry>0&&Number.isFinite(mark)&&['LONG','SHORT'].includes(side)
+      ? (side==='LONG'?(mark-entry)/entry:(entry-mark)/entry)*100 : null;
+    let baseRecord;
+    try{baseRecord=JSON.parse(compactDecisionRecord({candidate:{symbol:position?.symbol,side},plan:currentPlan||{},unified},cfg.maxPayloadChars));}
+    catch(e){return {ok:false,configured:true,required:true,called:false,action:'HOLD_REVIEW',reason:e.message,budget:budgetStatus()};}
+    const record=JSON.stringify({
+      kind:'ACTIVE_POSITION_EXIT_REVIEW',
+      position:{symbol:position?.symbol||null,side,entryPrice:Number.isFinite(entry)?entry:null,markPrice:Number.isFinite(mark)?mark:null,unrealizedPnl:Number(position?.unrealizedPnl)||0,pnlPct,quantity:Number(position?.quantity)||null},
+      lifecycle:{originTF:lifecycle?.originTF||null,ownerTF:lifecycle?.ownerTF||null,setup:lifecycle?.setup||null},
+      noisePolicy:{lowTf:['1m','3m','5m'],anchorTf:['15m','30m','1h','4h','1d'],rule:'1m/3m/5m tek başına EXIT_NOW gerekçesi değildir; owner ve büyük resim doğrulaması gerekir.'},
+      evidence:baseRecord
+    });
+    if(record.length>cfg.maxPayloadChars)return {ok:false,configured:true,required:true,called:false,action:'HOLD_REVIEW',reason:'JEV_EXIT_EVIDENCE_PAYLOAD_TOO_LARGE',budget:budgetStatus()};
+    const body={model:cfg.model,state:{description:'BrainHub açık futures pozisyonu için yalnız risk/çıkış değerlendirmesi. Emir verme. Düşük TF gürültüsünü owner ve büyük resimden daha ağır sayma.',record},questions:exitDecisionQuestions()};
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:true,action:'HOLD_REVIEW',mode:cfg.mode};
+    const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
+    const p=Object.fromEntries(EXIT_CHECKS.map(([id,key])=>[key,noulProbability(answers[id])]));
+    const missing=Object.entries(p).filter(([,v])=>v===null).map(([k])=>k);
+    if(missing.length)return {ok:false,configured:true,required:true,called:true,action:'HOLD_REVIEW',reason:'JEV_EXIT_SCHEMA_MISMATCH',missing,probabilities:p,budget:out.budget,costUsd:out.costUsd};
+    let action='HOLD';
+    if(p.exitDataQualityInsufficient>=0.65)action='HOLD_REVIEW';
+    else if(p.lowTfNoiseOnly>=0.70&&p.ownerStructureFailure<0.65&&p.anchorStructureFailure<0.65)action='HOLD';
+    else if(p.ownerStructureFailure>=0.72&&p.anchorStructureFailure>=0.65)action='EXIT_NOW';
+    else if(pnlPct!==null&&pnlPct>0&&p.profitAtRisk>=0.70&&(p.ownerStructureFailure>=0.55||p.anchorStructureFailure>=0.55||p.liquidityReversal>=0.70))action='PARTIAL_TAKE_PROFIT';
+    else if(pnlPct!==null&&pnlPct>0&&(p.momentumDecay>=0.70||p.profitAtRisk>=0.60))action='PROTECT_PROFIT';
+    const actionTr={HOLD:'TUT',HOLD_REVIEW:'TUT • VERİYİ YENİDEN KONTROL ET',PROTECT_PROFIT:'KÂRI KORU',PARTIAL_TAKE_PROFIT:'KISMİ KÂR AL',EXIT_NOW:'ÇIKIŞI DEĞERLENDİR'}[action];
+    const summaryTr=actionTr+' • owner/büyük resim öncelikli Jev pozisyon değerlendirmesi.';
+    return {ok:true,configured:true,required:true,called:true,action,actionTr,summaryTr,probabilities:p,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+  }
+
   async function probe(){
     const body={
       model:cfg.model,
@@ -355,6 +405,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,budgetStatus};
 }
-module.exports={CHECKS,decisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,compactDecisionRecord,createJevClient};
+module.exports={CHECKS,EXIT_CHECKS,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,compactDecisionRecord,createJevClient};

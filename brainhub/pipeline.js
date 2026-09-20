@@ -326,7 +326,8 @@ function compactUnifiedContext(u) {
     global:u.global,
     liquiditySemantics:u.liquiditySemantics,
     dataQuality:u.dataQuality,
-    policy:u.policy
+    policy:u.policy,
+    learning:u.learning||null
   };
 }
 function compactLocalModelContext(u) {
@@ -386,7 +387,8 @@ function compactLocalModelContext(u) {
     liquidationContext:u?.liquidationContext||null,
     global:u?.global||null,
     dataQuality:u?.dataQuality||null,
-    policy:u?.policy||null
+    policy:u?.policy||null,
+    learning:u?.learning||null
   };
 }
 
@@ -897,6 +899,9 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   };
   const [symbol, global] = await Promise.all([symbolContext(candidate.symbol), globalContext()]);
   const unified = buildUnifiedContext({ symbol, global, candidate });
+  if(typeof store?.learningContext==='function'){
+    try{unified.learning=store.learningContext({symbol:candidate.symbol});}catch{unified.learning=null;}
+  }
   if (!unified.dataQuality.advisoryUsable) {
     const out = { ok:true, candidateFound:true, symbol:candidate.symbol, status:'REVIEW_REQUIRED', reason:'NO_FRESH_TIMEFRAME_CONTEXT', committeeCalled:false, execution:'ADVISORY_ONLY', orderPlaced:false };
     out.journalId = store.journal('PLAN_REJECT', candidate.symbol, out);
@@ -1095,7 +1100,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     } catch {}
   }
   let jevDecision=null;
-  if(typeof decisionJudge==='function'&&String(plan?.status||'').toUpperCase()==='QUALIFIED'){
+  if(typeof decisionJudge==='function'&&executionIntent?.positionReviewOnly!==true&&String(plan?.status||'').toUpperCase()==='QUALIFIED'){
     try{
       jevDecision=await decisionJudge({candidate,plan,unified});
     }catch(e){
@@ -1143,6 +1148,9 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     orderPlaced:false
   };
   out.journalId = store.journal('PLAN', candidate.symbol, { candidate, plan, vision:{ ok:vision.ok, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures }, riskGate, dryRunExecutor, executionReadiness, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
+  if(typeof store?.recordLearning==='function'){
+    try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:plan.confidence,jevDecision:plan.jevDecision||null,contextVersion:unified.version});}catch{}
+  }
   return out;
 }
 

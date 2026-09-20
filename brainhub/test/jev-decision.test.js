@@ -73,6 +73,30 @@ test('Jev remote status and synthetic probe stay on pinned OpenRouter endpoints'
   fs.rmSync(root,{recursive:true,force:true});
 });
 
+test('Jev active-position judge treats low-TF noise separately from owner and big-picture failure',async()=>{
+  const root=rootWithConfig({});
+  const answers={
+    owner_structure_failure:{probability:0.20},
+    anchor_structure_failure:{probability:0.15},
+    low_tf_noise_only:{probability:0.92},
+    momentum_decay:{probability:0.72},
+    liquidity_reversal:{probability:0.20},
+    profit_at_risk:{probability:0.62},
+    data_quality_insufficient:{probability:0.05}
+  };
+  const client=createJevClient({root,apiKey:key,fetchImpl:async()=>response(200,{answers,usage:{cost:0.0001}})});
+  const out=await client.judgeExit({
+    position:{symbol:'BTCUSDT',side:'LONG',entryPrice:100,markPrice:104,quantity:1,unrealizedPnl:4},
+    lifecycle:{originTF:'1m',ownerTF:'15m',setup:'test'},
+    currentPlan:{status:'WATCH',side:'LONG',originTF:'1m',ownerTF:'15m',setup:'test',waitFor:'NONE'},
+    unified:{symbol:'BTCUSDT',dataQuality:{advisoryUsable:true},frames:{},global:{},opportunityPaths:{},microstructure:{available:false}}
+  });
+  assert.equal(out.ok,true);
+  assert.equal(out.action,'HOLD');
+  assert.equal(out.actionTr,'TUT');
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('OpenRouter billing telemetry separates inference-key limits from management-key account credits',async()=>{
   const root=rootWithConfig({creditsUrl:'https://example.test/api/v1/credits'});
   let calls=0;

@@ -6,6 +6,55 @@ import org.json.JSONArray;
 
 /** Read-only decision telemetry; never starts analysis or grants an order. */
 public final class AutoDecisionCard {
+    private static String trPlan(String x){
+        String s=x==null?"":x.trim().toUpperCase(java.util.Locale.US);
+        if("QUALIFIED".equals(s))return "İŞLEM ADAYI";
+        if("WATCH".equals(s))return "İZLE / BEKLE";
+        if("REJECT".equals(s))return "RED";
+        if("REVIEW_REQUIRED".equals(s))return "YENİDEN İNCELEME GEREKLİ";
+        return s.isEmpty()?"Henüz plan yok":"Teknik durum";
+    }
+    private static String trReason(String x){
+        if(x==null||x.trim().isEmpty())return "";
+        String s=x.trim();
+        java.util.HashMap<String,String> m=new java.util.HashMap<>();
+        m.put("JEV_STRUCTURAL_VETO","Jev yapısal çelişki gördü");
+        m.put("JEV_FORMING_CONFIRMATION_DEPENDENCY","Açık mum teyit gibi kullanılmış");
+        m.put("JEV_DATA_QUALITY_INSUFFICIENT","Veri kalitesi yetersiz");
+        m.put("JEV_DIRECTION_CONFLICT","Yön ile yapı arasında çelişki var");
+        m.put("JEV_PACKAGE_INTEGRITY","Coin/grafik paketi uyuşmuyor");
+        m.put("JEV_CONTINUITY_CONFLICT","Başlangıç-sahip zaman dilimi sürekliliği bozuk");
+        m.put("JEV_TF_CONFLICT","Zaman dilimleri arasında önemli çelişki var");
+        m.put("JEV_SMC_LIQUIDITY_CONFLICT","SMC/likidite yapısı planla çelişiyor");
+        m.put("JEV_MICROSTRUCTURE_UNRELIABLE","Mikro yapı kanıtı güvenilir değil");
+        m.put("JEV_CLOSED_CONFIRMATION_MISSING","Gerekli kapanmış mum teyidi eksik");
+        m.put("JEV_VISUAL_DATA_CONFLICT","Grafik ile sayısal veri çelişiyor");
+        m.put("JEV_WAIT_REQUIRED","Beklenen koşul henüz tamamlanmadı");
+        m.put("QUALIFIED_WAIT_REQUIRED","İşlem için beklenen koşul henüz tamamlanmadı");
+        m.put("QUALIFIED_ORIGIN_OWNER_VETO","Başlangıç veya sahip zaman dilimi işlemi engelliyor");
+        m.put("JEV_NOT_NEEDED_FOR_NON_QUALIFIED","Plan henüz işlem adayı olmadığı için Jev çağrılmadı");
+        m.put("JEV_DAILY_BUDGET_EXHAUSTED","Jev günlük güvenlik bütçesi doldu");
+        m.put("JEV_KEY_UNAVAILABLE","Jev anahtarı kullanılamıyor");
+        m.put("JEV_JUDGE_EXCEPTION","Jev değerlendirmesinde teknik hata oluştu");
+        String v=m.get(s);return v!=null?v:"Teknik karar kodu: "+s.replace('_',' ');
+    }
+    private static String trText(String x){
+        if(x==null)return "";
+        String s=x;
+        s=s.replace("QUALIFIED","İŞLEM ADAYI").replace("REVIEW_REQUIRED","YENİDEN İNCELEME GEREKLİ").replace("WATCH","İZLE / BEKLE").replace("REJECT","RED");
+        s=s.replace("SUPPORT","DESTEK").replace("VETO","ENGEL").replace("NEUTRAL","NÖTR");
+        s=s.replace("FORMING","OLUŞUYOR").replace("CONFIRMED","TEYİTLİ").replace("FAILED","BAŞARISIZ").replace("INVALIDATED","GEÇERSİZ");
+        s=s.replace("THREE_BLACK_CROWS","ÜÇ KARA KARGA").replace("THREE_WHITE_SOLDIERS","ÜÇ BEYAZ ASKER");
+        s=s.replace("DOUBLE_TOP","ÇİFT TEPE").replace("DOUBLE_BOTTOM","ÇİFT DİP").replace("SYMMETRICAL_TRIANGLE","SİMETRİK ÜÇGEN");
+        s=s.replace("ASCENDING_TRIANGLE","YÜKSELEN ÜÇGEN").replace("DESCENDING_TRIANGLE","ALÇALAN ÜÇGEN");
+        s=s.replace("RISING_WEDGE","YÜKSELEN TAKOZ").replace("FALLING_WEDGE","ALÇALAN TAKOZ");
+        s=s.replace("HEAD_AND_SHOULDERS","OMUZ BAŞ OMUZ").replace("INVERSE_HEAD_AND_SHOULDERS","TERS OMUZ BAŞ OMUZ");
+        s=s.replace("SELL_SIDE_SWEEP_RECLAIM","SATIŞ TARAFI SÜPÜRME SONRASI GERİ KAZANIM").replace("BUY_SIDE_SWEEP_REJECT","ALIŞ TARAFI SÜPÜRME SONRASI RET");
+        s=s.replace("SUPPORT_FLIP_ACCEPTANCE","DESTEK KIRILIM KABULÜ").replace("RESISTANCE_FLIP_ACCEPTANCE","DİRENÇ KIRILIM KABULÜ");
+        s=s.replace("FAILED_BREAKOUT","BAŞARISIZ KIRILIM").replace("VOLATILITY_COMPRESSION","VOLATİLİTE SIKIŞMASI").replace("DISPLACEMENT","GÜÇLÜ YÖNLÜ HAREKET");
+        s=s.replace("UP","YÜKSELİŞ").replace("DOWN","DÜŞÜŞ").replace("MIXED","KARMA");
+        return s;
+    }
     private AutoDecisionCard() {}
     private static JSONObject json(String raw) { try { return new JSONObject(raw); } catch(Exception e) { return new JSONObject(); } }
     private static String val(JSONObject j,String key,String fallback) {
@@ -60,7 +109,26 @@ public final class AutoDecisionCard {
         if(keyInfo!=null&&keyInfo.optBoolean("available")&&!keyInfo.isNull("limit_remaining")){
             b.append(String.format(java.util.Locale.US,"\nBrainHub-JEV key kalan limiti: $%.4f",keyInfo.optDouble("limit_remaining",0)));
         }
-        b.append("\nJev yalnız QUALIFIED planın ek veto denetimidir.");
+        b.append("\nJev yalnız işlem adayı planın ek güvenlik denetimidir.");
+        JSONObject pm=json(sp.getString("v9599_position_manager","{}"));
+        JSONObject pr=pm.optJSONObject("lastReview");
+        b.append("\n\nAÇIK POZİSYON YÖNETİCİSİ");
+        if(pr==null)b.append("\nHenüz açık pozisyon değerlendirmesi yok.");
+        else{
+            b.append("\n").append(val(pr,"symbol","?")).append(" • ").append(val(pr,"side","?"));
+            b.append("\nKarar: ").append(val(pr,"actionTr","TUT"));
+            line(b,"Gerekçe: ",pr,"reasonTr");
+            line(b,"Başlangıç TF: ",pr,"originTF");line(b,"Sahip TF: ",pr,"ownerTF");
+            if(pr.has("pnlPct")&&!pr.isNull("pnlPct"))b.append(String.format(java.util.Locale.US,"\nAnlık fiyat değişimi: %+.3f%%",pr.optDouble("pnlPct")));
+            line(b,"Jev pozisyon özeti: ",pr,"jevSummaryTr");
+            b.append("\nKural: küçük zaman dilimi gürültüsü tek başına çıkış kararı vermez; sahip TF ve büyük resim doğrulaması gerekir.");
+        }
+        JSONObject learning=json(sp.getString("v9599_learning","{}"));
+        org.json.JSONArray recent=learning.optJSONArray("recent"),stats=learning.optJSONArray("stats");
+        b.append("\n\nBEYİN ÖĞRENME HAFIZASI");
+        b.append("\nKaydedilen son karar/işlem örneği: ").append(recent==null?0:recent.length());
+        b.append("\nSonuç istatistiği grubu: ").append(stats==null?0:stats.length());
+        b.append("\nÖğrenme stop/risk güvenlik kurallarını otomatik gevşetmez.");
         JSONObject diag=json(sp.getString("v9593_pc_auto_diagnostics","{}"));
         line(b,"Aday turu: ",diag,"generatedAt");
         b.append("\nSon PC turu: ").append(sp.getString("v9592_pc_auto_last_tick_at","Henüz yok"));
@@ -76,8 +144,9 @@ public final class AutoDecisionCard {
         for(int i=0;i<count;i++){
             JSONObject r=rows.optJSONObject(i);if(r==null)continue;
             b.append("\n\n").append(val(r,"symbol","? ")).append(" • ").append(val(r,"side","Yön yok"));
-            b.append("\nAşama: ").append(val(r,"stageTr",val(r,"stage","Bildirilmedi")));
-            String plan=val(r,"planStatus","Henüz plan yok");b.append("\nPlan: ").append(plan);
+            String stageTr=val(r,"stageTr","");
+            b.append("\nAşama: ").append(stageTr.isEmpty()?"Teknik aşama tamamlanmayı bekliyor":stageTr);
+            String plan=val(r,"planStatus","Henüz plan yok");b.append("\nPlan: ").append(trPlan(plan));
             JSONObject committee=r.optJSONObject("committee");
             if(committee==null)b.append("\nKomite: bu adayda yanıt kaydı yok");
             else {
@@ -85,20 +154,38 @@ public final class AutoDecisionCard {
                 line(b,"Karar modeli: ",committee,"model");
                 b.append("\nAlınan analist yanıtı: ").append(committee.optInt("receivedAnalystReplies",0));
                 line(b,"Denenen modeller: ",committee,"attemptedModels");
-                line(b,"Komite hatası: ",committee,"error");
-                if(detailed){line(b,"Model hataları: ",committee,"failed");line(b,"Detay: ",committee,"detail");}
+                if(committee.has("error")&&!committee.isNull("error"))b.append("\nKomite hatası: teknik hata oluştu; ayrıntı PC günlüğünde.");
+                if(detailed&&committee.has("failed"))b.append("\nModel erişimi: bazı denemeler tamamlanamadı; ayrıntı PC günlüğünde.");
             }
             JSONObject v=r.optJSONObject("vision");if(v!=null)b.append("\nGrafik gönderimi: ").append(v.optInt("attached")).append("/").append(v.optInt("required",9)).append(" (tek başına model onayı değildir)");
             JSONObject decision=r.optJSONObject("jevDecision");
             if(decision==null)b.append("\nJev: bu aday için karar kaydı yok");
             else {
                 b.append("\nJev: ").append(!decision.optBoolean("called")?"ÇAĞRILMADI":!decision.optBoolean("ok")?"HATA":decision.optBoolean("veto")?"BEKLET / VETO":"EK VETO YOK");
-                line(b,"Jev açıklaması: ",decision,"summaryTr");line(b,"Jev nedeni: ",decision,"reason");
-                if(detailed){line(b,"Jev konu olasılıkları: ",decision,"probabilities");line(b,"Jev TF çelişkileri: ",decision,"timeframeConflicts");}
+                line(b,"Jev açıklaması: ",decision,"summaryTr");
+                if(decision.has("reason")&&!decision.isNull("reason"))b.append("\nJev nedeni: ").append(trReason(decision.optString("reason")));
+                if(detailed&&decision.has("conflictingTFs"))b.append("\nJev'in önemli gördüğü zaman dilimleri: ").append(trText(String.valueOf(decision.opt("conflictingTFs"))));
             }
             line(b,"Neden: ",r,"planWhy");line(b,"Beklenen: ",r,"waitFor");line(b,"Risk: ",r,"planRisk");
             line(b,"Aday açıklaması: ",r,"explanationTr");
-            if(detailed){line(b,"Destek TF: ",r,"supportTFs");line(b,"Veto TF: ",r,"vetoTFs");line(b,"TF kararları: ",r,"timeframeDiagnostics");}
+            if(detailed){
+                if(r.has("supportTFs"))b.append("\nDestek zaman dilimleri: ").append(trText(String.valueOf(r.opt("supportTFs"))));
+                if(r.has("vetoTFs"))b.append("\nEngel zaman dilimleri: ").append(trText(String.valueOf(r.opt("vetoTFs"))));
+                JSONObject td=r.optJSONObject("timeframeDiagnostics");
+                if(td!=null){
+                    String[] tfs={"1m","3m","5m","15m","30m","45m","1h","4h","1d"};
+                    for(String tf:tfs){
+                        JSONObject x=td.optJSONObject(tf);if(x==null)continue;
+                        b.append("\n").append(tf).append(" • ");
+                        String role=x.optString("role","");
+                        b.append("SUPPORT".equals(role)?"DESTEK":"VETO".equals(role)?"ENGEL":"NÖTR");
+                        if(x.has("summary"))b.append(" • ").append(trText(x.optString("summary")));
+                        if(x.has("why"))b.append("\n  Neden: ").append(trText(x.optString("why")));
+                        if(x.has("waitFor"))b.append("\n  Beklenen: ").append(trText(x.optString("waitFor")));
+                        if(x.has("risk"))b.append("\n  Risk: ").append(trText(x.optString("risk")));
+                    }
+                }
+            }
             b.append("\nPlan veya Jev onayı, emir gönderildi demek değildir.");
         }
         if(!detailed)b.append("\n\nTüm adaylar ve karar ayrıntıları için dokun.");

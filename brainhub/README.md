@@ -109,3 +109,16 @@ BrainHub keeps Jev inference credentials and OpenRouter management credentials s
 ### Role-aware 9TF opportunity qualification
 
 Every fresh timeframe may originate LONG or SHORT opportunity context. The engine computes both `opportunityPaths.LONG` and `opportunityPaths.SHORT`; non-legacy 1m/3m/5m paths do not wait for 15m merely because it is higher. Timeframes are roles, not votes. A VETO on the selected originTF or ownerTF remains a hard semantic block, while a VETO on another timeframe is retained as contextual conflict for Jev's typed timeframe-conflict review rather than automatically killing the opportunity. Unresolved execution-path waits, failed-breakout/reclaim requirements, stale data and deterministic risk gates remain fail-closed.
+
+
+### ACTIVE pozisyon 9TF yönetimi ve Jev çıkış hakemi
+
+Brain Hub açık pozisyonları beş dakikalık sırayla yeniden inceler. Bu inceleme emir göndermez; sonuç Android ve Brain Hub durumuna Türkçe olarak `TUT`, `KÂRI KORU`, `KISMİ KÂR AL`, `ÇIKIŞI DEĞERLENDİR` veya veri yetersizse yeniden kontrol tavsiyesi olarak yansır. 1m/3m/5m tersliği tek başına yapısal çıkış sayılmaz. Jev `EXIT_NOW` istese bile deterministic position-manager owner TF ve 15m/30m/1h/4h/1d büyük resim doğrulaması yoksa kararı otomatik olarak daha yumuşak seviyeye indirir. Jev hiçbir zaman doğrudan emir kapatamaz.
+
+### Brain Hub ölçülebilir öğrenme hafızası
+
+Her plan kararı, açılan pozisyon, aktif pozisyon incelemesi ve Binance üzerinde kapanan Brain Hub pozisyonunun gerçekleşen PnL sonucu SQLite öğrenme hafızasına eklenir. Sonraki analizlere benzer setup/origin-owner geçmişi soft bağlam olarak verilir. Bu katman hard stop, risk limiti, kill-switch, stale-data veya execution kurallarını değiştiremez ve otomatik gevşetemez.
+
+### Türkçe kullanıcı karar metni
+
+Android OTO karar kartı ham İngilizce karar/açıklama kodlarını kullanıcı açıklaması olarak göstermez. Plan, Jev nedeni, pozisyon yöneticisi, öğrenme özeti ve model hata durumları Türkçe ve kullanıcıya dönük metinlerle gösterilir. Model/provider kimliği ve zaman dilimi kısaltmaları teknik kimlik olarak korunabilir; ham provider hata ayrıntıları PC günlüğünde kalır.

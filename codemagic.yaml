@@ -105,8 +105,8 @@ workflows:
           grep -q 'Model özet:' "$MAIN"
           grep -q 'Deterministik veri:' "$MAIN"
           grep -q "versionName '9.5.98'" "$BUILD"
-          grep -q 'versionCode 26092001' "$BUILD"
-          echo 'V9598_ANDROID_AUTO_DECISION_CARD_OK'
+          grep -q 'versionCode 26092002' "$BUILD"
+          echo 'V9599_TURKISH_POSITION_MANAGER_OK'
 
       - name: Set Android SDK location
         script: |

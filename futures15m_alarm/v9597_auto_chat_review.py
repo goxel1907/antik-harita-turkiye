@@ -163,14 +163,14 @@ main=main.replace(card_anchor,r'''
         box.addView(openRouterCredit,new android.widget.LinearLayout.LayoutParams(-1,dp(48)));
 ''' + card_anchor,1)
 main_path.write_text(main)
-analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.98')
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.99')
 analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
-text=re.sub(r'versionCode\s+\d+','versionCode 26092001',text)
+text=re.sub(r'versionCode\s+\d+','versionCode 26092002',text)
 text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.98'",text)
 build.write_text(text)
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
-print('v9.5.98 AUTO candidate review + read-only decision card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
+print('v9.5.99 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')

@@ -134,3 +134,18 @@ test('committee output must be structured and remains advisory', () => {
   assert.equal(planFields('buy now').valid, false);
   assert.deepEqual(planFields('STATUS: QUALIFIED\nSIDE: LONG\nCONFIDENCE: 70\nWHY: test\nRISK_NOTE: risk').execution, 'ADVISORY_ONLY');
 });
+
+test('BrainHub learning memory records decisions/outcomes without changing hard risk rules',()=>{
+  const fs=require('fs'),os=require('os'),path=require('path');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brain-learning-'));
+  const {openStore}=require('../store');
+  const st=openStore(root);
+  st.recordLearning('PLAN_DECISION','BTCUSDT',{side:'LONG',setup:'reclaim',originTF:'3m',ownerTF:'15m',decision:'WATCH',confidence:66});
+  st.recordLearning('POSITION_CLOSED','BTCUSDT',{side:'LONG',setup:'reclaim',originTF:'3m',ownerTF:'15m',decision:'CLOSED',outcomePct:1.25});
+  const ctx=st.learningContext({symbol:'BTCUSDT'});
+  assert.equal(ctx.changesAppliedToHardRisk,false);
+  assert.ok(ctx.recent.length>=2);
+  assert.ok(ctx.stats.some(x=>x.setup==='reclaim'&&x.samples>=1&&x.avgOutcomePct>0));
+  st.db.close();
+  fs.rmSync(root,{recursive:true,force:true});
+});

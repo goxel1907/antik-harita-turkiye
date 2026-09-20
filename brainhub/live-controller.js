@@ -12,6 +12,7 @@ const { buildLeaderLiveIntent } = require('./leader-live-intent');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { combineRiskGate:combineReadinessRiskGate, enforceExecutionLineage:enforceReadinessLineage, combineExecutionReadiness:combineReadiness } = require('./pipeline');
+const positionManager = require('./position-manager');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -207,7 +208,7 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, exitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
@@ -225,6 +226,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
   let leaderAutoLastTickAt = null;
   let leaderAutoLastHealthyAt = null;
   let leaderAutoLastDiagnostics = { universeCount:0, shortlistCount:0, eligibleCount:0, candidates:[] };
+  let positionReviewBusy = false;
+  let positionReviewCursor = 0;
+  let positionManagerState = { lastReview:null, history:[], lastTickAt:null, lastError:null };
   const leaderAutoFile = path.join(root, 'config', 'leader-auto.json');
   const leaderAnalysisFile = path.join(root, 'data', 'leader-analysis-state.json');
   const LEADER_ANALYSIS_VERSION = 1;
@@ -518,6 +522,158 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     }
   }
 
+  async function exchangeOpenPositions() {
+    const creds=currentCredentials();
+    if(!credentialsReady(creds))return {ok:false,positions:[],reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    try{
+      await transport._syncServerTime();
+      const account=await transport._fetchJson('GET','/fapi/v3/account',{credentials:creds,signed:true});
+      const rows=Array.isArray(account?.positions)?account.positions:[];
+      const positions=rows.map(x=>{
+        const amt=finite(x?.positionAmt);
+        if(amt===null||Math.abs(amt)<=0)return null;
+        return {
+          symbol:String(x?.symbol||'').toUpperCase(),
+          side:amt>0?'LONG':'SHORT',
+          quantity:Math.abs(amt),
+          signedQuantity:amt,
+          entryPrice:finite(x?.entryPrice),
+          markPrice:finite(x?.markPrice),
+          unrealizedPnl:finite(x?.unrealizedProfit)??0,
+          leverage:finite(x?.leverage),
+          notional:finite(x?.notional),
+          liquidationPrice:finite(x?.liquidationPrice)
+        };
+      }).filter(x=>x&&/^[A-Z0-9]{1,28}USDT$/.test(x.symbol));
+      return {ok:true,positions};
+    }catch(e){
+      return {ok:false,positions:[],reason:'BINANCE_ACTIVE_POSITIONS_UNAVAILABLE',detail:String(e?.message||e).slice(0,180)};
+    }
+  }
+
+  async function finalizeClosedActiveRows(openPositions) {
+    const openSet=new Set((openPositions||[]).map(x=>x.symbol));
+    const creds=currentCredentials();
+    if(!credentialsReady(creds))return;
+    for(const [symbol,row] of Object.entries(leaderAnalysisState.bySymbol||{})){
+      if(!row||String(row.state||'').toUpperCase()!=='ACTIVE'||openSet.has(symbol))continue;
+      let realizedPnl=null;
+      try{
+        await transport._syncServerTime();
+        const income=await transport._fetchJson('GET','/fapi/v1/income',{
+          params:{symbol,incomeType:'REALIZED_PNL',startTime:Math.max(0,Number(row.lastStateChangeAt||row.detectedAt||0)),limit:1000},
+          credentials:creds,signed:true
+        });
+        if(Array.isArray(income)&&income.length<1000)realizedPnl=income.reduce((sum,x)=>sum+(finite(x?.income)||0),0);
+      }catch{}
+      const entry=finite(row.entryPrice),qty=finite(row.quantity);
+      const base=entry!==null&&qty!==null?Math.abs(entry*qty):null;
+      const outcomePct=realizedPnl!==null&&base&&base>0?realizedPnl/base*100:null;
+      const prev=row.state;
+      row.state='CLOSED';
+      row.reanalysisEligible=false;
+      row.executionEligibleNow=false;
+      row.closedAt=clock();
+      row.realizedPnl=realizedPnl;
+      row.outcomePct=outcomePct;
+      row.lastDetail='BINANCE_POSITION_CLOSED';
+      leaderAnalysisState.bySymbol[symbol]=row;
+      writeLeaderAnalysisState();
+      journalLeaderLifecycle(symbol,prev,'CLOSED',row,'BINANCE_POSITION_CLOSED');
+      try{store.journal('POSITION_CLOSED',symbol,{side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,entryPrice:row.entryPrice,quantity:row.quantity,realizedPnl,outcomePct});}catch{}
+      try{store.recordLearning?.('POSITION_CLOSED',symbol,{side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,decision:'CLOSED',outcomePct,realizedPnl});}catch{}
+    }
+  }
+
+  function positionManagerStatus() {
+    return {
+      ok:true,
+      busy:positionReviewBusy,
+      cadenceMinutes:5,
+      execution:'ADVISORY_ONLY',
+      ruleTr:'1m/3m/5m tek başına çıkış kararı vermez; owner zaman dilimi ve büyük resim doğrulaması gerekir.',
+      lastTickAt:positionManagerState.lastTickAt,
+      lastError:positionManagerState.lastError,
+      lastReview:positionManagerState.lastReview,
+      history:positionManagerState.history.slice(0,6)
+    };
+  }
+
+  async function activePositionReviewTick() {
+    if(positionReviewBusy||leaderAutoBusy||executionBusy)return {ok:true,skipped:true,reason:positionReviewBusy?'POSITION_REVIEW_BUSY':'VISION_PIPELINE_BUSY'};
+    positionReviewBusy=true;
+    positionManagerState.lastTickAt=new Date(clock()).toISOString();
+    positionManagerState.lastError=null;
+    try{
+      const open=await exchangeOpenPositions();
+      if(!open.ok){
+        positionManagerState.lastError=open.reason;
+        return {ok:false,skipped:true,reason:open.reason};
+      }
+      await finalizeClosedActiveRows(open.positions);
+      if(!open.positions.length){
+        positionManagerState.lastReview={action:'HOLD',actionTr:'AÇIK POZİSYON YOK',checkedAt:new Date(clock()).toISOString()};
+        return {ok:true,skipped:true,reason:'NO_OPEN_POSITION'};
+      }
+      const position=open.positions[positionReviewCursor%open.positions.length];
+      positionReviewCursor=(positionReviewCursor+1)%Math.max(1,open.positions.length);
+      let scan;
+      try{scan=await scanner.scan();}catch(e){throw new Error('SCANNER_UNAVAILABLE');}
+      const existing=leaderAnalysisState.bySymbol?.[position.symbol]||{};
+      const advisory=await pipeline.run({
+        scan,store,committee,
+        executionIntent:{symbol:position.symbol,side:position.side,analysisTracking:true,positionReviewOnly:true}
+      });
+      const lifecycle={
+        ...existing,
+        side:position.side,
+        originTF:existing.originTF||advisory?.plan?.originTF||null,
+        ownerTF:existing.ownerTF||advisory?.plan?.ownerTF||null,
+        setup:existing.setup||advisory?.plan?.setup||null
+      };
+      const assessment=positionManager.assessPosition({position,lifecycle,unified:advisory?.unifiedContext||{}});
+      let jevExit={ok:false,called:false,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi kullanılamadı.'};
+      if(typeof exitJudge==='function'&&advisory?.unifiedContext){
+        try{jevExit=await exitJudge({position,lifecycle,currentPlan:advisory.plan,unified:advisory.unifiedContext});}
+        catch(e){jevExit={ok:false,called:true,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi hata verdi; agresif çıkış kararı uygulanmadı.',reason:'JEV_EXIT_EXCEPTION'};}
+      }
+      const requestedAction=String(jevExit?.action||'HOLD_REVIEW');
+      const action=positionManager.capJevExitAction(requestedAction,assessment);
+      const actionTr=positionManager.actionTurkish(action);
+      let reasonTr='Büyük resim ve owner yapı korunuyor; pozisyon izleniyor.';
+      if(assessment.lowTfNoiseOnly)reasonTr='1m/3m/5m tersliği büyük resim tarafından doğrulanmadı; gürültü/erken uyarı olarak izlendi.';
+      if(action==='PROTECT_PROFIT')reasonTr='Pozisyon kârda; düşük/orta zaman dilimi zayıflığı nedeniyle kârı koruma adayı, fakat yapısal çıkış teyidi yok.';
+      if(action==='PARTIAL_TAKE_PROFIT')reasonTr='Açık kâr risk altında ve owner/büyük resimde ek zayıflık var; kısmi kâr alma değerlendirmesi.';
+      if(action==='EXIT_NOW')reasonTr='Owner zaman dilimi ile büyük resimde yapısal bozulma birlikte doğrulandı; çıkış değerlendirmesi.';
+      if(action==='HOLD_REVIEW')reasonTr='Veri/kanıt yeterli değil; agresif çıkış uygulanmadı, yeniden analiz bekleniyor.';
+      const review={
+        symbol:position.symbol,side:position.side,checkedAt:new Date(clock()).toISOString(),
+        entryPrice:position.entryPrice,markPrice:position.markPrice,unrealizedPnl:position.unrealizedPnl,
+        pnlPct:assessment.pnlPct,originTF:lifecycle.originTF,ownerTF:lifecycle.ownerTF,
+        action,actionTr,reasonTr,requestedJevAction:requestedAction,
+        jevSummaryTr:String(jevExit?.summaryTr||'').slice(0,360),
+        assessment,jev:{called:jevExit?.called===true,ok:jevExit?.ok===true,model:jevExit?.model||null,probabilities:jevExit?.probabilities||null},
+        execution:'ADVISORY_ONLY',orderPlaced:false
+      };
+      positionManagerState.lastReview=review;
+      positionManagerState.history=[review,...positionManagerState.history].slice(0,20);
+      if(existing&&String(existing.state||'').toUpperCase()==='ACTIVE'){
+        existing.lastPositionReview=review;
+        existing.entryPrice=existing.entryPrice??position.entryPrice;
+        existing.quantity=existing.quantity??position.quantity;
+        leaderAnalysisState.bySymbol[position.symbol]=existing;
+        writeLeaderAnalysisState();
+      }
+      try{store.journal('POSITION_REVIEW',position.symbol,review);}catch{}
+      try{store.recordLearning?.('POSITION_REVIEW',position.symbol,{side:position.side,setup:lifecycle.setup,originTF:lifecycle.originTF,ownerTF:lifecycle.ownerTF,decision:action,confidence:advisory?.plan?.confidence,review});}catch{}
+      return {ok:true,...review};
+    }catch(e){
+      const reason=String(e?.message||e).slice(0,180);
+      positionManagerState.lastError=reason;
+      return {ok:false,skipped:false,reason};
+    }finally{positionReviewBusy=false;}
+  }
+
   function currentCredentials() {
     return resolveCredentials(root, credentials);
   }
@@ -686,7 +842,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
       liveAllowed:false,
       execution:armed ? 'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED' : 'LIVE_DISARMED',
       lastDisarmReason,
-      leaderAuto:leaderAutoStatus()
+      leaderAuto:leaderAutoStatus(),
+      positionManager:positionManagerStatus(),
+      learning:typeof store?.learningContext==='function'?store.learningContext({}):null
     };
   }
 
@@ -1763,6 +1921,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const executionLifecycle=result?.orderPlaced === true
       ? upsertLeaderLifecycle(candidate,advisory,'ACTIVE','LIVE_ORDER_PLACED')
       : upsertLeaderLifecycle(candidate,advisory,'ENTERABLE','LIVE_EXECUTION_NO_ORDER:'+String(result?.execution || ''));
+    if(result?.orderPlaced===true&&executionLifecycle){
+      executionLifecycle.entryPrice=intent.entryPrice;
+      executionLifecycle.quantity=intent.quantity;
+      executionLifecycle.stopPrice=intent.stopPrice;
+      executionLifecycle.takeProfit1=intent.takeProfit1;
+      executionLifecycle.takeProfit2=intent.takeProfit2;
+      executionLifecycle.takeProfit3=intent.takeProfit3;
+      executionLifecycle.activeAt=clock();
+      leaderAnalysisState.bySymbol[String(candidate.symbol||'').toUpperCase()]=executionLifecycle;
+      writeLeaderAnalysisState();
+      try{store.recordLearning?.('POSITION_OPENED',intent.symbol,{side:intent.side,setup:advisory?.plan?.setup,originTF:intent.originTF,ownerTF:advisory?.plan?.ownerTF,decision:'ACTIVE',entryPrice:intent.entryPrice,quantity:intent.quantity});}catch{}
+    }
     annotateLeaderDiagnostic(candidate.symbol, result?.orderPlaced === true ? 'ORDER_PLACED' : 'EXECUTION_RESULT', result?.reasons || [], {
       execution:String(result?.execution || ''),
       orderPlaced:result?.orderPlaced === true,
@@ -1984,7 +2154,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     };
   }
 
-  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, activePositionReviewTick, positionManagerStatus, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };

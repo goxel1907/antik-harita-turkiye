@@ -90,3 +90,20 @@ The product target includes real Binance Futures execution, with user-controlled
 `Top 5'i görmek değil, Top 5 olmadan önce oluşan imzayı bulmak.`
 
 No component may claim guaranteed profit or guaranteed prediction accuracy.
+
+## ACTIVE pozisyon yönetimi ve Jev çıkış hakemi
+
+- Açık pozisyonlar düzenli 9TF yeniden analizden geçmelidir; ACTIVE olmak yeniden analizi durdurmamalıdır.
+- 1m/3m/5m tersliği tek başına pozisyon kapatma gerekçesi değildir. Bu zaman dilimleri erken uyarı/zamanlama katmanıdır ve gürültü filtresinden geçer.
+- Owner TF ve 15m/30m/1h/4h/1D büyük resim, yapısal çıkış kararında daha ağırdır. Düşük TF owner olduğunda bile tam çıkış için ek büyük-resim kanıtı aranır.
+- Jev açık pozisyonda yalnız `TUT`, `KÂRI KORU`, `KISMİ KÂR AL`, `ÇIKIŞI DEĞERLENDİR` seviyesinde advisory risk görüşü üretir; doğrudan emir kapatamaz.
+- Jev sert çıkış önerse bile deterministic position-manager owner/büyük-resim kanıtı yetersizse kararı otomatik olarak daha yumuşak seviyeye düşürmelidir.
+- Veri eksik/stale ise agresif çıkış kararı yerine yeniden kontrol/fail-closed davranışı kullanılmalıdır.
+
+## Brain Hub öğrenme ve Türkçe kullanıcı yüzeyi
+
+- Brain Hub her plan, Jev kararı, pozisyon açılışı, ACTIVE incelemesi ve kapanan işlem sonucunu kalıcı öğrenme hafızasına eklemelidir.
+- Ölçülen geçmiş, sonraki analizlerde setup + originTF + ownerTF + yön bağlamında soft istatistiksel kanıt olarak kullanılabilir; hard risk kurallarını kendi kendine değiştiremez.
+- Kullanıcıya gösterilen karar, gerekçe, bekleme, ret, risk, Jev ve pozisyon-yönetimi açıklamaları Türkçe ve anlaşılır olmalıdır.
+- Ham İngilizce provider/model hata metinleri kullanıcı karar ekranına basılmamalı; teknik günlükte kalmalıdır.
+- LONG/SHORT, zaman dilimi kısaltmaları ve model kimlikleri teknik kimlik olarak korunabilir; bunların yanındaki açıklamalar Türkçe olmalıdır.

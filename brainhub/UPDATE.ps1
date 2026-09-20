@@ -50,6 +50,10 @@ try {
         $text -notmatch 'OPENROUTER_JEV_DAILY_BUDGET' -or
         $text -notmatch 'OPENROUTER_JEV_SOFT_HARD_BUDGET' -or
         $text -notmatch 'OPENROUTER_ACCOUNT_CREDIT_TELEMETRY' -or
+        $text -notmatch 'ACTIVE_POSITION_9TF_REVIEW' -or
+        $text -notmatch 'JEV_POSITION_EXIT_JUDGE' -or
+        $text -notmatch 'BRAIN_LEARNING_SOFT_CONTEXT' -or
+        $text -notmatch 'ANDROID_TURKISH_DECISION_TEXT' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
         $text -notmatch 'VISION_CHART_448X252' -or

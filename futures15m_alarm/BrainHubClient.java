@@ -130,7 +130,9 @@ public final class BrainHubClient {
         c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE).edit().putString("v9597_jev_status",label)
             .putString("v9598_jev",jev==null?"{}":jev.toString())
             .putString("v9598_progress",status.optJSONObject("visionProgress")==null?"{}":status.optJSONObject("visionProgress").toString())
-            .putString("v9598_openrouter_billing",status.optJSONObject("openRouterBilling")==null?"{}":status.optJSONObject("openRouterBilling").toString()).apply();
+            .putString("v9598_openrouter_billing",status.optJSONObject("openRouterBilling")==null?"{}":status.optJSONObject("openRouterBilling").toString())
+            .putString("v9599_position_manager",status.optJSONObject("positionManager")==null?"{}":status.optJSONObject("positionManager").toString())
+            .putString("v9599_learning",status.optJSONObject("learning")==null?"{}":status.optJSONObject("learning").toString()).apply();
         return status;
     }
     public static JSONObject liveAccount(Context c) throws Exception {
@@ -177,7 +179,7 @@ public final class BrainHubClient {
         JSONObject global = get(c, "/context/global"), scan = get(c, "/scanner");
         JSONObject cap = global.optJSONObject("marketCap");
         JSONObject live = get(c, "/live/status");
-        StringBuilder b = new StringBuilder("PC BRAIN HUB • ").append(live.optBoolean("armed") ? "LIVE ARMED" : "analiz modu").append("\n");
+        StringBuilder b = new StringBuilder("PC BRAIN HUB • ").append(live.optBoolean("armed") ? "CANLI İŞLEM AÇIK" : "analiz modu").append("\n");
         b.append("BTC 15m: ").append(frame(global.optJSONObject("btc"),"15m")).append("\n");
         b.append("ETH 15m: ").append(frame(global.optJSONObject("eth"),"15m")).append("\n");
         b.append("ETH/BTC 15m: ").append(frame(global.optJSONObject("ethbtc"),"15m")).append("\n");
@@ -192,7 +194,7 @@ public final class BrainHubClient {
     private static String frame(JSONObject asset,String tf) {
         JSONObject t = asset == null ? null : asset.optJSONObject("frames");
         JSONObject f = t == null ? null : t.optJSONObject(tf);
-        return f != null && f.optBoolean("available") ? "TREND="+f.optString("trend")+" CLOSE="+f.optString("close")+" RSI="+f.optString("rsi14") : "veri yok";
+        return f != null && f.optBoolean("available") ? "EĞİLİM="+("UP".equals(f.optString("trend"))?"YÜKSELİŞ":"DOWN".equals(f.optString("trend"))?"DÜŞÜŞ":"KARMA")+" KAPANIŞ="+f.optString("close")+" RSI="+f.optString("rsi14") : "veri yok";
     }
     public static String symbolSnapshot(Context c,String symbol) throws Exception {
         if (symbol==null || !symbol.matches("[A-Z0-9]{2,28}USDT")) throw new Exception("Sembol geçersiz");

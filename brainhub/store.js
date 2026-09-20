@@ -15,6 +15,13 @@ function openStore(root) {
       symbol TEXT, payload TEXT NOT NULL, outcome TEXT
     );
     CREATE INDEX IF NOT EXISTS journal_ts ON journal(ts DESC);
+    CREATE TABLE IF NOT EXISTS learning_events (
+      id TEXT PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL,
+      symbol TEXT, side TEXT, setup TEXT, origin_tf TEXT, owner_tf TEXT,
+      decision TEXT, confidence REAL, outcome_pct REAL, payload TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS learning_events_ts ON learning_events(ts DESC);
+    CREATE INDEX IF NOT EXISTS learning_events_shape ON learning_events(side,setup,origin_tf,owner_tf);
     CREATE TABLE IF NOT EXISTS leases (
       resource TEXT PRIMARY KEY, owner TEXT NOT NULL, token_hash TEXT NOT NULL,
       expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -29,6 +36,9 @@ function openStore(root) {
   const insert = db.prepare('INSERT INTO journal(id,ts,kind,symbol,payload) VALUES(?,?,?,?,?)');
   const list = db.prepare('SELECT id,ts,kind,symbol,payload,outcome FROM journal ORDER BY ts DESC LIMIT ?');
   const outcome = db.prepare('UPDATE journal SET outcome=? WHERE id=?');
+  const learnInsert=db.prepare('INSERT INTO learning_events(id,ts,kind,symbol,side,setup,origin_tf,owner_tf,decision,confidence,outcome_pct,payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+  const learnRecent=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct FROM learning_events WHERE (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
+  const learnStats=db.prepare("SELECT side,setup,origin_tf AS originTF,owner_tf AS ownerTF,COUNT(*) AS samples,AVG(outcome_pct) AS avgOutcomePct,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins FROM learning_events WHERE outcome_pct IS NOT NULL GROUP BY side,setup,origin_tf,owner_tf ORDER BY samples DESC LIMIT 20");
   const leaseGet = db.prepare('SELECT owner,token_hash,expires_at FROM leases WHERE resource=?');
   const leaseSet = db.prepare('INSERT INTO leases(resource,owner,token_hash,expires_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,token_hash=excluded.token_hash,expires_at=excluded.expires_at,updated_at=excluded.updated_at');
   const leaseDelete = db.prepare('DELETE FROM leases WHERE resource=? AND token_hash=?');
@@ -58,6 +68,34 @@ function openStore(root) {
   function learning() {
     const rows = db.prepare('SELECT kind,outcome,COUNT(*) AS count FROM journal GROUP BY kind,outcome').all();
     return { source: 'explicit journal labels only', rows, changesAppliedToTrading: false };
+  }
+  function recordLearning(kind,symbol,payload={}){
+    const k=String(kind||'').toUpperCase();
+    if(!/^[A-Z0-9_]{2,40}$/.test(k))throw new Error('invalid learning kind');
+    const body=payload&&typeof payload==='object'?payload:{};
+    const side=String(body.side||body.plan?.side||'').toUpperCase();
+    const setup=String(body.setup||body.plan?.setup||'').slice(0,120)||null;
+    const originTF=String(body.originTF||body.plan?.originTF||'').slice(0,8)||null;
+    const ownerTF=String(body.ownerTF||body.plan?.ownerTF||'').slice(0,8)||null;
+    const decision=String(body.decision||body.action||body.plan?.status||'').slice(0,80)||null;
+    const confidence=Number(body.confidence??body.plan?.confidence);
+    const outcomePct=Number(body.outcomePct);
+    const safe=JSON.stringify(body).slice(0,32000);
+    const id=crypto.randomUUID();
+    learnInsert.run(id,Date.now(),k,symbol||null,['LONG','SHORT'].includes(side)?side:null,setup,originTF,ownerTF,decision,Number.isFinite(confidence)?confidence:null,Number.isFinite(outcomePct)?outcomePct:null,safe);
+    return id;
+  }
+  function learningContext({symbol=null}={}){
+    const key=symbol&&/^[A-Z0-9]{2,28}$/.test(symbol)?symbol:null;
+    const recent=learnRecent.all(key,key,20);
+    const stats=learnStats.all().map(x=>({...x,winRate:x.samples?Number((100*Number(x.wins||0)/x.samples).toFixed(1)):null,avgOutcomePct:x.avgOutcomePct==null?null:Number(Number(x.avgOutcomePct).toFixed(4))}));
+    return {
+      source:'BrainHub ölçülebilir işlem/karar geçmişi',
+      recent,
+      stats,
+      changesAppliedToHardRisk:false,
+      note:'Öğrenme yalnız yumuşak bağlamdır; stop, risk, kill-switch, stale ve execution güvenliklerini değiştiremez.'
+    };
   }
   function lease(action, resource, owner, token, ttlMs = 30000) {
     if (!/^[A-Z0-9:_-]{2,50}$/.test(resource) || !/^[A-Za-z0-9:_-]{2,50}$/.test(owner) || !/^[A-Za-z0-9_-]{16,128}$/.test(token)) throw new Error('invalid lease fields');
@@ -139,6 +177,6 @@ function openStore(root) {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 
-  return { db, journal, getJournal, label, learning, lease, claim, releaseClaim };
+  return { db, journal, getJournal, label, learning, recordLearning, learningContext, lease, claim, releaseClaim };
 }
 module.exports = { openStore };
