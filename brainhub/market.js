@@ -662,6 +662,9 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     // subpixel borders disappeared. Keep each cell 56px with visible gutters.
     const mx=36,my=36,cell=160,gap=24,pad=16;
     const grid=3*cell+2*gap;
+    // Fixed labels on every cell make the diagnostic readable without
+    // relying on spatial counting. They never encode which cell is active.
+    const digits=['010111010010111','111001111100111','111001111001111','101101111001001','111100111001111','111100111101111','111001001001001','111101111101111','111101111001111'];
     fillRect(mx-pad,my-pad,mx+grid+pad-1,my+grid+pad-1,border);
     fillRect(mx-pad+8,my-pad+8,mx+grid+pad-9,my+grid+pad-9,bg);
     for(let i=0;i<9;i++){
@@ -669,6 +672,10 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       const x0=mx+col*(cell+gap), y0=my+row*(cell+gap);
       fillRect(x0-6,y0-6,x0+cell+5,y0+cell+5,border);
       fillRect(x0,y0,x0+cell-1,y0+cell-1,(i+1)===probeCell?active:inactive);
+      for(let bit=0;bit<15;bit++)if(digits[i][bit]==='1'){
+        const dx=x0+65+(bit%3)*10,dy=y0+55+Math.floor(bit/3)*10;
+        fillRect(dx,dy,dx+9,dy+9,border);
+      }
     }
   }
 

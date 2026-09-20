@@ -346,7 +346,7 @@ function localPixelBatchPrompt(images){
   return [
     'LOCAL_PIXEL_SINGLE. Read only the large 3x3 diagnostic grid in the upper left of the attached chart.',
     'Number cells left-to-right, top-to-bottom, 1..9: first row 1,2,3; second row 4,5,6; last row 7,8,9.',
-    'Which cell is bright MAGENTA? Reply with only one digit: the observed cell number. No timeframe, labels or explanation.'
+    'Each cell has its number printed inside. Read the digit printed inside the bright MAGENTA cell. Reply with only that one digit. No timeframe, labels or explanation.'
   ].join('\n');
 }
 function visionBatches(images,size=1){
