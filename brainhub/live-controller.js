@@ -2390,7 +2390,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       executionReadiness:planResult?.executionReadiness,
       apiPolicy:policy.apiPolicy,
       userApproved:true,
-      order
+      order,
+      // Use the controller clock consistently. The registry defaults to Date.now(),
+      // but tests and controlled runtimes may inject a clock; mixing the two can
+      // make a freshly issued one-shot grant appear to be from the future/expired.
+      now:clock()
     });
     if (!grant.ok) {
       const claimRelease = releaseClaim();
