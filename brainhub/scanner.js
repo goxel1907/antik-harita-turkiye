@@ -5,7 +5,10 @@ const path = require('path');
 
 const ROOT = process.env.BRAINHUB_ROOT || path.resolve(__dirname, '..');
 const STATE_PATH = path.join(ROOT, 'data', 'scanner-state.json');
+const ATTENTION_PATH = path.join(ROOT, 'data', 'scanner-attention.json');
 const BASE = 'https://fapi.binance.com';
+const ATTENTION_MAX_AGE_MS = 15 * 60 * 1000;
+const TARGET_DETAIL_LIMIT = 24;
 const EXCHANGE_TTL_MS = 10 * 60 * 1000;
 
 let exchangeCache = { at: 0, data: null };
@@ -46,6 +49,65 @@ function writeState(state) {
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
   fs.renameSync(tmp, STATE_PATH);
 }
+
+function readAttention(now = Date.now()) {
+  try {
+    const raw=JSON.parse(fs.readFileSync(ATTENTION_PATH,'utf8').replace(/^\uFEFF/,''));
+    const updatedAt=Number(raw?.updatedAt || 0);
+    const ageMs=updatedAt>0 ? Math.max(0,now-updatedAt) : Number.POSITIVE_INFINITY;
+    const rows=Array.isArray(raw?.rows) ? raw.rows : [];
+    if(ageMs>ATTENTION_MAX_AGE_MS) return { available:false, updatedAt, ageMs, rows:[] };
+    const clean=rows
+      .map(r=>({
+        symbol:String(r?.symbol||'').toUpperCase(),
+        talkScore:cap100(r?.talkScore),
+        earlyMoveScore:cap100(r?.earlyMoveScore),
+        sourceConfidence:cap100(r?.sourceConfidence),
+        preMoveState:String(r?.preMoveState||'').slice(0,32),
+        direction:String(r?.direction||'').slice(0,32)
+      }))
+      .filter(r=>validUsdtSymbol(r.symbol))
+      .sort((a,b)=>
+        b.earlyMoveScore-a.earlyMoveScore ||
+        b.talkScore-a.talkScore ||
+        b.sourceConfidence-a.sourceConfidence)
+      .slice(0,12);
+    return { available:clean.length>0, updatedAt, ageMs, rows:clean };
+  } catch {
+    return { available:false, updatedAt:0, ageMs:null, rows:[] };
+  }
+}
+
+function writeAttentionSnapshot(body = {}) {
+  const now=Date.now();
+  const incomingAt=Number(body?.updatedAt || now);
+  const rows=Array.isArray(body?.rows) ? body.rows : [];
+  const clean=rows.slice(0,24).map(r=>({
+    symbol:String(r?.symbol||'').toUpperCase(),
+    talkScore:cap100(r?.talkScore),
+    earlyMoveScore:cap100(r?.earlyMoveScore),
+    sourceConfidence:cap100(r?.sourceConfidence),
+    preMoveState:String(r?.preMoveState||'').slice(0,32),
+    direction:String(r?.direction||'').slice(0,32)
+  })).filter(r=>validUsdtSymbol(r.symbol));
+  fs.mkdirSync(path.dirname(ATTENTION_PATH),{recursive:true});
+  const tmp=ATTENTION_PATH+'.'+process.pid+'.tmp';
+  const out={updatedAt:Number.isFinite(incomingAt)&&incomingAt>0?incomingAt:now,receivedAt:now,rows:clean};
+  fs.writeFileSync(tmp,JSON.stringify(out,null,2),'utf8');
+  fs.renameSync(tmp,ATTENTION_PATH);
+  return {ok:true,received:clean.length,updatedAt:out.updatedAt};
+}
+
+function accumulationProxyScore(x) {
+  const absChange=Math.abs(num(x?.priceChangePercent));
+  const range=num(x?.range24hPct);
+  const volRank=Math.max(1,num(x?.volumeRank)||9999);
+  const liquidity=Math.max(0,1-Math.min(volRank,180)/180);
+  const mutedMove=Math.max(0,1-Math.min(absChange,12)/12);
+  const usableRange=range>=1.5&&range<=18 ? 1-Math.min(Math.abs(range-6),12)/12 : 0;
+  return round((liquidity*40 + mutedMove*35 + usableRange*25),3);
+}
+
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
   let next = 0;
@@ -127,34 +189,99 @@ function candidatePreScore(x, prevRow = null) {
     continuityBoost;
 }
 
-function selectCandidates(universe, prevState = {}, limit = 32) {
-  const liquidTop = universe.slice(0,100);
-  const volatileTop = [...universe].sort((a,b)=>b.range24hPct-a.range24hPct).slice(0,120);
-  const universeMap = new Map(universe.map(x => [x.symbol,x]));
-  const statePriority = { TOP3_APPROACH:5, TOP10_APPROACH:4, EARLY_TOP5:3, EARLY_EXPANSION:2, RISING:1 };
-  const continuity = Object.entries(prevState?.bySymbol || {})
-    .filter(([symbol,row]) => universeMap.has(symbol) && (num(row?.rankVelocity) > 0 || statePriority[row?.leaderState]))
-    .sort((a,b) =>
-      (statePriority[b[1]?.leaderState] || 0) - (statePriority[a[1]?.leaderState] || 0) ||
-      num(b[1]?.rankVelocity) - num(a[1]?.rankVelocity) ||
-      num(b[1]?.leaderHunterScore) - num(a[1]?.leaderHunterScore))
-    .slice(0,12)
-    .map(([symbol]) => universeMap.get(symbol));
+function selectCandidates(universe, prevState = {}, attention = readAttention(), limit = TARGET_DETAIL_LIMIT) {
+  const universeMap=new Map(universe.map(x=>[x.symbol,x]));
+  const prevRows=Object.entries(prevState?.bySymbol || {})
+    .filter(([symbol])=>universeMap.has(symbol))
+    .map(([symbol,row])=>({symbol,row,x:universeMap.get(symbol)}));
 
-  const prefilterMap = new Map();
-  for (const x of [...liquidTop,...volatileTop,...continuity]) prefilterMap.set(x.symbol,x);
-  const prefilter = [...prefilterMap.values()];
-  const scored = prefilter
-    .map(x => ({ ...x, preScore:candidatePreScore(x, prevState?.bySymbol?.[x.symbol]) }))
-    .sort((a,b)=>b.preScore-a.preScore);
+  const previousTop3=prevRows
+    .filter(z=>num(z.row?.rank)>=1&&num(z.row?.rank)<=3)
+    .sort((a,b)=>num(a.row.rank)-num(b.row.rank))
+    .map(z=>z.x);
 
-  const continuitySymbols = new Set(continuity.map(x => x.symbol));
-  const bySymbol = new Map(scored.map(x => [x.symbol,x]));
-  const carried = continuity.map(x => bySymbol.get(x.symbol)).filter(Boolean);
-  const remainder = scored.filter(x => !continuitySymbols.has(x.symbol));
-  const candidates = [...carried,...remainder].slice(0,limit);
+  const previousTop4to10=prevRows
+    .filter(z=>num(z.row?.rank)>=4&&num(z.row?.rank)<=10)
+    .sort((a,b)=>num(a.row.rank)-num(b.row.rank))
+    .map(z=>z.x);
 
-  return { liquidTop, volatileTop, continuity, prefilter, candidates };
+  const top24Gainers=[...universe]
+    .filter(x=>num(x.priceChangePercent)>0)
+    .sort((a,b)=>num(b.priceChangePercent)-num(a.priceChangePercent)||num(b.quoteVolume)-num(a.quoteVolume))
+    .slice(0,24)
+    .map((x,i)=>({...x,gainerRank24:i+1}));
+
+  const accumulationPool=[...universe]
+    .filter(x=>x.volumeRank<=180&&Math.abs(num(x.priceChangePercent))<=12&&num(x.range24hPct)>=1.5&&num(x.range24hPct)<=18)
+    .map(x=>({...x,accumulationProxyScore:accumulationProxyScore(x)}))
+    .filter(x=>x.accumulationProxyScore>=42)
+    .sort((a,b)=>b.accumulationProxyScore-a.accumulationProxyScore||a.volumeRank-b.volumeRank)
+    .slice(0,12);
+
+  const attentionPool=(attention?.rows||[])
+    .map(a=>{
+      const x=universeMap.get(a.symbol);
+      return x ? {...x,attention:a} : null;
+    })
+    .filter(Boolean)
+    .slice(0,8);
+
+  const targetMap=new Map();
+  const add=(items,source,maxNew)=>{
+    let added=0;
+    for(const raw of items){
+      if(added>=maxNew||targetMap.size>=limit)break;
+      const symbol=raw?.symbol;
+      if(!symbol)continue;
+      const existing=targetMap.get(symbol);
+      if(existing){
+        existing.targetSources=[...new Set([...(existing.targetSources||[]),source])];
+        if(raw.gainerRank24)existing.gainerRank24=raw.gainerRank24;
+        if(raw.accumulationProxyScore)existing.accumulationProxyScore=raw.accumulationProxyScore;
+        if(raw.attention)existing.attention=raw.attention;
+        continue;
+      }
+      targetMap.set(symbol,{...raw,targetSources:[source]});
+      added++;
+    }
+  };
+
+  // Heavy detail budget is deliberately small. The full 24h ticker snapshot is
+  // lightweight and is used only to discover these priority buckets.
+  add(previousTop3,'PREV_ATTACK_TOP3',3);
+  add(previousTop4to10,'PREV_ATTACK_4_10',7);
+  add(top24Gainers,'BINANCE_TOP24_GAINER',6);
+  add(accumulationPool,'ACCUMULATION_PROXY',4);
+  add(attentionPool,'APP_EARLY_ATTENTION',4);
+
+  // Fill any unused slots with the strongest remaining candidates by a cheap
+  // pre-score; this avoids an empty scanner after restart without returning to
+  // a 523-symbol per-symbol detail sweep.
+  if(targetMap.size<limit){
+    const remainder=[...universe]
+      .filter(x=>!targetMap.has(x.symbol))
+      .map(x=>({...x,preScore:candidatePreScore(x,prevState?.bySymbol?.[x.symbol])}))
+      .sort((a,b)=>b.preScore-a.preScore)
+      .slice(0,limit-targetMap.size);
+    add(remainder,'LIGHTWEIGHT_FILL',limit-targetMap.size);
+  }
+
+  const candidates=[...targetMap.values()].slice(0,limit);
+  return {
+    previousTop3,
+    previousTop4to10,
+    top24Gainers,
+    accumulationPool,
+    attentionPool,
+    attentionStatus:{
+      available:attention?.available===true,
+      updatedAt:attention?.updatedAt||0,
+      ageMs:attention?.ageMs??null,
+      rows:(attention?.rows||[]).length
+    },
+    candidates,
+    targetSymbols:candidates.map(x=>x.symbol)
+  };
 }
 
 async function enrich(x, book, premium, prev) {
@@ -204,7 +331,11 @@ async function enrich(x, book, premium, prev) {
     priceChange24hPct: round(x.priceChangePercent, 3),
     range24hPct: round(x.range24hPct, 3),
     quoteVolume24h: round(x.quoteVolume, 0),
-    volumeRank: x.volumeRank
+    volumeRank: x.volumeRank,
+    targetSources:Array.isArray(x.targetSources)?x.targetSources.slice(0,6):[],
+    gainerRank24:num(x.gainerRank24)||null,
+    accumulationProxyScore:num(x.accumulationProxyScore)||0,
+    attention:x.attention||null
   };
 }
 
@@ -244,6 +375,14 @@ function addLeaderHunterFields(x, rank, prevRow) {
   else if (earlyTop5) leaderState = 'EARLY_TOP5';
   else if (earlyExpansion) leaderState = 'EARLY_EXPANSION';
   else if (rankVelocity >= 2 && directionSupport >= 2) leaderState = 'RISING';
+  const targetSources=Array.isArray(x.targetSources)?x.targetSources:[];
+  const accumulationBreakoutCandidate=Boolean(
+    targetSources.includes('ACCUMULATION_PROXY') &&
+    num(x.spreadBps)<=8 &&
+    num(x.tradeQuality)>=58 &&
+    num(x.movementPotential)>=40 &&
+    (num(x.volumeAcceleration)>=0.25 || Math.abs(num(x.oiDeltaPct))>=0.05)
+  );
   Object.assign(x, {
     attackRank: rank,
     projectedRank,
@@ -260,6 +399,7 @@ function addLeaderHunterFields(x, rank, prevRow) {
     top5Confirmed,
     earlyTop5,
     earlyExpansion,
+    accumulationBreakoutCandidate,
     leaderState
   });
 }
@@ -292,8 +432,9 @@ async function performScan() {
     .sort((a,b)=>b.quoteVolume-a.quoteVolume);
   universe.forEach((x,i)=>{x.volumeRank=i+1;});
 
-  const selection = selectCandidates(universe,prev,32);
-  const { liquidTop, volatileTop, continuity, prefilter, candidates } = selection;
+  const attention=readAttention();
+  const selection = selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
+  const { previousTop3, previousTop4to10, top24Gainers, accumulationPool, attentionPool, attentionStatus, candidates, targetSymbols } = selection;
 
   const enriched = await mapLimit(candidates,8,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
@@ -323,16 +464,27 @@ async function performScan() {
   const top10Approach=[...leaderHunters].filter(x=>x.top10Approach).sort((a,b)=>a.projectedRank-b.projectedRank||b.rankVelocity-a.rankVelocity||b.leaderHunterScore-a.leaderHunterScore);
   const longExpansion=[...leaderHunters].sort((a,b)=>b.longExpansionScore-a.longExpansionScore).slice(0,10);
   const shortExpansion=[...leaderHunters].sort((a,b)=>b.shortExpansionScore-a.shortExpansionScore).slice(0,10);
+  const gainerCandidates=leaderHunters.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('BINANCE_TOP24_GAINER'));
+  const accumulationCandidates=leaderHunters.filter(x=>x.accumulationBreakoutCandidate===true || (Array.isArray(x.targetSources)&&x.targetSources.includes('ACCUMULATION_PROXY')));
+  const attentionCandidates=leaderHunters.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('APP_EARLY_ATTENTION'));
   return {
     ok:true,
     source:'Binance USDT-M public API; short-horizon stats use closed 1m/3m/5m candles only',
     generatedAt:new Date().toISOString(),
     activeUsdtPerpetuals:allowed.size,
     universeCount:universe.length,
-    liquidPrefilter:liquidTop.length,
-    volatilePrefilter:volatileTop.length,
-    continuityPrefilter:continuity.length,
-    combinedPrefilter:prefilter.length,
+    lightweightUniverseCount:universe.length,
+    targetUniverseCount:candidates.length,
+    targetDetailLimit:TARGET_DETAIL_LIMIT,
+    targetSymbols,
+    priorityBuckets:{
+      previousTop3:previousTop3.map(x=>x.symbol),
+      previousTop4to10:previousTop4to10.map(x=>x.symbol),
+      top24Gainers:top24Gainers.map(x=>x.symbol),
+      accumulationProxy:accumulationPool.map(x=>x.symbol),
+      appEarlyAttention:attentionPool.map(x=>x.symbol)
+    },
+    attentionStatus,
     analyzed:good.length,
     failed:enriched.filter(x=>x.error),
     scanMs:Date.now()-started,
@@ -341,12 +493,24 @@ async function performScan() {
     top3Approach:top3Approach.slice(0,10),
     top10Approach:top10Approach.slice(0,12),
     earlyExpansion:earlyExpansion.slice(0,12),
+    top24Gainers:top24Gainers.map(x=>({
+      symbol:x.symbol,
+      priceChange24hPct:round(x.priceChangePercent,3),
+      quoteVolume24h:round(x.quoteVolume,0),
+      volumeRank:x.volumeRank,
+      gainerRank24:x.gainerRank24
+    })),
+    gainerCandidates:gainerCandidates.slice(0,12),
+    accumulationCandidates:accumulationCandidates.slice(0,10),
+    attentionCandidates:attentionCandidates.slice(0,10),
     longExpansion,
     shortExpansion,
     earlyTop5:leaderHunters.filter(x=>x.earlyTop5).slice(0,10),
     top5Confirmed:leaderHunters.filter(x=>x.top5Confirmed).slice(0,5),
     notes:[
-      'Current 24h top gainers or losers are not forced into deep scan merely because they already moved',
+      '523-symbol Binance ticker data is used only as a lightweight discovery snapshot; per-symbol 1m/3m/5m/OI detail work is capped to the 24-symbol priority target universe',
+      'Priority order is previous attack top3, previous attack ranks 4-10, selected members of Binance top24 gainers, objective accumulation/breakout proxies, and fresh app early-attention symbols',
+      'Accumulation is a public-data proxy only, not proof of hidden orders or market-maker intent',
       'TOP10_APPROACH and TOP3_APPROACH use attack-rank velocity, acceleration, 1m/3m/5m directional expansion, flow/OI support, spread and trade quality',
       'The same early-approach logic applies independently to LONG and SHORT hypotheses',
       'Volume rank is liquidity context only and does not dominate opportunity selection',
@@ -364,4 +528,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={scan,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol};
+module.exports={scan,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,TARGET_DETAIL_LIMIT};
