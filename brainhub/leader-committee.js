@@ -48,41 +48,56 @@ function compactCandidate(c) {
 }
 
 function selectDeepCandidates(scan, limit = 16) {
-  const leaders = Array.isArray(scan?.leaders) ? scan.leaders : [];
-  const currentTop10 = leaders
-    .filter(x => x && num(x.attackRank) >= 1 && num(x.attackRank) <= 10)
-    .sort((a,b) => num(a.attackRank) - num(b.attackRank));
+  const leaders=Array.isArray(scan?.leaders)?scan.leaders:[];
+  const top3=leaders
+    .filter(x=>x&&num(x.attackRank)>=1&&num(x.attackRank)<=3)
+    .sort((a,b)=>num(a.attackRank)-num(b.attackRank));
+  const top4to10=leaders
+    .filter(x=>x&&num(x.attackRank)>=4&&num(x.attackRank)<=10)
+    .sort((a,b)=>num(a.attackRank)-num(b.attackRank));
 
-  const approachPools = [
-    ...(Array.isArray(scan?.top3Approach) ? scan.top3Approach : []),
-    ...(Array.isArray(scan?.top10Approach) ? scan.top10Approach : []),
-    ...(Array.isArray(scan?.earlyTop5) ? scan.earlyTop5 : []),
-    ...(Array.isArray(scan?.earlyExpansion) ? scan.earlyExpansion : [])
+  const categoryPools=[
+    { reason:'CURRENT_ATTACK_TOP3', rows:top3 },
+    { reason:'CURRENT_ATTACK_4_10', rows:top4to10 },
+    { reason:'BINANCE_TOP24_GAINER', rows:Array.isArray(scan?.gainerCandidates)?scan.gainerCandidates:[] },
+    { reason:'ACCUMULATION_BREAKOUT_PROXY', rows:Array.isArray(scan?.accumulationCandidates)?scan.accumulationCandidates:[] },
+    { reason:'APP_EARLY_ATTENTION', rows:Array.isArray(scan?.attentionCandidates)?scan.attentionCandidates:[] }
   ];
 
-  const seen = new Set();
-  const out = [];
-  for (const c of currentTop10) {
-    if (!c?.symbol || seen.has(c.symbol)) continue;
-    seen.add(c.symbol);
-    out.push({ ...c, deepScanReason:'CURRENT_ATTACK_TOP10' });
-  }
+  const approachPools=[
+    ...(Array.isArray(scan?.top3Approach)?scan.top3Approach:[]),
+    ...(Array.isArray(scan?.top10Approach)?scan.top10Approach:[]),
+    ...(Array.isArray(scan?.earlyTop5)?scan.earlyTop5:[]),
+    ...(Array.isArray(scan?.earlyExpansion)?scan.earlyExpansion:[])
+  ].sort((a,b)=>
+    (STATE_PRIORITY[b.leaderState]||0)-(STATE_PRIORITY[a.leaderState]||0) ||
+    num(a.projectedRank)-num(b.projectedRank) ||
+    num(b.rankVelocity)-num(a.rankVelocity) ||
+    num(b.leaderHunterScore)-num(a.leaderHunterScore));
 
-  const approaching = approachPools
-    .filter(x => x?.symbol && !seen.has(x.symbol))
-    .sort((a,b) =>
-      (STATE_PRIORITY[b.leaderState] || 0) - (STATE_PRIORITY[a.leaderState] || 0) ||
-      num(a.projectedRank) - num(b.projectedRank) ||
-      num(b.rankVelocity) - num(a.rankVelocity) ||
-      num(b.leaderHunterScore) - num(a.leaderHunterScore));
-
-  for (const c of approaching) {
-    if (out.length >= limit) break;
-    if (seen.has(c.symbol)) continue;
-    seen.add(c.symbol);
-    out.push({ ...c, deepScanReason:c.leaderState || 'APPROACHING' });
+  const seen=new Set();
+  const out=[];
+  const addPool=(rows,reason)=>{
+    for(const c of rows){
+      if(out.length>=limit)break;
+      if(!c?.symbol||seen.has(c.symbol))continue;
+      seen.add(c.symbol);
+      out.push({...c,deepScanReason:reason});
+    }
+  };
+  for(const p of categoryPools){
+    addPool(p.rows,p.reason);
+    if(out.length>=limit)break;
   }
-  return out.slice(0, Math.max(1, limit));
+  if(out.length<limit){
+    for(const c of approachPools){
+      if(out.length>=limit)break;
+      if(!c?.symbol||seen.has(c.symbol))continue;
+      seen.add(c.symbol);
+      out.push({...c,deepScanReason:c.leaderState||'APPROACHING'});
+    }
+  }
+  return out.slice(0,Math.max(1,limit));
 }
 
 function detailProbeCandidate(scan, limit = 16) {
@@ -162,8 +177,8 @@ function buildPrompt(candidates) {
   const rows = candidates.map(compactCandidate);
   return [
     'Leader Hunter derin tarama paketi.',
-    'Bu paket CURRENT_ATTACK_TOP10 coinlerini ve top-10/top-3 seviyesine yaklaşan erken adayları birlikte içerir.',
-    'Attack rank 24 saatlik gainer/loser sırası değildir; uygulamanın iç fırsat sıralamasıdır.',
+    'Öncelik sırası: CURRENT_ATTACK_TOP3, CURRENT_ATTACK_4_10, BINANCE_TOP24_GAINER, ACCUMULATION_BREAKOUT_PROXY, APP_EARLY_ATTENTION; sonra diğer erken yaklaşanlar.',
+    'Attack rank uygulamanın iç fırsat sıralamasıdır. BINANCE_TOP24_GAINER ayrı bir keşif kovasıdır ve tek başına işlem sinyali değildir.',
     'Her sembolde LONG ve SHORT hipotezlerini AYRI değerlendir. Scanner preferred side yalnız başlangıç hipotezidir, karar değildir.',
     'LONG_EXPANSION ve SHORT_EXPANSION ayrı sinyallerdir. movementPotential yönsüz hareket potansiyelidir; hiçbiri işlem garantisi değildir.',
     '1m/3m/5m momentum, spread, taker akışı, OI, funding, volume/range expansion ve trade quality verilerini birlikte değerlendir.',
@@ -203,7 +218,7 @@ async function run({ scan, port = 8787, token = '' }) {
     'Evaluate LONG and SHORT independently for every supplied symbol.',
     'Do not invent prices, levels, news, fundamentals, liquidation maps, or order-book facts.',
     'Current attack-top10 membership is not itself a trade signal.',
-    'Early expansion context is supportive, not a license to override risk rules.',
+    'Accumulation/breakout etiketi yalnız halka açık hacim-fiyat-OI proxy bağlamıdır; gizli emir veya market-maker niyeti kanıtı değildir. Erken ilgi/sosyal konuşulma da yalnız keşif bağlamıdır ve risk kurallarını bypass etmez.',
     'This endpoint is advisory only and cannot place orders.'
   ].join(' ');
   const committee = await postJson(
