@@ -639,3 +639,37 @@ test('leader lifecycle persists across restart and reanalysis remains analysis-o
 
   fs.rmSync(root,{recursive:true,force:true});
 });
+
+
+test('re-enabling Leader Auto suppresses stale disabled status until the next tick', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-leader-stale-disabled-'));
+  try {
+    fs.mkdirSync(path.join(root,'config'),{recursive:true});
+    fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify(policy(),null,2));
+    const controller=createLiveController({
+      root,
+      store:{ journal(){} },
+      scanner:{ async scan(){ return candidateScan(); } },
+      pipeline:{ async run(){ return advisory('WATCH'); } },
+      committee:async()=>({ok:true,text:''}),
+      fetchImpl:async()=>{ throw new Error('disabled tick must not contact exchange'); }
+    });
+
+    const disabled=await controller.leaderAutoTick();
+    assert.equal(disabled.execution,'LEADER_AUTO_DISABLED');
+    assert.equal(controller.leaderAutoStatus().lastExecution,'LEADER_AUTO_DISABLED');
+
+    const cfg=controller.configureLeaderAuto({
+      enabled:true,marginQuote:25,leverage:10,maxOpenPositions:2,allowLong:true,allowShort:true
+    });
+    assert.equal(cfg.ok,true);
+    const status=controller.leaderAutoStatus();
+    assert.equal(status.enabled,true);
+    assert.equal(status.lastExecution,null);
+    assert.deepEqual(status.lastReasons,[]);
+    assert.equal(status.consecutiveBlocked,0);
+    assert.equal(status.lastTickAt,null);
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
