@@ -829,7 +829,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
         maxOpenPositions,
         allowLong,
         allowShort,
-        intervalSec:60
+        intervalSec:30
       },
       reasons:[...new Set(reasons)]
     };
@@ -840,7 +840,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     try {
       if (fs.existsSync(leaderAutoFile)) raw = JSON.parse(fs.readFileSync(leaderAutoFile, 'utf8'));
     } catch {
-      return { ok:false, config:{ enabled:false, marginQuote:null, leverage:null, maxOpenPositions:null, allowLong:false, allowShort:false, intervalSec:60 }, reasons:['LEADER_AUTO_CONFIG_INVALID'] };
+      return { ok:false, config:{ enabled:false, marginQuote:null, leverage:null, maxOpenPositions:null, allowLong:false, allowShort:false, intervalSec:30 }, reasons:['LEADER_AUTO_CONFIG_INVALID'] };
     }
     return normalizeLeaderAuto(raw, readPolicy(root));
   }
