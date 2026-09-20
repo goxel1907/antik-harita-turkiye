@@ -57,8 +57,10 @@ function selectDeepCandidates(scan, limit = 16) {
     .sort((a,b)=>num(a.attackRank)-num(b.attackRank));
 
   const categoryPools=[
-    { reason:'CURRENT_ATTACK_TOP3', rows:top3 },
-    { reason:'CURRENT_ATTACK_4_10', rows:top4to10 },
+    // Keep the established CURRENT_ATTACK_TOP10 reason contract for lifecycle/UI
+    // compatibility; pool order still gives ranks 1-3 strict priority over 4-10.
+    { reason:'CURRENT_ATTACK_TOP10', rows:top3 },
+    { reason:'CURRENT_ATTACK_TOP10', rows:top4to10 },
     { reason:'BINANCE_TOP24_GAINER', rows:Array.isArray(scan?.gainerCandidates)?scan.gainerCandidates:[] },
     { reason:'ACCUMULATION_BREAKOUT_PROXY', rows:Array.isArray(scan?.accumulationCandidates)?scan.accumulationCandidates:[] },
     { reason:'APP_EARLY_ATTENTION', rows:Array.isArray(scan?.attentionCandidates)?scan.attentionCandidates:[] }
