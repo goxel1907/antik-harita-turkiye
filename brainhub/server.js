@@ -519,6 +519,88 @@ function globalCoreContract(text){
   const missing=[...new Set([...base.missing,...invalid])];
   return {ok:missing.length===0,missing,lines:base.lines};
 }
+function compactLocalFinalizeContext(localContext){
+  const c=localContext&&typeof localContext==='object'?localContext:{};
+  const frames={};
+  for(const tf of ['1m','3m','5m','15m','30m','45m','1h','4h','1d']){
+    const f=c.frames?.[tf]||{};
+    frames[tf]={
+      available:f.available===true,
+      fresh:f.fresh??null,
+      close:f.close??null,
+      trend:f.trend??null,
+      breakOfStructure:f.breakOfStructure??null,
+      opportunity:f.opportunity?{
+        state:f.opportunity.state??null,
+        preferredSide:f.opportunity.preferredSide??null,
+        originEligible:f.opportunity.originEligible??null,
+        ownerEligible:f.opportunity.ownerEligible??null
+      }:null,
+      breakoutExecution:f.breakoutExecution?{
+        status:f.breakoutExecution.status??null,
+        allowed:f.breakoutExecution.allowed??null
+      }:null
+    };
+  }
+  const m=c.microstructure||{};
+  const l=c.liquidationContext||{};
+  return {
+    symbol:c.symbol||null,
+    livePrice:c.livePrice??null,
+    sourceCandidate:c.sourceCandidate||null,
+    frames,
+    opportunityPaths:c.opportunityPaths||null,
+    microstructure:m.available?{
+      available:true,
+      quality:m.quality||m.sourceQuality||null,
+      spreadBps:m.spreadBps??null,
+      depth20Imbalance:m.depth20Imbalance??null,
+      cvdSampleQuote:m.cvdSampleQuote??null,
+      cvdSource:m.cvdSource||null,
+      ofiProxyQuote:m.ofiProxyQuote??null,
+      streaming:m.streaming?{
+        available:Boolean(m.streaming.available),
+        connected:Boolean(m.streaming.connected),
+        ageMs:m.streaming.ageMs??null
+      }:null
+    }:{available:false,reason:m.reason||null},
+    liquidationContext:l.available?{
+      available:true,
+      source:l.source||null,
+      semantics:l.semantics||null,
+      count:l.count??null,
+      asOf:l.asOf||null,
+      longLiquidatedQuote:l.longLiquidatedQuote??null,
+      shortLiquidatedQuote:l.shortLiquidatedQuote??null,
+      zones:Array.isArray(l.zones)?l.zones.slice(0,3):[]
+    }:{available:false,reason:l.reason||null},
+    global:c.global||null,
+    dataQuality:c.dataQuality||null,
+    policy:c.policy||null
+  };
+}
+function localGlobalNarrativeRepairMessages(role,missing,visionText,localContext,narrativeText){
+  return [
+    {role:'system',content:roleInstruction(role)+' LOCAL_GLOBAL_NARRATIVE_REPAIR: repair only missing narrative labels from supplied evidence. Do not change direction/status, do not invent facts, and return only requested LABEL: value lines. Advisory only.'},
+    {role:'user',content:[
+      'Repair only these labels: '+missing.join(', '),
+      'WHY: concise common evidence/conflict',
+      'RISK_NOTE: concise main invalidation risk',
+      'WAIT_FOR: exact wait condition; NONE only when evidence already supports no wait',
+      'FORMING_CONTEXT: forming candle is context only, never confirmation',
+      'VISION_SUMMARY: concise 9TF support/veto and origin-to-owner summary',
+      '',
+      'EXISTING_NARRATIVE:',
+      String(narrativeText||'').slice(0,1800),
+      '',
+      'TF_EVIDENCE:',
+      String(visionText||''),
+      '',
+      'COMPACT_CONTEXT_JSON:',
+      JSON.stringify(localContext||{})
+    ].join('\n')}
+  ];
+}
 function localGlobalCoreRepairMessages(role,missing,visionText,localContext){
   return [
     {role:'system',content:roleInstruction(role)+' LOCAL_GLOBAL_CORE_REPAIR: choose concrete values, never echo option lists or placeholders. Return only requested LABEL: value lines. Advisory only.'},
@@ -667,10 +749,11 @@ async function runLocalVisionCommitteeUnlocked(body){
       const visionDurationMs=Date.now()-visionStarted;
       const visionText=batchTexts.filter(Boolean).join('\n');
       const finalizeStarted=Date.now();
+      const finalizeContext=compactLocalFinalizeContext(j.localContext||{});
       const core=await callLocalStage(
         'FINALIZE_CORE',
         model,
-        localGlobalCoreMessages(role,visionText,j.localContext||{}),
+        localGlobalCoreMessages(role,visionText,finalizeContext),
         local.timeoutMs,
         {temperature:0,maxTokens:320}
       );
@@ -680,7 +763,7 @@ async function runLocalVisionCommitteeUnlocked(body){
         const coreRepair=await callLocalStage(
           'FINALIZE_CORE_REPAIR',
           model,
-          localGlobalCoreRepairMessages(role,coreContract.missing,visionText,j.localContext||{}),
+          localGlobalCoreRepairMessages(role,coreContract.missing,visionText,finalizeContext),
           local.timeoutMs,
           {temperature:0,maxTokens:220}
         );
@@ -692,12 +775,24 @@ async function runLocalVisionCommitteeUnlocked(body){
       const narrative=await callLocalStage(
         'FINALIZE_NARRATIVE',
         model,
-        localGlobalNarrativeMessages(role,visionText,j.localContext||{}),
+        localGlobalNarrativeMessages(role,visionText,finalizeContext),
         local.timeoutMs,
-        {temperature:0,maxTokens:520}
+        {temperature:0,maxTokens:420}
       );
       const narrativeLabels=['WHY','RISK_NOTE','WAIT_FOR','FORMING_CONTEXT','VISION_SUMMARY'];
-      const narrativeContract=labeledContract(narrative.text,narrativeLabels);
+      let narrativeContract=labeledContract(narrative.text,narrativeLabels);
+      if(!narrativeContract.ok){
+        const narrativeRepair=await callLocalStage(
+          'FINALIZE_NARRATIVE_REPAIR',
+          model,
+          localGlobalNarrativeRepairMessages(role,narrativeContract.missing,visionText,finalizeContext,narrative.text),
+          local.timeoutMs,
+          {temperature:0,maxTokens:260}
+        );
+        const repairContract=labeledContract(narrativeRepair.text,narrativeLabels);
+        narrativeContract=mergeLabelContracts(narrativeContract,repairContract,narrativeContract.missing);
+        narrativeContract=labeledContract(normalizedLabeledText(narrativeContract,narrativeLabels,240),narrativeLabels);
+      }
       if(!narrativeContract.ok)throw new Error('GLOBAL_NARRATIVE_CONTRACT missing='+narrativeContract.missing.join(','));
       const finalizeDurationMs=Date.now()-finalizeStarted;
       const roleSummary=localRoleSummary(visionText);
@@ -795,7 +890,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
