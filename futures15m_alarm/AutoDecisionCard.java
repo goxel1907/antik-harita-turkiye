@@ -159,6 +159,34 @@ public final class AutoDecisionCard {
         b.append("\nEkranda gösterilen son karar/işlem örneği: ").append(recent==null?0:recent.length()).append(" (geçmiş veritabanında tutulur)");
         b.append("\nSonuç istatistiği grubu: ").append(stats==null?0:stats.length());
         b.append("\nÖğrenme stop/risk güvenlik kurallarını otomatik gevşetmez.");
+
+        JSONObject health=json(sp.getString("v95104_pc_auto_health","{}"));
+        b.append("\n\nOTO SAĞLIK / FIRSAT AKIŞI");
+        if(health.length()==0)b.append("\nHenüz sağlık telemetrisi birikmedi.");
+        else{
+            b.append(String.format(java.util.Locale.US,"\nGözlenen pencere: %.1f dk / son 60 dk",health.optDouble("observedMinutes",0)));
+            b.append("\nTarama turu: ").append(health.optInt("scanRuns",0));
+            b.append("\nDerin 9TF analizi: ").append(health.optInt("deepAnalyses",0))
+             .append(" • farklı coin ").append(health.optInt("uniqueAnalyzedSymbols",0));
+            b.append("\nSonuç: işlem adayı ").append(health.optInt("qualified",0))
+             .append(" • izle/bekle ").append(health.optInt("watch",0))
+             .append(" • yeniden incele ").append(health.optInt("reviewRequired",0))
+             .append(" • red ").append(health.optInt("reject",0));
+            b.append("\nVision/komite erişim kesintisi: ").append(health.optInt("visionUnavailable",0));
+            b.append("\nYoğunluk nedeniyle atlanan tur: ").append(health.optInt("skippedBusy",0))
+             .append(" • pipeline yoğun ").append(health.optInt("skippedPipelineBusy",0));
+            long avg=health.optLong("avgAnalysisMs",-1L);
+            if(avg>=0)b.append(String.format(java.util.Locale.US,"\nOrtalama derin analiz: %.1f sn",avg/1000.0));
+            b.append("\nAçılan canlı emir: ").append(health.optInt("ordersPlaced",0));
+            JSONArray top=health.optJSONArray("topReasons");
+            if(top!=null&&top.length()>0){
+                b.append("\nEn sık bekleme/engel nedenleri:");
+                for(int i=0;i<Math.min(5,top.length());i++){
+                    JSONObject x=top.optJSONObject(i);if(x==null)continue;
+                    b.append("\n• ").append(trReason(x.optString("reason","?"))).append(" ×").append(x.optInt("count",0));
+                }
+            }
+        }
         JSONObject diag=json(sp.getString("v9593_pc_auto_diagnostics","{}"));
         line(b,"Aday turu: ",diag,"generatedAt");
         b.append("\nSon PC turu: ").append(sp.getString("v9592_pc_auto_last_tick_at","Henüz yok"));
