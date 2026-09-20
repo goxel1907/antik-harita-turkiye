@@ -57,6 +57,8 @@ try {
         $text -notmatch 'BACKGROUND_VISION_COLLISION_GUARD' -or
         $text -notmatch 'VISION_WATCH_NONE_ANTI_CHOKE' -or
         $text -notmatch 'USER_PANEL_EXACT_SIZING' -or
+        $text -notmatch 'VISION_RUNTIME_TRUTH_STATUS' -or
+        $text -notmatch 'LEADER_STATUS_STALE_SUPPRESSION' -or
         $text -notmatch 'ANDROID_FULL_TURKISH_STATUS' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
