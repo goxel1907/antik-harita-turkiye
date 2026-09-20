@@ -616,7 +616,11 @@ function compactLocalFinalizeContext(localContext){
     }:{available:false,reason:l.reason||null},
     global:c.global||null,
     dataQuality:c.dataQuality||null,
-    policy:c.policy||null
+    policy:c.policy||null,
+    // BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE:
+    // local Qwen final decision receives only outcome-backed learning evidence.
+    // Unlabeled PLAN/WATCH history is intentionally excluded to avoid self-reinforcing caution.
+    learning:pipeline.compactOutcomeLearningContext(c.learning)
   };
 }
 function localGlobalNarrativeRepairMessages(role,missing,visionText,localContext,narrativeText,coreText){
@@ -707,7 +711,7 @@ function localGlobalCoreRepairMessages(role,missing,visionText,localContext){
 function localGlobalCoreMessages(role,visionText,localContext){
   const sys=[
     roleInstruction(role),
-    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has unresolved confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. WATCH is allowed only when TF_EVIDENCE contains a concrete unresolved condition; do not use WATCH as generic caution. Advisory only.'
+    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has unresolved confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. WATCH is allowed only when TF_EVIDENCE contains a concrete unresolved condition; do not use WATCH as generic caution. LEARNING, when present, contains only outcome-backed closed-trade statistics and is soft tie-break/context only: it cannot by itself create QUALIFIED, WATCH, REJECT or VETO, cannot override fresh 9TF evidence, and cannot change stop/risk/execution rules. If learning.available is false, ignore learning completely. Advisory only.'
   ].join(' ');
   return [
     {role:'system',content:sys},
@@ -720,6 +724,7 @@ function localGlobalCoreMessages(role,visionText,localContext){
       'SETUP: en fazla 5 kelime',
       'EXEC_PATH: en fazla 5 kelime',
       'Safety rule: STATUS=QUALIFIED requires ORIGIN_TF and OWNER_TF not to be VETO and no unresolved execution-path wait/confirmation condition. Other TF VETO roles remain contextual evidence for Jev. STATUS=WATCH requires a concrete unresolved TF_*_WAIT condition; if none exists, do not leave the plan in WATCH.',
+      'Learning rule: COMPACT_CONTEXT_JSON.learning is outcome-backed soft context only. No closed outcome samples => no learning influence. Never use unlabeled prior WATCH/PLAN decisions as evidence.',
       '',
       'TF_EVIDENCE:',
       String(visionText||''),
@@ -732,7 +737,7 @@ function localGlobalCoreMessages(role,visionText,localContext){
 function localGlobalNarrativeMessages(role,visionText,localContext,coreText){
   const sys=[
     roleInstruction(role),
-    'LOCAL_GLOBAL_NARRATIVE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly five labeled Turkish lines. Each value must be concise: maximum 220 characters. Do not repeat patterns or timeframe names more than necessary. Forming candles are context only, never confirmation. Advisory only.'
+    'LOCAL_GLOBAL_NARRATIVE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly five labeled Turkish lines. Each value must be concise: maximum 220 characters. Do not repeat patterns or timeframe names more than necessary. Forming candles are context only, never confirmation. Outcome-backed learning may be mentioned only as secondary historical context; never invent an effect when learning.available is false. Advisory only.'
   ].join(' ');
   return [
     {role:'system',content:sys},
@@ -1028,7 +1033,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.105-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.105-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
