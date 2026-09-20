@@ -18,6 +18,7 @@ const HOST=process.env.BRAINHUB_HOST||'127.0.0.1';
 const PORT=Number(process.env.BRAINHUB_PORT||8787);
 const CLIENT_TOKEN=(process.env.BRAINHUB_CLIENT_TOKEN||'').trim();
 const OPENROUTER_API_KEY=(process.env.BRAINHUB_OPENROUTER_API_KEY||'').trim();
+const OPENROUTER_MANAGEMENT_KEY=(process.env.BRAINHUB_OPENROUTER_MANAGEMENT_KEY||'').trim();
 const BINANCE_CREDENTIALS={
   apiKey:(process.env.BRAINHUB_BINANCE_API_KEY||'').trim(),
   apiSecret:(process.env.BRAINHUB_BINANCE_API_SECRET||'').trim()
@@ -26,7 +27,8 @@ const TTL=(Number(cfg.healthCacheSeconds)||600)*1000;
 if(!KEY){console.error('BRAINHUB_ROUTER_KEY missing');process.exit(2);}
 if(HOST!=='127.0.0.1'&&HOST!=='::1'&&CLIENT_TOKEN.length<32){console.error('BRAINHUB_CLIENT_TOKEN (32+ chars) required for non-loopback binding');process.exit(2);}
 const store=openStore(ROOT);
-const jev=createJevClient({root:ROOT,apiKey:OPENROUTER_API_KEY});
+const jev=createJevClient({root:ROOT,apiKey:OPENROUTER_API_KEY,managementKey:OPENROUTER_MANAGEMENT_KEY});
+jev.billingStatus({force:true}).catch(()=>{});
 
 fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
@@ -625,7 +627,7 @@ function localGlobalCoreRepairMessages(role,missing,visionText,localContext){
 function localGlobalCoreMessages(role,visionText,localContext){
   const sys=[
     roleInstruction(role),
-    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. QUALIFIED is allowed only when no TF_*_ROLE is VETO and no unresolved confirmation/reclaim/wait condition remains; otherwise choose WATCH or REJECT. Advisory only.'
+    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has unresolved confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. Advisory only.'
   ].join(' ');
   return [
     {role:'system',content:sys},
@@ -637,7 +639,7 @@ function localGlobalCoreMessages(role,visionText,localContext){
       'OWNER_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
       'SETUP: en fazla 5 kelime',
       'EXEC_PATH: en fazla 5 kelime',
-      'Safety rule: STATUS=QUALIFIED only if TF_EVIDENCE contains no VETO role and no unresolved wait/confirmation condition.',
+      'Safety rule: STATUS=QUALIFIED requires ORIGIN_TF and OWNER_TF not to be VETO and no unresolved execution-path wait/confirmation condition. Other TF VETO roles remain contextual evidence for Jev.',
       '',
       'TF_EVIDENCE:',
       String(visionText||''),
@@ -897,7 +899,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
@@ -911,7 +913,13 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/jev/budget'){
       return send(res,200,{ok:true,...jev.budgetStatus(),model:jev.config.model,mode:jev.config.mode});
     }
-    if(req.method==='GET'&&u.pathname==='/live/status')return send(res,200,{...live.status(),visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth},jev:jev.localStatus()});
+    if(req.method==='GET'&&u.pathname==='/openrouter/billing'){
+      const force=u.searchParams.get('force')==='1';
+      return send(res,200,await jev.billingStatus({force}));
+    }
+    if(req.method==='GET'&&u.pathname==='/live/status'){
+      return send(res,200,{...live.status(),visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth},jev:jev.localStatus(),openRouterBilling:jev.billingSnapshot()});
+    }
     if(req.method==='GET'&&u.pathname==='/live/account'){
       const out=await live.accountSummary();
       return send(res,out?.ok?200:503,out);
@@ -1384,6 +1392,9 @@ const server=http.createServer(async(req,res)=>{
 });
 
 server.listen(PORT,HOST,()=>log('BrainHub listening on http://'+HOST+':'+PORT));
+
+const openRouterBillingTimer=setInterval(()=>{jev.billingStatus({force:true}).catch(()=>{});},300000);
+if(typeof openRouterBillingTimer.unref==='function')openRouterBillingTimer.unref();
 
 const leaderAutoTimer=setInterval(async()=>{
   try{

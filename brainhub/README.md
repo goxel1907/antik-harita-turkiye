@@ -100,3 +100,12 @@ The existing OpenRouter DPAPI key remains PC-only. Jev reviews QUALIFIED plans w
 The selected AUTO row exposes `jevDecision` with probabilities and a Turkish summary; Android shows the daily local budget. This is an advisory model result, not proof of market truth. Invalid/missing probabilities, missing configured credentials, oversized evidence and unavailable Jev fail closed. Evidence is never truncated into invalid JSON. Reported charges above a reservation remain counted; old-day reservations never subtract from new-day spend.
 
 Local Vision single-flight serialization from 88f8e4a is preserved. Do not launch overlapping deep tests. No actual exchange orders are sent by the regression tests. A passing APK build does not establish 24-hour shadow reliability or live readiness.
+
+
+### OpenRouter account credit telemetry
+
+BrainHub keeps Jev inference credentials and OpenRouter management credentials separate. The ordinary Jev API key exposes its own key usage/limit metadata. Exact account credit balance uses OpenRouter's management-only `GET /api/v1/credits` endpoint and is cached by BrainHub before being shown in Android. The management key is stored as Windows-user DPAPI ciphertext in `config/openrouter-management-key.dpapi`; it is never sent to Android or written to logs. Android shows account remaining credit when available, key-level remaining limit when supplied by OpenRouter, and a direct Credits / Auto Recharge link.
+
+### Role-aware 9TF opportunity qualification
+
+Every fresh timeframe may originate LONG or SHORT opportunity context. The engine computes both `opportunityPaths.LONG` and `opportunityPaths.SHORT`; non-legacy 1m/3m/5m paths do not wait for 15m merely because it is higher. Timeframes are roles, not votes. A VETO on the selected originTF or ownerTF remains a hard semantic block, while a VETO on another timeframe is retained as contextual conflict for Jev's typed timeframe-conflict review rather than automatically killing the opportunity. Unresolved execution-path waits, failed-breakout/reclaim requirements, stale data and deterministic risk gates remain fail-closed.

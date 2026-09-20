@@ -73,6 +73,30 @@ test('Jev remote status and synthetic probe stay on pinned OpenRouter endpoints'
   fs.rmSync(root,{recursive:true,force:true});
 });
 
+test('OpenRouter billing telemetry separates inference-key limits from management-key account credits',async()=>{
+  const root=rootWithConfig({creditsUrl:'https://example.test/api/v1/credits'});
+  let calls=0;
+  const client=createJevClient({
+    root,apiKey:key,managementKey:'sk-or-v1-management_12345678901234567890',
+    fetchImpl:async(url)=>{
+      calls++;
+      if(url.endsWith('/api/v1/key'))return response(200,{data:{label:'BrainHub-JEV',limit:10,limit_remaining:7.5,usage_daily:0.2}});
+      if(url.endsWith('/api/v1/credits'))return response(200,{data:{total_credits:8,total_usage:1.25}});
+      throw new Error('unexpected '+url);
+    }
+  });
+  const billing=await client.billingStatus({force:true});
+  assert.equal(billing.key.available,true);
+  assert.equal(billing.key.limit_remaining,7.5);
+  assert.equal(billing.accountCredits.available,true);
+  assert.equal(billing.accountCredits.remainingCredits,6.75);
+  assert.equal(calls,2);
+  const cached=await client.billingStatus();
+  assert.equal(cached.accountCredits.remainingCredits,6.75);
+  assert.equal(calls,2);
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('Jev successful response without usage metadata settles to a small conservative estimate',async()=>{
   const root=rootWithConfig();
   const client=createJevClient({

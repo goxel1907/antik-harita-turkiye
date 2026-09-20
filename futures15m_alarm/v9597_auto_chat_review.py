@@ -153,6 +153,14 @@ main=main.replace(card_anchor,r'''
             new android.app.AlertDialog.Builder(this).setTitle("OTO • Model ve karar ayrıntıları").setView(scroll).setPositiveButton("Kapat",null).show();
         });
         box.addView(decisionCard,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        android.widget.Button openRouterCredit=new android.widget.Button(this);
+        openRouterCredit.setAllCaps(false);
+        openRouterCredit.setText("💳 OPENROUTER KREDİ / AUTO RECHARGE");
+        openRouterCredit.setOnClickListener(v->{
+            try{startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://openrouter.ai/credits")));}
+            catch(Exception e){Toast.makeText(this,"OpenRouter kredi sayfası açılamadı.",Toast.LENGTH_SHORT).show();}
+        });
+        box.addView(openRouterCredit,new android.widget.LinearLayout.LayoutParams(-1,dp(48)));
 ''' + card_anchor,1)
 main_path.write_text(main)
 analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.98')

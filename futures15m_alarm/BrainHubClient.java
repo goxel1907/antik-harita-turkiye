@@ -129,7 +129,8 @@ public final class BrainHubClient {
         if(budget!=null)label+=String.format(java.util.Locale.US," • bugün $%.4f / $%.2f",budget.optDouble("spentUsd",0),budget.optDouble("dailyCapUsd",0));
         c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE).edit().putString("v9597_jev_status",label)
             .putString("v9598_jev",jev==null?"{}":jev.toString())
-            .putString("v9598_progress",status.optJSONObject("visionProgress")==null?"{}":status.optJSONObject("visionProgress").toString()).apply();
+            .putString("v9598_progress",status.optJSONObject("visionProgress")==null?"{}":status.optJSONObject("visionProgress").toString())
+            .putString("v9598_openrouter_billing",status.optJSONObject("openRouterBilling")==null?"{}":status.optJSONObject("openRouterBilling").toString()).apply();
         return status;
     }
     public static JSONObject liveAccount(Context c) throws Exception {

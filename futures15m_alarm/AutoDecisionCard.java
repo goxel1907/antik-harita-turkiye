@@ -46,6 +46,20 @@ public final class AutoDecisionCard {
             if(budget.optBoolean("softLimitReached",false)&&!budget.optBoolean("hardLimitReached",false))b.append("\nJev bütçe uyarı eşiği aşıldı; Jev çalışmaya devam eder.");
             if(budget.optBoolean("hardLimitReached",false))b.append("\nJev hard günlük bütçe sınırında; bypass edilmez, QUALIFIED fail-closed bekler.");
         }
+        JSONObject billing=json(sp.getString("v9598_openrouter_billing","{}"));
+        JSONObject account=billing.optJSONObject("accountCredits");
+        JSONObject keyInfo=billing.optJSONObject("key");
+        if(account!=null&&account.optBoolean("available")){
+            double remain=account.optDouble("remainingCredits",0), total=account.optDouble("totalCredits",0), used=account.optDouble("totalUsage",0);
+            b.append(String.format(java.util.Locale.US,"\nOpenRouter gerçek bakiye: $%.4f • alınan $%.4f • kullanılan $%.4f",remain,total,used));
+            if(remain<=1.0)b.append("\n⚠ OpenRouter kredisi azalıyor; kesinti olmadan kredi ekleyin / Auto Recharge kontrol edin.");
+        }else{
+            b.append("\nOpenRouter gerçek bakiye: henüz bağlı değil");
+            b.append("\nTam bakiye için PC'de Management API key bir kez bağlanmalı.");
+        }
+        if(keyInfo!=null&&keyInfo.optBoolean("available")&&!keyInfo.isNull("limit_remaining")){
+            b.append(String.format(java.util.Locale.US,"\nBrainHub-JEV key kalan limiti: $%.4f",keyInfo.optDouble("limit_remaining",0)));
+        }
         b.append("\nJev yalnız QUALIFIED planın ek veto denetimidir.");
         JSONObject diag=json(sp.getString("v9593_pc_auto_diagnostics","{}"));
         line(b,"Aday turu: ",diag,"generatedAt");

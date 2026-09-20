@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, reconcileVisionPlanSemantics, shouldAttemptVisionRepair } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, blockingVisionVetoTFs, reconcileVisionPlanSemantics, shouldAttemptVisionRepair } = require('../pipeline');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 const { buildDryRunOrder } = require('../binance-dry-run-executor');
 
@@ -157,26 +157,40 @@ test('QUALIFIED Vision plan is rejected when WAIT_FOR still contains a pending t
   assert.ok(contract.missing.includes('QUALIFIED_WAIT_FOR_NOT_NONE'));
 });
 
-test('semantic reconciliation downgrades contradictory QUALIFIED plans to WATCH without inventing approval', () => {
-  const contradictory={
+test('semantic reconciliation blocks unresolved waits or origin-owner vetoes but preserves contextual TF conflicts for Jev', () => {
+  const waiting={
     valid:true,status:'QUALIFIED',side:'SHORT',confidence:85,
+    originTF:'3m',ownerTF:'15m',
     waitFor:'NONE — kapanmış mum teyidi hâlâ bekleniyor',
-    vetoTFs:['1m','3m','15m'],
+    vetoTFs:['1m','4h'],
     execution:'ADVISORY_ONLY'
   };
-  const out=reconcileVisionPlanSemantics(contradictory);
-  assert.equal(out.status,'WATCH');
-  assert.equal(out.previousStatus,'QUALIFIED');
-  assert.equal(out.reason,'QUALIFIED_WAIT_REQUIRED');
-  assert.deepEqual(out.semanticDowngradeReasons,['QUALIFIED_WAIT_REQUIRED','QUALIFIED_HAS_VETO_TFS']);
-  assert.ok(out.confidence<=49);
-  assert.equal(out.execution,'ADVISORY_ONLY');
+  const waitOut=reconcileVisionPlanSemantics(waiting);
+  assert.equal(waitOut.status,'WATCH');
+  assert.equal(waitOut.reason,'QUALIFIED_WAIT_REQUIRED');
 
-  const clean=reconcileVisionPlanSemantics({
-    valid:true,status:'QUALIFIED',side:'LONG',confidence:81,waitFor:'NONE',vetoTFs:[],execution:'ADVISORY_ONLY'
+  const critical={
+    valid:true,status:'QUALIFIED',side:'LONG',confidence:82,
+    originTF:'1m',ownerTF:'5m',waitFor:'NONE',
+    vetoTFs:['5m','4h'],execution:'ADVISORY_ONLY'
+  };
+  assert.deepEqual(blockingVisionVetoTFs(critical),['5m']);
+  const criticalOut=reconcileVisionPlanSemantics(critical);
+  assert.equal(criticalOut.status,'WATCH');
+  assert.equal(criticalOut.reason,'QUALIFIED_ORIGIN_OWNER_VETO');
+  assert.deepEqual(criticalOut.blockingVetoTFs,['5m']);
+  assert.deepEqual(criticalOut.contextualVetoTFs,['4h']);
+
+  const contextual=reconcileVisionPlanSemantics({
+    valid:true,status:'QUALIFIED',side:'LONG',confidence:81,
+    originTF:'1m',ownerTF:'5m',waitFor:'NONE',
+    vetoTFs:['4h','1d'],execution:'ADVISORY_ONLY'
   });
-  assert.equal(clean.status,'QUALIFIED');
-  assert.equal(clean.confidence,81);
+  assert.equal(contextual.status,'QUALIFIED');
+  assert.equal(contextual.confidence,81);
+  assert.deepEqual(contextual.blockingVetoTFs,[]);
+  assert.deepEqual(contextual.contextualVetoTFs,['4h','1d']);
+  assert.equal(contextual.requiresJevTfReview,true);
 });
 
 test('local Vision contract failures never trigger a second full-image repair pass', () => {

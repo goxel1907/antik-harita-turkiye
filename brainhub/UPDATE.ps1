@@ -49,6 +49,7 @@ try {
         $text -notmatch 'OPENROUTER_JEV_ADVISORY_VETO_GATE' -or
         $text -notmatch 'OPENROUTER_JEV_DAILY_BUDGET' -or
         $text -notmatch 'OPENROUTER_JEV_SOFT_HARD_BUDGET' -or
+        $text -notmatch 'OPENROUTER_ACCOUNT_CREDIT_TELEMETRY' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
         $text -notmatch 'VISION_CHART_448X252' -or

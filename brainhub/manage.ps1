@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','OpenRouterSetup','OpenRouterStatus','JevProbe','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
+    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','OpenRouterSetup','OpenRouterCreditSetup','OpenRouterStatus','JevProbe','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
@@ -134,6 +134,8 @@ function Start-Brain([string]$BrainRoot, [string]$Node, [string]$Key, [switch]$A
     if ($token) { $env:BRAINHUB_CLIENT_TOKEN = $token }
     $openRouterApiKey = Read-Dpapi (Join-Path $BrainRoot 'config\openrouter-api-key.dpapi')
     if ($openRouterApiKey) { $env:BRAINHUB_OPENROUTER_API_KEY = $openRouterApiKey }
+    $openRouterManagementKey = Read-Dpapi (Join-Path $BrainRoot 'config\openrouter-management-key.dpapi')
+    if ($openRouterManagementKey) { $env:BRAINHUB_OPENROUTER_MANAGEMENT_KEY = $openRouterManagementKey }
     $binanceApiKey = Read-Dpapi (Join-Path $BrainRoot 'config\binance-api-key.dpapi')
     $binanceApiSecret = Read-Dpapi (Join-Path $BrainRoot 'config\binance-api-secret.dpapi')
     if ($binanceApiKey -and $binanceApiSecret) {
@@ -148,9 +150,11 @@ function Start-Brain([string]$BrainRoot, [string]$Node, [string]$Key, [switch]$A
         Remove-Item Env:BRAINHUB_ROOT -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_CLIENT_TOKEN -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_OPENROUTER_API_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:BRAINHUB_OPENROUTER_MANAGEMENT_KEY -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_BINANCE_API_KEY -ErrorAction SilentlyContinue
         Remove-Item Env:BRAINHUB_BINANCE_API_SECRET -ErrorAction SilentlyContinue
         $openRouterApiKey = ''
+        $openRouterManagementKey = ''
         $binanceApiKey = ''
         $binanceApiSecret = ''
     }
@@ -423,7 +427,7 @@ function Backup-Brain([string]$BrainRoot) {
     New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
     $target = Join-Path $targetRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
     New-Item -ItemType Directory -Force -Path $target | Out-Null
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
         $p = Join-Path $BrainRoot $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $target -Recurse -Force }
     }
@@ -493,6 +497,8 @@ if ($Action -eq 'OpenRouterSetup') {
         model = 'typesafe/jev-1.13'
         decisionsUrl = 'https://openrouter.ai/api/alpha/decisions'
         keyUrl = 'https://openrouter.ai/api/v1/key'
+        creditsUrl = 'https://openrouter.ai/api/v1/credits'
+        billingCacheMs = 300000
         mode = 'ADVISORY_VETO_ONLY'
         softBudgetUsd = 0.25
         dailyCapUsd = 2.00
@@ -523,6 +529,29 @@ if ($Action -eq 'OpenRouterSetup') {
         Write-Warning 'OpenRouter key DPAPI ile guvenli kaydedildi ancak Jev alpha probe su anda tamamlanamadi. JEV-PROBE.ps1 ile tekrar denenebilir.'
     }
     Write-Host ("BRAINHUB_OPENROUTER_SETUP_OK model=typesafe/jev-1.13 mode=ADVISORY_VETO_ONLY softBudgetUsd=0.25 dailyCapUsd=2.00 probe={0}" -f $probeOk) -ForegroundColor Green
+    exit 0
+}
+if ($Action -eq 'OpenRouterCreditSetup') {
+    $managementPath = Join-Path $rootFull 'config\openrouter-management-key.dpapi'
+    $clipboardCandidate = (Get-Clipboard -Raw -ErrorAction SilentlyContinue | Out-String).Trim()
+    $savedCandidate = Read-Dpapi $managementPath
+    $candidate = if ($clipboardCandidate -match '^sk-or-v1-[A-Za-z0-9_-]{20,}$') { $clipboardCandidate } elseif ($savedCandidate -match '^sk-or-v1-[A-Za-z0-9_-]{20,}$') { $savedCandidate } else { '' }
+    if ($candidate -notmatch '^sk-or-v1-[A-Za-z0-9_-]{20,}$') { throw 'OpenRouter Management API key bulunamadi. Management Keys sayfasinda olusturup panoya kopyalayin.' }
+    try {
+        $credits = Invoke-RestMethod -Uri 'https://openrouter.ai/api/v1/credits' -Headers @{ Authorization = "Bearer $candidate" } -TimeoutSec 20
+        $total = [double](Get-PropValue $credits.data 'total_credits' -1)
+        $used = [double](Get-PropValue $credits.data 'total_usage' -1)
+        if ($total -lt 0 -or $used -lt 0) { throw 'credit schema' }
+    } catch { throw 'OpenRouter Management key credits API ile dogrulanamadi.' }
+    Save-Dpapi $managementPath $candidate
+    $candidate = ''; $savedCandidate = ''; $clipboardCandidate = ''
+    try { Set-Clipboard -Value ' ' -ErrorAction Stop } catch { }
+    $routerKey = Router-Key $rootFull
+    Stop-Brain $rootFull
+    Start-Brain $rootFull $node $routerKey
+    $billing = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/openrouter/billing?force=1' -Headers (Auth-Headers $rootFull) -TimeoutSec 20
+    if (-not $billing.accountCredits.available) { throw 'OpenRouter hesap kredisi BrainHub tarafinda goruntulenemedi.' }
+    Write-Host ("BRAINHUB_OPENROUTER_CREDIT_OK remainingUsd={0:N4} totalCredits={1:N4} totalUsage={2:N4}" -f $billing.accountCredits.remainingCredits,$billing.accountCredits.totalCredits,$billing.accountCredits.totalUsage) -ForegroundColor Green
     exit 0
 }
 if ($Action -eq 'VisionStatus') {
@@ -827,7 +856,7 @@ if ($Action -eq 'Restore') {
     if (-not $resolved.StartsWith($backupRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore yolu BrainHubBackups icinde olmali.' }
     $key = Router-Key $rootFull
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
         $p = Join-Path $resolved $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }
@@ -864,7 +893,7 @@ try {
         $dst = Join-Path (Join-Path $rootFull 'config') $cfg[1]
         if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $sourceDir $cfg[0]) -Destination $dst }
     }
-    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
+    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
         Copy-Item -LiteralPath (Join-Path $sourceDir $script) -Destination $rootFull -Force
     }
     Migrate-JevBudgetPolicy $rootFull
@@ -874,7 +903,7 @@ try {
 } catch {
     Write-Warning "Update dogrulanamadi: $($_.Exception.Message). Geri alma deneniyor."
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','JEV-PROBE.ps1')) {
+    foreach ($name in @('server','config','data','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
         $p = Join-Path $backup $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }

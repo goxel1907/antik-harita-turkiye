@@ -712,20 +712,29 @@ function mergeVisionRepairText(baseText, repairText) {
   return out.join('\n');
 }
 
+function blockingVisionVetoTFs(plan) {
+  const veto=new Set(Array.isArray(plan?.vetoTFs)?plan.vetoTFs.filter(x=>FRAME_ORDER.includes(x)):[]);
+  const critical=[plan?.originTF,plan?.ownerTF].filter(x=>FRAME_ORDER.includes(x));
+  return [...new Set(critical.filter(tf=>veto.has(tf)))];
+}
 function reconcileVisionPlanSemantics(plan) {
   if (!plan || String(plan.status || '').toUpperCase() !== 'QUALIFIED') return plan;
   const reasons=[];
   const wait=String(plan.waitFor || '').trim();
-  const vetoTFs=Array.isArray(plan.vetoTFs) ? plan.vetoTFs.filter(Boolean) : [];
+  const vetoTFs=Array.isArray(plan.vetoTFs) ? plan.vetoTFs.filter(x=>FRAME_ORDER.includes(x)) : [];
+  const blockingVetoTFs=blockingVisionVetoTFs(plan);
+  const contextualVetoTFs=vetoTFs.filter(tf=>!blockingVetoTFs.includes(tf));
   if (wait.toUpperCase() !== 'NONE') reasons.push('QUALIFIED_WAIT_REQUIRED');
-  if (vetoTFs.length) reasons.push('QUALIFIED_HAS_VETO_TFS');
-  if (!reasons.length) return plan;
+  if (blockingVetoTFs.length) reasons.push('QUALIFIED_ORIGIN_OWNER_VETO');
+  if (!reasons.length) return {...plan,blockingVetoTFs,contextualVetoTFs,requiresJevTfReview:contextualVetoTFs.length>0};
   return {
     ...plan,
     previousStatus:'QUALIFIED',
     status:'WATCH',
     reason:reasons[0],
     semanticDowngradeReasons:reasons,
+    blockingVetoTFs,
+    contextualVetoTFs,
     confidence:Math.min(Number(plan.confidence) || 0, 49),
     execution:'ADVISORY_ONLY'
   };
@@ -935,7 +944,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'WHY: Türkçe, net ve somut gerekçe; grafik + veri birlikte değerlendirilsin',
     'RISK_NOTE: Türkçe, işlemi bozabilecek ana risk',
     'WAIT_FOR: Türkçe, sinyal için tam olarak ne beklendiği; QUALIFIED ise değer TAM OLARAK NONE olmalı',
-    'QUALIFIED güvenlik kuralı: herhangi bir TF_*_ROLE VETO ise veya herhangi bir bekleyen teyit/reclaim/closed-candle koşulu varsa STATUS QUALIFIED olamaz; WATCH veya REJECT seç.',
+    'QUALIFIED güvenlik kuralı: ORIGIN_TF veya OWNER_TF kendi TF_*_ROLE alanında VETO ise ya da seçilen execution path üzerinde çözülmemiş teyit/reclaim/closed-candle koşulu varsa STATUS QUALIFIED olamaz. Diğer TF VETO rolleri bağlamsal çelişkidir; otomatik çoğunluk veto değildir ve Jev final TF-conflict denetimine taşınır.',
     'SUPPORT_TFS: TF_... değil, yalnız virgülle 1m,3m,5m,15m,30m,45m,1h,4h,1d değerleri; destek yoksa NONE',
     'VETO_TFS: TF_... değil, yalnız virgülle 1m,3m,5m,15m,30m,45m,1h,4h,1d değerleri; veto yoksa NONE',
     'FORMING_CONTEXT: Türkçe; 9TF forming mum bağlamının özeti ve kapanmış mum teyidi yerine geçmediği açıkça yazılsın',
@@ -947,7 +956,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'Vision rule: read every attached chart image together with UNIFIED_CONTEXT_JSON. The current forming candle may shape a WATCH idea but MUST NOT be used as closed-candle confirmation. Do not ignore a visible structural conflict merely because numeric scores are high.',
     'Explanation rule: WHY, RISK_NOTE, WAIT_FOR, FORMING_CONTEXT, TF_* and VISION_SUMMARY must be in Turkish, coin-specific and evidence-based. Every TF must separately state WHY, WAIT, ROLE, FORMING and RISK. SUPPORT_TFS/VETO_TFS are summary fields and should copy exactly the timeframes marked SUPPORT/VETO in TF_*_ROLE; never list a NEUTRAL timeframe. State what supports the setup, what blocks it, and the exact condition that would change WATCH/REJECT into QUALIFIED. Avoid generic filler.',
     'Rules: any fresh timeframe may originate an opportunity. A valid 1m/3m/5m opportunity must not wait for 15m merely because 15m is higher. The legacy 15m strategy still keeps its own completed-15m confirmation rule.',
-    'Timeframes are context, not votes. Synthetic 45m is derived from closed 15m candles and is not an independent vote.',
+    'Timeframes are context, not votes. A non-origin/non-owner contextual VETO must not automatically kill an otherwise valid earliest opportunity; preserve it for Jev material-conflict review. Synthetic 45m is derived from closed 15m candles and is not an independent vote.',
     'A FAILED_BREAKOUT timeframe is not an immediate breakout entry; require reclaim or another valid execution path.',
     'Observed forceOrder liquidation prints may inform liquidity context, but they are not a complete heatmap, future cluster map, or market-maker intent.',
     'Partial depth20 streaming is not true OFI. Respect the supplied quality labels and do not multiply correlated flow evidence into fake confirmations.',
@@ -1137,4 +1146,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };

@@ -6,6 +6,8 @@ const DEFAULTS={
   model:'typesafe/jev-1.13',
   decisionsUrl:'https://openrouter.ai/api/alpha/decisions',
   keyUrl:'https://openrouter.ai/api/v1/key',
+  creditsUrl:'https://openrouter.ai/api/v1/credits',
+  billingCacheMs:300000,
   mode:'ADVISORY_VETO_ONLY',
   softBudgetUsd:0.25,
   dailyCapUsd:2.00,
@@ -51,12 +53,14 @@ function normalizeConfig(root){
   const model=String(raw.model||DEFAULTS.model).trim();
   const decisionsUrl=String(raw.decisionsUrl||DEFAULTS.decisionsUrl).trim();
   const keyUrl=String(raw.keyUrl||DEFAULTS.keyUrl).trim();
+  const creditsUrl=String(raw.creditsUrl||DEFAULTS.creditsUrl).trim();
+  const billingCacheMs=Math.max(30000,Math.min(1800000,Number(raw.billingCacheMs||DEFAULTS.billingCacheMs)));
   const timeoutMs=Math.max(5000,Math.min(120000,Number(raw.timeoutMs||DEFAULTS.timeoutMs)));
   const dailyCapUsd=Math.max(0.01,Math.min(100,Number(raw.dailyCapUsd||DEFAULTS.dailyCapUsd)));
   const softBudgetUsd=Math.max(0,Math.min(dailyCapUsd,Number(raw.softBudgetUsd??DEFAULTS.softBudgetUsd)));
   const maxPayloadChars=Math.max(4000,Math.min(64000,Number(raw.maxPayloadChars||DEFAULTS.maxPayloadChars)));
   const reservePerCallUsd=Math.max(0.001,Math.min(0.05,Number(raw.reservePerCallUsd||DEFAULTS.reservePerCallUsd)));
-  return {enabled:raw.enabled===true,model,decisionsUrl,keyUrl,mode:'ADVISORY_VETO_ONLY',softBudgetUsd,dailyCapUsd,timeoutMs,maxPayloadChars,reservePerCallUsd};
+  return {enabled:raw.enabled===true,model,decisionsUrl,keyUrl,creditsUrl,billingCacheMs,mode:'ADVISORY_VETO_ONLY',softBudgetUsd,dailyCapUsd,timeoutMs,maxPayloadChars,reservePerCallUsd};
 }
 function sanitizedKeyMetadata(data){
   const d=data&&typeof data==='object'?data:{};
@@ -142,6 +146,9 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
       formingContext:String(plan?.formingContext||'').slice(0,360),
       supportTFs:Array.isArray(plan?.supportTFs)?plan.supportTFs:[],
       vetoTFs:Array.isArray(plan?.vetoTFs)?plan.vetoTFs:[],
+      blockingVetoTFs:Array.isArray(plan?.blockingVetoTFs)?plan.blockingVetoTFs:[],
+      contextualVetoTFs:Array.isArray(plan?.contextualVetoTFs)?plan.contextualVetoTFs:[],
+      requiresJevTfReview:plan?.requiresJevTfReview===true,
       visionSummary:String(plan?.visionSummary||'').slice(0,600)
     },
     frames,
@@ -178,13 +185,16 @@ function usageCost(data,reserve,body){
   return Math.min(reserve,conservativeTokens*0.042/1_000_000*1.5);
 }
 
-function createJevClient({root,apiKey='',fetchImpl=globalThis.fetch,clock=()=>Date.now()}={}){
+function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.fetch,clock=()=>Date.now()}={}){
   if(!root)throw new Error('root required');
   if(typeof fetchImpl!=='function')throw new Error('fetch implementation required');
   const cfg=normalizeConfig(root);
   const key=String(apiKey||'').trim();
+  const management=String(managementKey||'').trim();
   const configured=cfg.enabled&&key.startsWith('sk-or-v1-');
+  const managementConfigured=management.startsWith('sk-or-v1-');
   const usageFile=path.join(root,'data','jev-usage.json');
+  let billingCache={at:0,value:null};
 
   function readUsage(){
     const day=utcDay(clock());
@@ -231,9 +241,49 @@ function createJevClient({root,apiKey='',fetchImpl=globalThis.fetch,clock=()=>Da
     return {
       ok:true,configured,enabled:cfg.enabled,keyLoaded:!!key,model:cfg.model,mode:cfg.mode,
       softBudgetUsd:cfg.softBudgetUsd,dailyCapUsd:cfg.dailyCapUsd,decisionsApi:'OPENROUTER_ALPHA_DECISIONS',
+      managementConfigured,
       paidFallbackEnabled:false,budget:budgetStatus()
     };
   }
+  function billingSnapshot(){
+    return billingCache.value||{
+      ok:false,
+      checkedAt:null,
+      key:{available:false,reason:'BILLING_CACHE_NOT_READY'},
+      accountCredits:{available:false,managementConfigured,reason:managementConfigured?'BILLING_CACHE_NOT_READY':'OPENROUTER_MANAGEMENT_KEY_NOT_CONFIGURED'}
+    };
+  }
+  async function billingStatus({force=false}={}){
+    const now=clock();
+    if(!force&&billingCache.value&&now-billingCache.at<cfg.billingCacheMs)return billingCache.value;
+    const out={
+      ok:true,
+      checkedAt:new Date(now).toISOString(),
+      key:{available:false,reason:configured?null:'OPENROUTER_NOT_CONFIGURED'},
+      accountCredits:{available:false,managementConfigured,reason:managementConfigured?null:'OPENROUTER_MANAGEMENT_KEY_NOT_CONFIGURED'}
+    };
+    if(configured){
+      try{
+        const r=await fetchJson(fetchImpl,cfg.keyUrl,{method:'GET',headers:{authorization:'Bearer '+key,'content-type':'application/json'}},Math.min(cfg.timeoutMs,10000));
+        if(r.ok)out.key={available:true,...sanitizedKeyMetadata(r.data)};
+        else out.key={available:false,reason:'OPENROUTER_KEY_CHECK_FAILED',httpStatus:r.status};
+      }catch(e){out.key={available:false,reason:'OPENROUTER_KEY_CHECK_ERROR',detail:String(e?.message||e).slice(0,180)};}
+    }
+    if(managementConfigured){
+      try{
+        const r=await fetchJson(fetchImpl,cfg.creditsUrl,{method:'GET',headers:{authorization:'Bearer '+management,'content-type':'application/json'}},Math.min(cfg.timeoutMs,10000));
+        const d=r.data?.data&&typeof r.data.data==='object'?r.data.data:r.data;
+        const totalCredits=Number(d?.total_credits), totalUsage=Number(d?.total_usage);
+        if(r.ok&&Number.isFinite(totalCredits)&&Number.isFinite(totalUsage)){
+          out.accountCredits={available:true,managementConfigured:true,totalCredits,totalUsage,remainingCredits:Math.max(0,totalCredits-totalUsage)};
+        }else out.accountCredits={available:false,managementConfigured:true,reason:'OPENROUTER_CREDITS_CHECK_FAILED',httpStatus:r.status};
+      }catch(e){out.accountCredits={available:false,managementConfigured:true,reason:'OPENROUTER_CREDITS_CHECK_ERROR',detail:String(e?.message||e).slice(0,180)};}
+    }
+    out.ok=Boolean(out.key.available||out.accountCredits.available);
+    billingCache={at:now,value:out};
+    return out;
+  }
+
   async function remoteStatus(){
     if(!configured)return {...localStatus(),reachable:false,reason:'OPENROUTER_NOT_CONFIGURED'};
     try{
@@ -305,6 +355,6 @@ function createJevClient({root,apiKey='',fetchImpl=globalThis.fetch,clock=()=>Da
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,probe,judge,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,budgetStatus};
 }
 module.exports={CHECKS,decisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,compactDecisionRecord,createJevClient};
