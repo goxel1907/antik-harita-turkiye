@@ -127,3 +127,10 @@ Android OTO karar kartı ham İngilizce karar/açıklama kodlarını kullanıcı
 ### Arka-plan Vision çakışma koruması
 
 Leader AUTO ve ACTIVE pozisyon yöneticisi, başka bir 9TF pipeline veya local Vision çalışırken yeni ağır semantik Vision işi başlatmaz. Arka-plan scheduler, son pipeline tamamlandıktan sonra 30 saniye bekler; bu pencere Deep/manual analizden hemen sonra çalışan pixel doğrulama gibi foreground işlemlerin önüne geçmesini engeller. Local Vision single-flight yine son emniyet katmanı olarak kalır.
+
+
+### Mobil ayarları PC risk tavanına güvenli biçimde uyarlama
+
+Mobil uygulamadaki geçerli kaldıraç veya azami açık pozisyon isteği PC'deki daha düşük güvenlik tavanını aşarsa fırsat artık yalnız bu nedenle tamamen bloke edilmez. Brain Hub isteği yalnız aşağı yönlü olarak PC tavanına kırpar; PC tavanını hiçbir zaman yükseltmez. Örneğin mobil 10x isterken PC politikası 3x ise Leader AUTO niyeti 3x ile yeniden boyutlandırılır ve diğer bütün notional, stop, aile maruziyeti, günlük kayıp, kill-switch, stale, lineage ve one-shot yürütme kapıları aynen kalır. Geçersiz/bozuk değerler yine fail-closed engellenir.
+
+Android durum paneli istenen ve uygulanan güvenli kaldıraç/pozisyon sınırını ayrı gösterir. Kullanıcıya yönelik yürütme ve analiz durumları Türkçeleştirilir; iç protokol kodları yalnız teknik günlüklerde kalabilir.

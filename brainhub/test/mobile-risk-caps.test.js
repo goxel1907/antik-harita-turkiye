@@ -5,11 +5,20 @@ const {requestedExecutionSettings,applyDynamicSizingGuards}=require('../live-con
 const {accountRiskCaps}=require('../risk-gate');
 
 const policy={expectedLeverage:5,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:10,maxDailyLossPct:2,maxOpenPositions:3,maxFamilyExposurePct:30}};
-test('mobile leverage and position requests cannot exceed PC ceilings',()=>{
+test('valid mobile over-cap requests are clamped downward without raising PC ceilings',()=>{
   const out=requestedExecutionSettings({requestedMarginQuote:20,requestedLeverage:10,requestedMaxOpenPositions:4},policy);
+  assert.equal(out.ok,true);
+  assert.equal(out.requestedLeverage,10);
+  assert.equal(out.leverage,5);
+  assert.equal(out.requestedMaxOpenPositions,4);
+  assert.equal(out.maxOpenPositions,3);
+  assert.deepEqual(out.adjustments.map(x=>x.code),['LEVERAGE_CLAMPED_TO_PC_CAP','MAX_OPEN_POSITIONS_CLAMPED_TO_PC_CAP']);
+  assert.equal(out.reasons.length,0);
+});
+test('invalid mobile leverage still fails closed instead of being clamped',()=>{
+  const out=requestedExecutionSettings({requestedMarginQuote:20,requestedLeverage:130,requestedMaxOpenPositions:2},policy);
   assert.equal(out.ok,false);
-  assert.ok(out.reasons.includes('REQUESTED_LEVERAGE_EXCEEDS_PC_CAP'));
-  assert.ok(out.reasons.includes('REQUESTED_MAX_OPEN_POSITIONS_EXCEEDS_PC_CAP'));
+  assert.ok(out.reasons.includes('REQUESTED_LEVERAGE_INVALID'));
 });
 test('explicit mobile sizing cannot rewrite notional or family exposure ceilings',()=>{
   const accountRisk={account:{available:true,equity:1000,availableBalance:1000,dailyRealizedPnl:0,openPositions:0},intent:{family:'ALT_LONG',riskQuote:1,notionalQuote:200,familyExposureAfterQuote:400},limits:policy.limits};

@@ -294,6 +294,9 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                     .putBoolean("v9588_pc_auto_configured",la!=null&&la.optBoolean("configured",false))
                     .putBoolean("v9588_pc_auto_enabled",la!=null&&la.optBoolean("enabled",false))
                     .putString("v9588_pc_auto_last_execution",la==null?"":la.optString("lastExecution",""))
+                    .putString("v9599_pc_effective_leverage",la==null?"":la.optString("effectiveLeverage",""))
+                    .putString("v9599_pc_effective_max_positions",la==null?"":la.optString("effectiveMaxOpenPositions",""))
+                    .putString("v9599_pc_sizing_adjustments",la==null||la.optJSONArray("sizingAdjustments")==null?"":la.optJSONArray("sizingAdjustments").toString())
                     .putString("v9592_pc_auto_last_reasons",la==null||la.optJSONArray("lastReasons")==null?"":la.optJSONArray("lastReasons").toString())
                     .putInt("v9592_pc_auto_blocked_count",la==null?0:la.optInt("consecutiveBlocked",0))
                     .putString("v9592_pc_auto_last_tick_at",la==null?"":la.optString("lastTickAt",""))
@@ -911,6 +914,16 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
         st.append("\nAyar: ").append(margin).append(" USDT • ").append(lev).append("x • max ").append(max)
           .append(" • ").append(lng?"LONG ":"").append(sht?"SHORT":"");
         if(pcFresh){
+            String effectiveLev=sp.getString("v9599_pc_effective_leverage","");
+            String effectiveMax=sp.getString("v9599_pc_effective_max_positions","");
+            if(effectiveLev!=null&&!effectiveLev.isEmpty()&&!effectiveLev.equals(lev)){
+                st.append("\nUygulanan güvenli kaldıraç: ").append(effectiveLev).append("x")
+                  .append(" • istenen ").append(lev).append("x → PC güvenlik tavanı");
+            }
+            if(effectiveMax!=null&&!effectiveMax.isEmpty()&&!effectiveMax.equals(String.valueOf(max))){
+                st.append("\nUygulanan azami açık pozisyon: ").append(effectiveMax)
+                  .append(" • istenen ").append(max).append(" → PC güvenlik tavanı");
+            }
             // V9596_MODEL_AVAILABILITY: configuration alone is not a successful model response.
             st.append("\n").append(sp.getString("v9596_vision_availability","Görsel model durumu bekleniyor"));
             st.append("\n").append(sp.getString("v9597_jev_status","Jev durumu bekleniyor"));

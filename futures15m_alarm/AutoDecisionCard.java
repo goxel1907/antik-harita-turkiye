@@ -52,6 +52,19 @@ public final class AutoDecisionCard {
         s=s.replace("SELL_SIDE_SWEEP_RECLAIM","SATIŞ TARAFI SÜPÜRME SONRASI GERİ KAZANIM").replace("BUY_SIDE_SWEEP_REJECT","ALIŞ TARAFI SÜPÜRME SONRASI RET");
         s=s.replace("SUPPORT_FLIP_ACCEPTANCE","DESTEK KIRILIM KABULÜ").replace("RESISTANCE_FLIP_ACCEPTANCE","DİRENÇ KIRILIM KABULÜ");
         s=s.replace("FAILED_BREAKOUT","BAŞARISIZ KIRILIM").replace("VOLATILITY_COMPRESSION","VOLATİLİTE SIKIŞMASI").replace("DISPLACEMENT","GÜÇLÜ YÖNLÜ HAREKET");
+        s=s.replace("DETAIL_RUN_COMPLETE","9 ZAMAN DİLİMİ ANALİZİ TAMAMLANDI");
+        s=s.replace("FINALIZE_NARRATIVE_REPAIR","GENEL AÇIKLAMA DÜZELTİLİYOR").replace("FINALIZE_NARRATIVE","GENEL KARAR AÇIKLAMASI HAZIRLANIYOR");
+        s=s.replace("FINALIZE_SEMANTIC_REPAIR","KARAR ÇELİŞKİSİ DÜZELTİLİYOR").replace("FINALIZE_CORE_REPAIR","ANA KARAR DÜZELTİLİYOR").replace("FINALIZE_CORE","ANA KARAR HAZIRLANIYOR");
+        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU").replace("LEADER_AUTO_WAIT","OTO İŞLEM UYGUN FIRSAT BEKLİYOR");
+        s=s.replace("PLAN_NOT_QUALIFIED","PLAN HENÜZ İŞLEM ADAYI DEĞİL").replace("REQUESTED_LEVERAGE_EXCEEDS_PC_CAP","İSTENEN KALDIRAÇ PC GÜVENLİK TAVANINI AŞIYOR");
+        s=s.replace("TOP3_APPROACH","İLK 3'E YAKLAŞIYOR").replace("CURRENT_ATTACK_TOP10","ANLIK ATAK İLK 10");
+        s=s.replace("degraded_single","TEK ANALİST MODU").replace("annotated","işaretlenmiş grafik");
+        s=s.replace("inside bar not confirmed","iç bar teyit edilmedi").replace("bullish confirmation","yükseliş teyidi").replace("trend support","trend desteği");
+        s=s.replace("continuity","süreklilik").replace("tradeQuality","işlem kalitesi").replace("longScore","LONG puanı").replace("shortScore","SHORT puanı");
+        s=s.replace("PIPELINE_SELECTED","DERİN ANALİZ İÇİN SEÇİLDİ").replace("PIPELINE_ERROR","DERİN ANALİZ HATASI");
+        s=s.replace("PLAN_NOT_READY","PLAN HAZIR DEĞİL").replace("INTENT_NOT_READY","EMİR NİYETİ HAZIR DEĞİL").replace("INTENT_READY","EMİR NİYETİ HAZIR");
+        s=s.replace("ORDER_PLACED","CANLI EMİR GÖNDERİLDİ").replace("EXECUTION_RESULT","YÜRÜTME SONUCU");
+        s=s.replace("NONE","YOK");
         s=s.replace("UP","YÜKSELİŞ").replace("DOWN","DÜŞÜŞ").replace("MIXED","KARMA");
         return s;
     }
@@ -66,7 +79,7 @@ public final class AutoDecisionCard {
     public static String render(SharedPreferences sp,long now,boolean detailed) {
         long ts=sp.getLong("v9582_pc_probe_ts",0);
         boolean fresh=ts>0&&now>=ts&&now-ts<=15000&&sp.getBoolean("v9582_pc_probe_ok",false);
-        StringBuilder b=new StringBuilder("OTO KARAR MERKEZİ • LONG / SHORT");
+        StringBuilder b=new StringBuilder("OTO KARAR MERKEZİ • LONG (YÜKSELİŞ) / SHORT (DÜŞÜŞ)");
         if(!fresh){
             b.append("\nPC BAĞLANTISI YOK / GÜNCEL DEĞİL");
             b.append("\nVision, komite ve Jev'in güncel kararı doğrulanamıyor.");
@@ -76,24 +89,24 @@ public final class AutoDecisionCard {
             if(ts>0)b.append("\nSon kontrol: ").append(new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.getDefault()).format(new java.util.Date(ts)));
             return b.toString();
         }
-        b.append("\nPC bağlı • LIVE ").append(sp.getBoolean("v9582_pc_armed",false)?"AÇIK":"KAPALI");
+        b.append("\nPC bağlı • CANLI İŞLEM ").append(sp.getBoolean("v9582_pc_armed",false)?"AÇIK":"KAPALI");
         b.append("\nSon bağlantı kontrolü: ").append(new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.getDefault()).format(new java.util.Date(ts)));
         JSONObject progress=json(sp.getString("v9598_progress","{}"));
         String stage=val(progress,"stage","Henüz bildirilmedi");
-        b.append("\nVision son bildirimi: ").append(stage);
+        b.append("\nGörsel analiz son durumu: ").append(trText(stage));
         b.append("\nBu bildirim genel model işidir; aşağıdaki adayla aynı iş olduğu varsayılmaz.");
         line(b,"Bildirim zamanı: ",progress,"updatedAt");
         line(b,"Model: ",progress,"model");
-        line(b,"Model hatası: ",progress,"error");
+        if(progress.has("error")&&!progress.isNull("error")&&!progress.optString("error").isEmpty())b.append("\nModel hatası: teknik hata oluştu; ayrıntı PC günlüğünde.");
         JSONObject jev=json(sp.getString("v9598_jev","{}"));
         b.append("\nJev: ").append(jev.optBoolean("configured")?"yapılandırılmış":"kullanılamıyor / yapılandırılmamış");
         line(b,"Jev modeli: ",jev,"model");
         JSONObject budget=jev.optJSONObject("budget");
         if(budget!=null){
             double spent=budget.optDouble("spentUsd",0), soft=budget.optDouble("softBudgetUsd",0.25), hard=budget.optDouble("dailyCapUsd",2.0);
-            b.append(String.format(java.util.Locale.US,"\nBugün %d çağrı • $%.4f • uyarı $%.2f • hard $%.2f",budget.optInt("calls"),spent,soft,hard));
+            b.append(String.format(java.util.Locale.US,"\nBugün %d çağrı • $%.4f • uyarı $%.2f • kesin tavan $%.2f",budget.optInt("calls"),spent,soft,hard));
             if(budget.optBoolean("softLimitReached",false)&&!budget.optBoolean("hardLimitReached",false))b.append("\nJev bütçe uyarı eşiği aşıldı; Jev çalışmaya devam eder.");
-            if(budget.optBoolean("hardLimitReached",false))b.append("\nJev hard günlük bütçe sınırında; bypass edilmez, QUALIFIED fail-closed bekler.");
+            if(budget.optBoolean("hardLimitReached",false))b.append("\nJev kesin günlük bütçe sınırında; atlanmaz, işlem adayı plan güvenli biçimde bekler.");
         }
         JSONObject billing=json(sp.getString("v9598_openrouter_billing","{}"));
         JSONObject account=billing.optJSONObject("accountCredits");
@@ -101,13 +114,13 @@ public final class AutoDecisionCard {
         if(account!=null&&account.optBoolean("available")){
             double remain=account.optDouble("remainingCredits",0), total=account.optDouble("totalCredits",0), used=account.optDouble("totalUsage",0);
             b.append(String.format(java.util.Locale.US,"\nOpenRouter gerçek bakiye: $%.4f • alınan $%.4f • kullanılan $%.4f",remain,total,used));
-            if(remain<=1.0)b.append("\n⚠ OpenRouter kredisi azalıyor; kesinti olmadan kredi ekleyin / Auto Recharge kontrol edin.");
+            if(remain<=1.0)b.append("\n⚠ OpenRouter kredisi azalıyor; kesinti olmadan kredi ekleyin / otomatik bakiye yükleme kontrol edin.");
         }else{
             b.append("\nOpenRouter gerçek bakiye: henüz bağlı değil");
-            b.append("\nTam bakiye için PC'de Management API key bir kez bağlanmalı.");
+            b.append("\nTam bakiye için PC'de OpenRouter yönetim anahtarı bir kez bağlanmalı.");
         }
         if(keyInfo!=null&&keyInfo.optBoolean("available")&&!keyInfo.isNull("limit_remaining")){
-            b.append(String.format(java.util.Locale.US,"\nBrainHub-JEV key kalan limiti: $%.4f",keyInfo.optDouble("limit_remaining",0)));
+            b.append(String.format(java.util.Locale.US,"\nBrainHub-JEV erişim anahtarının kalan limiti: $%.4f",keyInfo.optDouble("limit_remaining",0)));
         }
         b.append("\nJev yalnız işlem adayı planın ek güvenlik denetimidir.");
         JSONObject pm=json(sp.getString("v9599_position_manager","{}"));
@@ -115,8 +128,9 @@ public final class AutoDecisionCard {
         b.append("\n\nAÇIK POZİSYON YÖNETİCİSİ");
         if(pr==null)b.append("\nHenüz açık pozisyon değerlendirmesi yok.");
         else{
-            b.append("\n").append(val(pr,"symbol","?")).append(" • ").append(val(pr,"side","?"));
-            b.append("\nKarar: ").append(val(pr,"actionTr","TUT"));
+            String actionTr=val(pr,"actionTr","TUT");
+            if(!"AÇIK POZİSYON YOK".equals(actionTr))b.append("\n").append(val(pr,"symbol","?")).append(" • ").append(val(pr,"side","?"));
+            b.append("\nKarar: ").append(actionTr);
             line(b,"Gerekçe: ",pr,"reasonTr");
             line(b,"Başlangıç TF: ",pr,"originTF");line(b,"Sahip TF: ",pr,"ownerTF");
             if(pr.has("pnlPct")&&!pr.isNull("pnlPct"))b.append(String.format(java.util.Locale.US,"\nAnlık fiyat değişimi: %+.3f%%",pr.optDouble("pnlPct")));
@@ -132,8 +146,8 @@ public final class AutoDecisionCard {
         JSONObject diag=json(sp.getString("v9593_pc_auto_diagnostics","{}"));
         line(b,"Aday turu: ",diag,"generatedAt");
         b.append("\nSon PC turu: ").append(sp.getString("v9592_pc_auto_last_tick_at","Henüz yok"));
-        b.append("\nYürütme: ").append(sp.getString("v9588_pc_auto_last_execution","Henüz yok"));
-        String reasons=sp.getString("v9592_pc_auto_last_reasons","");if(!reasons.isEmpty())b.append("\nYürütme nedeni: ").append(reasons);
+        b.append("\nYürütme: ").append(trText(sp.getString("v9588_pc_auto_last_execution","Henüz yok")));
+        String reasons=sp.getString("v9592_pc_auto_last_reasons","");if(!reasons.isEmpty())b.append("\nYürütme nedeni: ").append(trText(reasons));
         JSONArray rows=diag.optJSONArray("candidates");
         if(rows==null||rows.length()==0){b.append("\nHenüz aday karar kaydı yok; model onayı verilmiş sayılmaz.");return b.toString();}
         JSONArray ordered=new JSONArray();
@@ -166,8 +180,10 @@ public final class AutoDecisionCard {
                 if(decision.has("reason")&&!decision.isNull("reason"))b.append("\nJev nedeni: ").append(trReason(decision.optString("reason")));
                 if(detailed&&decision.has("conflictingTFs"))b.append("\nJev'in önemli gördüğü zaman dilimleri: ").append(trText(String.valueOf(decision.opt("conflictingTFs"))));
             }
-            line(b,"Neden: ",r,"planWhy");line(b,"Beklenen: ",r,"waitFor");line(b,"Risk: ",r,"planRisk");
-            line(b,"Aday açıklaması: ",r,"explanationTr");
+            if(r.has("planWhy"))b.append("\nNeden: ").append(trText(r.optString("planWhy")));
+            if(r.has("waitFor"))b.append("\nBeklenen: ").append(trText(r.optString("waitFor")));
+            if(r.has("planRisk"))b.append("\nRisk: ").append(trText(r.optString("planRisk")));
+            if(r.has("explanationTr"))b.append("\nAday açıklaması: ").append(trText(r.optString("explanationTr")));
             if(detailed){
                 if(r.has("supportTFs"))b.append("\nDestek zaman dilimleri: ").append(trText(String.valueOf(r.opt("supportTFs"))));
                 if(r.has("vetoTFs"))b.append("\nEngel zaman dilimleri: ").append(trText(String.valueOf(r.opt("vetoTFs"))));

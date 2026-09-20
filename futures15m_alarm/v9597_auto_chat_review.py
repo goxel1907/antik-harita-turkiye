@@ -155,24 +155,76 @@ main=main.replace(card_anchor,r'''
         box.addView(decisionCard,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
         android.widget.Button openRouterCredit=new android.widget.Button(this);
         openRouterCredit.setAllCaps(false);
-        openRouterCredit.setText("💳 OPENROUTER KREDİ / AUTO RECHARGE");
+        openRouterCredit.setText("💳 OPENROUTER KREDİ / OTOMATİK YÜKLEME");
         openRouterCredit.setOnClickListener(v->{
             try{startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://openrouter.ai/credits")));}
             catch(Exception e){Toast.makeText(this,"OpenRouter kredi sayfası açılamadı.",Toast.LENGTH_SHORT).show();}
         });
         box.addView(openRouterCredit,new android.widget.LinearLayout.LayoutParams(-1,dp(48)));
 ''' + card_anchor,1)
+# Final user-facing Turkish sanitizer for legacy status panels.
+ui_tr_methods=r'''
+    private String v9599UiTr(String raw) {
+        if(raw==null)return "";
+        String s=raw;
+        s=s.replace("REQUESTED_LEVERAGE_EXCEEDS_PC_CAP","İstenen kaldıraç PC güvenlik tavanını aşıyor");
+        s=s.replace("REQUESTED_MAX_OPEN_POSITIONS_EXCEEDS_PC_CAP","İstenen eşzamanlı pozisyon sayısı PC güvenlik tavanını aşıyor");
+        s=s.replace("LEVERAGE_CLAMPED_TO_PC_CAP","Kaldıraç PC güvenlik tavanına düşürüldü");
+        s=s.replace("MAX_OPEN_POSITIONS_CLAMPED_TO_PC_CAP","Pozisyon sayısı PC güvenlik tavanına düşürüldü");
+        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU");
+        s=s.replace("LEADER_AUTO_WAIT","OTO İŞLEM UYGUN FIRSAT BEKLİYOR");
+        s=s.replace("LEADER_AUTO_TICK_FAILED","OTO İŞLEM TARAMASI TEKNİK HATA VERDİ");
+        s=s.replace("LEADER_AUTO_CONFIG_INVALID","OTO İŞLEM AYARLARI GEÇERSİZ");
+        s=s.replace("LEADER_PLAN_NOT_QUALIFIED","9 zaman dilimli plan henüz işlem adayı değil");
+        s=s.replace("PLAN_NOT_QUALIFIED","plan henüz işlem adayı değil");
+        s=s.replace("DETAIL_RUN_COMPLETE","9 zaman dilimi analizi tamamlandı");
+        s=s.replace("FINALIZE_SEMANTIC_REPAIR","karar çelişkisi düzeltiliyor");
+        s=s.replace("FINALIZE_NARRATIVE","genel karar açıklaması hazırlanıyor");
+        s=s.replace("FINALIZE_CORE","ana karar hazırlanıyor");
+        s=s.replace("TOP3_APPROACH","ilk 3'e yaklaşıyor").replace("CURRENT_ATTACK_TOP10","anlık atak ilk 10");
+        s=s.replace("degraded_single","tek analist modu").replace("TEK ANALIST/DEGRADED","tek analist modu");
+        s=s.replace("REVIEW_REQUIRED","yeniden inceleme gerekli").replace("QUALIFIED","işlem adayı").replace("WATCH","izle / bekle");
+        s=s.replace("SUPPORT","destek").replace("VETO","engel").replace("NEUTRAL","nötr");
+        s=s.replace("NONE","yok").replace("annotated","işaretlenmiş grafik");
+        s=s.replace("bullish confirmation","yükseliş teyidi").replace("trend support","trend desteği");
+        s=s.replace("inside bar not confirmed","iç bar teyit edilmedi").replace("forming","oluşan");
+        s=s.replace("continuity","süreklilik").replace("tradeQuality","işlem kalitesi").replace("longScore","LONG puanı").replace("shortScore","SHORT puanı");
+        s=s.replace("origin→owner","başlangıç→sahip");
+        s=s.replace('[',' ').replace(']',' ').replace('"',' ');
+        return s;
+    }
+'''
+pos=main.rfind('}')
+main=main[:pos]+ui_tr_methods+'\n'+main[pos:]
+main=main.replace('else if(pcBlocked) state=(blockedCount>=3?"🔴":"🟠")+" PC LEADER AUTO BLOCKED • "+(lastPcReasons==null||lastPcReasons.trim().isEmpty()?lastPcExecution:lastPcReasons);',
+                  'else if(pcBlocked) state=(blockedCount>=3?"🔴":"🟠")+" PC OTO İŞLEM GÜVENLİK NEDENİYLE DURDU • "+v9599UiTr(lastPcReasons==null||lastPcReasons.trim().isEmpty()?lastPcExecution:lastPcReasons);')
+main=main.replace('else if("LEADER_AUTO_WAIT".equals(lastPcExecution)) state="🟢 PC LEADER AUTO TARIYOR • UYGUN/QUALIFIED FIRSAT BEKLİYOR";',
+                  'else if("LEADER_AUTO_WAIT".equals(lastPcExecution)) state="🟢 PC OTO TARIYOR • UYGUN İŞLEM ADAYI BEKLİYOR";')
+main=main.replace('else if(inflight) state="🔵 SİNYAL İŞLENİYOR • RİSK / LINEAGE / GRANT KONTROLÜ";',
+                  'else if(inflight) state="🔵 SİNYAL İŞLENİYOR • RİSK / İŞLEM KİMLİĞİ / YETKİ KONTROLÜ";')
+main=main.replace('st.append("\\nPC LIVE: ").append(armed?"ARMED":"KAPALI");',
+                  'st.append("\\nPC CANLI İŞLEM: ").append(armed?"AÇIK":"KAPALI");')
+main=main.replace('if(lex!=null&&!lex.trim().isEmpty())st.append(" • son ").append(lex.trim());',
+                  'if(lex!=null&&!lex.trim().isEmpty())st.append(" • son ").append(v9599UiTr(lex.trim()));')
+main=main.replace('if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\\nNeden: ").append(lastPcReasons.trim());',
+                  'if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\\nNeden: ").append(v9599UiTr(lastPcReasons.trim()));')
+main=main.replace('st.append("\\n").append(v9593LeaderDiagnosticsSummary(sp));',
+                  'st.append("\\n").append(v9599UiTr(v9593LeaderDiagnosticsSummary(sp)));')
+main=main.replace('android.widget.TextView detail=text(detailedAuto,11.15f,android.graphics.Color.WHITE,false);',
+                  'android.widget.TextView detail=text(v9599UiTr(detailedAuto),11.15f,android.graphics.Color.WHITE,false);')
+main=main.replace('android.widget.TextView life=text(lifecycleText,10.9f,android.graphics.Color.WHITE,false);',
+                  'android.widget.TextView life=text(v9599UiTr(lifecycleText),10.9f,android.graphics.Color.WHITE,false);')
 main_path.write_text(main)
-analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.99')
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.100')
 analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
-text=re.sub(r'versionCode\s+\d+','versionCode 26092002',text)
+text=re.sub(r'versionCode\s+\d+','versionCode 26092003',text)
 text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.99'",text)
 build.write_text(text)
 assert "versionName '9.5.99'" in text
-assert 'versionCode 26092002' in text
+assert 'versionCode 26092003' in text
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
-print('v9.5.99 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
+print('v9.5.100 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')

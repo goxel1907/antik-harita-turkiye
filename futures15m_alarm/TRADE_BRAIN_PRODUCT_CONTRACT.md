@@ -107,3 +107,13 @@ No component may claim guaranteed profit or guaranteed prediction accuracy.
 - Kullanıcıya gösterilen karar, gerekçe, bekleme, ret, risk, Jev ve pozisyon-yönetimi açıklamaları Türkçe ve anlaşılır olmalıdır.
 - Ham İngilizce provider/model hata metinleri kullanıcı karar ekranına basılmamalı; teknik günlükte kalmalıdır.
 - LONG/SHORT, zaman dilimi kısaltmaları ve model kimlikleri teknik kimlik olarak korunabilir; bunların yanındaki açıklamalar Türkçe olmalıdır.
+
+
+## Mobil risk tavanı uyarlaması ve kullanıcı dili
+
+- Mobil uygulamanın geçerli kaldıraç veya azami açık pozisyon isteği PC güvenlik tavanından yüksekse bu durum tek başına fırsatı öldürmemelidir.
+- Etkin değer yalnız aşağı yönlü `min(mobil istek, PC tavanı)` ile belirlenmelidir; mobil uygulama hiçbir koşulda PC tavanını yükseltemez.
+- Aşağı kırpılan değerle notional/stop/aile maruziyeti/günlük kayıp/kill-switch/stale/lineage/one-shot kontrolleri yeniden ve eksiksiz uygulanmalıdır.
+- Geçersiz kaldıraç/pozisyon değeri otomatik düzeltilmemeli; fail-closed kalmalıdır.
+- Uygulama kullanıcıya “istenen → uygulanan” değeri Türkçe ve açık biçimde göstermelidir.
+- Kullanıcı yüzeyinde ham `LEADER_AUTO_*`, `PLAN_NOT_QUALIFIED`, `REQUESTED_*`, `WATCH`, `NONE`, `SUPPORT`, `VETO`, `degraded_single` ve benzeri iç kodlar açıklama olarak gösterilmemelidir.
