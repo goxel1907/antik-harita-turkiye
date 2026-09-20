@@ -333,6 +333,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
         ? new Date(analyses.filter(x=>String(x.planStatus||'').toUpperCase()==='QUALIFIED').at(-1).at).toISOString()
         : null,
       latestUniverseCount:latestScan?.universeCount ?? leaderAutoLastDiagnostics.universeCount ?? 0,
+      latestLightweightUniverseCount:leaderAutoLastDiagnostics.lightweightUniverseCount ?? 0,
       latestShortlistCount:latestScan?.shortlistCount ?? leaderAutoLastDiagnostics.shortlistCount ?? 0,
       latestEligibleCount:latestScan?.eligibleCount ?? leaderAutoLastDiagnostics.eligibleCount ?? 0,
       topReasons
@@ -1102,7 +1103,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
         ...base,
         reasons:['NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER'],
         policy:publicPolicy(policy),
-        universeCount:Number(scan?.universeCount || 0),
+        universeCount:Number(scan?.targetUniverseCount || scan?.universeCount || 0),
+          lightweightUniverseCount:Number(scan?.lightweightUniverseCount || scan?.universeCount || 0),
         shortlistCount:rawCandidates.length
       };
     }
@@ -1124,7 +1126,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
           planStatus:'REVIEW_REQUIRED',
           reasons:['READINESS_SYMBOL_NOT_EXECUTION_ELIGIBLE'],
           policy:publicPolicy(policy),
-          universeCount:Number(scan?.universeCount || 0),
+          universeCount:Number(scan?.targetUniverseCount || scan?.universeCount || 0),
+          lightweightUniverseCount:Number(scan?.lightweightUniverseCount || scan?.universeCount || 0),
           shortlistCount:rawCandidates.length
         };
       }
@@ -1793,9 +1796,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     });
     leaderAutoLastDiagnostics = {
       generatedAt:new Date(clock()).toISOString(),
-      universeCount:Number(scan?.universeCount || 0),
+      universeCount:Number(scan?.targetUniverseCount || scan?.universeCount || 0),
+          lightweightUniverseCount:Number(scan?.lightweightUniverseCount || scan?.universeCount || 0),
       shortlistCount:rows.length,
       eligibleCount:rows.filter(x => x.eligible).length,
+      priorityBuckets:scan?.priorityBuckets || null,
+      attentionStatus:scan?.attentionStatus || null,
       candidates:rows.slice(0,16)
     };
     leaderHealthEvent('SCAN',{
