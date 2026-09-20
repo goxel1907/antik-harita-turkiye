@@ -358,6 +358,20 @@ function visionBatches(images,size=1){
   return out;
 }
 let localVisionProgress={runId:null,stage:'IDLE',startedAt:null,updatedAt:new Date().toISOString(),durationMs:0,model:null,error:null};
+let localVisionTail=Promise.resolve();
+let localVisionQueueDepth=0;
+async function withLocalVisionSingleFlight(fn){
+  const previous=localVisionTail;
+  let release;
+  localVisionTail=new Promise(resolve=>{release=resolve;});
+  localVisionQueueDepth++;
+  await previous;
+  try{return await fn();}
+  finally{
+    localVisionQueueDepth=Math.max(0,localVisionQueueDepth-1);
+    release();
+  }
+}
 function setLocalVisionProgress(stage,extra={}){
   const now=Date.now();
   const started=Number(extra.startedMs||0) || Number(localVisionProgress.startedAtMs||0) || now;
@@ -460,7 +474,7 @@ function localTfRepairPrompt(tf,missing,localContext,visualText){
     'Eksik/geçersiz etiketler: '+missing.join(', '),
     'ROLE yalnız SUPPORT veya VETO veya NEUTRAL olabilir.',
     'FORMING alanı kapanmış mum teyidi olmadığını açıkça söylemeli.',
-    'Her değer kısa olsun; WHY<=180, WAIT<=100, FORMING<=120, RISK<=120 karakter.',
+    'Her değer kısa olsun; WHY<=120, WAIT<=80, FORMING<=90, RISK<=90 karakter. Tüm istenen etiketleri mutlaka yaz.',
     'ALREADY_EXTRACTED_VISUAL_EVIDENCE:',
     String(visualText||'').slice(0,2200),
     'TF_CONTEXT_JSON: '+JSON.stringify(tfContext)
@@ -583,6 +597,9 @@ function candidateForSymbol(scan,symbol){
   return null;
 }
 async function runLocalVisionCommittee(body){
+  return withLocalVisionSingleFlight(()=>runLocalVisionCommitteeUnlocked(body));
+}
+async function runLocalVisionCommitteeUnlocked(body){
   const j=body&&typeof body==='object'?body:{};
   const role=normalizeRole(j.role||'DEFAULT');
   const vision=multimodalUserContent(j.prompt,j.images);
@@ -636,7 +653,7 @@ async function runLocalVisionCommittee(body){
             {role:'system',content:'LOCAL_TF_SCHEMA_REPAIR. Repair only requested TF_* labels from already extracted evidence. Do not invent new visual claims. ROLE must be exactly SUPPORT, VETO, or NEUTRAL. Return LABEL: value lines only.'},
             {role:'user',content:localTfRepairPrompt(tf,contract.missing,j.localContext||{},visual.text)}
           ];
-          const repair=await callLocalStage('TF_SCHEMA_REPAIR='+tf,model,repairMessages,local.timeoutMs,{temperature:0,maxTokens:120});
+          const repair=await callLocalStage('TF_SCHEMA_REPAIR='+tf,model,repairMessages,local.timeoutMs,{temperature:0,maxTokens:320});
           const repairContract=tfEvidenceContract(tf,repair.text);
           contract=mergeLabelContracts(contract,repairContract,contract.missing);
           const canonical=canonicalTfEvidence(tf,contract);
@@ -778,7 +795,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.97-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
@@ -888,7 +905,7 @@ const server=http.createServer(async(req,res)=>{
       });
     }
     if(req.method==='GET'&&u.pathname==='/vision/progress'){
-      return send(res,200,{ok:true,...localVisionProgress});
+      return send(res,200,{ok:true,...localVisionProgress,queueDepth:localVisionQueueDepth});
     }
     if(req.method==='GET'&&u.pathname==='/vision/probe'){
       const symbol=String(u.searchParams.get('symbol')||'BTCUSDT').trim().toUpperCase();
