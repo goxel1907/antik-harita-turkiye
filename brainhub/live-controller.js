@@ -1357,6 +1357,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, crede
     const plan=advisory?.plan || {};
     const vision=advisory?.vision || {};
     return {
+      jevDecision:plan.jevDecision || null,
       planStatus:String(plan.status || ''),
       confidence:finite(plan.confidence),
       originTF:String(plan.originTF || ''),

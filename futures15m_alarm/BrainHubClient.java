@@ -127,7 +127,9 @@ public final class BrainHubClient {
         JSONObject jev=status.optJSONObject("jev"), budget=jev==null?null:jev.optJSONObject("budget");
         String label=jev==null?"Jev durumu alınamadı":("Jev: "+(jev.optBoolean("configured")?"hazır • veto denetimi":"yapılandırma/anahtar eksik"));
         if(budget!=null)label+=String.format(java.util.Locale.US," • bugün $%.4f / $%.2f",budget.optDouble("spentUsd",0),budget.optDouble("dailyCapUsd",0));
-        c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE).edit().putString("v9597_jev_status",label).apply();
+        c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE).edit().putString("v9597_jev_status",label)
+            .putString("v9598_jev",jev==null?"{}":jev.toString())
+            .putString("v9598_progress",status.optJSONObject("visionProgress")==null?"{}":status.optJSONObject("visionProgress").toString()).apply();
         return status;
     }
     public static JSONObject liveAccount(Context c) throws Exception {

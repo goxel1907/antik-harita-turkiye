@@ -136,7 +136,9 @@ test('Leader Auto keeps 9TF analysis running while LIVE arm stays off and never 
     async run(input){
       pipelineCalls++;
       assert.equal(input.executionIntent.symbol,'AAAUSDT');
-      return advisory('QUALIFIED');
+      const out=advisory('QUALIFIED');
+      out.plan.jevDecision={called:true,ok:true,veto:false,model:'fixture-jev',summaryTr:'Test karar kaydı',timeframeConflicts:{'1h':0.1}};
+      return out;
     }
   };
   const scanner={ async scan(){ return candidateScan(); } };
@@ -165,6 +167,9 @@ test('Leader Auto keeps 9TF analysis running while LIVE arm stays off and never 
   assert.equal(st.diagnostics.candidates[0].selected,true);
   assert.equal(st.diagnostics.candidates[0].planStatus,'QUALIFIED');
   assert.equal(st.diagnostics.candidates[0].vision.attached,9);
+  assert.equal(st.diagnostics.candidates[0].jevDecision.called,true);
+  assert.equal(st.diagnostics.candidates[0].jevDecision.model,'fixture-jev');
+  assert.equal(st.diagnostics.candidates[0].jevDecision.timeframeConflicts['1h'],0.1);
 
   fs.rmSync(root,{recursive:true,force:true});
 });

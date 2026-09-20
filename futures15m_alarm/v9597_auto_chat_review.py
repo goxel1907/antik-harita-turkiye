@@ -136,10 +136,31 @@ pos=analysis.rfind('}')
 analysis=analysis[:pos]+review_method+'\n'+analysis[pos:]
 main_path.write_text(main)
 analysis_path.write_text(analysis)
+# Read-only, separate AUTO decision card. It uses the existing status poll;
+# opening details never starts models, changes risk settings, or places orders.
+card_source=Path(__file__).resolve().parent/'AutoDecisionCard.java'
+(JAVA/'AutoDecisionCard.java').write_text(card_source.read_text(encoding='utf-8'),encoding='utf-8')
+card_anchor='        String detailedAuto=v9594SelectedLeaderDetail(sp);'
+assert main.count(card_anchor)==1
+main=main.replace(card_anchor,r'''
+        android.widget.TextView decisionCard=text(AutoDecisionCard.render(sp,now,false),12.0f,android.graphics.Color.WHITE,false);
+        decisionCard.setPadding(dp(12),dp(12),dp(12),dp(12));
+        decisionCard.setBackgroundColor(pcFresh?android.graphics.Color.rgb(19,45,70):android.graphics.Color.rgb(100,45,20));
+        decisionCard.setOnClickListener(v->{
+            android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+            android.widget.TextView body=text(AutoDecisionCard.render(v9522Prefs(),System.currentTimeMillis(),true),13.0f,android.graphics.Color.WHITE,false);
+            body.setPadding(dp(14),dp(14),dp(14),dp(14));body.setTextIsSelectable(true);scroll.addView(body);
+            new android.app.AlertDialog.Builder(this).setTitle("OTO • Model ve karar ayrıntıları").setView(scroll).setPositiveButton("Kapat",null).show();
+        });
+        box.addView(decisionCard,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+''' + card_anchor,1)
+main_path.write_text(main)
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.98')
+analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
-text=re.sub(r'versionCode\s+\d+','versionCode 26091902',text)
-text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.97'",text)
+text=re.sub(r'versionCode\s+\d+','versionCode 26092001',text)
+text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.98'",text)
 build.write_text(text)
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
