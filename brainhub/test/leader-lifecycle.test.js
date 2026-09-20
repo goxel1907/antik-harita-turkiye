@@ -756,3 +756,96 @@ test('coverage scheduler analyzes a fresh second candidate before repeating the 
     fs.rmSync(root,{recursive:true,force:true});
   }
 });
+
+
+test('Leader Auto reuses the already-qualified 9TF/Jev plan instead of requiring a second Vision qualification', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-leader-approved-reuse-'));
+  try {
+    const cfg=path.join(root,'config');
+    fs.mkdirSync(cfg,{recursive:true});
+    fs.writeFileSync(path.join(cfg,'live-policy.json'),JSON.stringify(policy(),null,2));
+    const clockRef={ now:Date.UTC(2026,8,20,21,0,0) };
+    const fetches=[];
+    const fetchImpl=async (url,opts={})=>{
+      const u=new URL(String(url));
+      const method=String(opts.method||'GET').toUpperCase();
+      fetches.push({method,path:u.pathname});
+      if(u.pathname==='/fapi/v1/time') return response({serverTime:clockRef.now});
+      if(u.pathname==='/fapi/v3/account') return response({
+        totalWalletBalance:'100',totalMarginBalance:'100',availableBalance:'100',totalUnrealizedProfit:'0',positions:[]
+      });
+      if(u.pathname==='/fapi/v1/positionSide/dual') return response({dualSidePosition:false});
+      if(u.pathname==='/fapi/v1/income') return response([]);
+      if(u.pathname==='/fapi/v1/commissionRate') return response({symbol:'AAAUSDT',makerCommissionRate:'0.0002',takerCommissionRate:'0.0004'});
+      if(u.pathname==='/fapi/v1/exchangeInfo') return response({symbols:[{
+        symbol:'AAAUSDT',
+        filters:[
+          {filterType:'PRICE_FILTER',tickSize:'0.01',minPrice:'0.01',maxPrice:'1000000'},
+          {filterType:'MARKET_LOT_SIZE',stepSize:'0.001',minQty:'0.001',maxQty:'1000000'},
+          {filterType:'MIN_NOTIONAL',notional:'5'}
+        ]
+      }]});
+      if(u.pathname==='/fapi/v1/ticker/price') return response({symbol:'AAAUSDT',price:'102'});
+      throw new Error('unexpected Binance fetch '+method+' '+u.pathname);
+    };
+    const store={
+      journal(){ return '00000000-0000-0000-0000-000000009105'; },
+      lease(action){
+        if(action==='acquire'||action==='renew')return {acquired:true,owner:'BRAINHUB_PC',expiresAt:clockRef.now+120000};
+        if(action==='release')return {released:true};
+        return {acquired:false};
+      },
+      claim(eventId,owner,resource,token,lineageId){ return {claimed:true,eventId,owner,lineageId}; },
+      releaseClaim(){ return {released:true}; },
+      recordLearning(){}
+    };
+    const scan=candidateScan();
+    let pipelineCalls=0;
+    const approved=advisory('QUALIFIED');
+    approved.plan.jevDecision={ok:true,required:true,called:true,veto:false,vetoReasons:[]};
+    approved.jevDecision=approved.plan.jevDecision;
+    approved.preJevPlan={...approved.plan};
+    approved.unifiedContext={
+      symbol:'AAAUSDT',
+      livePrice:100,
+      dataQuality:{advisoryUsable:true},
+      microstructure:{spreadBps:1,depthSoftContext:{micropriceBps:0}},
+      frames:{
+        '1m':{available:true,fresh:true,atrPct:1,prior20Low:95,prior20High:105,breakoutExecution:{status:'READY'}},
+        '5m':{available:true,fresh:true,atrPct:1,prior20Low:94,prior20High:106,breakoutExecution:{status:'READY'}}
+      },
+      opportunityPaths:{
+        LONG:{originTF:'1m',ownerTF:'5m',continuity:[
+          {frame:'1m',immediateEligible:true,state:'ACTIVE_CONTEXT'},
+          {frame:'5m',immediateEligible:false,state:'OWNER_CONTEXT'}
+        ]},
+        SHORT:{originTF:null,ownerTF:null,continuity:[]}
+      }
+    };
+    const pipeline={
+      resolveExecutionCandidate(){ return {candidate:scan.leaders[0],requestedSymbol:'AAAUSDT',targeted:true}; },
+      async run(){
+        pipelineCalls++;
+        if(pipelineCalls>1) throw new Error('SECOND_VISION_PASS_MUST_NOT_RUN');
+        return approved;
+      }
+    };
+    const controller=createLiveController({
+      root,store,scanner:{async scan(){return scan;}},pipeline,committee:async()=>({ok:true,text:''}),
+      credentials:{apiKey:'test-api-key',apiSecret:'test-api-secret'},fetchImpl,clock:()=>clockRef.now
+    });
+    assert.equal((await controller.arm({confirmed:true})).armed,true);
+    assert.equal(controller.configureLeaderAuto({
+      enabled:true,marginQuote:20,leverage:10,maxOpenPositions:2,allowLong:true,allowShort:true
+    }).ok,true);
+
+    const out=await controller.leaderAutoTick();
+    assert.equal(pipelineCalls,1,'live execution must reuse the first qualified Vision/Jev decision');
+    assert.equal(out.orderPlaced,false);
+    assert.ok(Array.isArray(out.reasons));
+    assert.ok(out.reasons.includes('LIVE_PRICE_DEVIATION_TOO_HIGH'));
+    assert.equal(fetches.some(x=>x.method==='POST'),false,'price-deviation preflight must block before any Binance write');
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
