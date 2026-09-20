@@ -61,6 +61,9 @@ try {
         $text -notmatch 'LEADER_STATUS_STALE_SUPPRESSION' -or
         $text -notmatch 'LEADER_AUTO_HEALTH_TELEMETRY' -or
         $text -notmatch 'LEADER_AUTO_COVERAGE_SCHEDULER' -or
+        $text -notmatch 'USER_PANEL_EXACT_TOTAL_EXPOSURE' -or
+        $text -notmatch 'LEADER_APPROVED_ANALYSIS_REUSE' -or
+        $text -notmatch 'PREJEV_EXECUTION_TELEMETRY' -or
         $text -notmatch 'ANDROID_FULL_TURKISH_STATUS' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
