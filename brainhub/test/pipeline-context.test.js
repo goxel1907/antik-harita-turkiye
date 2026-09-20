@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, blockingVisionVetoTFs, reconcileVisionPlanSemantics, shouldAttemptVisionRepair } = require('../pipeline');
+const { buildUnifiedContext, liquidationContext, planFields, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair } = require('../pipeline');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('../risk-gate');
 const { buildDryRunOrder } = require('../binance-dry-run-executor');
 
@@ -567,4 +567,9 @@ test('missing force-order prints never become a fabricated liquidation map', () 
   assert.equal(x.available, false);
   assert.equal(x.reason, 'NO_RECENT_OBSERVED_FORCE_ORDER_PRINTS');
   assert.match(x.note, /Do not fabricate/);
+});
+test('WATCH + WAIT_FOR NONE is a semantic contradiction that must be resolved before Jev/execution',()=>{
+  assert.equal(watchPlanNeedsSemanticResolution({status:'WATCH',waitFor:'NONE'}),true);
+  assert.equal(watchPlanNeedsSemanticResolution({status:'WATCH',waitFor:'15m kapanış teyidi'}),false);
+  assert.equal(watchPlanNeedsSemanticResolution({status:'QUALIFIED',waitFor:'NONE'}),false);
 });

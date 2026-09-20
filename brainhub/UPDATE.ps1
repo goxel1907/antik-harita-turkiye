@@ -55,6 +55,7 @@ try {
         $text -notmatch 'BRAIN_LEARNING_SOFT_CONTEXT' -or
         $text -notmatch 'ANDROID_TURKISH_DECISION_TEXT' -or
         $text -notmatch 'BACKGROUND_VISION_COLLISION_GUARD' -or
+        $text -notmatch 'VISION_WATCH_NONE_ANTI_CHOKE' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
         $text -notmatch 'VISION_CHART_448X252' -or

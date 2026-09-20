@@ -719,6 +719,10 @@ function blockingVisionVetoTFs(plan) {
   const critical=[plan?.originTF,plan?.ownerTF].filter(x=>FRAME_ORDER.includes(x));
   return [...new Set(critical.filter(tf=>veto.has(tf)))];
 }
+function watchPlanNeedsSemanticResolution(plan) {
+  if(!plan||String(plan.status||'').toUpperCase()!=='WATCH')return false;
+  return String(plan.waitFor||'').trim().toUpperCase()==='NONE';
+}
 function reconcileVisionPlanSemantics(plan) {
   if (!plan || String(plan.status || '').toUpperCase() !== 'QUALIFIED') return plan;
   const reasons=[];
@@ -986,6 +990,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     });
     plan = planFields(result.text);
     plan = reconcileVisionPlanSemantics(plan);
+    plan = {...plan,watchNeedsSemanticResolution:watchPlanNeedsSemanticResolution(plan)};
     if (Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
       plan = {
         ...plan,
@@ -1154,4 +1159,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };

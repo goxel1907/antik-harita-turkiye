@@ -605,6 +605,46 @@ function localGlobalNarrativeRepairMessages(role,missing,visionText,localContext
     ].join('\n')}
   ];
 }
+function localGlobalDecisionSemanticRepairMessages(role,visionText,localContext,coreText,narrativeText){
+  return [
+    {role:'system',content:roleInstruction(role)+' LOCAL_GLOBAL_DECISION_SEMANTIC_REPAIR: resolve only the contradiction WATCH + WAIT_FOR NONE from already extracted evidence. Do not re-read charts, do not invent facts, and do not place orders. Return exactly STATUS, CONFIDENCE and WAIT_FOR lines.'},
+    {role:'user',content:[
+      'Resolve this exact contradiction: current STATUS is WATCH but WAIT_FOR is NONE.',
+      'Return exactly three lines: STATUS, CONFIDENCE, WAIT_FOR.',
+      'Allowed STATUS: WATCH or QUALIFIED or REJECT.',
+      'If a concrete unresolved execution-path condition exists in TF_EVIDENCE, keep WATCH and write that exact condition in WAIT_FOR.',
+      'If no unresolved execution-path condition exists, ORIGIN_TF and OWNER_TF are not VETO, and data quality is usable, choose QUALIFIED with WAIT_FOR exactly NONE so Jev can perform the final veto review.',
+      'A VETO outside ORIGIN_TF/OWNER_TF is contextual conflict for Jev and by itself is NOT a reason to leave a plan in WATCH.',
+      'Never use forming candle as confirmation. If evidence depends on a forming candle, keep WATCH and state the exact closed-candle condition.',
+      'WATCH is not a generic uncertainty bucket; WATCH must always have a concrete WAIT_FOR.',
+      '',
+      'CORE_DECISION:',
+      String(coreText||''),
+      '',
+      'NARRATIVE:',
+      String(narrativeText||''),
+      '',
+      'TF_EVIDENCE:',
+      String(visionText||''),
+      '',
+      'COMPACT_CONTEXT_JSON:',
+      JSON.stringify(localContext||{})
+    ].join('\n')}
+  ];
+}
+function semanticDecisionRepair(text){
+  const lines=parseLabelMap(text);
+  const status=String(lines.get('STATUS')||'').trim().toUpperCase();
+  const confidence=Number(String(lines.get('CONFIDENCE')||'').trim());
+  const waitFor=String(lines.get('WAIT_FOR')||'').trim();
+  const okStatus=['WATCH','QUALIFIED','REJECT'].includes(status);
+  const okConfidence=Number.isInteger(confidence)&&confidence>=0&&confidence<=100;
+  const okWait=Boolean(waitFor)&&(
+    (status==='QUALIFIED'&&waitFor.toUpperCase()==='NONE') ||
+    (status!=='QUALIFIED'&&waitFor.toUpperCase()!=='NONE')
+  );
+  return {ok:okStatus&&okConfidence&&okWait,status,confidence,waitFor};
+}
 function localGlobalCoreRepairMessages(role,missing,visionText,localContext){
   return [
     {role:'system',content:roleInstruction(role)+' LOCAL_GLOBAL_CORE_REPAIR: choose concrete values, never echo option lists or placeholders. Return only requested LABEL: value lines. Advisory only.'},
@@ -627,7 +667,7 @@ function localGlobalCoreRepairMessages(role,missing,visionText,localContext){
 function localGlobalCoreMessages(role,visionText,localContext){
   const sys=[
     roleInstruction(role),
-    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has unresolved confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. Advisory only.'
+    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has unresolved confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. WATCH is allowed only when TF_EVIDENCE contains a concrete unresolved condition; do not use WATCH as generic caution. Advisory only.'
   ].join(' ');
   return [
     {role:'system',content:sys},
@@ -639,7 +679,7 @@ function localGlobalCoreMessages(role,visionText,localContext){
       'OWNER_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
       'SETUP: en fazla 5 kelime',
       'EXEC_PATH: en fazla 5 kelime',
-      'Safety rule: STATUS=QUALIFIED requires ORIGIN_TF and OWNER_TF not to be VETO and no unresolved execution-path wait/confirmation condition. Other TF VETO roles remain contextual evidence for Jev.',
+      'Safety rule: STATUS=QUALIFIED requires ORIGIN_TF and OWNER_TF not to be VETO and no unresolved execution-path wait/confirmation condition. Other TF VETO roles remain contextual evidence for Jev. STATUS=WATCH requires a concrete unresolved TF_*_WAIT condition; if none exists, do not leave the plan in WATCH.',
       '',
       'TF_EVIDENCE:',
       String(visionText||''),
@@ -662,7 +702,7 @@ function localGlobalNarrativeMessages(role,visionText,localContext,coreText){
       'WAIT_FOR: en fazla 180 karakter; tam koşul; QUALIFIED ise NONE',
       'FORMING_CONTEXT: en fazla 180 karakter; forming bağlamı ve teyit olmadığı',
       'VISION_SUMMARY: en fazla 220 karakter; 9TF ortak yapı, destek/veto ve origin→owner',
-      'WAIT_FOR rule: CORE_DECISION STATUS QUALIFIED ise WAIT_FOR değeri TAM OLARAK NONE olmalı; WATCH/REJECT ise gerçek bekleme/engelleme koşulunu yaz.',
+      'WAIT_FOR rule: CORE_DECISION STATUS QUALIFIED ise WAIT_FOR değeri TAM OLARAK NONE olmalı; WATCH ise mutlaka TF_EVIDENCE içinden somut bekleme/teyit koşulu yaz. WATCH + NONE yasaktır.',
       '',
       'CORE_DECISION:',
       String(coreText||''),
@@ -803,6 +843,37 @@ async function runLocalVisionCommitteeUnlocked(body){
         narrativeContract=labeledContract(normalizedLabeledText(narrativeContract,narrativeLabels,240),narrativeLabels);
       }
       if(!narrativeContract.ok)throw new Error('GLOBAL_NARRATIVE_CONTRACT missing='+narrativeContract.missing.join(','));
+      let semanticRepairMeta=null;
+      const currentStatus=String(coreContract?.lines?.get('STATUS')||'').trim().toUpperCase();
+      const currentWait=String(narrativeContract?.lines?.get('WAIT_FOR')||'').trim();
+      if(currentStatus==='WATCH'&&currentWait.toUpperCase()==='NONE'){
+        try{
+          const semanticRepair=await callLocalStage(
+            'FINALIZE_SEMANTIC_REPAIR',
+            model,
+            localGlobalDecisionSemanticRepairMessages(
+              role,visionText,finalizeContext,
+              normalizedLabeledText(coreContract,coreLabels,80),
+              normalizedLabeledText(narrativeContract,narrativeLabels,240)
+            ),
+            local.timeoutMs,
+            {temperature:0,maxTokens:220}
+          );
+          const resolved=semanticDecisionRepair(semanticRepair.text);
+          if(resolved.ok){
+            coreContract.lines.set('STATUS',resolved.status);
+            coreContract.lines.set('CONFIDENCE',String(resolved.confidence));
+            narrativeContract.lines.set('WAIT_FOR',resolved.waitFor);
+            semanticRepairMeta={attempted:true,ok:true,status:resolved.status,waitFor:resolved.waitFor};
+          }else{
+            narrativeContract.lines.set('WAIT_FOR','Model somut bekleme koşulu üretmedi; sonraki taze veride yeniden değerlendir.');
+            semanticRepairMeta={attempted:true,ok:false,reason:'SEMANTIC_REPAIR_INVALID'};
+          }
+        }catch(e){
+          narrativeContract.lines.set('WAIT_FOR','Model somut bekleme koşulu üretmedi; sonraki taze veride yeniden değerlendir.');
+          semanticRepairMeta={attempted:true,ok:false,reason:'SEMANTIC_REPAIR_ERROR'};
+        }
+      }
       const finalizeDurationMs=Date.now()-finalizeStarted;
       const roleSummary=localRoleSummary(visionText);
       text=[
@@ -820,7 +891,8 @@ async function runLocalVisionCommitteeUnlocked(body){
         visionDurationMs,
         batchDurations,
         finalizeDurationMs,
-        globalFinalizeSplit:true
+        globalFinalizeSplit:true,
+        semanticAntiChoke:semanticRepairMeta
       };
     }
     const durationMs=Date.now()-started;
@@ -916,7 +988,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.99-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.99-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
