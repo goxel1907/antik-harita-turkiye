@@ -176,11 +176,12 @@ function blocked(model){ return recentFailure(state,model); }
 function visionBlocked(model){ return recentFailure(visionState,model); }
 function visionAvailability(){
   let ccfg={};try{ccfg=readCommitteeConfig();}catch{}
+  const now=Date.now();
   const models=orderedVisionModels(ccfg,'STRUCTURE',true).map(model=>{
     const s=visionState.get(model);
     const error=String(s?.error||'');
     let reason='NOT_VERIFIED';
-    if(s?.ok===true && Date.now()-s.at<TTL) reason='AVAILABLE';
+    if(s?.ok===true && now-s.at<TTL) reason='AVAILABLE';
     else if(/MONTHLY_REQUEST_COUNT|reached the limit/i.test(error)) reason='QUOTA_EXHAUSTED';
     else if(/only be used from within OpenCode|FreeTierError/i.test(error)) reason='PROVIDER_RESTRICTED';
     else if(String(model).startsWith('local/')&&/exceeds the available context size|exceed_context_size/i.test(error)) reason='LOCAL_CONTEXT_TOO_SMALL';
@@ -190,14 +191,53 @@ function visionAvailability(){
     return {model,reason,lastCheckedAt:s?.at||null};
   });
   const verified=models.filter(x=>x.reason==='AVAILABLE').length;
+  const progressStage=String(localVisionProgress?.stage||'IDLE');
+  const terminalStages=new Set(['IDLE','DETAIL_RUN_COMPLETE','PIXEL_RUN_COMPLETE','DETAIL_RUN_ERROR','PIXEL_RUN_ERROR']);
+  const running=localVisionQueueDepth>0||!terminalStages.has(progressStage);
+  const hardFailure=models.some(x=>!['AVAILABLE','NOT_VERIFIED'].includes(x.reason));
   const notes=[];
   if(models.some(x=>x.reason==='PROVIDER_RESTRICTED')) notes.push('OpenCode dış uygulama erişimini reddediyor');
   if(models.some(x=>x.reason==='QUOTA_EXHAUSTED')) notes.push('Kiro model kotası dolu');
   if(models.some(x=>x.reason==='LOCAL_CONTEXT_TOO_SMALL')) notes.push('yerel Ollama Vision context penceresi 9TF için yetersiz');
   if(models.some(x=>x.reason==='LOCAL_UNAVAILABLE')) notes.push('yerel Ollama Vision kullanılamıyor');
   if(models.some(x=>x.reason==='TIMEOUT')) notes.push('model yanıtı süre aşımına uğradı');
-  return {verifiedModels:verified,models,summaryTr:(verified?'Görsel model yanıtı doğrulandı: '+verified:'Görsel model erişimi doğrulanamadı')+(notes.length?' • '+notes.join(' • '):'')};
+  if(models.some(x=>x.reason==='PROVIDER_UNAVAILABLE')) notes.push('model sağlayıcısından yanıt alınamadı');
+  let summaryTr='';
+  let status='PENDING';
+  if(running){
+    status='RUNNING';
+    const stageTr=progressStage.startsWith('VISUAL_TF=')
+      ? 'zaman dilimi '+progressStage.slice('VISUAL_TF='.length)+' okunuyor'
+      : progressStage.startsWith('FINALIZE_')
+        ? '9 zaman dilimi kararı birleştiriliyor'
+        : progressStage==='IDLE'?'analiz sırası hazırlanıyor':progressStage;
+    summaryTr='Görsel model çalışıyor • '+stageTr;
+    if(verified>0) summaryTr+=' • son başarılı yanıt doğrulandı';
+  }else if(verified>0){
+    status='VERIFIED';
+    summaryTr='Görsel model yanıtı doğrulandı: '+verified;
+  }else if(models.length>0&&!hardFailure){
+    status='PENDING';
+    summaryTr='Görsel model hazır • ilk/yeniden doğrulama bekleniyor';
+  }else if(models.length>0){
+    status='UNAVAILABLE';
+    summaryTr='Görsel model erişiminde sorun var';
+  }else{
+    status='NOT_CONFIGURED';
+    summaryTr='Görsel model yapılandırılmadı';
+  }
+  if(notes.length) summaryTr+=' • '+notes.join(' • ');
+  return {
+    status,
+    configuredModels:models.length,
+    verifiedModels:verified,
+    models,
+    progressStage,
+    queueDepth:localVisionQueueDepth,
+    summaryTr
+  };
 }
+// VISION_RUNTIME_TRUTH_STATUS
 function uniqueModels(xs){ return [...new Set((xs||[]).filter(Boolean))]; }
 function orderedVisionModels(ccfg,role='STRUCTURE',includeCooldown=false){
   const free=uniqueModels(cfg.opencode||[]);
@@ -988,7 +1028,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.101-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.102-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
@@ -1007,7 +1047,7 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,await jev.billingStatus({force}));
     }
     if(req.method==='GET'&&u.pathname==='/live/status'){
-      return send(res,200,{...live.status(),visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterBilling:jev.billingSnapshot()});
+      return send(res,200,{...live.status(),featureVersion:'9.5.102-VISION',sizingAuthority:'USER_PANEL_EXACT',visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterBilling:jev.billingSnapshot()});
     }
     if(req.method==='GET'&&u.pathname==='/live/account'){
       const out=await live.accountSummary();
