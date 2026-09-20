@@ -21,7 +21,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.105 Turkish position-manager source
+      - name: Prepare Futures Alarm v9.5.106 Turkish position-manager source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -119,6 +119,14 @@ workflows:
           grep -q 'LEADER_APPROVED_ANALYSIS_REUSE' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'PREJEV_EXECUTION_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'TARGETED_PRIORITY_UNIVERSE_24' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'BINANCE_TOP24_GAINER_DISCOVERY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'ACCUMULATION_PROXY_DISCOVERY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'ANDROID_ATTENTION_SYNC' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'TARGET_DETAIL_LIMIT = 24' "$CM_BUILD_DIR/brainhub/scanner.js"
+          grep -q 'APP_EARLY_ATTENTION' "$CM_BUILD_DIR/brainhub/leader-committee.js"
+          grep -q 'syncAttentionSnapshot' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
+          grep -q 'PC tarama: hedef evren' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
           grep -q 'OUTCOME_BACKED_SOFT_CONTEXT_ONLY' "$CM_BUILD_DIR/brainhub/pipeline.js"
           grep -q 'LEARNING_NULL_OUTCOME_GUARD' "$CM_BUILD_DIR/brainhub/store.js"
           grep -q 'v95105_pc_feature_version' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
@@ -126,9 +134,9 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.105'" "$BUILD"
-          grep -q 'versionCode 26092008' "$BUILD"
-          echo 'V95105_EXECUTION_PATH_UNBLOCK_OK'
+          grep -q "versionName '9.5.106'" "$BUILD"
+          grep -q 'versionCode 26092101' "$BUILD"
+          echo 'V95106_PRIORITY_UNIVERSE_OK'
 
       - name: Set Android SDK location
         script: |
@@ -299,7 +307,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.105 signed APK
+      - name: Build installable v9.5.106 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -345,9 +353,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.105.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.106.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.105.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.106.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -358,5 +366,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.105.apk
+      - Futures15mAlarm-PRO-v9.5.106.apk
       - v9595-gradle.log
