@@ -601,6 +601,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
 
   async function activePositionReviewTick() {
     if(positionReviewBusy||leaderAutoBusy||executionBusy)return {ok:true,skipped:true,reason:positionReviewBusy?'POSITION_REVIEW_BUSY':'VISION_PIPELINE_BUSY'};
+    if(typeof pipeline?.isBusy==='function'&&pipeline.isBusy())return {ok:true,skipped:true,reason:'VISION_PIPELINE_BUSY'};
     positionReviewBusy=true;
     positionManagerState.lastTickAt=new Date(clock()).toISOString();
     positionManagerState.lastError=null;
@@ -798,6 +799,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
 
   async function leaderAutoTick() {
     if (leaderAutoBusy) return { ok:true, skipped:true, execution:'LEADER_AUTO_BUSY', orderPlaced:false };
+    if (positionReviewBusy) return { ok:true, skipped:true, execution:'LEADER_AUTO_BACKGROUND_BUSY', orderPlaced:false };
+    if (typeof pipeline?.isBusy==='function' && pipeline.isBusy()) return { ok:true, skipped:true, execution:'LEADER_AUTO_PIPELINE_BUSY', orderPlaced:false };
     const cfg = readLeaderAutoConfig();
     if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
     if (!cfg.config.enabled) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });

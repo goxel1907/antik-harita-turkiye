@@ -122,3 +122,8 @@ Her plan kararı, açılan pozisyon, aktif pozisyon incelemesi ve Binance üzeri
 ### Türkçe kullanıcı karar metni
 
 Android OTO karar kartı ham İngilizce karar/açıklama kodlarını kullanıcı açıklaması olarak göstermez. Plan, Jev nedeni, pozisyon yöneticisi, öğrenme özeti ve model hata durumları Türkçe ve kullanıcıya dönük metinlerle gösterilir. Model/provider kimliği ve zaman dilimi kısaltmaları teknik kimlik olarak korunabilir; ham provider hata ayrıntıları PC günlüğünde kalır.
+
+
+### Arka-plan Vision çakışma koruması
+
+Leader AUTO ve ACTIVE pozisyon yöneticisi, başka bir 9TF pipeline veya local Vision çalışırken yeni ağır semantik Vision işi başlatmaz. Arka-plan scheduler, son pipeline tamamlandıktan sonra 30 saniye bekler; bu pencere Deep/manual analizden hemen sonra çalışan pixel doğrulama gibi foreground işlemlerin önüne geçmesini engeller. Local Vision single-flight yine son emniyet katmanı olarak kalır.

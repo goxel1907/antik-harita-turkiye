@@ -889,7 +889,24 @@ async function committeeCall(body){
   }
   return data;
 }
-const decisionPipeline={...pipeline,run:(args)=>pipeline.run({...args,decisionJudge:jev.judge})};
+let decisionPipelineActive=0;
+let decisionPipelineLastFinishedAt=0;
+const decisionPipeline={
+  ...pipeline,
+  isBusy:()=>decisionPipelineActive>0,
+  activeRuns:()=>decisionPipelineActive,
+  run:async(args)=>{
+    decisionPipelineActive++;
+    try{return await pipeline.run({...args,decisionJudge:jev.judge});}
+    finally{
+      decisionPipelineActive=Math.max(0,decisionPipelineActive-1);
+      decisionPipelineLastFinishedAt=Date.now();
+    }
+  }
+};
+function backgroundAnalysisWindowOpen(){
+  return decisionPipelineActive===0&&localVisionQueueDepth===0&&(Date.now()-decisionPipelineLastFinishedAt)>=30000;
+}
 const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,exitJudge:jev.judgeExit,credentials:BINANCE_CREDENTIALS});
 
 const server=http.createServer(async(req,res)=>{
@@ -899,7 +916,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.99-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.99-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
@@ -918,7 +935,7 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,await jev.billingStatus({force}));
     }
     if(req.method==='GET'&&u.pathname==='/live/status'){
-      return send(res,200,{...live.status(),visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth},jev:jev.localStatus(),openRouterBilling:jev.billingSnapshot()});
+      return send(res,200,{...live.status(),visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterBilling:jev.billingSnapshot()});
     }
     if(req.method==='GET'&&u.pathname==='/live/account'){
       const out=await live.accountSummary();
@@ -1398,6 +1415,7 @@ if(typeof openRouterBillingTimer.unref==='function')openRouterBillingTimer.unref
 
 const activePositionReviewTimer=setInterval(async()=>{
   try{
+    if(!backgroundAnalysisWindowOpen())return;
     const out=await live.activePositionReviewTick();
     if(out?.ok===true&&out?.skipped!==true){
       log('POSITION REVIEW symbol='+(out.symbol||'unknown')+' action='+(out.action||'unknown')+' ownerTF='+(out.ownerTF||'unknown'));
@@ -1410,6 +1428,7 @@ if(typeof activePositionReviewTimer.unref==='function')activePositionReviewTimer
 
 const leaderAutoTimer=setInterval(async()=>{
   try{
+    if(!backgroundAnalysisWindowOpen())return;
     const out=await live.leaderAutoTick();
     if(out?.orderPlaced===true){
       log('LEADER AUTO ORDER symbol='+(out?.leaderIntent?.symbol||out?.symbol||'unknown')+' execution='+(out?.execution||'unknown'));
