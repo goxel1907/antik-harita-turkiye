@@ -673,3 +673,86 @@ test('re-enabling Leader Auto suppresses stale disabled status until the next ti
     fs.rmSync(root,{recursive:true,force:true});
   }
 });
+
+
+test('OTO health telemetry counts deep analysis and final plan status without changing LIVE state', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-oto-health-'));
+  try {
+    fs.mkdirSync(path.join(root,'config'),{recursive:true});
+    fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify(policy(),null,2));
+    const clockRef={ now:Date.UTC(2026,8,20,19,0,0) };
+    const controller=createLiveController({
+      root,
+      store:{ journal(){ return 'health-journal'; } },
+      scanner:{ async scan(){ return candidateScan(); } },
+      pipeline:{ async run(){ clockRef.now += 1250; return advisory('QUALIFIED'); } },
+      committee:async()=>({ok:true,text:''}),
+      fetchImpl:async()=>{ throw new Error('disarmed health test must not contact exchange'); },
+      clock:()=>clockRef.now
+    });
+    assert.equal(controller.configureLeaderAuto({
+      enabled:true,marginQuote:25,leverage:10,maxOpenPositions:2,allowLong:true,allowShort:true
+    }).ok,true);
+
+    const out=await controller.leaderAutoTick();
+    assert.equal(out.analysisOnly,true);
+    const health=controller.leaderAutoStatus().health;
+    assert.equal(health.scanRuns,1);
+    assert.equal(health.deepAnalyses,1);
+    assert.equal(health.uniqueAnalyzedSymbols,1);
+    assert.equal(health.qualified,1);
+    assert.equal(health.watch,0);
+    assert.equal(health.visionUnavailable,0);
+    assert.equal(health.ordersPlaced,0);
+    assert.equal(health.avgAnalysisMs,1250);
+    assert.equal(controller.status().armed,false);
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
+test('coverage scheduler analyzes a fresh second candidate before repeating the recent first candidate', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-oto-coverage-'));
+  try {
+    fs.mkdirSync(path.join(root,'config'),{recursive:true});
+    fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify(policy(),null,2));
+    const clockRef={ now:Date.UTC(2026,8,20,20,0,0) };
+    const base={
+      side:'LONG',projectedRank:1,leaderState:'TOP3_APPROACH',
+      tradeQuality:90,directionSupport:3,spreadBps:1,
+      longExpansionScore:80,shortExpansionScore:5,expansionScore:80,
+      leaderHunterScore:150,movementPotential:75
+    };
+    const scan={
+      universeCount:523,
+      leaders:[
+        { ...base, symbol:'AAAUSDT', attackRank:1 },
+        { ...base, symbol:'BBBUSDT', attackRank:2, projectedRank:2, leaderHunterScore:145 }
+      ],
+      top3Approach:[],top10Approach:[],earlyTop5:[],earlyExpansion:[]
+    };
+    const seen=[];
+    const controller=createLiveController({
+      root,
+      store:{ journal(){ return 'coverage-journal'; } },
+      scanner:{ async scan(){ return scan; } },
+      pipeline:{ async run(input){ seen.push(input.executionIntent.symbol); return advisory('WATCH'); } },
+      committee:async()=>({ok:true,text:''}),
+      fetchImpl:async()=>{ throw new Error('disarmed coverage test must not contact exchange'); },
+      clock:()=>clockRef.now
+    });
+    assert.equal(controller.configureLeaderAuto({
+      enabled:true,marginQuote:25,leverage:10,maxOpenPositions:2,allowLong:true,allowShort:true
+    }).ok,true);
+
+    await controller.leaderAutoTick();
+    clockRef.now += 30000;
+    await controller.leaderAutoTick();
+    assert.deepEqual(seen,['AAAUSDT','BBBUSDT']);
+    const health=controller.leaderAutoStatus().health;
+    assert.equal(health.deepAnalyses,2);
+    assert.equal(health.uniqueAnalyzedSymbols,2);
+  } finally {
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
