@@ -282,6 +282,8 @@ final class V9542AttentionRadar {
         root.put("rows",a);
         app.getSharedPreferences(PREFS,android.content.Context.MODE_PRIVATE).edit().putString(KEY_JSON,root.toString())
                 .putLong("updated_at",System.currentTimeMillis()).remove("last_error").apply();
+        // V95106_ATTENTION_SYNC: public discovery list only; no trade signal or credentials.
+        try{BrainHubClient.syncAttentionSnapshot(app,root);}catch(Throwable ignored){}
     }
 
     private void maybeNotify(java.util.List<Candidate> rows){
