@@ -334,8 +334,9 @@ function compactOutcomeLearningContext(learning) {
   const src=learning&&typeof learning==='object'?learning:{};
   const recent=Array.isArray(src.recent)?src.recent:[];
   const stats=Array.isArray(src.stats)?src.stats:[];
+  const measured=v=>v!==null&&v!==undefined&&!(typeof v==='string'&&v.trim()==='')&&Number.isFinite(Number(v));
   const recentOutcomes=recent
-    .filter(row=>Number.isFinite(Number(row?.outcomePct)))
+    .filter(row=>measured(row?.outcomePct))
     .slice(0,8)
     .map(row=>({
       symbol:String(row?.symbol||'').slice(0,28)||null,
@@ -347,7 +348,7 @@ function compactOutcomeLearningContext(learning) {
       outcomePct:Number(Number(row.outcomePct).toFixed(4))
     }));
   const outcomeStats=stats
-    .filter(row=>Number(row?.samples)>0 && Number.isFinite(Number(row?.avgOutcomePct)))
+    .filter(row=>Number(row?.samples)>0 && measured(row?.avgOutcomePct))
     .slice(0,8)
     .map(row=>({
       side:['LONG','SHORT'].includes(String(row?.side||'').toUpperCase())?String(row.side).toUpperCase():null,
