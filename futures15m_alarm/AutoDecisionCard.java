@@ -175,8 +175,11 @@ public final class AutoDecisionCard {
         org.json.JSONArray recent=learning.optJSONArray("recent"),stats=learning.optJSONArray("stats");
         b.append("\n\nBEYİN ÖĞRENME HAFIZASI");
         b.append("\nEkranda gösterilen son karar/işlem örneği: ").append(recent==null?0:recent.length()).append(" (geçmiş veritabanında tutulur)");
-        b.append("\nSonuç istatistiği grubu: ").append(stats==null?0:stats.length());
-        b.append("\nÖğrenme stop/risk güvenlik kurallarını otomatik gevşetmez.");
+        int learningStats=stats==null?0:stats.length();
+        b.append("\nSonuç istatistiği grubu: ").append(learningStats);
+        if(learningStats==0)b.append("\nSonucu ölçülmüş kapanmış OTO işlem henüz yok; öğrenme karar üzerinde etkisizdir.");
+        else b.append("\nÖğrenme yalnız sonucu ölçülmüş kapanmış işlemleri yumuşak tarihsel bağlam olarak kullanır.");
+        b.append("\nÖğrenme tek başına işlem adayı/engel üretemez; stop/risk güvenlik kurallarını otomatik gevşetmez.");
 
         JSONObject health=json(sp.getString("v95104_pc_auto_health","{}"));
         b.append("\n\nOTO SAĞLIK / FIRSAT AKIŞI");
