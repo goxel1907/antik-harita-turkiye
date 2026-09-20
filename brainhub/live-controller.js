@@ -1921,10 +1921,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
         leaderAnalysisState.bySymbol[String(candidate.symbol || '').toUpperCase()]=existingTrack;
         writeLeaderAnalysisState();
       }
-      if (analysisOnly) {
-        trackedRefresh = await refreshOneTrackedAnalysis(scan, candidate.symbol);
-        if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
-      }
+      // A fresh eligible scanner candidate already consumed the 9TF slot for this tick.
+      // Do not immediately launch a second tracked-refresh analysis: it reduces coverage
+      // and can starve other fresh candidates. Tracked setups are refreshed when no fresh
+      // execution candidate is available, or when they rotate back through the scanner.
       return {
         ok:true,
         orderPlaced:false,
@@ -1942,10 +1942,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, visionDiagnosticExtras(advisory));
       const lifecycle=upsertLeaderLifecycle(candidate,advisory,null,'PLAN_'+String(advisory.plan.status || 'REVIEW_REQUIRED').toUpperCase());
       annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, { ...visionDiagnosticExtras(advisory), lifecycle });
-      if (analysisOnly) {
-        trackedRefresh = await refreshOneTrackedAnalysis(scan, candidate.symbol);
-        if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
-      }
+      // Coverage-first: one deep 9TF analysis per Leader Auto tick when fresh candidates
+      // exist. Persistent tracked setups are refreshed by the no-candidate path instead.
       return {
         ok:true,
         orderPlaced:false,
@@ -1960,8 +1958,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], { ...visionDiagnosticExtras(advisory), lifecycle:qualifiedLifecycle });
 
     if (analysisOnly) {
-      trackedRefresh = await refreshOneTrackedAnalysis(scan, candidate.symbol);
-      if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
+      // Analysis-only mode must not double-consume Vision on the same tick. The qualified
+      // candidate is already fully analyzed; tracked refresh waits for a later idle/no-candidate turn.
       return {
         ok:true,
         orderPlaced:false,
@@ -1971,7 +1969,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
         symbol:candidate.symbol,
         plan:advisory.plan,
         reasons:['LIVE_NOT_ARMED'],
-        trackedRefresh,
+        trackedRefresh:null,
         analysisLifecycle:leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null
       };
     }
