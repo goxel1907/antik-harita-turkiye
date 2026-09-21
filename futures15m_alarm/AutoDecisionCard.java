@@ -205,7 +205,11 @@ public final class AutoDecisionCard {
              .append(" • bekle ").append(health.optInt("workerWaits",0))
              .append(" • tetik ").append(health.optInt("workerTriggers",0))
              .append(" • 9TF yenile ").append(health.optInt("workerRefreshes",0))
+             .append(" • bekleyen yükseltme ").append(health.optInt("workerEscalationPending",0))
              .append(" • tasarruf edilen tam 9TF ").append(health.optInt("fullVisionAvoided",0));
+            b.append("\nVision akışı: Kiro free kurtarma ").append(health.optInt("visionFreeQuotaFallbacks",0));
+            double avgBatch=health.optDouble("avgVisionBatchSize",-1.0);
+            if(avgBatch>0)b.append(String.format(java.util.Locale.US," • ort batch %.2f",avgBatch));
             b.append("\nVision/komite erişim kesintisi: ").append(health.optInt("visionUnavailable",0));
             b.append("\nYoğunluk nedeniyle atlanan tur: ").append(health.optInt("skippedBusy",0))
              .append(" • pipeline yoğun ").append(health.optInt("skippedPipelineBusy",0));
