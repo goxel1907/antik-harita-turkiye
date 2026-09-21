@@ -90,10 +90,10 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
       : /LOCAL_GLOBAL_NARRATIVE_REPAIR/.test(joinedAll)
         ? 'VISION_SUMMARY: repaired test vision'
         : /LOCAL_GLOBAL_CORE_REPAIR/.test(joinedAll)
-          ? ['STATUS: WATCH','SIDE: LONG','CONFIDENCE: 55','ORIGIN_TF: 1m','OWNER_TF: 1h','SETUP: TEST','EXEC_PATH: WATCH'].join('\n')
+          ? ['STATUS: WATCH','SIDE: LONG','CONFIDENCE: 55','ORIGIN_TF: 1m','OWNER_TF: 1h','SETUP: TEST','EXEC_PATH: WATCH','TRIGGER_LEVEL_ID: PRIOR20_HIGH','TRIGGER_TF: 1m','INVALIDATION_LEVEL_ID: PRIOR20_LOW'].join('\n')
           : /WHY: en fazla 220 karakter/.test(joinedAll)
             ? ['WHY: test why','RISK_NOTE: test risk','WAIT_FOR: test wait','FORMING_CONTEXT: test forming'].join('\n')
-            : ['STATUS: WATCH | QUALIFIED | REJECT','SIDE: LONG | SHORT','CONFIDENCE: 0-100','ORIGIN_TF: 1m | 3m | 5m','OWNER_TF: 1m | 1h','SETUP: en fazla 5 kelime','EXEC_PATH: en fazla 5 kelime'].join('\n');
+            : ['STATUS: WATCH | QUALIFIED | REJECT','SIDE: LONG | SHORT','CONFIDENCE: 0-100','ORIGIN_TF: 1m | 3m | 5m','OWNER_TF: 1m | 1h','SETUP: en fazla 5 kelime','EXEC_PATH: en fazla 5 kelime','TRIGGER_LEVEL_ID: PRIOR20_HIGH | PRIOR20_LOW','TRIGGER_TF: 1m | 5m','INVALIDATION_LEVEL_ID: PRIOR20_LOW | PRIOR20_HIGH'].join('\n');
     if(vision){
       const texts=body.messages.flatMap(m=>Array.isArray(m?.content)?m.content.filter(x=>x?.type==='text').map(x=>String(x.text||'')):[]);
       const joined=texts.join('\n');
@@ -299,7 +299,7 @@ test('9TF Vision may use an explicitly opted-in Kiro free-quota route without ch
   assert.equal(stderr.includes('BRAINHUB_ROUTER_KEY missing'),false,stderr);
 });
 
-test('local-only Vision failure may fail over only to explicitly enabled Kiro free quota', { timeout:20000 }, async () => {
+test('local-only Vision failure uses Kiro free quota only with per-request explicit opt-in', { timeout:20000 }, async () => {
   const routerCalls=[];
   const fakeRouter=http.createServer(async(req,res)=>{
     let raw=''; for await(const chunk of req) raw+=chunk;
@@ -334,8 +334,13 @@ test('local-only Vision failure may fail over only to explicitly enabled Kiro fr
   try{
     const health=await waitFor('http://127.0.0.1:'+brainPort+'/health');
     assert.ok(health.features.includes('LOCAL_VISION_FREE_QUOTA_FAILOVER'));
+    assert.ok(health.features.includes('V109_EXPLICIT_FREE_QUOTA_FAILOVER'));
     const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
-    const rr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'fallback test',images:tfs.map(fakeImage)})});
+    const noOpt=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'fallback test',images:tfs.map(fakeImage)})});
+    const noOptBody=await noOpt.json();
+    assert.equal(noOpt.status,503,JSON.stringify(noOptBody));
+    assert.equal(routerCalls.some(x=>x.model==='kr/free-vision'),false);
+    const rr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'fallback test',images:tfs.map(fakeImage),allowFreeQuotaVisionFallback:true})});
     const out=await rr.json();
     assert.equal(rr.status,200,JSON.stringify(out));
     assert.equal(out.mode,'kiro_free_quota_fallback');
