@@ -865,7 +865,9 @@ function visionPlanContract(plan) {
     if (!String(plan?.triggerLevelId||'').trim()) missing.push('TRIGGER_LEVEL_ID');
     if (!FRAME_ORDER.includes(String(plan?.triggerTF||'').toLowerCase())) missing.push('TRIGGER_TF');
     if (!String(plan?.invalidationLevelId||'').trim()) missing.push('INVALIDATION_LEVEL_ID');
-    if (plan?.triggerSpec?.valid !== true) missing.push('TRIGGER_LEVEL_SELECTION_INVALID');
+    if (Object.prototype.hasOwnProperty.call(plan||{},'triggerSpec') && plan?.triggerSpec?.valid !== true) {
+      missing.push('TRIGGER_LEVEL_SELECTION_INVALID');
+    }
   }
   if (!String(plan?.why || '').trim()) missing.push('WHY');
   if (!String(plan?.riskNote || '').trim()) missing.push('RISK_NOTE');
