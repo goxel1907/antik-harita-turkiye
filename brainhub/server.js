@@ -662,7 +662,7 @@ function normalizedLabeledText(contract,labels,maxChars=240){
   }).join('\n');
 }
 function globalCoreContract(text){
-  const labels=['STATUS','SIDE','CONFIDENCE','ORIGIN_TF','OWNER_TF','SETUP','EXEC_PATH'];
+  const labels=['STATUS','SIDE','CONFIDENCE','ORIGIN_TF','OWNER_TF','SETUP','EXEC_PATH','TRIGGER_LEVEL_ID','TRIGGER_TF','INVALIDATION_LEVEL_ID'];
   const base=labeledContract(text,labels);
   const invalid=[];
   const status=String(base.lines.get('STATUS')||'').toUpperCase();
@@ -676,6 +676,10 @@ function globalCoreContract(text){
   if(base.lines.has('CONFIDENCE')&&(!Number.isFinite(confidence)||confidence<0||confidence>100))invalid.push('CONFIDENCE');
   if(base.lines.has('ORIGIN_TF')&&!tfs.includes(origin))invalid.push('ORIGIN_TF');
   if(base.lines.has('OWNER_TF')&&!tfs.includes(owner))invalid.push('OWNER_TF');
+  const triggerTf=String(base.lines.get('TRIGGER_TF')||'').toLowerCase();
+  if(base.lines.has('TRIGGER_TF')&&!tfs.includes(triggerTf))invalid.push('TRIGGER_TF');
+  if(base.lines.has('TRIGGER_LEVEL_ID')&&!/^[A-Z0-9_]{3,64}$/.test(String(base.lines.get('TRIGGER_LEVEL_ID')||'').toUpperCase()))invalid.push('TRIGGER_LEVEL_ID');
+  if(base.lines.has('INVALIDATION_LEVEL_ID')&&!/^[A-Z0-9_]{3,64}$/.test(String(base.lines.get('INVALIDATION_LEVEL_ID')||'').toUpperCase()))invalid.push('INVALIDATION_LEVEL_ID');
   const badText=v=>/[|<>]|\b(?:WATCH\s*\||LONG\s*\||1m\s*\|)|en fazla/i.test(String(v||''));
   if(base.lines.has('SETUP')&&badText(base.lines.get('SETUP')))invalid.push('SETUP');
   if(base.lines.has('EXEC_PATH')&&badText(base.lines.get('EXEC_PATH')))invalid.push('EXEC_PATH');
@@ -707,10 +711,15 @@ function compactLocalFinalizeContext(localContext){
   }
   const m=c.microstructure||{};
   const l=c.liquidationContext||{};
+  const triggerSide=String(c?.sourceCandidate?.side||'').toUpperCase();
+  const triggerCandidates=typeof pipeline?.triggerCandidatesForPlan==='function'
+    ? pipeline.triggerCandidatesForPlan({frames},triggerSide)
+    : [];
   return {
     symbol:c.symbol||null,
     livePrice:c.livePrice??null,
     sourceCandidate:c.sourceCandidate||null,
+    triggerCandidates,
     frames,
     opportunityPaths:c.opportunityPaths||null,
     microstructure:m.available?{
@@ -822,6 +831,7 @@ function localGlobalCoreRepairMessages(role,missing,visionText,localContext){
       'CONFIDENCE: one integer 0-100',
       'ORIGIN_TF and OWNER_TF: one of 1m,3m,5m,15m,30m,45m,1h,4h,1d',
       'SETUP and EXEC_PATH: concrete short names, never instruction text.',
+      'TRIGGER_LEVEL_ID / TRIGGER_TF / INVALIDATION_LEVEL_ID: only values present in COMPACT_CONTEXT_JSON.triggerCandidates; never invent a price or ID.',
       '',
       'TF_EVIDENCE:',
       String(visionText||''),
@@ -847,7 +857,7 @@ function localDecisionTfEvidence(visionText,localContext){
 function localGlobalCoreMessages(role,visionText,localContext){
   const sys=[
     roleInstruction(role),
-    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. Deterministic timeframe fields are derived from CLOSED candles. NO_ACTIVE_BREAKOUT means only that the latest closed candle did not close beyond the prior-20 boundary in that timeframe; it is NOT a generic confirmation failure and is NOT by itself a reason for WATCH. FORMING text is context only and must never become a global confirmation requirement. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has an unresolved origin/owner confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. WATCH is allowed only for a concrete unresolved origin/owner execution condition; do not use WATCH as generic caution. LEARNING, when present, contains only outcome-backed closed-trade statistics and is soft tie-break/context only: it cannot by itself create QUALIFIED, WATCH, REJECT or VETO, cannot override fresh 9TF evidence, and cannot change stop/risk/execution rules. If learning.available is false, ignore learning completely. Advisory only.'
+    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly ten short labeled lines. No prose outside labels. Deterministic timeframe fields are derived from CLOSED candles. NO_ACTIVE_BREAKOUT means only that the latest closed candle did not close beyond the prior-20 boundary in that timeframe; it is NOT a generic confirmation failure and is NOT by itself a reason for WATCH. FORMING text is context only and must never become a global confirmation requirement. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has an unresolved origin/owner confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. WATCH is allowed only for a concrete unresolved origin/owner execution condition; do not use WATCH as generic caution. LEARNING, when present, contains only outcome-backed closed-trade statistics and is soft tie-break/context only: it cannot by itself create QUALIFIED, WATCH, REJECT or VETO, cannot override fresh 9TF evidence, and cannot change stop/risk/execution rules. If learning.available is false, ignore learning completely. Advisory only.'
   ].join(' ');
   return [
     {role:'system',content:sys},
@@ -859,7 +869,10 @@ function localGlobalCoreMessages(role,visionText,localContext){
       'OWNER_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
       'SETUP: en fazla 5 kelime',
       'EXEC_PATH: en fazla 5 kelime',
-      'Safety rule: STATUS=QUALIFIED requires ORIGIN_TF and OWNER_TF not to be VETO and no unresolved execution-path wait/confirmation condition. Other TF VETO roles remain contextual evidence for Jev. STATUS=WATCH requires a concrete unresolved TF_*_WAIT condition; if none exists, do not leave the plan in WATCH.',
+      'TRIGGER_LEVEL_ID: COMPACT_CONTEXT_JSON.triggerCandidates içinden bir ID; fiyat yazma',
+      'TRIGGER_TF: seçilen trigger adayının tf değeri',
+      'INVALIDATION_LEVEL_ID: aynı TRIGGER_TF içinde seçilen yön için INVALIDATION kullanımına izinli ID; fiyat yazma',
+      'Safety rule: STATUS=QUALIFIED requires ORIGIN_TF and OWNER_TF not to be VETO and no unresolved execution-path wait/confirmation condition. Other TF VETO roles remain contextual evidence for Jev. STATUS=WATCH may use its valid numeric trigger as the concrete waiting condition; do not invent free-text confirmation requirements.',
       'Learning rule: COMPACT_CONTEXT_JSON.learning is outcome-backed soft context only. No closed outcome samples => no learning influence. Never use unlabeled prior WATCH/PLAN decisions as evidence.',
       '',
       'TF_EVIDENCE:',
@@ -1002,7 +1015,7 @@ async function runLocalVisionCommitteeUnlocked(body){
         local.timeoutMs,
         {temperature:0,maxTokens:320}
       );
-      const coreLabels=['STATUS','SIDE','CONFIDENCE','ORIGIN_TF','OWNER_TF','SETUP','EXEC_PATH'];
+      const coreLabels=['STATUS','SIDE','CONFIDENCE','ORIGIN_TF','OWNER_TF','SETUP','EXEC_PATH','TRIGGER_LEVEL_ID','TRIGGER_TF','INVALIDATION_LEVEL_ID'];
       let coreContract=globalCoreContract(core.text);
       if(!coreContract.ok){
         const coreRepair=await callLocalStage(
