@@ -431,6 +431,13 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
         if("LEADER_APPROVAL_FRESH_SCAN_MISMATCH".equals(r))return "taze tarama sembol/yön onayıyla uyuşmuyor";
         if("SCALP_COST_EDGE_NOT_VIABLE".equals(r))return "hedef işlem maliyetine göre yetersiz";
         if("LIVE_PRICE_DEVIATION_TOO_HIGH".equals(r))return "canlı fiyat girişten fazla uzaklaştı";
+        if("SCALP_MULTI_TF_CONFIRMATION_REQUIRED".equals(r))return "scalp için 1m/3m/5m'den en az iki zaman dilimi aynı yönde gerekli";
+        if("SCALP_15M_HARD_OPPOSITION".equals(r))return "15m ana bağlamı scalp yönüne sert karşı-yapı gösteriyor";
+        if("MAIN_15M_CONFIRMATION_REQUIRED".equals(r))return "15m ana işlem hattı kapanmış-mum/yapı teyidi bekliyor";
+        if("TRADE_LANE_NOT_READY".equals(r))return "15m ana veya çoklu-TF scalp hattı henüz hazır değil";
+        if("WORKER_SCALP_SECOND_CONFIRMATION_WAIT".equals(r))return "scalp worker ikinci alt-TF teyidini ve 15m veto kontrolünü bekliyor";
+        if("WORKER_SCALP_MOMENTUM_EXHAUSTED".equals(r))return "scalp momentumu tükendi veya 15m karşı-yapısı oluştu";
+        if("WORKER_NUMERIC_TRIGGER_CLOSED".equals(r))return "sayısal kapanış tetiği gerçekleşti; taze Vision doğrulamasına yükseltiliyor";
         if("UNSTRUCTURED_COMMITTEE_OUTPUT".equals(r))return "model plan çıktısı şemaya uymadı";
         if("NO_FRESH_TIMEFRAME_CONTEXT".equals(r))return "taze zaman dilimi verisi yetersiz";
         return r;
@@ -547,13 +554,15 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             org.json.JSONObject h=new org.json.JSONObject(raw);
             double observed=h.optDouble("observedMinutes",0);
             int scans=h.optInt("scanRuns",0),deep=h.optInt("deepAnalyses",0),unique=h.optInt("uniqueAnalyzedSymbols",0);
-            int preQualified=h.optInt("preJevQualified",0),jevCalled=h.optInt("jevCalled",0),jevVeto=h.optInt("jevVetoed",0);
+            int preQualified=h.optInt("preJevQualified",0),jevCalled=h.optInt("jevCalled",0),jevVeto=h.optInt("jevVetoed",0),jevShadow=h.optInt("jevShadowCalled",0);
             int qualified=h.optInt("qualified",0),watch=h.optInt("watch",0),review=h.optInt("reviewRequired",0),reject=h.optInt("reject",0);
             int intentReady=h.optInt("intentReady",0),execResults=h.optInt("executionResults",0);
             int vision=h.optInt("visionUnavailable",0),busy=h.optInt("skippedBusy",0),orders=h.optInt("ordersPlaced",0);
             int workerReviews=h.optInt("workerReviews",0),workerWaits=h.optInt("workerWaits",0),workerTriggers=h.optInt("workerTriggers",0);
             int workerRefresh=h.optInt("workerRefreshes",0),visionAvoided=h.optInt("fullVisionAvoided",0);
             int pendingEsc=h.optInt("workerEscalationPending",0),freeFailover=h.optInt("visionFreeQuotaFallbacks",0);
+            int main15Plans=h.optInt("laneMain15Plans",0),main15Ready=h.optInt("laneMain15Ready",0);
+            int scalpPlans=h.optInt("laneScalpPlans",0),scalpReady=h.optInt("laneScalpReady",0);
             double avgBatch=h.optDouble("avgVisionBatchSize",-1.0);
             long avg=h.optLong("avgAnalysisMs",-1L);
             StringBuilder b=new StringBuilder();
@@ -561,11 +570,16 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
              .append(" • tarama ").append(scans)
              .append(" • derin 9TF ").append(deep).append(" / ").append(unique).append(" coin")
              .append(" • Vision ön aday ").append(preQualified)
-             .append(" • Jev ").append(jevCalled).append("/veto ").append(jevVeto)
+             .append(" • Jev bağlayıcı ").append(jevCalled).append("/veto ").append(jevVeto)
+             .append(" • Jev gölge ").append(jevShadow)
              .append(" • final aday ").append(qualified)
              .append(" • izle ").append(watch)
              .append(" • yeniden incele ").append(review)
              .append(" • red ").append(reject);
+            b.append("\nİşlem hatları • 15m ana ").append(main15Ready).append(" hazır / ").append(main15Plans)
+             .append(" plan • scalp ").append(scalpReady).append(" hazır / ").append(scalpPlans)
+             .append(" plan");
+            b.append("\nKural • 15m ana işlem hattı; 1m/3m/5m tek başına final karar vermez. Scalp için en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü.");
             b.append("\nPlan worker ").append(workerReviews)
              .append(" • bekle ").append(workerWaits)
              .append(" • tetik ").append(workerTriggers)
@@ -1008,6 +1022,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
             if(armed)st.append(" • kalan ").append(v9582ArmRemaining(sp.getString("v9582_pc_expires_at","")));
             st.append("\nPC LEADER AUTO: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");
             st.append("\nPC otomasyon motoru PC BrainHub zamanlayıcısında çalışır; telefon ekranının açık kalması gerekmez.");
+            st.append("\nKarar mimarisi: 15m ana işlem hattı • 1m/3m/5m scalp momentum hattı (tek alt TF karar vermez; en az 2 alt TF + 15m karşı-veto kontrolü) • 30m+ yapı/likidite/formasyon/tükenme bağlamı.");
             String lex=lastPcExecution;
             if(lex!=null&&!lex.trim().isEmpty())st.append(" • son ").append(lex.trim());
             if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\nNeden: ").append(lastPcReasons.trim());
