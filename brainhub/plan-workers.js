@@ -1,6 +1,7 @@
 'use strict';
 
 const { isNonConcreteWait } = require('./wait-condition');
+const tradeLanes = require('./trade-lanes');
 
 const FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const STATES=new Set(['WAIT','TRIGGERED','REFRESH_REQUIRED']);
@@ -37,16 +38,25 @@ function deterministicGuard({tracked,candidate,unified,now=Date.now(),maxPlanAge
   const numericPrice=finite(tracked?.triggerPrice);
   const numericInvalidation=finite(tracked?.invalidationPrice);
   if(tracked?.triggerValid===true&&validTf(numericTf)&&['LONG','SHORT'].includes(numericSide)&&numericPrice!==null){
+    const lane=tradeLanes.analyzeTradeLanes(unified,numericSide,candidate);
+    if(String(tracked?.tradeLaneName||tracked?.tradeLane?.name||'').toUpperCase()==='SCALP_MOMENTUM'){
+      if(lane.exhausted){
+        return {state:'REFRESH_REQUIRED',reason:'WORKER_SCALP_MOMENTUM_EXHAUSTED',recheckTFs:['1m','3m','5m','15m'],numericTrigger:true,tradeLane:lane};
+      }
+      if(!lane.scalpReady){
+        return {state:'WAIT',reason:'WORKER_SCALP_SECOND_CONFIRMATION_WAIT',recheckTFs:['1m','3m','5m','15m'],numericTrigger:true,tradeLane:lane};
+      }
+    }
     const f=unified?.frames?.[numericTf];
     const close=finite(f?.close);
     if(!f?.available||f?.fresh!==true||close===null){
-      return {state:'WAIT',reason:'WORKER_NUMERIC_TRIGGER_FRAME_NOT_FRESH',recheckTFs:[numericTf],numericTrigger:true};
+      return {state:'WAIT',reason:'WORKER_NUMERIC_TRIGGER_FRAME_NOT_FRESH',recheckTFs:[numericTf],numericTrigger:true,tradeLane:lane};
     }
     const invalidated=numericInvalidation!==null
       ? (numericSide==='LONG'?close<numericInvalidation:close>numericInvalidation)
       : false;
     if(invalidated){
-      return {state:'REFRESH_REQUIRED',reason:'WORKER_NUMERIC_INVALIDATION_BREACHED',recheckTFs:[numericTf],numericTrigger:true,closedPrice:close,triggerPrice:numericPrice,invalidationPrice:numericInvalidation};
+      return {state:'REFRESH_REQUIRED',reason:'WORKER_NUMERIC_INVALIDATION_BREACHED',recheckTFs:[numericTf],numericTrigger:true,tradeLane:lane,closedPrice:close,triggerPrice:numericPrice,invalidationPrice:numericInvalidation};
     }
     const triggered=numericSide==='LONG'?close>numericPrice:close<numericPrice;
     return {
@@ -54,6 +64,7 @@ function deterministicGuard({tracked,candidate,unified,now=Date.now(),maxPlanAge
       reason:triggered?'WORKER_NUMERIC_TRIGGER_CLOSED':'WORKER_NUMERIC_TRIGGER_WAIT',
       recheckTFs:[numericTf],
       numericTrigger:true,
+      tradeLane:lane,
       closedPrice:close,
       triggerPrice:numericPrice,
       invalidationPrice:numericInvalidation
@@ -130,12 +141,14 @@ function compactWorkerContext({tracked,candidate,unified}={}){
       ownerTF:tracked?.ownerTF||null,setup:clip(tracked?.setup,120),waitFor:clip(tracked?.waitFor,260),
       triggerLevelId:tracked?.triggerLevelId||null,triggerTF:tracked?.triggerTF||null,triggerPrice:finite(tracked?.triggerPrice),
       invalidationLevelId:tracked?.invalidationLevelId||null,invalidationPrice:finite(tracked?.invalidationPrice),triggerValid:tracked?.triggerValid===true,
+      tradeLaneName:tracked?.tradeLaneName||tracked?.tradeLane?.name||null,momentumStage:tracked?.momentumStage||tracked?.tradeLane?.stage||null,
       why:clip(tracked?.why,320),riskNote:clip(tracked?.riskNote,240),confidence:finite(tracked?.confidence),
       lastAnalyzedAt:tracked?.lastAnalyzedAt||null
     },
     livePrice:unified?.livePrice??null,
     frames,
     opportunityPath:unified?.opportunityPaths?.[String(tracked?.side||'').toUpperCase()]||null,
+    tradeLane:tradeLanes.analyzeTradeLanes(unified,String(tracked?.side||'').toUpperCase(),candidate),
     dataQuality:unified?.dataQuality||null,
     microstructure:unified?.microstructure?.available?{
       available:true,sourceQuality:unified.microstructure.sourceQuality||unified.microstructure.quality||null,
@@ -152,9 +165,11 @@ function compactWorkerContext({tracked,candidate,unified}={}){
 function buildWorkerPrompt(args={}){
   const c=compactWorkerContext(args);
   return [
-    'PLAN_WORKER_V107. Daha once 9TF Vision tarafindan uretilmis WATCH plani icin yalniz takip karari ver.',
-    'Bu worker QUALIFIED veremez, emir veremez ve eski plani degistiremez.',
-    'Yalniz mevcut deterministik verinin TRACKED_PLAN.waitFor kosuluna yaklasip yaklasmadigini kontrol et.',
+    'PLAN_WORKER_V110. Daha once Vision tarafindan uretilmis WATCH plani icin yalniz takip karari ver.',
+    'Bu worker QUALIFIED veremez, emir veremez ve eski plani tek basina degistiremez.',
+    '15m ana islem hattidir. 1m/3m/5m SCALP_MOMENTUM hattinda tek alt TF karar vermez; en az iki alt TF ayni yone hizalanmali ve 15m sert karsi-veto vermemelidir.',
+    '1m erken yakalarsa 3m/5m dogrulamasini ve momentumun 15m/30m+ zaman dilimlerine tasinip tasinmadigini takip et; LONG ve SHORT simetriktir.',
+    'Yalniz mevcut deterministik verinin TRACKED_PLAN.waitFor/sayisal tetik kosuluna yaklasip yaklasmadigini kontrol et.',
     'TRIGGERED yalniz beklenen kosulun artik gerceklesmis olabilecegine dair somut kapali-mum/deterministik kanit varsa kullan; yine de tam 9TF yeniden dogrulama zorunludur.',
     'WAIT kosul henuz yoksa; REFRESH_REQUIRED plan eskidi, yon/yapi degisti, kritik veri eksik veya yorum guvenilir degilse.',
     'Forming mum teyit degildir. Gizli market-maker niyeti, haber veya veride olmayan seviye uydurma.',
@@ -169,8 +184,16 @@ function buildWorkerPrompt(args={}){
 }
 
 function combineWorkerReviews({deterministic,router,openRouter}={}){
-  if(deterministic?.state==='WAIT')return {state:'WAIT',source:'DETERMINISTIC',reason:deterministic.reason,recheckTFs:deterministic.recheckTFs||[]};
-  if(deterministic?.state==='REFRESH_REQUIRED')return {state:'REFRESH_REQUIRED',source:'DETERMINISTIC',reason:deterministic.reason,recheckTFs:deterministic.recheckTFs||[]};
+  if(deterministic?.state==='WAIT')return {state:'WAIT',source:'DETERMINISTIC',reason:deterministic.reason,recheckTFs:deterministic.recheckTFs||[],tradeLane:deterministic.tradeLane||null};
+  // V110 carries the missing H8 hotfix: a deterministic closed-candle trigger
+  // must not be downgraded to WAIT merely because 9Router is unavailable.
+  // It still cannot qualify or place an order; it only escalates to fresh Vision.
+  if(deterministic?.state==='TRIGGERED')return {
+    state:'TRIGGERED',source:'DETERMINISTIC_NUMERIC_TRIGGER',reason:deterministic.reason,
+    recheckTFs:deterministic.recheckTFs||[],tradeLane:deterministic.tradeLane||null,
+    confidence:100,numericTrigger:true
+  };
+  if(deterministic?.state==='REFRESH_REQUIRED')return {state:'REFRESH_REQUIRED',source:'DETERMINISTIC',reason:deterministic.reason,recheckTFs:deterministic.recheckTFs||[],tradeLane:deterministic.tradeLane||null};
   const r=router?.ok?router:null;
   const o=openRouter?.ok?openRouter:null;
   if(!r)return {state:'WAIT',source:'ROUTER_UNAVAILABLE',reason:'WORKER_9ROUTER_UNAVAILABLE',recheckTFs:deterministic?.recheckTFs||[]};
