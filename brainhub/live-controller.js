@@ -678,6 +678,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{
         const out=await committee({
           role:'FAST',
+          freeOnly:true,
           system:'V107 PLAN WORKER. Text-only advisory watcher. Never QUALIFY, never place orders, never invent missing market facts. Return exactly the requested WORKER_* schema.',
           prompt
         });
