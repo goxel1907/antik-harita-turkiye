@@ -630,7 +630,26 @@ function withTriggerSpec(plan, unified) {
   const st = String(p.status || '').toUpperCase();
   if (!['WATCH','QUALIFIED'].includes(st)) return p;
   if (p.triggerSpec?.valid !== true) {
-    const pick = claudeV109.autoSelectTrigger({ plan:p, unified });
+    const lane=tradeLanes.laneForPlan(p,unified,unified?.sourceCandidate);
+    let pick=null;
+    if(lane.name==='SCALP_MOMENTUM'&&lane.scalpReady){
+      const side=String(p.side||'').toUpperCase();
+      const triggerId=side==='SHORT'?'PRIOR20_LOW':'PRIOR20_HIGH';
+      const invalidationId=side==='SHORT'?'PRIOR20_HIGH':'PRIOR20_LOW';
+      for(const tf of tradeLanes.scalpTriggerPreference(lane)){
+        const frame=unified?.frames?.[tf];
+        if(!frame?.available||frame?.fresh!==true)continue;
+        if(!resolveTriggerLevel(frame,side,triggerId,'TRIGGER'))continue;
+        if(!resolveTriggerLevel(frame,side,invalidationId,'INVALIDATION'))continue;
+        pick={
+          ok:true,triggerTF:tf,triggerLevelId:triggerId,invalidationLevelId:invalidationId,
+          keptModelTrigger:false,keptModelInvalidation:false,
+          reason:'V110_SCALP_TRIGGER_AUTOSELECT'
+        };
+        break;
+      }
+    }
+    if(!pick)pick=claudeV109.autoSelectTrigger({ plan:p, unified });
     if (!pick.ok) return { ...p, claudeTriggerAutoSelect:{ ok:false, reason:pick.reason } };
     const next = {
       ...p,
@@ -641,7 +660,12 @@ function withTriggerSpec(plan, unified) {
       triggerTF:pick.triggerTF,
       invalidationLevelId:pick.invalidationLevelId
     };
-    p = { ...next, triggerSpec:{ ...resolveNumericTriggerPlan(next, unified), autoSelected:true }, claudeTriggerAutoSelect:pick };
+    p = {
+      ...next,
+      triggerSpec:{ ...resolveNumericTriggerPlan(next, unified), autoSelected:true },
+      claudeTriggerAutoSelect:pick,
+      v110ScalpTriggerAutoSelected:pick.reason==='V110_SCALP_TRIGGER_AUTOSELECT'
+    };
   }
   if (st === 'WATCH' && p.triggerSpec?.valid === true && isNonConcreteWait(p.waitFor)) {
     const dir = String(p.side || '').toUpperCase() === 'SHORT' ? 'altında' : 'üstünde';
