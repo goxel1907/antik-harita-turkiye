@@ -46,6 +46,9 @@ function qualifiedPlan() {
     'OWNER_TF: 5m',
     'SETUP: continuation',
     'EXEC_PATH: reclaim-or-continuity',
+    'TRIGGER_LEVEL_ID: PRIOR20_HIGH',
+    'TRIGGER_TF: 1m',
+    'INVALIDATION_LEVEL_ID: PRIOR20_LOW',
     'WHY: deterministic regression fixture',
     'RISK_NOTE: preserve structural invalidation',
     'EXECUTION: ADVISORY_ONLY'
@@ -76,6 +79,9 @@ test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK 
     'OWNER_TF: 1h',
     'SETUP: continuation',
     'EXEC_PATH: reclaim',
+    'TRIGGER_LEVEL_ID: PRIOR20_HIGH',
+    'TRIGGER_TF: 1m',
+    'INVALIDATION_LEVEL_ID: PRIOR20_LOW',
     'WHY: Türkçe somut gerekçe',
     'RISK_NOTE: Türkçe ana risk',
     'WAIT_FOR: 15m veto kalkarken 1m yapısı korunmalı',
@@ -103,6 +109,9 @@ test('Vision plan contract requires detailed Turkish WHY WAIT ROLE FORMING RISK 
     'OWNER_TF: 1h',
     'SETUP: continuation',
     'EXEC_PATH: direct',
+    'TRIGGER_LEVEL_ID: PRIOR20_HIGH',
+    'TRIGGER_TF: 1m',
+    'INVALIDATION_LEVEL_ID: PRIOR20_LOW',
     'WHY: gerekçe var',
     'RISK_NOTE: risk var',
     'WAIT_FOR: NONE',
@@ -140,6 +149,9 @@ test('QUALIFIED Vision plan is rejected when WAIT_FOR still contains a pending t
     'OWNER_TF: 5m',
     'SETUP: continuation',
     'EXEC_PATH: direct',
+    'TRIGGER_LEVEL_ID: PRIOR20_HIGH',
+    'TRIGGER_TF: 1m',
+    'INVALIDATION_LEVEL_ID: PRIOR20_LOW',
     'WHY: kapalı mum yapısı destekliyor',
     'RISK_NOTE: yapı bozulursa geçersiz',
     'WAIT_FOR: 5m kapanışı ayrıca onaylanmalı',
@@ -219,7 +231,10 @@ test('Vision repair pass can fill omitted TF fields without changing existing pa
   }
   const baseText=[
     'STATUS: WATCH','SIDE: SHORT','CONFIDENCE: 66','ORIGIN_TF: 1m','OWNER_TF: 5m',
-    'SETUP: reclaim','EXEC_PATH: retest','WHY: ana neden','RISK_NOTE: ana risk','WAIT_FOR: 30m ve 45m bağlamı',
+    'SETUP: reclaim','EXEC_PATH: retest',
+    'TRIGGER_LEVEL_ID: PRIOR20_HIGH',
+    'TRIGGER_TF: 1m',
+    'INVALIDATION_LEVEL_ID: PRIOR20_LOW','WHY: ana neden','RISK_NOTE: ana risk','WAIT_FOR: 30m ve 45m bağlamı',
     'SUPPORT_TFS: 1m,3m,5m','VETO_TFS: 15m','FORMING_CONTEXT: forming teyit değildir',
     ...tfLines,'VISION_SUMMARY: ortak yapı','EXECUTION: ADVISORY_ONLY'
   ].join('\n');
@@ -265,7 +280,10 @@ test('per-TF roles are canonical while contradictory SUPPORT_TFS/VETO_TFS summar
   }
   const plan=planFields([
     'STATUS: WATCH','SIDE: SHORT','CONFIDENCE: 72','ORIGIN_TF: 3m','OWNER_TF: 5m',
-    'SETUP: support flip','EXEC_PATH: retest','WHY: somut','RISK_NOTE: risk','WAIT_FOR: NONE',
+    'SETUP: support flip','EXEC_PATH: retest',
+    'TRIGGER_LEVEL_ID: PRIOR20_HIGH',
+    'TRIGGER_TF: 1m',
+    'INVALIDATION_LEVEL_ID: PRIOR20_LOW','WHY: somut','RISK_NOTE: risk','WAIT_FOR: NONE',
     'SUPPORT_TFS: 1m,3m,5m','VETO_TFS: 30m,1h,4h',
     'FORMING_CONTEXT: forming bağlamdır',...tfLines,'VISION_SUMMARY: ortak yapı','EXECUTION: ADVISORY_ONLY'
   ].join('\n'));
