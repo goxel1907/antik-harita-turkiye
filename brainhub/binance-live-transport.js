@@ -253,10 +253,11 @@ class BinanceLiveTransport {
     if (minNotional !== null && qty !== null && livePrice !== null && qty * livePrice < minNotional) reasons.push('MIN_NOTIONAL_NOT_MET');
 
     const entry = finite(order.entryPrice);
+    const entryReference = finite(order.entryReferencePrice) ?? entry;
     const maxDeviationPct = Math.max(0.01, Math.min(5, finite(livePolicy?.maxEntryDeviationPct) ?? 0.5));
-    if (entry === null || livePrice === null) reasons.push('LIVE_PRICE_CHECK_REQUIRED');
+    if (entry === null || entryReference === null || livePrice === null) reasons.push('LIVE_PRICE_CHECK_REQUIRED');
     else {
-      const deviationPct = Math.abs(livePrice - entry) / entry * 100;
+      const deviationPct = Math.abs(livePrice - entryReference) / entryReference * 100;
       if (deviationPct > maxDeviationPct) reasons.push('LIVE_PRICE_DEVIATION_TOO_HIGH');
       if (order.side === 'LONG' && !(stop < livePrice)) reasons.push('LONG_STOP_NOT_BELOW_LIVE_PRICE');
       if (order.side === 'SHORT' && !(stop > livePrice)) reasons.push('SHORT_STOP_NOT_ABOVE_LIVE_PRICE');
