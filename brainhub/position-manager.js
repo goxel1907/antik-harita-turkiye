@@ -35,6 +35,8 @@ function assessPosition({position,lifecycle={},unified={}}={}){
   const side=String(position?.side||lifecycle?.side||'').toUpperCase();
   const ownerTF=String(lifecycle?.ownerTF||'').toLowerCase();
   const originTF=String(lifecycle?.originTF||'').toLowerCase();
+  const tradeLaneName=String(lifecycle?.tradeLaneName||'').toUpperCase();
+  const scalpMomentum=tradeLaneName==='SCALP_MOMENTUM';
   const frames=unified?.frames||{};
   const byTf={};
   for(const tf of [...LOW_TFS,...ANCHOR_TFS,'45m'])byTf[tf]=frameConflict(frames?.[tf],side);
@@ -44,27 +46,41 @@ function assessPosition({position,lifecycle={},unified={}}={}){
   const ownerIsLow=LOW_TFS.includes(ownerTF);
   const pnlPct=positionPnlPct(position);
   const inProfit=pnlPct!==null&&pnlPct>0;
-  const lowTfNoiseOnly=lowConflicts.length>0&&anchorConflicts.length===0&&(ownerIsLow||!ownerConflict);
+  const lowTfNoiseOnly=lowConflicts.length===1&&anchorConflicts.length===0&&(ownerIsLow||!ownerConflict);
+  const scalpExhaustion=Boolean(
+    scalpMomentum &&
+    lowConflicts.length>=2 &&
+    (ownerConflict || anchorConflicts.includes('15m'))
+  );
   const bigPictureBroken=Boolean(
-    ownerConflict&&(
-      ownerIsLow ? anchorConflicts.length>=2 : anchorConflicts.length>=1
-    )
+    scalpMomentum
+      ? scalpExhaustion
+      : ownerConflict&&(
+          ownerIsLow ? anchorConflicts.length>=2 : anchorConflicts.length>=1
+        )
   );
   const partialEvidence=Boolean(
     inProfit&&(
-      anchorConflicts.length>=1 ||
-      (ownerConflict&&lowConflicts.length>=2)
+      scalpMomentum
+        ? (lowConflicts.length>=2 || anchorConflicts.includes('15m'))
+        : (anchorConflicts.length>=1 || (ownerConflict&&lowConflicts.length>=2))
     )
   );
   const protectEvidence=Boolean(
-    inProfit&&(anchorConflicts.length>=1||lowConflicts.length>=2||ownerConflict)
+    inProfit&&(
+      scalpMomentum
+        ? (lowConflicts.length>=1 || ownerConflict || anchorConflicts.includes('15m'))
+        : (anchorConflicts.length>=1||lowConflicts.length>=2||ownerConflict)
+    )
   );
   return {
-    side,originTF:originTF||null,ownerTF:ownerTF||null,pnlPct,inProfit,
-    lowConflicts,anchorConflicts,ownerConflict,ownerIsLow,lowTfNoiseOnly,
+    side,originTF:originTF||null,ownerTF:ownerTF||null,tradeLaneName:tradeLaneName||null,scalpMomentum,pnlPct,inProfit,
+    lowConflicts,anchorConflicts,ownerConflict,ownerIsLow,lowTfNoiseOnly,scalpExhaustion,
     bigPictureBroken,partialEvidence,protectEvidence,
     dataQualityUsable:unified?.dataQuality?.advisoryUsable===true,
-    rule:'1m/3m/5m tek başına yapısal çıkış değildir; owner ve büyük resim doğrulaması gerekir.'
+    rule:scalpMomentum
+      ? 'SCALP_MOMENTUM: tek bir 1m/3m/5m tersliği çıkış kararı değildir; en az iki alt TF tükenmesi ve owner/15m karşı-yapısı birlikte değerlendirilir.'
+      : 'MAIN_15M: 1m/3m/5m tek başına çıkış kararı değildir; owner TF ve 15m/büyük resim doğrulaması gerekir.'
   };
 }
 function capJevExitAction(requested,assessment){
