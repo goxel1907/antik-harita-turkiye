@@ -1425,8 +1425,11 @@ const server=http.createServer(async(req,res)=>{
         const synth=freeOnlyCommittee
           ? (good[0]?.model||routed[0])
           : (hasVision?(good[0]?.model||orderedModels(role)[0]):(orderedModels(role)[0]||good[0].model));
+        const synthSystem=freeOnlyCommittee
+          ? 'Synthesize the free worker analyst answers using only supplied facts. Return exactly four lines: WORKER_STATE: WAIT | TRIGGERED | REFRESH_REQUIRED; CONFIDENCE: 0-100; REASON: concise concrete reason; RECHECK_TFS: comma-separated valid TFs or NONE. Never output QUALIFIED and never place or recommend an order.'
+          : 'Synthesize the analyst answers into one final answer. Preserve consensus and material disagreement, but most importantly preserve the exact output schema and every required field requested in ORIGINAL REQUEST. Preserve STATUS, SIDE, CONFIDENCE, ORIGIN_TF, OWNER_TF, SETUP, EXEC_PATH, WHY, RISK_NOTE, WAIT_FOR, SUPPORT_TFS, VETO_TFS, FORMING_CONTEXT, every TF_* summary/WHY/WAIT/ROLE/FORMING/RISK line, VISION_SUMMARY and EXECUTION. Return plain labeled lines only: no Markdown, bullets, table, JSON, code fence, heading or extra prose. Use only supplied facts. This is advisory only.';
         const sp=[
-          {role:'system',content:'Synthesize the analyst answers into one final answer. Preserve consensus and material disagreement, but most importantly preserve the exact output schema and every required field requested in ORIGINAL REQUEST. Preserve STATUS, SIDE, CONFIDENCE, ORIGIN_TF, OWNER_TF, SETUP, EXEC_PATH, WHY, RISK_NOTE, WAIT_FOR, SUPPORT_TFS, VETO_TFS, FORMING_CONTEXT, every TF_* summary/WHY/WAIT/ROLE/FORMING/RISK line, VISION_SUMMARY and EXECUTION. Return plain labeled lines only: no Markdown, bullets, table, JSON, code fence, heading or extra prose. Use only supplied facts. This is advisory only.'},
+          {role:'system',content:synthSystem},
           {role:'user',content:'ROLE: '+role+'\nORIGINAL REQUEST:\n'+j.prompt+'\n\nANALYST ANSWERS:\n'+bundle}
         ];
         try{
