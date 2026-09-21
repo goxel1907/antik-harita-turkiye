@@ -127,6 +127,7 @@ workflows:
           grep -q 'PLAN_WORKER_9ROUTER_TEXT' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'OPENROUTER_FREE_WORKER_SECOND_OPINION' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'WORKER_VISION_AVOIDANCE_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PLAN_WORKER_PARALLEL_TIMER' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'PLAN_WORKER_V107' "$CM_BUILD_DIR/brainhub/plan-workers.js"
           grep -q "model='openrouter/free'" "$CM_BUILD_DIR/brainhub/openrouter-free-worker.js"
           grep -q 'v95107_plan_workers' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
