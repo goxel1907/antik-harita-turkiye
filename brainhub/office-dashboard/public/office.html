@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrainHub Trade Office</title>
+<style>
+:root{
+  color-scheme: dark;
+  --bg:#0f1115; --surface-1:#171a21; --surface-2:#1e222b; --surface-3:#262b36; --line:#2f3542;
+  --text-primary:#f4f5f7; --text-secondary:#c3c6cf; --text-muted:#8b909c;
+  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500; --series-5:#d55181; --series-7:#9085e9;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b; --info:#3987e5;
+  --floor:#141821; --floor-grid:#1d2230; --desk:#3a3226; --desk-top:#4b4131; --screen-off:#2a303c;
+  --radius:10px;
+}
+@media (prefers-color-scheme: light){
+  :root:where(:not([data-theme="dark"])){
+    color-scheme: light;
+    --bg:#f3f2ef; --surface-1:#fcfcfb; --surface-2:#f4f3f0; --surface-3:#e9e7e2; --line:#d9d6cf;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#76746f;
+    --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100; --series-5:#e87ba4; --series-7:#4a3aa7;
+    --floor:#e8e6e0; --floor-grid:#dcd9d1; --desk:#b89b72; --desk-top:#cdb28a; --screen-off:#c9cdd6;
+  }
+}
+:root[data-theme="light"]{
+  color-scheme: light;
+  --bg:#f3f2ef; --surface-1:#fcfcfb; --surface-2:#f4f3f0; --surface-3:#e9e7e2; --line:#d9d6cf;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#76746f;
+  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100; --series-5:#e87ba4; --series-7:#4a3aa7;
+  --floor:#e8e6e0; --floor-grid:#dcd9d1; --desk:#b89b72; --desk-top:#cdb28a; --screen-off:#c9cdd6;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text-primary);font:14px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+.wrap{max-width:1500px;margin:0 auto;padding:14px 16px 40px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-bottom:12px}
+header h1{font-size:20px;margin:0;font-weight:650;letter-spacing:.2px}
+header .sub{color:var(--text-muted);font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);font-size:12px;color:var(--text-secondary);white-space:nowrap}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--text-muted)}
+.chip.good .dot{background:var(--good)} .chip.bad .dot{background:var(--critical)} .chip.warn .dot{background:var(--warning)}
+.spacer{flex:1}
+.demo-banner{display:none;background:var(--warning);color:#1a1300;padding:6px 12px;border-radius:8px;font-weight:600;font-size:13px;margin-bottom:10px}
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;min-width:0}
+.kpi .l{font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px}
+.kpi .v{font-size:22px;font-weight:650;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .s{font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lane-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 12px}
+.lane-card{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;position:relative;overflow:hidden}
+.lane-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--text-muted)}
+.lane-card.good::before{background:var(--good)} .lane-card.warn::before{background:var(--warning)} .lane-card.info::before{background:var(--info)} .lane-card.bad::before{background:var(--critical)}
+.lane-card .t{font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.35px}
+.lane-card .v{font-size:17px;font-weight:700;margin-top:3px}
+.lane-card .s{font-size:12px;color:var(--text-secondary);margin-top:2px;line-height:1.35}
+.lane-card .mini{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.lane-card .mini span{padding:1px 6px;border-radius:999px;background:var(--surface-2);font-size:10.5px;color:var(--text-secondary);border:1px solid var(--line)}
+@media (max-width:900px){.lane-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.lane-strip{grid-template-columns:1fr}}
+.grid-main{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px;align-items:start}
+.card{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:12px;min-width:0}
+.card h2{font-size:14px;margin:0 0 8px;font-weight:650;display:flex;align-items:center;gap:8px}
+.card h2 .hint{font-weight:400;color:var(--text-muted);font-size:12px}
+.office svg{width:100%;height:auto;display:block;border-radius:8px}
+.blockers{display:flex;flex-direction:column;gap:8px}
+.blk{display:grid;grid-template-columns:22px 1fr;gap:8px;padding:8px 10px;border-radius:8px;background:var(--surface-2);border-left:4px solid var(--text-muted)}
+.blk .ic{font-weight:700;font-size:14px;line-height:20px;text-align:center;border-radius:50%;width:20px;height:20px;color:#fff;background:var(--text-muted)}
+.blk.critical{border-color:var(--critical)} .blk.critical .ic{background:var(--critical)}
+.blk.serious{border-color:var(--serious)} .blk.serious .ic{background:var(--serious)}
+.blk.warning{border-color:var(--warning)} .blk.warning .ic{background:var(--warning);color:#1a1300}
+.blk.info{border-color:var(--info)} .blk.info .ic{background:var(--info)}
+.blk.ok{border-color:var(--good)} .blk.ok .ic{background:var(--good)}
+.blk b{display:block;font-size:13px} .blk span{color:var(--text-secondary);font-size:12.5px}
+.pipe{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.pstep{display:grid;grid-template-columns:1fr auto;align-items:center;padding:5px 10px;border-radius:7px;background:var(--surface-2);font-size:12.5px;position:relative}
+.pstep .n{font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
+.pstep.zero{background:color-mix(in srgb,var(--critical) 16%,var(--surface-2));}
+.pstep.zero .n{color:var(--critical)}
+.pstep.choke::after{content:"◀ tıkanma noktası";position:absolute;right:52px;color:var(--critical);font-weight:650;font-size:11.5px}
+.row3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}
+.row4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px}
+@media (max-width:1300px){.row4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:760px){.row4{grid-template-columns:1fr}}
+.row2{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px;margin-top:12px}
+.tfs{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:5px;margin:8px 0}
+.tf{text-align:center;padding:7px 0;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--text-muted)}
+.tf.done{background:color-mix(in srgb,var(--series-3) 22%,var(--surface-2));color:var(--text-primary);border-color:transparent}
+.tf.now{background:var(--series-1);color:#fff;border-color:transparent;animation:pulse 1.2s ease-in-out infinite}
+.stages{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.stg{font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--text-muted);border:1px solid var(--line)}
+.stg.on{background:var(--series-1);color:#fff;border-color:transparent}
+.stg.done{color:var(--text-primary)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px}
+.kv dt{color:var(--text-muted)} .kv dd{margin:0;color:var(--text-primary);min-width:0;overflow-wrap:anywhere}
+.bar{height:10px;border-radius:5px;background:var(--surface-3);overflow:hidden;display:flex;gap:2px}
+.bar i{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--text-secondary);margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.jev-list{display:grid;grid-template-columns:1fr;gap:3px;margin-top:6px;max-height:330px;overflow:auto}
+.jq{display:grid;grid-template-columns:minmax(0,1fr) 90px 38px;gap:6px;align-items:center;font-size:12px}
+.jq .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-secondary)}
+.jq .pb{height:8px;background:var(--surface-3);border-radius:4px;position:relative;overflow:visible}
+.jq .pb i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--series-1)}
+.jq .pb i.hot{background:var(--critical)}
+.jq .pb b{position:absolute;left:65%;top:-3px;bottom:-3px;width:2px;background:var(--text-muted)}
+.jq .p{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--text-muted);font-weight:600;padding:6px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:6px;border-bottom:1px solid var(--line);vertical-align:top}
+td.wait{max-width:340px;color:var(--text-secondary)}
+.flag{display:inline-block;font-size:11px;font-weight:650;padding:1px 6px;border-radius:5px;background:var(--warning);color:#1a1300;margin-right:4px}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--text-secondary)}
+.pill.LONG{color:var(--good);border-color:var(--good)} .pill.SHORT{color:var(--critical);border-color:var(--critical)}
+.feed{max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.ev{display:grid;grid-template-columns:52px 10px 1fr;gap:8px;align-items:start;padding:5px 4px;border-bottom:1px solid var(--line);font-size:12.5px}
+.ev time{color:var(--text-muted);font-variant-numeric:tabular-nums}
+.ev .d{width:10px;height:10px;border-radius:50%;margin-top:4px}
+.ev .x{color:var(--text-secondary);font-size:12px}
+.sources{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.tl svg{width:100%;height:auto;display:block}
+.tip{position:fixed;pointer-events:none;background:var(--surface-3);color:var(--text-primary);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;display:none;z-index:10;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.muted{color:var(--text-muted)}
+.foot{margin-top:14px;color:var(--text-muted);font-size:12px}
+button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+@keyframes type{0%,100%{transform:translateY(0)}50%{transform:translateY(2px)}}
+@keyframes glow{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.o-desk .arm{transform-box:fill-box}
+.o-desk.busy .arm{animation:type .35s ease-in-out infinite}
+.o-desk.busy .arm.r{animation-delay:.17s}
+.o-desk .scr{fill:var(--screen-off);transition:fill .4s}
+.o-desk.busy .scr{fill:var(--series-1)}
+.o-desk.ok .scr{fill:var(--good)}
+.o-desk.blocked .scr{fill:var(--critical)}
+.o-desk.warn .scr{fill:var(--warning)}
+.o-desk .halo{opacity:0}
+.o-desk.busy .halo{animation:glow 1.4s ease-in-out infinite}
+.o-edge{stroke:var(--line);stroke-width:2;fill:none;stroke-dasharray:5 6}
+.o-edge.active{stroke:var(--series-1);stroke-dasharray:none;opacity:.8}
+.o-edge.blocked{stroke:var(--critical);stroke-dasharray:3 5}
+.o-pkt{fill:var(--series-1)}
+.o-gate circle{fill:var(--critical)}
+.o-gate.open circle{fill:var(--good)}
+.o-gate text{fill:#fff;font-weight:700;font-size:13px}
+.o-lbl{fill:var(--text-primary);font-size:13px;font-weight:650}
+.o-sub{fill:var(--text-secondary);font-size:11px}
+.o-gl{fill:var(--text-primary);font-size:10.5px;font-weight:600}
+.o-bub rect{fill:var(--surface-3);stroke:var(--line)}
+.o-bub text{fill:var(--text-primary);font-size:11px}
+.brain-core{animation:pulse 2.4s ease-in-out infinite}
+/* v1.1 (Claude v109): yürüyen trader/kuryeler */
+.walker .leg{transform-box:fill-box;transform-origin:50% 0}
+.walker.walking .leg.l{animation:stride .44s ease-in-out infinite alternate}
+.walker.walking .leg.r{animation:stride .44s ease-in-out infinite alternate-reverse}
+.walker.walking .arm2{transform-box:fill-box;transform-origin:50% 0;animation:stride .44s ease-in-out infinite alternate-reverse}
+.walker.walking .wb{animation:bob .22s ease-in-out infinite alternate}
+.walker.waiting .wb{animation:idle 1.6s ease-in-out infinite}
+@keyframes stride{from{transform:rotate(24deg)}to{transform:rotate(-24deg)}}
+@keyframes bob{from{transform:translateY(0)}to{transform:translateY(-1.6px)}}
+@keyframes idle{0%,100%{transform:translateY(0)}50%{transform:translateY(-1px)}}
+.wk-card rect{fill:var(--surface-1);stroke-width:1.4}
+.wk-card text{fill:var(--text-primary);font-size:10px;font-weight:650}
+.wk-wait text{fill:var(--critical)}
+.o-orbit{fill:none;stroke:var(--series-7);stroke-opacity:.18;stroke-width:1.5;stroke-dasharray:2 7}
+.brain-in{fill:var(--text-secondary);font-size:10.5px}
+.v109 .kv dd b{font-variant-numeric:tabular-nums}
+.v109-bars{display:grid;grid-template-columns:120px 1fr 44px;gap:6px 8px;align-items:center;font-size:12px;margin-top:8px}
+.v109-bars .tr{height:10px;background:var(--surface-3);border-radius:5px;overflow:hidden}
+.v109-bars .tr i{display:block;height:100%;border-radius:5px}
+.v109-bars .n{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary)}
+.chip.claude{border-color:var(--series-7);color:var(--text-primary)} .chip.claude .dot{background:var(--series-7)}
+.trig{font-variant-numeric:tabular-nums;white-space:nowrap}
+@media (prefers-reduced-motion: reduce){.walker .leg,.walker .wb,.walker .arm2,.brain-core,.o-desk .arm,.tf.now{animation:none!important}}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-main,.row2{grid-template-columns:1fr}.row3{grid-template-columns:1fr}}
+.office #officeHost{overflow-x:auto}
+@media (max-width:560px){.office svg{min-width:820px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.tfs{grid-template-columns:repeat(5,minmax(0,1fr))}.kpi .v{font-size:18px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="demo-banner" id="demoBanner">DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.</div>
+  <header>
+    <div>
+      <h1>🧠 BrainHub Trade Office</h1>
+      <div class="sub">C:\BrainHub • C:\BrainHubBackups • salt-okunur izleme — emir göndermez, ayar değiştirmez</div>
+    </div>
+    <div class="spacer"></div>
+    <span class="chip" id="chipVer"><span class="dot"></span><span>PC —</span></span>
+    <span class="chip claude" id="chipClaude" title="Bu sürüm Claude (Anthropic) tarafından ChatGPT v9.5.109 dalı üzerine tamamlandı"><span class="dot"></span><span>CLAUDE_V109 —</span></span>
+    <span class="chip" id="chipLive"><span class="dot"></span><span>LIVE —</span></span>
+    <span class="chip" id="chipAuto"><span class="dot"></span><span>OTO —</span></span>
+    <span class="chip" id="chipFresh"><span class="dot"></span><span>veri —</span></span>
+    <button class="tbtn" id="themeBtn" title="Tema">◐ Tema</button>
+  </header>
+
+  <section class="kpis" id="kpis"></section>
+  <section class="lane-strip" id="laneStrip"></section>
+
+  <section class="grid-main">
+    <div class="card office">
+      <h2>Ofis katı <span class="hint">yürüyen trader'lar veriyi beyne taşır • kapıda bekleyen trader = hattın tıkandığı yer</span></h2>
+      <div id="officeHost"></div>
+    </div>
+    <div class="card">
+      <h2>Neden işlem yok? <span class="hint">canlı teşhis</span></h2>
+      <div class="blockers" id="blockers"></div>
+      <h2 style="margin-top:14px">Sinyal hunisi <span class="hint">son 60 dk</span></h2>
+      <div class="pipe" id="pipe"></div>
+    </div>
+  </section>
+
+  <section class="row4">
+    <div class="card">
+      <h2>Görsel Analist (GPU) <span class="hint" id="visHint"></span></h2>
+      <div class="tfs" id="tfs"></div>
+      <div class="stages" id="stages"></div>
+      <dl class="kv" id="visKv" style="margin-top:10px"></dl>
+    </div>
+    <div class="card">
+      <h2>JEV Hakem <span class="hint">SON STRATEJİK KARAR • <span id="jevPolicy">v108 (herhangi biri ≥0,65)</span> • onaydan sonra yalnız hard safety</span></h2>
+      <dl class="kv" id="jevKv"></dl>
+      <div class="jev-list" id="jevList"></div>
+    </div>
+    <div class="card">
+      <h2>Plan Worker'lar & ücretsiz modeller</h2>
+      <div class="bar" id="wBar" role="img" aria-label="worker kararları"></div>
+      <div class="legend" id="wLegend"></div>
+      <dl class="kv" id="wKv" style="margin-top:10px"></dl>
+    </div>
+    <div class="card v109">
+      <h2>Claude v9.5.111 • kod-tetik → JEV FINAL → hard safety → emir <span class="hint">v111 hızlı doğrulama + runner</span></h2>
+      <dl class="kv" id="v109Kv"></dl>
+      <div class="v109-bars" id="v109Bars"></div>
+      <div class="legend" id="v109Note"></div>
+    </div>
+  </section>
+
+  <section class="row2">
+    <div class="card">
+      <h2>Takip edilen setuplar <span class="hint">⚠ = bekleme “NONE…” • tetik = kapanış seviyesi (v109)</span></h2>
+      <div style="overflow:auto"><table id="setups"></table></div>
+    </div>
+    <div class="card tl">
+      <h2>Son 60 dk plan kararları <span class="hint">5 dk'lık dilimler</span></h2>
+      <div id="timeline"></div>
+      <div class="legend" id="tlLegend"></div>
+      <h2 style="margin-top:12px">Pozisyon & öğrenme</h2>
+      <dl class="kv" id="posKv"></dl>
+    </div>
+  </section>
+
+  <section class="row2">
+    <div class="card">
+      <h2>Olay akışı <span class="hint">journal + brainpub.log</span></h2>
+      <div class="feed" id="feed"></div>
+    </div>
+    <div class="card">
+      <h2>Yedekler & kaynaklar</h2>
+      <dl class="kv" id="bkKv"></dl>
+      <div class="sources" id="sources"></div>
+    </div>
+  </section>
+
+  <div class="foot" id="foot">Veri bekleniyor…</div>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTime = ts => { if(!ts) return '—'; const d = new Date(ts); return d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}); };
+// CLAUDE_V111: null/boş değer 0 değildir (eski sürüm “0.00%” gösteriyordu).
+const num = v => { if (v === null || v === undefined || (typeof v === 'string' && !v.trim())) return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
+const TFS = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+const DESK_COLOR = { scanner:'var(--series-4)', vision:'var(--series-1)', brain:'var(--series-7)', workers:'var(--series-3)', orfree:'var(--series-3)', jev:'var(--series-5)', risk:'var(--series-2)', exec:'var(--series-2)', positions:'var(--series-4)', archive:'var(--text-muted)', learning:'var(--series-7)' };
+const STATUS_COLOR = { QUALIFIED:'var(--good)', WATCH:'var(--warning)', REVIEW_REQUIRED:'var(--serious)', REJECT:'var(--critical)' };
+const STATUS_TR = { QUALIFIED:'İşlem adayı', WATCH:'İzle/bekle', REVIEW_REQUIRED:'Yeniden incele', REJECT:'Red' };
+const JEV_CHECKS = [
+  ['structuralVeto','Yapısal çelişki'],['formingDependency','Açık mum teyit gibi kullanılmış (≥0,70)'],['dataQualityInsufficient','Veri kalitesi yetersiz'],
+  ['directionConflict','Yön çelişkisi'],['symbolPackageIntegrity','Coin/paket uyuşmazlığı'],['originOwnerContinuity','Başlangıç-sahip sürekliliği'],
+  ['tfConflict','Zaman dilimi çelişkisi'],['smcLiquidityConflict','SMC/likidite çelişkisi'],['microstructureReliability','Mikro yapı güvenilirliği'],
+  ['closedCandleConfirmation','Kapanmış mum teyidi eksik'],['visualDataConsistency','Grafik-veri çelişkisi'],['waitRequired','Bekleme koşulu tamamlanmamış']
+];
+
+// ---------- Ofis katı (SVG) ----------
+const VW=1100, VH=680;
+const DESKS = [
+  { id:'scanner',  x:140, y:112, name:'Tarayıcı',            role:'Binance evreni → hedef 24' },
+  { id:'workers',  x:140, y:342, name:"Plan Worker'lar",      role:'9Router ücretsiz metin' },
+  { id:'orfree',   x:140, y:572, name:'OpenRouter Free',      role:'ikinci görüş' },
+  { id:'vision',   x:550, y:98,  name:'Görsel Analist',       role:'Qwen3-VL • GPU' },
+  { id:'positions',x:550, y:598, name:'Pozisyon Yöneticisi',  role:'açık pozisyon 9TF + Jev çıkış' },
+  { id:'jev',      x:960, y:112, name:'JEV Hakem',            role:'OpenRouter Decisions' },
+  { id:'risk',     x:960, y:342, name:'Hard Safety',          role:'stop • likidasyon • bakiye • limit • grant' },
+  { id:'exec',     x:960, y:572, name:'Yürütme / Binance',    role:'LIVE • grant • emir' }
+];
+const BRAIN = { x:550, y:342 };
+// Yürüyen trader rotaları: [kaynak, hedef, kapı id]
+const ROUTES = [
+  ['scanner','brain',null], ['workers','brain',null], ['orfree','workers',null], ['brain','vision',null], ['vision','brain',null],
+  ['positions','brain',null], ['brain','jev','gQual'], ['jev','risk','gJev'], ['risk','exec','gIntent'], ['exec','positions','gLive']
+];
+const EDGES = [
+  ['scanner','brain'], ['brain','vision'], ['vision','brain'], ['workers','brain'], ['orfree','workers'],
+  ['brain','jev'], ['jev','risk'], ['risk','exec'], ['exec','positions'], ['positions','brain']
+];
+function pos(id){ return id==='brain' ? BRAIN : DESKS.find(d=>d.id===id); }
+function edgePath(a,b,bend=0){
+  const p=pos(a), q=pos(b); const mx=(p.x+q.x)/2, my=(p.y+q.y)/2;
+  const dx=q.x-p.x, dy=q.y-p.y; const len=Math.hypot(dx,dy)||1; const nx=-dy/len*bend, ny=dx/len*bend;
+  return `M${p.x},${p.y} Q${mx+nx},${my+ny} ${q.x},${q.y}`;
+}
+function unit(a,b){ const p=pos(a), q=pos(b); const dx=q.x-p.x, dy=q.y-p.y; const L=Math.hypot(dx,dy)||1; return {p,q,ux:dx/L,uy:dy/L,L}; }
+function walkPoints(a,b){
+  // Masadan/beyinden biraz uzakta başla-bit; çizginin yanında (sağ tarafında) yürü.
+  const {p,q,ux,uy,L}=unit(a,b);
+  const off = (a==='vision'&&b==='brain')||(a==='brain'&&b==='vision') ? 34 : 18;
+  const side = (a==='vision'&&b==='brain') ? 1 : ((a==='brain'&&b==='vision') ? -1 : 1);
+  const nx=-uy*off*side, ny=ux*off*side;
+  const s0 = a==='brain'?118:(a==='vision'||a==='positions'?86:104), s1 = b==='brain'?118:(b==='vision'||b==='positions'?86:104);
+  const ax=p.x+ux*s0+nx, ay=p.y+uy*s0+ny+22, bx=q.x-ux*s1+nx, by=q.y-uy*s1+ny+22;
+  return {ax,ay,bx,by,L};
+}
+function walkerSvg(id, color, cls, extra=''){
+  return `<g class="walker ${cls}" id="${id}" style="display:none">${extra}
+    <g class="wb"><g transform="scale(1.22)">
+      <ellipse cx="0" cy="1" rx="8" ry="2.4" fill="#000" opacity=".22"/>
+      <rect class="leg l" x="-4.2" y="-15" width="3.8" height="15" rx="1.9" fill="#3a3f4b"/>
+      <rect class="leg r" x="0.4" y="-15" width="3.8" height="15" rx="1.9" fill="#3a3f4b"/>
+      <rect class="arm2" x="-10" y="-31" width="3.4" height="13" rx="1.7" fill="${color}"/>
+      <rect x="-7.5" y="-33" width="15" height="20" rx="6" fill="${color}"/>
+      <circle cx="0" cy="-39.5" r="6.2" fill="#d8ae88"/>
+      <path d="M-6.2,-41 Q0,-49 6.2,-41 Z" fill="#2b2f38"/>
+      <g class="wk-card"><rect x="6" y="-35" width="40" height="15" rx="3.5" stroke="${color}"/><text x="10" y="-24.4">—</text></g>
+    </g></g>
+  </g>`;
+}
+function personSvg(){
+  return `<g class="person">
+    <circle cx="0" cy="-58" r="11" fill="var(--text-secondary)"/>
+    <path d="M-17,-18 Q-17,-44 0,-44 Q17,-44 17,-18 Z" fill="var(--surface-3)" stroke="var(--line)"/>
+    <rect class="arm l" x="-19" y="-24" width="9" height="16" rx="4" fill="var(--text-secondary)"/>
+    <rect class="arm r" x="10" y="-24" width="9" height="16" rx="4" fill="var(--text-secondary)"/>
+  </g>`;
+}
+function deskSvg(d){
+  return `<g class="o-desk" id="desk-${d.id}" transform="translate(${d.x},${d.y})">
+    <ellipse class="halo" cx="0" cy="-8" rx="92" ry="58" fill="var(--series-1)" opacity="0"/>
+    ${personSvg()}
+    <rect x="-70" y="-14" width="140" height="34" rx="6" fill="var(--desk)"/>
+    <rect x="-70" y="-14" width="140" height="8" rx="4" fill="var(--desk-top)"/>
+    <rect x="-34" y="-44" width="68" height="36" rx="4" fill="#0c0e12"/>
+    <rect class="scr" x="-31" y="-41" width="62" height="28" rx="2"/>
+    <g class="screen-lines" fill="#ffffff" opacity=".55">
+      <rect x="-26" y="-36" width="34" height="3" rx="1.5"/><rect x="-26" y="-30" width="46" height="3" rx="1.5"/><rect x="-26" y="-24" width="24" height="3" rx="1.5"/>
+    </g>
+    <rect x="-4" y="-8" width="8" height="6" fill="#0c0e12"/>
+    <text class="o-lbl" x="0" y="40" text-anchor="middle">${esc(d.name)}</text>
+    <text class="o-sub" x="0" y="55" text-anchor="middle">${esc(d.role)}</text>
+    <text class="o-sub" id="deskTxt-${d.id}" x="0" y="70" text-anchor="middle">—</text>
+  </g>`;
+}
+function buildOffice(){
+  const gates = [
+    { id:'gQual',  a:'brain', b:'jev',  label:'QUALIFIED' },
+    { id:'gJev',   a:'jev',   b:'risk', label:'JEV FINAL' },
+    { id:'gIntent',a:'risk',  b:'exec', label:'Hard safety' },
+    { id:'gLive',  a:'exec',  b:'positions', label:'LIVE' }
+  ];
+  const edges = EDGES.map(([a,b],i)=>{
+    const bend = (a==='vision'&&b==='brain')||(a==='brain'&&b==='vision') ? (a==='brain'?-38:38) : 0;
+    const d = edgePath(a,b,bend);
+    return `<path id="edge-${a}-${b}" class="o-edge" d="${d}"/>
+      <circle class="o-pkt" id="pkt-${a}-${b}" r="6" style="display:none"><animateMotion dur="${1.6+(i%3)*0.3}s" repeatCount="indefinite" rotate="auto"><mpath href="#edge-${a}-${b}"/></animateMotion></circle>
+      <circle class="o-pkt" id="pkt2-${a}-${b}" r="4" style="display:none;opacity:.7"><animateMotion dur="${1.6+(i%3)*0.3}s" begin="${0.8}s" repeatCount="indefinite"><mpath href="#edge-${a}-${b}"/></animateMotion></circle>`;
+  }).join('');
+  const gatesSvg = gates.map(g=>{
+    const p=pos(g.a), q=pos(g.b); const x=(p.x+q.x)/2, y=(p.y+q.y)/2;
+    return `<g class="o-gate" id="${g.id}" transform="translate(${x},${y})"><circle r="13"/><text text-anchor="middle" dy="4.5">✕</text><text class="o-gl" x="18" dy="4">${esc(g.label)}</text></g>`;
+  }).join('');
+  const floor = `<defs>
+      <pattern id="tiles" width="40" height="40" patternUnits="userSpaceOnUse"><rect width="40" height="40" fill="var(--floor)"/><path d="M40 0H0V40" fill="none" stroke="var(--floor-grid)" stroke-width="1"/></pattern>
+      <radialGradient id="brainGlow"><stop offset="0%" stop-color="var(--series-7)" stop-opacity=".55"/><stop offset="100%" stop-color="var(--series-7)" stop-opacity="0"/></radialGradient>
+    </defs>
+    <rect width="${VW}" height="${VH}" fill="url(#tiles)"/>
+    <rect x="8" y="8" width="${VW-16}" height="${VH-16}" rx="14" fill="none" stroke="var(--line)" stroke-width="2"/>
+    <rect x="${BRAIN.x-190}" y="${BRAIN.y-118}" width="380" height="236" rx="26" fill="var(--series-7)" opacity=".05" stroke="var(--series-7)" stroke-opacity=".25" stroke-dasharray="6 6"/>
+    <text x="${BRAIN.x-178}" y="${BRAIN.y-100}" class="o-sub">KARAR ODASI</text>
+    <text x="24" y="32" class="o-sub">GİRİŞ • VERİ</text><text x="${VW-24}" y="32" class="o-sub" text-anchor="end">KARAR • EMİR</text>`;
+  const brain = `<g id="brainNode" transform="translate(${BRAIN.x},${BRAIN.y})">
+      <circle r="92" fill="url(#brainGlow)" class="brain-core"/>
+      <ellipse rx="86" ry="46" fill="var(--desk)"/><ellipse rx="86" ry="40" cy="-4" fill="var(--desk-top)"/>
+      <circle r="30" cy="-6" fill="var(--surface-3)" stroke="var(--series-7)" stroke-width="3"/>
+      <text y="3" text-anchor="middle" font-size="24">🧠</text>
+      <g opacity=".9"><circle r="36" cy="-6" fill="none" stroke="var(--series-7)" stroke-width="2" stroke-dasharray="4 10" style="transform-origin:0 -6px;animation:spin 8s linear infinite"/></g>
+    </g>`;
+  // Beyin etiketi en üstte, zemin plakasıyla (yürüyen trader'lar arkasından geçer)
+  const brainLabel = `<g id="brainLabel" transform="translate(${BRAIN.x},${BRAIN.y+128})">
+      <rect x="-190" y="-17" width="380" height="54" rx="10" fill="var(--surface-1)" opacity=".92" stroke="var(--series-7)" stroke-opacity=".45"/>
+      <text class="o-lbl" y="-1" text-anchor="middle">🧠 BEYİN • Karar Merkezi</text>
+      <text class="o-sub" id="brainTxt" y="15" text-anchor="middle">—</text>
+      <text class="brain-in" id="brainIn" y="30" text-anchor="middle">—</text>
+    </g>`;
+  // Yürüyüş yolları (görünmez), kuryeler, kapıda bekleyenler
+  const walkDefs = ROUTES.map(([a,b])=>{ const w=walkPoints(a,b); return `<path id="walk-${a}-${b}" d="M${w.ax.toFixed(1)},${w.ay.toFixed(1)} L${w.bx.toFixed(1)},${w.by.toFixed(1)}" fill="none" stroke="none"/>`; }).join('');
+  const walkers = ROUTES.map(([a,b],i)=>{
+    const w=walkPoints(a,b); const dur=Math.max(4.8, Math.min(9, w.L/55)).toFixed(1);
+    const color=DESK_COLOR[a==='brain'?'brain':a]||'var(--series-1)';
+    const motion=`<animateMotion dur="${dur}s" begin="-${(i*0.7).toFixed(1)}s" repeatCount="indefinite" keyPoints="0;1;1;0;0" keyTimes="0;0.44;0.5;0.94;1" calcMode="linear"><mpath href="#walk-${a}-${b}"/></animateMotion>`;
+    const cardAnim=`<animate xlink:href="#wkc-${a}-${b}" attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.46;0.5;0.96;1" dur="${dur}s" begin="-${(i*0.7).toFixed(1)}s" repeatCount="indefinite"/>`;
+    return walkerSvg(`wk-${a}-${b}`, color, 'walking', motion).replace('<g class="wk-card">',`<g class="wk-card" id="wkc-${a}-${b}">`+cardAnim.replace(/xlink:href="[^"]+" /,''));
+  }).join('');
+  const waiters = ROUTES.filter(r=>r[2]).map(([a,b,g])=>{
+    const p=pos(a), q=pos(b); const gx=(p.x+q.x)/2, gy=(p.y+q.y)/2;
+    const x=gx-36, y=gy+12; // kapının solunda bekler; kart kapı etiketinin üstünde kalır
+    const color=DESK_COLOR[a==='brain'?'brain':a]||'var(--series-1)';
+    return `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">${walkerSvg(`wt-${a}-${b}`, color, 'waiting wk-wait')}</g>`;
+  }).join('');
+  // Beyin çevresinde bilgi taşıyan trader'lar: yörünge + beyne uzanan teslim kolları
+  const cx=BRAIN.x, cy=BRAIN.y+22, rx=158, ry=92, rin=86;
+  const ang=[200,290,20,110].map(d=>d*Math.PI/180);
+  const P=ang.map(t=>[cx+rx*Math.cos(t), cy+ry*Math.sin(t)]), R=ang.map(t=>[cx+rin*Math.cos(t), cy+rin*0.62*Math.sin(t)]);
+  let orbit=`M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+  for(let k=0;k<4;k++){ const n=(k+1)%4; orbit+=` L${R[k][0].toFixed(1)},${R[k][1].toFixed(1)} L${P[k][0].toFixed(1)},${P[k][1].toFixed(1)} A${rx},${ry} 0 0 1 ${P[n][0].toFixed(1)},${P[n][1].toFixed(1)}`; }
+  const orbitVisible=`<ellipse class="o-orbit" cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/>`;
+  const orbiters=[0,1,2].map(i=>walkerSvg(`orb-${i}`, ['var(--series-7)','var(--series-1)','var(--series-3)'][i], 'walking',
+    `<animateMotion dur="24s" begin="-${i*8}s" repeatCount="indefinite" calcMode="paced"><mpath href="#brainOrbit"/></animateMotion>`)).join('');
+  const orbitDef=`<path id="brainOrbit" d="${orbit}" fill="none" stroke="none"/>`;
+  window.__officeLayers={walkDefs,walkers,waiters,orbitVisible,orbiters,orbitDef};
+  const bubble = `<g class="o-bub" id="bubble" style="display:none"><rect x="0" y="0" width="10" height="26" rx="8"/><text id="bubbleTxt" x="10" y="17">—</text></g>`;
+  const L=window.__officeLayers;
+  $('#officeHost').innerHTML = `<svg viewBox="0 0 ${VW} ${VH}" role="img" aria-label="BrainHub ofis katı: masalar, beyin ve veriyi beyne taşıyan trader'lar">${floor}${L.walkDefs}${L.orbitDef}${edges}${L.orbitVisible}${brain}${DESKS.map(deskSvg).join('')}${gatesSvg}${L.waiters}${L.orbiters}${L.walkers}${brainLabel}${bubble}</svg>`;
+  try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches) $('#officeHost svg').pauseAnimations(); }catch{}
+}
+function setWalker(id, show, label){
+  const g=document.getElementById(id); if(!g) return;
+  g.style.display = show ? '' : 'none';
+  if(label!==undefined){
+    const t=g.querySelector('.wk-card text'), r=g.querySelector('.wk-card rect');
+    const txt=String(label||'').slice(0,26); t.textContent=txt; r.setAttribute('width', (10+txt.length*5.9).toFixed(0));
+  }
+}
+
+function setDesk(id, cls, text){
+  const g = document.getElementById('desk-'+id); if(!g) return;
+  g.setAttribute('class','o-desk '+(cls||''));
+  const t = document.getElementById('deskTxt-'+id); if(t) t.textContent = (text||'—').slice(0,46);
+}
+function setEdge(a,b,mode){
+  const e = document.getElementById(`edge-${a}-${b}`); if(!e) return;
+  e.setAttribute('class','o-edge'+(mode==='active'?' active':mode==='blocked'?' blocked':''));
+  const show = mode==='active';
+  for(const k of ['pkt','pkt2']){ const p=document.getElementById(`${k}-${a}-${b}`); if(p) p.style.display = show?'':'none'; }
+}
+function setGate(id, open, label){
+  const g = document.getElementById(id); if(!g) return;
+  g.setAttribute('class','o-gate'+(open?' open':''));
+  g.querySelector('text').textContent = open ? '✓' : '✕';
+  if(label) g.querySelector('.o-gl').textContent = label;
+}
+function setBubble(id, text){
+  const b = $('#bubble'); if(!text){ b.style.display='none'; return; }
+  const p = id==='brain' ? BRAIN : pos(id); if(!p){ b.style.display='none'; return; }
+  const t = $('#bubbleTxt'); t.textContent = text.slice(0,64);
+  const w = Math.min(420, 16 + text.slice(0,64).length*6.1);
+  const x = Math.max(12, Math.min(VW-w-12, p.x - w/2)); const y = Math.max(12, p.y - 118);
+  b.setAttribute('transform',`translate(${x},${y})`); b.querySelector('rect').setAttribute('width',w); b.style.display='';
+}
+
+// ---------- Paneller ----------
+function kpi(l,v,s,tone){ return `<div class="kpi"><div class="l">${esc(l)}</div><div class="v" style="${tone?`color:var(--${tone})`:''}">${esc(v)}</div><div class="s">${esc(s||'')}</div></div>`; }
+function chip(id, tone, text){ const c=$(id); c.className='chip '+(tone||''); c.querySelector('span:last-child').textContent=text; }
+
+function renderKpis(s){
+  const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h=la.health||{}; const acc=s.account?.data||{};
+  const armed = st.armed===true; const exp = st.expiresAt ? Math.max(0,Math.round((Date.parse(st.expiresAt)-Date.now())/60000)) : null;
+  const eq = num(acc.equity ?? acc.account?.equity ?? acc.totalWalletBalance);
+  const avail = num(acc.availableBalance ?? acc.account?.availableBalance);
+  $('#kpis').innerHTML = [
+    kpi('LIVE', armed?'AÇIK':'KAPALI', armed?(exp!=null?`kalan ${exp} dk`:'süre bilinmiyor'):'emir gönderilmez', armed?'good':'critical'),
+    kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`max ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'LONG':'',la.allowShort?'SHORT':''].filter(Boolean).join(' ')}`:'Leader AUTO etkin değil', la.enabled?null:'critical'),
+    kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
+    kpi('Derin analiz (60 dk)', `${h.deepAnalyses??0} / ${h.uniqueAnalyzedSymbols??0} coin`, `ort ${h.avgAnalysisMs?Math.round(h.avgAnalysisMs/1000)+' sn':'—'} • atlanan tur ${h.skippedBusy??0}`),
+    kpi('İşlem adayı', `${h.preJevQualified??0}`, `Jev bağlayıcı ${h.jevCalled??0} • gölge ${h.jevShadowCalled??0} • veto ${h.jevVetoed??0}`, (h.preJevQualified||0)>0?'good':((h.jevShadowCalled||0)>0?'info':'serious')),
+    kpi('Açılan emir', `${h.ordersPlaced??0}`, `hard safety ${h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null)
+  ].join('');
+  chip('#chipVer', s.health?.ok?'good':'bad', `PC ${s.health?.data?.featureVersion || st.featureVersion || '—'}`);
+  chip('#chipLive', armed?'good':'bad', armed?`LIVE AÇIK${exp!=null?' • '+exp+' dk':''}`:'LIVE KAPALI');
+  chip('#chipAuto', la.enabled?'good':'bad', la.enabled?`OTO AKTİF • ${la.lastExecution||'—'}`:'OTO KAPALI');
+  const age = s.generatedAt ? Math.round((Date.now()-Date.parse(s.generatedAt))/1000) : null;
+  chip('#chipFresh', s.status?.ok?'good':'bad', s.status?.ok?`veri ${age!=null?age+' sn':''} önce`:'Brain Hub yok');
+}
+
+function renderLanes(s){
+  const st=s.status?.data||{}; const h=st.leaderAuto?.health||{};
+  const stages=Array.isArray(h.momentumStages)?h.momentumStages:[];
+  const topStage=stages[0]?.stage||'—';
+  const mainReady=+h.laneMain15Ready||0, mainPlans=+h.laneMain15Plans||0;
+  const scalpReady=+h.laneScalpReady||0, scalpPlans=+h.laneScalpPlans||0;
+  const shadow=+h.jevShadowCalled||0, binding=+h.jevCalled||0;
+  const card=(tone,title,value,sub,mini=[])=>`<div class="lane-card ${tone}"><div class="t">${esc(title)}</div><div class="v">${esc(value)}</div><div class="s">${esc(sub)}</div><div class="mini">${mini.map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`;
+  $('#laneStrip').innerHTML=[
+    card(mainReady?'good':'info','15m ANA İŞLEM',`${mainReady} hazır / ${mainPlans} plan`,'15m kapanmış-mum ve yapı ana karar hattı; 30m+ bağlamdır.',['MAIN_15M','LONG+SHORT']),
+    card(scalpReady?'good':(scalpPlans?'warn':'info'),'SCALP 1m • 3m • 5m',`${scalpReady} hazır / ${scalpPlans} plan`,'Tek alt TF final karar vermez; en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü.',['2/3 alt TF','15m veto kontrol']),
+    card(topStage==='EXHAUSTING'?'bad':'info','MOMENTUM MERDİVENİ',topStage,'1m’de yakalanan hareket 3m→5m→15m→30m+ boyunca izlenir; tükenme ayrıca işaretlenir.',stages.slice(0,3).map(x=>`${x.stage} ${x.count}`)),
+    card(binding?'good':(shadow?'info':'warn'),'JEV FINAL AUTHORITY',`${binding} bağlayıcı • ${shadow} gölge`,'QUALIFIED geldikten sonra JEV son stratejik kararı verir. JEV onayını chase/maliyet gibi soft filtreler tekrar veto etmez; yalnız hard safety kalır.',['veto '+(h.jevVetoed??0)])
+  ].join('');
+}
+
+function renderBlockers(s){
+  const b = s.derived?.blockers||[];
+  const ic = {critical:'!',serious:'!',warning:'!',info:'i',ok:'✓'};
+  $('#blockers').innerHTML = b.length ? b.map(x=>`<div class="blk ${x.level}"><div class="ic">${ic[x.level]||'!'}</div><div><b>${esc(x.title)}</b><span>${esc(x.detail)}</span></div></div>`).join('')
+    : `<div class="blk ok"><div class="ic">✓</div><div><b>Belirgin engel görülmedi</b><span>Hat açık; uygun fırsat bekleniyor.</span></div></div>`;
+  const f = s.derived?.funnel||[];
+  let chokeMarked=false;
+  $('#pipe').innerHTML = f.map((x,i)=>{
+    const zero = x.value===0; let cls = zero?'zero':''; if(zero&&!chokeMarked&&i>0&&(f[i-1].value||0)>0){ cls+=' choke'; chokeMarked=true; }
+    return `<div class="pstep ${cls}"><span>${esc(x.label)}</span><span class="n">${x.value==null?'—':x.value}</span></div>`;
+  }).join('');
+}
+
+function stageInfo(stage){
+  const s = String(stage||'IDLE');
+  let active=[], doneIdx=-1, phase='IDLE';
+  const m1 = /VISUAL_TF(?:_FALLBACK)?=(\w+)/.exec(s), m2 = /VISUAL_BATCH=([\w,]+)/.exec(s), m3=/PIXEL_TF=(\w+)/.exec(s);
+  if(m1){ active=[m1[1]]; phase='VISUAL'; }
+  else if(m2){ active=m2[1].split(','); phase='VISUAL'; }
+  else if(m3){ active=[m3[1]]; phase='PIXEL'; }
+  else if(/TF_SCHEMA_REPAIR=(\w+)/.test(s)){ active=[/TF_SCHEMA_REPAIR=(\w+)/.exec(s)[1]]; phase='VISUAL'; }
+  if(active.length){ doneIdx = Math.min(...active.map(t=>TFS.indexOf(t)))-1; }
+  if(/FINALIZE_CORE/.test(s)) phase='CORE'; if(/FINALIZE_NARRATIVE/.test(s)) phase='NARRATIVE'; if(/FINALIZE_SEMANTIC/.test(s)) phase='SEMANTIC';
+  if(/RUN_COMPLETE/.test(s)) phase='DONE'; if(/RUN_ERROR|_ERROR$/.test(s)) phase='ERROR';
+  if(['CORE','NARRATIVE','SEMANTIC','DONE'].includes(phase)) doneIdx = 8;
+  return {active,doneIdx,phase};
+}
+function renderVision(s){
+  const st=s.status?.data||{}; const vp = s.visionProgress?.data || st.visionProgress || {}; const va = st.visionAvailability||{};
+  const info = stageInfo(vp.stage);
+  $('#tfs').innerHTML = TFS.map((t,i)=>`<div class="tf ${info.active.includes(t)?'now':(i<=info.doneIdx?'done':'')}">${t}</div>`).join('');
+  const phases=[['VISUAL','9 grafik okuma'],['CORE','Çekirdek karar'],['NARRATIVE','Anlatım'],['SEMANTIC','WATCH onarımı'],['DONE','Tamam']];
+  const order=phases.map(p=>p[0]); const cur=order.indexOf(info.phase);
+  $('#stages').innerHTML = phases.map(([k,l],i)=>`<span class="stg ${k===info.phase?'on':(cur>i?'done':'')}">${l}</span>`).join('') + (info.phase==='ERROR'?`<span class="stg" style="background:var(--critical);color:#fff">HATA</span>`:'');
+  const ps = s.ollama?.data?.models||[]; const gpu = ps[0];
+  $('#visHint').textContent = va.summaryTr ? va.summaryTr.slice(0,70) : '';
+  $('#visKv').innerHTML = [
+    ['Aşama', vp.stage||'IDLE'],
+    ['Model', vp.model || (va.models?.[0]?.model) || '—'],
+    ['Aşama süresi', vp.lastStageDurationMs?Math.round(vp.lastStageDurationMs/1000)+' sn':'—'],
+    ['Kuyruk', `${vp.queueDepth??0} • pipeline ${vp.pipelineActive??0}`],
+    ['GPU (Ollama)', gpu ? `${gpu.name||gpu.model} • ${Number(gpu.size_vram)>0?'VRAM '+(Number(gpu.size_vram)/1073741824).toFixed(1)+' GB':'VRAM bilgisi yok'}` : (s.ollama?.ok?'model yüklü değil':'Ollama okunamadı')],
+    ['Son hata', vp.error || '—'],
+    ['Kurtarma rotası', va.freeQuotaFallbackConfigured?`Kiro free-quota • doğrulanan ${va.freeQuotaFallbackVerified??0}`:'kapalı']
+  ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  return info;
+}
+
+function renderJev(s){
+  const st=s.status?.data||{}; const j=st.jev||{}; const b=j.budget||{}; const lj=s.lastJev;
+  $('#jevKv').innerHTML = [
+    ['Durum', j.configured?`hazır • ${j.model||''}`:'yapılandırılmamış'],
+    ['Bugün', `${b.calls??0} çağrı • $${Number(b.spentUsd||0).toFixed(4)} / $${Number(b.dailyCapUsd||2).toFixed(2)} (uyarı $${Number(b.softBudgetUsd||0.25).toFixed(2)})`],
+    ['Son karar', lj?`${lj.symbol} ${lj.side||''} • ${lj.veto?'VETO':'geçti'} • ${fmtTime(lj.ts)}`:
+      ((st.leaderAuto?.health?.jevShadowCalled||0)>0
+        ? `WATCH gölge inceleme ${st.leaderAuto.health.jevShadowCalled} • bağlayıcı çağrı ${st.leaderAuto.health.jevCalled||0}`
+        : 'henüz Jev incelemesi yok')]
+  ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  const probs = lj?.probabilities||{}; const tfc = lj?.timeframeConflicts||{};
+  const rows = [...JEV_CHECKS.map(([k,l])=>[l,probs[k],k==='formingDependency'?0.70:0.65]), ...TFS.map(t=>[`${t} çelişkisi`, tfc[t], 0.65])];
+  $('#jevList').innerHTML = rows.map(([l,p,th])=>{
+    const v=num(p); const hot = v!=null && v>=th;
+    return `<div class="jq"><span class="t" title="${esc(l)}">${esc(l)}</span><span class="pb"><i class="${hot?'hot':''}" style="width:${v==null?0:Math.round(v*100)}%"></i><b style="left:${th*100}%"></b></span><span class="p">${v==null?'—':v.toFixed(2)}</span></div>`;
+  }).join('');
+}
+
+function renderWorkers(s){
+  const st=s.status?.data||{}; const h=st.leaderAuto?.health||{}; const pw=st.leaderAuto?.planWorkers||{}; const orf=st.openRouterFreeWorker||pw.secondOpinion||{};
+  const w=+h.workerWaits||0, t=+h.workerTriggers||0, r=+h.workerRefreshes||0; const tot=Math.max(1,w+t+r);
+  const segs=[['Bekle',w,'var(--series-3)'],['Tetik',t,'var(--series-1)'],['9TF yenile',r,'var(--series-2)']];
+  $('#wBar').innerHTML = segs.filter(x=>x[1]>0).map(([l,v,c])=>`<i title="${l}: ${v}" style="width:${v/tot*100}%;background:${c}"></i>`).join('');
+  $('#wLegend').innerHTML = segs.map(([l,v,c])=>`<span><i style="background:${c}"></i>${l} ${v}</span>`).join('');
+  const lr = pw.lastReview;
+  const models = s.models?.data?.models||[];
+  const healthy = models.filter(m=>m.status==='healthy').length, cool=models.filter(m=>m.status==='cooldown').length;
+  $('#wKv').innerHTML = [
+    ['İnceleme (60 dk)', `${h.workerReviews??0} • tam 9TF tasarrufu ${h.fullVisionAvoided??0}`],
+    ['Son inceleme', lr?`${lr.symbol} ${lr.side||''} → ${lr.state} (${lr.source||'—'})`:'—'],
+    ['İşlem hattı', lr?`${lr.tradeLaneName||'—'} • ${lr.momentumStage||'—'} • alt TF uyum ${lr.scalpAlignedCount??0}`:'—'],
+    ['Gerekçe', lr?.reason||'—'],
+    ['9Router modelleri', models.length?`${healthy} sağlıklı • ${cool} soğumada • ${models.length-healthy-cool} denenmedi`:'okunamadı'],
+    ['OpenRouter free', orf.configured?`${orf.model||'openrouter/free'} • son: ${orf.last?.ok?'OK':(orf.last?.reason||'çağrılmadı')}`:'yapılandırılmamış'],
+    ['9Router panel', s.router?.ok?`erişilebilir${num(s.router.ms)!=null?' ('+s.router.ms+' ms)':''}`:'erişilemedi']
+  ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+}
+
+function isFakeWait(w){ const z=String(w||'').trim().toUpperCase(); return !z || /^NONE\b/.test(z) || /^YOK\b/.test(z) || /SOMUT BEKLEME KOŞULU ÜRETMEDİ/i.test(String(w||'')); }
+function renderSetups(s){
+  const rows = s.status?.data?.leaderAuto?.analysisLifecycle?.rows||[];
+  const head = `<tr><th>Sembol</th><th>Yön</th><th>Hat</th><th>Momentum</th><th>Durum</th><th>Plan</th><th>TF</th><th>Tetik</th><th>Worker</th><th>Beklenen</th><th>Son</th></tr>`;
+  $('#setups').innerHTML = head + (rows.length ? rows.slice(0,24).map(r=>{
+    const plan=String(r.planStatus||''); const fake = (plan==='WATCH'||String(r.state||'')==='WATCH') && String(r.waitFor||'').trim()!=='' && isFakeWait(r.waitFor);
+    const lane=r.tradeLaneName==='SCALP_MOMENTUM'?'SCALP':r.tradeLaneName==='MAIN_15M'?'15m ANA':(r.tradeLaneName||'—');
+    return `<tr><td><b>${esc(r.symbol)}</b></td><td><span class="pill ${esc(r.side)}">${esc(r.side||'—')}</span></td><td><span class="pill">${esc(lane)}</span></td><td>${esc(r.momentumStage||'—')} ${r.scalpAlignedCount!=null?'('+r.scalpAlignedCount+'/3)':''}</td><td>${esc(r.state||'—')}</td>
+      <td><span style="color:${STATUS_COLOR[plan]||'var(--text-secondary)'}">●</span> ${esc(STATUS_TR[plan]||plan||'—')}</td>
+      <td>${esc(r.originTF||'—')}→${esc(r.ownerTF||'—')}</td><td class="trig">${r.triggerTF&&r.triggerPrice!=null?esc(r.triggerTF+' '+(String(r.side).toUpperCase()==='SHORT'?'<':'>')+' '+r.triggerPrice)+(r.shadowTriggeredAt?' ✓':''):'—'}</td><td>${esc(r.workerState||'—')}</td>
+      <td class="wait">${fake?'<span class="flag">⚠ NONE</span>':''}${esc(String(r.waitFor||'—').slice(0,150))}</td><td>${fmtTime(r.lastAnalyzedAt)}</td></tr>`;
+  }).join('') : `<tr><td colspan="11" class="muted">Takip edilen setup yok.</td></tr>`);
+}
+
+function renderTimeline(s){
+  const plans = (s.plans||[]).filter(p=>p.ts);
+  const now = Date.now(); const start = now-60*60000; const B=12;
+  const buckets = Array.from({length:B},(_,i)=>({t0:start+i*5*60000, QUALIFIED:0, WATCH:0, REVIEW_REQUIRED:0, REJECT:0}));
+  for(const p of plans){ if(p.ts<start) continue; const i=Math.min(B-1,Math.floor((p.ts-start)/(5*60000))); const k=STATUS_COLOR[p.status]?p.status:'REVIEW_REQUIRED'; buckets[i][k]++; }
+  const keys=['QUALIFIED','WATCH','REVIEW_REQUIRED','REJECT'];
+  const maxV = Math.max(3, ...buckets.map(b=>keys.reduce((a,k)=>a+b[k],0)));
+  const W=560,H=170,L=26,Bt=22,T=8; const bw=(W-L-8)/B;
+  let bars='';
+  buckets.forEach((b,i)=>{
+    let y=H-Bt; const x=L+i*bw+3;
+    keys.forEach(k=>{ const v=b[k]; if(!v) return; const h=(H-Bt-T)*v/maxV; y-=h; bars+=`<rect x="${x.toFixed(1)}" y="${(y+1).toFixed(1)}" width="${(bw-6).toFixed(1)}" height="${Math.max(1,h-2).toFixed(1)}" rx="3" fill="${STATUS_COLOR[k]}" data-tip="${fmtTime(b.t0)} • ${STATUS_TR[k]}: ${v}"/>`; });
+    bars+=`<rect x="${L+i*bw}" y="${T}" width="${bw}" height="${H-Bt-T}" fill="transparent" data-tip="${fmtTime(b.t0)}–${fmtTime(b.t0+5*60000)} • ${keys.map(k=>STATUS_TR[k]+' '+b[k]).join(' • ')}"/>`;
+  });
+  const grid=[0,Math.round(maxV/2),maxV].map(v=>{const y=H-Bt-(H-Bt-T)*v/maxV; return `<line x1="${L}" x2="${W-4}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-5}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${v}</text>`;}).join('');
+  const xl=[0,4,8,11].map(i=>`<text x="${L+i*bw+bw/2}" y="${H-6}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${fmtTime(buckets[i].t0)}</text>`).join('');
+  $('#timeline').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Son 60 dakikadaki plan kararları">${grid}${bars}${xl}</svg>`;
+  $('#tlLegend').innerHTML = keys.map(k=>`<span><i style="background:${STATUS_COLOR[k]}"></i>${STATUS_TR[k]}</span>`).join('');
+}
+
+function renderPositions(s){
+  const st=s.status?.data||{}; const pm=st.positionManager||{}; const lr=pm.lastReview||{}; const le=st.learning||{};
+  const stats=le.stats||[]; const samples=stats.reduce((a,x)=>a+Number(x.samples||0),0);
+  $('#posKv').innerHTML = [
+    ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
+    ['Kural', pm.ruleTr || '15m ana işlem hattıdır. Momentum coinlerde 1m/3m/5m scalp fırsatı değerlendirilir (en az iki alt TF uyumu + 15m karşı-veto yok); tek bir alt TF tek başına giriş/çıkış kararı vermez.'],
+    ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)']
+  ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+}
+
+function renderFeed(s){
+  const ev = s.events||[];
+  $('#feed').innerHTML = ev.length ? ev.slice(0,80).map(e=>`<div class="ev"><time>${fmtTime(e.ts)}</time><span class="d" style="background:${DESK_COLOR[e.desk]||'var(--text-muted)'}"></span><div><div>${esc(e.title)}</div>${e.detail?`<div class="x">${esc(e.detail)}</div>`:''}</div></div>`).join('')
+    : '<div class="muted">Henüz olay yok.</div>';
+}
+
+function renderSources(s){
+  const bk=s.backups||{};
+  $('#bkKv').innerHTML = [
+    ['Yedek klasörü', bk.root||'C:\\BrainHubBackups'],
+    ['Yedek sayısı', bk.ok?String(bk.count):'okunamadı'],
+    ['Son yedekler', (bk.latest||[]).slice(0,4).map(x=>x.name).join(', ')||'—'],
+    ['Brain Hub kökü', s.config?.brainRoot||'C:\\BrainHub'],
+    ['Log', s.log?.ok?`brainpub.log • ${fmtTime(Date.parse(s.log.mtime))}`:'okunamadı']
+  ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  const src=[['Brain Hub',s.status?.ok,s.status?.ms],['Ollama GPU',s.ollama?.ok],['9Router',s.router?.ok,s.router?.ms],['Binance hesap',s.account?.ok],['Log',s.log?.ok],['Yedekler',s.backups?.ok]];
+  $('#sources').innerHTML = src.map(([l,ok,ms])=>`<span class="chip ${ok?'good':'bad'}"><span class="dot"></span>${esc(l)}${ms?` ${ms} ms`:''}</span>`).join('');
+}
+
+function shortSym(x){ return String(x||'').replace(/USDT$/,''); }
+function renderOffice(s, vinfo){
+  const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h=la.health||{}; const d=s.derived?.desks||{};
+  const visBusy = !['IDLE','DONE','ERROR'].includes(vinfo.phase);
+  setDesk('scanner', (h.scanRuns||0)>0?'busy':'', d.scanner?.text);
+  setDesk('vision', vinfo.phase==='ERROR'?'blocked':(visBusy?'busy':''), (s.visionProgress?.data?.stage || 'IDLE'));
+  const wr=+h.workerReviews||0, wref=+h.workerRefreshes||0;
+  setDesk('workers', wr>=10&&wref/wr>=.8?'warn':(la.planWorkers?.busy?'busy':(wr?'ok':'')), d.workers?.text);
+  const orf=st.openRouterFreeWorker||{}; setDesk('orfree', orf.last?.called?(orf.last.ok?'ok':'blocked'):'', orf.last?.called?(orf.last.ok?'son çağrı OK':'son çağrı başarısız'):'çağrılmadı');
+  const jevCalled=+h.jevCalled||0, jevShadow=+h.jevShadowCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):(jevShadow?'busy':''), d.jev?.text);
+  const lr = s.lastRisk; setDesk('risk', lr?'warn':'ok', lr?`${lr.symbol}: HARD • ${lr.reasons[0]}`:'JEV sonrası yalnız hard safety');
+  setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${la.lastExecution||'—'}`:'LIVE KAPALI');
+  setDesk('positions', st.positionManager?.busy?'busy':'', st.positionManager?.lastReview?.actionTr || 'açık pozisyon yok');
+  const lastPlan=(s.plans||[])[0];
+  $('#brainTxt').textContent = lastPlan ? `${lastPlan.symbol} ${lastPlan.side||''} → ${STATUS_TR[lastPlan.status]||lastPlan.status}` : 'plan bekleniyor';
+  const preQ=+h.preJevQualified||0, qual=+h.qualified||0, intent=+(h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0)||0, orders=+h.ordersPlaced||0;
+  const sl=h.latestShortlistCount??la.diagnostics?.shortlistCount; const cv=h.claudeV109||{};
+  $('#brainIn').textContent = `📥 ${sl??'?'} aday • ${h.deepAnalyses??0} analiz • 15m hazır ${h.laneMain15Ready??0} • scalp hazır ${h.laneScalpReady??0} • ${wr} worker${cv.dtWouldQualify?` • kod-tetik ${cv.dtWouldQualify}`:''}`;
+  // Akış kenarları
+  const workerActive = !!(la.planWorkers?.busy||wr>0);
+  const scanActive=(h.scanRuns||0)>0;
+  setEdge('scanner','brain', scanActive?'active':'');
+  setEdge('brain','vision', visBusy&&vinfo.phase==='VISUAL'?'active':'');
+  setEdge('vision','brain', ['CORE','NARRATIVE','SEMANTIC'].includes(vinfo.phase)?'active':'');
+  setEdge('workers','brain', workerActive?'active':'');
+  setEdge('orfree','workers', orf.last?.called?'active':'');
+  setEdge('brain','jev', (preQ>0||jevShadow>0)?'active':'blocked');
+  setEdge('jev','risk', qual>0?'active':'blocked');
+  setEdge('risk','exec', intent>0?'active':'blocked');
+  setEdge('exec','positions', orders>0?'active':'blocked');
+  setEdge('positions','brain', st.positionManager?.lastReview?.symbol?'active':'');
+  setGate('gQual', preQ>0, preQ>0?`QUALIFIED ${preQ}`:`QUALIFIED 0 • gölge ${jevShadow}`);
+  setGate('gJev', qual>0, `JEV final onay ${qual} • ${h.jevVetoed??0} veto`);
+  setGate('gIntent', intent>0, `Hard safety geçti ${intent}`);
+  setGate('gLive', st.armed===true && orders>0, st.armed?`Emir ${orders}`:'LIVE KAPALI');
+  // Yürüyen trader'lar: aktif rotada veri taşır; tıkalı rotada kapıda bekler.
+  const lwr=la.planWorkers?.lastReview;
+  const top=(la.diagnostics?.candidates||[]).find(c=>c.eligible!==false);
+  const stage=String(s.visionProgress?.data?.stage||'');
+  const tfNow=(/(?:VISUAL_TF(?:_FALLBACK)?|PIXEL_TF)=(\w+)/.exec(stage)||[])[1] || (/VISUAL_BATCH=([\w,]+)/.exec(stage)||[])[1];
+  const W={
+    'scanner-brain':[scanActive, top?`${shortSym(top.symbol)} ${top.side||''} • ${sl??''} aday`:`${sl??'?'} aday`],
+    'workers-brain':[workerActive, lwr?`${shortSym(lwr.symbol)} ${lwr.state==='REFRESH_REQUIRED'?'YENİLE':lwr.state}`:'worker notu'],
+    'orfree-workers':[!!orf.last?.called, '2. görüş'],
+    'brain-vision':[visBusy&&vinfo.phase==='VISUAL', `${shortSym(lastPlan?.symbol)||'coin'} • 9 grafik`],
+    'vision-brain':[visBusy, tfNow?`${tfNow} okundu`:(vinfo.phase==='CORE'?'çekirdek karar':'TF notları')],
+    'positions-brain':[!!st.positionManager?.lastReview?.symbol, 'pozisyon 9TF'],
+    'brain-jev':[preQ>0||jevShadow>0, preQ>0?`QUALIFIED ${preQ}`:`JEV gölge ${jevShadow}`],
+    'jev-risk':[qual>0, `onay ${qual}`],
+    'risk-exec':[intent>0, `niyet ${intent}`],
+    'exec-positions':[orders>0, `emir ${orders}`]
+  };
+  const WAIT={
+    'brain-jev':`✕ 0 aday`, 'jev-risk':`✕ JEV onayı yok`, 'risk-exec':`✕ hard safety`, 'exec-positions':st.armed?`✕ emir yok`:`✕ LIVE kapalı`
+  };
+  for(const [a,b,g] of ROUTES){
+    const k=`${a}-${b}`; const [on,label]=W[k]||[false,''];
+    setWalker(`wk-${k}`, on, label);
+    if(g){
+      // Kapıda bekleyen: yalnız bir önceki aşamada iş varsa (tıkanma noktası) göster.
+      const upstream = k==='brain-jev' ? (+h.deepAnalyses||0)>0 : k==='jev-risk' ? preQ>0 : k==='risk-exec' ? qual>0 : intent>0 || (k==='exec-positions'&&!st.armed&&qual>0);
+      setWalker(`wt-${k}`, !on && upstream, WAIT[k]);
+    }
+  }
+  // Beyin çevresindeki trader'lar: takip edilen setupları beyne taşır
+  const rows=(la.analysisLifecycle?.rows||[]).slice(0,3);
+  for(let i=0;i<3;i++){
+    const r=rows[i];
+    const label = r ? `${shortSym(r.symbol)} ${r.planStatus==='WATCH'||r.state==='WATCH'?'WATCH':(r.planStatus||r.state||'')}${r.triggerTF&&r.triggerPrice!=null?' '+r.triggerTF+'>'+r.triggerPrice:''}` : (i===0?'tarama notu':i===1?'bağlam':'risk notu');
+    setWalker(`orb-${i}`, true, label);
+  }
+  // Konuşma balonu: o an en aktif masa
+  if(visBusy) setBubble('vision', `${lastPlan?.symbol||''} okunuyor: ${stage}`);
+  else if(lwr) setBubble('workers', `${lwr.symbol}: ${lwr.state}`);
+  else setBubble('brain', lastPlan?`${lastPlan.symbol}: ${STATUS_TR[lastPlan.status]||lastPlan.status}`:'');
+}
+
+function renderV109(s){
+  const st=s.status?.data||{}; const h=st.leaderAuto?.health||{}; const cv=h.claudeV109;
+  const fv=String(s.health?.data?.featureVersion||st.featureVersion||'');
+  const isV109=/9\.5\.1(09|1[0-9])/.test(fv);
+  const isV111=/9\.5\.111-CLAUDE/.test(fv);
+  const c111=h.claudeV111||null;
+  const cfg111=c111?.config||s.health?.data?.claudeV111Config||st.claudeV111Config||{};
+  const cfg=cv?.config||s.health?.data?.claudeV109Config||st.claudeV109Config||{};
+  chip('#chipClaude', isV109?'claude':'warn', isV111?`CLAUDE_V111 • kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • runner ${cfg111.runnerMode||'SHADOW'}`:(isV109?`CLAUDE_V109 • DT ${cfg.deterministicTriggerMode||'SHADOW'}`:'CLAUDE_V109 bekleniyor'));
+  $('#jevPolicy').textContent = cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED' ? 'Claude rol-ağırlıklı' : 'v108 (herhangi biri ≥0,65)';
+  const pct=v=>{const n=num(v); return n==null?'—':(n>0?'+':'')+n.toFixed(2)+'%';};
+  const hrs=num(h.shadowEvidenceHours);
+  $('#v109Kv').innerHTML = (isV109 ? [
+    ['Sürüm', `${fv} • ${s.health?.data?.builtBy?'Claude':''}`],
+    ['Mod', `kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • JEV FINAL ${cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED'?'rol-ağırlıklı':'v108'} • sonrası HARD SAFETY`],
+    ...(isV111 ? [
+      ['Kod-tetik → Jev (v111)', `<b>${c111?.revalidated??0}</b> hızlı doğrulama / ${c111?.revalidationAttempts??0} deneme • Jev’e giden <b>${c111?.jevCalledAfterCode??0}</b> • Jev onayı ${c111?.jevApprovedAfterCode??0}`],
+      ['Momentum scalp tetiği', `${c111?.momentumScalpTriggers??0} (1m/3m/5m, 2/3 hizalı, 15m karşı değil)`],
+      ['Runner (TP3 yerine)', `${cfg111.runnerMode||'SHADOW'} • açık ${c111?.runner?.open??0}${(c111?.runner?.rows||[]).slice(0,2).map(r=>` • ${r.symbol} ${r.phase} stop ${r.currentStop??'—'}${r.trailTf?' ('+r.trailTf+')':''}`).join('')}`],
+      ['Doğrulama red nedeni', (c111?.revalidationReasonCounts||[]).slice(0,3).map(x=>`${x.reason} ${x.count}`).join(' • ')||'—']
+    ] : []),
+    ['Kod-tetik “QUALIFIED olurdu”', `<b>${cv?.dtWouldQualify??0}</b> (60 dk) • uygulanan ${cv?.dtApplied??0}`],
+    ['Sayısal tetikli plan', `<b>${h.shadowPlans??0}</b> • tetik oto-seçim ${cv?.triggerAutoSelected??0} • WAIT onarımı ${cv?.numericWaitFallback??0}`],
+    ['Gölge tetik', `<b>${h.shadowTriggers??0}</b> • 15 dk ölçülen ${h.shadow15mMeasured??0} (${pct(h.shadowAvg15mPct)}) • 60 dk ${h.shadow60mMeasured??0} (${pct(h.shadowAvg60mPct)})`],
+    ['Kanıt süresi', `${hrs==null?'0':hrs.toFixed(1)} / 24 saat ${h.shadowReady24h?'• ✓ karar için hazır':''}`],
+    ['Kovalama ölçümü', `${cv?.chaseBlocked??0} uyarı • JEV onayından sonra veto değil`]
+  ] : [
+    ['Durum', `PC sürümü ${fv||'?'} — v9.5.109-CLAUDE yüklenince bu panel dolar.`],
+    ['Güncelleme', 'UPDATE.ps1 tek satır komutu (PDF Bölüm 9)'],
+    ['LIVE', 'güncelleme LIVE’ı kapatır; kullanıcı yeniden açar']
+  ]).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${String(v).replace(/<(?!\/?b>)/g,'&lt;')}</dd>`).join('');
+  const bars = isV109 ? [
+    ['Jev v108 veto', cv?.jevV108Veto??0, 'var(--critical)'],
+    ['Jev rol-ağırlıklı', cv?.jevRoleWeightedVeto??0, 'var(--series-7)'],
+    ['WATCH gölge v108', cv?.jevShadowV108WouldVeto??0, 'var(--serious)'],
+    ['WATCH gölge RW', cv?.jevShadowRoleWeightedWouldVeto??0, 'var(--series-1)']
+  ] : [];
+  const mx=Math.max(1,...bars.map(b=>+b[1]||0));
+  $('#v109Bars').innerHTML = bars.map(([l,v,c])=>`<span>${esc(l)}</span><span class="tr"><i style="width:${(100*(+v||0)/mx).toFixed(0)}%;background:${c}"></i></span><span class="n">${v}</span>`).join('');
+  $('#v109Note').innerHTML = isV111
+    ? `<span>v111: worker kapanmış-mum tetiğini görünce saklanan 9TF planı saniyeler içinde yeniden doğrulanır ve BINDING modda Jev’e gider (8 dk Vision beklenmez). Runner: TP1→başabaş, TP2→swing izleme, stop asla genişlemez.</span>`
+    : (isV109 ? `<span>Karar: 24 saat sonra “olurdu” planlarının 15/60 dk sonucu olumluysa config/claude-v109.json → BINDING.</span>` : '');
+}
+
+let last=null;
+async function tick(){
+  try{
+    const r = await fetch('/api/snapshot'+location.search, {cache:'no-store'});
+    const s = await r.json(); last=s;
+    $('#demoBanner').style.display = s.demo?'block':'none';
+    if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
+    renderKpis(s); renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); renderSources(s); renderOffice(s, vinfo); renderV109(s);
+    $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yalnız GET`;
+  }catch(e){
+    chip('#chipFresh','bad','bağlantı yok');
+    $('#foot').textContent = 'Office sunucusuna ulaşılamadı: '+(e?.message||e);
+  }
+}
+// Tooltip
+document.addEventListener('mousemove', e=>{
+  const t=e.target.closest?.('[data-tip]'); const tip=$('#tip');
+  if(!t){ tip.style.display='none'; return; }
+  tip.textContent=t.getAttribute('data-tip'); tip.style.display='block';
+  tip.style.left=Math.min(window.innerWidth-260,e.clientX+12)+'px'; tip.style.top=(e.clientY+14)+'px';
+});
+$('#themeBtn').addEventListener('click',()=>{
+  const cur=document.documentElement.getAttribute('data-theme');
+  const next = cur==='light'?'dark':(cur==='dark'?'light':(matchMedia('(prefers-color-scheme: light)').matches?'dark':'light'));
+  document.documentElement.setAttribute('data-theme',next);
+  try{ localStorage.setItem('office-theme',next); }catch{}
+});
+try{ const t=localStorage.getItem('office-theme'); if(t) document.documentElement.setAttribute('data-theme',t); }catch{}
+buildOffice(); tick(); setInterval(tick, 5000);
+</script>
+</body>
+</html>

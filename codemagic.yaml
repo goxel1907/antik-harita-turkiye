@@ -1,35 +1,432 @@
 workflows:
-  android-debug:
-    name: Antik Harita Türkiye APK v16 ATLAS
-    max_build_duration: 60
+  futures-15m-alarm-apk:
+    name: Futures 15m Alarm PRO APK v9.5.111 + PC v9.5.111-CLAUDE (Claude)
+    max_build_duration: 45
     instance_type: mac_mini_m2
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: futures15m-alarm-public-build
+          include: true
+          source: true
+        - pattern: brainhub-v95110-multilane-momentum-office
+          include: true
+          source: true
+    environment:
+      java: 17
+      node: 24
+      android_signing:
+        - futures15m_stable
     scripts:
+      - name: Brain Hub risk and lifecycle regression tests
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+          node --test brainhub/test/*.test.js
+      - name: Prepare Futures Alarm v9.5.111 Claude multilane Turkish source
+        script: |
+          set -euo pipefail
+          trap 'rc=$?; echo "PREPARE_V110_FAILED rc=$rc line=$LINENO command=$BASH_COMMAND"; exit $rc' ERR
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
+          bash "$CM_BUILD_DIR/futures15m_alarm/prepare_v9523.sh"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9527_trade_dashboard_reconcile.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9528_exact_margin.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9529_manual_close_reconcile.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9530_stable_signing.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9531_context_intelligence.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9532_candle_wick_prompt.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9532b_android_json_compat.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9533_symbol_lifecycle_daymap.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9534_daily_rearm_ui.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9535_analysis_exhaustion.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9536_notification_trade_ticket.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9537_dashboard_restore.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9538_market_radar.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9538b_json_compile_fix.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9540_precompat.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9540_radar_persistence_catalyst.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9541_notification_signal_persistence.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9542_social_attention_early_warning.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9542b_native_notification_fix.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9543_live_position_sync.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9543b_notification_ticket_lock.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9543c_quick_order.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9544_coin_jump_nav.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9544b_nav_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9545_batch_analysis_topnav.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9545b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9546_analysis_delete_shortcut.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9546a_delete_target_precision.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9546b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9547_batch_radar_manual_selector.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9547b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9548_dynamic_nav_refresh.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9548b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9549_live_ui_trade_cards_geometry.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9549b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9550_stable_live_ui_trade_meta.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9550b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9551_validity_lifecycle_ui.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9551b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9552_live_trade_card_margin_validity.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9552b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9553_breakout_acceptance_structural_stop.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9553b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9554_location_path_final_audit.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9554b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9555_multipath_crowding_squeeze.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9555b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9556_adaptive_momentum_rebase.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9556b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9557_signal_lifecycle_explain.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9557b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9558_persistent_signal_ema_context.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9558b_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9558c_signal_active_invariant.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9558d_compile_safe.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9564_stability_batch_prompt.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9565_external_same_chat_browser.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9565b_external_chat_ui_compile_safe.py"
+          echo "PREPARE_SOURCE_HEAD $(git -C "$CM_BUILD_DIR" rev-parse HEAD)"
+          grep -q 'V110_BUILD_CHAIN_HARDENING' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py" || {
+            echo 'PREPARE_V110_STALE_SOURCE: v9579 hardening marker missing; start a NEW build from current futures15m-alarm-public-build HEAD, do not rerun an old build.'
+            exit 1
+          }
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9577_brainhub_dry_run.py"
+          # v9577_brainhub_dry_run.py already executes v9579_pc_live_auto.py internally.
+          # Do NOT run v9579 a second time here: duplicate execution caused the
+          # MainActivity migration to look for the old v9.5.78 anchor again.
+          # v9597 still runs after the internal v9577 -> v9579 chain completes.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9597_auto_chat_review.py"
+          echo 'V110_ANDROID_PATCH_CHAIN_OK v9577->v9579->v9597'
+
+          APP=/tmp/futures15m-build/Futures15mAlarm
+          MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
+          BUILD="$APP/app/build.gradle"
+          grep -q 'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' "$MAIN"
+          grep -q 'V9595_VISION_ROUTING_DIAGNOSTICS' "$MAIN"
+          grep -q 'GÖRSEL OKUMA TAMAMLANMADI' "$MAIN"
+          grep -q 'SADECE DETERMINİSTİK KANIT' "$MAIN"
+          grep -q 'DETAYLI OTO ANALİZ' "$MAIN"
+          grep -q 'timeframeNotes' "$MAIN"
+          grep -q 'timeframeDiagnostics' "$MAIN"
+          grep -q 'timeframeEvidence' "$MAIN"
+          grep -q 'visionContractWarnings' "$MAIN"
+          grep -q 'Destek TF:' "$MAIN"
+          grep -q 'Veto TF:' "$MAIN"
+          grep -q 'Model rol-özeti tutarsızlığı:' "$MAIN"
+          grep -q 'Model özet:' "$MAIN"
+          grep -q 'Deterministik veri:' "$MAIN"
+          grep -q 'Görsel model çalışıyor' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LEADER_STATUS_STALE_SUPPRESSION' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q 'LEADER_AUTO_DISABLED","OTO İŞLEM KAPALI' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
+          grep -q 'TF_SCHEMA_REPAIR=","ZAMAN DİLİMİ ŞEMASI DÜZELTİLİYOR' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
+          grep -q 'QUALIFIED_WAIT_REQUIRED","İŞLEM İÇİN BEKLENEN KOŞUL HENÜZ TAMAMLANMADI' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
+          grep -q 'Ekranda gösterilen son karar/işlem örneği' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
+          grep -q 'OTO SAĞLIK / FIRSAT AKIŞI' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
+          grep -q 'v95104_pc_auto_health' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
+          grep -q 'LEADER_AUTO_HEALTH_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LEADER_AUTO_COVERAGE_SCHEDULER' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'COVERAGE_STALE_OR_NEW' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q 'USER_PANEL_EXACT_TOTAL_EXPOSURE' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LEADER_APPROVED_ANALYSIS_REUSE' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PREJEV_EXECUTION_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'TARGETED_PRIORITY_UNIVERSE_24' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'BINANCE_TOP24_GAINER_DISCOVERY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'ACCUMULATION_PROXY_DISCOVERY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'ANDROID_ATTENTION_SYNC' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PLAN_WORKER_ORCHESTRATION' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PLAN_WORKER_9ROUTER_TEXT' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PLAN_WORKER_9ROUTER_FREE_ONLY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'OPENROUTER_FREE_WORKER_SECOND_OPINION' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'WORKER_VISION_AVOIDANCE_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PLAN_WORKER_PARALLEL_TIMER' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'V108_WORKER_ESCALATION_LATCH' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'V108_CONCRETE_WATCH_CONTRACT' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LOCAL_VISION_FREE_QUOTA_FAILOVER' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LOCAL_OLLAMA_VISION_BATCH3_ACTIVE' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'workerEscalationPending' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q 'visionFreeQuotaFallbacks' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q 'localVisionBatchSize:3' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PC otomasyon motoru PC BrainHub zamanlayıcısında çalışır' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
+          grep -q 'PC otomasyon motoru PC BrainHub zamanlayıcısında çalışır' "$MAIN"
+          grep -q 'workerEscalationPending' "$MAIN"
+          grep -q 'visionFreeQuotaFallbacks' "$MAIN"
+          grep -q 'PLAN_WORKER_V110' "$CM_BUILD_DIR/brainhub/plan-workers.js"
+          echo 'V110_WORKER_GATE_OK PLAN_WORKER_V110'
+          grep -q "model='openrouter/free'" "$CM_BUILD_DIR/brainhub/openrouter-free-worker.js"
+          grep -q 'v95107_plan_workers' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
+          grep -q 'TARGET_DETAIL_LIMIT = 24' "$CM_BUILD_DIR/brainhub/scanner.js"
+          grep -q 'APP_EARLY_ATTENTION' "$CM_BUILD_DIR/brainhub/leader-committee.js"
+          grep -q 'syncAttentionSnapshot' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
+          grep -q 'PC tarama: hedef evren' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
+          grep -q 'OUTCOME_BACKED_SOFT_CONTEXT_ONLY' "$CM_BUILD_DIR/brainhub/pipeline.js"
+          grep -q 'LEARNING_NULL_OUTCOME_GUARD' "$CM_BUILD_DIR/brainhub/store.js"
+          grep -q 'v95105_pc_feature_version' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
+          grep -q 'Sonucu ölçülmüş kapanmış OTO işlem henüz yok' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
+          grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
+          grep -q "versionName '9.5.111'" "$BUILD"
+          grep -q 'versionCode 26092106' "$BUILD"
+          grep -q "CLAUDE_V109_BUILD" "$CM_BUILD_DIR/brainhub/claude-v109.js"
+          grep -q "9.5.110-VISION" "$CM_BUILD_DIR/brainhub/v110.js"
+          grep -q "'claude-v109.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
+          grep -q "'wait-condition.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
+          grep -q "V110_MULTILANE_MOMENTUM" "$CM_BUILD_DIR/brainhub/v110.js"
+          grep -q "V110_MULTILANE_15M_SCALP" "$CM_BUILD_DIR/brainhub/v110.js"
+          grep -q "V110_SCALP_TWO_OF_THREE" "$CM_BUILD_DIR/brainhub/v110.js"
+          grep -q "V110_NUMERIC_TRIGGER_H8" "$CM_BUILD_DIR/brainhub/v110.js"
+          grep -q "const tradeLanes = require('./trade-lanes')" "$CM_BUILD_DIR/brainhub/pipeline.js"
+          grep -q "DETERMINISTIC_NUMERIC_TRIGGER" "$CM_BUILD_DIR/brainhub/plan-workers.js"
+          grep -q "laneScalpReady" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q "MAIN_15M" "$CM_BUILD_DIR/brainhub/trade-lanes.js"
+          grep -q "SCALP_MOMENTUM" "$CM_BUILD_DIR/brainhub/trade-lanes.js"
+          grep -q "640" "$CM_BUILD_DIR/brainhub/v110.js"
+          grep -q "896" "$CM_BUILD_DIR/brainhub/v110.js"
+          grep -q "versionName '9.5.111'" "$BUILD"
+          grep -q 'versionCode 26092106' "$BUILD"
+          # CLAUDE_V111 (Claude, Anthropic): PC ve gorunen Android surum kimligi v9.5.111 ile esitlendi; v110 islem tabani korunur.
+          grep -q "CLAUDE_V111_BUILD" "$CM_BUILD_DIR/brainhub/claude-v111.js"
+          grep -q "CLAUDE_V111_TRIGGER_REVALIDATION" "$CM_BUILD_DIR/brainhub/claude-v111.js"
+          grep -q "CLAUDE_V111_JEV_FINAL_AUTHORITY" "$CM_BUILD_DIR/brainhub/claude-v111.js"
+          grep -q "JEV FINAL AUTHORITY" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
+          grep -q "claudeV111.laneAwareTrigger" "$CM_BUILD_DIR/brainhub/pipeline.js"
+          grep -q "'claude-v111.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
+          echo 'CLAUDE_V111_PC_OK'
+          echo 'V95111_CLAUDE_ANDROID_IDENTITY_OK'
+          echo 'V95110_MULTILANE_BASE_OK'
+
       - name: Set Android SDK location
         script: |
+          set -euo pipefail
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          echo "sdk.dir=$SDK_PATH" > "$CM_BUILD_DIR/local.properties"
-      - name: Build source-backed history corpus
+          test -n "$SDK_PATH"
+          echo "sdk.dir=$SDK_PATH" > /tmp/futures15m-build/Futures15mAlarm/local.properties
+
+      - name: Harden Android AAPT2 toolchain
         script: |
-          python3 tools/build_history_dataset.py
+          set -euo pipefail
+          APP=/tmp/futures15m-build/Futures15mAlarm
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          cd "$APP"
+
+          echo 'Host architecture:'
+          uname -a
+          uname -m
+          echo 'Codemagic system Gradle:'
+          gradle --version | sed -n '1,14p'
+
           python3 - <<'PY'
-          import json
           from pathlib import Path
-          p=Path('app/src/main/assets/data/history-corpus.json')
-          d=json.loads(p.read_text(encoding='utf-8'))
-          n=len(d.get('records',[]))
-          print(f'Historical corpus records: {n}')
-          if n < 500:
-              raise SystemExit('Historical corpus is unexpectedly small; refusing demo/empty APK')
-          ui=Path('app/src/main/assets/index-v16.html')
-          if not ui.exists() or ui.stat().st_size < 15000:
-              raise SystemExit('v16 atlas interface is missing or unexpectedly small')
+          import re
+
+          targets = [Path('build.gradle'), Path('settings.gradle'), Path('app/build.gradle')]
+          changed = []
+          for p in targets:
+              if not p.exists():
+                  continue
+              s = p.read_text()
+              n = s
+              n = re.sub(
+                  r"(id\s+['\"]com\.android\.application['\"]\s+version\s+['\"])[^'\"]+(['\"])",
+                  r"\g<1>8.13.2\2",
+                  n,
+              )
+              n = re.sub(
+                  r'(com\.android\.tools\.build:gradle:)[0-9][0-9A-Za-z.\-]*',
+                  r'\g<1>8.13.2',
+                  n,
+              )
+              if n != s:
+                  p.write_text(n)
+                  changed.append(str(p))
+
+          print('AGP patched files:', changed)
+          combined = '\n'.join(p.read_text() for p in targets if p.exists())
+          plugin_dsl_ok = re.search(
+              r"id\s+['\"]com\.android\.application['\"]\s+version\s+['\"]8\.13\.2['\"]",
+              combined,
+          ) is not None
+          classpath_ok = 'com.android.tools.build:gradle:8.13.2' in combined
+          if not (plugin_dsl_ok or classpath_ok):
+              print('--- build.gradle ---')
+              print(Path('build.gradle').read_text() if Path('build.gradle').exists() else '<missing>')
+              print('--- settings.gradle ---')
+              print(Path('settings.gradle').read_text() if Path('settings.gradle').exists() else '<missing>')
+              raise SystemExit('AGP 8.13.2 marker not found after plugin/classpath patch')
+          print('AGP 8.13.2 marker OK; plugin DSL=', plugin_dsl_ok, 'classpath=', classpath_ok)
           PY
-      - name: Check Gradle
+
+          gradle --no-daemon wrapper --gradle-version 8.13 --distribution-type bin
+          chmod +x ./gradlew
+
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ] && [ -x "$SDK_PATH/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          test -x "$SDKMANAGER"
+
+          install_bt() {
+            ver="$1"
+            [ -x "$SDK_PATH/build-tools/$ver/aapt2" ] && return 0
+            log="/tmp/v9543-sdkmanager-${ver}.log"
+            echo "Installing Android build-tools $ver ..."
+            set +e
+            set +o pipefail
+            yes | "$SDKMANAGER" "build-tools;$ver" >"$log" 2>&1
+            rc=${PIPESTATUS[1]}
+            set -o pipefail
+            set -e
+            if [ "$rc" -ne 0 ]; then
+              echo "build-tools $ver install failed rc=$rc"
+              tail -n 80 "$log" || true
+              return "$rc"
+            fi
+          }
+
+          probe_aapt2() {
+            ver="$1"
+            bin="$SDK_PATH/build-tools/$ver/aapt2"
+            out="/tmp/v9543-aapt2-${ver}.zip"
+            mini="/tmp/v9543-aapt2-mini-${ver}"
+            [ -x "$bin" ] || return 1
+            echo "===== AAPT2 candidate $ver ====="
+            file "$bin" || true
+            "$bin" version || return 1
+            rm -rf "$mini" "$out"
+            mkdir -p "$mini/res/values"
+            printf '%s\n' '<resources><string name="v9543_probe">probe</string></resources>' > "$mini/res/values/strings.xml"
+            "$bin" compile --dir "$mini/res" -o "$mini/mini.zip" || return 1
+            test -s "$mini/mini.zip" || return 1
+            "$bin" compile --dir app/src/main/res -o "$out" || return 1
+            test -s "$out" || return 1
+            echo "AAPT2 $ver passed minimal + full-project resource smoke tests."
+          }
+
+          SELECTED_AAPT2=''
+          SELECTED_VER=''
+          for ver in 36.0.0 34.0.0; do
+            install_bt "$ver" || continue
+            if probe_aapt2 "$ver"; then
+              SELECTED_VER="$ver"
+              SELECTED_AAPT2="$SDK_PATH/build-tools/$ver/aapt2"
+              break
+            fi
+            echo "AAPT2 $ver rejected by smoke test."
+          done
+
+          if [ -z "$SELECTED_AAPT2" ]; then
+            echo 'No SDK AAPT2 candidate survived the full-project resource smoke test.'
+            DIAG="$SDK_PATH/build-tools/36.0.0/aapt2"
+            if [ -x "$DIAG" ]; then
+              echo 'Per-resource crash diagnostics with build-tools 36.0.0:'
+              rm -rf /tmp/v9543-aapt2-single
+              mkdir -p /tmp/v9543-aapt2-single
+              while IFS= read -r f; do
+                rm -rf /tmp/v9543-aapt2-single/*
+                set +e
+                "$DIAG" compile "$f" -o /tmp/v9543-aapt2-single >/tmp/v9543-aapt2-single.log 2>&1
+                rc=$?
+                set -e
+                if [ "$rc" -ge 128 ]; then
+                  echo "AAPT2 RESOURCE CRASH rc=$rc: $f"
+                  cat /tmp/v9543-aapt2-single.log || true
+                  exit "$rc"
+                fi
+              done < <(find app/src/main/res -type f -print | sort)
+            fi
+            echo 'AAPT2_RESOURCE_SMOKE_ALL_CANDIDATES_FAILED'
+            exit 97
+          fi
+
+          cat > gradle.properties <<EOF
+          org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
+          org.gradle.workers.max=1
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.vfs.watch=false
+          android.useAndroidX=true
+          android.aapt2FromMavenOverride=$SELECTED_AAPT2
+          EOF
+
+          echo "Selected AAPT2: $SELECTED_VER -> $SELECTED_AAPT2"
+          grep -R -n -E "com.android.application|com.android.tools.build:gradle" build.gradle settings.gradle app/build.gradle 2>/dev/null || true
+          ./gradlew --version | sed -n '1,14p'
+          echo 'AGP 8.13.2 + Gradle 8.13 + smoke-tested AAPT2 ready.'
+
+      - name: Check stable signing certificate
         script: |
-          gradle --version
-      - name: Build debug APK
+          set -euo pipefail
+          test -s "$CM_KEYSTORE_PATH"
+          keytool -list -v -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -alias "$CM_KEY_ALIAS" | grep -E 'Alias name:|SHA256:'
+          TMP_SIGN="$(mktemp -d)"
+          printf 'signing-probe\n' > "$TMP_SIGN/probe.txt"
+          (cd "$TMP_SIGN" && jar cf probe.jar probe.txt)
+          jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
+          echo 'Stable keystore private key check OK.'
+
+      - name: Build installable v9.5.111 signed APK
         script: |
-          gradle --no-daemon assembleDebug
+          set -o pipefail
+          cd /tmp/futures15m-build/Futures15mAlarm
+          LOG=/tmp/v9595-gradle.log
+          if ! ./gradlew --no-daemon --max-workers=1 assembleRelease --stacktrace --console=plain 2>&1 | tee "$LOG"; then
+            cp "$LOG" "$CM_BUILD_DIR/v9595-gradle.log" || true
+            echo
+            echo '========== SON 220 SATIR (STACKTRACE/BAĞLAM) =========='
+            tail -n 220 "$LOG" || true
+            echo
+            echo '========== FINAL ROOT CAUSE • EN ALTTA BUNU GÖNDER =========='
+            python3 - "$LOG" <<'PY'
+          import re, sys
+          from pathlib import Path
+
+          p=Path(sys.argv[1])
+          lines=p.read_text(errors='replace').splitlines()
+          pats=[
+              r'\berror:', r'cannot find symbol', r'unreported exception',
+              r'incompatible types', r'illegal start', r'unclosed', r'expected',
+              r'not a statement', r'Execution failed for task', r'What went wrong',
+              r'Caused by:', r'AAPT2', r'resource .* not found', r'Android resource linking failed',
+              r'Could not resolve', r'Could not find', r'Failed to read key',
+              r'Cannot recover key', r'Keystore', r'SIGBUS', r'SIGSEGV', r'Bus error',
+          ]
+          rx=re.compile('|'.join('(?:'+x+')' for x in pats),re.I)
+          hits=[i for i,s in enumerate(lines) if rx.search(s)]
+          strong=[]
+          for i in hits:
+              s=lines[i]
+              if re.search(r'\berror:|cannot find symbol|incompatible types|illegal start|unclosed|not a statement|resource .* not found|Android resource linking failed|AAPT2',s,re.I):
+                  strong.append(i)
+          chosen=(strong[0] if strong else (hits[0] if hits else max(0,len(lines)-60)))
+          lo=max(0,chosen-18); hi=min(len(lines),chosen+26)
+          print(f'ROOT_CAUSE_LINE={chosen+1}  CONTEXT={lo+1}-{hi}')
+          for j in range(lo,hi):
+              print(f'{j+1}: {lines[j]}')
+          print('--- MATCHED ERROR LINES (ilk 40) ---')
+          for i in hits[:40]:
+              print(f'{i+1}: {lines[i]}')
+          print('=== ROOT CAUSE END ===')
+          PY
+            exit 1
+          fi
+          test -s app/build/outputs/apk/release/app-release.apk
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.111.apk"
+
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.111.apk"
+          SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          echo '========== RELEASE APK SHA256 =========='
+          shasum -a 256 "$APK"
+          ls -lh "$APK"
+          echo 'SIGNED_RELEASE_APK_VERIFIED'
+
     artifacts:
-      - app/build/outputs/apk/debug/*.apk
-      - app/build/outputs/**/*.apk
+      - Futures15mAlarm-PRO-v9.5.111.apk
+      - v9595-gradle.log

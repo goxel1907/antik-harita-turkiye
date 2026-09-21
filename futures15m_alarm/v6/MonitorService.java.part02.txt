@@ -1,0 +1,46 @@
+        NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE); if(nm==null)return;
+        PendingIntent binancePi=openBinanceIntent(symbol,400+Math.abs(symbol.hashCode()%10000)); PendingIntent appPi=openAppIntent(40);
+        boolean isLong=direction.startsWith("LONG");
+        Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL_ALERTS):new Notification.Builder(this);
+        b.setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle("🚨 " + (isLong?"🟢 LONG":"🔴 SHORT") + " • " + symbol + " • " + direction.replace("LONG SİNYALİ • ","").replace("SHORT SİNYALİ • ",""))
+                .setContentText(detail.replace("\n"," — ")).setStyle(new Notification.BigTextStyle().bigText(detail+"\n\nDokun → Binance Futures'ta "+symbol+" aç"))
+                .setContentIntent(binancePi).setFullScreenIntent(appPi,true).setAutoCancel(true).setPriority(Notification.PRIORITY_MAX)
+                .setCategory(Notification.CATEGORY_ALARM).setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setColor(isLong?Color.rgb(34,197,94):Color.rgb(239,68,68));
+        if(Build.VERSION.SDK_INT<26)b.setDefaults(Notification.DEFAULT_ALL); nm.notify(ALERT_IDS.incrementAndGet(),b.build());
+    }
+
+    private PendingIntent openBinanceIntent(String symbol,int requestCode){
+        Uri uri=Uri.parse("https://www.binance.com/en/futures/"+symbol); Intent open=new Intent(Intent.ACTION_VIEW,uri); open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return PendingIntent.getActivity(this,requestCode,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+    }
+    private PendingIntent openAppIntent(int requestCode){Intent open=new Intent(this,MainActivity.class);open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);return PendingIntent.getActivity(this,requestCode,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);}
+
+    private Notification buildServiceNotification(String text){PendingIntent pi=openAppIntent(10);Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL_SERVICE):new Notification.Builder(this);return b.setSmallIcon(android.R.drawable.stat_sys_download_done).setContentTitle("15m Futures Alarm PRO v6").setContentText(text).setOngoing(true).setContentIntent(pi).setCategory(Notification.CATEGORY_SERVICE).build();}
+    private void updateServiceNotification(String text){NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);if(nm!=null)nm.notify(SERVICE_NOTIFICATION_ID,buildServiceNotification(text));}
+
+    public static void sendTestApproach(Context context){ensureChannels(context);NotificationManager nm=(NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE);if(nm==null)return;Intent open=new Intent(context,MainActivity.class);PendingIntent pi=PendingIntent.getActivity(context,60,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(context,CHANNEL_APPROACH):new Notification.Builder(context);b.setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("⚠ TEST • AUTO TAKİP").setContentText("Seviyeye yaklaşınca bu ön uyarı gelir.").setContentIntent(pi).setAutoCancel(true).setPriority(Notification.PRIORITY_HIGH);nm.notify(ALERT_IDS.incrementAndGet(),b.build());}
+    public static void sendTestUrgent(Context context){ensureChannels(context);NotificationManager nm=(NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE);if(nm==null)return;Intent open=new Intent(context,MainActivity.class);PendingIntent pi=PendingIntent.getActivity(context,70,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(context,CHANNEL_ALERTS):new Notification.Builder(context);b.setSmallIcon(android.R.drawable.stat_notify_error).setContentTitle("🚨 TEST • 🟢 LONG • 88/100").setContentText("Giriş, STOP ve TP'ler kritik alarmda açıkça görünür.").setContentIntent(pi).setFullScreenIntent(pi,true).setAutoCancel(true).setPriority(Notification.PRIORITY_MAX).setCategory(Notification.CATEGORY_ALARM);nm.notify(ALERT_IDS.incrementAndGet(),b.build());}
+
+    public static void ensureChannels(Context context){
+        if(Build.VERSION.SDK_INT<26)return;NotificationManager nm=(NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE);if(nm==null)return;
+        NotificationChannel service=new NotificationChannel(CHANNEL_SERVICE,"Takip servisi v6",NotificationManager.IMPORTANCE_LOW);service.setDescription("15m AUTO HIGH ACCURACY analiz servisi");nm.createNotificationChannel(service);
+        AudioAttributes na=new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
+        NotificationChannel approach=new NotificationChannel(CHANNEL_APPROACH,"Ön uyarı: yüksek kalite setup yaklaşıyor",NotificationManager.IMPORTANCE_HIGH);approach.enableVibration(true);approach.setVibrationPattern(new long[]{0,250,120,250,120,500});approach.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),na);approach.enableLights(true);approach.setLightColor(Color.YELLOW);nm.createNotificationChannel(approach);
+        AudioAttributes aa=new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
+        NotificationChannel urgent=new NotificationChannel(CHANNEL_ALERTS,"KRİTİK: doğrulanmış LONG/SHORT sinyali",NotificationManager.IMPORTANCE_HIGH);urgent.enableVibration(true);urgent.setVibrationPattern(new long[]{0,900,220,900,220,1400});urgent.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),aa);urgent.enableLights(true);urgent.setLightColor(Color.RED);nm.createNotificationChannel(urgent);
+    }
+
+    private static String readAll(InputStream in)throws Exception{StringBuilder sb=new StringBuilder();try(BufferedReader br=new BufferedReader(new InputStreamReader(in,StandardCharsets.UTF_8))){String line;while((line=br.readLine())!=null)sb.append(line);}return sb.toString();}
+    private static boolean overlaps(double l1,double h1,double l2,double h2){return h1>=l2&&l1<=h2;}
+    private static double distancePercentToZone(double p,double l,double h){if(p>=l&&p<=h)return 0;double t=p<l?l:h;return percentDistance(p,t);}
+    private static double percentDistance(double a,double b){return b==0?999:Math.abs(a-b)/Math.abs(b)*100.0;}
+    private static String range(double a,double b,int d){return fmt(a,d)+"–"+fmt(b,d);}
+    private static String fmt(double v,int d){return String.format(Locale.US,"%."+Math.max(0,Math.min(8,d))+"f",v);}
+    private static String fmtPct(double v){return String.format(Locale.US,"%.2f",v);}
+    private static String time(long millis){SimpleDateFormat f=new SimpleDateFormat("HH:mm",Locale.getDefault());f.setTimeZone(TimeZone.getDefault());return f.format(new Date(millis));}
+
+    private static final class Candle { long openTime,closeTime; double open,high,low,close; }
+    private static final class CandleSet { final Candle current,completed; CandleSet(Candle c,Candle d){current=c;completed=d;} }
+}

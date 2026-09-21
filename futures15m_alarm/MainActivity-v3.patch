@@ -1,0 +1,130 @@
+--- a/app/src/main/java/com/futuresalarm/app/MainActivity.java
++++ b/app/src/main/java/com/futuresalarm/app/MainActivity.java
+@@ -88,7 +88,7 @@
+         addLp.setMargins(0, dp(10), 0, 0);
+         root.addView(add, addLp);
+ 
+-        Button importPlan = button("PLAN KODU YAPIŞTIR / İÇE AKTAR", Color.rgb(8, 145, 178));
++        Button importPlan = button("PLAN KODU YAPIŞTIR / TOPLU GÜNCELLE", Color.rgb(8, 145, 178));
+         importPlan.setOnClickListener(v -> openImportDialog());
+         LinearLayout.LayoutParams importLp = new LinearLayout.LayoutParams(
+                 ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+@@ -128,7 +128,7 @@
+                 "İki aşamalı alarm:\n" +
+                 "1) ÖN UYARI: fiyat belirlediğin yüzde kadar yaklaştığında sarı, sesli/titreşimli uyarı.\n" +
+                 "2) KRİTİK ALARM: giriş/direnç bölgesine temas veya teyitli 15m kapanış geldiğinde yüksek alarm sesi + güçlü titreşim + heads-up/full-screen uyarı.\n\n" +
+-                "Yeni coin eklemek için APK'yı yeniden kurman gerekmez. Coin ve seviyeleri + butonuyla ekleyebilir, mevcut coini düzenleyebilir veya bu sohbetten vereceğim tek satırlık PLAN KODU'nu kopyalayıp içe aktarabilirsin. Bu uygulama emir açmaz.",
++                "Yeni coin eklemek için APK'yı yeniden kurman gerekmez. ChatGPT'den aldığın bir veya birden fazla PLAN KODU'nu alt alta yapıştırabilirsin. Coin zaten kayıtlıysa seviyeleri otomatik güncellenir; kayıtlı değilse yeni coin olarak eklenir. Bu uygulama emir açmaz.",
+                 13, Color.rgb(148, 163, 184), false);
+         note.setPadding(0, dp(8), 0, 0);
+         root.addView(note);
+@@ -173,43 +173,85 @@
+ 
+     private void openImportDialog() {
+         EditText input = new EditText(this);
+-        input.setHint("Örn: BTCUSDT|60000|60500|65000|65500|65600|59500|2|0.60");
++        input.setHint("Bir veya birden fazla plan kodunu alt alta yapıştır:\nBTCUSDT|60000|60500|65000|65500|65600|59500|2|0.60\nETHUSDT|...");
+         input.setTextColor(Color.WHITE);
+         input.setHintTextColor(Color.rgb(148, 163, 184));
+         input.setSingleLine(false);
+-        input.setMinLines(3);
++        input.setMinLines(6);
++        input.setGravity(Gravity.TOP);
+         input.setPadding(dp(18), dp(10), dp(18), dp(10));
+ 
+         AlertDialog dialog = new AlertDialog.Builder(this)
+-                .setTitle("Plan kodunu yapıştır")
+-                .setMessage("ChatGPT'nin verdiği plan kodunu buraya yapıştır. Format: SYMBOL|pullLow|pullHigh|resLow|resHigh|breakout|breakdown|decimals|prewarn%")
++                .setTitle("Plan kodlarını yapıştır")
++                .setMessage("Tek kod veya birden fazla kodu alt alta yapıştır. Coin zaten kayıtlıysa otomatik GÜNCELLENİR; yeni coin ise EKLENİR.\n\nFormat: SYMBOL|pullLow|pullHigh|resLow|resHigh|breakout|breakdown|decimals|prewarn%")
+                 .setView(input)
+                 .setNegativeButton("İptal", null)
+-                .setPositiveButton("İçe aktar", null)
++                .setPositiveButton("Güncelle / ekle", null)
+                 .create();
+         dialog.setOnShowListener(x -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+-            try {
+-                String[] a = input.getText().toString().trim().replace(',', '.').split("\\|");
+-                if (a.length < 8) throw new IllegalArgumentException();
+-                String sym = a[0].trim().toUpperCase(Locale.US).replace("/", "");
+-                if (!sym.endsWith("USDT")) sym += "USDT";
+-                double pl = Double.parseDouble(a[1].trim());
+-                double ph = Double.parseDouble(a[2].trim());
+-                double rl = Double.parseDouble(a[3].trim());
+-                double rh = Double.parseDouble(a[4].trim());
+-                double bo = Double.parseDouble(a[5].trim());
+-                double bd = Double.parseDouble(a[6].trim());
+-                int dec = Math.max(0, Math.min(8, Integer.parseInt(a[7].trim())));
+-                double pre = a.length >= 9 ? Double.parseDouble(a[8].trim()) : 0.60;
+-                pre = Math.max(0.05, Math.min(5.0, pre));
+-                if (pl >= ph || rl >= rh) throw new IllegalArgumentException();
+-                PlanStore.upsert(this, new TradePlan(sym, pl, ph, rl, rh, bo, bd, dec, pre));
++            String rawText = input.getText().toString()
++                    .replace("```text", "")
++                    .replace("```", "")
++                    .trim();
++            if (rawText.isEmpty()) {
++                Toast.makeText(this, "Plan kodu boş.", Toast.LENGTH_LONG).show();
++                return;
++            }
++
++            String[] lines = rawText.split("\\r?\\n");
++            int success = 0;
++            int failed = 0;
++            StringBuilder failedLines = new StringBuilder();
++
++            for (String line : lines) {
++                String code = line.trim();
++                if (code.isEmpty()) continue;
++                // Madde işareti / numara ile kopyalanmışsa mümkün olduğunca temizle.
++                code = code.replaceFirst("^[\\-•*]+\\s*", "")
++                           .replaceFirst("^\\d+[\\.)]\\s*", "");
++                try {
++                    String[] a = code.replace(',', '.').split("\\|");
++                    if (a.length < 8) throw new IllegalArgumentException();
++                    String sym = a[0].trim().toUpperCase(Locale.US).replace("/", "");
++                    if (!sym.endsWith("USDT")) sym += "USDT";
++                    double pl = Double.parseDouble(a[1].trim());
++                    double ph = Double.parseDouble(a[2].trim());
++                    double rl = Double.parseDouble(a[3].trim());
++                    double rh = Double.parseDouble(a[4].trim());
++                    double bo = Double.parseDouble(a[5].trim());
++                    double bd = Double.parseDouble(a[6].trim());
++                    int dec = Math.max(0, Math.min(8, Integer.parseInt(a[7].trim())));
++                    double pre = a.length >= 9 ? Double.parseDouble(a[8].trim()) : 0.60;
++                    pre = Math.max(0.05, Math.min(5.0, pre));
++                    if (sym.length() < 5 || pl >= ph || rl >= rh || bo <= 0 || bd <= 0)
++                        throw new IllegalArgumentException();
++                    PlanStore.upsert(this, new TradePlan(sym, pl, ph, rl, rh, bo, bd, dec, pre));
++                    success++;
++                } catch (Exception e) {
++                    failed++;
++                    if (failedLines.length() < 220) {
++                        if (failedLines.length() > 0) failedLines.append("\n");
++                        failedLines.append(code);
++                    }
++                }
++            }
++
++            if (success > 0) {
+                 dialog.dismiss();
+                 setContentView(buildUi());
+                 refreshStatus();
+-                Toast.makeText(this, sym + " plan kodu içe aktarıldı", Toast.LENGTH_SHORT).show();
+-            } catch (Exception e) {
+-                Toast.makeText(this, "Plan kodu hatalı. Kodu aynen yapıştır.", Toast.LENGTH_LONG).show();
++                String msg = success + " plan eklendi/güncellendi";
++                if (failed > 0) msg += " • " + failed + " satır hatalı";
++                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
++                if (failed > 0) {
++                    new AlertDialog.Builder(this)
++                            .setTitle("Bazı satırlar alınamadı")
++                            .setMessage("Başarılı: " + success + "\nHatalı: " + failed + "\n\nKontrol et:\n" + failedLines)
++                            .setPositiveButton("Tamam", null)
++                            .show();
++                }
++            } else {
++                Toast.makeText(this, "Hiçbir plan kodu okunamadı. Kodları alt alta ve aynen yapıştır.", Toast.LENGTH_LONG).show();
+             }
+         }));
+         dialog.show();

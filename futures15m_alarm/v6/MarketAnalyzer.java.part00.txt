@@ -1,0 +1,163 @@
+package com.futuresalarm.app;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Conservative multi-timeframe decision engine for public Binance Futures market data.
+ * It intentionally prefers NO TRADE over low-quality signals.
+ */
+public final class MarketAnalyzer {
+    private MarketAnalyzer() {}
+
+    public static final int SIGNAL_MIN = 78;
+    public static final int STRONG_MIN = 86;
+    public static final int WATCH_MIN = 68;
+
+    public static final class Bar {
+        public long openTime, closeTime;
+        public double open, high, low, close, volume, quoteVolume, takerBuyVolume, takerBuyQuote;
+        public int trades;
+    }
+
+    public static final class Metrics {
+        public double oiChangePct = Double.NaN;           // recent OI trend, percent
+        public double takerBuySellRatio = Double.NaN;    // >1 buy aggression
+        public double globalLongShortRatio = Double.NaN; // crowding context only
+        public double topPositionLongShortRatio = Double.NaN;
+        public double fundingRate = Double.NaN;          // decimal, e.g. 0.0001
+    }
+
+    private static final class Frame {
+        double close, ema20, ema50, rsi, atr, atrPct, volRatio, dir, slope;
+    }
+
+    public static AutoSnapshot analyze(String symbol,
+                                       List<Bar> m15, List<Bar> h1, List<Bar> h4, List<Bar> d1,
+                                       Metrics metrics, int decimals, double earlyWarnPercent) {
+        if (m15 == null || h1 == null || h4 == null || d1 == null ||
+                m15.size() < 80 || h1.size() < 60 || h4.size() < 45 || d1.size() < 30) {
+            return null;
+        }
+
+        Frame f15 = frame(m15);
+        Frame f1 = frame(h1);
+        Frame f4 = frame(h4);
+        Frame fd = frame(d1);
+        Bar last = m15.get(m15.size() - 1);
+        Bar prev = m15.get(m15.size() - 2);
+
+        String regime = regime(f15, f1, f4, fd);
+        double atr = Math.max(f15.atr, last.close * 0.0015);
+
+        // Build levels from price structure that existed BEFORE the just-closed 15m candle.
+        // This lets the current candle genuinely break/retest an already-known level instead of moving the goalpost.
+        double anchor = prev.close;
+        List<Bar> context15 = m15.subList(0, m15.size() - 1);
+        double support = nearestSupport(anchor, atr, context15, h1, f1.ema20);
+        double resistance = nearestResistance(anchor, atr, context15, h1, f1.ema20);
+
+        // Guard against pathological/too-tight levels relative to the previous close, not the current breakout candle.
+        if (!(support > 0 && support < anchor)) support = anchor - 1.35 * atr;
+        if (!(resistance > anchor)) resistance = anchor + 1.35 * atr;
+        if ((resistance - support) < 1.25 * atr) {
+            support = Math.min(support, anchor - 0.75 * atr);
+            resistance = Math.max(resistance, anchor + 0.75 * atr);
+        }
+
+        double zoneHalf = Math.max(0.30 * atr, last.close * 0.0011);
+        double pullLow = support - zoneHalf;
+        double pullHigh = support + zoneHalf;
+        double resLow = resistance - zoneHalf;
+        double resHigh = resistance + zoneHalf;
+        double breakout = resistance + 0.10 * atr;
+        double breakdown = support - 0.10 * atr;
+
+        // Execution levels: structural invalidation + ATR buffer.
+        double lpEntry = (pullLow + pullHigh) / 2.0;
+        double lpStop = Math.min(pullLow - 0.70 * atr, support - 0.85 * atr);
+        double lpRisk = Math.max(lpEntry - lpStop, 0.45 * atr);
+        double lpTp1 = targetLong(lpEntry, lpRisk, resistance, 1.25);
+        double lpTp2 = Math.max(resistance, lpEntry + 2.05 * lpRisk);
+        double lpTp3 = lpEntry + 3.05 * lpRisk;
+
+        double lbEntryLow = breakout;
+        double lbEntryHigh = breakout + 0.28 * atr;
+        double lbEntry = (lbEntryLow + lbEntryHigh) / 2.0;
+        double lbStop = breakout - 1.00 * atr;
+        double lbRisk = Math.max(lbEntry - lbStop, 0.65 * atr);
+        double lbTp1 = lbEntry + 1.30 * lbRisk;
+        double lbTp2 = lbEntry + 2.10 * lbRisk;
+        double lbTp3 = lbEntry + 3.10 * lbRisk;
+
+        double srEntry = (resLow + resHigh) / 2.0;
+        double srStop = Math.max(resHigh + 0.70 * atr, resistance + 0.85 * atr);
+        double srRisk = Math.max(srStop - srEntry, 0.45 * atr);
+        double srTp1 = targetShort(srEntry, srRisk, support, 1.25);
+        double srTp2 = Math.min(support, srEntry - 2.05 * srRisk);
+        double srTp3 = srEntry - 3.05 * srRisk;
+
+        double sbEntryLow = breakdown - 0.28 * atr;
+        double sbEntryHigh = breakdown;
+        double sbEntry = (sbEntryLow + sbEntryHigh) / 2.0;
+        double sbStop = breakdown + 1.00 * atr;
+        double sbRisk = Math.max(sbStop - sbEntry, 0.65 * atr);
+        double sbTp1 = sbEntry - 1.30 * sbRisk;
+        double sbTp2 = sbEntry - 2.10 * sbRisk;
+        double sbTp3 = sbEntry - 3.10 * sbRisk;
+
+        boolean touchedPull = overlaps(last.low, last.high, pullLow, pullHigh);
+        boolean touchedRes = overlaps(last.low, last.high, resLow, resHigh);
+        boolean bullReject = bullishRejection(last, prev, atr);
+        boolean bearReject = bearishRejection(last, prev, atr);
+        boolean breakoutClose = last.close > breakout;
+        boolean breakdownClose = last.close < breakdown;
+        boolean breakoutFresh = breakoutClose && prev.close <= breakout;
+        boolean breakdownFresh = breakdownClose && prev.close >= breakdown;
+        boolean breakoutHold = breakoutClose && (last.low <= breakout + 0.30 * atr || prev.close > breakout);
+        boolean breakdownHold = breakdownClose && (last.high >= breakdown - 0.30 * atr || prev.close < breakdown);
+        double closeLoc = closeLocation(last);
+        double rangeAtr = (last.high - last.low) / Math.max(atr, 1e-12);
+
+        // Hard filters: these cannot be overridden by minor indicators.
+        boolean longStructureAllowed = f4.dir > -0.38 && f1.dir > -0.48;
+        boolean shortStructureAllowed = f4.dir < 0.38 && f1.dir < 0.48;
+        boolean rrLongPull = rr(lpEntry, lpStop, lpTp1) >= 1.0;
+        boolean rrLongBreak = rr(lbEntry, lbStop, lbTp1) >= 1.0;
+        boolean rrShortRes = rrShort(srEntry, srStop, srTp1) >= 1.0;
+        boolean rrShortBreak = rrShort(sbEntry, sbStop, sbTp1) >= 1.0;
+
+        int lp = scoreLongPull(f15, f1, f4, fd, metrics, touchedPull, bullReject, rrLongPull, last.close, pullLow, pullHigh, atr);
+        int lb = scoreLongBreak(f15, f1, f4, fd, metrics, breakoutClose, breakoutFresh, breakoutHold,
+                closeLoc, rangeAtr, rrLongBreak);
+        int sr = scoreShortRes(f15, f1, f4, fd, metrics, touchedRes, bearReject, rrShortRes, last.close, resLow, resHigh, atr);
+        int sb = scoreShortBreak(f15, f1, f4, fd, metrics, breakdownClose, breakdownFresh, breakdownHold,
+                closeLoc, rangeAtr, rrShortBreak);
+
+        // Regime-sensitive weighting: a professional setup should not use the same priorities in trend and range.
+        if ("TREND UP".equals(regime)) { lp += 6; lb += 4; sr -= 10; sb -= 6; }
+        else if ("TREND DOWN".equals(regime)) { sr += 6; sb += 4; lp -= 10; lb -= 6; }
+        else if ("RANGE".equals(regime)) { lp += 4; sr += 4; lb -= 7; sb -= 7; }
+        else if ("HIGH VOLATILITY".equals(regime)) {
+            lp -= 4; sr -= 4;
+            if (f15.volRatio < 1.35) { lb -= 7; sb -= 7; }
+        }
+        lp = boundScore(lp); lb = boundScore(lb); sr = boundScore(sr); sb = boundScore(sb);
+
+        boolean lpConfirmed = longStructureAllowed && rrLongPull && touchedPull && bullReject && lp >= SIGNAL_MIN;
+        boolean lbConfirmed = longStructureAllowed && rrLongBreak && breakoutClose && breakoutHold &&
+                confirmParticipationLong(metrics, f15) && lb >= SIGNAL_MIN;
+        boolean srConfirmed = shortStructureAllowed && rrShortRes && touchedRes && bearReject &&
+                countertrendShortFilter(f15, f1, f4, metrics) && sr >= SIGNAL_MIN;
+        boolean sbConfirmed = shortStructureAllowed && rrShortBreak && breakdownClose && breakdownHold &&
+                confirmParticipationShort(metrics, f15) && sb >= SIGNAL_MIN;
+
+        String lpReason = reasonLongPull(f15, f1, f4, fd, metrics, touchedPull, bullReject, rrLongPull);
+        String lbReason = reasonLongBreak(f15, f1, f4, fd, metrics, breakoutClose, breakoutHold, closeLoc, rangeAtr, rrLongBreak);
+        String srReason = reasonShortRes(f15, f1, f4, fd, metrics, touchedRes, bearReject, rrShortRes);
+        String sbReason = reasonShortBreak(f15, f1, f4, fd, metrics, breakdownClose, breakdownHold, closeLoc, rangeAtr, rrShortBreak);
+
+        String lpDetail = "Giriş: " + range(pullLow, pullHigh, decimals) + "\nSTOP: " + fmt(lpStop, decimals) +
+                "\nTP1: " + fmt(lpTp1, decimals) + "\nTP2: " + fmt(lpTp2, decimals) + "\nTP3: " + fmt(lpTp3, decimals);
