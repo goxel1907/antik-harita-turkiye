@@ -75,6 +75,11 @@ try {
         $text -notmatch 'OPENROUTER_FREE_WORKER_SECOND_OPINION' -or
         $text -notmatch 'WORKER_VISION_AVOIDANCE_TELEMETRY' -or
         $text -notmatch 'PLAN_WORKER_PARALLEL_TIMER' -or
+        $text -notmatch 'V108_WORKER_ESCALATION_LATCH' -or
+        $text -notmatch 'V108_CONCRETE_WATCH_CONTRACT' -or
+        $text -notmatch 'LOCAL_VISION_FREE_QUOTA_FAILOVER' -or
+        $text -notmatch 'LOCAL_OLLAMA_VISION_BATCH3_ACTIVE' -or
+        $text -notmatch 'LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK' -or
         $text -notmatch 'ANDROID_FULL_TURKISH_STATUS' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
