@@ -69,6 +69,10 @@ try {
         $text -notmatch 'BINANCE_TOP24_GAINER_DISCOVERY' -or
         $text -notmatch 'ACCUMULATION_PROXY_DISCOVERY' -or
         $text -notmatch 'ANDROID_ATTENTION_SYNC' -or
+        $text -notmatch 'PLAN_WORKER_ORCHESTRATION' -or
+        $text -notmatch 'PLAN_WORKER_9ROUTER_TEXT' -or
+        $text -notmatch 'OPENROUTER_FREE_WORKER_SECOND_OPINION' -or
+        $text -notmatch 'WORKER_VISION_AVOIDANCE_TELEMETRY' -or
         $text -notmatch 'ANDROID_FULL_TURKISH_STATUS' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
