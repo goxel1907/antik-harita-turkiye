@@ -618,7 +618,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const state=String(row.state||'').toUpperCase();
     const planStatus=String(row.planStatus||'').toUpperCase();
     const wait=String(row.waitFor||'').trim().toUpperCase();
-    return row.reanalysisEligible===true &&
+    const workerState=String(row.workerState||'').toUpperCase();
+    const escalatedAt=Number(row.workerEscalatedAt||0);
+    const analyzedAt=Number(row.lastAnalyzedAt||0);
+    // V108_WORKER_ESCALATION_LATCH: once a cheap worker requests a full 9TF
+    // refresh/trigger, do not re-run that same worker every 30 seconds. The latch
+    // clears only after a newer full 9TF analysis registers a fresh WATCH plan.
+    const unresolvedEscalation=['TRIGGERED','REFRESH_REQUIRED'].includes(workerState) &&
+      escalatedAt>0 && escalatedAt>=analyzedAt;
+    return !unresolvedEscalation &&
+      row.reanalysisEligible===true &&
       state!=='ACTIVE' &&
       ['WATCH','REBASE','DETECTED'].includes(state) &&
       planStatus==='WATCH' &&
@@ -632,6 +641,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!workerEligible(row))return row||null;
     row.workerState='WAIT';
     row.workerPlanAt=clock();
+    row.workerEscalatedAt=null;
     row.lastWorkerCheckAt=Number(row.lastWorkerCheckAt||0)||null;
     row.workerChecks=Number(row.workerChecks||0);
     row.workerVisionAvoided=Number(row.workerVisionAvoided||0);
@@ -648,6 +658,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const row=leaderAnalysisState.bySymbol?.[key];
     if(!row)return null;
     row.workerState='DONE';
+    row.workerEscalatedAt=null;
     row.workerReason=detail;
     row.workerSource='FULL_9TF';
     row.lastWorkerCheckAt=clock();
@@ -720,7 +731,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     tracked.workerRecheckTFs=Array.isArray(decision.recheckTFs)?decision.recheckTFs.slice(0,9):[];
     tracked.workerRouterModel=router?.model||null;
     tracked.workerOpenRouterModel=openRouter?.model||null;
-    if(decision.state==='WAIT')tracked.workerVisionAvoided=Number(tracked.workerVisionAvoided||0)+1;
+    if(decision.state==='WAIT'){
+      tracked.workerVisionAvoided=Number(tracked.workerVisionAvoided||0)+1;
+      tracked.workerEscalatedAt=null;
+    }else if(['TRIGGERED','REFRESH_REQUIRED'].includes(decision.state)){
+      tracked.workerEscalatedAt=now;
+    }
     leaderAnalysisState.bySymbol[key]=tracked;
     writeLeaderAnalysisState();
 
@@ -785,14 +801,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       catch{return {ok:false,skipped:false,reason:'SCANNER_UNAVAILABLE'};}
       const candidate=workerCandidateFromScan(scan,tracked);
       const out=await reviewTrackedPlan(candidate,scan);
-      if(out?.handled&&['TRIGGERED','REFRESH_REQUIRED'].includes(out.state)){
-        const row=leaderAnalysisState.bySymbol?.[tracked.symbol];
-        if(row){
-          row.workerEscalatedAt=clock();
-          leaderAnalysisState.bySymbol[tracked.symbol]=row;
-          writeLeaderAnalysisState();
-        }
-      }
       return {ok:true,...out};
     }catch(e){
       return {ok:false,skipped:false,reason:String(e?.message||e).slice(0,180)};
@@ -835,9 +843,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const rows=Object.values(leaderAnalysisState.bySymbol || {})
       .filter(x => x && x.reanalysisEligible === true && ['LONG','SHORT'].includes(String(x.side || '').toUpperCase()))
       .filter(x => String(x.symbol || '').toUpperCase() !== skip)
-      .sort((a,b) =>
-        Math.max(Number(a.lastAnalyzedAt || 0),Number(a.lastWorkerCheckAt || 0)) -
-        Math.max(Number(b.lastAnalyzedAt || 0),Number(b.lastWorkerCheckAt || 0)));
+      .sort((a,b) => {
+        const ae=['TRIGGERED','REFRESH_REQUIRED'].includes(String(a.workerState||'').toUpperCase()) &&
+          Number(a.workerEscalatedAt||0)>=Number(a.lastAnalyzedAt||0);
+        const be=['TRIGGERED','REFRESH_REQUIRED'].includes(String(b.workerState||'').toUpperCase()) &&
+          Number(b.workerEscalatedAt||0)>=Number(b.lastAnalyzedAt||0);
+        if(ae!==be)return ae?-1:1;
+        return Math.max(Number(a.lastAnalyzedAt || 0),Number(a.lastWorkerCheckAt || 0)) -
+          Math.max(Number(b.lastAnalyzedAt || 0),Number(b.lastWorkerCheckAt || 0));
+      });
     if (!rows.length) return null;
     const idx=leaderAnalysisState.cursor % rows.length;
     const tracked=rows[idx];
