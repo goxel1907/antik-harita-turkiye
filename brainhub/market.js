@@ -482,7 +482,7 @@ async function chartContext(symbol, frame, requestedBars = 128) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
   frame = String(frame || '').toLowerCase();
   if (!FRAMES.includes(frame)) throw new Error('invalid timeframe');
-  const bars = Math.max(100, Math.min(256, Number(requestedBars) || 128));
+  const bars = Math.max(64, Math.min(256, Number(requestedBars) || 128));
   const now = Date.now();
   const sourceFrame = frame === '45m' ? '15m' : frame;
   const sourceLimit = frame === '45m' ? Math.min(1000, bars * 3 + 12) : Math.min(500, bars + 4);
