@@ -71,6 +71,7 @@ try {
         $text -notmatch 'ANDROID_ATTENTION_SYNC' -or
         $text -notmatch 'PLAN_WORKER_ORCHESTRATION' -or
         $text -notmatch 'PLAN_WORKER_9ROUTER_TEXT' -or
+        $text -notmatch 'PLAN_WORKER_9ROUTER_FREE_ONLY' -or
         $text -notmatch 'OPENROUTER_FREE_WORKER_SECOND_OPINION' -or
         $text -notmatch 'WORKER_VISION_AVOIDANCE_TELEMETRY' -or
         $text -notmatch 'PLAN_WORKER_PARALLEL_TIMER' -or
