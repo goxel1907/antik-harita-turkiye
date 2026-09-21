@@ -179,7 +179,13 @@ function visionBlocked(model){ return recentFailure(visionState,model); }
 function visionAvailability(){
   let ccfg={};try{ccfg=readCommitteeConfig();}catch{}
   const now=Date.now();
-  const models=orderedVisionModels(ccfg,'STRUCTURE',true).map(model=>{
+  const local=localVisionConfig();
+  const primaryModels=orderedVisionModels(ccfg,'STRUCTURE',true);
+  const freeQuotaFallbackModels=(local.enabled&&local.localOnly)
+    ? kiroFreeQuotaVisionPool(ccfg,'STRUCTURE',true)
+    : [];
+  const fallbackSet=new Set(freeQuotaFallbackModels);
+  const models=uniqueModels([...primaryModels,...freeQuotaFallbackModels]).map(model=>{
     const s=visionState.get(model);
     const error=String(s?.error||'');
     let reason='NOT_VERIFIED';
@@ -190,9 +196,10 @@ function visionAvailability(){
     else if(String(model).startsWith('local/')&&/fetch failed|ECONNREFUSED|connect/i.test(error)) reason='LOCAL_UNAVAILABLE';
     else if(/timeout|aborted/i.test(error)) reason='TIMEOUT';
     else if(error) reason='PROVIDER_UNAVAILABLE';
-    return {model,reason,lastCheckedAt:s?.at||null};
+    return {model,reason,lastCheckedAt:s?.at||null,route:fallbackSet.has(model)?'KIRO_FREE_QUOTA_FALLBACK':'PRIMARY'};
   });
   const verified=models.filter(x=>x.reason==='AVAILABLE').length;
+  const fallbackVerified=models.filter(x=>x.route==='KIRO_FREE_QUOTA_FALLBACK'&&x.reason==='AVAILABLE').length;
   const progressStage=String(localVisionProgress?.stage||'IDLE');
   const terminalStages=new Set(['IDLE','DETAIL_RUN_COMPLETE','PIXEL_RUN_COMPLETE','DETAIL_RUN_ERROR','PIXEL_RUN_ERROR']);
   const running=localVisionQueueDepth>0||!terminalStages.has(progressStage);
@@ -204,6 +211,8 @@ function visionAvailability(){
   if(models.some(x=>x.reason==='LOCAL_UNAVAILABLE')) notes.push('yerel Ollama Vision kullanılamıyor');
   if(models.some(x=>x.reason==='TIMEOUT')) notes.push('model yanıtı süre aşımına uğradı');
   if(models.some(x=>x.reason==='PROVIDER_UNAVAILABLE')) notes.push('model sağlayıcısından yanıt alınamadı');
+  if(freeQuotaFallbackModels.length&&fallbackVerified>0) notes.push('Kiro free-quota Vision kurtarma rotası doğrulandı');
+  else if(freeQuotaFallbackModels.length) notes.push('Kiro free-quota Vision kurtarma rotası hazır');
   let summaryTr='';
   let status='PENDING';
   if(running){
@@ -233,6 +242,8 @@ function visionAvailability(){
     status,
     configuredModels:models.length,
     verifiedModels:verified,
+    freeQuotaFallbackConfigured:freeQuotaFallbackModels.length>0,
+    freeQuotaFallbackVerified:fallbackVerified,
     models,
     progressStage,
     queueDepth:localVisionQueueDepth,
