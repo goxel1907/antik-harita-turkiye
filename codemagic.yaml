@@ -125,6 +125,7 @@ workflows:
           grep -q 'ANDROID_ATTENTION_SYNC' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'PLAN_WORKER_ORCHESTRATION' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'PLAN_WORKER_9ROUTER_TEXT' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PLAN_WORKER_9ROUTER_FREE_ONLY' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'OPENROUTER_FREE_WORKER_SECOND_OPINION' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'WORKER_VISION_AVOIDANCE_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'PLAN_WORKER_PARALLEL_TIMER' "$CM_BUILD_DIR/brainhub/server.js"
