@@ -189,6 +189,23 @@ function candidatePreScore(x, prevRow = null) {
     continuityBoost;
 }
 
+function lightweightAccelerationScore(x, prevRow = null) {
+  const priceMove=Math.abs(pct(prevRow?.lastPrice,x?.lastPrice));
+  const quoteGrowth=Math.max(0,pct(prevRow?.quoteVolume,x?.quoteVolume));
+  const abs24=Math.abs(num(x?.priceChangePercent));
+  const range=num(x?.range24hPct);
+  const spread=Math.max(0,num(x?.lightweightSpreadBps));
+  const funding=Math.abs(num(x?.lightweightFundingPct));
+  return round(cap100(
+    Math.min(priceMove,3)*18 +
+    Math.min(quoteGrowth,8)*2.2 +
+    Math.min(abs24,12)*1.2 +
+    Math.min(range,15)*0.8 +
+    Math.max(0,8-Math.min(spread,8))*2 +
+    Math.min(funding,0.2)*20
+  ),3);
+}
+
 function selectCandidates(universe, prevState = {}, attentionOrLimit = readAttention(), limit = TARGET_DETAIL_LIMIT) {
   let attention=attentionOrLimit;
   if(Number.isFinite(Number(attentionOrLimit)) && typeof attentionOrLimit!=='object'){
@@ -245,6 +262,14 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     .filter(Boolean)
     .slice(0,8);
 
+  const acceleratingPool=[...universe]
+    .map(x=>({...x,lightweightAccelerationScore:lightweightAccelerationScore(x,prevState?.lightweight?.[x.symbol])}))
+    .sort((a,b)=>b.lightweightAccelerationScore-a.lightweightAccelerationScore||a.volumeRank-b.volumeRank)
+    .slice(0,18);
+  const noveltyPool=acceleratingPool
+    .filter(x=>!Object.prototype.hasOwnProperty.call(prevState?.bySymbol||{},x.symbol))
+    .slice(0,12);
+
   const targetMap=new Map();
   const add=(items,source,maxNew)=>{
     let added=0;
@@ -271,14 +296,20 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     }
   };
 
-  // Heavy detail budget is deliberately small. The full 24h ticker snapshot is
-  // lightweight and is used only to discover these priority buckets.
-  add(previousTop3,'PREV_ATTACK_TOP3',3);
-  add(previousTop4to10,'PREV_ATTACK_4_10',7);
-  add(top24Gainers,'BINANCE_TOP24_GAINER',5);
-  add(continuity,'APPROACH_CONTINUITY',3);
-  add(accumulationPool,'ACCUMULATION_PROXY',3);
-  add(attentionPool,'APP_EARLY_ATTENTION',3);
+  // Heavy detail budget remains capped at 24. Previous leaders decay with age,
+  // while eight slots are reserved for symbols outside the previous target set
+  // whenever enough fresh candidates exist.
+  const prevAgeMs=Math.max(0,Date.now()-Number(prevState?.ts||0));
+  const prevTop3Slots=prevAgeMs<=30*60*1000?3:1;
+  const prev4to10Slots=prevAgeMs<=10*60*1000?4:prevAgeMs<=30*60*1000?2:0;
+  add(previousTop3,'PREV_ATTACK_TOP3',prevTop3Slots);
+  add(previousTop4to10,'PREV_ATTACK_4_10',prev4to10Slots);
+  add(noveltyPool,'LIGHTWEIGHT_NEW_ACCELERATION',8);
+  add(top24Gainers,'BINANCE_TOP24_GAINER',3);
+  add(acceleratingPool,'LIGHTWEIGHT_ACCELERATION',3);
+  add(continuity,'APPROACH_CONTINUITY',2);
+  add(accumulationPool,'ACCUMULATION_PROXY',2);
+  add(attentionPool,'APP_EARLY_ATTENTION',2);
 
   // Fill any unused slots with the strongest remaining candidates by a cheap
   // pre-score; this avoids an empty scanner after restart without returning to
@@ -300,6 +331,10 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     top24Gainers,
     accumulationPool,
     attentionPool,
+    acceleratingPool,
+    noveltyPool,
+    previousAgeMs:Math.max(0,Date.now()-Number(prevState?.ts||0)),
+    newTargetCount:candidates.filter(x=>!Object.prototype.hasOwnProperty.call(prevState?.bySymbol||{},x.symbol)).length,
     attentionStatus:{
       available:attention?.available===true,
       updatedAt:attention?.updatedAt||0,
@@ -457,18 +492,32 @@ async function performScan() {
     })
     .filter(x => x.quoteVolume > 0 && x.lastPrice > 0)
     .sort((a,b)=>b.quoteVolume-a.quoteVolume);
-  universe.forEach((x,i)=>{x.volumeRank=i+1;});
+  universe.forEach((x,i)=>{
+    x.volumeRank=i+1;
+    const book=bookMap.get(x.symbol);
+    const bid=num(book?.bidPrice),ask=num(book?.askPrice),mid=(bid+ask)/2;
+    x.lightweightSpreadBps=mid>0?(ask-bid)/mid*10000:999;
+    x.lightweightFundingPct=num(premiumMap.get(x.symbol)?.lastFundingRate)*100;
+    x.lightweightAccelerationScore=lightweightAccelerationScore(x,prev?.lightweight?.[x.symbol]);
+  });
 
   const attention=readAttention();
   const selection = selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
-  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, attentionStatus, candidates, targetSymbols } = selection;
+  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, acceleratingPool, noveltyPool, attentionStatus, newTargetCount, candidates, targetSymbols } = selection;
 
   const enriched = await mapLimit(candidates,8,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
   good.forEach((x,i)=>addLeaderHunterFields(x,i+1,prev.bySymbol?.[x.symbol]));
 
   const now=Date.now();
-  const next={ts:now,bySymbol:{}};
+  const next={ts:now,bySymbol:{},lightweight:{}};
+  for(const x of universe){
+    next.lightweight[x.symbol]={
+      at:now,lastPrice:x.lastPrice,quoteVolume:x.quoteVolume,
+      priceChangePercent:x.priceChangePercent,range24hPct:x.range24hPct,
+      volumeRank:x.volumeRank,lightweightAccelerationScore:x.lightweightAccelerationScore
+    };
+  }
   for(const x of good){
     const oldHistory=Array.isArray(prev.bySymbol?.[x.symbol]?.history)?prev.bySymbol[x.symbol].history:[];
     const history=[...oldHistory,{ts:now,rank:x.attackRank,projectedRank:x.projectedRank,attackScore:x.attackScore,leaderHunterScore:x.leaderHunterScore,movementPotential:x.movementPotential,longExpansionScore:x.longExpansionScore,shortExpansionScore:x.shortExpansionScore,leaderState:x.leaderState}].slice(-8);
@@ -510,8 +559,11 @@ async function performScan() {
       approachContinuity:continuity.map(x=>x.symbol),
       top24Gainers:top24Gainers.map(x=>x.symbol),
       accumulationProxy:accumulationPool.map(x=>x.symbol),
-      appEarlyAttention:attentionPool.map(x=>x.symbol)
+      appEarlyAttention:attentionPool.map(x=>x.symbol),
+      lightweightAcceleration:acceleratingPool.map(x=>x.symbol),
+      newAcceleration:noveltyPool.map(x=>x.symbol)
     },
+    newTargetCount,
     attentionStatus,
     analyzed:good.length,
     failed:enriched.filter(x=>x.error),
@@ -531,6 +583,7 @@ async function performScan() {
     gainerCandidates:gainerCandidates.slice(0,12),
     accumulationCandidates:accumulationCandidates.slice(0,10),
     attentionCandidates:attentionCandidates.slice(0,10),
+    acceleratingCandidates:leaderHunters.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('LIGHTWEIGHT_ACCELERATION')).slice(0,10),
     longExpansion,
     shortExpansion,
     earlyTop5:leaderHunters.filter(x=>x.earlyTop5).slice(0,10),
@@ -556,4 +609,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={scan,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,TARGET_DETAIL_LIMIT};
+module.exports={scan,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT};
