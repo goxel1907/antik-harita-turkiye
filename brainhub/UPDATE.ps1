@@ -73,6 +73,7 @@ try {
         $text -notmatch 'PLAN_WORKER_9ROUTER_TEXT' -or
         $text -notmatch 'OPENROUTER_FREE_WORKER_SECOND_OPINION' -or
         $text -notmatch 'WORKER_VISION_AVOIDANCE_TELEMETRY' -or
+        $text -notmatch 'PLAN_WORKER_PARALLEL_TIMER' -or
         $text -notmatch 'ANDROID_FULL_TURKISH_STATUS' -or
         $text -notmatch 'VISION_CHART_896X504' -or
         $text -notmatch 'VISION_CHART_640X360' -or
