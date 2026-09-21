@@ -759,9 +759,17 @@ function blockingVisionVetoTFs(plan) {
   const critical=[plan?.originTF,plan?.ownerTF].filter(x=>FRAME_ORDER.includes(x));
   return [...new Set(critical.filter(tf=>veto.has(tf)))];
 }
+function nonConcreteWaitFor(v) {
+  const z=String(v||'').replace(/\s+/g,' ').trim().toLocaleUpperCase('tr-TR');
+  if(!z||z==='NONE')return true;
+  return /^YOK(?:\s|—|-|$)/.test(z) ||
+    /SOMUT BEKLEME KOŞULU ÜRETMEDİ/.test(z) ||
+    /SONRAKİ TAZE VERİDE YENİDEN DEĞERLENDİR/.test(z) ||
+    /YENİDEN İNCELEME GEREKLİ/.test(z);
+}
 function watchPlanNeedsSemanticResolution(plan) {
   if(!plan||String(plan.status||'').toUpperCase()!=='WATCH')return false;
-  return String(plan.waitFor||'').trim().toUpperCase()==='NONE';
+  return nonConcreteWaitFor(plan.waitFor);
 }
 function reconcileVisionPlanSemantics(plan) {
   if (!plan || String(plan.status || '').toUpperCase() !== 'QUALIFIED') return plan;
@@ -813,6 +821,9 @@ function visionPlanContract(plan) {
   if (String(plan?.status || '').toUpperCase() === 'QUALIFIED' &&
       String(plan?.waitFor || '').trim().toUpperCase() !== 'NONE') {
     missing.push('QUALIFIED_WAIT_FOR_NOT_NONE');
+  }
+  if (String(plan?.status || '').toUpperCase() === 'WATCH' && nonConcreteWaitFor(plan?.waitFor)) {
+    missing.push('WATCH_WAIT_FOR_NOT_CONCRETE');
   }
   if (!String(plan?.visionSummary || '').trim()) missing.push('VISION_SUMMARY');
   if (!String(plan?.formingContext || '').trim()) missing.push('FORMING_CONTEXT');
