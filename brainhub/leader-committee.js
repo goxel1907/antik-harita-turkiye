@@ -62,6 +62,7 @@ function selectDeepCandidates(scan, limit = 16) {
     { reason:'CURRENT_ATTACK_TOP10', rows:top3 },
     { reason:'CURRENT_ATTACK_TOP10', rows:top4to10 },
     { reason:'BINANCE_TOP24_GAINER', rows:Array.isArray(scan?.gainerCandidates)?scan.gainerCandidates:[] },
+    { reason:'LIGHTWEIGHT_ACCELERATION', rows:Array.isArray(scan?.acceleratingCandidates)?scan.acceleratingCandidates:[] },
     { reason:'ACCUMULATION_BREAKOUT_PROXY', rows:Array.isArray(scan?.accumulationCandidates)?scan.accumulationCandidates:[] },
     { reason:'APP_EARLY_ATTENTION', rows:Array.isArray(scan?.attentionCandidates)?scan.attentionCandidates:[] }
   ];
