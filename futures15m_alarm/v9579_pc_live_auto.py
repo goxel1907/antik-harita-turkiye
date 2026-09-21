@@ -306,6 +306,7 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
                     .putString("v9593_pc_auto_diagnostics",la==null||la.optJSONObject("diagnostics")==null?"":la.optJSONObject("diagnostics").toString())
                     .putString("v9594_pc_analysis_lifecycle",la==null||la.optJSONObject("analysisLifecycle")==null?"":la.optJSONObject("analysisLifecycle").toString())
                     .putString("v95104_pc_auto_health",la==null||la.optJSONObject("health")==null?"":la.optJSONObject("health").toString())
+                    .putString("v95107_plan_workers",la==null||la.optJSONObject("planWorkers")==null?"":la.optJSONObject("planWorkers").toString())
                     .putLong("v9582_pc_probe_ts",System.currentTimeMillis()).apply();
                 if(now-sp.getLong("v9588_pc_auto_sync_ts",0L)>=60000L){
                     try{
@@ -550,6 +551,8 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             int qualified=h.optInt("qualified",0),watch=h.optInt("watch",0),review=h.optInt("reviewRequired",0),reject=h.optInt("reject",0);
             int intentReady=h.optInt("intentReady",0),execResults=h.optInt("executionResults",0);
             int vision=h.optInt("visionUnavailable",0),busy=h.optInt("skippedBusy",0),orders=h.optInt("ordersPlaced",0);
+            int workerReviews=h.optInt("workerReviews",0),workerWaits=h.optInt("workerWaits",0),workerTriggers=h.optInt("workerTriggers",0);
+            int workerRefresh=h.optInt("workerRefreshes",0),visionAvoided=h.optInt("fullVisionAvoided",0);
             long avg=h.optLong("avgAnalysisMs",-1L);
             StringBuilder b=new StringBuilder();
             b.append("OTO sağlık • gözlenen ").append(String.format(java.util.Locale.US,"%.1f",observed)).append(" dk")
@@ -561,6 +564,11 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
              .append(" • izle ").append(watch)
              .append(" • yeniden incele ").append(review)
              .append(" • red ").append(reject);
+            b.append("\nPlan worker ").append(workerReviews)
+             .append(" • bekle ").append(workerWaits)
+             .append(" • tetik ").append(workerTriggers)
+             .append(" • 9TF yenile ").append(workerRefresh)
+             .append(" • tasarruf edilen tam 9TF ").append(visionAvoided);
             b.append("\nCanlı intent ").append(intentReady)
              .append(" • yürütme sonucu ").append(execResults)
              .append(" • açılan emir ").append(orders)
