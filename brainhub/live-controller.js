@@ -14,6 +14,7 @@ const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, 
 const { combineRiskGate:combineReadinessRiskGate, enforceExecutionLineage:enforceReadinessLineage, combineExecutionReadiness:combineReadiness } = require('./pipeline');
 const positionManager = require('./position-manager');
 const planWorkers = require('./plan-workers');
+const { isNonConcreteWait } = require('./wait-condition');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -610,6 +611,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       ownerTF:String(plan.ownerTF || old?.ownerTF || ''),
       setup:String(plan.setup || old?.setup || ''),
       waitFor:String(plan.waitFor || old?.waitFor || ''),
+      triggerLevelId:String(plan.triggerSpec?.triggerLevelId || plan.triggerLevelId || old?.triggerLevelId || ''),
+      triggerTF:String(plan.triggerSpec?.tf || plan.triggerTF || old?.triggerTF || ''),
+      triggerPrice:finite(plan.triggerSpec?.triggerPrice ?? old?.triggerPrice),
+      invalidationLevelId:String(plan.triggerSpec?.invalidationLevelId || plan.invalidationLevelId || old?.invalidationLevelId || ''),
+      invalidationPrice:finite(plan.triggerSpec?.invalidationPrice ?? old?.invalidationPrice),
+      triggerValid:plan.triggerSpec?.valid===true || (advisory==null&&old?.triggerValid===true),
+      triggerClosedPrice:finite(plan.triggerSpec?.closedPrice ?? old?.triggerClosedPrice),
+      triggerWasSatisfied:plan.triggerSpec?.triggered===true,
       why:String(plan.why || old?.why || ''),
       riskNote:String(plan.riskNote || old?.riskNote || ''),
       planReason:String(advisory ? (plan.reason || '') : (old?.planReason || '')),
@@ -652,7 +661,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       state!=='ACTIVE' &&
       ['WATCH','REBASE','DETECTED'].includes(state) &&
       planStatus==='WATCH' &&
-      Boolean(wait)&&wait!=='NONE' &&
+      (row.triggerValid===true || !isNonConcreteWait(wait)) &&
       ['LONG','SHORT'].includes(String(row.side||'').toUpperCase());
   }
 
@@ -784,6 +793,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       recheckTFs:tracked.workerRecheckTFs,
       router:{ok:router?.ok===true,model:router?.model||null,state:router?.state||null},
       openRouter:{called:Boolean(openRouter),ok:openRouter?.ok===true,model:openRouter?.model||null,state:openRouter?.state||null},
+      numericTrigger:deterministic?.numericTrigger===true,
+      triggerTF:tracked.triggerTF||null,
+      triggerLevelId:tracked.triggerLevelId||null,
+      triggerPrice:finite(tracked.triggerPrice),
+      triggerClosedPrice:finite(deterministic?.closedPrice),
+      invalidationLevelId:tracked.invalidationLevelId||null,
+      invalidationPrice:finite(tracked.invalidationPrice),
       full9TfRequired:decision.state!=='WAIT',
       visionAvoided:decision.state==='WAIT',
       execution:'ADVISORY_ONLY',
@@ -1853,6 +1869,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     WORKER_OUTPUT_INVALID:'worker yanıt şeması geçersiz; kör 9TF yükseltme yapılmıyor',
     WORKER_DECISION_INVALID:'worker kararı geçersiz; plan WAIT durumunda tutuluyor',
     WORKER_ESCALATION_COOLDOWN:'aynı sembol için 15 dakikalık 9TF yükseltme bekleme süresi aktif',
+    WORKER_NUMERIC_TRIGGER_WAIT:'sayısal kapanış tetiği henüz gerçekleşmedi; pahalı 9TF yeniden çalıştırılmıyor',
+    WORKER_NUMERIC_TRIGGER_CLOSED:'sayısal kapanış tetiği gerçekleşti; gölge hızlı doğrulama ve sonraki 9TF slotu bekleniyor',
+    WORKER_NUMERIC_TRIGGER_FRAME_NOT_FRESH:'sayısal tetik zaman dilimi taze değil; tetik uygulanmadı',
+    WORKER_NUMERIC_INVALIDATION_BREACHED:'sayısal invalidation seviyesi kapanışla bozuldu; plan yenilenmeli',
     WORKER_SPREAD_ABOVE_8_BPS:'spread 8 bps üstünde; worker işlem tetiklemiyor',
     UNSTRUCTURED_COMMITTEE_OUTPUT:'model çıktısı beklenen plan şemasına uymadı',
     NO_FRESH_TIMEFRAME_CONTEXT:'taze zaman dilimi bağlamı yetersiz'
@@ -1969,6 +1989,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       ownerTF:String(plan.ownerTF || ''),
       setup:String(plan.setup || ''),
       execPath:String(plan.execPath || ''),
+      triggerLevelId:String(plan.triggerLevelId || ''),
+      triggerTF:String(plan.triggerTF || ''),
+      invalidationLevelId:String(plan.invalidationLevelId || ''),
+      triggerSpec:plan.triggerSpec || null,
       planWhy:String(plan.why || ''),
       planRisk:String(plan.riskNote || ''),
       waitFor:String(plan.waitFor || ''),
