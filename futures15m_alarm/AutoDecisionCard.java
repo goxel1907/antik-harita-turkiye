@@ -201,6 +201,11 @@ public final class AutoDecisionCard {
             b.append("\nCanlı intent hazır: ").append(health.optInt("intentReady",0))
              .append(" • yürütme sonucu ").append(health.optInt("executionResults",0))
              .append(" • açılan emir ").append(health.optInt("ordersPlaced",0));
+            b.append("\nPlan worker: ").append(health.optInt("workerReviews",0))
+             .append(" • bekle ").append(health.optInt("workerWaits",0))
+             .append(" • tetik ").append(health.optInt("workerTriggers",0))
+             .append(" • 9TF yenile ").append(health.optInt("workerRefreshes",0))
+             .append(" • tasarruf edilen tam 9TF ").append(health.optInt("fullVisionAvoided",0));
             b.append("\nVision/komite erişim kesintisi: ").append(health.optInt("visionUnavailable",0));
             b.append("\nYoğunluk nedeniyle atlanan tur: ").append(health.optInt("skippedBusy",0))
              .append(" • pipeline yoğun ").append(health.optInt("skippedPipelineBusy",0));
