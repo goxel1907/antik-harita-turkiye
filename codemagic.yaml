@@ -144,7 +144,8 @@ workflows:
           grep -q 'PC otomasyon motoru PC BrainHub zamanlayıcısında çalışır' "$MAIN"
           grep -q 'workerEscalationPending' "$MAIN"
           grep -q 'visionFreeQuotaFallbacks' "$MAIN"
-          grep -q 'PLAN_WORKER_V107' "$CM_BUILD_DIR/brainhub/plan-workers.js"
+          grep -q 'PLAN_WORKER_V110' "$CM_BUILD_DIR/brainhub/plan-workers.js"
+          echo 'V110_WORKER_GATE_OK PLAN_WORKER_V110'
           grep -q "model='openrouter/free'" "$CM_BUILD_DIR/brainhub/openrouter-free-worker.js"
           grep -q 'v95107_plan_workers' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
           grep -q 'TARGET_DETAIL_LIMIT = 24' "$CM_BUILD_DIR/brainhub/scanner.js"
