@@ -362,6 +362,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         ['TRIGGERED','REFRESH_REQUIRED'].includes(String(x?.workerState||'').toUpperCase()) &&
         Number(x?.workerEscalatedAt||0)>=Number(x?.lastAnalyzedAt||0)).length,
       visionFreeQuotaFallbacks:analyses.filter(x=>x.visionFreeQuotaFallback===true).length,
+      shadowPlans:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>x?.triggerValid===true).length,
+      shadowTriggers:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>Number(x?.shadowTriggeredAt||0)>0).length,
+      shadow15mMeasured:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>finite(x?.shadowOutcome15mPct)!==null).length,
+      shadow60mMeasured:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>finite(x?.shadowOutcome60mPct)!==null).length,
+      shadowAvg15mPct:(()=>{
+        const xs=Object.values(leaderAnalysisState.bySymbol||{}).map(x=>finite(x?.shadowOutcome15mPct)).filter(x=>x!==null);
+        return xs.length?Number((xs.reduce((a,b)=>a+b,0)/xs.length).toFixed(4)):null;
+      })(),
+      shadowAvg60mPct:(()=>{
+        const xs=Object.values(leaderAnalysisState.bySymbol||{}).map(x=>finite(x?.shadowOutcome60mPct)).filter(x=>x!==null);
+        return xs.length?Number((xs.reduce((a,b)=>a+b,0)/xs.length).toFixed(4)):null;
+      })(),
+      shadowEvidenceHours:(()=>{
+        const xs=Object.values(leaderAnalysisState.bySymbol||{}).map(x=>Number(x?.shadowPlanAt||0)).filter(x=>x>0);
+        return xs.length?Number(((now-Math.min(...xs))/3600000).toFixed(2)):0;
+      })(),
+      shadowReady24h:(()=>{
+        const xs=Object.values(leaderAnalysisState.bySymbol||{}).map(x=>Number(x?.shadowPlanAt||0)).filter(x=>x>0);
+        const hours=xs.length?(now-Math.min(...xs))/3600000:0;
+        return hours>=24&&Object.values(leaderAnalysisState.bySymbol||{}).some(x=>finite(x?.shadowOutcome60mPct)!==null);
+      })(),
       avgVisionBatchSize:(()=>{
         const xs=analyses.map(x=>Number(x.visionBatchSize)).filter(x=>Number.isFinite(x)&&x>0);
         return xs.length?Number((xs.reduce((a,b)=>a+b,0)/xs.length).toFixed(2)):null;
@@ -604,6 +625,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if (nextState === 'INVALIDATED' && oldState !== 'INVALIDATED') invalidationCount += 1;
     if (nextState === 'REBASE' && oldState !== 'REBASE') rebaseCount += 1;
     const setupChanged=oldState !== 'ACTIVE' && (sideChanged || nextState === 'REBASE' || lineageMismatch(old,symbol,side));
+    const nextTriggerId=String(plan.triggerSpec?.triggerLevelId || plan.triggerLevelId || old?.triggerLevelId || '');
+    const nextTriggerTf=String(plan.triggerSpec?.tf || plan.triggerTF || old?.triggerTF || '');
+    const triggerChanged=Boolean(old && (
+      (old.triggerLevelId&&nextTriggerId&&String(old.triggerLevelId)!==nextTriggerId) ||
+      (old.triggerTF&&nextTriggerTf&&String(old.triggerTF)!==nextTriggerTf)
+    ));
+    const resetShadow=setupChanged||triggerChanged;
     const setupId=setupChanged
       ? newLeaderSetupId(symbol,side)
       : old.setupId;
@@ -629,6 +657,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       triggerValid:plan.triggerSpec?.valid===true || (advisory==null&&old?.triggerValid===true),
       triggerClosedPrice:finite(plan.triggerSpec?.closedPrice ?? old?.triggerClosedPrice),
       triggerWasSatisfied:plan.triggerSpec?.triggered===true,
+      shadowPlanAt:(plan.triggerSpec?.valid===true)
+        ? (resetShadow ? now : Number(old?.shadowPlanAt||now))
+        : Number(old?.shadowPlanAt||0)||null,
+      shadowTriggeredAt:resetShadow?null:(Number(old?.shadowTriggeredAt||0)||null),
+      shadowEntryPrice:resetShadow?null:finite(old?.shadowEntryPrice),
+      shadowOutcome15mPct:resetShadow?null:finite(old?.shadowOutcome15mPct),
+      shadowOutcome15mAt:resetShadow?null:(Number(old?.shadowOutcome15mAt||0)||null),
+      shadowOutcome60mPct:resetShadow?null:finite(old?.shadowOutcome60mPct),
+      shadowOutcome60mAt:resetShadow?null:(Number(old?.shadowOutcome60mAt||0)||null),
       why:String(plan.why || old?.why || ''),
       riskNote:String(plan.riskNote || old?.riskNote || ''),
       planReason:String(advisory ? (plan.reason || '') : (old?.planReason || '')),
@@ -788,6 +825,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }else if(['TRIGGERED','REFRESH_REQUIRED'].includes(decision.state)){
       tracked.workerEscalatedAt=now;
       tracked.workerLastEscalationAt=now;
+    }
+    if(decision.state==='TRIGGERED'&&deterministic?.numericTrigger===true&&!Number(tracked.shadowTriggeredAt||0)){
+      tracked.shadowTriggeredAt=now;
+      tracked.shadowEntryPrice=finite(deterministic.closedPrice)??finite(tracked.triggerPrice);
+      tracked.shadowTriggerReason=String(decision.reason||'WORKER_NUMERIC_TRIGGER_CLOSED');
+      try{store.journal('SHADOW_TRIGGER',key,{side:tracked.side,triggerTF:tracked.triggerTF,triggerLevelId:tracked.triggerLevelId,triggerPrice:tracked.triggerPrice,entryPrice:tracked.shadowEntryPrice,triggeredAt:now,execution:'ADVISORY_ONLY'});}catch{}
+      leaderHealthEvent('SHADOW_TRIGGER',{symbol:key,side:tracked.side,triggerTF:tracked.triggerTF,entryPrice:tracked.shadowEntryPrice});
     }
     leaderAnalysisState.bySymbol[key]=tracked;
     writeLeaderAnalysisState();
@@ -1254,6 +1298,44 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return result;
   }
 
+  async function shadowOutcomeTick() {
+    const now=clock();
+    const rows=Object.values(leaderAnalysisState.bySymbol||{})
+      .filter(x=>x&&Number(x.shadowTriggeredAt||0)>0&&finite(x.shadowEntryPrice)!==null)
+      .filter(x=>{
+        const age=now-Number(x.shadowTriggeredAt||0);
+        return (age>=15*60*1000&&finite(x.shadowOutcome15mPct)===null) ||
+          (age>=60*60*1000&&finite(x.shadowOutcome60mPct)===null);
+      })
+      .sort((a,b)=>Number(a.shadowTriggeredAt||0)-Number(b.shadowTriggeredAt||0));
+    if(!rows.length)return {ok:true,skipped:true,reason:'NO_SHADOW_OUTCOME_DUE'};
+    const row=rows[0];
+    try{
+      const ticker=await transport._fetchJson('GET','/fapi/v1/ticker/price',{params:{symbol:row.symbol}});
+      const price=finite(ticker?.price),entry=finite(row.shadowEntryPrice);
+      if(price===null||entry===null||entry<=0)return {ok:false,reason:'SHADOW_PRICE_UNAVAILABLE'};
+      const side=String(row.side||'').toUpperCase();
+      const outcomePct=(side==='SHORT'?(entry-price)/entry:(price-entry)/entry)*100;
+      const age=now-Number(row.shadowTriggeredAt||0);
+      let changed=false;
+      if(age>=15*60*1000&&finite(row.shadowOutcome15mPct)===null){
+        row.shadowOutcome15mPct=Number(outcomePct.toFixed(4));row.shadowOutcome15mAt=now;changed=true;
+        try{store.journal('SHADOW_OUTCOME_15M',row.symbol,{side,entryPrice:entry,markPrice:price,outcomePct:row.shadowOutcome15mPct,triggerTF:row.triggerTF,triggerLevelId:row.triggerLevelId});}catch{}
+      }
+      if(age>=60*60*1000&&finite(row.shadowOutcome60mPct)===null){
+        row.shadowOutcome60mPct=Number(outcomePct.toFixed(4));row.shadowOutcome60mAt=now;changed=true;
+        try{store.journal('SHADOW_OUTCOME_60M',row.symbol,{side,entryPrice:entry,markPrice:price,outcomePct:row.shadowOutcome60mPct,triggerTF:row.triggerTF,triggerLevelId:row.triggerLevelId});}catch{}
+      }
+      if(changed){
+        leaderAnalysisState.bySymbol[row.symbol]=row;writeLeaderAnalysisState();
+        leaderHealthEvent('SHADOW_OUTCOME',{symbol:row.symbol,outcome15mPct:row.shadowOutcome15mPct,outcome60mPct:row.shadowOutcome60mPct});
+      }
+      return {ok:true,symbol:row.symbol,changed,outcome15mPct:row.shadowOutcome15mPct,outcome60mPct:row.shadowOutcome60mPct};
+    }catch(e){
+      return {ok:false,reason:'SHADOW_PRICE_UNAVAILABLE',detail:String(e?.message||e).slice(0,160)};
+    }
+  }
+
   async function leaderAutoTick() {
     if (leaderAutoBusy) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BUSY', orderPlaced:false }; }
     if (positionReviewBusy) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BACKGROUND_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BACKGROUND_BUSY', orderPlaced:false }; }
@@ -1261,6 +1343,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const cfg = readLeaderAutoConfig();
     if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
     if (!cfg.config.enabled) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });
+    try{await shadowOutcomeTick();}catch{}
     const analysisOnly = !armedNow();
     leaderAutoBusy = true;
     try {
