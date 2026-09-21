@@ -234,6 +234,25 @@ main=main.replace('android.widget.TextView detail=text(detailedAuto,11.15f,andro
                   'android.widget.TextView detail=text(v9599UiTr(detailedAuto),11.15f,android.graphics.Color.WHITE,false);')
 main=main.replace('android.widget.TextView life=text(lifecycleText,10.9f,android.graphics.Color.WHITE,false);',
                   'android.widget.TextView life=text(v9599UiTr(lifecycleText),10.9f,android.graphics.Color.WHITE,false);')
+
+# V95108_FLOW_RECOVERY_UI: generated MainActivity gets the new worker/failover telemetry.
+main=main.replace(
+    'int workerRefresh=h.optInt("workerRefreshes",0),visionAvoided=h.optInt("fullVisionAvoided",0);\n            long avg=h.optLong("avgAnalysisMs",-1L);',
+    'int workerRefresh=h.optInt("workerRefreshes",0),visionAvoided=h.optInt("fullVisionAvoided",0);\n            int pendingEsc=h.optInt("workerEscalationPending",0),freeFailover=h.optInt("visionFreeQuotaFallbacks",0);\n            double avgBatch=h.optDouble("avgVisionBatchSize",-1.0);\n            long avg=h.optLong("avgAnalysisMs",-1L);'
+)
+main=main.replace(
+    '.append(" • 9TF yenile ").append(workerRefresh)\n             .append(" • tasarruf edilen tam 9TF ").append(visionAvoided);',
+    '.append(" • 9TF yenile ").append(workerRefresh)\n             .append(" • bekleyen yükseltme ").append(pendingEsc)\n             .append(" • tasarruf edilen tam 9TF ").append(visionAvoided);\n            b.append("\\nVision hız/failover • Kiro free kurtarma ").append(freeFailover);\n            if(avgBatch>0)b.append(" • ort batch ").append(String.format(java.util.Locale.US,"%.2f",avgBatch));'
+)
+main=main.replace(
+    'st.append("\\nPC OTO İŞLEM: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");',
+    'st.append("\\nPC OTO İŞLEM: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");\n            st.append("\\nPC otomasyon motoru PC BrainHub zamanlayıcısında çalışır; telefon ekranının açık kalması gerekmez.");'
+)
+main=main.replace('s=s.replace("QUALIFIED_WAIT_REQUIRED","işlem için beklenen koşul henüz tamamlanmadı");',
+                  's=s.replace("QUALIFIED_WAIT_REQUIRED","işlem için beklenen koşul henüz tamamlanmadı");\n        s=s.replace("WATCH_WAIT_FOR_NOT_CONCRETE","izleme planında somut bekleme koşulu yok; plan yenileniyor");\n        s=s.replace("GLOBAL_SEMANTIC_CONTRACT","karar/bekleme koşulu sözleşmesi tamamlanamadı");')
+assert 'workerEscalationPending' in main
+assert 'visionFreeQuotaFallbacks' in main
+assert 'PC otomasyon motoru PC BrainHub zamanlayıcısında çalışır' in main
 main_path.write_text(main)
 analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.108')
 analysis_path.write_text(analysis)
