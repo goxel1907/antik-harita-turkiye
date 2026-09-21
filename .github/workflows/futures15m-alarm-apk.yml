@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.110 validation
+name: Futures 15m Alarm v9.5.111 validation
 
 on:
   push:
@@ -47,7 +47,7 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Prepare v9.5.110 source
+      - name: Prepare v9.5.111 source
         shell: bash
         run: |
           set -euo pipefail

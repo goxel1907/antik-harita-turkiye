@@ -2,7 +2,7 @@
 
 > ChatGPT ve diğer ajanlar için: bu sürümü **Claude** yaptı. Temel: ChatGPT'nin v9.5.110 multilane sürümü
 > (`futures15m-alarm-public-build@0bbabcf`). Her değişiklik `CLAUDE_V111` etiketiyle işaretlidir.
-> Android arayüzü **değişmedi** (kullanıcı: "şimdilik dokunma"); APK kimliği 9.5.110 / 26092105 olarak kalır.
+> Android işlevsel arayüzü değiştirilmedi; daha sonra kullanıcı tüm görünen sürüm kimliğinin Claude son sürümüyle eşleşmesini istedi. APK kimliği artık **9.5.111 / 26092106**; PC kimliği **9.5.111-CLAUDE-VISION**.
 > PC kimliği: `featureVersion = 9.5.111-CLAUDE-VISION`, `/health.claudeV111Marker = CLAUDE_V111`.
 
 ## Kullanıcının kuralı (21 Eylül, kelimesi kelimesine özet)
@@ -13,7 +13,7 @@
 - "Grafik modelleme çözünürlüğü analist yorumlayamaz ise JEV hiç karar veremez; şimdiye kadar ajanlar/workerlar
   Jev'e bir karar götürmedi."
 - AskUserQuestion cevapları: kod-tetik → "benim sana söylediğim gibi yap" (kararlar Jev'e ulaşsın);
-  scalp → momentum coinleri; çıkış → TP3 yerine iz süren stop; Android arayüzü → şimdilik dokunma.
+  scalp → momentum coinleri; çıkış → TP3 yerine iz süren stop; Android işlevleri aynı, görünen APK sürüm kimliği → 9.5.111.
 
 ## Canlı teşhis (PC journal, 21 Eylül)
 | Ölçüm | Değer |
