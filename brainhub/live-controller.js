@@ -416,6 +416,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         finalAuthorityApproved:finalAuthorityEvents.filter(x=>x.stage==='APPROVED').length,
         finalAuthoritySoftWarnings:finalAuthorityEvents.filter(x=>x.stage==='SOFT_WARNING').length,
         finalAuthorityHardBlocks:finalAuthorityEvents.filter(x=>x.stage==='HARD_BLOCK').length,
+        finalAuthorityIntentBuilt:finalAuthorityEvents.filter(x=>x.stage==='INTENT_BUILT').length,
         finalAuthorityHardSafetyReady:finalAuthorityEvents.filter(x=>x.stage==='HARD_SAFETY_READY').length,
         runner:runnerSummary()
       },
@@ -3005,7 +3006,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       jevFinalAuthority:true,
       finalAuthoritySoftWarnings:intent.finalAuthoritySoftWarnings
     });
-    leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_SAFETY_READY',symbol:candidate.symbol,warnings:intent.finalAuthoritySoftWarnings});
+    leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'INTENT_BUILT',symbol:candidate.symbol,warnings:intent.finalAuthoritySoftWarnings});
 
     const now = clock();
     const eventBucket = Math.floor(now / 60000);

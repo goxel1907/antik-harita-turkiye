@@ -485,7 +485,7 @@ function renderKpis(s){
     kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
     kpi('Derin analiz (60 dk)', `${h.deepAnalyses??0} / ${h.uniqueAnalyzedSymbols??0} coin`, `ort ${h.avgAnalysisMs?Math.round(h.avgAnalysisMs/1000)+' sn':'—'} • atlanan tur ${h.skippedBusy??0}`),
     kpi('İşlem adayı', `${h.preJevQualified??0}`, `Jev bağlayıcı ${h.jevCalled??0} • gölge ${h.jevShadowCalled??0} • veto ${h.jevVetoed??0}`, (h.preJevQualified||0)>0?'good':((h.jevShadowCalled||0)>0?'info':'serious')),
-    kpi('Açılan emir', `${h.ordersPlaced??0}`, `niyet ${h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null)
+    kpi('Açılan emir', `${h.ordersPlaced??0}`, `hard safety ${h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null)
   ].join('');
   chip('#chipVer', s.health?.ok?'good':'bad', `PC ${s.health?.data?.featureVersion || st.featureVersion || '—'}`);
   chip('#chipLive', armed?'good':'bad', armed?`LIVE AÇIK${exp!=null?' • '+exp+' dk':''}`:'LIVE KAPALI');
@@ -674,7 +674,7 @@ function renderOffice(s, vinfo){
   setDesk('positions', st.positionManager?.busy?'busy':'', st.positionManager?.lastReview?.actionTr || 'açık pozisyon yok');
   const lastPlan=(s.plans||[])[0];
   $('#brainTxt').textContent = lastPlan ? `${lastPlan.symbol} ${lastPlan.side||''} → ${STATUS_TR[lastPlan.status]||lastPlan.status}` : 'plan bekleniyor';
-  const preQ=+h.preJevQualified||0, qual=+h.qualified||0, intent=+h.intentReady||0, orders=+h.ordersPlaced||0;
+  const preQ=+h.preJevQualified||0, qual=+h.qualified||0, intent=+(h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0)||0, orders=+h.ordersPlaced||0;
   const sl=h.latestShortlistCount??la.diagnostics?.shortlistCount; const cv=h.claudeV109||{};
   $('#brainIn').textContent = `📥 ${sl??'?'} aday • ${h.deepAnalyses??0} analiz • 15m hazır ${h.laneMain15Ready??0} • scalp hazır ${h.laneScalpReady??0} • ${wr} worker${cv.dtWouldQualify?` • kod-tetik ${cv.dtWouldQualify}`:''}`;
   // Akış kenarları

@@ -17,7 +17,7 @@
 //     (momentum coin + 2/3 alt TF hizalı → 1m/3m/5m; aksi halde yalnız 15m ana hat).
 //  2) revalidateTrigger: worker sayısal tetiği gördüğünde 8 dk'lık tam Vision yerine
 //     saklanan 9TF planını taze kapanmış mum + hat + invalidation ile yeniden doğrular;
-//     geçerse plan QUALIFIED olur ve Jev'e gider (Jev, risk, likidasyon, LIVE kapıları aynen).
+//     geçerse plan QUALIFIED olur ve Jev'e gider. JEV son stratejik karardır; onaydan sonra yalnız hard safety kalır.
 //  3) Runner: TP3 yerine iz süren stop. TP1 → stop başabaşa; TP2 → kalan kısım momentum
 //     merdiveninin en yüksek destekleyen TF'sindeki onaylı swing ile izlenir; asla genişlemez.
 //     Orijinal closePosition stop hiç iptal edilmez (yedek koruma).

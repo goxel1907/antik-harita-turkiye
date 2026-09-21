@@ -200,7 +200,7 @@ function summarizeJournal(items) {
       };
       plans.push(row);
       if (row.jev && row.jev.called && !lastJev) lastJev = { ...row.jev, symbol: row.symbol, ts: row.ts, side: row.side };
-      if (!lastRisk && row.riskReasons.length) lastRisk = { symbol: row.symbol, ts: row.ts, reasons: row.riskReasons };
+      // PLAN riskGate is pre-JEV/advisory context. Hard Safety masasını yalnız JEV_FINAL_AUTHORITY / live execution doldurur.
       events.push({ ...base, desk: 'brain', title: `${row.symbol || '?'} ${row.side || ''} → ${row.status || '?'}`, detail: row.fakeWait ? 'Bekleme koşulu sahte (NONE...)' : clip(row.waitFor || row.reason || '', 160) });
     } else if (it.kind === 'JEV_SHADOW') {
       const dsn = p.decision || {};
@@ -254,6 +254,7 @@ function derive(snap) {
   const wr = Number(h.workerReviews || 0);
   const wref = Number(h.workerRefreshes || 0);
   const vu = Number(h.visionUnavailable || 0);
+  const hardSafetyReady = Number(h.claudeV111?.finalAuthorityHardSafetyReady ?? h.intentReady ?? 0);
   const blockers = [];
   const add = (level, code, title, detail) => blockers.push({ level, code, title, detail });
 
@@ -279,8 +280,8 @@ function derive(snap) {
     if (deep >= 3 && vu / Math.max(1, deep) >= 0.25) add('serious', 'VISION_DOWN', 'Görsel analiz sık düşüyor', `${vu}/${deep} analizde görsel komite yanıt vermedi.`);
     const fake = rows.filter(r => (String(r.state || '').toUpperCase() === 'WATCH' || String(r.planStatus || '').toUpperCase() === 'WATCH') && r.waitFor !== undefined && waitIsFake(r.waitFor));
     if (fake.length) add('warning', 'FAKE_WAIT', 'Sahte bekleme koşulu', `${fake.length} takipte bekleme metni "NONE ..." ile başlıyor; somut tetik yok.`);
-    if (Number(h.qualified || 0) > 0 && Number(h.intentReady || 0) === 0) add('warning', 'NO_INTENT', 'JEV onayı var, hard safety geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/hard safety: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve one-shot grant engel olabilir.');
-    if (Number(h.intentReady || 0) > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Niyet hazır, emir yok', 'Yürütme kapısı (LIVE, bakiye, fiyat sapması, grant) engelliyor.');
+    if (Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, hard safety geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/hard safety: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve one-shot grant engel olabilir.');
+    if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Hard safety geçti, emir yok', 'Yürütme/transport katmanı (LIVE grant, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
     if (Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
     if (Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);
     if (Number(h.laneScalpPlans || 0) > 0) add(Number(h.laneScalpReady||0)>0?'ok':'info','SCALP_LANE',`Scalp momentum hattı ${Number(h.laneScalpReady||0)>0?'hazır aday taşıyor':'izliyor'}`,`${h.laneScalpPlans||0} scalp planı • hazır ${h.laneScalpReady||0}. Tek 1m/3m/5m final karar vermez; en az iki alt TF + 15m karşı-veto kontrolü gerekir.`);
@@ -297,7 +298,7 @@ function derive(snap) {
     { key: 'preJev', label: 'QUALIFIED (Jev öncesi)', value: finite(h.preJevQualified) ?? 0 },
     { key: 'jev', label: 'Jev çağrısı', value: finite(h.jevCalled) ?? 0 },
     { key: 'qualified', label: 'JEV ONAYI • final stratejik', value: finite(h.qualified) ?? 0 },
-    { key: 'intent', label: 'Hard safety geçti', value: finite(h.intentReady) ?? 0 },
+    { key: 'intent', label: 'Hard safety geçti', value: hardSafetyReady },
     { key: 'orders', label: 'Açılan emir', value: finite(h.ordersPlaced) ?? 0 }
   ];
   const vp = snap.visionProgress?.data || st.visionProgress || {};
