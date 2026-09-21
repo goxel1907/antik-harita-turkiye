@@ -235,16 +235,16 @@ main=main.replace('android.widget.TextView detail=text(detailedAuto,11.15f,andro
 main=main.replace('android.widget.TextView life=text(lifecycleText,10.9f,android.graphics.Color.WHITE,false);',
                   'android.widget.TextView life=text(v9599UiTr(lifecycleText),10.9f,android.graphics.Color.WHITE,false);')
 main_path.write_text(main)
-analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.106')
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.107')
 analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
-text=re.sub(r'versionCode\s+\d+','versionCode 26092101',text)
-text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.106'",text)
+text=re.sub(r'versionCode\s+\d+','versionCode 26092102',text)
+text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.107'",text)
 build.write_text(text)
-assert "versionName '9.5.106'" in text
-assert 'versionCode 26092101' in text
+assert "versionName '9.5.107'" in text
+assert 'versionCode 26092102' in text
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
-print('v9.5.106 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
+print('v9.5.107 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
