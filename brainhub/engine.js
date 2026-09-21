@@ -413,6 +413,55 @@ function analyzeFrames(rawByFrame, now = Date.now()) {
   }
   return out;
 }
+function triggerLevelCandidates(frame, side) {
+  const s=String(side||'').toUpperCase();
+  if(!frame?.available||!['LONG','SHORT'].includes(s))return [];
+  const out=[];
+  const add=(id,price,source,uses=['TRIGGER','INVALIDATION'])=>{
+    const p=finite(price);
+    if(p===null||p<=0)return;
+    if(out.some(x=>x.id===id))return;
+    out.push({id,price:round(p),source,uses:[...uses]});
+  };
+  add('PRIOR20_HIGH',frame.prior20High,'PRIOR20',['LONG_TRIGGER','SHORT_INVALIDATION']);
+  add('PRIOR20_LOW',frame.prior20Low,'PRIOR20',['SHORT_TRIGGER','LONG_INVALIDATION']);
+  const dr=frame?.smcContext?.dealingRange;
+  add('SWING_HIGH',dr?.high,'CONFIRMED_SWING_RANGE',['LONG_TRIGGER','SHORT_INVALIDATION']);
+  add('SWING_LOW',dr?.low,'CONFIRMED_SWING_RANGE',['SHORT_TRIGGER','LONG_INVALIDATION']);
+  const fvg=Array.isArray(frame?.liquidity?.fairValueGaps)?frame.liquidity.fairValueGaps:[];
+  const bull=[...fvg].reverse().find(x=>String(x?.side||'').toUpperCase()==='BULL');
+  const bear=[...fvg].reverse().find(x=>String(x?.side||'').toUpperCase()==='BEAR');
+  add('FVG_CE50_BULL',bull?.ce50,'FVG_CE50',['LONG_TRIGGER','LONG_INVALIDATION']);
+  add('FVG_CE50_BEAR',bear?.ce50,'FVG_CE50',['SHORT_TRIGGER','SHORT_INVALIDATION']);
+  const ote=frame?.smcContext?.oteReference;
+  add('OTE_LONG_HIGH',ote?.longDiscountZone?.high,'OTE_REFERENCE',['LONG_TRIGGER']);
+  add('OTE_LONG_LOW',ote?.longDiscountZone?.low,'OTE_REFERENCE',['LONG_INVALIDATION']);
+  add('OTE_SHORT_LOW',ote?.shortPremiumZone?.low,'OTE_REFERENCE',['SHORT_TRIGGER']);
+  add('OTE_SHORT_HIGH',ote?.shortPremiumZone?.high,'OTE_REFERENCE',['SHORT_INVALIDATION']);
+  return out.filter(x=>x.uses.includes(s+'_TRIGGER')||x.uses.includes(s+'_INVALIDATION'));
+}
+
+function resolveTriggerLevel(frame, side, id, use='TRIGGER') {
+  const s=String(side||'').toUpperCase();
+  const wanted=String(id||'').trim().toUpperCase();
+  const tag=s+'_'+String(use||'TRIGGER').toUpperCase();
+  return triggerLevelCandidates(frame,s).find(x=>x.id===wanted&&x.uses.includes(tag))||null;
+}
+
+function triggerSatisfied({side,closedPrice,levelPrice}={}) {
+  const s=String(side||'').toUpperCase();
+  const c=finite(closedPrice),l=finite(levelPrice);
+  if(!['LONG','SHORT'].includes(s)||c===null||l===null||l<=0)return false;
+  return s==='LONG'?c>l:c<l;
+}
+
+function invalidationBreached({side,closedPrice,levelPrice}={}) {
+  const s=String(side||'').toUpperCase();
+  const c=finite(closedPrice),l=finite(levelPrice);
+  if(!['LONG','SHORT'].includes(s)||c===null||l===null||l<=0)return false;
+  return s==='LONG'?c<l:c>l;
+}
+
 function breakoutExecution({ side, confirmedClose, trigger, livePrice, reclaimConfirmed = false }) {
   const cc = finite(confirmedClose), t = finite(trigger), lp = finite(livePrice);
   if (!['LONG','SHORT'].includes(side) || [cc,t,lp].some(x => x === null)) return { allowed:false, status:'INVALID_INPUT' };
@@ -453,4 +502,4 @@ function handoff(initialStop, candidateStop, side) {
   const safe = side === 'LONG' ? candidateStop >= initialStop : side === 'SHORT' ? candidateStop <= initialStop : false;
   return { allowed:safe, stop:safe ? candidateStop : initialStop, reason:safe ? 'RISK_NOT_WIDENED' : 'WOULD_WIDEN_RISK' };
 }
-module.exports = { FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, detectPatterns, structure, analyzeFrames, breakoutExecution, microstructure, handoff };
+module.exports = { FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };
