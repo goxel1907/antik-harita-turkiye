@@ -13,6 +13,7 @@ const { buildDryRunOrder } = require('./binance-dry-run-executor');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { combineRiskGate:combineReadinessRiskGate, enforceExecutionLineage:enforceReadinessLineage, combineExecutionReadiness:combineReadiness } = require('./pipeline');
 const positionManager = require('./position-manager');
+const planWorkers = require('./plan-workers');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -243,7 +244,7 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, exitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
@@ -265,6 +266,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
   const LEADER_AUTO_REANALYSIS_COOLDOWN_MS = 5 * 60 * 1000;
   const leaderAutoHealthStartedAt = Number.isFinite(clock()) ? clock() : Date.now();
   let leaderAutoHealthEvents = [];
+  let planWorkerState = { lastReview:null, history:[] };
 
   function trimLeaderAutoHealth(now = clock()) {
     const ts = Number.isFinite(now) ? now : Date.now();
@@ -287,6 +289,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     const skips = ev.filter(x => x.kind === 'SKIP');
     const ticks = ev.filter(x => x.kind === 'TICK_RESULT');
     const executionStages = ev.filter(x => x.kind === 'EXECUTION_STAGE');
+    const workerReviews = ev.filter(x => x.kind === 'WORKER_REVIEW');
     const durations = analyses.map(x => Number(x.durationMs)).filter(Number.isFinite);
     const reasonCounts = new Map();
     for (const x of [...analyses,...ticks]) {
@@ -327,6 +330,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
       intentReady:executionStages.filter(x=>x.stage==='INTENT_READY').length,
       executionResults:executionStages.filter(x=>x.stage==='EXECUTION_RESULT').length,
       ordersPlaced:executionStages.filter(x=>x.stage==='ORDER_PLACED').length,
+      workerReviews:workerReviews.length,
+      workerWaits:workerReviews.filter(x=>x.state==='WAIT').length,
+      workerTriggers:workerReviews.filter(x=>x.state==='TRIGGERED').length,
+      workerRefreshes:workerReviews.filter(x=>x.state==='REFRESH_REQUIRED').length,
+      fullVisionAvoided:workerReviews.filter(x=>x.visionAvoided===true).length,
       avgAnalysisMs:durations.length?Math.round(durations.reduce((a,b)=>a+b,0)/durations.length):null,
       lastAnalysisAt:analyses.length?new Date(analyses.at(-1).at).toISOString():null,
       lastQualifiedAt:(analyses.filter(x=>String(x.planStatus||'').toUpperCase()==='QUALIFIED').at(-1)?.at)
@@ -349,7 +357,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     // keeping scanner ordering authoritative.
     let index=candidates.findIndex(c=>{
       const row=leaderAnalysisState.bySymbol?.[String(c?.symbol || '').toUpperCase()];
-      const last=Number(row?.lastAnalyzedAt || 0);
+      const last=Math.max(Number(row?.lastAnalyzedAt || 0),Number(row?.lastWorkerCheckAt || 0));
       return !last || now-last >= LEADER_AUTO_REANALYSIS_COOLDOWN_MS;
     });
     let reason='COVERAGE_STALE_OR_NEW';
@@ -1571,6 +1579,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     VISION_COMMITTEE_INPUT_INCOMPLETE:'9Router komitesi 9 grafiğin tamamını alamadı; canlı karar bloke edildi',
     VISION_COMMITTEE_OUTPUT_INCOMPLETE:'Vision modeli 9TF analiz sözleşmesindeki zorunlu Türkçe alanların tamamını üretmedi; canlı karar bloke edildi',
     VISION_COMMITTEE_UNAVAILABLE:'Vision/9Router analiz komitesi erişilemiyor; grafik analizi tamamlanmadı',
+    PLAN_WORKER_WAIT:'Plan worker bekleme koşulunu henüz tamamlanmış görmüyor',
+    PLAN_WORKER_TRIGGERED:'Plan worker bekleme koşulunun tetiklenmiş olabileceğini gördü; tam 9TF yeniden doğrulama gerekli',
+    PLAN_WORKER_REFRESH_REQUIRED:'Plan worker yapı/yön/veri değişimi nedeniyle tam 9TF yenileme istiyor',
+    WORKER_9ROUTER_UNAVAILABLE:'9Router worker ajanları yanıt vermedi; tam 9TF fail-safe yenileme gerekli',
+    WORKER_SPREAD_ABOVE_8_BPS:'spread 8 bps üstünde; worker işlem tetiklemiyor',
     UNSTRUCTURED_COMMITTEE_OUTPUT:'model çıktısı beklenen plan şemasına uymadı',
     NO_FRESH_TIMEFRAME_CONTEXT:'taze zaman dilimi bağlamı yetersiz'
   };
@@ -1579,6 +1592,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, exitJ
     PREFILTER:'Ön tarama',
     PIPELINE_SELECTED:'Derin 9TF analiz için seçildi',
     PIPELINE_ERROR:'Derin analiz hattında hata',
+    WORKER_WAIT:'Plan worker izliyor; 9TF yeniden çalıştırılmadı',
+    WORKER_TRIGGER:'Plan worker tetik gördü; tam 9TF doğrulamaya yükseltildi',
+    WORKER_REFRESH:'Plan worker plan yenilemesi istedi; tam 9TF doğrulamaya yükseltildi',
     PLAN_NOT_READY:'9TF planı hazırlanamadı',
     PLAN_NOT_QUALIFIED:'9TF planı henüz işlem için yeterli değil',
     PLAN_QUALIFIED:'9TF planı işlem adayı olarak nitelikli',
