@@ -299,6 +299,59 @@ test('9TF Vision may use an explicitly opted-in Kiro free-quota route without ch
   assert.equal(stderr.includes('BRAINHUB_ROUTER_KEY missing'),false,stderr);
 });
 
+test('local-only Vision failure may fail over only to explicitly enabled Kiro free quota', { timeout:20000 }, async () => {
+  const routerCalls=[];
+  const fakeRouter=http.createServer(async(req,res)=>{
+    let raw=''; for await(const chunk of req) raw+=chunk;
+    const body=JSON.parse(raw||'{}');
+    const model=String(body.model||'');
+    routerCalls.push({model,vision:hasImageInput(body)});
+    if(model==='kr/free-vision'){
+      res.writeHead(200,{'content-type':'application/json'});
+      return res.end(JSON.stringify({choices:[{message:{content:'STATUS: WATCH\nSIDE: LONG\nCONFIDENCE: 60\nORIGIN_TF: 1m\nOWNER_TF: 5m\nSETUP: test\nEXEC_PATH: test\nWHY: test\nRISK_NOTE: test\nWAIT_FOR: 1m kapanis teyidi\nSUPPORT_TFS: 1m\nVETO_TFS: NONE\nFORMING_CONTEXT: teyit degil\nVISION_SUMMARY: fallback'}}]}));
+    }
+    res.writeHead(400,{'content-type':'application/json'});
+    return res.end(JSON.stringify({error:'unexpected'}));
+  });
+  const fakeOllama=http.createServer(async(req,res)=>{
+    res.writeHead(503,{'content-type':'application/json'});
+    return res.end(JSON.stringify({error:'local unavailable'}));
+  });
+  const routerPort=await listen(fakeRouter), localPort=await listen(fakeOllama);
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-local-failover-')), brainPort=await freePort(), configDir=path.join(root,'config');
+  fs.mkdirSync(configDir,{recursive:true});
+  fs.writeFileSync(path.join(configDir,'models.json'),JSON.stringify({
+    baseUrl:'http://127.0.0.1:'+routerPort+'/v1',opencode:['oc/free-text'],kiro:['kr/free-vision'],
+    localVision:{enabled:true,baseUrl:'http://127.0.0.1:'+localPort+'/v1',models:['qwen3-vl:test'],contextSize:16384,timeoutMs:60000,localOnly:true},
+    healthCacheSeconds:1
+  }),'utf8');
+  fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
+    analysts:['oc/free-text'],backupAnalysts:[],judges:[],minAnalystReplies:1,minVisionAnalystReplies:1,
+    allowKiroFreeQuotaVision:true,kiroFreeQuotaVisionModels:['kr/free-vision'],allowKiroVisionFallback:false
+  }),'utf8');
+  const serverPath=path.join(__dirname,'..','server.js');
+  const child=spawn(process.execPath,[serverPath],{cwd:root,env:{...process.env,BRAINHUB_ROOT:root,BRAINHUB_ROUTER_KEY:'integration-test-router-key-123456',BRAINHUB_HOST:'127.0.0.1',BRAINHUB_PORT:String(brainPort),BRAINHUB_CLIENT_TOKEN:''},stdio:['ignore','pipe','pipe']});
+  try{
+    const health=await waitFor('http://127.0.0.1:'+brainPort+'/health');
+    assert.ok(health.features.includes('LOCAL_VISION_FREE_QUOTA_FAILOVER'));
+    const tfs=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+    const rr=await fetch('http://127.0.0.1:'+brainPort+'/committee',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:'STRUCTURE',prompt:'fallback test',images:tfs.map(fakeImage)})});
+    const out=await rr.json();
+    assert.equal(rr.status,200,JSON.stringify(out));
+    assert.equal(out.mode,'kiro_free_quota_fallback');
+    assert.equal(out.model,'kr/free-vision');
+    assert.equal(out.visionKiroFreeQuota,true);
+    assert.equal(out.localVisionFailed,true);
+    assert.ok(routerCalls.some(x=>x.model==='kr/free-vision'&&x.vision===true));
+    assert.equal(routerCalls.some(x=>x.model.startsWith('kr/')&&x.model!=='kr/free-vision'),false);
+  } finally {
+    await stopChild(child);
+    await new Promise(resolve=>fakeRouter.close(resolve));
+    await new Promise(resolve=>fakeOllama.close(resolve));
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
+
 test('9TF Vision never consumes Kiro when neither free-quota nor legacy fallback is explicitly enabled', { timeout:20000 }, async () => {
   const requested=[];
   const fakeRouter=http.createServer(async (req,res)=>{
