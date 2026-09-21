@@ -327,6 +327,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       preJevQualified:analyses.filter(x=>String(x.preJevStatus||'').toUpperCase()==='QUALIFIED').length,
       jevCalled:analyses.filter(x=>x.jevCalled===true).length,
       jevVetoed:analyses.filter(x=>x.jevVeto===true).length,
+      jevShadowCalled:analyses.filter(x=>x.jevShadowCalled===true).length,
+      jevShadowWouldVeto:analyses.filter(x=>x.jevShadowWouldVeto===true).length,
+      jevShadowReasonCounts:(()=>{
+        const m=new Map();
+        for(const x of analyses)for(const r of Array.isArray(x.jevShadowReasons)?x.jevShadowReasons:[]){
+          const k=String(r||'').trim();if(k)m.set(k,(m.get(k)||0)+1);
+        }
+        return [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([reason,count])=>({reason,count}));
+      })(),
       qualified:statusCount('QUALIFIED'),
       watch:statusCount('WATCH'),
       reviewRequired:statusCount('REVIEW_REQUIRED'),
@@ -2274,6 +2283,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const preJevStatus=String(advisory?.preJevPlan?.status || advisory?.plan?.previousStatus || planStatus).toUpperCase();
       const planReason=String(advisory?.plan?.reason || advisory?.reason || '');
       const jevDecision=advisory?.jevDecision || advisory?.plan?.jevDecision || null;
+      const jevShadowDecision=advisory?.jevShadowDecision || advisory?.plan?.jevShadowDecision || null;
       const visionUnavailable=planReason==='VISION_COMMITTEE_UNAVAILABLE' || advisory?.committee?.available===false || advisory?.committee?.mode==='unavailable';
       leaderHealthEvent('ANALYSIS',{
         symbol:String(candidate.symbol || ''),
@@ -2282,6 +2292,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         jevCalled:jevDecision?.called===true,
         jevVeto:jevDecision?.veto===true,
         jevReasons:Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons.slice(0,8):[],
+        jevShadowCalled:jevShadowDecision?.called===true,
+        jevShadowWouldVeto:jevShadowDecision?.veto===true,
+        jevShadowReasons:Array.isArray(jevShadowDecision?.vetoReasons)?jevShadowDecision.vetoReasons.slice(0,8):[],
         reason:planReason,
         reasons:[...new Set([planReason,...(Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons:[])].filter(Boolean))],
         durationMs:Math.max(0,analysisEndedAt-analysisStartedAt),
