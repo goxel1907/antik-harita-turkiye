@@ -20,6 +20,7 @@ function buildDryRunOrder({ intent, riskGate } = {}) {
   const orderType = String(intent?.orderType || '').toUpperCase();
   const quantity = finite(intent?.quantity);
   const entryPrice = finite(intent?.entryPrice);
+  const entryReferencePrice = finite(intent?.entryReferencePrice);
   const stopPrice = finite(intent?.stopPrice);
   const takeProfit1 = finite(intent?.takeProfit1);
   const takeProfit2 = finite(intent?.takeProfit2);
@@ -94,6 +95,7 @@ function buildDryRunOrder({ intent, riskGate } = {}) {
       orderType,
       quantity,
       entryPrice,
+      entryReferencePrice,
       stopPrice,
       takeProfit1,
       takeProfit2,
