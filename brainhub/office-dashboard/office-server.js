@@ -251,7 +251,7 @@ function derive(snap) {
     if (la.enabled !== true) add('critical', 'AUTO_DISABLED', 'OTO işlem kapalı', 'Leader AUTO etkin değil; hiçbir aday yürütmeye gitmez.');
     if (st.armed !== true) add('critical', 'LIVE_DISARMED', 'LIVE kapalı (analiz modu)', 'Plan QUALIFIED olsa bile emir gönderilmez. PC yeniden başlarsa LIVE otomatik kapanır.');
     const fv = String(snap.health?.data?.featureVersion || st.featureVersion || '');
-    const v109 = /9\.5\.109-CLAUDE/.test(fv);
+    const v109 = /9\.5\.109-CLAUDE|9\.5\.110/.test(fv);
     const cv = h.claudeV109 || {};
     if (!v109) add('warning', 'VERSION_OLD', `PC sürümü ${fv || '?'}`, "v9.5.109-CLAUDE yüklenmemiş: sahte WAIT, worker döngüsü ve boş tetik adayı düzeltmeleri PC'de yok.");
     if (deep >= 3 && Number(h.preJevQualified || 0) === 0) add('serious', 'NO_QUALIFIED', 'Görsel analiz hiç işlem adayı üretmedi', v109
@@ -271,6 +271,9 @@ function derive(snap) {
     if (Number(h.qualified || 0) > 0 && Number(h.intentReady || 0) === 0) add('warning', 'NO_INTENT', 'QUALIFIED var, emir niyeti yok', 'Risk/intent kapısı (fiyat sapması, stop, maliyet) engelliyor olabilir.');
     if (Number(h.intentReady || 0) > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Niyet hazır, emir yok', 'Yürütme kapısı (LIVE, bakiye, fiyat sapması, grant) engelliyor.');
     if (Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
+    if (Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);
+    if (Number(h.laneScalpPlans || 0) > 0) add(Number(h.laneScalpReady||0)>0?'ok':'info','SCALP_LANE',`Scalp momentum hattı ${Number(h.laneScalpReady||0)>0?'hazır aday taşıyor':'izliyor'}`,`${h.laneScalpPlans||0} scalp planı • hazır ${h.laneScalpReady||0}. Tek 1m/3m/5m final karar vermez; en az iki alt TF + 15m karşı-veto kontrolü gerekir.`);
+    if (Number(h.laneMain15Plans || 0) > 0) add('info','MAIN_15M_LANE','15m ana işlem hattı aktif',`${h.laneMain15Plans||0} plan • 15m hazır ${h.laneMain15Ready||0}. 30m+ yapı/likidite/formasyon bağlamıdır.`);
     if (finite(h.avgAnalysisMs) !== null && h.avgAnalysisMs > 240000) add('warning', 'SLOW', 'Derin analiz yavaş', `Ortalama ${(h.avgAnalysisMs / 1000).toFixed(0)} sn; 1m/3m/5m kurulumları için geç.`);
     if (Number(h.skippedBusy || 0) > 60) add('info', 'BUSY', 'Turların çoğu atlanıyor', `${h.skippedBusy} tur yoğunluk nedeniyle atlandı (tek GPU, tek analiz).`);
   }
@@ -292,7 +295,7 @@ function derive(snap) {
     scanner: { busy: Number(h.scanRuns || 0) > 0, text: `Evren ${funnel[0].value ?? '?'} → hedef ${funnel[1].value ?? '?'} → uygun ${funnel[3].value ?? '?'}` },
     vision: { busy: !/^(IDLE|DETAIL_RUN_COMPLETE|PIXEL_RUN_COMPLETE|DETAIL_RUN_ERROR|PIXEL_RUN_ERROR)$/.test(stage), stage, text: stage },
     workers: { busy: la.planWorkers?.busy === true, text: `inceleme ${wr} • bekle ${h.workerWaits ?? 0} • tetik ${h.workerTriggers ?? 0} • yenile ${wref}` },
-    jev: { busy: false, text: `bugün ${st.jev?.budget?.calls ?? 0} çağrı • $${Number(st.jev?.budget?.spentUsd || 0).toFixed(4)}` },
+    jev: { busy: false, text: `bağlayıcı ${h.jevCalled ?? 0} • gölge ${h.jevShadowCalled ?? 0} • bugün ${Number(st.jev?.budget?.spentUsd || 0).toFixed(4)}` },
     exec: { busy: la.busy === true, text: String(la.lastExecution || '—') },
     positions: { busy: st.positionManager?.busy === true, text: String(st.positionManager?.lastReview?.actionTr || '—') }
   };
