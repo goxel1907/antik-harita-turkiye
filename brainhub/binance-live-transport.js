@@ -541,8 +541,12 @@ class BinanceLiveTransport {
 
       const tpLevels = [normalized.takeProfit1, normalized.takeProfit2, normalized.takeProfit3];
       const tpAlgoIds = [];
+      // CLAUDE_V111_TRAILING_RUNNER: BINDING modunda TP3 konmaz; son 1/3 miktar "runner" olarak
+      // iz süren stopla yönetilir. Orijinal closePosition stop yerinde kalır (yedek koruma).
+      const runnerEnabled = String(livePolicy?.runnerMode || '').toUpperCase() === 'BINDING';
+      const tpCount = runnerEnabled ? 2 : 3;
       try {
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < tpCount; i++) {
           const params = {
             algoType:'CONDITIONAL',
             symbol:normalized.symbol,
@@ -613,6 +617,7 @@ class BinanceLiveTransport {
         stopStatus:text(stop?.algoStatus) || 'NEW',
         tpAlgoIds,
         tpQuantities:tpQty,
+        runner:{ enabled:runnerEnabled, quantity:runnerEnabled ? tpQty[2] : null, takeProfit3:tpLevels[2], mode:runnerEnabled ? 'BINDING' : 'TP3_FIXED' },
         transport:{ attempted:true, requestSent:true },
         reasons:[]
       };
@@ -628,6 +633,110 @@ class BinanceLiveTransport {
         transport:{ attempted:preflightRequestSent || Boolean(e?.requestSent), requestSent:Boolean(e?.requestSent) },
         reasons:[String(e?.message || 'BINANCE_PREFLIGHT_FAILED')]
       };
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // CLAUDE_V111_TRAILING_RUNNER: yalnız koruyucu (reduce-only) emir yönetimi.
+  // Giriş/pozisyon açma yetkisi yoktur; grant tüketmez.
+  // ------------------------------------------------------------------
+  async positionSnapshot({ symbol, side, credentials } = {}) {
+    const sym = text(symbol)?.toUpperCase();
+    const s = text(side)?.toUpperCase();
+    if (!sym || !['LONG','SHORT'].includes(s)) return { ok:false, reason:'RUNNER_SNAPSHOT_INPUT_INVALID' };
+    try {
+      await this._syncServerTime();
+      const mode = await this._fetchJson('GET', '/fapi/v1/positionSide/dual', { credentials, signed:true });
+      const hedgeMode = mode?.dualSidePosition === true;
+      const rows = await this._fetchJson('GET', '/fapi/v3/positionRisk', { params:{ symbol:sym }, credentials, signed:true });
+      const list = Array.isArray(rows) ? rows : [];
+      const row = hedgeMode
+        ? list.find(x => text(x?.positionSide)?.toUpperCase() === s)
+        : list.find(x => text(x?.positionSide || 'BOTH')?.toUpperCase() === 'BOTH');
+      const amt = finite(row?.positionAmt) || 0;
+      const sideMatches = hedgeMode ? true : (s === 'LONG' ? amt > 0 : amt < 0);
+      const qty = sideMatches ? Math.abs(amt) : 0;
+      const exchangeInfo = await this._fetchJson('GET', '/fapi/v1/exchangeInfo');
+      const info = Array.isArray(exchangeInfo?.symbols) ? exchangeInfo.symbols.find(x => x?.symbol === sym) : null;
+      const lot = filterOf(info, 'MARKET_LOT_SIZE') || filterOf(info, 'LOT_SIZE');
+      const priceFilter = filterOf(info, 'PRICE_FILTER');
+      return {
+        ok:true, symbol:sym, side:s, hedgeMode, positionSide:hedgeMode ? s : 'BOTH', qty,
+        oppositeOpen:!sideMatches && amt !== 0,
+        entryPrice:finite(row?.entryPrice), markPrice:finite(row?.markPrice),
+        tickSize:finite(priceFilter?.tickSize), stepSize:finite(lot?.stepSize)
+      };
+    } catch (e) {
+      return { ok:false, reason:String(e?.message || 'RUNNER_SNAPSHOT_FAILED').slice(0,120), exchangeError:e?.body || null };
+    }
+  }
+
+  async placeRunnerStop({ symbol, side, positionSide = 'BOTH', hedgeMode = false, quantity, triggerPrice, clientAlgoId, credentials } = {}) {
+    const s = text(side)?.toUpperCase();
+    const qty = finite(quantity), price = finite(triggerPrice);
+    if (!text(symbol) || !['LONG','SHORT'].includes(s) || qty === null || qty <= 0 || price === null || price <= 0) {
+      return { ok:false, reason:'RUNNER_STOP_INPUT_INVALID' };
+    }
+    const params = {
+      algoType:'CONDITIONAL',
+      symbol:text(symbol).toUpperCase(),
+      side:s === 'LONG' ? 'SELL' : 'BUY',
+      positionSide:hedgeMode ? s : 'BOTH',
+      type:'STOP_MARKET',
+      triggerPrice:decimal(price),
+      workingType:'MARK_PRICE',
+      quantity:decimal(qty),
+      priceProtect:'true',
+      clientAlgoId:String(clientAlgoId || '').slice(0,36) || undefined,
+      newOrderRespType:'ACK'
+    };
+    if (!hedgeMode) params.reduceOnly = 'true';
+    try {
+      const ack = await this._fetchJson('POST', '/fapi/v1/algoOrder', { credentials, signed:true, params });
+      const algoId = ack?.algoId ?? null;
+      if (algoId === null) return { ok:false, reason:'RUNNER_STOP_ACK_INVALID' };
+      return { ok:true, algoId, triggerPrice:price, quantity:qty };
+    } catch (e) {
+      return { ok:false, reason:String(e?.message || 'RUNNER_STOP_FAILED').slice(0,120), exchangeError:e?.body || null };
+    }
+  }
+
+  async placeTakeProfit({ symbol, side, hedgeMode = false, quantity, triggerPrice, clientAlgoId, credentials } = {}) {
+    const s = text(side)?.toUpperCase();
+    const qty = finite(quantity), price = finite(triggerPrice);
+    if (!text(symbol) || !['LONG','SHORT'].includes(s) || qty === null || qty <= 0 || price === null || price <= 0) {
+      return { ok:false, reason:'RUNNER_TP_INPUT_INVALID' };
+    }
+    const params = {
+      algoType:'CONDITIONAL',
+      symbol:text(symbol).toUpperCase(),
+      side:s === 'LONG' ? 'SELL' : 'BUY',
+      positionSide:hedgeMode ? s : 'BOTH',
+      type:'TAKE_PROFIT_MARKET',
+      triggerPrice:decimal(price),
+      workingType:'MARK_PRICE',
+      quantity:decimal(qty),
+      priceProtect:'true',
+      clientAlgoId:String(clientAlgoId || '').slice(0,36) || undefined,
+      newOrderRespType:'ACK'
+    };
+    if (!hedgeMode) params.reduceOnly = 'true';
+    try {
+      const ack = await this._fetchJson('POST', '/fapi/v1/algoOrder', { credentials, signed:true, params });
+      const algoId = ack?.algoId ?? null;
+      return algoId === null ? { ok:false, reason:'RUNNER_TP_ACK_INVALID' } : { ok:true, algoId };
+    } catch (e) {
+      return { ok:false, reason:String(e?.message || 'RUNNER_TP_FAILED').slice(0,120), exchangeError:e?.body || null };
+    }
+  }
+
+  async cancelAlgoOrder({ algoId, credentials } = {}) {
+    if (algoId === null || algoId === undefined || algoId === '') return { ok:false, reason:'RUNNER_CANCEL_INPUT_INVALID' };
+    try {
+      await this._fetchJson('DELETE', '/fapi/v1/algoOrder', { params:{ algoId:String(algoId) }, credentials, signed:true });
+      return { ok:true, algoId };
+    } catch (e) {
+      return { ok:false, algoId, reason:String(e?.message || 'RUNNER_CANCEL_FAILED').slice(0,120), exchangeError:e?.body || null };
     }
   }
 }

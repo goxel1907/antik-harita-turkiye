@@ -16,6 +16,8 @@ const positionManager = require('./position-manager');
 const planWorkers = require('./plan-workers');
 const { isNonConcreteWait } = require('./wait-condition');
 const claudeV109 = require('./claude-v109');
+const claudeV111 = require('./claude-v111');
+const tradeLanesV111 = require('./trade-lanes');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -311,7 +313,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const ticks = ev.filter(x => x.kind === 'TICK_RESULT');
     const executionStages = ev.filter(x => x.kind === 'EXECUTION_STAGE');
     const workerReviews = ev.filter(x => x.kind === 'WORKER_REVIEW');
-    const durations = analyses.map(x => Number(x.durationMs)).filter(Number.isFinite);
+    // CLAUDE_V111: saniyelik yeniden doğrulamalar Vision süresi ortalamasını bozmasın.
+    const durations = analyses.filter(x => x.claudeRevalidated !== true).map(x => Number(x.durationMs)).filter(Number.isFinite);
     const reasonCounts = new Map();
     for (const x of [...analyses,...ticks]) {
       const perEvent=new Set([
@@ -366,6 +369,24 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         jevShadowV108WouldVeto:analyses.filter(x=>x.jevShadowWouldVeto===true).length,
         jevShadowRoleWeightedWouldVeto:analyses.filter(x=>x.jevShadowRoleWeightedVeto===true).length,
         chaseBlocked:executionStages.filter(x=>x.stage==='CHASE_BLOCKED').length
+      },
+      // CLAUDE_V111: sayısal tetik → yeniden doğrulama → Jev; momentum scalp; runner.
+      claudeV111:{
+        marker:claudeV111.marker,
+        config:claudeV111.readConfig(),
+        dtMode:claudeV109.readConfig().deterministicTriggerMode,
+        revalidationAttempts:analyses.filter(x=>x.claudeRevalidationAttempted===true).length,
+        revalidated:analyses.filter(x=>x.claudeRevalidated===true).length,
+        revalidationFailed:analyses.filter(x=>x.claudeRevalidationAttempted===true&&x.claudeRevalidated!==true).length,
+        revalidationReasonCounts:(()=>{
+          const m=new Map();
+          for(const x of analyses)for(const r of Array.isArray(x.claudeRevalidationReasons)?x.claudeRevalidationReasons:[]){const k=String(r||'').split(':')[0];if(k)m.set(k,(m.get(k)||0)+1);}
+          return [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([reason,count])=>({reason,count}));
+        })(),
+        jevCalledAfterCode:analyses.filter(x=>x.jevCalled===true&&(x.claudeRevalidated===true||x.claudeDtApplied===true)).length,
+        jevApprovedAfterCode:analyses.filter(x=>x.jevCalled===true&&x.jevVeto!==true&&(x.claudeRevalidated===true||x.claudeDtApplied===true)).length,
+        momentumScalpTriggers:analyses.filter(x=>x.claudeDtLane==='SCALP_MOMENTUM').length,
+        runner:runnerSummary()
       },
       jevShadowWouldVeto:analyses.filter(x=>x.jevShadowWouldVeto===true).length,
       jevShadowReasonCounts:(()=>{
@@ -454,7 +475,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // güncellenmiyor; ChatGPT v109'da aynı sembol her tick önceliği yeniden alıyordu.
       const attemptAt=Number(row?.workerEscalationAttemptAt||0);
       const recentFailedAttempt=attemptAt>0&&attemptAt>=Number(row?.workerEscalatedAt||0)&&now-attemptAt<LEADER_AUTO_REANALYSIS_COOLDOWN_MS;
-      return pending && !recentFailedAttempt && (!lastAnalyzed || now-lastAnalyzed>=LEADER_AUTO_REANALYSIS_COOLDOWN_MS);
+      // CLAUDE_V111: hızlı yeniden doğrulama Vision harcamaz → 5 dk yeniden analiz soğuması gerekmez.
+      const cheapReval=Boolean(claudeV111.revalidationIntent(row,{now}));
+      return pending && !recentFailedAttempt && (cheapReval || !lastAnalyzed || now-lastAnalyzed>=LEADER_AUTO_REANALYSIS_COOLDOWN_MS);
     });
     if(index>=0){
       const candidate=candidates[index];
@@ -1030,11 +1053,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           return {ok:true,symbol:tracked.symbol,worker:true,state:tracked.state,planStatus:tracked.planStatus,workerState:'WAIT',visionAvoided:true};
         }
       }
+      const trackedReval=claudeV111.revalidationIntent(leaderAnalysisState.bySymbol?.[String(tracked.symbol||'').toUpperCase()],{now:clock()});
       const advisory=await pipeline.run({
         scan,
         store,
         committee,
-        executionIntent:{ symbol:tracked.symbol, side:tracked.side, analysisTracking:true }
+        executionIntent:{ symbol:tracked.symbol, side:tracked.side, analysisTracking:true, ...(trackedReval?{triggerRevalidation:trackedReval}:{}) }
       });
       const planStatus=String(advisory?.plan?.status || '').toUpperCase();
       if (advisory?.candidateFound && advisory?.unifiedContext && advisory?.plan) {
@@ -1124,7 +1148,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       busy:positionReviewBusy,
       cadenceMinutes:5,
       execution:'ADVISORY_ONLY',
-      ruleTr:'1m/3m/5m tek başına çıkış kararı vermez; owner zaman dilimi ve büyük resim doğrulaması gerekir.',
+      // CLAUDE_V111: bu kural AÇIK POZİSYONDAN ÇIKIŞ içindir; giriş/scalp fırsatlarını engellemez.
+      ruleTr:'Açık pozisyon ÇIKIŞ kuralı: tek bir 1m/3m/5m tersliği pozisyonu kapattırmaz; owner TF ve 15m/büyük resim doğrulaması gerekir. GİRİŞ: 15m ana hat; momentum coinlerde 1m/3m/5m scalp (2/3 alt TF hizalı + 15m karşı değil) değerlendirilir, kâr runner ile momentum tükenene kadar taşınır.',
       lastTickAt:positionManagerState.lastTickAt,
       lastError:positionManagerState.lastError,
       lastReview:positionManagerState.lastReview,
@@ -1206,6 +1231,172 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       positionManagerState.lastError=reason;
       return {ok:false,skipped:false,reason};
     }finally{positionReviewBusy=false;}
+  }
+
+  // =====================================================================
+  // CLAUDE_V111_TRAILING_RUNNER — TP3 yerine iz süren stop.
+  // TP1 dolunca stop başabaşa (+ücret), TP2 dolunca kalan runner momentum merdiveninin en yüksek
+  // destekleyen TF swing'iyle izlenir; momentum tükenirse 1m swing'e sıkılaşır. Stop asla genişlemez.
+  // Orijinal closePosition stop hiç iptal edilmez; yeni stoplar reduce-only'dir (pozisyon açamaz).
+  // Borsa hatası tekrarlanırsa sabit TP3 yeniden konur (CLAUDE_V111_RUNNER_TP3_FALLBACK).
+  // =====================================================================
+  const runnerFile=path.join(root,'data','claude-v111-runner-state.json');
+  let runnerState=(()=>{try{const x=JSON.parse(fs.readFileSync(runnerFile,'utf8'));return x&&typeof x==='object'&&x.bySymbol&&typeof x.bySymbol==='object'?x:{bySymbol:{}};}catch{return {bySymbol:{}};}})();
+  let runnerBusy=false;
+  let runnerLast=null;
+  function writeRunnerState(){
+    try{
+      fs.mkdirSync(path.dirname(runnerFile),{recursive:true});
+      const tmp=runnerFile+'.tmp';
+      fs.writeFileSync(tmp,JSON.stringify(runnerState,null,2),'utf8');
+      fs.renameSync(tmp,runnerFile);
+    }catch{}
+  }
+  function runnerEvent(row,kind,data={}){
+    const ev={at:new Date(clock()).toISOString(),kind,...data};
+    row.events=[...(Array.isArray(row.events)?row.events:[]),ev].slice(-20);
+    try{store.journal('CLAUDE_V111_RUNNER',row.symbol,{kind,mode:row.mode,phase:row.phase,side:row.side,...data});}catch{}
+  }
+  function registerRunner({intent,result,mode}){
+    const symbol=String(result?.symbol||intent?.symbol||'').toUpperCase();
+    if(!/^[A-Z0-9]{2,28}$/.test(symbol))return null;
+    const row={
+      symbol,
+      side:String(result?.side||intent?.side||'').toUpperCase(),
+      mode,
+      runnerOrdersLive:result?.runner?.enabled===true,
+      entryPrice:finite(intent?.entryPrice),
+      initialQty:finite(result?.executedQty),
+      tpQty:Array.isArray(result?.tpQuantities)?result.tpQuantities.map(finite):null,
+      originalStopPrice:finite(intent?.stopPrice),
+      originalStopAlgoId:result?.stopAlgoId??null,
+      tpAlgoIds:Array.isArray(result?.tpAlgoIds)?result.tpAlgoIds.slice(0,3):[],
+      takeProfit3:finite(intent?.takeProfit3),
+      originTF:String(intent?.originTF||'').toLowerCase(),
+      currentStop:finite(intent?.stopPrice),
+      shadowStop:null,
+      runnerAlgoIds:[],
+      phase:'INITIAL',
+      failures:0,
+      tp3FallbackPlaced:false,
+      createdAt:clock(),
+      lastActionAt:0,
+      events:[]
+    };
+    runnerState.bySymbol[symbol]=row;
+    runnerEvent(row,'REGISTERED',{runnerOrdersLive:row.runnerOrdersLive,entryPrice:row.entryPrice,initialQty:row.initialQty,tpQty:row.tpQty,originTF:row.originTF});
+    writeRunnerState();
+    return row;
+  }
+  function runnerSummary(){
+    const rows=Object.values(runnerState.bySymbol||{}).filter(x=>x&&typeof x==='object');
+    return {
+      mode:claudeV111.readConfig().runnerMode,
+      open:rows.filter(x=>x.phase!=='CLOSED').length,
+      rows:rows.sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0)).slice(0,6).map(x=>({
+        symbol:x.symbol,side:x.side,mode:x.mode,phase:x.phase,runnerOrdersLive:x.runnerOrdersLive===true,
+        entryPrice:finite(x.entryPrice),currentStop:finite(x.currentStop),shadowStop:finite(x.shadowStop),
+        trailTf:x.lastDesired?.trail?.tf||null,lastReason:x.lastDesired?.reason||x.lastDesired?.basis||null,
+        failures:Number(x.failures||0),tp3FallbackPlaced:x.tp3FallbackPlaced===true
+      })),
+      last:runnerLast
+    };
+  }
+  async function cancelRunnerOrphans(row,creds){
+    const ids=[...(row.runnerAlgoIds||[]),...(row.tpAlgoIds||[]),row.tp3FallbackAlgoId,row.originalStopAlgoId].filter(x=>x!==null&&x!==undefined&&x!=='');
+    const out=[];
+    for(const id of [...new Set(ids.map(String))]){
+      const r=await transport.cancelAlgoOrder({algoId:id,credentials:creds});
+      out.push({algoId:id,ok:r.ok===true,reason:r.reason||null});
+    }
+    return out;
+  }
+  async function manageRunner(row,cfg,creds){
+    const snap=await transport.positionSnapshot({symbol:row.symbol,side:row.side,credentials:creds});
+    if(!snap.ok)return {symbol:row.symbol,ok:false,reason:snap.reason};
+    if(!(snap.qty>0)){
+      row.phase='CLOSED';
+      row.closedAt=clock();
+      let cleanup=null;
+      // Pozisyon kapandıysa bu işleme ait artık koşullu emirler (TP/stop) yeni pozisyonu etkilemesin.
+      if(row.mode==='BINDING'&&cfg.runnerMode==='BINDING')cleanup=await cancelRunnerOrphans(row,creds);
+      runnerEvent(row,'CLOSED',{cleanup});
+      return {symbol:row.symbol,ok:true,phase:'CLOSED',action:'CLOSED',cleanup};
+    }
+    const phase=claudeV111.runnerPhase({initialQty:row.initialQty,tpQty:row.tpQty,remainingQty:snap.qty,stepSize:snap.stepSize});
+    if(phase!==row.phase){runnerEvent(row,'PHASE',{from:row.phase,to:phase,remainingQty:snap.qty});row.phase=phase;}
+    if(!['BREAKEVEN','TRAILING'].includes(phase))return {symbol:row.symbol,ok:true,phase,action:'NONE'};
+    let unified=null;
+    if(phase==='TRAILING'){try{unified=await workerUnifiedContext({symbol:row.symbol,side:row.side});}catch{unified=null;}}
+    const lane=unified?tradeLanesV111.analyzeTradeLanes(unified,row.side,null):null;
+    const binding=row.mode==='BINDING'&&cfg.runnerMode==='BINDING'&&row.runnerOrdersLive===true;
+    const currentStop=binding?finite(row.currentStop):(finite(row.shadowStop)??finite(row.originalStopPrice));
+    const desired=claudeV111.desiredRunnerStop({
+      side:row.side,phase,entryPrice:finite(snap.entryPrice)??row.entryPrice,markPrice:snap.markPrice,
+      currentStop,frames:unified?.frames||{},lane,originTF:row.originTF,tickSize:snap.tickSize,config:cfg
+    });
+    row.lastDesired={...desired,at:new Date(clock()).toISOString()};
+    if(!desired.ok)return {symbol:row.symbol,ok:true,phase,action:'HOLD',reason:desired.reason};
+    if(!binding){
+      row.shadowStop=desired.target;
+      runnerEvent(row,'SHADOW_STOP',{target:desired.target,basis:desired.basis,trailTf:desired.trail?.tf||null,markPrice:snap.markPrice});
+      return {symbol:row.symbol,ok:true,phase,action:'SHADOW',target:desired.target};
+    }
+    const now=clock();
+    if(now-Number(row.lastActionAt||0)<cfg.runnerReplaceCooldownSec*1000)return {symbol:row.symbol,ok:true,phase,action:'COOLDOWN'};
+    row.lastActionAt=now;
+    const placed=await transport.placeRunnerStop({
+      symbol:row.symbol,side:row.side,hedgeMode:snap.hedgeMode,quantity:snap.qty,triggerPrice:desired.target,
+      clientAlgoId:('CR'+row.symbol.slice(0,10)+Math.floor(now/1000).toString(36)).slice(0,36),credentials:creds
+    });
+    if(!placed.ok){
+      row.failures=Number(row.failures||0)+1;
+      runnerEvent(row,'STOP_MOVE_FAILED',{target:desired.target,reason:placed.reason,exchangeError:placed.exchangeError||null,failures:row.failures});
+      if(row.failures>=cfg.runnerMaxFailuresBeforeTp3&&!row.tp3FallbackPlaced&&finite(row.takeProfit3)!==null){
+        const q3=Array.isArray(row.tpQty)?finite(row.tpQty[2]):null;
+        const tp=await transport.placeTakeProfit({
+          symbol:row.symbol,side:row.side,hedgeMode:snap.hedgeMode,quantity:Math.min(q3??snap.qty,snap.qty),triggerPrice:row.takeProfit3,
+          clientAlgoId:('CT'+row.symbol.slice(0,10)+Math.floor(now/1000).toString(36)).slice(0,36),credentials:creds
+        });
+        row.tp3FallbackPlaced=tp.ok===true;
+        row.tp3FallbackAlgoId=tp.algoId??null;
+        runnerEvent(row,'TP3_FALLBACK',{ok:tp.ok===true,reason:tp.reason||null});
+      }
+      return {symbol:row.symbol,ok:false,phase,action:'STOP_MOVE_FAILED',reason:placed.reason};
+    }
+    const previous=(row.runnerAlgoIds||[]).slice();
+    row.runnerAlgoIds=[placed.algoId];
+    const from=row.currentStop;
+    row.currentStop=desired.target;
+    row.failures=0;
+    const cancelled=[];
+    for(const id of previous){const r=await transport.cancelAlgoOrder({algoId:id,credentials:creds});cancelled.push({algoId:id,ok:r.ok===true});}
+    runnerEvent(row,'STOP_MOVED',{from,to:desired.target,basis:desired.basis,trailTf:desired.trail?.tf||null,algoId:placed.algoId,cancelled});
+    return {symbol:row.symbol,ok:true,phase,action:'STOP_MOVED',target:desired.target};
+  }
+  async function runnerTick(){
+    const cfg=claudeV111.readConfig();
+    const rows=Object.values(runnerState.bySymbol||{}).filter(x=>x&&typeof x==='object'&&x.phase!=='CLOSED');
+    if(cfg.runnerMode==='OFF')return {ok:true,skipped:true,reason:'RUNNER_OFF'};
+    if(!rows.length)return {ok:true,skipped:true,reason:'RUNNER_NO_POSITION'};
+    if(runnerBusy)return {ok:true,skipped:true,reason:'RUNNER_BUSY'};
+    const creds=currentCredentials();
+    if(!credentialsReady(creds))return {ok:true,skipped:true,reason:'RUNNER_CREDENTIALS_REQUIRED'};
+    runnerBusy=true;
+    const results=[];
+    try{
+      for(const row of rows.slice(0,4)){
+        try{results.push(await manageRunner(row,cfg,creds));}
+        catch(e){row.lastError=String(e?.message||e).slice(0,200);results.push({symbol:row.symbol,ok:false,reason:row.lastError});}
+      }
+      // Kapanmış kayıtlar 24 saat sonra temizlenir.
+      for(const [k,v] of Object.entries(runnerState.bySymbol||{})){
+        if(v?.phase==='CLOSED'&&clock()-Number(v.closedAt||0)>86400000)delete runnerState.bySymbol[k];
+      }
+      writeRunnerState();
+      runnerLast={at:new Date(clock()).toISOString(),results};
+      return {ok:true,results};
+    }finally{runnerBusy=false;}
   }
 
   function currentCredentials() {
@@ -2430,12 +2621,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
     let advisory;
     const analysisStartedAt=Number.isFinite(clock()) ? clock() : Date.now();
+    // CLAUDE_V111_TRIGGER_REVALIDATION: worker sayısal kapanış tetiği gördüyse 8 dk'lık Vision yerine
+    // saklanan planın hızlı yeniden doğrulaması denenir (geçmezse pipeline tam 9TF'ye döner).
+    const revalIntent=claudeV111.revalidationIntent(leaderAnalysisState.bySymbol?.[String(candidate.symbol||'').toUpperCase()],{now:clock()});
     try {
       advisory = await pipeline.run({
         scan,
         store,
         committee,
-        executionIntent:{ symbol:candidate.symbol }
+        executionIntent:{ symbol:candidate.symbol, ...(revalIntent?{triggerRevalidation:revalIntent}:{}) }
       });
       const analysisEndedAt=Number.isFinite(clock()) ? clock() : Date.now();
       const planStatus=String(advisory?.plan?.status || advisory?.status || 'REVIEW_REQUIRED').toUpperCase();
@@ -2460,7 +2654,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         jevRoleWeightedVeto:jevDecision?.claudeRoleWeighted?.veto===true,
         jevShadowRoleWeightedVeto:jevShadowDecision?.claudeRoleWeighted?.veto===true,
         jevShadowRoleWeightedCalled:Boolean(jevShadowDecision?.claudeRoleWeighted),
-        claudeDtWouldQualify:advisory?.plan?.claudeDeterministicTrigger?.wouldQualify===true,
+        claudeDtWouldQualify:advisory?.plan?.claudeDeterministicTrigger?.wouldQualify===true||advisory?.plan?.claudeDeterministicTrigger?.applied===true,
+        claudeDtLane:advisory?.plan?.claudeDeterministicTrigger?.laneName||null,
+        claudeRevalidationAttempted:Boolean(revalIntent),
+        claudeRevalidated:advisory?.plan?.claudeTriggerRevalidation?.ok===true&&advisory?.committee?.mode==='claude_v111_trigger_revalidation',
+        claudeRevalidationReasons:Array.isArray(advisory?.plan?.claudeTriggerRevalidation?.reasons)?advisory.plan.claudeTriggerRevalidation.reasons.slice(0,8):[],
         claudeDtApplied:advisory?.plan?.claudeDeterministicTrigger?.applied===true,
         claudeTriggerAutoSelected:advisory?.plan?.triggerSpec?.autoSelected===true,
         claudeNumericWait:advisory?.plan?.waitForRepairedBy==='CLAUDE_V109_NUMERIC_WAIT_FALLBACK',
@@ -2743,8 +2941,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       symbol:intent.symbol,
       reason:null
     });
+    // CLAUDE_V111_TRAILING_RUNNER: giriş anındaki runner modu (BINDING → TP3 yerine iz süren stop).
+    const runnerModeAtEntry=claudeV111.readConfig().runnerMode;
     const result = await executeExclusive({
       eventId,
+      claudeRunnerMode:runnerModeAtEntry,
       order,
       structuralInvalidationPrice:intent.structuralInvalidationPrice,
       bufferQuote:intent.buffer,
@@ -2782,6 +2983,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       executionLifecycle.activeAt=clock();
       leaderAnalysisState.bySymbol[String(candidate.symbol||'').toUpperCase()]=executionLifecycle;
       writeLeaderAnalysisState();
+      if(result?.stopProtected===true&&runnerModeAtEntry!=='OFF'){
+        try{registerRunner({intent,result,mode:runnerModeAtEntry});}catch{}
+      }
       try{store.recordLearning?.('POSITION_OPENED',intent.symbol,{side:intent.side,setup:advisory?.plan?.setup,originTF:intent.originTF,ownerTF:advisory?.plan?.ownerTF,decision:'ACTIVE',entryPrice:intent.entryPrice,quantity:intent.quantity});}catch{}
     }
     annotateLeaderDiagnostic(candidate.symbol, result?.orderPlaced === true ? 'ORDER_PLACED' : 'EXECUTION_RESULT', result?.reasons || [], {
@@ -3055,7 +3259,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       grantId:grant.grant.grantId,
       order,
       credentials:creds,
-      livePolicy:{ expectedLeverage:settings.leverage, maxEntryDeviationPct:policy.maxEntryDeviationPct }
+      livePolicy:{
+        expectedLeverage:settings.leverage,
+        maxEntryDeviationPct:policy.maxEntryDeviationPct,
+        // CLAUDE_V111_TRAILING_RUNNER: yalnız Leader AUTO girişlerinde; mobil manuel emir TP3'lü kalır.
+        runnerMode:body?.approvedAnalysis?.source==='LEADER_AUTO_9TF_JEV_APPROVED'?String(body?.claudeRunnerMode||'OFF'):'OFF'
+      }
     });
 
     const uncertainSubmit = result?.manualReviewRequired === true ||
@@ -3087,7 +3296,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };

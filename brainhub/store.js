@@ -15,6 +15,7 @@ function openStore(root) {
       symbol TEXT, payload TEXT NOT NULL, outcome TEXT
     );
     CREATE INDEX IF NOT EXISTS journal_ts ON journal(ts DESC);
+    CREATE INDEX IF NOT EXISTS journal_kind_symbol_ts ON journal(kind,symbol,ts DESC);
     CREATE TABLE IF NOT EXISTS learning_events (
       id TEXT PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL,
       symbol TEXT, side TEXT, setup TEXT, origin_tf TEXT, owner_tf TEXT,
@@ -36,6 +37,8 @@ function openStore(root) {
   const insert = db.prepare('INSERT INTO journal(id,ts,kind,symbol,payload) VALUES(?,?,?,?,?)');
   const list = db.prepare('SELECT id,ts,kind,symbol,payload,outcome FROM journal ORDER BY ts DESC LIMIT ?');
   const outcome = db.prepare('UPDATE journal SET outcome=? WHERE id=?');
+  // CLAUDE_V111_TRIGGER_REVALIDATION: sembolün son 9TF planı (Vision'sız yeniden doğrulama için).
+  const latestByKind = db.prepare('SELECT id,ts,kind,symbol,payload FROM journal WHERE kind=? AND symbol=? ORDER BY ts DESC LIMIT 1');
   const learnInsert=db.prepare('INSERT INTO learning_events(id,ts,kind,symbol,side,setup,origin_tf,owner_tf,decision,confidence,outcome_pct,payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
   const learnRecent=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct FROM learning_events WHERE (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
   const learnStats=db.prepare("SELECT side,setup,origin_tf AS originTF,owner_tf AS ownerTF,COUNT(*) AS samples,AVG(outcome_pct) AS avgOutcomePct,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins FROM learning_events WHERE outcome_pct IS NOT NULL GROUP BY side,setup,origin_tf,owner_tf ORDER BY samples DESC LIMIT 20");
@@ -56,6 +59,14 @@ function openStore(root) {
     if (body.length > 65536) throw new Error('journal payload too large');
     insert.run(id, Date.now(), kind, symbol || null, body);
     return id;
+  }
+  function latestJournal(kind, symbol) {
+    if (!/^[A-Z0-9_]{2,40}$/.test(String(kind || '')) || !/^[A-Z0-9]{2,28}$/.test(String(symbol || ''))) return null;
+    const row = latestByKind.get(kind, symbol);
+    if (!row) return null;
+    let payload = null;
+    try { payload = JSON.parse(row.payload); } catch { return null; }
+    return { id:row.id, ts:row.ts, kind:row.kind, symbol:row.symbol, payload };
   }
   function getJournal(limit = 50) {
     return list.all(Math.max(1, Math.min(200, Number(limit) || 50))).map(x => ({ ...x, payload: JSON.parse(x.payload) }));
@@ -182,6 +193,6 @@ function openStore(root) {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 
-  return { db, journal, getJournal, label, learning, recordLearning, learningContext, lease, claim, releaseClaim };
+  return { db, journal, getJournal, latestJournal, label, learning, recordLearning, learningContext, lease, claim, releaseClaim };
 }
 module.exports = { openStore };

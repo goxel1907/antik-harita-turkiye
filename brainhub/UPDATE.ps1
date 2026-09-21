@@ -92,7 +92,9 @@ try {
         $text -notmatch 'V110_SCALP_TWO_OF_THREE' -or
         $text -notmatch 'V110_NUMERIC_TRIGGER_H8' -or
         $text -notmatch "'trade-lanes.js'" -or
-        $text -notmatch "'v110.js'"
+        $text -notmatch "'v110.js'" -or
+        $text -notmatch 'CLAUDE_V111_UPDATER_FILESET' -or
+        $text -notmatch "'claude-v111.js'"
     ) {
         throw 'Guncel BrainHub updater bootstrap isaretleri bulunamadi; eski updater calistirilmadi.'
     }

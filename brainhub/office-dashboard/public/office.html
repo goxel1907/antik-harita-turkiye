@@ -230,7 +230,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <dl class="kv" id="wKv" style="margin-top:10px"></dl>
     </div>
     <div class="card v109">
-      <h2>Claude v9.5.109 • gölge ölçüm <span class="hint">24 saat kanıt → sonra BINDING</span></h2>
+      <h2>Claude v9.5.111 • kod-tetik → Jev • runner <span class="hint">v109 gölge ölçüm + v111 hızlı doğrulama</span></h2>
       <dl class="kv" id="v109Kv"></dl>
       <div class="v109-bars" id="v109Bars"></div>
       <div class="legend" id="v109Note"></div>
@@ -272,7 +272,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtTime = ts => { if(!ts) return '—'; const d = new Date(ts); return d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}); };
-const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+// CLAUDE_V111: null/boş değer 0 değildir (eski sürüm “0.00%” gösteriyordu).
+const num = v => { if (v === null || v === undefined || (typeof v === 'string' && !v.trim())) return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 const TFS = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const DESK_COLOR = { scanner:'var(--series-4)', vision:'var(--series-1)', brain:'var(--series-7)', workers:'var(--series-3)', orfree:'var(--series-3)', jev:'var(--series-5)', risk:'var(--series-2)', exec:'var(--series-2)', positions:'var(--series-4)', archive:'var(--text-muted)', learning:'var(--series-7)' };
 const STATUS_COLOR = { QUALIFIED:'var(--good)', WATCH:'var(--warning)', REVIEW_REQUIRED:'var(--serious)', REJECT:'var(--critical)' };
@@ -634,7 +635,7 @@ function renderPositions(s){
   const stats=le.stats||[]; const samples=stats.reduce((a,x)=>a+Number(x.samples||0),0);
   $('#posKv').innerHTML = [
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
-    ['Kural', pm.ruleTr || '15m ana işlem hattıdır. 1m/3m/5m tek başına final giriş/çıkış kararı vermez; scalp hattında en az iki alt TF uyumu ve 15m karşı-veto kontrolü gerekir.'],
+    ['Kural', pm.ruleTr || '15m ana işlem hattıdır. Momentum coinlerde 1m/3m/5m scalp fırsatı değerlendirilir (en az iki alt TF uyumu + 15m karşı-veto yok); tek bir alt TF tek başına giriş/çıkış kararı vermez.'],
     ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
 }
@@ -738,15 +739,24 @@ function renderOffice(s, vinfo){
 function renderV109(s){
   const st=s.status?.data||{}; const h=st.leaderAuto?.health||{}; const cv=h.claudeV109;
   const fv=String(s.health?.data?.featureVersion||st.featureVersion||'');
-  const isV109=/9\.5\.109-CLAUDE/.test(fv);
+  const isV109=/9\.5\.1(09|1[0-9])/.test(fv);
+  const isV111=/9\.5\.111-CLAUDE/.test(fv);
+  const c111=h.claudeV111||null;
+  const cfg111=c111?.config||s.health?.data?.claudeV111Config||st.claudeV111Config||{};
   const cfg=cv?.config||s.health?.data?.claudeV109Config||st.claudeV109Config||{};
-  chip('#chipClaude', isV109?'claude':'warn', isV109?`CLAUDE_V109 • DT ${cfg.deterministicTriggerMode||'SHADOW'}`:'CLAUDE_V109 bekleniyor');
+  chip('#chipClaude', isV109?'claude':'warn', isV111?`CLAUDE_V111 • kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • runner ${cfg111.runnerMode||'SHADOW'}`:(isV109?`CLAUDE_V109 • DT ${cfg.deterministicTriggerMode||'SHADOW'}`:'CLAUDE_V109 bekleniyor'));
   $('#jevPolicy').textContent = cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED' ? 'Claude rol-ağırlıklı' : 'v108 (herhangi biri ≥0,65)';
   const pct=v=>{const n=num(v); return n==null?'—':(n>0?'+':'')+n.toFixed(2)+'%';};
   const hrs=num(h.shadowEvidenceHours);
   $('#v109Kv').innerHTML = (isV109 ? [
     ['Sürüm', `${fv} • ${s.health?.data?.builtBy?'Claude':''}`],
     ['Mod', `kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • Jev ${cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED'?'rol-ağırlıklı':'v108'}`],
+    ...(isV111 ? [
+      ['Kod-tetik → Jev (v111)', `<b>${c111?.revalidated??0}</b> hızlı doğrulama / ${c111?.revalidationAttempts??0} deneme • Jev’e giden <b>${c111?.jevCalledAfterCode??0}</b> • Jev onayı ${c111?.jevApprovedAfterCode??0}`],
+      ['Momentum scalp tetiği', `${c111?.momentumScalpTriggers??0} (1m/3m/5m, 2/3 hizalı, 15m karşı değil)`],
+      ['Runner (TP3 yerine)', `${cfg111.runnerMode||'SHADOW'} • açık ${c111?.runner?.open??0}${(c111?.runner?.rows||[]).slice(0,2).map(r=>` • ${r.symbol} ${r.phase} stop ${r.currentStop??'—'}${r.trailTf?' ('+r.trailTf+')':''}`).join('')}`],
+      ['Doğrulama red nedeni', (c111?.revalidationReasonCounts||[]).slice(0,3).map(x=>`${x.reason} ${x.count}`).join(' • ')||'—']
+    ] : []),
     ['Kod-tetik “QUALIFIED olurdu”', `<b>${cv?.dtWouldQualify??0}</b> (60 dk) • uygulanan ${cv?.dtApplied??0}`],
     ['Sayısal tetikli plan', `<b>${h.shadowPlans??0}</b> • tetik oto-seçim ${cv?.triggerAutoSelected??0} • WAIT onarımı ${cv?.numericWaitFallback??0}`],
     ['Gölge tetik', `<b>${h.shadowTriggers??0}</b> • 15 dk ölçülen ${h.shadow15mMeasured??0} (${pct(h.shadowAvg15mPct)}) • 60 dk ${h.shadow60mMeasured??0} (${pct(h.shadowAvg60mPct)})`],
@@ -765,7 +775,9 @@ function renderV109(s){
   ] : [];
   const mx=Math.max(1,...bars.map(b=>+b[1]||0));
   $('#v109Bars').innerHTML = bars.map(([l,v,c])=>`<span>${esc(l)}</span><span class="tr"><i style="width:${(100*(+v||0)/mx).toFixed(0)}%;background:${c}"></i></span><span class="n">${v}</span>`).join('');
-  $('#v109Note').innerHTML = isV109 ? `<span>Karar: 24 saat sonra “olurdu” planlarının 15/60 dk sonucu olumluysa config/claude-v109.json → BINDING.</span>` : '';
+  $('#v109Note').innerHTML = isV111
+    ? `<span>v111: worker kapanmış-mum tetiğini görünce saklanan 9TF planı saniyeler içinde yeniden doğrulanır ve BINDING modda Jev’e gider (8 dk Vision beklenmez). Runner: TP1→başabaş, TP2→swing izleme, stop asla genişlemez.</span>`
+    : (isV109 ? `<span>Karar: 24 saat sonra “olurdu” planlarının 15/60 dk sonucu olumluysa config/claude-v109.json → BINDING.</span>` : '');
 }
 
 let last=null;

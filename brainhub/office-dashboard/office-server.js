@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '1.1.0-CLAUDE-V109';
+const OFFICE_VERSION = '1.2.0-CLAUDE-V111';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -193,7 +193,8 @@ function summarizeJournal(items) {
         vetoTFs: plan.vetoTFs || [],
         visionAttached: finite(p.vision?.attached),
         trigger: plan.triggerSpec ? { valid: plan.triggerSpec.valid === true, tf: plan.triggerSpec.tf || null, id: plan.triggerSpec.triggerLevelId || null, price: finite(plan.triggerSpec.triggerPrice), autoSelected: plan.triggerSpec.autoSelected === true } : null,
-        claudeDt: plan.claudeDeterministicTrigger ? { wouldQualify: plan.claudeDeterministicTrigger.wouldQualify === true, applied: plan.claudeDeterministicTrigger.applied === true, tf: plan.claudeDeterministicTrigger.tf || null } : null,
+        claudeDt: plan.claudeDeterministicTrigger ? { wouldQualify: plan.claudeDeterministicTrigger.wouldQualify === true, applied: plan.claudeDeterministicTrigger.applied === true, tf: plan.claudeDeterministicTrigger.tf || null, lane: plan.claudeDeterministicTrigger.laneName || null } : null,
+        claudeRevalidated: plan.claudeTriggerRevalidation ? plan.claudeTriggerRevalidation.ok === true : null,
         riskReasons: (p.riskGate?.reasons || []).slice(0, 8),
         jev: jd ? { called: jd.called === true, veto: jd.veto === true, reasons: (jd.vetoReasons || []).slice(0, 8), reason: jd.reason || null, probabilities: jd.probabilities || null, timeframeConflicts: jd.timeframeConflicts || null, costUsd: finite(jd.costUsd), roleWeightedVeto: jd.claudeRoleWeighted ? jd.claudeRoleWeighted.veto === true : null } : null
       };
@@ -211,6 +212,11 @@ function summarizeJournal(items) {
       events.push({ ...base, desk: 'learning', title: `Gölge sonuç ${it.kind.endsWith('15M') ? '15 dk' : '60 dk'} ${it.symbol || ''}: ${finite(p.outcomePct) ?? '?'}%`, detail: `${p.side || ''} ${p.triggerTF || ''} ${p.triggerLevelId || ''}` });
     } else if (it.kind === 'CLAUDE_V109_DT') {
       events.push({ ...base, desk: 'brain', title: `Kod-tetik ${it.symbol || ''} ${p.side || ''}: ${p.applied ? 'QUALIFIED yaptı' : 'QUALIFIED olurdu (gölge)'}`, detail: `${p.tf || ''} kapanış kırılımı • seviye ${finite(p.level) ?? '?'}` });
+    } else if (it.kind === 'CLAUDE_V111_REVALIDATION') {
+      // CLAUDE_V111: worker sayısal tetiği → saklanan 9TF planı Vision'sız yeniden doğrulandı mı?
+      events.push({ ...base, desk: p.ok ? 'jev' : 'workers', title: `Tetik yeniden doğrulama ${it.symbol || ''} ${p.side || ''}: ${p.ok ? (p.applied ? 'QUALIFIED → Jev' : 'geçerdi (gölge)') : 'geçmedi'}`, detail: clip(p.ok ? `${p.triggerTF || ''} tetik ${finite(p.triggerPrice) ?? '?'} • ${p.info?.laneName || ''}` : (p.reasons || []).join(', '), 160) });
+    } else if (it.kind === 'CLAUDE_V111_RUNNER') {
+      events.push({ ...base, desk: 'positions', title: `Runner ${it.symbol || ''}: ${p.kind || ''}${p.to != null ? ' → stop ' + p.to : (p.target != null ? ' → ' + p.target : '')}`, detail: clip(`${p.mode || ''} • faz ${p.phase || ''}${p.trailTf ? ' • iz TF ' + p.trailTf : ''}${p.reason ? ' • ' + p.reason : ''}`, 160) });
     } else if (it.kind === 'PLAN_WORKER_REVIEW') {
       events.push({ ...base, desk: 'workers', title: `Worker ${p.symbol || it.symbol || ''}: ${p.state || '?'}`, detail: clip(p.reason || '', 160), state: p.state || null, workerSource: p.source || null });
     } else if (it.kind === 'PLAN_COMMITTEE_FALLBACK') {

@@ -5,6 +5,7 @@ const { symbolContext, globalContext, chartContext, renderChartPng } = require('
 const { breakoutExecution, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached } = require('./engine');
 const { isNonConcreteWait } = require('./wait-condition');
 const claudeV109 = require('./claude-v109');
+const claudeV111 = require('./claude-v111');
 const tradeLanes = require('./trade-lanes');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
@@ -1095,7 +1096,46 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     out.journalId = store.journal('PLAN_REJECT', candidate.symbol, out);
     return out;
   }
-  const vision = await buildVisionCharts(candidate.symbol, 128);
+  // CLAUDE_V111_TRIGGER_REVALIDATION: worker kapanmış-mum sayısal tetiği gördüyse saklanan 9TF planı
+  // taze veriyle yeniden doğrulanır (Vision ~8 dk atlanır). Geçmezse aşağıdaki tam 9TF yolu aynen çalışır.
+  let vision = null;
+  let result;
+  let plan;
+  let revalidation = null;
+  const revalIntent = executionIntent?.triggerRevalidation && typeof executionIntent.triggerRevalidation === 'object' && executionIntent?.positionReviewOnly !== true
+    ? executionIntent.triggerRevalidation : null;
+  const v109Mode = claudeV109.readConfig().deterministicTriggerMode;
+  if (revalIntent) {
+    let stored = null;
+    try { stored = typeof store?.latestJournal === 'function' ? store.latestJournal('PLAN', candidate.symbol) : null; } catch { stored = null; }
+    revalidation = claudeV111.revalidateTrigger({ stored, intent:revalIntent, candidate, unified, now:Date.now() });
+    const applied = revalidation.ok === true && v109Mode === 'BINDING';
+    try {
+      store.journal('CLAUDE_V111_REVALIDATION', candidate.symbol, {
+        ok:revalidation.ok === true, applied, mode:v109Mode, reasons:revalidation.reasons || [],
+        side:revalIntent.side, triggerTF:revalIntent.triggerTF, triggerPrice:revalIntent.triggerPrice,
+        info:revalidation.info || null, lane:revalidation.lane || revalidation.info?.lane || null,
+        storedPlanJournalId:stored?.id || null
+      });
+    } catch {}
+    if (applied) {
+      const sv = stored?.payload?.vision && typeof stored.payload.vision === 'object' ? stored.payload.vision : {};
+      vision = {
+        ok:true, required:Number(sv.required || FRAME_ORDER.length), attached:Number(sv.attached || FRAME_ORDER.length),
+        barsRequested:sv.barsRequested || null, mode:'CLAUDE_V111_STORED_9TF_PLAN', frames:Array.isArray(sv.frames) ? sv.frames : [],
+        failures:[], reusedFromJournalId:stored?.id || null
+      };
+      result = {
+        ok:true, available:true, degraded:false, mode:'claude_v111_trigger_revalidation', model:'',
+        source:'STORED_9TF_VISION_PLAN_REVALIDATED', text:null,
+        vision:{ attached:vision.attached, timeframes:FRAME_ORDER.slice(), modes:['STORED'] },
+        storedPlanAt:revalidation.info?.storedPlanAt || null
+      };
+      plan = revalidation.plan;
+    }
+  }
+  if (!plan) {
+  vision = await buildVisionCharts(candidate.symbol, 128);
   if (!vision.ok) {
     const out = {
       ok:true,
@@ -1170,8 +1210,6 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'UNIFIED_CONTEXT_JSON:',
     JSON.stringify(compactUnifiedContext(unified))
   ].join('\n');
-  let result;
-  let plan;
   try {
     result = await committee({
       role:'STRUCTURE',
@@ -1301,20 +1339,30 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       });
     } catch {}
   }
-  // CLAUDE_V109_DETERMINISTIC_TRIGGER_SHADOW: model WATCH dediğinde kapanmış-mum kırılımı var mı?
-  // Varsayılan SHADOW (yalnız kayıt). config/claude-v109.json deterministicTriggerMode=BINDING ise
-  // WATCH→QUALIFIED; Jev, risk, likidasyon ve LIVE kapıları aynen uygulanır.
-  if(plan&&typeof plan==='object'&&executionIntent?.positionReviewOnly!==true&&['WATCH','QUALIFIED'].includes(String(plan.status||'').toUpperCase())){
+  } // CLAUDE_V111: tam 9TF Vision yolu sonu (yeniden doğrulama uygulanmadıysa çalıştı)
+  if (revalidation && plan && typeof plan === 'object' && plan.claudeTriggerRevalidation == null) {
+    plan = { ...plan, claudeTriggerRevalidation:{ ok:revalidation.ok === true, applied:false, mode:v109Mode, reasons:revalidation.reasons || [] } };
+  }
+  // CLAUDE_V109_DETERMINISTIC_TRIGGER_SHADOW → CLAUDE_V111_MOMENTUM_SCALP_TRIGGER: model WATCH dediğinde
+  // v110 işlem hattına uygun kapanmış-mum kırılımı var mı? Momentum coin + 2/3 alt TF → 1m/3m/5m; aksi 15m.
+  // SHADOW: yalnız kayıt. BINDING: WATCH→QUALIFIED, ardından v110 hat kuralı yeniden uygulanır; Jev, risk,
+  // likidasyon ve LIVE kapıları aynen çalışır.
+  if(plan&&typeof plan==='object'&&executionIntent?.positionReviewOnly!==true&&plan.claudeTriggerRevalidation?.ok!==true&&['WATCH','QUALIFIED'].includes(String(plan.status||'').toUpperCase())){
     const v109cfg=claudeV109.readConfig();
-    const dt=claudeV109.deterministicTrigger({plan,candidate,unified});
+    const dt=claudeV111.laneAwareTrigger({plan,candidate,unified});
     const wouldQualify=dt.ok===true&&String(plan.status||'').toUpperCase()==='WATCH';
     if(wouldQualify&&v109cfg.deterministicTriggerMode==='BINDING'){
-      plan=claudeV109.applyDeterministicTrigger(plan,dt);
+      plan=claudeV111.applyLaneTrigger(plan,dt);
       plan={...plan,triggerSpec:resolveNumericTriggerPlan(plan,unified)};
     }else{
-      plan={...plan,claudeDeterministicTrigger:{...dt,wouldQualify,applied:false,mode:v109cfg.deterministicTriggerMode}};
+      plan={...plan,claudeDeterministicTrigger:{...dt,wouldQualify,applied:false,mode:v109cfg.deterministicTriggerMode,version:'CLAUDE_V111'}};
     }
-    if(wouldQualify){try{store.journal('CLAUDE_V109_DT',candidate.symbol,{side:plan.side,mode:v109cfg.deterministicTriggerMode,tf:dt.tf,level:dt.level,livePrice:dt.livePrice,applied:v109cfg.deterministicTriggerMode==='BINDING'});}catch{}}
+    if(wouldQualify){try{store.journal('CLAUDE_V109_DT',candidate.symbol,{side:plan.side,mode:v109cfg.deterministicTriggerMode,tf:dt.tf,level:dt.level,livePrice:dt.livePrice,laneName:dt.laneName,momentumTags:dt.momentum?.tags||[],applied:v109cfg.deterministicTriggerMode==='BINDING',version:'CLAUDE_V111'});}catch{}}
+  }
+  // CLAUDE_V111_LANE_ENFORCED_AFTER_DT: kod-tetik veya yeniden doğrulama ile QUALIFIED olan plan da
+  // v110 hat kuralından geçer (1m/3m/5m tek başına karar vermez; 15m ana hat).
+  if(plan&&typeof plan==='object'&&String(plan.status||'').toUpperCase()==='QUALIFIED'&&(plan.claudeDeterministicTrigger?.applied===true||plan.claudeTriggerRevalidation?.ok===true)){
+    plan=tradeLanes.enforceQualification(plan,unified,candidate);
   }
   const preJevPlan=plan&&typeof plan==='object'?{...plan}:null;
   let jevDecision=null;
@@ -1351,7 +1399,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   const riskGate = enforceExecutionLineage(riskGateBase, executionClaimState, executionIntent);
   const dryRunExecutor = buildDryRunOrder({
     intent:{
-      ...(executionIntent || {}),
+      ...(executionIntent ? (({ triggerRevalidation, ...rest }) => rest)(executionIntent) : {}),
       mode:'DRY_RUN',
       live:false,
       symbol:candidate.symbol,
