@@ -30,7 +30,10 @@ function buildLeaderLiveIntent({
   bufferAtrFraction = 0.05,
   bufferBps = 2,
   slippageFloorBpsPerSide = 0.5,
-  minimumScalpEdgeMultiple = 1.5
+  minimumScalpEdgeMultiple = 1.5,
+  entryReferencePrice = null,
+  maintenanceMarginRate = null,
+  liquidationSafetyBufferPct = 0.5
 } = {}) {
   const reasons = [];
   const symbol = String(candidate?.symbol || unified?.symbol || '').trim().toUpperCase();
@@ -59,7 +62,9 @@ function buildLeaderLiveIntent({
   if (scalpCostGate && (spreadBps === null || spreadBps < 0)) reasons.push('SCALP_SPREAD_COST_REQUIRED');
 
   const entryPrice = finite(unified?.livePrice);
+  const referencePrice = finite(entryReferencePrice) ?? entryPrice;
   if (entryPrice === null || entryPrice <= 0) reasons.push('LIVE_ENTRY_PRICE_INVALID');
+  if (referencePrice === null || referencePrice <= 0) reasons.push('ENTRY_REFERENCE_PRICE_INVALID');
 
   const tickSize = finite(filters?.tickSize);
   const lotStep = finite(filters?.lotStep);
@@ -148,6 +153,19 @@ function buildLeaderLiveIntent({
     reasons.push('NOTIONAL_BELOW_MIN');
   }
   const riskQuote = quantity === null || riskDistance === null ? null : quantity * riskDistance;
+  const stopDistancePct = entryPrice!==null&&entryPrice>0&&riskDistance!==null
+    ? riskDistance/entryPrice*100
+    : null;
+  const mmr=finite(maintenanceMarginRate);
+  const liquidationBufferPct=Math.max(0,finite(liquidationSafetyBufferPct)??0.5);
+  const estimatedLiquidationDistancePct=lev!==null&&lev>0&&mmr!==null&&mmr>=0
+    ? Math.max(0,((1/lev)-mmr)*100-liquidationBufferPct)
+    : null;
+  if(mmr===null||mmr<0)reasons.push('MAINTENANCE_MARGIN_RATE_REQUIRED');
+  if(estimatedLiquidationDistancePct!==null&&stopDistancePct!==null&&
+     stopDistancePct>=estimatedLiquidationDistancePct){
+    reasons.push('STOP_BEYOND_LIQUIDATION');
+  }
 
   const feeBpsPerSide = takerRate !== null && takerRate >= 0 ? takerRate * 10000 : null;
   const feeRoundTripBps = feeBpsPerSide === null ? null : feeBpsPerSide * 2;
@@ -195,6 +213,7 @@ function buildLeaderLiveIntent({
     side,
     originTF,
     entryPrice,
+    entryReferencePrice:referencePrice,
     structuralInvalidationPrice,
     buffer,
     stopPrice,
@@ -204,6 +223,10 @@ function buildLeaderLiveIntent({
     quantity,
     notionalQuote,
     riskQuote,
+    stopDistancePct,
+    maintenanceMarginRate:mmr,
+    estimatedLiquidationDistancePct,
+    liquidationSafetyBufferPct:liquidationBufferPct,
     costModel,
     reasons:[...new Set(reasons)]
   };
@@ -214,6 +237,7 @@ function buildLeaderLiveIntent({
     side,
     originTF,
     entryPrice,
+    entryReferencePrice:referencePrice,
     structuralInvalidationPrice,
     buffer,
     stopPrice,
@@ -225,6 +249,10 @@ function buildLeaderLiveIntent({
     requestedLeverage:lev,
     notionalQuote,
     riskQuote,
+    stopDistancePct,
+    maintenanceMarginRate:mmr,
+    estimatedLiquidationDistancePct,
+    liquidationSafetyBufferPct:liquidationBufferPct,
     costModel,
     reasons:[]
   };
