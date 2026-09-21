@@ -46,6 +46,17 @@ header .sub{color:var(--text-muted);font-size:12px}
 .kpi .l{font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px}
 .kpi .v{font-size:22px;font-weight:650;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi .s{font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lane-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 12px}
+.lane-card{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;position:relative;overflow:hidden}
+.lane-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--text-muted)}
+.lane-card.good::before{background:var(--good)} .lane-card.warn::before{background:var(--warning)} .lane-card.info::before{background:var(--info)} .lane-card.bad::before{background:var(--critical)}
+.lane-card .t{font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.35px}
+.lane-card .v{font-size:17px;font-weight:700;margin-top:3px}
+.lane-card .s{font-size:12px;color:var(--text-secondary);margin-top:2px;line-height:1.35}
+.lane-card .mini{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.lane-card .mini span{padding:1px 6px;border-radius:999px;background:var(--surface-2);font-size:10.5px;color:var(--text-secondary);border:1px solid var(--line)}
+@media (max-width:900px){.lane-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.lane-strip{grid-template-columns:1fr}}
 .grid-main{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px;align-items:start}
 .card{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:12px;min-width:0}
 .card h2{font-size:14px;margin:0 0 8px;font-weight:650;display:flex;align-items:center;gap:8px}
@@ -185,6 +196,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   </header>
 
   <section class="kpis" id="kpis"></section>
+  <section class="lane-strip" id="laneStrip"></section>
 
   <section class="grid-main">
     <div class="card office">
@@ -471,7 +483,7 @@ function renderKpis(s){
     kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`max ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'LONG':'',la.allowShort?'SHORT':''].filter(Boolean).join(' ')}`:'Leader AUTO etkin değil', la.enabled?null:'critical'),
     kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
     kpi('Derin analiz (60 dk)', `${h.deepAnalyses??0} / ${h.uniqueAnalyzedSymbols??0} coin`, `ort ${h.avgAnalysisMs?Math.round(h.avgAnalysisMs/1000)+' sn':'—'} • atlanan tur ${h.skippedBusy??0}`),
-    kpi('İşlem adayı', `${h.preJevQualified??0}`, `Jev ${h.jevCalled??0} çağrı • veto ${h.jevVetoed??0}`, (h.preJevQualified||0)>0?'good':'serious'),
+    kpi('İşlem adayı', `${h.preJevQualified??0}`, `Jev bağlayıcı ${h.jevCalled??0} • gölge ${h.jevShadowCalled??0} • veto ${h.jevVetoed??0}`, (h.preJevQualified||0)>0?'good':((h.jevShadowCalled||0)>0?'info':'serious')),
     kpi('Açılan emir', `${h.ordersPlaced??0}`, `niyet ${h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null)
   ].join('');
   chip('#chipVer', s.health?.ok?'good':'bad', `PC ${s.health?.data?.featureVersion || st.featureVersion || '—'}`);
@@ -479,6 +491,22 @@ function renderKpis(s){
   chip('#chipAuto', la.enabled?'good':'bad', la.enabled?`OTO AKTİF • ${la.lastExecution||'—'}`:'OTO KAPALI');
   const age = s.generatedAt ? Math.round((Date.now()-Date.parse(s.generatedAt))/1000) : null;
   chip('#chipFresh', s.status?.ok?'good':'bad', s.status?.ok?`veri ${age!=null?age+' sn':''} önce`:'Brain Hub yok');
+}
+
+function renderLanes(s){
+  const st=s.status?.data||{}; const h=st.leaderAuto?.health||{};
+  const stages=Array.isArray(h.momentumStages)?h.momentumStages:[];
+  const topStage=stages[0]?.stage||'—';
+  const mainReady=+h.laneMain15Ready||0, mainPlans=+h.laneMain15Plans||0;
+  const scalpReady=+h.laneScalpReady||0, scalpPlans=+h.laneScalpPlans||0;
+  const shadow=+h.jevShadowCalled||0, binding=+h.jevCalled||0;
+  const card=(tone,title,value,sub,mini=[])=>`<div class="lane-card ${tone}"><div class="t">${esc(title)}</div><div class="v">${esc(value)}</div><div class="s">${esc(sub)}</div><div class="mini">${mini.map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`;
+  $('#laneStrip').innerHTML=[
+    card(mainReady?'good':'info','15m ANA İŞLEM',`${mainReady} hazır / ${mainPlans} plan`,'15m kapanmış-mum ve yapı ana karar hattı; 30m+ bağlamdır.',['MAIN_15M','LONG+SHORT']),
+    card(scalpReady?'good':(scalpPlans?'warn':'info'),'SCALP 1m • 3m • 5m',`${scalpReady} hazır / ${scalpPlans} plan`,'Tek alt TF final karar vermez; en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü.',['2/3 alt TF','15m veto kontrol']),
+    card(topStage==='EXHAUSTING'?'bad':'info','MOMENTUM MERDİVENİ',topStage,'1m’de yakalanan hareket 3m→5m→15m→30m+ boyunca izlenir; tükenme ayrıca işaretlenir.',stages.slice(0,3).map(x=>`${x.stage} ${x.count}`)),
+    card(binding?'good':(shadow?'info':'warn'),'JEV AKIŞI',`${binding} bağlayıcı • ${shadow} gölge`,'WATCH gölge incelemeleri de görünür; QUALIFIED gelince bağlayıcı JEV risk kapısına aktarır.',['veto '+(h.jevVetoed??0)])
+  ].join('');
 }
 
 function renderBlockers(s){
@@ -534,7 +562,10 @@ function renderJev(s){
   $('#jevKv').innerHTML = [
     ['Durum', j.configured?`hazır • ${j.model||''}`:'yapılandırılmamış'],
     ['Bugün', `${b.calls??0} çağrı • $${Number(b.spentUsd||0).toFixed(4)} / $${Number(b.dailyCapUsd||2).toFixed(2)} (uyarı $${Number(b.softBudgetUsd||0.25).toFixed(2)})`],
-    ['Son karar', lj?`${lj.symbol} ${lj.side||''} • ${lj.veto?'VETO':'geçti'} • ${fmtTime(lj.ts)}`:'henüz çağrı yok — plan QUALIFIED olmadıkça Jev çağrılmaz']
+    ['Son karar', lj?`${lj.symbol} ${lj.side||''} • ${lj.veto?'VETO':'geçti'} • ${fmtTime(lj.ts)}`:
+      ((st.leaderAuto?.health?.jevShadowCalled||0)>0
+        ? `WATCH gölge inceleme ${st.leaderAuto.health.jevShadowCalled} • bağlayıcı çağrı ${st.leaderAuto.health.jevCalled||0}`
+        : 'henüz Jev incelemesi yok')]
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   const probs = lj?.probabilities||{}; const tfc = lj?.timeframeConflicts||{};
   const rows = [...JEV_CHECKS.map(([k,l])=>[l,probs[k],k==='formingDependency'?0.70:0.65]), ...TFS.map(t=>[`${t} çelişkisi`, tfc[t], 0.65])];
@@ -556,6 +587,7 @@ function renderWorkers(s){
   $('#wKv').innerHTML = [
     ['İnceleme (60 dk)', `${h.workerReviews??0} • tam 9TF tasarrufu ${h.fullVisionAvoided??0}`],
     ['Son inceleme', lr?`${lr.symbol} ${lr.side||''} → ${lr.state} (${lr.source||'—'})`:'—'],
+    ['İşlem hattı', lr?`${lr.tradeLaneName||'—'} • ${lr.momentumStage||'—'} • alt TF uyum ${lr.scalpAlignedCount??0}`:'—'],
     ['Gerekçe', lr?.reason||'—'],
     ['9Router modelleri', models.length?`${healthy} sağlıklı • ${cool} soğumada • ${models.length-healthy-cool} denenmedi`:'okunamadı'],
     ['OpenRouter free', orf.configured?`${orf.model||'openrouter/free'} • son: ${orf.last?.ok?'OK':(orf.last?.reason||'çağrılmadı')}`:'yapılandırılmamış'],
@@ -566,14 +598,15 @@ function renderWorkers(s){
 function isFakeWait(w){ const z=String(w||'').trim().toUpperCase(); return !z || /^NONE\b/.test(z) || /^YOK\b/.test(z) || /SOMUT BEKLEME KOŞULU ÜRETMEDİ/i.test(String(w||'')); }
 function renderSetups(s){
   const rows = s.status?.data?.leaderAuto?.analysisLifecycle?.rows||[];
-  const head = `<tr><th>Sembol</th><th>Yön</th><th>Durum</th><th>Plan</th><th>TF</th><th>Tetik</th><th>Worker</th><th>Beklenen</th><th>Son</th></tr>`;
+  const head = `<tr><th>Sembol</th><th>Yön</th><th>Hat</th><th>Momentum</th><th>Durum</th><th>Plan</th><th>TF</th><th>Tetik</th><th>Worker</th><th>Beklenen</th><th>Son</th></tr>`;
   $('#setups').innerHTML = head + (rows.length ? rows.slice(0,24).map(r=>{
     const plan=String(r.planStatus||''); const fake = (plan==='WATCH'||String(r.state||'')==='WATCH') && String(r.waitFor||'').trim()!=='' && isFakeWait(r.waitFor);
-    return `<tr><td><b>${esc(r.symbol)}</b></td><td><span class="pill ${esc(r.side)}">${esc(r.side||'—')}</span></td><td>${esc(r.state||'—')}</td>
+    const lane=r.tradeLaneName==='SCALP_MOMENTUM'?'SCALP':r.tradeLaneName==='MAIN_15M'?'15m ANA':(r.tradeLaneName||'—');
+    return `<tr><td><b>${esc(r.symbol)}</b></td><td><span class="pill ${esc(r.side)}">${esc(r.side||'—')}</span></td><td><span class="pill">${esc(lane)}</span></td><td>${esc(r.momentumStage||'—')} ${r.scalpAlignedCount!=null?'('+r.scalpAlignedCount+'/3)':''}</td><td>${esc(r.state||'—')}</td>
       <td><span style="color:${STATUS_COLOR[plan]||'var(--text-secondary)'}">●</span> ${esc(STATUS_TR[plan]||plan||'—')}</td>
       <td>${esc(r.originTF||'—')}→${esc(r.ownerTF||'—')}</td><td class="trig">${r.triggerTF&&r.triggerPrice!=null?esc(r.triggerTF+' '+(String(r.side).toUpperCase()==='SHORT'?'<':'>')+' '+r.triggerPrice)+(r.shadowTriggeredAt?' ✓':''):'—'}</td><td>${esc(r.workerState||'—')}</td>
       <td class="wait">${fake?'<span class="flag">⚠ NONE</span>':''}${esc(String(r.waitFor||'—').slice(0,150))}</td><td>${fmtTime(r.lastAnalyzedAt)}</td></tr>`;
-  }).join('') : `<tr><td colspan="9" class="muted">Takip edilen setup yok.</td></tr>`);
+  }).join('') : `<tr><td colspan="11" class="muted">Takip edilen setup yok.</td></tr>`);
 }
 
 function renderTimeline(s){
@@ -601,7 +634,7 @@ function renderPositions(s){
   const stats=le.stats||[]; const samples=stats.reduce((a,x)=>a+Number(x.samples||0),0);
   $('#posKv').innerHTML = [
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
-    ['Kural', pm.ruleTr || '1m/3m/5m tek başına çıkış kararı vermez'],
+    ['Kural', pm.ruleTr || '15m ana işlem hattıdır. 1m/3m/5m tek başına final giriş/çıkış kararı vermez; scalp hattında en az iki alt TF uyumu ve 15m karşı-veto kontrolü gerekir.'],
     ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
 }
@@ -634,7 +667,7 @@ function renderOffice(s, vinfo){
   const wr=+h.workerReviews||0, wref=+h.workerRefreshes||0;
   setDesk('workers', wr>=10&&wref/wr>=.8?'warn':(la.planWorkers?.busy?'busy':(wr?'ok':'')), d.workers?.text);
   const orf=st.openRouterFreeWorker||{}; setDesk('orfree', orf.last?.called?(orf.last.ok?'ok':'blocked'):'', orf.last?.called?(orf.last.ok?'son çağrı OK':'son çağrı başarısız'):'çağrılmadı');
-  const jevCalled=+h.jevCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):'', d.jev?.text);
+  const jevCalled=+h.jevCalled||0, jevShadow=+h.jevShadowCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):(jevShadow?'busy':''), d.jev?.text);
   const lr = s.lastRisk; setDesk('risk', lr?'warn':'', lr?`${lr.symbol}: ${lr.reasons[0]}`:'bekliyor');
   setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${la.lastExecution||'—'}`:'LIVE KAPALI');
   setDesk('positions', st.positionManager?.busy?'busy':'', st.positionManager?.lastReview?.actionTr || 'açık pozisyon yok');
@@ -642,7 +675,7 @@ function renderOffice(s, vinfo){
   $('#brainTxt').textContent = lastPlan ? `${lastPlan.symbol} ${lastPlan.side||''} → ${STATUS_TR[lastPlan.status]||lastPlan.status}` : 'plan bekleniyor';
   const preQ=+h.preJevQualified||0, qual=+h.qualified||0, intent=+h.intentReady||0, orders=+h.ordersPlaced||0;
   const sl=h.latestShortlistCount??la.diagnostics?.shortlistCount; const cv=h.claudeV109||{};
-  $('#brainIn').textContent = `📥 ${sl??'?'} aday • ${h.deepAnalyses??0} derin analiz • ${wr} worker notu${cv.dtWouldQualify?` • kod-tetik ${cv.dtWouldQualify}`:''}`;
+  $('#brainIn').textContent = `📥 ${sl??'?'} aday • ${h.deepAnalyses??0} analiz • 15m hazır ${h.laneMain15Ready??0} • scalp hazır ${h.laneScalpReady??0} • ${wr} worker${cv.dtWouldQualify?` • kod-tetik ${cv.dtWouldQualify}`:''}`;
   // Akış kenarları
   const workerActive = !!(la.planWorkers?.busy||wr>0);
   const scanActive=(h.scanRuns||0)>0;
@@ -651,12 +684,12 @@ function renderOffice(s, vinfo){
   setEdge('vision','brain', ['CORE','NARRATIVE','SEMANTIC'].includes(vinfo.phase)?'active':'');
   setEdge('workers','brain', workerActive?'active':'');
   setEdge('orfree','workers', orf.last?.called?'active':'');
-  setEdge('brain','jev', preQ>0?'active':'blocked');
+  setEdge('brain','jev', (preQ>0||jevShadow>0)?'active':'blocked');
   setEdge('jev','risk', qual>0?'active':'blocked');
   setEdge('risk','exec', intent>0?'active':'blocked');
   setEdge('exec','positions', orders>0?'active':'blocked');
   setEdge('positions','brain', st.positionManager?.lastReview?.symbol?'active':'');
-  setGate('gQual', preQ>0, `QUALIFIED ${preQ}`);
+  setGate('gQual', preQ>0, preQ>0?`QUALIFIED ${preQ}`:`QUALIFIED 0 • gölge ${jevShadow}`);
   setGate('gJev', qual>0, `Jev ${h.jevCalled??0}/${h.jevVetoed??0} veto`);
   setGate('gIntent', intent>0, `Niyet ${intent}`);
   setGate('gLive', st.armed===true && orders>0, st.armed?`Emir ${orders}`:'LIVE KAPALI');
@@ -672,7 +705,7 @@ function renderOffice(s, vinfo){
     'brain-vision':[visBusy&&vinfo.phase==='VISUAL', `${shortSym(lastPlan?.symbol)||'coin'} • 9 grafik`],
     'vision-brain':[visBusy, tfNow?`${tfNow} okundu`:(vinfo.phase==='CORE'?'çekirdek karar':'TF notları')],
     'positions-brain':[!!st.positionManager?.lastReview?.symbol, 'pozisyon 9TF'],
-    'brain-jev':[preQ>0, `QUALIFIED ${preQ}`],
+    'brain-jev':[preQ>0||jevShadow>0, preQ>0?`QUALIFIED ${preQ}`:`JEV gölge ${jevShadow}`],
     'jev-risk':[qual>0, `onay ${qual}`],
     'risk-exec':[intent>0, `niyet ${intent}`],
     'exec-positions':[orders>0, `emir ${orders}`]
@@ -742,7 +775,7 @@ async function tick(){
     const s = await r.json(); last=s;
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
-    renderKpis(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    renderKpis(s); renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); renderSources(s); renderOffice(s, vinfo); renderV109(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yalnız GET`;
   }catch(e){
