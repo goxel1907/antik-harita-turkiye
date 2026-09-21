@@ -268,7 +268,7 @@ function derive(snap) {
     if (la.enabled !== true) add('critical', 'AUTO_DISABLED', 'OTO işlem kapalı', 'Leader AUTO etkin değil; hiçbir aday yürütmeye gitmez.');
     if (st.armed !== true) add('critical', 'LIVE_DISARMED', 'LIVE kapalı (analiz modu)', 'Plan QUALIFIED olsa bile emir gönderilmez. PC yeniden başlarsa LIVE otomatik kapanır.');
     const fv = String(snap.health?.data?.featureVersion || st.featureVersion || '');
-    const v109 = /9\.5\.109-CLAUDE|9\.5\.110|9\.5\.111-CLAUDE/.test(fv);
+    const v109 = /9\.5\.(109-CLAUDE|11\d)/.test(fv); // CLAUDE_V112: 9.5.110+ (9.5.112-CLAUDE dahil)
     const cv = h.claudeV109 || {};
     if (!v109) add('warning', 'VERSION_OLD', `PC sürümü ${fv || '?'}`, "v9.5.109-CLAUDE yüklenmemiş: sahte WAIT, worker döngüsü ve boş tetik adayı düzeltmeleri PC'de yok.");
     if (deep >= 3 && Number(h.preJevQualified || 0) === 0) add('serious', 'NO_QUALIFIED', 'Görsel analiz hiç işlem adayı üretmedi', v109
