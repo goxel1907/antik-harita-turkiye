@@ -87,7 +87,12 @@ try {
         $text -notmatch 'VISION_PIXEL_PROBE' -or
         $text -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or
         $text -notmatch 'LEADER_DETAIL_PROBE' -or
-        $text -notmatch 'CLAUDE_V109_UPDATER_FILESET'
+        $text -notmatch 'CLAUDE_V109_UPDATER_FILESET' -or
+        $text -notmatch 'V110_MULTILANE_15M_SCALP' -or
+        $text -notmatch 'V110_SCALP_TWO_OF_THREE' -or
+        $text -notmatch 'V110_NUMERIC_TRIGGER_H8' -or
+        $text -notmatch "'trade-lanes.js'" -or
+        $text -notmatch "'v110.js'"
     ) {
         throw 'Guncel BrainHub updater bootstrap isaretleri bulunamadi; eski updater calistirilmadi.'
     }
