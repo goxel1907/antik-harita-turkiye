@@ -456,6 +456,42 @@ function localVisionExtractionPrompt(images,localContext){
     JSON.stringify(shared)
   ].filter(Boolean).join('\n');
 }
+function localVisionBatchExtractionPrompt(images,localContext){
+  const normalized=normalizeVisionImages(images).slice(0,3);
+  if(!normalized.length)throw new Error('VISION_BATCH_EMPTY');
+  const frames={};
+  const expected=[];
+  for(const image of normalized){
+    const tf=String(image.tf||'').toLowerCase();
+    const tag=tfPromptTag(tf);
+    frames[tf]=localContext?.frames?.[tf]||{available:false};
+    expected.push(
+      'TF_'+tag+': <=70 karakter; yön etkisi',
+      'TF_'+tag+'_WHY: <=100 karakter; tek ana görsel + deterministik kanıt',
+      'TF_'+tag+'_WAIT: <=60 karakter; tam koşul veya NONE',
+      'TF_'+tag+'_ROLE: yalnız SUPPORT veya VETO veya NEUTRAL',
+      'TF_'+tag+'_FORMING: <=70 karakter; teyit olmadığı açık',
+      'TF_'+tag+'_RISK: <=70 karakter; tek ana risk'
+    );
+  }
+  return [
+    'LOCAL_VISION_BATCH3_ACTIVE. Ekli '+normalized.length+' grafiği birbirine karıştırmadan ayrı ayrı incele.',
+    'Her zaman dilimi için kendi TF_* etiketlerini üret. Bir grafiğin kanıtını başka TF etiketine taşıma.',
+    'Forming mum teyit değildir. Görmediğin şeyi uydurma; market-maker niyeti çıkarma.',
+    'İstenen satırlar:',
+    ...expected,
+    'Başka satır veya açıklama ekleme.',
+    'DETERMINISTIC_CONTEXT_JSON:',
+    JSON.stringify({
+      symbol:localContext?.symbol||null,
+      livePrice:localContext?.livePrice??null,
+      sourceCandidate:localContext?.sourceCandidate||null,
+      frames,
+      policy:{formingCandleIsContextOnly:true,execution:'ADVISORY_ONLY'}
+    })
+  ].join('\n');
+}
+
 function localPixelBatchPrompt(images){
   if(normalizeVisionImages(images).length!==1)throw new Error('PIXEL_SINGLE_IMAGE_REQUIRED');
   return [
@@ -887,31 +923,46 @@ async function runLocalVisionCommitteeUnlocked(body){
       const batchTexts=[];
       const batchDurations=[];
       const visionStarted=Date.now();
-      for(const batch of visionBatches(j.images,1)){
-        const visualInput=multimodalUserContent(localVisionExtractionPrompt(batch,j.localContext||{}),batch);
+      for(const batch of visionBatches(j.images,3)){
+        const batchStarted=Date.now();
+        const batchTfs=batch.map(x=>String(x?.tf||'?'));
+        const visualInput=multimodalUserContent(localVisionBatchExtractionPrompt(batch,j.localContext||{}),batch);
         const visualMessages=[
-          {role:'system',content:'You are the local Brain Hub single-timeframe visual extractor. Read the attached chart. Return exactly the requested TF_* labeled lines, never VIS_* labels. Do not place orders.'},
+          {role:'system',content:'You are the local Brain Hub batch-3 visual extractor. Read every attached timeframe chart independently. Return exactly the requested TF_* labeled lines for each chart. Never merge timeframe evidence and never place orders.'},
           {role:'user',content:visualInput.content}
         ];
-        const batchStarted=Date.now();
-        const tf=String(batch[0]?.tf||'?');
-        const visual=await callLocalStage('VISUAL_TF='+tf,model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:180});
-        let contract=tfEvidenceContract(tf,visual.text);
-        if(!contract.ok){
-          const repairMessages=[
-            {role:'system',content:'LOCAL_TF_SCHEMA_REPAIR. Repair only requested TF_* labels from already extracted evidence. Do not invent new visual claims. ROLE must be exactly SUPPORT, VETO, or NEUTRAL. Return LABEL: value lines only.'},
-            {role:'user',content:localTfRepairPrompt(tf,contract.missing,j.localContext||{},visual.text)}
-          ];
-          const repair=await callLocalStage('TF_SCHEMA_REPAIR='+tf,model,repairMessages,local.timeoutMs,{temperature:0,maxTokens:320});
-          const repairContract=tfEvidenceContract(tf,repair.text);
-          contract=mergeLabelContracts(contract,repairContract,contract.missing);
-          const canonical=canonicalTfEvidence(tf,contract);
-          contract=tfEvidenceContract(tf,canonical);
-          if(!contract.ok)throw new Error('TF_CONTRACT='+tf+' missing='+contract.missing.join(','));
+        const visual=await callLocalStage('VISUAL_BATCH='+batchTfs.join(','),model,visualMessages,local.timeoutMs,{temperature:0,maxTokens:620});
+        for(const image of batch){
+          const tf=String(image?.tf||'?');
+          let contract=tfEvidenceContract(tf,visual.text);
+          if(!contract.ok){
+            // If the 3-image pass omitted or confused one TF, re-read only that
+            // image. Accuracy is preserved while the common path stays at 3
+            // visual calls instead of 9.
+            const single=[image];
+            const singleInput=multimodalUserContent(localVisionExtractionPrompt(single,j.localContext||{}),single);
+            const singleMessages=[
+              {role:'system',content:'You are the local Brain Hub single-timeframe fallback extractor. Read only the attached chart. Return exactly the requested TF_* labeled lines. Do not place orders.'},
+              {role:'user',content:singleInput.content}
+            ];
+            const retry=await callLocalStage('VISUAL_TF_FALLBACK='+tf,model,singleMessages,local.timeoutMs,{temperature:0,maxTokens:180});
+            contract=tfEvidenceContract(tf,retry.text);
+            if(!contract.ok){
+              const repairMessages=[
+                {role:'system',content:'LOCAL_TF_SCHEMA_REPAIR. Repair only requested TF_* labels from already extracted evidence. Do not invent new visual claims. ROLE must be exactly SUPPORT, VETO, or NEUTRAL. Return LABEL: value lines only.'},
+                {role:'user',content:localTfRepairPrompt(tf,contract.missing,j.localContext||{},retry.text)}
+              ];
+              const repair=await callLocalStage('TF_SCHEMA_REPAIR='+tf,model,repairMessages,local.timeoutMs,{temperature:0,maxTokens:320});
+              const repairContract=tfEvidenceContract(tf,repair.text);
+              contract=mergeLabelContracts(contract,repairContract,contract.missing);
+              const repairedCanonical=canonicalTfEvidence(tf,contract);
+              contract=tfEvidenceContract(tf,repairedCanonical);
+              if(!contract.ok)throw new Error('TF_CONTRACT='+tf+' missing='+contract.missing.join(','));
+            }
+          }
+          batchTexts.push(canonicalTfEvidence(tf,contract));
         }
-        const canonical=canonicalTfEvidence(tf,contract);
         batchDurations.push(Date.now()-batchStarted);
-        batchTexts.push(canonical);
       }
       const visionDurationMs=Date.now()-visionStarted;
       const visionText=batchTexts.filter(Boolean).join('\n');
@@ -1004,7 +1055,8 @@ async function runLocalVisionCommitteeUnlocked(body){
       ].filter(Boolean).join('\n');
       analystMeta={
         localVisionTwoStage:true,
-        localVisionBatchSize:1,
+        localVisionBatchSize:3,
+        localVisionSingleTfFallback:true,
         visionExtractionText:visionText.slice(0,5000),
         visionDurationMs,
         batchDurations,
@@ -1029,7 +1081,8 @@ async function runLocalVisionCommitteeUnlocked(body){
       visionTimeoutMs:local.timeoutMs,
       visionParallelAnalysts:1,
       localVisionTwoStage:!forceVisionProbe,
-      localVisionBatchSize:1,
+      localVisionBatchSize:forceVisionProbe?1:3,
+      localVisionSingleTfFallback:!forceVisionProbe,
       visionKiroFreeQuota:false,
       disagreement:false,
       verdictConsensus:null,
@@ -1054,7 +1107,7 @@ async function runLocalVisionCommitteeUnlocked(body){
       vision:{attached:vision.images.length,timeframes:vision.images.map(x=>x.tf),modes:vision.images.map(x=>x.mode)},
       attemptedModels:[model],
       localVisionDirect:true,
-      localVisionBatchSize:1,
+      localVisionBatchSize:forceVisionProbe?1:3,
       failures:[{model,error:msg,durationMs}]
     };
     const err=new Error('committee unavailable: no vision analyst replies | '+model+': '+msg);
@@ -1113,7 +1166,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.107-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','TARGETED_PRIORITY_UNIVERSE_24','BINANCE_TOP24_GAINER_DISCOVERY','ACCUMULATION_PROXY_DISCOVERY','ANDROID_ATTENTION_SYNC','PLAN_WORKER_ORCHESTRATION','PLAN_WORKER_9ROUTER_TEXT','PLAN_WORKER_9ROUTER_FREE_ONLY','OPENROUTER_FREE_WORKER_SECOND_OPINION','WORKER_VISION_AVOIDANCE_TELEMETRY','PLAN_WORKER_PARALLEL_TIMER','V108_WORKER_ESCALATION_LATCH','LOCAL_VISION_FREE_QUOTA_FAILOVER','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_BATCH3:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',featureVersion:'9.5.107-VISION',execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_BATCH3_ACTIVE','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','TARGETED_PRIORITY_UNIVERSE_24','BINANCE_TOP24_GAINER_DISCOVERY','ACCUMULATION_PROXY_DISCOVERY','ANDROID_ATTENTION_SYNC','PLAN_WORKER_ORCHESTRATION','PLAN_WORKER_9ROUTER_TEXT','PLAN_WORKER_9ROUTER_FREE_ONLY','OPENROUTER_FREE_WORKER_SECOND_OPINION','WORKER_VISION_AVOIDANCE_TELEMETRY','PLAN_WORKER_PARALLEL_TIMER','V108_WORKER_ESCALATION_LATCH','LOCAL_VISION_FREE_QUOTA_FAILOVER','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED'],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_SINGLE_TF:'FALLBACK_CAPABILITY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
@@ -1205,8 +1258,9 @@ const server=http.createServer(async(req,res)=>{
         localVisionTimeoutMs:local.timeoutMs,
         localVisionOnly:local.localOnly,
         localVisionTwoStage:true,
-        localVisionBatchSize:1,
-        localVisionSingleTf:true,
+        localVisionBatchSize:3,
+        localVisionSingleTf:false,
+        localVisionSingleTfFallback:true,
         localVisionCompactFinalize:true,
         localVisionTfContract:true,
         localVisionSplitGlobal:true,
