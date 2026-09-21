@@ -463,6 +463,7 @@ function localVisionExtractionPrompt(images,localContext){
     'TF_'+tag+'_FORMING: <=70 karakter; teyit olmadığı açık',
     'TF_'+tag+'_RISK: <=70 karakter; tek ana risk',
     tf==='45m'?'Sentetik 45m bağımsız oy değildir.':'',
+    'Deterministik TF_CONTEXT_JSON kapanmış mumlardan hesaplanır. NO_ACTIVE_BREAKOUT yalnız son kapanan mumun prior-20 sınırını aşmadığını söyler; genel teyit yokluğu değildir. FORMING satırı yalnız bağlamdır.',
     'Görmediğin şeyi uydurma. Market-maker niyeti çıkarma. Başka satır veya açıklama ekleme.',
     'DETERMINISTIC_CONTEXT_JSON:',
     JSON.stringify(shared)
@@ -489,7 +490,8 @@ function localVisionBatchExtractionPrompt(images,localContext){
   return [
     'LOCAL_VISION_BATCH3_ACTIVE. Ekli '+normalized.length+' grafiği birbirine karıştırmadan ayrı ayrı incele.',
     'Her zaman dilimi için kendi TF_* etiketlerini üret. Bir grafiğin kanıtını başka TF etiketine taşıma.',
-    'Forming mum teyit değildir. Görmediğin şeyi uydurma; market-maker niyeti çıkarma.',
+    'Deterministik frame verileri kapanmış mumlardan hesaplanır. NO_ACTIVE_BREAKOUT genel teyit eksikliği değildir; sadece son kapanan mumun prior-20 sınırını aşmadığını belirtir.',
+    'Forming mum teyit değildir ve global bekleme sebebi yapılamaz. Görmediğin şeyi uydurma; market-maker niyeti çıkarma.',
     'İstenen satırlar:',
     ...expected,
     'Başka satır veya açıklama ekleme.',
@@ -829,10 +831,23 @@ function localGlobalCoreRepairMessages(role,missing,visionText,localContext){
     ].join('\n')}
   ];
 }
+function localDecisionTfEvidence(visionText,localContext){
+  const lines=String(visionText||'').split(/\r?\n/).filter(Boolean);
+  const sourceSide=String(localContext?.sourceCandidate?.side||'').toUpperCase();
+  const path=localContext?.opportunityPaths?.[sourceSide]||{};
+  const critical=new Set([path?.originTF,path?.ownerTF].map(x=>String(x||'').toLowerCase()).filter(Boolean));
+  return lines.filter(line=>{
+    const m=/^TF_(1M|3M|5M|15M|30M|45M|1H|4H|1D)_(WAIT|FORMING)\s*:/i.exec(line);
+    if(!m)return true;
+    const tf=m[1].toLowerCase();
+    return critical.has(tf);
+  }).join('\n');
+}
+
 function localGlobalCoreMessages(role,visionText,localContext){
   const sys=[
     roleInstruction(role),
-    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has unresolved confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. WATCH is allowed only when TF_EVIDENCE contains a concrete unresolved condition; do not use WATCH as generic caution. LEARNING, when present, contains only outcome-backed closed-trade statistics and is soft tie-break/context only: it cannot by itself create QUALIFIED, WATCH, REJECT or VETO, cannot override fresh 9TF evidence, and cannot change stop/risk/execution rules. If learning.available is false, ignore learning completely. Advisory only.'
+    'LOCAL_GLOBAL_CORE: use only TF_EVIDENCE and COMPACT_CONTEXT_JSON. Return exactly seven short labeled lines. No prose outside labels. Deterministic timeframe fields are derived from CLOSED candles. NO_ACTIVE_BREAKOUT means only that the latest closed candle did not close beyond the prior-20 boundary in that timeframe; it is NOT a generic confirmation failure and is NOT by itself a reason for WATCH. FORMING text is context only and must never become a global confirmation requirement. QUALIFIED is blocked when ORIGIN_TF or OWNER_TF is VETO, or when the selected execution path still has an unresolved origin/owner confirmation/reclaim/wait. Other timeframe VETO roles are contextual conflicts for Jev review, not automatic majority vetoes. WATCH is allowed only for a concrete unresolved origin/owner execution condition; do not use WATCH as generic caution. LEARNING, when present, contains only outcome-backed closed-trade statistics and is soft tie-break/context only: it cannot by itself create QUALIFIED, WATCH, REJECT or VETO, cannot override fresh 9TF evidence, and cannot change stop/risk/execution rules. If learning.available is false, ignore learning completely. Advisory only.'
   ].join(' ');
   return [
     {role:'system',content:sys},
@@ -983,7 +998,7 @@ async function runLocalVisionCommitteeUnlocked(body){
       const core=await callLocalStage(
         'FINALIZE_CORE',
         model,
-        localGlobalCoreMessages(role,visionText,finalizeContext),
+        localGlobalCoreMessages(role,localDecisionTfEvidence(visionText,finalizeContext),finalizeContext),
         local.timeoutMs,
         {temperature:0,maxTokens:320}
       );
@@ -993,7 +1008,7 @@ async function runLocalVisionCommitteeUnlocked(body){
         const coreRepair=await callLocalStage(
           'FINALIZE_CORE_REPAIR',
           model,
-          localGlobalCoreRepairMessages(role,coreContract.missing,visionText,finalizeContext),
+          localGlobalCoreRepairMessages(role,coreContract.missing,localDecisionTfEvidence(visionText,finalizeContext),finalizeContext),
           local.timeoutMs,
           {temperature:0,maxTokens:220}
         );
