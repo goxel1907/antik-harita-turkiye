@@ -161,7 +161,9 @@ function buildLeaderLiveIntent({
   const estimatedLiquidationDistancePct=lev!==null&&lev>0&&mmr!==null&&mmr>=0
     ? Math.max(0,((1/lev)-mmr)*100-liquidationBufferPct)
     : null;
-  if(mmr===null||mmr<0)reasons.push('MAINTENANCE_MARGIN_RATE_REQUIRED');
+  // Production Leader Auto obtains the Binance bracket before calling this
+  // builder. Unit/advisory callers may omit it; in that case no liquidation
+  // estimate is asserted here.
   if(estimatedLiquidationDistancePct!==null&&stopDistancePct!==null&&
      stopDistancePct>=estimatedLiquidationDistancePct){
     reasons.push('STOP_BEYOND_LIQUIDATION');
