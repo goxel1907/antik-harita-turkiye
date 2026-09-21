@@ -6,8 +6,10 @@ APP = Path('/tmp/futures15m-build/Futures15mAlarm')
 JAVA = APP / 'app/src/main/java/com/futuresalarm/app'
 main_path = JAVA / 'MainActivity.java'
 analysis_path = JAVA / 'AnalysisPackActivity.java'
+monitor_path = JAVA / 'MonitorService.java'
 main = main_path.read_text()
 analysis = analysis_path.read_text()
+monitor = monitor_path.read_text()
 
 brain_client_path = JAVA / 'BrainHubClient.java'
 if not brain_client_path.exists():
@@ -254,8 +256,14 @@ assert 'workerEscalationPending' in main
 assert 'visionFreeQuotaFallbacks' in main
 assert 'PC otomasyon motoru PC BrainHub zamanlayıcısında çalışır' in main
 assert 'CLAUDE_V109' in main, 'CLAUDE_V109 Android marker missing'
+main=main.replace('v9.5.69 • MANUEL PRO','v9.5.111-CLAUDE • MANUEL PRO')
+main=main.replace('15m Futures Alarm PRO v9.5.69','15m Futures Alarm PRO v9.5.111-CLAUDE')
+monitor=monitor.replace('15m Futures Alarm PRO v9.5.69','15m Futures Alarm PRO v9.5.111-CLAUDE')
+monitor=monitor.replace('v9.5.69 • MANUEL PRO','v9.5.111-CLAUDE • MANUEL PRO')
 main_path.write_text(main)
+monitor_path.write_text(monitor)
 analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','CLAUDE ANALİZ PAKETİ • v9.5.111')
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.110','CLAUDE ANALİZ PAKETİ • v9.5.111')
 analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
