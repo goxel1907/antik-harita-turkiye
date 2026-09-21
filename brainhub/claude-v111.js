@@ -252,14 +252,20 @@ function revalidationIntent(row, { now = Date.now(), config = readConfig() } = {
   };
 }
 
-function revalidateTrigger({ stored, intent, candidate, unified, now = Date.now(), config = readConfig() } = {}) {
+// Piyasa verisi gerektirmeyen ön kontrol (Leader AUTO sıralayıcısı 5 dk soğumayı yalnız bu geçerse atlar).
+function revalidationPrecheck({ stored, intent, now = Date.now(), config = readConfig() } = {}) {
+  const r = revalidateTrigger({ stored, intent, candidate:null, unified:{ dataQuality:{ advisoryUsable:true } }, now, config, precheckOnly:true });
+  return { ok:r.ok === true, reasons:r.reasons || [] };
+}
+
+function revalidateTrigger({ stored, intent, candidate, unified, now = Date.now(), config = readConfig(), precheckOnly = false } = {}) {
   const reasons = [];
   const rawPlan = stored?.plan ?? stored?.payload?.plan;
   const plan = rawPlan && typeof rawPlan === 'object' ? rawPlan : null;
   const storedAt = finite(stored?.ts);
   if (!plan) return { ok:false, reasons:['REVAL_STORED_PLAN_MISSING'] };
   // Jev'in daha önce gördüğü yeniden doğrulanmış plan tekrar hızlı yoldan geçmez: tam 9TF gerekir.
-  if (plan.claudeTriggerRevalidation?.ok === true) return { ok:false, reasons:['REVAL_ALREADY_REVALIDATED_REQUIRES_FULL_9TF'] };
+  if (plan.claudeTriggerRevalidation?.ok === true && plan.claudeTriggerRevalidation?.applied !== false) return { ok:false, reasons:['REVAL_ALREADY_REVALIDATED_REQUIRES_FULL_9TF'] };
   const side = String(plan.side || '').toUpperCase();
   if (!['LONG','SHORT'].includes(side)) reasons.push('REVAL_SIDE_INVALID');
   const iSide = String(intent?.side || '').toUpperCase();
@@ -287,6 +293,7 @@ function revalidateTrigger({ stored, intent, candidate, unified, now = Date.now(
     if (vetoSet.has(x)) reasons.push('REVAL_MODEL_VETO_ON_CRITICAL_TF:' + x);
   }
   if (reasons.length) return { ok:false, reasons:uniq(reasons) };
+  if (precheckOnly) return { ok:true, reasons:[] };
 
   const f = unified?.frames?.[tf];
   const close = finite(f?.close);
@@ -305,6 +312,7 @@ function revalidateTrigger({ stored, intent, candidate, unified, now = Date.now(
   const laneName = scalp ? 'SCALP_MOMENTUM' : 'MAIN_15M';
   if (scalp) {
     if (!lane.scalpReady) reasons.push('REVAL_SCALP_LANE_NOT_READY');
+    if (!(Array.isArray(lane.lowerSupportTfs) && lane.lowerSupportTfs.includes(tf))) reasons.push('REVAL_SCALP_TRIGGER_TF_NOT_SUPPORTING');
     if (!momentum.momentum) reasons.push('REVAL_SCALP_NOT_MOMENTUM_COIN');
   } else if (!lane.main15Ready) reasons.push('REVAL_MAIN_15M_NOT_READY');
   if (lane.hard15mVeto) reasons.push('REVAL_15M_HARD_OPPOSITION');
@@ -318,7 +326,7 @@ function revalidateTrigger({ stored, intent, candidate, unified, now = Date.now(
     : (!planOwner || LOWER.includes(planOwner) ? '15m' : planOwner);
   const dir = side === 'LONG' ? '>' : '<';
   const info = {
-    ok:true, version:'CLAUDE_V111', laneName, tf, triggerPrice, invalidationPrice,
+    ok:true, applied:true, version:'CLAUDE_V111', laneName, tf, triggerPrice, invalidationPrice,
     closedClose:close, livePrice:live, storedPlanAt:new Date(storedAt).toISOString(),
     storedPlanAgeMin:Number(ageMin.toFixed(2)), momentumTags:momentum.tags, lane:compactLane(lane)
   };
@@ -355,7 +363,8 @@ function runnerPhase({ initialQty, tpQty, remainingQty, stepSize = null } = {}) 
   const q = Array.isArray(tpQty) ? tpQty.map(finite) : [];
   if (q0 === null || q0 <= 0 || rem === null) return 'UNKNOWN';
   if (rem <= 0) return 'CLOSED';
-  const tol = Math.max(finite(stepSize) || 0, q0 * 1e-6);
+  // Yarım lot adımı: tam adım toleransı 1 adımlık TP dilimlerinde fazı erken ilerletiyordu (inceleme bulgusu #1).
+  const tol = Math.max((finite(stepSize) || 0) / 2, q0 * 1e-9);
   if (q.length === 3 && q.every(x => x !== null && x > 0)) {
     if (rem <= q[2] + tol) return 'TRAILING';
     if (rem <= q0 - q[0] + tol) return 'BREAKEVEN';
@@ -433,6 +442,7 @@ module.exports = {
   laneAwareTrigger,
   applyLaneTrigger,
   revalidationIntent,
+  revalidationPrecheck,
   revalidateTrigger,
   runnerPhase,
   roundToTick,

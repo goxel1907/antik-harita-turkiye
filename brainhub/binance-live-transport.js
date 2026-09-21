@@ -694,10 +694,12 @@ class BinanceLiveTransport {
     try {
       const ack = await this._fetchJson('POST', '/fapi/v1/algoOrder', { credentials, signed:true, params });
       const algoId = ack?.algoId ?? null;
-      if (algoId === null) return { ok:false, reason:'RUNNER_STOP_ACK_INVALID' };
+      if (algoId === null) return { ok:false, requestSent:true, reason:'RUNNER_STOP_ACK_INVALID' };
       return { ok:true, algoId, triggerPrice:price, quantity:qty };
     } catch (e) {
-      return { ok:false, reason:String(e?.message || 'RUNNER_STOP_FAILED').slice(0,120), exchangeError:e?.body || null };
+      // HTTP 4xx = borsa reddetti (emir yok); zaman aşımı/ağ = durum bilinmiyor.
+      const rejected = Number.isFinite(Number(e?.status)) && Number(e.status) >= 400 && Number(e.status) < 500;
+      return { ok:false, requestSent:rejected ? false : Boolean(e?.requestSent), reason:String(e?.message || 'RUNNER_STOP_FAILED').slice(0,120), exchangeError:e?.body || null };
     }
   }
 
@@ -730,13 +732,16 @@ class BinanceLiveTransport {
     }
   }
 
-  async cancelAlgoOrder({ algoId, credentials } = {}) {
-    if (algoId === null || algoId === undefined || algoId === '') return { ok:false, reason:'RUNNER_CANCEL_INPUT_INVALID' };
+  async cancelAlgoOrder({ algoId = null, clientAlgoId = null, credentials } = {}) {
+    const hasId = algoId !== null && algoId !== undefined && algoId !== '';
+    const hasClient = clientAlgoId !== null && clientAlgoId !== undefined && clientAlgoId !== '';
+    if (!hasId && !hasClient) return { ok:false, reason:'RUNNER_CANCEL_INPUT_INVALID' };
+    const params = hasId ? { algoId:String(algoId) } : { clientAlgoId:String(clientAlgoId) };
     try {
-      await this._fetchJson('DELETE', '/fapi/v1/algoOrder', { params:{ algoId:String(algoId) }, credentials, signed:true });
-      return { ok:true, algoId };
+      await this._fetchJson('DELETE', '/fapi/v1/algoOrder', { params, credentials, signed:true });
+      return { ok:true, algoId:hasId ? algoId : null, clientAlgoId:hasClient ? clientAlgoId : null };
     } catch (e) {
-      return { ok:false, algoId, reason:String(e?.message || 'RUNNER_CANCEL_FAILED').slice(0,120), exchangeError:e?.body || null };
+      return { ok:false, algoId, clientAlgoId, reason:String(e?.message || 'RUNNER_CANCEL_FAILED').slice(0,120), exchangeError:e?.body || null };
     }
   }
 }

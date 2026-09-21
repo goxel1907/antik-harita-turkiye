@@ -47,10 +47,23 @@ Vision modeli üretebiliyordu; worker kapanmış-mum tetiğini görse bile (v109
 - Momentum sınıflandırması tarayıcı alanlarına dayanır; tarayıcı listesinden düşen takip coinleri (aday bilgisi yok) momentum sayılmaz → yalnız 15m ana hat.
 
 ## Testler
-226 → **227/227** (`node --test brainhub/test/*.test.js`; v110 211 + Claude v111 16). Yeni: `test/claude-v111.test.js`
+**231/231** (`node --test brainhub/test/*.test.js`; ChatGPT v110 211 + Claude v111 20). Yeni: `test/claude-v111.test.js`
 (momentum tanımı, hat-farkında tetik LONG/SHORT, 15m sert karşı-veto, yeniden doğrulama kabul/ret, pipeline.run uçtan uca:
 BINDING'de Vision çağrılmadan QUALIFIED + Jev çağrısı / SHADOW'da yalnız kayıt, Leader AUTO önceliği, runner faz/stop
 hesapları, transport TP3'süz giriş, runner BINDING/SHADOW döngüsü Binance taklidiyle).
+
+## Bağımsız inceleme (ikinci Claude ajanı) ve düzeltmeler
+| # | Bulgu | Düzeltme |
+|---|---|---|
+| 1 (yüksek) | Runner fazı tam lot adımı toleransıyla 1 adımlık TP dilimlerinde erken ilerliyordu (ör. 0,003 BTC girişte BREAKEVEN). | Tolerans yarım lot adımı; küçük dilim testleri eklendi. |
+| 2 | 5 dk yeniden analiz soğuması SHADOW modda ve uygun olmayan planlarda da atlanıyordu. | Yalnız `deterministicTriggerMode=BINDING` **ve** saklanan plan ön kontrolü (`revalidationPrecheck`) geçerse atlanır. |
+| 3 | Runner config'i sonradan SHADOW/OFF yapılırsa TP3'süz pozisyon sahipsiz kalıyordu. | Kayıt giriş anındaki moduna göre yönetilir; kapanış temizliği de öyle. |
+| 4 | Zaman aşımına uğrayan / iptal edilemeyen runner emirleri izlenmiyordu; aynı sembolde yeni giriş eski kaydı eziyordu. | `clientAlgoId` ile bilinmeyen emir takibi, `pendingCancel` yeniden deneme, eski kayıt emirleri `orphans` listesiyle temizlenir. |
+| 5 | SHADOW doğrulama damgası sonraki gerçek doğrulamayı ve kod-tetik gölgesini engelliyordu. | Uygulanmayan doğrulama ayrı alanda (`claudeTriggerRevalidationShadow`). |
+| 6 | Scalp doğrulamasında tetik TF'sinin destekleyen alt TF olması şartı yoktu. | `REVAL_SCALP_TRIGGER_TF_NOT_SUPPORTING`. |
+| 7 | Yalnız-analiz takip yolu hızlı yolu harcıyordu. | Hızlı yol yalnız Leader AUTO ana akışında. |
+| 8 | TP2 sonrası runner stop miktarı pozisyondan büyük kalabiliyordu (hedge modu). | TP dolumunda stop mevcut miktarla yeniden konur. |
+| 9 | Runner modu HTTP gövdesinden gelebiliyordu. | İç argüman (`executeExclusive(..., internal)`); mobil emirler her zaman TP3'lü. |
 
 ## Geri dönüş
 - Kod-tetik + yeniden doğrulamayı gölgeye al: `C:\BrainHub\config\claude-v109.json` → `"deterministicTriggerMode": "SHADOW"` (30 sn içinde etkin).

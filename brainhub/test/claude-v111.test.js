@@ -392,11 +392,15 @@ test('runner SHADOW: Binance’e hiçbir yazma isteği gitmez, yalnız hedef sto
 });
 
 // ---------------- Leader AUTO: sayısal tetik → yeniden doğrulama önceliği (5 dk soğuma yok) ----------------
-test('Leader AUTO sayısal tetikli satırı ilk sıraya alır ve pipeline’a triggerRevalidation geçirir', async t => {
+async function leaderPickFixture(t, dtMode) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-v111-leader-'));
   t.after(() => fs.rmSync(root, { recursive:true, force:true }));
   fs.mkdirSync(path.join(root, 'data'), { recursive:true });
   fs.mkdirSync(path.join(root, 'config'), { recursive:true });
+  fs.writeFileSync(path.join(root, 'config', 'claude-v109.json'), JSON.stringify({ deterministicTriggerMode:dtMode }));
+  const prevRoot = process.env.BRAINHUB_ROOT;
+  process.env.BRAINHUB_ROOT = root; require('../claude-v109').resetConfigCache(); v111.resetConfigCache();
+  t.after(() => { process.env.BRAINHUB_ROOT = prevRoot; require('../claude-v109').resetConfigCache(); v111.resetConfigCache(); });
   const now = Date.now();
   fs.writeFileSync(path.join(root, 'data', 'leader-analysis-state.json'), JSON.stringify({ version:1, updatedAt:now, cursor:0, bySymbol:{
     ABCUSDT:{ symbol:'ABCUSDT', side:'LONG', state:'WATCH', setupId:'LHSET:ABCUSDT:LONG:abc:def', planStatus:'WATCH', detectedAt:now - 3600000,
@@ -409,7 +413,7 @@ test('Leader AUTO sayısal tetikli satırı ilk sıraya alır ve pipeline’a tr
   const { createLiveController } = require('../live-controller');
   const controller = createLiveController({
     root, credentials:{}, clock:() => now,
-    store:{ journal() { return 'id'; } },
+    store:{ journal() { return 'id'; }, latestJournal:(k, sym) => (k === 'PLAN' && sym === 'ABCUSDT' ? { ...storedPlan(), ts:now - 600000 } : null) },
     scanner:{ async scan() { return { leaders:[other, target] }; } },
     pipeline:{ async run(args) {
       runs.push(args);
@@ -422,6 +426,11 @@ test('Leader AUTO sayısal tetikli satırı ilk sıraya alır ve pipeline’a tr
     committee:async () => { throw new Error('worker must not run for an unresolved escalation'); }
   });
   const out = await controller.executeLeader({ analysisOnly:true, allowLong:true, allowShort:false });
+  return { runs, out, controller };
+}
+
+test('Leader AUTO (BINDING) sayısal tetikli satırı ilk sıraya alır ve pipeline’a triggerRevalidation geçirir', async t => {
+  const { runs, out, controller } = await leaderPickFixture(t, 'BINDING');
   assert.equal(runs.length, 1);
   assert.equal(runs[0].executionIntent.symbol, 'ABCUSDT', 'tetiklenen coin 1. sıradaki coinin önüne geçti');
   assert.equal(runs[0].executionIntent.triggerRevalidation.triggerPrice, 101);
@@ -429,4 +438,41 @@ test('Leader AUTO sayısal tetikli satırı ilk sıraya alır ve pipeline’a tr
   const h = controller.status().leaderAuto?.health || controller.leaderAutoStatus().health || {};
   assert.equal(h.claudeV111?.revalidated, 1);
   assert.equal(h.claudeV111?.jevCalledAfterCode, 1);
+});
+
+test('Leader AUTO (SHADOW) 5 dk yeniden analiz soğumasını atlamaz (inceleme bulgusu #2)', async t => {
+  const { runs } = await leaderPickFixture(t, 'SHADOW');
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].executionIntent.symbol, 'XYZUSDT');
+});
+
+test('runner fazı küçük lot dilimlerinde erken ilerlemez (inceleme bulgusu #1)', () => {
+  assert.equal(v111.runnerPhase({ initialQty:0.003, tpQty:[0.001,0.001,0.001], remainingQty:0.003, stepSize:0.001 }), 'INITIAL');
+  assert.equal(v111.runnerPhase({ initialQty:0.003, tpQty:[0.001,0.001,0.001], remainingQty:0.002, stepSize:0.001 }), 'BREAKEVEN');
+  assert.equal(v111.runnerPhase({ initialQty:5, tpQty:[1,1,3], remainingQty:5, stepSize:1 }), 'INITIAL');
+  assert.equal(v111.runnerPhase({ initialQty:4, tpQty:[1,1,2], remainingQty:3, stepSize:1 }), 'BREAKEVEN');
+  assert.equal(v111.runnerPhase({ initialQty:4, tpQty:[1,1,2], remainingQty:2, stepSize:1 }), 'TRAILING');
+});
+
+test('scalp yeniden doğrulaması: tetik TF destekleyen alt TF değilse reddedilir (bulgu #6)', () => {
+  const frames = Object.fromEntries(TFS.map(tf => [tf, uFrame(tf)]));
+  frames['5m'] = accepted('5m', { longScore:30 });
+  const stored = storedPlan({ originTF:'5m', ownerTF:'15m', triggerTF:'5m', triggerSpec:{ valid:true, tf:'5m', triggerPrice:101, invalidationPrice:99 } }, 5);
+  const r = v111.revalidateTrigger({ stored, intent:{ ...intent, triggerTF:'5m' }, candidate:momentumCandidate, unified:unifiedOf(frames, 101.9) });
+  assert.ok(r.reasons.includes('REVAL_SCALP_TRIGGER_TF_NOT_SUPPORTING'), JSON.stringify(r.reasons));
+});
+
+test('runner: BINDING ile açılan pozisyon config SHADOW yapılsa da korunmaya devam eder (bulgu #3)', async t => {
+  const { state, writes, controller } = runnerFixture(t, 'BINDING');
+  state.qty = 20; state.mark = 102;
+  await controller.runnerTick();
+  assert.equal(writes.filter(x => x.op === 'POST').length, 1);
+  fs.writeFileSync(path.join(process.env.BRAINHUB_ROOT, 'config', 'claude-v111.json'), JSON.stringify({ runnerMode:'OFF' }));
+  v111.resetConfigCache();
+  state.qty = 10; state.mark = 104; state.now += 60000;
+  await controller.runnerTick();
+  assert.equal(writes.filter(x => x.op === 'POST').length, 2, 'TP3’süz runner iz sürmeye devam etti');
+  state.qty = 0; state.now += 60000;
+  await controller.runnerTick();
+  assert.ok(writes.some(x => x.op === 'DELETE' && x.algoId === 'S1'), 'kapanışta artık emirler temizlendi');
 });

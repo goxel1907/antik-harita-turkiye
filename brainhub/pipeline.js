@@ -1340,14 +1340,15 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     } catch {}
   }
   } // CLAUDE_V111: tam 9TF Vision yolu sonu (yeniden doğrulama uygulanmadıysa çalıştı)
-  if (revalidation && plan && typeof plan === 'object' && plan.claudeTriggerRevalidation == null) {
-    plan = { ...plan, claudeTriggerRevalidation:{ ok:revalidation.ok === true, applied:false, mode:v109Mode, reasons:revalidation.reasons || [] } };
+  if (revalidation && plan && typeof plan === 'object' && plan.claudeTriggerRevalidation?.applied !== true) {
+    // Uygulanmayan (SHADOW/red) doğrulama ayrı alanda tutulur: sonraki gerçek doğrulamayı ve kod-tetik gölgesini engellemez.
+    plan = { ...plan, claudeTriggerRevalidationShadow:{ ok:revalidation.ok === true, applied:false, mode:v109Mode, reasons:revalidation.reasons || [] } };
   }
   // CLAUDE_V109_DETERMINISTIC_TRIGGER_SHADOW → CLAUDE_V111_MOMENTUM_SCALP_TRIGGER: model WATCH dediğinde
   // v110 işlem hattına uygun kapanmış-mum kırılımı var mı? Momentum coin + 2/3 alt TF → 1m/3m/5m; aksi 15m.
   // SHADOW: yalnız kayıt. BINDING: WATCH→QUALIFIED, ardından v110 hat kuralı yeniden uygulanır; Jev, risk,
   // likidasyon ve LIVE kapıları aynen çalışır.
-  if(plan&&typeof plan==='object'&&executionIntent?.positionReviewOnly!==true&&plan.claudeTriggerRevalidation?.ok!==true&&['WATCH','QUALIFIED'].includes(String(plan.status||'').toUpperCase())){
+  if(plan&&typeof plan==='object'&&executionIntent?.positionReviewOnly!==true&&plan.claudeTriggerRevalidation?.applied!==true&&['WATCH','QUALIFIED'].includes(String(plan.status||'').toUpperCase())){
     const v109cfg=claudeV109.readConfig();
     const dt=claudeV111.laneAwareTrigger({plan,candidate,unified});
     const wouldQualify=dt.ok===true&&String(plan.status||'').toUpperCase()==='WATCH';
@@ -1361,7 +1362,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   }
   // CLAUDE_V111_LANE_ENFORCED_AFTER_DT: kod-tetik veya yeniden doğrulama ile QUALIFIED olan plan da
   // v110 hat kuralından geçer (1m/3m/5m tek başına karar vermez; 15m ana hat).
-  if(plan&&typeof plan==='object'&&String(plan.status||'').toUpperCase()==='QUALIFIED'&&(plan.claudeDeterministicTrigger?.applied===true||plan.claudeTriggerRevalidation?.ok===true)){
+  if(plan&&typeof plan==='object'&&String(plan.status||'').toUpperCase()==='QUALIFIED'&&(plan.claudeDeterministicTrigger?.applied===true||plan.claudeTriggerRevalidation?.applied===true)){
     plan=tradeLanes.enforceQualification(plan,unified,candidate);
   }
   const preJevPlan=plan&&typeof plan==='object'?{...plan}:null;
