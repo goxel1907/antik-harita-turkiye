@@ -553,6 +553,8 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
             int vision=h.optInt("visionUnavailable",0),busy=h.optInt("skippedBusy",0),orders=h.optInt("ordersPlaced",0);
             int workerReviews=h.optInt("workerReviews",0),workerWaits=h.optInt("workerWaits",0),workerTriggers=h.optInt("workerTriggers",0);
             int workerRefresh=h.optInt("workerRefreshes",0),visionAvoided=h.optInt("fullVisionAvoided",0);
+            int pendingEsc=h.optInt("workerEscalationPending",0),freeFailover=h.optInt("visionFreeQuotaFallbacks",0);
+            double avgBatch=h.optDouble("avgVisionBatchSize",-1.0);
             long avg=h.optLong("avgAnalysisMs",-1L);
             StringBuilder b=new StringBuilder();
             b.append("OTO sağlık • gözlenen ").append(String.format(java.util.Locale.US,"%.1f",observed)).append(" dk")
@@ -568,7 +570,10 @@ if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
              .append(" • bekle ").append(workerWaits)
              .append(" • tetik ").append(workerTriggers)
              .append(" • 9TF yenile ").append(workerRefresh)
+             .append(" • bekleyen yükseltme ").append(pendingEsc)
              .append(" • tasarruf edilen tam 9TF ").append(visionAvoided);
+            b.append("\nVision hız/failover • Kiro free kurtarma ").append(freeFailover);
+            if(avgBatch>0)b.append(" • ort batch ").append(String.format(java.util.Locale.US,"%.2f",avgBatch));
             b.append("\nCanlı intent ").append(intentReady)
              .append(" • yürütme sonucu ").append(execResults)
              .append(" • açılan emir ").append(orders)
@@ -1002,6 +1007,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
             st.append("\nPC LIVE: ").append(armed?"ARMED":"KAPALI");
             if(armed)st.append(" • kalan ").append(v9582ArmRemaining(sp.getString("v9582_pc_expires_at","")));
             st.append("\nPC LEADER AUTO: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");
+            st.append("\nPC otomasyon motoru PC BrainHub zamanlayıcısında çalışır; telefon ekranının açık kalması gerekmez.");
             String lex=lastPcExecution;
             if(lex!=null&&!lex.trim().isEmpty())st.append(" • son ").append(lex.trim());
             if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\nNeden: ").append(lastPcReasons.trim());
