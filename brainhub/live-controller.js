@@ -267,6 +267,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const leaderAutoHealthStartedAt = Number.isFinite(clock()) ? clock() : Date.now();
   let leaderAutoHealthEvents = [];
   let planWorkerState = { lastReview:null, history:[] };
+  let planWorkerBusy = false;
+  let planWorkerCursor = 0;
 
   function trimLeaderAutoHealth(now = clock()) {
     const ts = Number.isFinite(now) ? now : Date.now();
@@ -351,11 +353,23 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function pickLeaderCandidate(candidates) {
     if (!Array.isArray(candidates) || !candidates.length) return {candidate:null,index:-1,reason:'NO_CANDIDATE'};
     const now=Number.isFinite(clock()) ? clock() : Date.now();
+    // A cheap worker may detect that an existing WATCH plan has triggered or
+    // needs structural refresh while local Vision is busy on another symbol.
+    // That escalation gets the next full-9TF slot; workers themselves never qualify.
+    let index=candidates.findIndex(c=>{
+      const row=leaderAnalysisState.bySymbol?.[String(c?.symbol || '').toUpperCase()];
+      return ['TRIGGERED','REFRESH_REQUIRED'].includes(String(row?.workerState || '').toUpperCase());
+    });
+    if(index>=0){
+      const candidate=candidates[index];
+      leaderAutoCandidateCursor=(index+1)%candidates.length;
+      return {candidate,index,reason:'WORKER_ESCALATION_PRIORITY'};
+    }
     // Coverage-first within the existing scanner priority order: a never-analyzed
     // or stale candidate is selected before repeating a recently analyzed one.
     // This avoids repeatedly spending 9TF Vision time on the same symbol while
     // keeping scanner ordering authoritative.
-    let index=candidates.findIndex(c=>{
+    index=candidates.findIndex(c=>{
       const row=leaderAnalysisState.bySymbol?.[String(c?.symbol || '').toUpperCase()];
       const last=Math.max(Number(row?.lastAnalyzedAt || 0),Number(row?.lastWorkerCheckAt || 0));
       return !last || now-last >= LEADER_AUTO_REANALYSIS_COOLDOWN_MS;
@@ -735,6 +749,57 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {handled:true,...review,unified};
   }
 
+  function workerCandidateFromScan(scan, tracked) {
+    const symbol=String(tracked?.symbol||'').toUpperCase();
+    const pools=[
+      scan?.leaders,scan?.leaderHunters,scan?.top3Approach,scan?.top10Approach,
+      scan?.earlyTop5,scan?.earlyExpansion,scan?.gainerCandidates,
+      scan?.accumulationCandidates,scan?.attentionCandidates
+    ];
+    for(const pool of pools){
+      const hit=Array.isArray(pool)?pool.find(x=>String(x?.symbol||'').toUpperCase()===symbol):null;
+      if(hit)return hit;
+    }
+    return {symbol,side:tracked?.side||null,deepScanReason:'TRACKED_PLAN_WORKER'};
+  }
+
+  async function planWorkerTick() {
+    if(planWorkerBusy)return {ok:true,skipped:true,reason:'PLAN_WORKER_BUSY'};
+    const cfg=readLeaderAutoConfig();
+    if(!cfg.ok||cfg.config?.enabled!==true)return {ok:true,skipped:true,reason:'PLAN_WORKER_AUTO_DISABLED'};
+    const rows=Object.values(leaderAnalysisState.bySymbol||{})
+      .filter(workerEligible)
+      .sort((a,b)=>Number(a.lastWorkerCheckAt||0)-Number(b.lastWorkerCheckAt||0));
+    if(!rows.length)return {ok:true,skipped:true,reason:'PLAN_WORKER_NO_WATCH_PLAN'};
+    const now=clock();
+    const eligible=rows.filter(x=>!Number(x.lastWorkerCheckAt||0)||now-Number(x.lastWorkerCheckAt||0)>=25000);
+    if(!eligible.length)return {ok:true,skipped:true,reason:'PLAN_WORKER_COOLDOWN'};
+    const idx=planWorkerCursor%eligible.length;
+    const tracked=eligible[idx];
+    planWorkerCursor=(idx+1)%Math.max(1,eligible.length);
+    planWorkerBusy=true;
+    try{
+      let scan;
+      try{scan=await scanner.scan();}
+      catch{return {ok:false,skipped:false,reason:'SCANNER_UNAVAILABLE'};}
+      const candidate=workerCandidateFromScan(scan,tracked);
+      const out=await reviewTrackedPlan(candidate,scan);
+      if(out?.handled&&['TRIGGERED','REFRESH_REQUIRED'].includes(out.state)){
+        const row=leaderAnalysisState.bySymbol?.[tracked.symbol];
+        if(row){
+          row.workerEscalatedAt=clock();
+          leaderAnalysisState.bySymbol[tracked.symbol]=row;
+          writeLeaderAnalysisState();
+        }
+      }
+      return {ok:true,...out};
+    }catch(e){
+      return {ok:false,skipped:false,reason:String(e?.message||e).slice(0,180)};
+    }finally{
+      planWorkerBusy=false;
+    }
+  }
+
   function leaderLifecycleSummary() {
     const rawRows=Object.values(leaderAnalysisState.bySymbol || {})
       .filter(x => x && typeof x === 'object')
@@ -1083,6 +1148,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       health:leaderAutoHealthSnapshot(),
       planWorkers:{
         enabled:Boolean(market&&typeof pipeline?.buildUnifiedContext==='function'),
+        busy:planWorkerBusy,
+        cadenceSec:30,
+        parallelWithVision:true,
         routineRouter:'9ROUTER_FREE_TEXT',
         secondOpinion:freeWorker&&typeof freeWorker.status==='function'?freeWorker.status():{configured:false,model:'openrouter/free',freeOnly:true},
         lastReview:planWorkerState.lastReview,
@@ -2649,7 +2717,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, activePositionReviewTick, positionManagerStatus, readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };
