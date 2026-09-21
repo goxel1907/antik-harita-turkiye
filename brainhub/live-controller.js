@@ -2875,16 +2875,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       };
     }
 
-    if (!jevFinalAuthority) {
-      const rs=['JEV_FINAL_APPROVAL_REQUIRED'];
-      annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{jevDecision:bindingJev});
-      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
-    }
-
+    // Hard safety takes precedence over strategic approval: a disarm/re-arm while
+    // analysis is in flight invalidates that generation before any JEV-final handoff.
     if (!armedNow() || generation !== armGeneration) {
       const rs=['LIVE_DISARMED_DURING_PREFLIGHT'];
       annotateLeaderDiagnostic(candidate.symbol,'EXECUTION_RESULT',rs,{execution:'LEADER_AUTO_BLOCKED',orderPlaced:false});
       return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LEADER_AUTO_BLOCKED', symbol:candidate.symbol, plan:advisory.plan, reasons:rs };
+    }
+
+    if (!jevFinalAuthority) {
+      const rs=['JEV_FINAL_APPROVAL_REQUIRED'];
+      annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{jevDecision:bindingJev});
+      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
     }
 
     const creds = currentCredentials();

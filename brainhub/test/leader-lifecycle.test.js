@@ -786,6 +786,10 @@ test('Leader Auto reuses the already-qualified 9TF/Jev plan instead of requiring
         ]
       }]});
       if(u.pathname==='/fapi/v1/ticker/price') return response({symbol:'AAAUSDT',price:'102'});
+      if(u.pathname==='/fapi/v1/leverageBracket') return response([{
+        symbol:'AAAUSDT',
+        brackets:[{bracket:1,notionalFloor:0,notionalCap:1000000,maintMarginRatio:0.095}]
+      }]);
       throw new Error('unexpected Binance fetch '+method+' '+u.pathname);
     };
     const store={
@@ -843,10 +847,12 @@ test('Leader Auto reuses the already-qualified 9TF/Jev plan instead of requiring
     assert.equal(pipelineCalls,1,'live execution must reuse the first qualified Vision/Jev decision');
     assert.equal(out.orderPlaced,false);
     assert.ok(Array.isArray(out.reasons));
-    // CLAUDE_V109_TRIGGER_CHASE_GATE: analizden bu yana %2 kaçan fiyat artık imzalı Binance
-    // çağrılarından (leverageBracket) ÖNCE, ATR ölçekli kovalama kapısında durur.
-    assert.ok(out.reasons.includes('LIVE_PRICE_DEVIATION_TOO_HIGH')||out.reasons.includes('CLAUDE_V109_PRICE_RAN_AWAY_SINCE_ANALYSIS'),JSON.stringify(out.reasons));
-    assert.equal(fetches.some(x=>x.method==='POST'),false,'price-deviation preflight must block before any Binance write');
+    // CLAUDE_V111_JEV_FINAL_AUTHORITY: JEV onayından sonra ATR chase artık stratejik
+    // veto değildir. Akış hard-safety aşamasına kadar ilerlemeli; bu fixture özellikle
+    // likidasyona çok yakın bakım marjı vererek STOP_BEYOND_LIQUIDATION ile fail-closed olur.
+    assert.ok(out.reasons.includes('STOP_BEYOND_LIQUIDATION'),JSON.stringify(out.reasons));
+    assert.equal(fetches.some(x=>x.path==='/fapi/v1/leverageBracket'),true,'JEV-approved flow must reach hard-safety leverage bracket check');
+    assert.equal(fetches.some(x=>x.method==='POST'),false,'hard-safety block must occur before any Binance write');
   } finally {
     fs.rmSync(root,{recursive:true,force:true});
   }
