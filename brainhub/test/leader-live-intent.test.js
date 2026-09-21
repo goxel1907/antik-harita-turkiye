@@ -141,3 +141,26 @@ test('one-character Binance USDT base symbol is accepted by LIVE intent validati
   assert.equal(out.ok, true);
   assert.equal(out.symbol, 'GUSDT');
 });
+
+
+test('10x intent rejects a structural stop beyond estimated liquidation distance without resizing panel values', () => {
+  const x=base({side:'LONG',livePrice:100,low:88,high:103,atrPct:1});
+  x.maintenanceMarginRate=0.004;
+  x.liquidationSafetyBufferPct=0.5;
+  const out=buildLeaderLiveIntent(x);
+  assert.equal(out.ok,false);
+  assert.ok(out.reasons.includes('STOP_BEYOND_LIQUIDATION'));
+  assert.equal(x.marginQuote,20);
+  assert.equal(x.leverage,10);
+  assert.ok(out.stopDistancePct>out.estimatedLiquidationDistancePct);
+  assert.ok(out.riskQuote>0);
+});
+
+test('entry reference can differ from refreshed live entry and is surfaced for transport deviation checks', () => {
+  const x=base({side:'LONG',livePrice:100,low:98,high:103,atrPct:1});
+  x.entryReferencePrice=99.8;
+  const out=buildLeaderLiveIntent(x);
+  assert.equal(out.ok,true);
+  assert.equal(out.entryPrice,100);
+  assert.equal(out.entryReferencePrice,99.8);
+});
