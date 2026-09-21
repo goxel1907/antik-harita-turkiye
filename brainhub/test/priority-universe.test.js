@@ -20,7 +20,7 @@ function row(i,change=0){
 test('priority target universe caps per-symbol detail work at 24 and preserves bucket order',()=>{
   const universe=[];
   for(let i=1;i<=80;i++) universe.push(row(i, i<=30 ? 31-i : (i%9)-4));
-  const prev={bySymbol:{}};
+  const prev={ts:Date.now(),bySymbol:{},lightweight:{}};
   for(let i=1;i<=10;i++) prev.bySymbol[row(i).symbol]={rank:i,rankVelocity:0,leaderHunterScore:50-i};
 
   const attention={
@@ -34,14 +34,16 @@ test('priority target universe caps per-symbol detail work at 24 and preserves b
   const out=selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
   assert.equal(out.candidates.length,24);
   assert.deepEqual(out.candidates.slice(0,3).map(x=>x.symbol),[row(1).symbol,row(2).symbol,row(3).symbol]);
-  assert.deepEqual(out.candidates.slice(3,10).map(x=>x.symbol),[row(4).symbol,row(5).symbol,row(6).symbol,row(7).symbol,row(8).symbol,row(9).symbol,row(10).symbol]);
+  assert.deepEqual(out.candidates.slice(3,7).map(x=>x.symbol),[row(4).symbol,row(5).symbol,row(6).symbol,row(7).symbol]);
+  assert.ok(out.newTargetCount>=8,'at least eight fresh symbols should enter a 24-target cycle when available');
+  assert.ok(out.noveltyPool.length>=8);
   assert.ok(out.top24Gainers.length<=24);
   assert.ok(out.candidates.some(x=>x.targetSources.includes('BINANCE_TOP24_GAINER')));
   assert.ok(out.candidates.some(x=>x.targetSources.includes('ACCUMULATION_PROXY')));
   assert.ok(out.candidates.some(x=>x.targetSources.includes('APP_EARLY_ATTENTION')));
 });
 
-test('deep 9TF priority is top3, ranks4-10, gainers, accumulation, then app attention',()=>{
+test('deep 9TF priority is top3, ranks4-10, gainers, acceleration, accumulation, then app attention',()=>{
   const base=(symbol,rank)=>({
     symbol,side:'LONG',attackRank:rank,projectedRank:rank,leaderState:'WATCH',
     tradeQuality:80,spreadBps:1,directionSupport:2,longExpansionScore:60,shortExpansionScore:10,
@@ -55,6 +57,7 @@ test('deep 9TF priority is top3, ranks4-10, gainers, accumulation, then app atte
       base('TOP7USDT',7)
     ],
     gainerCandidates:[base('GAINUSDT',14)],
+    acceleratingCandidates:[base('FASTUSDT',13)],
     accumulationCandidates:[base('ACCUSDT',15)],
     attentionCandidates:[base('ATTNUSDT',16)],
     top3Approach:[],top10Approach:[],earlyTop5:[],earlyExpansion:[]
@@ -68,6 +71,7 @@ test('deep 9TF priority is top3, ranks4-10, gainers, accumulation, then app atte
       ['TOP4USDT','CURRENT_ATTACK_TOP10'],
       ['TOP7USDT','CURRENT_ATTACK_TOP10'],
       ['GAINUSDT','BINANCE_TOP24_GAINER'],
+      ['FASTUSDT','LIGHTWEIGHT_ACCELERATION'],
       ['ACCUSDT','ACCUMULATION_BREAKOUT_PROXY'],
       ['ATTNUSDT','APP_EARLY_ATTENTION']
     ]
