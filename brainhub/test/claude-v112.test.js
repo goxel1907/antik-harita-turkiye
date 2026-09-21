@@ -345,3 +345,34 @@ test('Vision doğruluk testi: 7 sınıf × 3 boyut = 21 sentetik vaka, LONG/SHOR
   assert.equal(sm.unparsed, 1);
   assert.equal(sm.byLabel.BOS_UP.accuracyPct, 100);
 });
+
+// ---------------- bağımsız inceleme düzeltmeleri ----------------
+test('hızlı hat Jev saatlik tavanı ve veto sonrası 30 dk soğuma', async t => {
+  const second = { ...momentum, symbol:'DEFUSDT' };
+  let runs = 0;
+  const { controller } = controllerFixture(t, {
+    v111cfg:{ scalpFastLane:'BINDING', fastLaneMaxJevPerHour:1 },
+    scan:{ leaders:[leaderRow(momentum), { ...leaderRow(second), attackRank:2 }] },
+    pipelineRun:async () => { runs++; return { ok:true, candidateFound:true, plan:{ valid:true, status:'WATCH', side:'LONG', reason:'JEV_STRUCTURAL_VETO' }, unifiedContext:{ frames:{}, dataQuality:{ advisoryUsable:true } }, committee:{ mode:'claude_v112_scalp_fast_lane' }, vision:{ attached:0 } }; }
+  });
+  const a = await controller.scalpFastLaneTick();
+  assert.equal(a.kind, 'SCALP');
+  const b = await controller.scalpFastLaneTick();
+  assert.equal(b.kind, 'SCALP_SIGNAL');
+  assert.equal(b.applied, false);
+  assert.equal(b.reason, 'FAST_LANE_JEV_HOURLY_CAP');
+  assert.equal(runs, 1);
+});
+
+test('runnerShare anahtarı yoksa v111 davranışı (ONE_THIRD) korunur', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-v112-rs-'));
+  const prev = process.env.BRAINHUB_ROOT;
+  try {
+    setConfig(root, {}, { runnerMode:'BINDING' });
+    process.env.BRAINHUB_ROOT = root; v111.resetConfigCache();
+    assert.equal(v111.readConfig().runnerShare, 'ONE_THIRD');
+    setConfig(root, {}, { runnerMode:'BINDING', runnerShare:'TWO_THIRDS' });
+    v111.resetConfigCache();
+    assert.equal(v111.readConfig().runnerShare, 'TWO_THIRDS');
+  } finally { process.env.BRAINHUB_ROOT = prev; v111.resetConfigCache(); fs.rmSync(root, { recursive:true, force:true }); }
+});

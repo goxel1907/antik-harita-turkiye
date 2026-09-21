@@ -200,6 +200,8 @@ workflows:
           grep -q "CLAUDE_V112_SCALP_FAST_LANE" "$CM_BUILD_DIR/brainhub/claude-v112.js"
           grep -q "scalpFastLaneTick" "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q "'claude-v112.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
+          grep -q "CLAUDE_V112_BINANCE_V3_POSITION_FIX" "$CM_BUILD_DIR/brainhub/binance-live-transport.js"
+          grep -q "/fapi/v1/symbolConfig" "$CM_BUILD_DIR/brainhub/binance-live-transport.js"
           echo 'CLAUDE_V112_PC_OK'
           echo 'V95111_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'

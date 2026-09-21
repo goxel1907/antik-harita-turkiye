@@ -361,3 +361,64 @@ test('LIVE entry stays fail-closed when requested leverage is not acknowledged',
   assert.equal(entryPosts, 0);
   assert.equal(calls.some(x => x.path === '/fapi/v1/order' && x.method === 'POST'), false);
 });
+
+// CLAUDE_V112_BINANCE_V3_POSITION_FIX: gerçek Binance v3 davranışı — pozisyonu olmayan sembol için
+// /fapi/v3/positionRisk boş dizi döner ve kaldıraç alanı yoktur; kaldıraç /fapi/v1/symbolConfig'ten okunur.
+function v3Fetch({ symbolLeverage = 10, ackLeverage = 10, symbolConfigFails = false, openAmt = null, calls }) {
+  let levNow = symbolLeverage;
+  return async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    const method = options.method || 'GET';
+    calls.push(`${method} ${path}`);
+    if (path === '/fapi/v1/time') return ok({ serverTime:1000000 });
+    if (path === '/fapi/v1/exchangeInfo') return ok(exchangeInfo());
+    if (path === '/fapi/v1/ticker/price') return ok({ symbol:'BTCUSDT', price:'100' });
+    if (path === '/fapi/v1/positionSide/dual') return ok({ dualSidePosition:false });
+    if (path === '/fapi/v3/positionRisk') return ok(openAmt === null ? [] : [{ symbol:'BTCUSDT', positionSide:'BOTH', positionAmt:String(openAmt), entryPrice:'100', markPrice:'100' }]);
+    if (path === '/fapi/v1/symbolConfig') {
+      if (symbolConfigFails) return ok({ code:-1000, msg:'unknown' }, 400);
+      return ok([{ symbol:'BTCUSDT', marginType:'CROSSED', isAutoAddMargin:false, leverage:levNow, maxNotionalValue:'1000000' }]);
+    }
+    if (path === '/fapi/v1/leverage' && method === 'POST') { levNow = ackLeverage; return ok({ symbol:'BTCUSDT', leverage:ackLeverage, maxNotionalValue:'1000000' }); }
+    if (path === '/fapi/v1/order' && method === 'POST') return ok({ orderId:777, status:'FILLED', executedQty:'0.3' });
+    if (path === '/fapi/v1/algoOrder' && method === 'POST') return ok({ algoId:calls.length, algoStatus:'NEW' });
+    throw new Error(`unexpected mocked request ${method} ${path}`);
+  };
+}
+async function submitV3(opts) {
+  const calls = [];
+  const transport = new BinanceLiveTransport({ registry:authorizedRegistry(), fetchImpl:v3Fetch({ ...opts, calls }), clock:() => 1000000 });
+  const result = await transport.submit({ grantId:'grant-regression-001', order:order(), credentials:credentials(), livePolicy:{ expectedLeverage:10, maxEntryDeviationPct:0.5 } });
+  return { result, calls };
+}
+
+test('Binance v3: pozisyonsuz sembolde boş positionRisk girişi engellemez (eski POSITION_RISK_REQUIRED hatası)', async () => {
+  const { result, calls } = await submitV3({ symbolLeverage:10 });
+  assert.equal(result.execution, 'LIVE_ENTRY_FULLY_PROTECTED', JSON.stringify(result.reasons));
+  assert.ok(calls.includes('GET /fapi/v1/symbolConfig'));
+  assert.equal(calls.includes('POST /fapi/v1/leverage'), false, 'kaldıraç zaten doğruysa değiştirilmez');
+});
+
+test('Binance v3: kaldıraç farklıysa POST /fapi/v1/leverage + symbolConfig ile yeniden doğrulanır', async () => {
+  const { result, calls } = await submitV3({ symbolLeverage:5, ackLeverage:10 });
+  assert.equal(result.execution, 'LIVE_ENTRY_FULLY_PROTECTED', JSON.stringify(result.reasons));
+  assert.equal(result.leverageChanged, true);
+  assert.deepEqual(calls.slice(4, 8), ['GET /fapi/v3/positionRisk','GET /fapi/v1/symbolConfig','POST /fapi/v1/leverage','GET /fapi/v1/symbolConfig']);
+});
+
+test('Binance v3: kaldıraç değişikliği reddedilirse giriş yok; symbolConfig yoksa onay kaldıraçla doğrulanır', async () => {
+  const rejected = await submitV3({ symbolLeverage:5, ackLeverage:8 });
+  assert.equal(rejected.result.orderPlaced, false);
+  assert.ok(rejected.result.reasons.includes('BINANCE_LEVERAGE_CHANGE_REJECTED'));
+  assert.equal(rejected.calls.includes('POST /fapi/v1/order'), false);
+  const fallback = await submitV3({ symbolConfigFails:true, ackLeverage:10 });
+  assert.equal(fallback.result.execution, 'LIVE_ENTRY_FULLY_PROTECTED', JSON.stringify(fallback.result.reasons));
+  assert.equal(fallback.result.leverageChanged, true);
+});
+
+test('Binance v3: sembolde açık pozisyon varsa ikinci giriş engellenir', async () => {
+  const { result, calls } = await submitV3({ openAmt:0.3 });
+  assert.equal(result.orderPlaced, false);
+  assert.ok(result.reasons.includes('SYMBOL_POSITION_ALREADY_OPEN'));
+  assert.equal(calls.includes('POST /fapi/v1/order'), false);
+});

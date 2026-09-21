@@ -10,9 +10,11 @@
   "runnerReplaceCooldownSec": 45,
   "runnerAtrBufferMultiple": 0.15,
   "runnerMaxFailuresBeforeTp3": 3,
-  "runnerShare": "TWO_THIRDS",
+  "runnerShare": "ONE_THIRD",
   "scalpFastLane": "SHADOW",
   "fastLaneMaxSymbolsPerTick": 3,
   "fastLaneSymbolCooldownMin": 5,
-  "workerScalpPerTick": 3
+  "workerScalpPerTick": 3,
+  "fastLaneVetoCooldownMin": 30,
+  "fastLaneMaxJevPerHour": 20
 }

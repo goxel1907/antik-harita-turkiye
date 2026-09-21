@@ -182,7 +182,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
     if ([string]$h.featureVersion -ne '9.5.112-CLAUDE-VISION') { throw "Beklenen PC Brain Hub surumu 9.5.112-CLAUDE-VISION; gelen=$($h.featureVersion)" }
     # CLAUDE_V112_UPDATER_FILESET: Claude v9.5.112 isaretleri dogrulanir.
-    foreach ($v112Feature in @('CLAUDE_V112_BUILD','CLAUDE_V112_SCALP_FAST_LANE','CLAUDE_V112_CONCURRENT_REVALIDATION','CLAUDE_V112_EXECUTION_LOCK_ONLY_AT_ORDER','CLAUDE_V112_RUNNER_TWO_THIRDS','CLAUDE_V112_UPDATER_FILESET')) {
+    foreach ($v112Feature in @('CLAUDE_V112_BUILD','CLAUDE_V112_SCALP_FAST_LANE','CLAUDE_V112_CONCURRENT_REVALIDATION','CLAUDE_V112_EXECUTION_LOCK_ONLY_AT_ORDER','CLAUDE_V112_RUNNER_TWO_THIRDS','CLAUDE_V112_BINANCE_V3_POSITION_FIX','CLAUDE_V112_UPDATER_FILESET')) {
         if (-not ($h.features -contains $v112Feature)) { throw "v9.5.112-CLAUDE eksik feature: $v112Feature" }
     }
     Write-Host ("CLAUDE_V112 marker={0} fastLane={1} runnerShare={2}" -f (Get-PropValue $h 'claudeV112Marker' ''),(Get-PropValue (Get-PropValue $h 'claudeV111Config' $null) 'scalpFastLane' ''),(Get-PropValue (Get-PropValue $h 'claudeV111Config' $null) 'runnerShare' ''))

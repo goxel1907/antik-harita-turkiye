@@ -343,16 +343,20 @@ class BinanceLiveTransport {
       const mode = await this._fetchJson('GET', '/fapi/v1/positionSide/dual', { credentials, signed:true });
       const hedgeMode = mode?.dualSidePosition === true;
       const positionSide = hedgeMode ? normalized.side : 'BOTH';
+      // CLAUDE_V112_BINANCE_V3_POSITION_FIX: /fapi/v3/positionRisk yalnız pozisyonu veya açık emri olan
+      // sembolleri döndürür ve kaldıraç alanı içermez (Binance belgesi). Eski kod boş cevabı
+      // POSITION_RISK_REQUIRED sayıp HER yeni coinde girişi engelliyordu (21 Eyl 22:12Z ONEUSDT).
+      // Boş liste = bu sembolde pozisyon yok. Kaldıraç GET /fapi/v1/symbolConfig ile okunur.
       let positionRisk = await this._fetchJson('GET', '/fapi/v3/positionRisk', {
         params:{ symbol:normalized.symbol }, credentials, signed:true
       });
-      let rows = Array.isArray(positionRisk) ? positionRisk : [];
-      if (!rows.length) {
+      if (!Array.isArray(positionRisk)) {
         return {
           ok:false, orderPlaced:false, stopProtected:false, liveAllowed:false, execution:'LIVE_BLOCKED', authorization,
           transport:{ attempted:true, requestSent:true }, reasons:['POSITION_RISK_REQUIRED']
         };
       }
+      let rows = positionRisk.filter(x => !x?.symbol || String(x.symbol).toUpperCase() === normalized.symbol);
       if (rows.some(x => Math.abs(finite(x?.positionAmt) || 0) > 0)) {
         return {
           ok:false, orderPlaced:false, stopProtected:false, liveAllowed:false, execution:'LIVE_BLOCKED', authorization,
@@ -360,7 +364,24 @@ class BinanceLiveTransport {
         };
       }
 
-      let leverages = [...new Set(rows.map(x => finite(x?.leverage)).filter(x => x !== null))];
+      const readSymbolLeverage = async () => {
+        try {
+          const cfg = await this._fetchJson('GET', '/fapi/v1/symbolConfig', { params:{ symbol:normalized.symbol }, credentials, signed:true });
+          const list = Array.isArray(cfg) ? cfg : (cfg && typeof cfg === 'object' ? [cfg] : []);
+          const row = list.find(x => String(x?.symbol || '').toUpperCase() === normalized.symbol) || (list.length === 1 ? list[0] : null);
+          return finite(row?.leverage);
+        } catch {
+          return null;
+        }
+      };
+      const rowLeverages = () => [...new Set(rows.map(x => finite(x?.leverage)).filter(x => x !== null))];
+      let leverageSource = 'POSITION_RISK';
+      let leverages = rowLeverages();
+      if (!leverages.length) {
+        const lev = await readSymbolLeverage();
+        leverageSource = 'SYMBOL_CONFIG';
+        leverages = lev === null ? [] : [lev];
+      }
       let leverageChanged = false;
       if (!leverages.length || leverages.some(x => x !== expectedLeverage)) {
         const leverageAck = await this._fetchJson('POST', '/fapi/v1/leverage', {
@@ -378,17 +399,23 @@ class BinanceLiveTransport {
           };
         }
         leverageChanged = true;
-        positionRisk = await this._fetchJson('GET', '/fapi/v3/positionRisk', {
-          params:{ symbol:normalized.symbol }, credentials, signed:true
-        });
-        rows = Array.isArray(positionRisk) ? positionRisk : [];
-        leverages = [...new Set(rows.map(x => finite(x?.leverage)).filter(x => x !== null))];
+        if (leverageSource === 'POSITION_RISK') {
+          positionRisk = await this._fetchJson('GET', '/fapi/v3/positionRisk', {
+            params:{ symbol:normalized.symbol }, credentials, signed:true
+          });
+          rows = Array.isArray(positionRisk) ? positionRisk.filter(x => !x?.symbol || String(x.symbol).toUpperCase() === normalized.symbol) : [];
+          leverages = rowLeverages();
+        } else {
+          const lev = await readSymbolLeverage();
+          leverages = lev !== null ? [lev] : (acknowledgedLeverage !== null ? [acknowledgedLeverage] : []);
+        }
       }
-      if (!rows.length || !leverages.length || leverages.some(x => x !== expectedLeverage)) {
+      if (!leverages.length || leverages.some(x => x !== expectedLeverage)) {
         return {
           ok:false, orderPlaced:false, stopProtected:false, liveAllowed:false, execution:'LIVE_BLOCKED', authorization,
           observedLeverages:leverages,
           leverageChanged,
+          leverageSource,
           transport:{ attempted:true, requestSent:true }, reasons:['BINANCE_LEVERAGE_MISMATCH']
         };
       }
@@ -545,7 +572,7 @@ class BinanceLiveTransport {
       // iz süren stopla yönetilir. Orijinal closePosition stop yerinde kalır (yedek koruma).
       const runnerEnabled = String(livePolicy?.runnerMode || '').toUpperCase() === 'BINDING';
       // CLAUDE_V112_RUNNER_TWO_THIRDS: varsayılan yalnız TP1 (1/3) konur; kalan 2/3 runner.
-      const runnerShare = String(livePolicy?.runnerShare || 'TWO_THIRDS').toUpperCase() === 'ONE_THIRD' ? 'ONE_THIRD' : 'TWO_THIRDS';
+      const runnerShare = String(livePolicy?.runnerShare || 'ONE_THIRD').toUpperCase() === 'TWO_THIRDS' ? 'TWO_THIRDS' : 'ONE_THIRD';
       const tpCount = runnerEnabled ? (runnerShare === 'ONE_THIRD' ? 2 : 1) : 3;
       try {
         for (let i = 0; i < tpCount; i++) {

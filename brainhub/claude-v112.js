@@ -22,8 +22,8 @@ const claudeV111 = require('./claude-v111');
 const CLAUDE_V112 = Object.freeze({
   marker: 'CLAUDE_V112',
   featureVersion: '9.5.112-CLAUDE-VISION',
-  builtBy: 'Claude (Anthropic) • Cowork • 2026-09-21 • Claude v9.5.111 + ChatGPT v9.5.110 üzerine',
-  baseBranch: 'claude-v9.5.111@418f6c4 ← futures15m-alarm-public-build@0bbabcf (ChatGPT v9.5.110)',
+  builtBy: 'Claude (Anthropic) • Cowork • 2026-09-22 • ChatGPT JEV-FINAL (3f45bcd) + Claude v9.5.111 üzerine',
+  baseBranch: 'futures15m-alarm-public-build@3f45bcd (ChatGPT JEV FINAL AUTHORITY ← Claude v9.5.111 418f6c4)',
   changesDoc: 'brainhub/CLAUDE_V112_CHANGES.md',
   features: [
     'CLAUDE_V112_BUILD',
@@ -33,6 +33,8 @@ const CLAUDE_V112 = Object.freeze({
     'CLAUDE_V112_WORKER_SCALP_EVERY_TICK',
     'CLAUDE_V112_RUNNER_TWO_THIRDS',
     'CLAUDE_V112_VISION_BENCHMARK_21',
+    'CLAUDE_V112_BINANCE_V3_POSITION_FIX',
+    'CLAUDE_V112_FAST_LANE_JEV_BUDGET',
     'CLAUDE_V112_UPDATER_FILESET'
   ]
 });

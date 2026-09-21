@@ -70,11 +70,14 @@ const DEFAULT_CONFIG = Object.freeze({
   runnerMaxFailuresBeforeTp3: 3,
   // CLAUDE_V112: runner payı. TWO_THIRDS = TP1 (1/3, 1R) sonrası kalan 2/3 momentum bozulana kadar iz sürer;
   // ONE_THIRD = v111 davranışı (TP1 + TP2, son 1/3 runner).
-  runnerShare: 'TWO_THIRDS',
+  // Eksik anahtar ONE_THIRD okunur (v111 davranışı korunur); TWO_THIRDS kullanıcı onayıyla açılır.
+  runnerShare: 'ONE_THIRD',
   // CLAUDE_V112_SCALP_FAST_LANE: OFF | SHADOW | BINDING. Vision beklemeden momentum scalp → Jev.
   scalpFastLane: 'SHADOW',
   fastLaneMaxSymbolsPerTick: 3,
   fastLaneSymbolCooldownMin: 5,
+  fastLaneVetoCooldownMin: 30,
+  fastLaneMaxJevPerHour: 20,
   // CLAUDE_V112_WORKER_SCALP_EVERY_TICK: 30 sn'de ek kontrol edilen alt-TF sayısal tetik planı sayısı.
   workerScalpPerTick: 3
 });
@@ -102,10 +105,12 @@ function readConfig(now = Date.now()) {
     runnerReplaceCooldownSec: num(raw.runnerReplaceCooldownSec, DEFAULT_CONFIG.runnerReplaceCooldownSec, 15, 600),
     runnerAtrBufferMultiple: num(raw.runnerAtrBufferMultiple, DEFAULT_CONFIG.runnerAtrBufferMultiple, 0, 1.5),
     runnerMaxFailuresBeforeTp3: num(raw.runnerMaxFailuresBeforeTp3, DEFAULT_CONFIG.runnerMaxFailuresBeforeTp3, 1, 10),
-    runnerShare: String(raw.runnerShare || DEFAULT_CONFIG.runnerShare).toUpperCase() === 'ONE_THIRD' ? 'ONE_THIRD' : 'TWO_THIRDS',
+    runnerShare: String(raw.runnerShare || DEFAULT_CONFIG.runnerShare).toUpperCase() === 'TWO_THIRDS' ? 'TWO_THIRDS' : 'ONE_THIRD',
     scalpFastLane: ['OFF','SHADOW','BINDING'].includes(String(raw.scalpFastLane || '').toUpperCase()) ? String(raw.scalpFastLane).toUpperCase() : DEFAULT_CONFIG.scalpFastLane,
     fastLaneMaxSymbolsPerTick: Math.round(num(raw.fastLaneMaxSymbolsPerTick, DEFAULT_CONFIG.fastLaneMaxSymbolsPerTick, 1, 6)),
     fastLaneSymbolCooldownMin: num(raw.fastLaneSymbolCooldownMin, DEFAULT_CONFIG.fastLaneSymbolCooldownMin, 1, 60),
+    fastLaneVetoCooldownMin: num(raw.fastLaneVetoCooldownMin, DEFAULT_CONFIG.fastLaneVetoCooldownMin, 5, 240),
+    fastLaneMaxJevPerHour: Math.round(num(raw.fastLaneMaxJevPerHour, DEFAULT_CONFIG.fastLaneMaxJevPerHour, 1, 120)),
     workerScalpPerTick: Math.round(num(raw.workerScalpPerTick, DEFAULT_CONFIG.workerScalpPerTick, 0, 6))
   });
   cache = { at:now, file, value };

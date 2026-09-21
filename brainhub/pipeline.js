@@ -1140,7 +1140,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     ? executionIntent.scalpFastLane : null;
   let fastLane = null;
   if (!plan && fastIntent) {
-    fastLane = claudeV112.scalpFastLaneSignal({ candidate, unified });
+    fastLane = claudeV112.scalpFastLaneSignal({ candidate, unified, maxEntryDeviationPct:finite(fastIntent.maxEntryDeviationPct) ?? 0.5 });
     const sameSetup = fastLane.ok === true && fastLane.side === String(fastIntent.side || fastLane.side).toUpperCase();
     vision = { ok:false, required:0, attached:0, barsRequested:null, mode:'CLAUDE_V112_FAST_LANE_NO_VISION', frames:[], failures:[] };
     result = { ok:true, available:true, degraded:false, mode:'claude_v112_scalp_fast_lane', model:'', source:'DETERMINISTIC_CLOSED_CANDLE', text:null, vision:{ attached:0, timeframes:[], modes:[] } };

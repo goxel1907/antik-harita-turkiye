@@ -304,6 +304,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   let leaderFlowBusy = false;
   let fastLaneBusy = false;
   let leaderVisionSymbol = null;
+  let fastLaneSymbol = null;
+  let fastLaneJevCalls = [];
   const fastLaneSeen = new Map();
   let fastLaneState = { lastTickAt:null, lastSignal:null, lastResult:null, history:[] };
   let lastDisarmReason = 'STARTUP_FAIL_CLOSED';
@@ -1239,7 +1241,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
 
   async function activePositionReviewTick() {
-    if(positionReviewBusy||leaderAutoBusy||executionBusy||leaderFlowBusy||fastLaneBusy)return {ok:true,skipped:true,reason:positionReviewBusy?'POSITION_REVIEW_BUSY':'VISION_PIPELINE_BUSY'};
+    if(positionReviewBusy||leaderAutoBusy||executionBusy||leaderFlowBusy)return {ok:true,skipped:true,reason:positionReviewBusy?'POSITION_REVIEW_BUSY':'VISION_PIPELINE_BUSY'};
     if(typeof pipeline?.isBusy==='function'&&pipeline.isBusy())return {ok:true,skipped:true,reason:'VISION_PIPELINE_BUSY'};
     positionReviewBusy=true;
     positionManagerState.lastTickAt=new Date(clock()).toISOString();
@@ -1552,27 +1554,38 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   async function scalpFastLaneTick(){
     const cfg=claudeV111.readConfig();
+    // SHADOW/OFF: Jev çağrılmaz, emir yok. BINDING: Vision'ı beklemeden Jev'e.
     if(cfg.scalpFastLane==='OFF')return {ok:true,skipped:true,reason:'FAST_LANE_OFF'};
     if(fastLaneBusy)return {ok:true,skipped:true,reason:'FAST_LANE_BUSY'};
-    const la=readLeaderAutoConfig();
-    if(!la.ok||la.config?.enabled!==true)return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};
     fastLaneBusy=true;
-    const generation=armGeneration;
-    const now=clock();
-    fastLaneState.lastTickAt=new Date(now).toISOString();
-    for(const [k,v] of fastLaneSeen)if(now-Number(v||0)>2*3600000)fastLaneSeen.delete(k);
-    const body={
-      requestedMarginQuote:la.config.marginQuote,
-      requestedLeverage:la.config.leverage,
-      requestedMaxOpenPositions:la.config.maxOpenPositions,
-      allowLong:la.config.allowLong,
-      allowShort:la.config.allowShort,
-      analysisOnly:!armedNow()
-    };
-    const sideAllowed=side=>(side==='LONG'&&la.config.allowLong)||(side==='SHORT'&&la.config.allowShort);
     try{
-      // (1) Tetiği görülmüş Vision planları: Vision'ı beklemeden Jev'e.
-      if(claudeV109.readConfig().deterministicTriggerMode==='BINDING'){
+      const la=readLeaderAutoConfig();
+      if(!la.ok||la.config?.enabled!==true)return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};
+      const generation=armGeneration;
+      const now=clock();
+      fastLaneState.lastTickAt=Number.isFinite(now)?new Date(now).toISOString():null;
+      for(const [k,v] of fastLaneSeen)if(now-Number(v||0)>6*3600000)fastLaneSeen.delete(k);
+      fastLaneJevCalls=fastLaneJevCalls.filter(t=>now-t<3600000);
+      const binding=cfg.scalpFastLane==='BINDING';
+      const jevBudgetOk=fastLaneJevCalls.length<cfg.fastLaneMaxJevPerHour;
+      const body={
+        requestedMarginQuote:la.config.marginQuote,
+        requestedLeverage:la.config.leverage,
+        requestedMaxOpenPositions:la.config.maxOpenPositions,
+        allowLong:la.config.allowLong,
+        allowShort:la.config.allowShort,
+        analysisOnly:!armedNow()
+      };
+      const sideAllowed=side=>(side==='LONG'&&la.config.allowLong)||(side==='SHORT'&&la.config.allowShort);
+      const run=async(kind,sym,side,extra)=>{
+        fastLaneSymbol=sym;
+        fastLaneJevCalls.push(now);
+        try{return await executeLeaderExclusive({...body,claudeFastLane:{kind,symbol:sym,side,...extra}},generation);}
+        finally{fastLaneSymbol=null;}
+      };
+      const vetoed=out=>String(out?.plan?.reason||'').startsWith('JEV_')||(Array.isArray(out?.reasons)&&out.reasons.some(r=>String(r).startsWith('JEV_')));
+      // (1) Tetiği görülmüş Vision planları: Vision'ı beklemeden Jev'e (yalnız BINDING).
+      if(binding&&jevBudgetOk&&claudeV109.readConfig().deterministicTriggerMode==='BINDING'){
         for(const row of Object.values(leaderAnalysisState.bySymbol||{})){
           const sym=String(row?.symbol||'').toUpperCase();
           if(!sym||sym===leaderVisionSymbol||!sideAllowed(String(row?.side||'').toUpperCase()))continue;
@@ -1586,8 +1599,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           fastLaneSeen.set(key,now);
           fastLaneState.lastSignal=fastLaneRecord('REVALIDATION',{symbol:sym,side:ri.side,triggerTF:ri.triggerTF,triggerPrice:ri.triggerPrice});
           leaderHealthEvent('FAST_LANE',{fastKind:'REVALIDATION',symbol:sym,side:ri.side,tf:ri.triggerTF});
-          const out=await executeLeaderExclusive({...body,claudeFastLane:{kind:'REVALIDATION',symbol:sym,side:ri.side,revalIntent:ri}},generation);
-          if(out?.execution==='LEADER_AUTO_BUSY')fastLaneSeen.delete(key);
+          const out=await run('REVALIDATION',sym,ri.side,{revalIntent:ri});
           fastLaneState.lastResult=fastLaneRecord('RESULT',{symbol:sym,kind:'REVALIDATION',execution:out?.execution||null,orderPlaced:out?.orderPlaced===true,planStatus:out?.plan?.status||null,reasons:(out?.reasons||[]).slice(0,4)});
           return {ok:true,kind:'REVALIDATION',symbol:sym,result:out};
         }
@@ -1600,31 +1612,34 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         .filter(c=>sideAllowed(String(c?.side||'').toUpperCase()))
         .filter(c=>claudeV111.isMomentumCandidate(c).momentum);
       let checked=0;
+      const maxDev=readPolicy(root)?.maxEntryDeviationPct??0.5;
       for(const c of candidates){
         if(checked>=cfg.fastLaneMaxSymbolsPerTick)break;
         const sym=String(c?.symbol||'').toUpperCase();
         if(!sym||sym===leaderVisionSymbol)continue;
         const lastSym=Number(fastLaneSeen.get('SYM|'+sym)||0);
         if(lastSym&&now-lastSym<cfg.fastLaneSymbolCooldownMin*60000)continue;
+        const vetoUntil=Number(fastLaneSeen.get('VETO|'+sym)||0);
+        if(vetoUntil&&now<vetoUntil)continue;
         if(String(leaderAnalysisState.bySymbol?.[sym]?.state||'').toUpperCase()==='ACTIVE')continue;
         checked++;
         let unified=null;
         try{unified=await workerUnifiedContext(c);}catch{unified=null;}
         if(!unified)continue;
-        const sig=claudeV112.scalpFastLaneSignal({candidate:c,unified,maxEntryDeviationPct:readPolicy(root)?.maxEntryDeviationPct??0.5});
+        const sig=claudeV112.scalpFastLaneSignal({candidate:c,unified,maxEntryDeviationPct:maxDev});
         if(!sig.ok)continue;
-        const key='SIG|'+sym+'|'+sig.side+'|'+sig.tf+'|'+sig.level;
+        // Aynı kırılım (sembol+yön+TF+kapanmış mum) bir kez işlenir; seviye her mumda değiştiği için anahtar mum zamanıdır.
+        const key='SIG|'+sym+'|'+sig.side+'|'+sig.tf+'|'+String(sig.asOf||'');
         if(fastLaneSeen.has(key))continue;
         fastLaneSeen.set(key,now);
         fastLaneSeen.set('SYM|'+sym,now);
-        const binding=cfg.scalpFastLane==='BINDING';
-        fastLaneState.lastSignal=fastLaneRecord('SCALP_SIGNAL',{symbol:sym,side:sig.side,tf:sig.tf,level:sig.level,livePrice:sig.livePrice,lane:sig.lane?.stage||null,momentum:sig.momentum?.tags||[],mode:cfg.scalpFastLane});
-        try{store.journal('CLAUDE_V112_FAST_LANE_SIGNAL',sym,{mode:cfg.scalpFastLane,applied:binding,side:sig.side,tf:sig.tf,ownerTF:sig.ownerTF,level:sig.level,invalidation:sig.invalidation,livePrice:sig.livePrice,closedClose:sig.closedClose,lane:sig.lane,momentum:sig.momentum?.tags||[],chase:sig.chase||null});}catch{}
-        leaderHealthEvent('FAST_LANE',{fastKind:'SCALP_SIGNAL',symbol:sym,side:sig.side,tf:sig.tf,applied:binding});
-        if(!binding)return {ok:true,kind:'SCALP_SIGNAL',symbol:sym,applied:false,signal:sig};
-        const out=await executeLeaderExclusive({...body,claudeFastLane:{kind:'SCALP',symbol:sym,side:sig.side,signal:sig}},generation);
-        // Emir kilidi o an doluysa (başka emir gönderiliyor) fırsat düşürülmez; sonraki turda yeniden denenir.
-        if(out?.execution==='LEADER_AUTO_BUSY'){fastLaneSeen.delete(key);fastLaneSeen.delete('SYM|'+sym);}
+        const apply=binding&&jevBudgetOk;
+        fastLaneState.lastSignal=fastLaneRecord('SCALP_SIGNAL',{symbol:sym,side:sig.side,tf:sig.tf,level:sig.level,livePrice:sig.livePrice,lane:sig.lane?.stage||null,momentum:sig.momentum?.tags||[],mode:cfg.scalpFastLane,jevBudgetOk});
+        try{store.journal('CLAUDE_V112_FAST_LANE_SIGNAL',sym,{mode:cfg.scalpFastLane,applied:apply,jevBudgetOk,side:sig.side,tf:sig.tf,ownerTF:sig.ownerTF,level:sig.level,invalidation:sig.invalidation,livePrice:sig.livePrice,closedClose:sig.closedClose,lane:sig.lane,momentum:sig.momentum?.tags||[],chase:sig.chase||null});}catch{}
+        leaderHealthEvent('FAST_LANE',{fastKind:'SCALP_SIGNAL',symbol:sym,side:sig.side,tf:sig.tf,applied:apply});
+        if(!apply)return {ok:true,kind:'SCALP_SIGNAL',symbol:sym,applied:false,signal:sig,reason:binding?'FAST_LANE_JEV_HOURLY_CAP':'FAST_LANE_SHADOW'};
+        const out=await run('SCALP',sym,sig.side,{signal:{...sig,maxEntryDeviationPct:maxDev}});
+        if(vetoed(out))fastLaneSeen.set('VETO|'+sym,now+cfg.fastLaneVetoCooldownMin*60000);
         fastLaneState.lastResult=fastLaneRecord('RESULT',{symbol:sym,kind:'SCALP',execution:out?.execution||null,orderPlaced:out?.orderPlaced===true,planStatus:out?.plan?.status||null,reasons:(out?.reasons||[]).slice(0,4)});
         return {ok:true,kind:'SCALP',symbol:sym,result:out};
       }
@@ -2813,7 +2828,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       .filter(x => {
         const side = String(x?.side || '').toUpperCase();
         return (side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
-      });
+      })
+      // CLAUDE_V112: hızlı hattın o an işlediği coin ana döngüde ikinci kez Jev'e gitmesin.
+      .filter(x => fastMode || String(x?.symbol || '').toUpperCase() !== fastLaneSymbol);
     if (fastMode && !candidates.some(c => String(c?.symbol || '').toUpperCase() === String(fastMode.symbol || '').toUpperCase() && String(c?.side || '').toUpperCase() === String(fastMode.side || '').toUpperCase())) {
       return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', symbol:fastMode.symbol, reasons:['CLAUDE_V112_FAST_LANE_CANDIDATE_NOT_ELIGIBLE'], fastLane:fastMode.kind };
     }
@@ -2884,7 +2901,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           ...(fastMode?{revalidationOnly:true}:{})
         }
       });
-      if(!fastMode)leaderVisionSymbol=null;
       const analysisEndedAt=Number.isFinite(clock()) ? clock() : Date.now();
       const planStatus=String(advisory?.plan?.status || advisory?.status || 'REVIEW_REQUIRED').toUpperCase();
       const preJevStatus=String(advisory?.preJevPlan?.status || advisory?.plan?.previousStatus || planStatus).toUpperCase();
@@ -3030,8 +3046,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         reasons:rs
       };
     }
-    const qualifiedLifecycle=upsertLeaderLifecycle(candidate,advisory,'ARMED','PLAN_QUALIFIED');
-    const completedWorkerLifecycle=finishPlanWorker(candidate.symbol,'PLAN_QUALIFIED_AFTER_FULL_9TF') || qualifiedLifecycle;
+    // CLAUDE_V112: hızlı scalp planı, emir açılmadıkça Vision'ın WATCH takibini ezmez.
+    const fastScalp=fastMode?.kind==='SCALP';
+    const qualifiedLifecycle=fastScalp?(leaderAnalysisState.bySymbol?.[String(candidate.symbol||'').toUpperCase()]||null):upsertLeaderLifecycle(candidate,advisory,'ARMED','PLAN_QUALIFIED');
+    const completedWorkerLifecycle=(fastScalp?null:finishPlanWorker(candidate.symbol,'PLAN_QUALIFIED_AFTER_FULL_9TF')) || qualifiedLifecycle;
     annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], { ...visionDiagnosticExtras(advisory), lifecycle:completedWorkerLifecycle });
     const bindingJev=advisory?.jevDecision || advisory?.plan?.jevDecision || null;
     const jevFinalAuthority=bindingJev?.called===true && bindingJev?.veto!==true;
@@ -3175,7 +3193,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         reasons:rs
       };
     }
-    const enterableLifecycle=upsertLeaderLifecycle(candidate,advisory,'ENTERABLE','LIVE_INTENT_READY');
+    const enterableLifecycle=fastScalp?qualifiedLifecycle:upsertLeaderLifecycle(candidate,advisory,'ENTERABLE','LIVE_INTENT_READY');
     annotateLeaderDiagnostic(candidate.symbol, 'INTENT_READY', [], {
       lifecycle:enterableLifecycle,
       costModel:intent.costModel || null,
@@ -3221,6 +3239,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // CLAUDE_V111_TRAILING_RUNNER: giriş anındaki runner modu (BINDING → TP3 yerine iz süren stop).
     const runnerCfgAtEntry=claudeV111.readConfig();
     const runnerModeAtEntry=runnerCfgAtEntry.runnerMode;
+    // CLAUDE_V112: emir kilidi kısa sürer (tek emir gönderimi); Jev onaylı işlem düşürülmez, 20 sn beklenir.
+    for (let waited=0; executionBusy && waited<20000; waited+=250) await new Promise(r=>setTimeout(r,250));
+    if (!armedNow() || generation !== armGeneration) {
+      return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LEADER_AUTO_BLOCKED', symbol:candidate.symbol, plan:advisory.plan, reasons:['LIVE_DISARMED_DURING_PREFLIGHT'] };
+    }
     if (executionBusy) {
       annotateLeaderDiagnostic(candidate.symbol,'EXECUTION_RESULT',['LIVE_EXECUTOR_BUSY'],{execution:'LEADER_AUTO_BUSY',orderPlaced:false});
       return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LEADER_AUTO_BUSY', symbol:candidate.symbol, plan:advisory.plan, reasons:['LIVE_EXECUTOR_BUSY'] };
@@ -3264,7 +3287,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
     const executionLifecycle=result?.orderPlaced === true
       ? upsertLeaderLifecycle(candidate,advisory,'ACTIVE','LIVE_ORDER_PLACED')
-      : upsertLeaderLifecycle(candidate,advisory,'ENTERABLE','LIVE_EXECUTION_NO_ORDER:'+String(result?.execution || ''));
+      : (fastScalp ? qualifiedLifecycle : upsertLeaderLifecycle(candidate,advisory,'ENTERABLE','LIVE_EXECUTION_NO_ORDER:'+String(result?.execution || '')));
     if(result?.orderPlaced===true&&executionLifecycle){
       executionLifecycle.entryPrice=intent.entryPrice;
       executionLifecycle.quantity=intent.quantity;
@@ -3325,7 +3348,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function execute(body = {}) {
     // Mobile and Leader AUTO share this gate. Reject concurrent requests rather
     // than queueing stale market intents behind a potentially slow Vision call.
-    if (executionBusy || leaderFlowBusy || fastLaneBusy) return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_BUSY'] };
+    if (executionBusy || leaderFlowBusy) return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_BUSY'] };
     executionBusy = true;
     const generation = armGeneration;
     try { return await executeExclusive(body, generation); }
@@ -3577,7 +3600,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         // CLAUDE_V111_TRAILING_RUNNER: yalnız Leader AUTO girişlerinde; mobil manuel emir TP3'lü kalır.
         // İç argüman: HTTP gövdesinden gelemez (inceleme bulgusu #9).
         runnerMode:body?.approvedAnalysis?.source==='LEADER_AUTO_9TF_JEV_APPROVED'?String(internal?.claudeRunnerMode||'OFF'):'OFF',
-        runnerShare:String(internal?.claudeRunnerShare||'TWO_THIRDS')
+        runnerShare:String(internal?.claudeRunnerShare||'ONE_THIRD')
       }
     });
 
