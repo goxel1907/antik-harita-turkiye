@@ -264,6 +264,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   let leaderAutoLastDiagnostics = { universeCount:0, shortlistCount:0, eligibleCount:0, candidates:[] };
   const LEADER_AUTO_HEALTH_WINDOW_MS = 60 * 60 * 1000;
   const LEADER_AUTO_REANALYSIS_COOLDOWN_MS = 5 * 60 * 1000;
+  const WORKER_ESCALATION_COOLDOWN_MS = 15 * 60 * 1000;
   const leaderAutoHealthStartedAt = Number.isFinite(clock()) ? clock() : Date.now();
   let leaderAutoHealthEvents = [];
   let planWorkerState = { lastReview:null, history:[] };
@@ -336,6 +337,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       workerWaits:workerReviews.filter(x=>x.state==='WAIT').length,
       workerTriggers:workerReviews.filter(x=>x.state==='TRIGGERED').length,
       workerRefreshes:workerReviews.filter(x=>x.state==='REFRESH_REQUIRED').length,
+      workerReasonCounts:(()=>{
+        const m=new Map();
+        for(const x of workerReviews){
+          const k=String(x.reason||'').trim()||'UNKNOWN';
+          m.set(k,(m.get(k)||0)+1);
+        }
+        return [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10).map(([reason,count])=>({reason,count}));
+      })(),
+      workerEscalationCooldownMinutes:WORKER_ESCALATION_COOLDOWN_MS/60000,
       fullVisionAvoided:workerReviews.filter(x=>x.visionAvoided===true).length,
       workerEscalationPending:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>
         ['TRIGGERED','REFRESH_REQUIRED'].includes(String(x?.workerState||'').toUpperCase()) &&
@@ -366,7 +376,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // That escalation gets the next full-9TF slot; workers themselves never qualify.
     let index=candidates.findIndex(c=>{
       const row=leaderAnalysisState.bySymbol?.[String(c?.symbol || '').toUpperCase()];
-      return ['TRIGGERED','REFRESH_REQUIRED'].includes(String(row?.workerState || '').toUpperCase());
+      const lastAnalyzed=Number(row?.lastAnalyzedAt||0);
+      const pending=['TRIGGERED','REFRESH_REQUIRED'].includes(String(row?.workerState || '').toUpperCase()) &&
+        Number(row?.workerEscalatedAt||0)>=lastAnalyzed;
+      return pending && (!lastAnalyzed || now-lastAnalyzed>=LEADER_AUTO_REANALYSIS_COOLDOWN_MS);
     });
     if(index>=0){
       const candidate=candidates[index];
@@ -705,7 +718,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         router.model=String(out?.model||'');
         router.mode=String(out?.mode||'');
       }catch(e){
-        router={ok:false,state:'REFRESH_REQUIRED',reason:'WORKER_9ROUTER_UNAVAILABLE',detail:String(e?.message||e).slice(0,180),recheckTFs:[]};
+        router={ok:false,state:'WAIT',reason:'WORKER_9ROUTER_UNAVAILABLE',detail:String(e?.message||e).slice(0,180),recheckTFs:[]};
       }
 
       // Routine WAIT checks stay on free 9Router. OpenRouter's free router is
@@ -720,16 +733,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
             openRouter=planWorkers.parseWorkerDecision(out.text);
             openRouter.model=String(out.model||'openrouter/free');
           }else{
-            openRouter={ok:false,state:'REFRESH_REQUIRED',reason:String(out?.reason||'OPENROUTER_FREE_WORKER_UNAVAILABLE'),recheckTFs:[]};
+            openRouter={ok:false,state:'WAIT',reason:String(out?.reason||'OPENROUTER_FREE_WORKER_UNAVAILABLE'),recheckTFs:[]};
           }
         }catch(e){
-          openRouter={ok:false,state:'REFRESH_REQUIRED',reason:'OPENROUTER_FREE_WORKER_UNAVAILABLE',detail:String(e?.message||e).slice(0,180),recheckTFs:[]};
+          openRouter={ok:false,state:'WAIT',reason:'OPENROUTER_FREE_WORKER_UNAVAILABLE',detail:String(e?.message||e).slice(0,180),recheckTFs:[]};
         }
       }
     }
 
-    const decision=planWorkers.combineWorkerReviews({deterministic,router,openRouter});
+    let decision=planWorkers.combineWorkerReviews({deterministic,router,openRouter});
     const now=clock();
+    const lastEscalatedAt=Number(tracked.workerLastEscalationAt||0);
+    if(['TRIGGERED','REFRESH_REQUIRED'].includes(String(decision?.state||'').toUpperCase()) &&
+       lastEscalatedAt>0 && now-lastEscalatedAt<WORKER_ESCALATION_COOLDOWN_MS){
+      decision={
+        state:'WAIT',
+        source:'ESCALATION_COOLDOWN',
+        reason:'WORKER_ESCALATION_COOLDOWN',
+        recheckTFs:Array.isArray(decision?.recheckTFs)?decision.recheckTFs:[],
+        confidence:decision?.confidence??null
+      };
+    }
     tracked.lastWorkerCheckAt=now;
     tracked.workerChecks=Number(tracked.workerChecks||0)+1;
     tracked.workerState=decision.state;
@@ -744,6 +768,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       tracked.workerEscalatedAt=null;
     }else if(['TRIGGERED','REFRESH_REQUIRED'].includes(decision.state)){
       tracked.workerEscalatedAt=now;
+      tracked.workerLastEscalationAt=now;
     }
     leaderAnalysisState.bySymbol[key]=tracked;
     writeLeaderAnalysisState();
@@ -1824,7 +1849,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     PLAN_WORKER_WAIT:'Plan worker bekleme koşulunu henüz tamamlanmış görmüyor',
     PLAN_WORKER_TRIGGERED:'Plan worker bekleme koşulunun tetiklenmiş olabileceğini gördü; tam 9TF yeniden doğrulama gerekli',
     PLAN_WORKER_REFRESH_REQUIRED:'Plan worker yapı/yön/veri değişimi nedeniyle tam 9TF yenileme istiyor',
-    WORKER_9ROUTER_UNAVAILABLE:'9Router worker ajanları yanıt vermedi; tam 9TF fail-safe yenileme gerekli',
+    WORKER_9ROUTER_UNAVAILABLE:'9Router worker ajanları yanıt vermedi; plan güvenli WAIT durumunda tutuluyor',
+    WORKER_OUTPUT_INVALID:'worker yanıt şeması geçersiz; kör 9TF yükseltme yapılmıyor',
+    WORKER_DECISION_INVALID:'worker kararı geçersiz; plan WAIT durumunda tutuluyor',
+    WORKER_ESCALATION_COOLDOWN:'aynı sembol için 15 dakikalık 9TF yükseltme bekleme süresi aktif',
     WORKER_SPREAD_ABOVE_8_BPS:'spread 8 bps üstünde; worker işlem tetiklemiyor',
     UNSTRUCTURED_COMMITTEE_OUTPUT:'model çıktısı beklenen plan şemasına uymadı',
     NO_FRESH_TIMEFRAME_CONTEXT:'taze zaman dilimi bağlamı yetersiz'
