@@ -375,16 +375,20 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!answer)return {...localStatus(),ok:false,configured:true,required:true,reason:'JEV_PROBE_SCHEMA_MISMATCH',durationMs:out.durationMs,budget:out.budget};
     return {...localStatus(),ok:true,reachable:true,probe:'PASS',durationMs:out.durationMs,answerShape:Object.keys(answer||{}).slice(0,12),usage:{cost:out.costUsd},budget:out.budget};
   }
-  async function judge({candidate,plan,unified}={}){
+  async function judge({candidate,plan,unified,shadow=false}={}){
     if(!configured)return {ok:!cfg.enabled,configured:false,required:cfg.enabled,called:false,veto:cfg.enabled,reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
-    if(String(plan?.status||'').toUpperCase()!=='QUALIFIED')return {ok:true,configured:true,required:true,called:false,veto:false,reason:'JEV_NOT_NEEDED_FOR_NON_QUALIFIED',budget:budgetStatus()};
+    const planStatus=String(plan?.status||'').toUpperCase();
+    const shadowWatch=shadow===true&&planStatus==='WATCH';
+    if(planStatus!=='QUALIFIED'&&!shadowWatch)return {ok:true,configured:true,required:true,called:false,veto:false,shadow:false,reason:'JEV_NOT_NEEDED_FOR_NON_QUALIFIED',budget:budgetStatus()};
     let record;
     try{record=compactDecisionRecord({candidate,plan,unified},cfg.maxPayloadChars);}
     catch(e){return {ok:false,configured:true,required:true,called:false,veto:true,reason:e.message,budget:budgetStatus()};}
     const body={
       model:cfg.model,
       state:{
-        description:'One compact BrainHub crypto-futures advisory plan. Judge only whether existing QUALIFIED status must be vetoed or held for review. Never create a trade, entry, stop, target, leverage, size, or order.',
+        description:shadowWatch
+          ? 'Shadow calibration only: one BrainHub WATCH plan. Estimate the same veto signals that would apply after qualification, but do not change status and never create a trade, entry, stop, target, leverage, size, or order.'
+          : 'One compact BrainHub crypto-futures advisory plan. Judge only whether existing QUALIFIED status must be vetoed or held for review. Never create a trade, entry, stop, target, leverage, size, or order.',
         record
       },
       questions:decisionQuestions()
@@ -403,7 +407,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const summaryTr=(vetoReasons.length?'Jev bekletiyor: '+failed.map(x=>x[3]).join('; '):'Jev ek veto bulmadı; yürütme ve risk kontrolleri ayrıca gereklidir.')+
       (conflictingTFs.length?' Çelişen TF: '+conflictingTFs.join(', ')+'.':'')+
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
-    return {ok:true,configured:true,required:true,called:true,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,budgetStatus};
 }
