@@ -21,7 +21,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.107 Turkish position-manager source
+      - name: Prepare Futures Alarm v9.5.108 Turkish position-manager source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -129,6 +129,15 @@ workflows:
           grep -q 'OPENROUTER_FREE_WORKER_SECOND_OPINION' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'WORKER_VISION_AVOIDANCE_TELEMETRY' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'PLAN_WORKER_PARALLEL_TIMER' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'V108_WORKER_ESCALATION_LATCH' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'V108_CONCRETE_WATCH_CONTRACT' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LOCAL_VISION_FREE_QUOTA_FAILOVER' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LOCAL_OLLAMA_VISION_BATCH3_ACTIVE' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'workerEscalationPending' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q 'visionFreeQuotaFallbacks' "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q 'localVisionBatchSize:3' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'PC otomasyon motoru PC BrainHub zamanlayıcısında çalışır' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
           grep -q 'PLAN_WORKER_V107' "$CM_BUILD_DIR/brainhub/plan-workers.js"
           grep -q "model='openrouter/free'" "$CM_BUILD_DIR/brainhub/openrouter-free-worker.js"
           grep -q 'v95107_plan_workers' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
@@ -143,9 +152,9 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.107'" "$BUILD"
-          grep -q 'versionCode 26092102' "$BUILD"
-          echo 'V95107_WORKER_ORCHESTRATION_OK'
+          grep -q "versionName '9.5.108'" "$BUILD"
+          grep -q 'versionCode 26092103' "$BUILD"
+          echo 'V95108_FLOW_RECOVERY_OK'
 
       - name: Set Android SDK location
         script: |
@@ -316,7 +325,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.107 signed APK
+      - name: Build installable v9.5.108 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -362,9 +371,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.107.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.108.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.107.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.108.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -375,5 +384,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.107.apk
+      - Futures15mAlarm-PRO-v9.5.108.apk
       - v9595-gradle.log
