@@ -32,6 +32,33 @@ function parseWorkerDecision(text){
 
 function deterministicGuard({tracked,candidate,unified,now=Date.now(),maxPlanAgeMs=30*60*1000}={}){
   const reasons=[];
+  const numericTf=String(tracked?.triggerTF||'').toLowerCase();
+  const numericSide=String(tracked?.side||'').toUpperCase();
+  const numericPrice=finite(tracked?.triggerPrice);
+  const numericInvalidation=finite(tracked?.invalidationPrice);
+  if(tracked?.triggerValid===true&&validTf(numericTf)&&['LONG','SHORT'].includes(numericSide)&&numericPrice!==null){
+    const f=unified?.frames?.[numericTf];
+    const close=finite(f?.close);
+    if(!f?.available||f?.fresh!==true||close===null){
+      return {state:'WAIT',reason:'WORKER_NUMERIC_TRIGGER_FRAME_NOT_FRESH',recheckTFs:[numericTf],numericTrigger:true};
+    }
+    const invalidated=numericInvalidation!==null
+      ? (numericSide==='LONG'?close<numericInvalidation:close>numericInvalidation)
+      : false;
+    if(invalidated){
+      return {state:'REFRESH_REQUIRED',reason:'WORKER_NUMERIC_INVALIDATION_BREACHED',recheckTFs:[numericTf],numericTrigger:true,closedPrice:close,triggerPrice:numericPrice,invalidationPrice:numericInvalidation};
+    }
+    const triggered=numericSide==='LONG'?close>numericPrice:close<numericPrice;
+    return {
+      state:triggered?'TRIGGERED':'WAIT',
+      reason:triggered?'WORKER_NUMERIC_TRIGGER_CLOSED':'WORKER_NUMERIC_TRIGGER_WAIT',
+      recheckTFs:[numericTf],
+      numericTrigger:true,
+      closedPrice:close,
+      triggerPrice:numericPrice,
+      invalidationPrice:numericInvalidation
+    };
+  }
   const symbol=String(candidate?.symbol||tracked?.symbol||'').toUpperCase();
   const trackedSide=String(tracked?.side||'').toUpperCase();
   const candidateSide=String(candidate?.side||trackedSide).toUpperCase();
@@ -101,6 +128,8 @@ function compactWorkerContext({tracked,candidate,unified}={}){
     trackedPlan:{
       side:tracked?.side||null,status:tracked?.planStatus||null,originTF:tracked?.originTF||null,
       ownerTF:tracked?.ownerTF||null,setup:clip(tracked?.setup,120),waitFor:clip(tracked?.waitFor,260),
+      triggerLevelId:tracked?.triggerLevelId||null,triggerTF:tracked?.triggerTF||null,triggerPrice:finite(tracked?.triggerPrice),
+      invalidationLevelId:tracked?.invalidationLevelId||null,invalidationPrice:finite(tracked?.invalidationPrice),triggerValid:tracked?.triggerValid===true,
       why:clip(tracked?.why,320),riskNote:clip(tracked?.riskNote,240),confidence:finite(tracked?.confidence),
       lastAnalyzedAt:tracked?.lastAnalyzedAt||null
     },
