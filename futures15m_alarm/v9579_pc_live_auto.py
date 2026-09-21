@@ -42,12 +42,34 @@ def method_bounds(src, signature_fragment):
 auto=AUTO.read_text()
 auto=auto.replace('private static final ExecutorService IO=Executors.newSingleThreadExecutor();',
                   'private static final java.util.concurrent.ScheduledExecutorService IO=Executors.newSingleThreadScheduledExecutor();')
-if 'V9577_DRY_RUN_LOCK' not in auto:
-    raise SystemExit('v9.5.93 requires v9.5.78 dry-run lock first')
-start=auto.find('    // V9577_DRY_RUN_LOCK:')
+
+# V110_BUILD_CHAIN_HARDENING:
+# v9579 is the authoritative Android PC-executor bridge. Older builds expected
+# v9577 to leave a V9577_DRY_RUN_LOCK comment and used that comment as the
+# replacement anchor. On clean/retried Codemagic source-prep chains the method
+# body can be semantically correct while that historical comment is absent.
+# Do not fail on the comment alone: require the v9577 BrainHub client contract,
+# then locate the actual onSignal method and replace that whole block with the
+# PC-only bridge below. This keeps the phone unable to sign Binance orders.
+brain_client = JAVA/'BrainHubClient.java'
+if not brain_client.exists() or 'V9577_OPTIONAL_PC_BRAINHUB' not in brain_client.read_text():
+    raise SystemExit('v9.5.110 requires v9577 BrainHub client preparation first')
+
+dry_marker=auto.find('    // V9577_DRY_RUN_LOCK:')
+pc_marker=auto.find('    // V9579_PC_LIVE_AUTO:')
+method=method_bounds(auto,'    public static void onSignal(Context c,String symbol)')
+if dry_marker>=0:
+    start=dry_marker
+elif pc_marker>=0:
+    start=pc_marker
+elif method is not None:
+    start=method[0]
+else:
+    raise SystemExit('v9.5.110 AutoTradeEngine onSignal anchor missing')
+
 end=auto.find('    private static void run(Context c,String s)',start)
-if start<0 or end<0:
-    raise SystemExit('v9.5.93 AutoTradeEngine dry-run anchor changed')
+if end<0:
+    raise SystemExit('v9.5.110 AutoTradeEngine private run anchor changed')
 
 pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
     public static void onSignal(Context c,String symbol){
