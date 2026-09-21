@@ -88,6 +88,11 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9564_stability_batch_prompt.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9565_external_same_chat_browser.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9565b_external_chat_ui_compile_safe.py"
+          echo "PREPARE_SOURCE_HEAD $(git -C "$CM_BUILD_DIR" rev-parse HEAD)"
+          grep -q 'V110_BUILD_CHAIN_HARDENING' "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py" || {
+            echo 'PREPARE_V110_STALE_SOURCE: v9579 hardening marker missing; start a NEW build from current futures15m-alarm-public-build HEAD, do not rerun an old build.'
+            exit 1
+          }
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9577_brainhub_dry_run.py"
           # v9579 is the Android PC-BrainHub bridge that injects the detailed 9TF
           # diagnostics, Vision failure wording, worker health, and read-only LIVE
