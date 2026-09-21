@@ -27,7 +27,7 @@ function parseWorkerDecision(text){
   const rawTfs=String(lines.get('RECHECK_TFS')||'').trim();
   const recheckTFs=rawTfs.toUpperCase()==='NONE'?[]:rawTfs.split(',').map(x=>x.trim().toLowerCase()).filter(validTf);
   const ok=STATES.has(state)&&Number.isFinite(confidence)&&confidence>=0&&confidence<=100&&Boolean(reason);
-  return {ok,state:ok?state:'REFRESH_REQUIRED',confidence:Number.isFinite(confidence)?confidence:null,reason:reason||'WORKER_OUTPUT_INVALID',recheckTFs:[...new Set(recheckTFs)],raw:clip(text,1200)};
+  return {ok,state:ok?state:'WAIT',confidence:Number.isFinite(confidence)?confidence:null,reason:reason||'WORKER_OUTPUT_INVALID',recheckTFs:[...new Set(recheckTFs)],raw:clip(text,1200)};
 }
 
 function deterministicGuard({tracked,candidate,unified,now=Date.now(),maxPlanAgeMs=30*60*1000}={}){
@@ -144,7 +144,7 @@ function combineWorkerReviews({deterministic,router,openRouter}={}){
   if(deterministic?.state==='REFRESH_REQUIRED')return {state:'REFRESH_REQUIRED',source:'DETERMINISTIC',reason:deterministic.reason,recheckTFs:deterministic.recheckTFs||[]};
   const r=router?.ok?router:null;
   const o=openRouter?.ok?openRouter:null;
-  if(!r)return {state:'REFRESH_REQUIRED',source:'ROUTER_UNAVAILABLE',reason:'WORKER_9ROUTER_UNAVAILABLE',recheckTFs:[]};
+  if(!r)return {state:'WAIT',source:'ROUTER_UNAVAILABLE',reason:'WORKER_9ROUTER_UNAVAILABLE',recheckTFs:deterministic?.recheckTFs||[]};
   if(r.state==='WAIT')return {state:'WAIT',source:'9ROUTER',reason:r.reason,recheckTFs:r.recheckTFs||[],confidence:r.confidence};
   if(r.state==='REFRESH_REQUIRED')return {state:'REFRESH_REQUIRED',source:'9ROUTER',reason:r.reason,recheckTFs:r.recheckTFs||[],confidence:r.confidence};
   if(r.state==='TRIGGERED'){
@@ -160,7 +160,7 @@ function combineWorkerReviews({deterministic,router,openRouter}={}){
       recheckTFs:[...new Set([...(r.recheckTFs||[]),...(o.recheckTFs||[])])]
     };
   }
-  return {state:'REFRESH_REQUIRED',source:'WORKER_INVALID',reason:'WORKER_DECISION_INVALID',recheckTFs:[]};
+  return {state:'WAIT',source:'WORKER_INVALID',reason:'WORKER_DECISION_INVALID',recheckTFs:deterministic?.recheckTFs||[]};
 }
 
 module.exports={FRAMES,parseWorkerDecision,deterministicGuard,compactWorkerContext,buildWorkerPrompt,combineWorkerReviews};
