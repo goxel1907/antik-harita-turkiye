@@ -27,6 +27,7 @@ workflows:
       - name: Prepare Futures Alarm v9.5.110 multilane Turkish source
         script: |
           set -euo pipefail
+          trap 'rc=$?; echo "PREPARE_V110_FAILED rc=$rc line=$LINENO command=$BASH_COMMAND"; exit $rc' ERR
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
           bash "$CM_BUILD_DIR/futures15m_alarm/prepare_v9523.sh"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9527_trade_dashboard_reconcile.py"
@@ -88,7 +89,13 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9565_external_same_chat_browser.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9565b_external_chat_ui_compile_safe.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9577_brainhub_dry_run.py"
+          # v9579 is the Android PC-BrainHub bridge that injects the detailed 9TF
+          # diagnostics, Vision failure wording, worker health, and read-only LIVE
+          # telemetry. The v110 gate below validates those generated MainActivity
+          # markers, so this patch must run before the final v9597 review layer.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v9579_pc_live_auto.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9597_auto_chat_review.py"
+          echo 'V110_ANDROID_PATCH_CHAIN_OK v9577->v9579->v9597'
 
           APP=/tmp/futures15m-build/Futures15mAlarm
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
