@@ -26,6 +26,7 @@ function canonicalOrder(order = {}) {
     orderType,
     quantity:finite(order.quantity),
     entryPrice:finite(order.entryPrice),
+    entryReferencePrice:finite(order.entryReferencePrice),
     stopPrice:finite(order.stopPrice),
     takeProfit1:finite(order.takeProfit1),
     takeProfit2:finite(order.takeProfit2),
