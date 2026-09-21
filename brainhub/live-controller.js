@@ -210,9 +210,11 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
     : null;
   const effectiveLimits = {
     ...policy.limits,
-    maxRiskPctPerTrade:riskPct===null
-      ? policy.limits.maxRiskPctPerTrade
-      : Math.max(Number(policy.limits.maxRiskPctPerTrade)||0,riskPct*1.001),
+    // Hard safety cap: exact panel sizing is never silently reduced, but a
+    // trade whose structural stop implies too much account risk is rejected.
+    // Unlike notional/family envelopes, this risk percentage is NOT inflated
+    // to make the current trade pass.
+    maxRiskPctPerTrade:policy.limits.maxRiskPctPerTrade,
     maxNotionalPctPerTrade:notionalPct===null
       ? policy.limits.maxNotionalPctPerTrade
       : Math.max(Number(policy.limits.maxNotionalPctPerTrade)||0,notionalPct*1.001),
@@ -297,12 +299,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const durations = analyses.map(x => Number(x.durationMs)).filter(Number.isFinite);
     const reasonCounts = new Map();
     for (const x of [...analyses,...ticks]) {
-      for (const r of Array.isArray(x.reasons) ? x.reasons : []) {
-        const key=String(r || '').trim();
-        if (key) reasonCounts.set(key,(reasonCounts.get(key)||0)+1);
-      }
-      const one=String(x.reason || '').trim();
-      if (one) reasonCounts.set(one,(reasonCounts.get(one)||0)+1);
+      const perEvent=new Set([
+        ...(Array.isArray(x.reasons)?x.reasons:[]),
+        x.reason
+      ].map(r=>String(r||'').trim()).filter(Boolean));
+      for(const key of perEvent)reasonCounts.set(key,(reasonCounts.get(key)||0)+1);
     }
     const topReasons=[...reasonCounts.entries()]
       .sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]))
@@ -1531,6 +1532,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       orderType:'MARKET',
       quantity:intent.quantity,
       entryPrice:intent.entryPrice,
+      entryReferencePrice:intent.entryReferencePrice,
       stopPrice:intent.stopPrice,
       takeProfit1:intent.takeProfit1,
       takeProfit2:intent.takeProfit2,
@@ -1815,6 +1817,37 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
   }
 
+  async function maintenanceMarginRateFor(symbol,notionalQuote,creds) {
+    const n=finite(notionalQuote);
+    if(n===null||n<=0)return {ok:false,reason:'TRADE_NOTIONAL_INVALID'};
+    try{
+      await transport._syncServerTime();
+      const body=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{
+        params:{symbol:String(symbol||'').toUpperCase()},
+        credentials:creds,
+        signed:true
+      });
+      const row=Array.isArray(body)?body.find(x=>String(x?.symbol||'').toUpperCase()===String(symbol||'').toUpperCase()):body;
+      const brackets=Array.isArray(row?.brackets)?row.brackets:[];
+      const bracket=brackets.find(x=>{
+        const floor=finite(x?.notionalFloor)??0;
+        const cap=finite(x?.notionalCap);
+        return n>=floor&&(cap===null||n<=cap);
+      }) || brackets.at(-1) || null;
+      const rate=finite(bracket?.maintMarginRatio);
+      if(rate===null||rate<0||rate>=1)throw new Error('BINANCE_MAINT_MARGIN_RATE_INVALID');
+      return {
+        ok:true,
+        rate,
+        bracket:Number(bracket?.bracket)||null,
+        notionalFloor:finite(bracket?.notionalFloor),
+        notionalCap:finite(bracket?.notionalCap)
+      };
+    }catch(e){
+      return {ok:false,reason:'BINANCE_MAINT_MARGIN_UNAVAILABLE',detail:String(e?.message||e).slice(0,180)};
+    }
+  }
+
   function exchangeFiltersFor(symbolInfo) {
     const filters = Array.isArray(symbolInfo?.filters) ? symbolInfo.filters : [];
     const byType = type => filters.find(x => x?.filterType === type) || null;
@@ -1854,6 +1887,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     SCALP_COST_EDGE_NOT_VIABLE:'TP1 mesafesi ücret + spread + slippage tahminine göre yeterli net avantaj bırakmıyor',
     BINANCE_CREDENTIALS_REQUIRED:'Binance Futures API kimliği PC tarafında hazır değil',
     LIVE_NOT_ARMED:'PC LIVE yetkisi açık değil',
+    LIVE_ENTRY_PRICE_REFRESH_FAILED:'emir niyetinden hemen önce canlı fiyat yenilenemedi',
+    BINANCE_MAINT_MARGIN_UNAVAILABLE:'Binance bakım marjı kademesi doğrulanamadı; likidasyon güvenliği hesaplanamadı',
+    MAINTENANCE_MARGIN_RATE_REQUIRED:'bakım marjı oranı olmadan likidasyon güvenliği doğrulanamaz',
+    STOP_BEYOND_LIQUIDATION:'yapısal stop tahmini likidasyon mesafesinin dışında; panel boyutu değiştirilmeden işlem reddedildi',
     LEADER_INTENT_NOT_READY:'giriş, stop veya miktar henüz güvenli emir niyetine dönüşmedi',
     EXECUTION_LINEAGE_MISMATCH:'sinyal ile emir soy zinciri eşleşmedi',
     DUPLICATE_EVENT:'aynı sinyal olayı daha önce işlendi',
@@ -2390,15 +2427,41 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', symbol:candidate.symbol, reasons:['BINANCE_SYMBOL_FILTERS_UNAVAILABLE'] };
     }
 
+    let freshEntryPrice=null;
+    try{
+      const ticker=await transport._fetchJson('GET','/fapi/v1/ticker/price',{params:{symbol:candidate.symbol}});
+      freshEntryPrice=finite(ticker?.price);
+    }catch{}
+    if(freshEntryPrice===null||freshEntryPrice<=0){
+      const rs=['LIVE_ENTRY_PRICE_REFRESH_FAILED'];
+      annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs);
+      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
+    }
+    const requestedNotional=Number(settings.marginQuote)*Number(settings.leverage);
+    const maintenance=await maintenanceMarginRateFor(candidate.symbol,requestedNotional,creds);
+    if(!maintenance.ok){
+      const rs=[maintenance.reason||'BINANCE_MAINT_MARGIN_UNAVAILABLE'];
+      annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{maintenanceMargin:maintenance});
+      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,maintenanceMargin:maintenance};
+    }
+    const freshUnified={...advisory.unifiedContext,livePrice:freshEntryPrice};
+    const entryReferencePrice=advisory?.plan?.triggerSpec?.valid===true
+      ? finite(advisory.plan.triggerSpec.triggerPrice)
+      : freshEntryPrice;
     const intent = buildLeaderLiveIntent({
       candidate,
-      unified:advisory.unifiedContext,
+      unified:freshUnified,
       plan:advisory.plan,
       marginQuote:settings.marginQuote,
       leverage:settings.leverage,
       filters:exchangeFiltersFor(symbolInfo),
-      takerCommissionRate:commissionRate
+      takerCommissionRate:commissionRate,
+      entryReferencePrice,
+      maintenanceMarginRate:maintenance.rate
     });
+    intent.analysisEntryPrice=finite(advisory?.unifiedContext?.livePrice);
+    intent.freshEntryPrice=freshEntryPrice;
+    intent.maintenanceMargin=maintenance;
     if (!intent.ok) {
       const rs=intent.reasons || ['LEADER_INTENT_NOT_READY'];
       annotateLeaderDiagnostic(candidate.symbol, 'INTENT_NOT_READY', rs, {
@@ -2420,6 +2483,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     annotateLeaderDiagnostic(candidate.symbol, 'INTENT_READY', [], {
       lifecycle:enterableLifecycle,
       costModel:intent.costModel || null,
+      riskQuote:intent.riskQuote,
+      stopDistancePct:intent.stopDistancePct,
+      estimatedLiquidationDistancePct:intent.estimatedLiquidationDistancePct,
+      entryPrice:intent.entryPrice,
+      entryReferencePrice:intent.entryReferencePrice,
+      analysisEntryPrice:intent.analysisEntryPrice,
       commission:commissionMeta
     });
 
