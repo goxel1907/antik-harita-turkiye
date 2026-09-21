@@ -1208,13 +1208,23 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   }
   const preJevPlan=plan&&typeof plan==='object'?{...plan}:null;
   let jevDecision=null;
-  if(typeof decisionJudge==='function'&&executionIntent?.positionReviewOnly!==true&&String(plan?.status||'').toUpperCase()==='QUALIFIED'){
+  let jevShadowDecision=null;
+  const currentPlanStatus=String(plan?.status||'').toUpperCase();
+  if(typeof decisionJudge==='function'&&executionIntent?.positionReviewOnly!==true&&currentPlanStatus==='QUALIFIED'){
     try{
       jevDecision=await decisionJudge({candidate,plan,unified});
     }catch(e){
       jevDecision={ok:false,configured:true,required:true,called:true,veto:true,reason:'JEV_JUDGE_EXCEPTION',detail:String(e?.message||e).slice(0,300)};
     }
     plan=applyDecisionJudgeResult(plan,jevDecision);
+  }else if(typeof decisionJudge==='function'&&executionIntent?.positionReviewOnly!==true&&currentPlanStatus==='WATCH'){
+    try{
+      jevShadowDecision=await decisionJudge({candidate,plan,unified,shadow:true});
+    }catch(e){
+      jevShadowDecision={ok:false,configured:true,required:false,called:true,shadow:true,veto:null,reason:'JEV_SHADOW_EXCEPTION',detail:String(e?.message||e).slice(0,300)};
+    }
+    plan={...plan,jevShadowDecision,jevDecision:{ok:true,configured:null,required:false,called:false,veto:false,reason:'JEV_SHADOW_ONLY_FOR_WATCH'}};
+    try{store.journal('JEV_SHADOW',candidate.symbol,{side:plan.side,status:'WATCH',decision:jevShadowDecision});}catch{}
   }else if(typeof decisionJudge==='function'){
     jevDecision={ok:true,configured:null,required:false,called:false,veto:false,reason:'JEV_NOT_NEEDED_FOR_NON_QUALIFIED'};
     plan={...plan,jevDecision};
@@ -1250,6 +1260,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     plan,
     preJevPlan,
     jevDecision:plan?.jevDecision||jevDecision,
+    jevShadowDecision:plan?.jevShadowDecision||jevShadowDecision,
     riskGate,
     dryRunExecutor,
     executionReadiness,
