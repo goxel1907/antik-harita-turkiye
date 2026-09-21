@@ -186,6 +186,9 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     if (-not $live.ok -or $live.armed) { throw 'LIVE fail-closed baslangic testi gecmedi.' }
     $routes = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/models/routes' -Headers $headers -TimeoutSec 8
     if (-not $routes.ok -or -not $routes.freeFirst -or -not $routes.kiroJudgeOnly -or $null -eq $routes.localVisionEnabled -or $null -eq $routes.visionKiroFallback -or $null -eq $routes.visionKiroFreeQuota) { throw '9Router rol/Vision yonlendirme testi gecmedi.' }
+    if ($routes.localVisionEnabled -and ([int]$routes.localVisionBatchSize -ne 3 -or [bool]$routes.localVisionSingleTf -or -not [bool]$routes.localVisionSingleTfFallback)) {
+        throw 'v9.5.108 yerel Vision batch-3 + tek-TF fallback rotasi etkin degil.'
+    }
     Write-Host "VISION_POLICY local=$($routes.localVisionEnabled) kiroFreeQuota=$($routes.visionKiroFreeQuota) paidFallback=$($routes.paidVisionFallbackEnabled)"
     Write-Host "VISION_FLOW batch=$($routes.localVisionBatchSize) singleTfFallback=$($routes.localVisionSingleTfFallback) localFailover=KIRO_FREE_QUOTA_ONLY"
     if ($null -eq $routes.roles.SCALP -or @($routes.roles.SCALP).Count -lt 1) { throw '9Router SCALP rol rotasi eksik.' }
@@ -601,6 +604,7 @@ if ($Action -eq 'VisionStatus') {
         localVisionTwoStage = $routes.localVisionTwoStage
         localVisionBatchSize = $routes.localVisionBatchSize
         localVisionSingleTf = $routes.localVisionSingleTf
+        localVisionSingleTfFallback = $routes.localVisionSingleTfFallback
         localVisionCompactFinalize = $routes.localVisionCompactFinalize
         localVisionTfContract = $routes.localVisionTfContract
         localVisionSplitGlobal = $routes.localVisionSplitGlobal
