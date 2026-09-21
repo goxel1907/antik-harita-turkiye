@@ -5,6 +5,7 @@ const { symbolContext, globalContext, chartContext, renderChartPng } = require('
 const { breakoutExecution, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached } = require('./engine');
 const { isNonConcreteWait } = require('./wait-condition');
 const claudeV109 = require('./claude-v109');
+const tradeLanes = require('./trade-lanes');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
 
@@ -223,7 +224,7 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
   const freshFrames = FRAME_ORDER.filter(x => frames[x]?.available && frames[x].fresh);
   const staleFrames = FRAME_ORDER.filter(x => frames[x]?.available && !frames[x].fresh);
   const microQuality = symbol?.microstructure?.sourceQuality || (symbol?.microstructure?.available ? 'REST_SNAPSHOT_APPROX' : 'UNAVAILABLE');
-  return {
+  const unified={
     version:'UNIFIED_BRAIN_CONTEXT_V9578E',
     symbol:symbol?.symbol || candidate?.symbol || null,
     generatedAt:new Date(now).toISOString(),
@@ -231,6 +232,7 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
     sourceCandidate:compactCandidate(candidate),
     frames,
     opportunityPaths:{ LONG:sidePath(frames, 'LONG'), SHORT:sidePath(frames, 'SHORT') },
+    tradeLanes:null,
     microstructure:symbol?.microstructure || { available:false, reason:'UNAVAILABLE' },
     global:{
       btc:globalAsset(global?.btc),
@@ -261,6 +263,10 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
     },
     policy:{
       everyTimeframeMayOriginate:true,
+      mainTradeTimeframe:'15m',
+      lowerTfSoloDecision:false,
+      scalpMomentumRequiresAtLeastTwoOf:['1m','3m','5m'],
+      scalpRequiresFresh15mContext:true,
       legacy15mStillRequiresCompleted15m:true,
       unifiedEngineDoesNotWaitFor15m:true,
       timeframesAreNotVotes:true,
@@ -272,6 +278,11 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
       execution:'ADVISORY_ONLY'
     }
   };
+  unified.tradeLanes={
+    LONG:tradeLanes.analyzeTradeLanes(unified,'LONG',candidate),
+    SHORT:tradeLanes.analyzeTradeLanes(unified,'SHORT',candidate)
+  };
+  return unified;
 }
 function compactUnifiedContext(u) {
   const m = u.microstructure;
@@ -291,6 +302,7 @@ function compactUnifiedContext(u) {
       }];
     })),
     opportunityPaths:u.opportunityPaths,
+    tradeLanes:u.tradeLanes||null,
     microstructure:m?.available ? {
       available:true,
       quality:m.sourceQuality || u.dataQuality.microstructureQuality,
@@ -447,10 +459,14 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
   const visionProbe=options?.visionProbe === true;
   const rows = await Promise.all(FRAME_ORDER.map(async frame => {
     try {
-      const fastFrame=['1m','3m','5m'].includes(frame);
-      const frameBars=fastFrame ? Math.max(100,Math.min(256,Number(requestedBars)||128)) : 64;
-      const outputWidth=fastFrame ? 448 : 896;
-      const outputHeight=fastFrame ? 252 : 504;
+      const lowFrame=['1m','3m','5m'].includes(frame);
+      const mainFrame=frame==='15m';
+      const frameBars=lowFrame ? Math.max(100,Math.min(256,Number(requestedBars)||128)) : 64;
+      // v110: 1m/3m/5m become more legible; 15m remains the highest-resolution
+      // main trade chart. 30m+ stay readable but lighter because they are
+      // structure/liquidity/formations context rather than independent votes.
+      const outputWidth=mainFrame ? 896 : 640;
+      const outputHeight=mainFrame ? 504 : 360;
       const chart = await chartContext(symbol, frame, frameBars);
       const visionProbeCell=visionProbe ? probeCells[frame] : null;
       const png = renderChartPng(chart, 'annotated', {
@@ -506,7 +522,11 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
     attached:images.length,
     barsRequested:Math.max(100, Math.min(256, Number(requestedBars) || 128)),
     mode:'annotated',
-    imageSize:{fast:{width:448,height:252,bars:Math.max(100,Math.min(256,Number(requestedBars)||128))},higher:{width:896,height:504,bars:64}},
+    imageSize:{
+      scalp:{width:640,height:360,bars:Math.max(100,Math.min(256,Number(requestedBars)||128))},
+      main15m:{width:896,height:504,bars:64},
+      context:{width:640,height:360,bars:64}
+    },
     frames,
     failures,
     images
@@ -1104,10 +1124,10 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'VISION_SUMMARY: Türkçe, 9 grafikte görülen ortak yapı, destek/veto ilişkisi, çelişkiler ve origin→owner devamlılığı',
     'EXECUTION: ADVISORY_ONLY',
     '',
-    'VISION_INPUT: annotated charts are attached for 1m/3m/5m at 448x252 with '+vision.barsRequested+' recent candles; 15m/30m/45m/1h/4h/1d use 896x504 with 64 candles. Current forming candle is visual context only.',
+    'VISION_INPUT: 1m/3m/5m annotated charts are 640x360 with '+vision.barsRequested+' recent candles; 15m main chart is 896x504/64 candles; 30m/45m/1h/4h/1d context charts are 640x360/64 candles. Current forming candle is visual context only.',
     'Vision rule: read every attached chart image together with UNIFIED_CONTEXT_JSON. The current forming candle may shape a WATCH idea but MUST NOT be used as closed-candle confirmation. Do not ignore a visible structural conflict merely because numeric scores are high.',
     'Explanation rule: WHY, RISK_NOTE, WAIT_FOR, FORMING_CONTEXT, TF_* and VISION_SUMMARY must be in Turkish, coin-specific and evidence-based. Every TF must separately state WHY, WAIT, ROLE, FORMING and RISK. SUPPORT_TFS/VETO_TFS are summary fields and should copy exactly the timeframes marked SUPPORT/VETO in TF_*_ROLE; never list a NEUTRAL timeframe. State what supports the setup, what blocks it, and the exact condition that would change WATCH/REJECT into QUALIFIED. Avoid generic filler.',
-    'Rules: any fresh timeframe may originate an opportunity. A valid 1m/3m/5m opportunity must not wait for 15m merely because 15m is higher. The legacy 15m strategy still keeps its own completed-15m confirmation rule.',
+    'Trade-lane rule: 15m is the MAIN trade lane. 1m/3m/5m are a SCALP_MOMENTUM detection/timing lane: a single lower timeframe can start tracking but can NEVER qualify a trade by itself. SCALP_MOMENTUM requires at least two of 1m/3m/5m aligned on the same side, fresh 15m context, and no hard 15m opposite structure. Do not force full 15m entry confirmation for a valid scalp lane; use 15m as context/veto. 30m/45m/1h/4h/1d are primarily structure, liquidity, formation and exhaustion context rather than votes.',
     'Deterministic timeframe fields are calculated from CLOSED candles. NO_ACTIVE_BREAKOUT only means the latest closed candle did not close beyond its prior-20 boundary; it is not a generic missing-confirmation flag. TF_*_FORMING is context only, never a global wait requirement.',
     'Timeframes are context, not votes. Only origin/owner unresolved execution conditions may keep a setup in WATCH; a non-origin/non-owner contextual WAIT/VETO must not automatically kill an otherwise valid earliest opportunity. Preserve material conflicts for Jev review. Synthetic 45m is derived from closed 15m candles and is not an independent vote.',
     'A FAILED_BREAKOUT timeframe is not an immediate breakout entry; require reclaim or another valid execution path.',
@@ -1119,6 +1139,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'SMC context must not invent order blocks, breakers, mitigation, hidden liquidity or market-maker intent when those fields are not supplied.',
     'Do not invent news, levels, missing flow, liquidation maps, or hidden intent. Do not place an order.',
     '',
+    'TRADE_LANE_CONTEXT_JSON:',
+    JSON.stringify(unified.tradeLanes?.[String(candidate?.side||'').toUpperCase()]||null),
     'TRIGGER_LEVEL_CANDIDATES_JSON:',
     JSON.stringify(triggerCandidatesForPlan(unified,String(candidate?.side||'').toUpperCase())),
     'UNIFIED_CONTEXT_JSON:',
@@ -1129,7 +1151,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   try {
     result = await committee({
       role:'STRUCTURE',
-      system:'You are the Brain Hub multi-timeframe futures structure analyst. Analyze the attached 9-timeframe charts and supplied market data together. Find the earliest valid opportunity without forcing 15m confirmation on non-legacy setups. The forming candle is visual context only and cannot confirm a setup. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. Produce detailed coin-specific Turkish diagnostic explanations for every timeframe and the exact missing trigger when not qualified. Output must follow the requested labels exactly as plain text: no Markdown, bullets, tables, JSON, code fences, headings or extra prose. This endpoint is advisory only.',
+      system:'You are the Brain Hub multi-timeframe futures structure analyst. Analyze the attached 9-timeframe charts and supplied market data together. Use two explicit lanes: MAIN_15M for the primary 15m trade process, and SCALP_MOMENTUM where 1m/3m/5m may start early but no single lower timeframe can qualify alone; at least two lower timeframes must align and 15m must not be a hard opposite veto. The forming candle is visual context only and cannot confirm a setup. Respect failed-breakout protection, structural invalidation, liquidity semantics, observed-liquidation limits and data-quality labels. Produce detailed coin-specific Turkish diagnostic explanations for every timeframe and the exact missing trigger when not qualified. Output must follow the requested labels exactly as plain text: no Markdown, bullets, tables, JSON, code fences, headings or extra prose. This endpoint is advisory only.',
       prompt,
       images:vision.images,
       localContext:compactLocalModelContext(unified)
@@ -1137,6 +1159,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     plan = planFields(result.text);
     plan = withTriggerSpec(plan,unified);
     plan = reconcileVisionPlanSemantics(plan);
+    plan = tradeLanes.enforceQualification(plan,unified,candidate);
     plan = {...plan,watchNeedsSemanticResolution:watchPlanNeedsSemanticResolution(plan)};
     if (Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
       plan = {
@@ -1169,6 +1192,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
           let repairedPlan=planFields(mergedText);
           repairedPlan=withTriggerSpec(repairedPlan,unified);
           repairedPlan=reconcileVisionPlanSemantics(repairedPlan);
+          repairedPlan=tradeLanes.enforceQualification(repairedPlan,unified,candidate);
           const repairedContract=visionPlanContract(repairedPlan);
           repairMeta={
             attempted:true,
@@ -1339,4 +1363,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, withTriggerSpec, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, withTriggerSpec, tradeLanes, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
