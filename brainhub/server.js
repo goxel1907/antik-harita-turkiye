@@ -9,6 +9,7 @@ const {openStore}=require('./store');
 const {createLiveController}=require('./live-controller');
 const {createJevClient}=require('./jev-decision');
 const {createOpenRouterFreeWorker}=require('./openrouter-free-worker');
+const {isNonConcreteWait}=require('./wait-condition');
 
 const ROOT=process.env.BRAINHUB_ROOT||path.resolve(__dirname,'..');
 const CFG=path.join(ROOT,'config','models.json');
@@ -796,14 +797,6 @@ function localGlobalDecisionSemanticRepairMessages(role,visionText,localContext,
     ].join('\n')}
   ];
 }
-function nonConcreteWaitText(v){
-  const z=String(v||'').replace(/\s+/g,' ').trim().toLocaleUpperCase('tr-TR');
-  if(!z||z==='NONE')return true;
-  return /^YOK(?:\s|—|-|$)/.test(z) ||
-    /SOMUT BEKLEME KOŞULU ÜRETMEDİ/.test(z) ||
-    /SONRAKİ TAZE VERİDE YENİDEN DEĞERLENDİR/.test(z) ||
-    /YENİDEN İNCELEME GEREKLİ/.test(z);
-}
 function semanticDecisionRepair(text){
   const lines=parseLabelMap(text);
   const status=String(lines.get('STATUS')||'').trim().toUpperCase();
@@ -1034,7 +1027,7 @@ async function runLocalVisionCommitteeUnlocked(body){
       let semanticRepairMeta=null;
       const currentStatus=String(coreContract?.lines?.get('STATUS')||'').trim().toUpperCase();
       const currentWait=String(narrativeContract?.lines?.get('WAIT_FOR')||'').trim();
-      if(currentStatus==='WATCH'&&nonConcreteWaitText(currentWait)){
+      if(currentStatus==='WATCH'&&isNonConcreteWait(currentWait)){
         try{
           const semanticRepair=await callLocalStage(
             'FINALIZE_SEMANTIC_REPAIR',
