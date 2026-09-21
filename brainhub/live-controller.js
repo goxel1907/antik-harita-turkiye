@@ -676,7 +676,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
       // Routine WAIT checks stay on free 9Router. OpenRouter's free router is
       // summoned only when 9Router sees a trigger/refresh, reducing rate-limit load.
-      if(router?.ok&&['TRIGGERED','REFRESH_REQUIRED'].includes(router.state)&&freeWorker&&typeof freeWorker.review==='function'){
+      if(router?.ok&&router.state==='TRIGGERED'&&freeWorker&&typeof freeWorker.review==='function'){
         try{
           const out=await freeWorker.review({
             system:'You are a free second-opinion plan watcher. You cannot qualify or place an order. Return only WORKER_STATE, CONFIDENCE, REASON, RECHECK_TFS.',
@@ -769,7 +769,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const rows=Object.values(leaderAnalysisState.bySymbol || {})
       .filter(x => x && x.reanalysisEligible === true && ['LONG','SHORT'].includes(String(x.side || '').toUpperCase()))
       .filter(x => String(x.symbol || '').toUpperCase() !== skip)
-      .sort((a,b) => Number(a.lastAnalyzedAt || 0)-Number(b.lastAnalyzedAt || 0));
+      .sort((a,b) =>
+        Math.max(Number(a.lastAnalyzedAt || 0),Number(a.lastWorkerCheckAt || 0)) -
+        Math.max(Number(b.lastAnalyzedAt || 0),Number(b.lastWorkerCheckAt || 0)));
     if (!rows.length) return null;
     const idx=leaderAnalysisState.cursor % rows.length;
     const tracked=rows[idx];
