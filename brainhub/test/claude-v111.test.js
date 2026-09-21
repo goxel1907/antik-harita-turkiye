@@ -295,7 +295,7 @@ test('transport BINDING runner modunda TP1/TP2 koyar, TP3 koymaz; stop closePosi
   const registry = { consume:() => ({ ok:true, liveAllowed:true }) };
   const t = new BinanceLiveTransport({ registry, fetchImpl });
   const order = { action:'OPEN', symbol:'ABCUSDT', side:'LONG', orderType:'MARKET', quantity:30, entryPrice:100, stopPrice:98, takeProfit1:102, takeProfit2:104, takeProfit3:106, clientOrderId:'LHABCL1', lineageId:'L1' };
-  const r = await t.submit({ grantId:'g', order, credentials:{ apiKey:'k'.repeat(10), apiSecret:'s'.repeat(10) }, livePolicy:{ expectedLeverage:5, maxEntryDeviationPct:1, runnerMode:'BINDING' } });
+  const r = await t.submit({ grantId:'g', order, credentials:{ apiKey:'k'.repeat(10), apiSecret:'s'.repeat(10) }, livePolicy:{ expectedLeverage:5, maxEntryDeviationPct:1, runnerMode:'BINDING', runnerShare:'ONE_THIRD' } });
   assert.equal(r.execution, 'LIVE_ENTRY_FULLY_PROTECTED', JSON.stringify(r.reasons));
   const algo = posted.filter(x => x.path === '/fapi/v1/algoOrder');
   assert.equal(algo.filter(x => x.type === 'STOP_MARKET' && x.closePosition === 'true').length, 1);

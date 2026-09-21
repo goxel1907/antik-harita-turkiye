@@ -67,7 +67,16 @@ const DEFAULT_CONFIG = Object.freeze({
   runnerMinImprovePct: 0.08,
   runnerReplaceCooldownSec: 45,
   runnerAtrBufferMultiple: 0.15,
-  runnerMaxFailuresBeforeTp3: 3
+  runnerMaxFailuresBeforeTp3: 3,
+  // CLAUDE_V112: runner payı. TWO_THIRDS = TP1 (1/3, 1R) sonrası kalan 2/3 momentum bozulana kadar iz sürer;
+  // ONE_THIRD = v111 davranışı (TP1 + TP2, son 1/3 runner).
+  runnerShare: 'TWO_THIRDS',
+  // CLAUDE_V112_SCALP_FAST_LANE: OFF | SHADOW | BINDING. Vision beklemeden momentum scalp → Jev.
+  scalpFastLane: 'SHADOW',
+  fastLaneMaxSymbolsPerTick: 3,
+  fastLaneSymbolCooldownMin: 5,
+  // CLAUDE_V112_WORKER_SCALP_EVERY_TICK: 30 sn'de ek kontrol edilen alt-TF sayısal tetik planı sayısı.
+  workerScalpPerTick: 3
 });
 
 let cache = { at:0, file:null, value:DEFAULT_CONFIG };
@@ -92,7 +101,12 @@ function readConfig(now = Date.now()) {
     runnerMinImprovePct: num(raw.runnerMinImprovePct, DEFAULT_CONFIG.runnerMinImprovePct, 0.01, 2),
     runnerReplaceCooldownSec: num(raw.runnerReplaceCooldownSec, DEFAULT_CONFIG.runnerReplaceCooldownSec, 15, 600),
     runnerAtrBufferMultiple: num(raw.runnerAtrBufferMultiple, DEFAULT_CONFIG.runnerAtrBufferMultiple, 0, 1.5),
-    runnerMaxFailuresBeforeTp3: num(raw.runnerMaxFailuresBeforeTp3, DEFAULT_CONFIG.runnerMaxFailuresBeforeTp3, 1, 10)
+    runnerMaxFailuresBeforeTp3: num(raw.runnerMaxFailuresBeforeTp3, DEFAULT_CONFIG.runnerMaxFailuresBeforeTp3, 1, 10),
+    runnerShare: String(raw.runnerShare || DEFAULT_CONFIG.runnerShare).toUpperCase() === 'ONE_THIRD' ? 'ONE_THIRD' : 'TWO_THIRDS',
+    scalpFastLane: ['OFF','SHADOW','BINDING'].includes(String(raw.scalpFastLane || '').toUpperCase()) ? String(raw.scalpFastLane).toUpperCase() : DEFAULT_CONFIG.scalpFastLane,
+    fastLaneMaxSymbolsPerTick: Math.round(num(raw.fastLaneMaxSymbolsPerTick, DEFAULT_CONFIG.fastLaneMaxSymbolsPerTick, 1, 6)),
+    fastLaneSymbolCooldownMin: num(raw.fastLaneSymbolCooldownMin, DEFAULT_CONFIG.fastLaneSymbolCooldownMin, 1, 60),
+    workerScalpPerTick: Math.round(num(raw.workerScalpPerTick, DEFAULT_CONFIG.workerScalpPerTick, 0, 6))
   });
   cache = { at:now, file, value };
   return value;
@@ -359,7 +373,7 @@ function revalidateTrigger({ stored, intent, candidate, unified, now = Date.now(
 // ---------------------------------------------------------------------
 // 4) Runner (TP3 yerine iz süren stop)
 // ---------------------------------------------------------------------
-function runnerPhase({ initialQty, tpQty, remainingQty, stepSize = null } = {}) {
+function runnerPhase({ initialQty, tpQty, remainingQty, stepSize = null, tpPlaced = 2 } = {}) {
   const q0 = finite(initialQty), rem = finite(remainingQty);
   const q = Array.isArray(tpQty) ? tpQty.map(finite) : [];
   if (q0 === null || q0 <= 0 || rem === null) return 'UNKNOWN';
@@ -367,6 +381,8 @@ function runnerPhase({ initialQty, tpQty, remainingQty, stepSize = null } = {}) 
   // Yarım lot adımı: tam adım toleransı 1 adımlık TP dilimlerinde fazı erken ilerletiyordu (inceleme bulgusu #1).
   const tol = Math.max((finite(stepSize) || 0) / 2, q0 * 1e-9);
   if (q.length === 3 && q.every(x => x !== null && x > 0)) {
+    // CLAUDE_V112: yalnız TP1 konduysa (2/3 runner) TP1 dolar dolmaz iz sürme başlar (taban: başabaş).
+    if (Number(tpPlaced) === 1) return rem <= q0 - q[0] + tol ? 'TRAILING' : 'INITIAL';
     if (rem <= q[2] + tol) return 'TRAILING';
     if (rem <= q0 - q[0] + tol) return 'BREAKEVEN';
     return 'INITIAL';

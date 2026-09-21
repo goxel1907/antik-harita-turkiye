@@ -44,9 +44,71 @@ function syntheticVisionCases(){
   ];
 }
 
+// CLAUDE_V112_VISION_BENCHMARK_21: 7 sınıf × 3 varyant = 21 sentetik vaka (LONG/SHORT simetrik).
+// Varyantlar v110 Vision profilindeki gerçek boyutlarda çizilir: 15m ana 896×504, scalp/bağlam 640×360.
+// Amaç: 4B yerel modelin grafik okuma doğruluğunu sınıf ve boyut bazında ölçmek (işlem kararı değildir).
+const V112_LABELS=['BOS_UP','BOS_DOWN','SWEEP_RECLAIM','SWEEP_REJECT','BULL_FVG','BEAR_FVG','RANGE'];
+function seriesV112(seed,{base=100,amp=0.35,n=63}={}){
+  const out=[];
+  let p=base;
+  for(let i=0;i<n;i++){
+    const d=(((i*7+seed*3)%11)/11-0.5)*amp*0.5;
+    const o=p, c=base+d;
+    out.push(candle(i,{open:o,high:Math.max(o,c)+amp,low:Math.min(o,c)-amp,close:c,volume:1000+((i*13+seed)%40)*5}));
+    p=c;
+  }
+  return out;
+}
+function mirror(candles,base){
+  return candles.map(k=>({...k,open:2*base-k.open,close:2*base-k.close,high:2*base-k.low,low:2*base-k.high}));
+}
+function eventCandles(label,base,amp,start){
+  const k=(i,o,h,l,c,v)=>candle(start+i,{open:base+o*amp,high:base+h*amp,low:base+l*amp,close:base+c*amp,volume:v});
+  switch(label){
+    case 'BOS_UP': return [k(0,0.2,12,-0.2,11,3200)];
+    case 'SWEEP_RECLAIM': return [k(0,0.1,1.2,-6,1.0,2900)];
+    case 'BULL_FVG': return [k(0,-0.2,0.3,-1.2,0.1,1100),k(1,4.5,8.5,4.2,8,3500),k(2,8.2,10.5,6.2,10,2200)];
+    case 'RANGE': return [k(0,0.1,1.2,-1.1,-0.2,1150)];
+    default: return null;
+  }
+}
+function syntheticVisionCasesV112(){
+  const variants=[
+    {v:'A',size:{width:896,height:504},profile:'main15m',base:100,amp:0.35,seed:1},
+    {v:'B',size:{width:640,height:360},profile:'scalp',base:100,amp:0.35,seed:4},
+    {v:'C',size:{width:640,height:360},profile:'context',base:0.045,amp:0.00018,seed:7}
+  ];
+  const cases=[];
+  for(const label of V112_LABELS){
+    const bearish=['BOS_DOWN','SWEEP_REJECT','BEAR_FVG'].includes(label);
+    const bullTwin={BOS_DOWN:'BOS_UP',SWEEP_REJECT:'SWEEP_RECLAIM',BEAR_FVG:'BULL_FVG'}[label]||label;
+    for(const vr of variants){
+      const series=seriesV112(vr.seed,{base:vr.base,amp:vr.amp,n:label.endsWith('FVG')?61:63});
+      let candles=[...series,...eventCandles(bullTwin,vr.base,vr.amp,series.length)];
+      if(bearish)candles=mirror(candles,vr.base);
+      cases.push({
+        id:label+'_'+vr.v,label,size:vr.size,profile:vr.profile,
+        chart:{ok:true,symbol:'SYNTHUSDT',frame:vr.profile==='scalp'?'3m':'15m',bars:candles.length,closedBars:candles.length,formingBars:0,generatedAt:new Date(0).toISOString(),candles,analysis:structure(candles,'15m')}
+      });
+    }
+  }
+  return cases;
+}
+
+const BENCHMARK_LABEL_RE=/^\s*PATTERN\s*:\s*(BOS_UP|BOS_DOWN|SWEEP_RECLAIM|SWEEP_REJECT|BULL_FVG|BEAR_FVG|RANGE)\s*$/im;
 function parseBenchmarkLabel(text){
-  const m=/^\s*PATTERN\s*:\s*(BOS_UP|SWEEP_RECLAIM|BULL_FVG)\s*$/im.exec(String(text||''));
+  const m=BENCHMARK_LABEL_RE.exec(String(text||''));
   return m?m[1].toUpperCase():null;
 }
 
-module.exports={syntheticVisionCases,parseBenchmarkLabel};
+function summarizeBenchmark(results){
+  const by=(key)=>{
+    const m=new Map();
+    for(const r of results){const k=r[key];const x=m.get(k)||{total:0,matched:0};x.total++;if(r.match)x.matched++;m.set(k,x);}
+    return Object.fromEntries([...m.entries()].map(([k,x])=>[k,{...x,accuracyPct:Number((100*x.matched/Math.max(1,x.total)).toFixed(1))}]));
+  };
+  const matched=results.filter(r=>r.match).length;
+  return {cases:results.length,matched,accuracyPct:Number((100*matched/Math.max(1,results.length)).toFixed(1)),byLabel:by('expected'),byProfile:by('profile'),unparsed:results.filter(r=>r.actual===null).length};
+}
+
+module.exports={syntheticVisionCases,syntheticVisionCasesV112,parseBenchmarkLabel,summarizeBenchmark,V112_LABELS};

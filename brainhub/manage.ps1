@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','OpenRouterSetup','OpenRouterCreditSetup','OpenRouterStatus','JevProbe','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
+    [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','VisionBenchmark','OpenRouterSetup','OpenRouterCreditSetup','OpenRouterStatus','JevProbe','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
     [string]$BackupPath = '',
@@ -180,7 +180,12 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if ([string]$h.featureVersion -ne '9.5.111-CLAUDE-VISION') { throw "Beklenen PC Brain Hub surumu 9.5.111-CLAUDE-VISION; gelen=$($h.featureVersion)" }
+    if ([string]$h.featureVersion -ne '9.5.112-CLAUDE-VISION') { throw "Beklenen PC Brain Hub surumu 9.5.112-CLAUDE-VISION; gelen=$($h.featureVersion)" }
+    # CLAUDE_V112_UPDATER_FILESET: Claude v9.5.112 isaretleri dogrulanir.
+    foreach ($v112Feature in @('CLAUDE_V112_BUILD','CLAUDE_V112_SCALP_FAST_LANE','CLAUDE_V112_CONCURRENT_REVALIDATION','CLAUDE_V112_EXECUTION_LOCK_ONLY_AT_ORDER','CLAUDE_V112_RUNNER_TWO_THIRDS','CLAUDE_V112_UPDATER_FILESET')) {
+        if (-not ($h.features -contains $v112Feature)) { throw "v9.5.112-CLAUDE eksik feature: $v112Feature" }
+    }
+    Write-Host ("CLAUDE_V112 marker={0} fastLane={1} runnerShare={2}" -f (Get-PropValue $h 'claudeV112Marker' ''),(Get-PropValue (Get-PropValue $h 'claudeV111Config' $null) 'scalpFastLane' ''),(Get-PropValue (Get-PropValue $h 'claudeV111Config' $null) 'runnerShare' ''))
     # CLAUDE_V111_UPDATER_FILESET: Claude v9.5.111 (ChatGPT v9.5.110 uzerine) isaretleri dogrulanir.
     foreach ($v111Feature in @('CLAUDE_V111_BUILD','CLAUDE_V111_MOMENTUM_SCALP_TRIGGER','CLAUDE_V111_TRIGGER_REVALIDATION','CLAUDE_V111_JEV_FINAL_AUTHORITY','CLAUDE_V111_TRAILING_RUNNER','CLAUDE_V111_RUNNER_NEVER_WIDEN','CLAUDE_V111_UPDATER_FILESET')) {
         if (-not ($h.features -contains $v111Feature)) { throw "v9.5.111-CLAUDE eksik feature: $v111Feature" }
@@ -460,7 +465,7 @@ function Get-Source([string]$Given) {
     # v110 feature isimleri server.js icine literal olarak kopyalanmaz; server v110.js
     # manifestini require edip features dizisini runtime /health'e yayar. Bu nedenle
     # bootstrap arşiv doğrulaması v110 markerlarini v110.js manifestinde kontrol eder.
-    if ($serverText -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or $serverText -notmatch 'VISION_PIXEL_PROBE' -or $serverText -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or $serverText -notmatch 'LEADER_DETAIL_PROBE' -or $serverText -notmatch 'VISION_RUNTIME_TRUTH_STATUS' -or $serverText -notmatch 'LEADER_STATUS_STALE_SUPPRESSION' -or $serverText -notmatch 'LEADER_AUTO_HEALTH_TELEMETRY' -or $serverText -notmatch 'LEADER_AUTO_COVERAGE_SCHEDULER' -or $serverText -notmatch 'USER_PANEL_EXACT_TOTAL_EXPOSURE' -or $serverText -notmatch 'LEADER_APPROVED_ANALYSIS_REUSE' -or $serverText -notmatch 'PREJEV_EXECUTION_TELEMETRY' -or $serverText -notmatch 'BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE' -or $serverText -notmatch 'TARGETED_PRIORITY_UNIVERSE_24' -or $serverText -notmatch 'BINANCE_TOP24_GAINER_DISCOVERY' -or $serverText -notmatch 'ACCUMULATION_PROXY_DISCOVERY' -or $serverText -notmatch 'ANDROID_ATTENTION_SYNC' -or $serverText -notmatch 'PLAN_WORKER_ORCHESTRATION' -or $serverText -notmatch 'PLAN_WORKER_9ROUTER_TEXT' -or $serverText -notmatch 'PLAN_WORKER_9ROUTER_FREE_ONLY' -or $serverText -notmatch 'OPENROUTER_FREE_WORKER_SECOND_OPINION' -or $serverText -notmatch 'WORKER_VISION_AVOIDANCE_TELEMETRY' -or $serverText -notmatch 'PLAN_WORKER_PARALLEL_TIMER' -or $serverText -notmatch 'V108_WORKER_ESCALATION_LATCH' -or $serverText -notmatch 'V108_CONCRETE_WATCH_CONTRACT' -or $serverText -notmatch 'LOCAL_VISION_FREE_QUOTA_FAILOVER' -or $serverText -notmatch 'LOCAL_OLLAMA_VISION_BATCH3_ACTIVE' -or $serverText -notmatch 'LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK' -or $serverText -notmatch 'OPENCODE_OFFICIAL_FREE_INFERENCE' -or $serverText -notmatch 'CLAUDE_V109' -or -not (Test-Path -LiteralPath (Join-Path $brainDir 'claude-v109.js')) -or -not (Test-Path -LiteralPath (Join-Path $brainDir 'trade-lanes.js')) -or -not (Test-Path -LiteralPath $v110Path) -or $v110Text -notmatch 'V110_MULTILANE_15M_SCALP' -or $v110Text -notmatch 'V110_SCALP_TWO_OF_THREE' -or $v110Text -notmatch 'V110_NUMERIC_TRIGGER_H8' -or -not (Test-Path -LiteralPath (Join-Path $brainDir 'claude-v111.js')) -or (Get-Content -LiteralPath (Join-Path $brainDir 'claude-v111.js') -Raw) -notmatch 'CLAUDE_V111_BUILD') {
+    if ($serverText -notmatch 'KIRO_FREE_QUOTA_VISION_OPT_IN' -or $serverText -notmatch 'VISION_PIXEL_PROBE' -or $serverText -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or $serverText -notmatch 'LEADER_DETAIL_PROBE' -or $serverText -notmatch 'VISION_RUNTIME_TRUTH_STATUS' -or $serverText -notmatch 'LEADER_STATUS_STALE_SUPPRESSION' -or $serverText -notmatch 'LEADER_AUTO_HEALTH_TELEMETRY' -or $serverText -notmatch 'LEADER_AUTO_COVERAGE_SCHEDULER' -or $serverText -notmatch 'USER_PANEL_EXACT_TOTAL_EXPOSURE' -or $serverText -notmatch 'LEADER_APPROVED_ANALYSIS_REUSE' -or $serverText -notmatch 'PREJEV_EXECUTION_TELEMETRY' -or $serverText -notmatch 'BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE' -or $serverText -notmatch 'TARGETED_PRIORITY_UNIVERSE_24' -or $serverText -notmatch 'BINANCE_TOP24_GAINER_DISCOVERY' -or $serverText -notmatch 'ACCUMULATION_PROXY_DISCOVERY' -or $serverText -notmatch 'ANDROID_ATTENTION_SYNC' -or $serverText -notmatch 'PLAN_WORKER_ORCHESTRATION' -or $serverText -notmatch 'PLAN_WORKER_9ROUTER_TEXT' -or $serverText -notmatch 'PLAN_WORKER_9ROUTER_FREE_ONLY' -or $serverText -notmatch 'OPENROUTER_FREE_WORKER_SECOND_OPINION' -or $serverText -notmatch 'WORKER_VISION_AVOIDANCE_TELEMETRY' -or $serverText -notmatch 'PLAN_WORKER_PARALLEL_TIMER' -or $serverText -notmatch 'V108_WORKER_ESCALATION_LATCH' -or $serverText -notmatch 'V108_CONCRETE_WATCH_CONTRACT' -or $serverText -notmatch 'LOCAL_VISION_FREE_QUOTA_FAILOVER' -or $serverText -notmatch 'LOCAL_OLLAMA_VISION_BATCH3_ACTIVE' -or $serverText -notmatch 'LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK' -or $serverText -notmatch 'OPENCODE_OFFICIAL_FREE_INFERENCE' -or $serverText -notmatch 'CLAUDE_V109' -or -not (Test-Path -LiteralPath (Join-Path $brainDir 'claude-v109.js')) -or -not (Test-Path -LiteralPath (Join-Path $brainDir 'trade-lanes.js')) -or -not (Test-Path -LiteralPath $v110Path) -or $v110Text -notmatch 'V110_MULTILANE_15M_SCALP' -or $v110Text -notmatch 'V110_SCALP_TWO_OF_THREE' -or $v110Text -notmatch 'V110_NUMERIC_TRIGGER_H8' -or -not (Test-Path -LiteralPath (Join-Path $brainDir 'claude-v111.js')) -or (Get-Content -LiteralPath (Join-Path $brainDir 'claude-v111.js') -Raw) -notmatch 'CLAUDE_V111_BUILD' -or -not (Test-Path -LiteralPath (Join-Path $brainDir 'claude-v112.js')) -or (Get-Content -LiteralPath (Join-Path $brainDir 'claude-v112.js') -Raw) -notmatch 'CLAUDE_V112_BUILD') {
         throw "GitHub HEAD $sha beklenen Vision bootstrap isaretlerini icermiyor; eski arsiv uygulanmadi."
     }
     Write-Host "SOURCE_HEAD $sha"
@@ -615,6 +620,16 @@ if ($Action -eq 'OpenRouterCreditSetup') {
     $billing = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/openrouter/billing?force=1' -Headers (Auth-Headers $rootFull) -TimeoutSec 20
     if (-not $billing.accountCredits.available) { throw 'OpenRouter hesap kredisi BrainHub tarafinda goruntulenemedi.' }
     Write-Host ("BRAINHUB_OPENROUTER_CREDIT_OK remainingUsd={0:N4} totalCredits={1:N4} totalUsage={2:N4}" -f $billing.accountCredits.remainingCredits,$billing.accountCredits.totalCredits,$billing.accountCredits.totalUsage) -ForegroundColor Green
+    exit 0
+}
+if ($Action -eq 'VisionBenchmark') {
+    # CLAUDE_V112_VISION_BENCHMARK_21: yerel 4B Vision modelinin sentetik grafik okuma dogrulugu (21 vaka).
+    Write-Host 'Vision benchmark basladi (21 sentetik grafik; tek GPU, 5-15 dk surebilir; bu sirada Leader AUTO analizi bekler)...'
+    $b = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/vision/benchmark?run=1' -Headers (Auth-Headers $rootFull) -TimeoutSec 3600
+    if (-not $b.ok) { throw "Vision benchmark basarisiz: $($b.error) $($b.detail)" }
+    Write-Host ("VISION_BENCHMARK model={0} dogruluk=%{1} ({2}/{3}) okunamayan={4}" -f $b.model, $b.accuracyPct, $b.matched, $b.cases, $b.unparsed)
+    foreach ($p in $b.byLabel.PSObject.Properties) { Write-Host ("  sinif {0,-14} %{1} ({2}/{3})" -f $p.Name, $p.Value.accuracyPct, $p.Value.matched, $p.Value.total) }
+    foreach ($p in $b.byProfile.PSObject.Properties) { Write-Host ("  boyut {0,-14} %{1} ({2}/{3})" -f $p.Name, $p.Value.accuracyPct, $p.Value.matched, $p.Value.total) }
     exit 0
 }
 if ($Action -eq 'VisionStatus') {
@@ -933,7 +948,7 @@ if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); T
 $sourceDir = Get-Source $Source
 # CLAUDE_V109_UPDATER_FILESET: ChatGPT v9.5.109 wait-condition.js ve vision-benchmark.js eklemis ama bu listeye
 # koymamisti -> PC'de server.js MODULE_NOT_FOUND ile acilmaz, guncelleme geri alinirdi.
-$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js')
+$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js','claude-v112.js')
 foreach ($name in $files) {
     $p = Join-Path $sourceDir $name
     if (-not (Test-Path -LiteralPath $p)) { throw "Eksik dosya: $name" }
@@ -959,7 +974,7 @@ try {
         $dst = Join-Path (Join-Path $rootFull 'config') $cfg[1]
         if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $sourceDir $cfg[0]) -Destination $dst }
     }
-    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
+    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1','VISION-BENCHMARK.ps1')) {
         Copy-Item -LiteralPath (Join-Path $sourceDir $script) -Destination $rootFull -Force
     }
     # CLAUDE_V109_OFFICE_DASHBOARD: salt-okunur Trade Office ekrani (ayri surec; Brain Hub'a gomulu degil).

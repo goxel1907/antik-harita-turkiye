@@ -1,4 +1,4 @@
-# BrainHub Trade Office (salt-okunur izleme ekranı) • v1.3.0-CLAUDE-V111-JEV-FINAL
+# BrainHub Trade Office (salt-okunur izleme ekranı) • v1.4.0-CLAUDE-V112-JEV-FINAL
 
 > CLAUDE_V109: Bu ekran Claude (Anthropic, Cowork) tarafından yazıldı ve v9.5.109-CLAUDE ile güncellendi.
 > v9.5.109-CLAUDE PC güncellemesi (`UPDATE.ps1`) bu klasörü otomatik olarak `C:\BrainHub\office-dashboard` içine kopyalar;

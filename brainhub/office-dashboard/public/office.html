@@ -230,7 +230,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <dl class="kv" id="wKv" style="margin-top:10px"></dl>
     </div>
     <div class="card v109">
-      <h2>Claude v9.5.111 • kod-tetik → JEV FINAL → hard safety → emir <span class="hint">v111 hızlı doğrulama + runner</span></h2>
+      <h2>Claude v9.5.112 • hızlı scalp / kod-tetik → JEV FINAL → hard safety → emir <span class="hint">v111 doğrulama + v112 hızlı hat + runner</span></h2>
       <dl class="kv" id="v109Kv"></dl>
       <div class="v109-bars" id="v109Bars"></div>
       <div class="legend" id="v109Note"></div>
@@ -740,11 +740,12 @@ function renderV109(s){
   const st=s.status?.data||{}; const h=st.leaderAuto?.health||{}; const cv=h.claudeV109;
   const fv=String(s.health?.data?.featureVersion||st.featureVersion||'');
   const isV109=/9\.5\.1(09|1[0-9])/.test(fv);
-  const isV111=/9\.5\.111-CLAUDE/.test(fv);
+  const isV111=/9\.5\.11[1-9]-CLAUDE/.test(fv);
+  const c112=h.claudeV112||null;
   const c111=h.claudeV111||null;
   const cfg111=c111?.config||s.health?.data?.claudeV111Config||st.claudeV111Config||{};
   const cfg=cv?.config||s.health?.data?.claudeV109Config||st.claudeV109Config||{};
-  chip('#chipClaude', isV109?'claude':'warn', isV111?`CLAUDE_V111 • kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • runner ${cfg111.runnerMode||'SHADOW'}`:(isV109?`CLAUDE_V109 • DT ${cfg.deterministicTriggerMode||'SHADOW'}`:'CLAUDE_V109 bekleniyor'));
+  chip('#chipClaude', isV109?'claude':'warn', isV111?`${c112?'CLAUDE_V112':'CLAUDE_V111'} • kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • hızlı scalp ${cfg111.scalpFastLane||'SHADOW'} • runner ${cfg111.runnerMode||'SHADOW'}`:(isV109?`CLAUDE_V109 • DT ${cfg.deterministicTriggerMode||'SHADOW'}`:'CLAUDE_V109 bekleniyor'));
   $('#jevPolicy').textContent = cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED' ? 'Claude rol-ağırlıklı' : 'v108 (herhangi biri ≥0,65)';
   const pct=v=>{const n=num(v); return n==null?'—':(n>0?'+':'')+n.toFixed(2)+'%';};
   const hrs=num(h.shadowEvidenceHours);
@@ -755,7 +756,12 @@ function renderV109(s){
       ['Kod-tetik → Jev (v111)', `<b>${c111?.revalidated??0}</b> hızlı doğrulama / ${c111?.revalidationAttempts??0} deneme • Jev’e giden <b>${c111?.jevCalledAfterCode??0}</b> • Jev onayı ${c111?.jevApprovedAfterCode??0}`],
       ['Momentum scalp tetiği', `${c111?.momentumScalpTriggers??0} (1m/3m/5m, 2/3 hizalı, 15m karşı değil)`],
       ['Runner (TP3 yerine)', `${cfg111.runnerMode||'SHADOW'} • açık ${c111?.runner?.open??0}${(c111?.runner?.rows||[]).slice(0,2).map(r=>` • ${r.symbol} ${r.phase} stop ${r.currentStop??'—'}${r.trailTf?' ('+r.trailTf+')':''}`).join('')}`],
-      ['Doğrulama red nedeni', (c111?.revalidationReasonCounts||[]).slice(0,3).map(x=>`${x.reason} ${x.count}`).join(' • ')||'—']
+      ['Doğrulama red nedeni', (c111?.revalidationReasonCounts||[]).slice(0,3).map(x=>`${x.reason} ${x.count}`).join(' • ')||'—'],
+      ...(c112 ? [
+        ['Hızlı scalp hattı (v112)', `${c112.fastLaneMode||'SHADOW'} • sinyal <b>${c112.fastLaneSignals??0}</b> • nitelikli ${c112.fastLaneQualified??0} • Jev ${c112.fastLaneJevCalled??0} (onay ${c112.fastLaneJevApproved??0})`],
+        ['Vision beklemeden doğrulama', `${c112.fastLaneRevalidationTriggers??0} tetik • ${c112.concurrentRevalidations??0} analiz`],
+        ['Son hızlı hat olayı', (()=>{const l=c112.fastLane?.lastResult||c112.fastLane?.lastSignal; return l?`${l.symbol||''} ${l.kind||''} ${l.execution||l.tf||''} ${l.planStatus||''}`:'—';})()]
+      ] : []),
     ] : []),
     ['Kod-tetik “QUALIFIED olurdu”', `<b>${cv?.dtWouldQualify??0}</b> (60 dk) • uygulanan ${cv?.dtApplied??0}`],
     ['Sayısal tetikli plan', `<b>${h.shadowPlans??0}</b> • tetik oto-seçim ${cv?.triggerAutoSelected??0} • WAIT onarımı ${cv?.numericWaitFallback??0}`],

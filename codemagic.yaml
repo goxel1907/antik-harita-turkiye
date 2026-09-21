@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.111 + PC v9.5.111-CLAUDE (Claude)
+    name: Futures 15m Alarm PRO APK v9.5.111 + PC v9.5.112-CLAUDE (Claude)
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -197,6 +197,10 @@ workflows:
           grep -q "claudeV111.laneAwareTrigger" "$CM_BUILD_DIR/brainhub/pipeline.js"
           grep -q "'claude-v111.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
           echo 'CLAUDE_V111_PC_OK'
+          grep -q "CLAUDE_V112_SCALP_FAST_LANE" "$CM_BUILD_DIR/brainhub/claude-v112.js"
+          grep -q "scalpFastLaneTick" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q "'claude-v112.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
+          echo 'CLAUDE_V112_PC_OK'
           echo 'V95111_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
 

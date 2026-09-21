@@ -6,6 +6,7 @@ const { breakoutExecution, triggerLevelCandidates, resolveTriggerLevel, triggerS
 const { isNonConcreteWait } = require('./wait-condition');
 const claudeV109 = require('./claude-v109');
 const claudeV111 = require('./claude-v111');
+const claudeV112 = require('./claude-v112');
 const tradeLanes = require('./trade-lanes');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
@@ -1134,6 +1135,26 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       plan = revalidation.plan;
     }
   }
+  // CLAUDE_V112_SCALP_FAST_LANE: momentum scalp sinyali taze veriyle yeniden hesaplanır; Vision çağrılmaz.
+  const fastIntent = executionIntent?.scalpFastLane && typeof executionIntent.scalpFastLane === 'object' && executionIntent?.positionReviewOnly !== true
+    ? executionIntent.scalpFastLane : null;
+  let fastLane = null;
+  if (!plan && fastIntent) {
+    fastLane = claudeV112.scalpFastLaneSignal({ candidate, unified });
+    const sameSetup = fastLane.ok === true && fastLane.side === String(fastIntent.side || fastLane.side).toUpperCase();
+    vision = { ok:false, required:0, attached:0, barsRequested:null, mode:'CLAUDE_V112_FAST_LANE_NO_VISION', frames:[], failures:[] };
+    result = { ok:true, available:true, degraded:false, mode:'claude_v112_scalp_fast_lane', model:'', source:'DETERMINISTIC_CLOSED_CANDLE', text:null, vision:{ attached:0, timeframes:[], modes:[] } };
+    plan = sameSetup
+      ? claudeV112.fastLanePlan({ signal:fastLane, unified, candidate })
+      : { valid:false, status:'REVIEW_REQUIRED', reason:'CLAUDE_V112_FAST_LANE_SIGNAL_GONE', side:String(candidate?.side || '').toUpperCase(), fastLaneReasons:fastLane.reasons || [], fastLaneMisses:fastLane.misses || [], claudeFastLane:{ ok:false, applied:false, reasons:fastLane.reasons || [] }, confidence:0, execution:'ADVISORY_ONLY' };
+    if (plan && plan.status === 'QUALIFIED') plan = { ...plan, triggerSpec:resolveNumericTriggerPlan(plan, unified) };
+  }
+  // CLAUDE_V112_CONCURRENT_REVALIDATION: hızlı hat, yeniden doğrulama geçmezse tam Vision'a DÜŞMEZ
+  // (ana Leader AUTO döngüsü o coini daha sonra tam 9TF ile yeniler).
+  if (!plan && executionIntent?.revalidationOnly === true) {
+    const out = { ok:true, candidateFound:true, symbol:candidate.symbol, status:'REVIEW_REQUIRED', reason:'CLAUDE_V112_REVALIDATION_NOT_APPLIED', revalidation:revalidation ? { ok:revalidation.ok === true, reasons:revalidation.reasons || [] } : null, committeeCalled:false, execution:'ADVISORY_ONLY', orderPlaced:false };
+    return out;
+  }
   if (!plan) {
   vision = await buildVisionCharts(candidate.symbol, 128);
   if (!vision.ok) {
@@ -1348,7 +1369,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   // v110 işlem hattına uygun kapanmış-mum kırılımı var mı? Momentum coin + 2/3 alt TF → 1m/3m/5m; aksi 15m.
   // SHADOW: yalnız kayıt. BINDING: WATCH→QUALIFIED, ardından v110 hat kuralı yeniden uygulanır; Jev, risk,
   // likidasyon ve LIVE kapıları aynen çalışır.
-  if(plan&&typeof plan==='object'&&executionIntent?.positionReviewOnly!==true&&plan.claudeTriggerRevalidation?.applied!==true&&['WATCH','QUALIFIED'].includes(String(plan.status||'').toUpperCase())){
+  if(plan&&typeof plan==='object'&&executionIntent?.positionReviewOnly!==true&&plan.claudeTriggerRevalidation?.applied!==true&&!plan.claudeFastLane&&['WATCH','QUALIFIED'].includes(String(plan.status||'').toUpperCase())){
     const v109cfg=claudeV109.readConfig();
     const dt=claudeV111.laneAwareTrigger({plan,candidate,unified});
     const wouldQualify=dt.ok===true&&String(plan.status||'').toUpperCase()==='WATCH';
@@ -1362,7 +1383,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   }
   // CLAUDE_V111_LANE_ENFORCED_AFTER_DT: kod-tetik veya yeniden doğrulama ile QUALIFIED olan plan da
   // v110 hat kuralından geçer (1m/3m/5m tek başına karar vermez; 15m ana hat).
-  if(plan&&typeof plan==='object'&&String(plan.status||'').toUpperCase()==='QUALIFIED'&&(plan.claudeDeterministicTrigger?.applied===true||plan.claudeTriggerRevalidation?.applied===true)){
+  if(plan&&typeof plan==='object'&&String(plan.status||'').toUpperCase()==='QUALIFIED'&&(plan.claudeDeterministicTrigger?.applied===true||plan.claudeTriggerRevalidation?.applied===true||plan.claudeFastLane?.applied===true)){
     plan=tradeLanes.enforceQualification(plan,unified,candidate);
   }
   const preJevPlan=plan&&typeof plan==='object'?{...plan}:null;
@@ -1400,7 +1421,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   const riskGate = enforceExecutionLineage(riskGateBase, executionClaimState, executionIntent);
   const dryRunExecutor = buildDryRunOrder({
     intent:{
-      ...(executionIntent ? (({ triggerRevalidation, ...rest }) => rest)(executionIntent) : {}),
+      ...(executionIntent ? (({ triggerRevalidation, scalpFastLane, revalidationOnly, ...rest }) => rest)(executionIntent) : {}),
       mode:'DRY_RUN',
       live:false,
       symbol:candidate.symbol,
@@ -1429,7 +1450,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     execution:'ADVISORY_ONLY',
     orderPlaced:false
   };
-  out.journalId = store.journal('PLAN', candidate.symbol, { candidate, plan, vision:{ ok:vision.ok, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures }, riskGate, dryRunExecutor, executionReadiness, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
+  // CLAUDE_V112: Vision'sız hızlı hat planları ayrı türde saklanır (yeniden doğrulama yalnız 9TF Vision planlarını kullanır).
+  out.journalId = store.journal(plan?.claudeFastLane ? 'PLAN_FAST' : 'PLAN', candidate.symbol, { candidate, plan, vision:{ ok:vision.ok, required:vision.required, attached:vision.attached, barsRequested:vision.barsRequested, mode:vision.mode, frames:vision.frames, failures:vision.failures }, riskGate, dryRunExecutor, executionReadiness, contextVersion:unified.version, marketAsOf:symbol.generatedAt });
   if(typeof store?.recordLearning==='function'){
     try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:plan.confidence,jevDecision:plan.jevDecision||null,contextVersion:unified.version});}catch{}
   }

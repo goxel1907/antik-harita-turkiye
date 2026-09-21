@@ -544,7 +544,9 @@ class BinanceLiveTransport {
       // CLAUDE_V111_TRAILING_RUNNER: BINDING modunda TP3 konmaz; son 1/3 miktar "runner" olarak
       // iz süren stopla yönetilir. Orijinal closePosition stop yerinde kalır (yedek koruma).
       const runnerEnabled = String(livePolicy?.runnerMode || '').toUpperCase() === 'BINDING';
-      const tpCount = runnerEnabled ? 2 : 3;
+      // CLAUDE_V112_RUNNER_TWO_THIRDS: varsayılan yalnız TP1 (1/3) konur; kalan 2/3 runner.
+      const runnerShare = String(livePolicy?.runnerShare || 'TWO_THIRDS').toUpperCase() === 'ONE_THIRD' ? 'ONE_THIRD' : 'TWO_THIRDS';
+      const tpCount = runnerEnabled ? (runnerShare === 'ONE_THIRD' ? 2 : 1) : 3;
       try {
         for (let i = 0; i < tpCount; i++) {
           const params = {
@@ -617,7 +619,7 @@ class BinanceLiveTransport {
         stopStatus:text(stop?.algoStatus) || 'NEW',
         tpAlgoIds,
         tpQuantities:tpQty,
-        runner:{ enabled:runnerEnabled, quantity:runnerEnabled ? tpQty[2] : null, takeProfit3:tpLevels[2], mode:runnerEnabled ? 'BINDING' : 'TP3_FIXED' },
+        runner:{ enabled:runnerEnabled, share:runnerEnabled ? runnerShare : null, tpPlaced:tpCount, quantity:runnerEnabled ? Number(tpQty.slice(tpCount).reduce((a,b)=>a+b,0).toPrecision(15)) : null, takeProfit2:tpLevels[1], takeProfit3:tpLevels[2], mode:runnerEnabled ? 'BINDING' : 'TP3_FIXED' },
         transport:{ attempted:true, requestSent:true },
         reasons:[]
       };

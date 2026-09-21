@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '1.2.0-CLAUDE-V111';
+const OFFICE_VERSION = '1.4.0-CLAUDE-V112-JEV-FINAL';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -174,7 +174,7 @@ function summarizeJournal(items) {
   for (const it of Array.isArray(items) ? items : []) {
     const p = it.payload || {};
     const base = { ts: Number(it.ts) || null, kind: it.kind, symbol: it.symbol || null, source: 'journal' };
-    if (it.kind === 'PLAN') {
+    if ((it.kind === 'PLAN' || it.kind === 'PLAN_FAST')) {
       const plan = p.plan || {};
       const jd = plan.jevDecision || null;
       const row = {
@@ -220,6 +220,11 @@ function summarizeJournal(items) {
       const detail=(p.reasons||[]).length ? (p.reasons||[]).join(', ') : ((p.softWarnings||[]).length ? 'soft uyarı: '+(p.softWarnings||[]).join(', ') : 'JEV onayı sonrası yalnız hard safety');
       events.push({ ...base, desk: ok?'exec':'risk', title:`JEV final ${it.symbol||''}: ${p.stage||'?'}`, detail:clip(detail,180) });
       if(!ok && (p.reasons||[]).length && !lastRisk) lastRisk={symbol:it.symbol,ts:base.ts,reasons:(p.reasons||[]).slice(0,8)};
+    } else if (it.kind === 'CLAUDE_V112_FAST_LANE_SIGNAL') {
+      events.push({ ...base, desk: 'workers', title: `Hızlı scalp ${it.symbol || ''} ${p.side || ''}: ${p.tf || ''} kırılım ${p.applied ? '→ Jev' : '(gölge kayıt)'}`, detail: clip(`seviye ${finite(p.level) ?? '?'} • canlı ${finite(p.livePrice) ?? '?'} • ${(p.momentum || []).join(',')}`, 160) });
+    } else if (it.kind === 'VISION_BENCHMARK') {
+      const sm = p.summary || {};
+      events.push({ ...base, desk: 'vision', title: `Vision doğruluk testi: %${finite(sm.accuracyPct) ?? '?'} (${sm.matched ?? '?'}/${sm.cases ?? '?'})`, detail: clip(Object.entries(sm.byLabel || {}).map(([k, v]) => `${k} %${v.accuracyPct}`).join(' • '), 160) });
     } else if (it.kind === 'CLAUDE_V111_RUNNER') {
       events.push({ ...base, desk: 'positions', title: `Runner ${it.symbol || ''}: ${p.kind || ''}${p.to != null ? ' → stop ' + p.to : (p.target != null ? ' → ' + p.target : '')}`, detail: clip(`${p.mode || ''} • faz ${p.phase || ''}${p.trailTf ? ' • iz TF ' + p.trailTf : ''}${p.reason ? ' • ' + p.reason : ''}`, 160) });
     } else if (it.kind === 'PLAN_WORKER_REVIEW') {
