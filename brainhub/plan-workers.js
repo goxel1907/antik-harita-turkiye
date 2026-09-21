@@ -1,5 +1,7 @@
 'use strict';
 
+const { isNonConcreteWait } = require('./wait-condition');
+
 const FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const STATES=new Set(['WAIT','TRIGGERED','REFRESH_REQUIRED']);
 
@@ -37,7 +39,7 @@ function deterministicGuard({tracked,candidate,unified,now=Date.now(),maxPlanAge
   if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))reasons.push('WORKER_SYMBOL_INVALID');
   if(!['LONG','SHORT'].includes(trackedSide))reasons.push('WORKER_TRACKED_SIDE_INVALID');
   if(candidateSide&&trackedSide&&candidateSide!==trackedSide)reasons.push('WORKER_SCANNER_SIDE_CHANGED');
-  if(!tracked?.waitFor||String(tracked.waitFor).trim().toUpperCase()==='NONE')reasons.push('WORKER_WAIT_CONDITION_MISSING');
+  if(isNonConcreteWait(tracked?.waitFor))reasons.push('WORKER_WAIT_CONDITION_MISSING');
   if(!unified?.dataQuality?.advisoryUsable)reasons.push('WORKER_CONTEXT_NOT_USABLE');
   if(planAgeMs>maxPlanAgeMs)reasons.push('WORKER_PLAN_TOO_OLD');
 
