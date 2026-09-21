@@ -2,7 +2,7 @@
 
 const { pickCandidate, selectDeepCandidates, executionEligible } = require('./leader-committee');
 const { symbolContext, globalContext, chartContext, renderChartPng } = require('./market');
-const { breakoutExecution } = require('./engine');
+const { breakoutExecution, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached } = require('./engine');
 const { isNonConcreteWait } = require('./wait-condition');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
@@ -110,6 +110,7 @@ function summarizeFrame(frame, f, now, livePrice) {
     returnPct:f.returnPct,
     candle:f.candle || null,
     patterns:Array.isArray(f.patterns) ? f.patterns.slice(-6) : [],
+    swingStructure:f.swingStructure || null,
     smcContext:f.smcContext || null,
     liquidity:{
       buySide:f.buySideLiquidity,
@@ -284,7 +285,7 @@ function compactUnifiedContext(u) {
       return [tf, {
         fresh:f.fresh, asOf:f.asOf, close:f.close, trend:f.trend, rsi14:f.rsi14, atrPct:f.atrPct,
         breakOfStructure:f.breakOfStructure, prior20High:f.prior20High, prior20Low:f.prior20Low,
-        candle:f.candle, patterns:f.patterns, liquidity:f.liquidity, smcContext:f.smcContext,
+        candle:f.candle, patterns:f.patterns, liquidity:f.liquidity, swingStructure:f.swingStructure, smcContext:f.smcContext,
         opportunity:f.opportunity, breakoutExecution:f.breakoutExecution
       }];
     })),
@@ -387,6 +388,7 @@ function compactLocalModelContext(u) {
       prior20Low:f.prior20Low,
       candle:f.candle||null,
       patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[],
+      swingStructure:f.swingStructure||null,
       liquidity:{
         buySide:f.liquidity?.buySide??null,
         sellSide:f.liquidity?.sellSide??null,
@@ -551,6 +553,44 @@ function evaluateVisionPixelProbe(text, frames) {
   };
 }
 
+function triggerCandidatesForPlan(unified, side) {
+  const s=String(side||'').toUpperCase();
+  if(!['LONG','SHORT'].includes(s))return [];
+  const out=[];
+  for(const tf of FRAME_ORDER){
+    const frame=unified?.frames?.[tf];
+    for(const level of triggerLevelCandidates(frame,s)){
+      out.push({tf,id:level.id,price:level.price,source:level.source,uses:level.uses});
+    }
+  }
+  return out;
+}
+
+function resolveNumericTriggerPlan(plan, unified) {
+  const side=String(plan?.side||'').toUpperCase();
+  const tf=String(plan?.triggerTF||'').toLowerCase();
+  const triggerId=String(plan?.triggerLevelId||'').toUpperCase();
+  const invalidationId=String(plan?.invalidationLevelId||'').toUpperCase();
+  const frame=FRAME_ORDER.includes(tf)?unified?.frames?.[tf]:null;
+  const trigger=frame?resolveTriggerLevel(frame,side,triggerId,'TRIGGER'):null;
+  const invalidation=frame?resolveTriggerLevel(frame,side,invalidationId,'INVALIDATION'):null;
+  const closedPrice=finite(frame?.close);
+  const valid=Boolean(frame?.available&&frame?.fresh===true&&trigger&&invalidation&&closedPrice!==null);
+  return {
+    valid,
+    tf:FRAME_ORDER.includes(tf)?tf:null,
+    triggerLevelId:trigger?.id||triggerId||null,
+    triggerPrice:trigger?.price??null,
+    invalidationLevelId:invalidation?.id||invalidationId||null,
+    invalidationPrice:invalidation?.price??null,
+    closedPrice,
+    triggered:valid?triggerSatisfied({side,closedPrice,levelPrice:trigger.price}):false,
+    invalidated:valid?invalidationBreached({side,closedPrice,levelPrice:invalidation.price}):false,
+    source:trigger?.source||null,
+    closedCandleOnly:true
+  };
+}
+
 function deterministicFallbackPlan(candidate, unified, detail = '') {
   const side = String(candidate?.side || '').toUpperCase();
   const path = ['LONG','SHORT'].includes(side) ? unified?.opportunityPaths?.[side] : null;
@@ -666,6 +706,9 @@ function planFields(raw) {
     ownerTF:tf(field('OWNER_TF')),
     setup:field('SETUP'),
     execPath:field('EXEC_PATH'),
+    triggerLevelId:String(field('TRIGGER_LEVEL_ID')||'').trim().toUpperCase()||null,
+    triggerTF:tf(field('TRIGGER_TF')),
+    invalidationLevelId:String(field('INVALIDATION_LEVEL_ID')||'').trim().toUpperCase()||null,
     why:field('WHY'),
     riskNote:field('RISK_NOTE'),
     waitFor:field('WAIT_FOR'),
@@ -808,6 +851,12 @@ function visionPlanContract(plan) {
   if (!plan?.ownerTF) missing.push('OWNER_TF');
   if (!String(plan?.setup || '').trim()) missing.push('SETUP');
   if (!String(plan?.execPath || '').trim()) missing.push('EXEC_PATH');
+  if (['WATCH','QUALIFIED'].includes(String(plan?.status||'').toUpperCase())) {
+    if (!String(plan?.triggerLevelId||'').trim()) missing.push('TRIGGER_LEVEL_ID');
+    if (!FRAME_ORDER.includes(String(plan?.triggerTF||'').toLowerCase())) missing.push('TRIGGER_TF');
+    if (!String(plan?.invalidationLevelId||'').trim()) missing.push('INVALIDATION_LEVEL_ID');
+    if (plan?.triggerSpec?.valid !== true) missing.push('TRIGGER_LEVEL_SELECTION_INVALID');
+  }
   if (!String(plan?.why || '').trim()) missing.push('WHY');
   if (!String(plan?.riskNote || '').trim()) missing.push('RISK_NOTE');
   if (!String(plan?.waitFor || '').trim()) missing.push('WAIT_FOR');
@@ -815,7 +864,7 @@ function visionPlanContract(plan) {
       String(plan?.waitFor || '').trim().toUpperCase() !== 'NONE') {
     missing.push('QUALIFIED_WAIT_FOR_NOT_NONE');
   }
-  if (String(plan?.status || '').toUpperCase() === 'WATCH' && isNonConcreteWait(plan?.waitFor)) {
+  if (String(plan?.status || '').toUpperCase() === 'WATCH' && plan?.triggerSpec?.valid !== true && isNonConcreteWait(plan?.waitFor)) {
     missing.push('WATCH_WAIT_FOR_NOT_CONCRETE');
   }
   if (!String(plan?.visionSummary || '').trim()) missing.push('VISION_SUMMARY');
@@ -994,6 +1043,9 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'OWNER_TF: 1m | 3m | 5m | 15m | 30m | 45m | 1h | 4h | 1d',
     'SETUP: short setup name',
     'EXEC_PATH: short path name',
+    'TRIGGER_LEVEL_ID: aşağıdaki TRIGGER_LEVEL_CANDIDATES_JSON içinden seç; fiyat yazma',
+    'TRIGGER_TF: trigger seviyesinin zaman dilimi',
+    'INVALIDATION_LEVEL_ID: aynı TRIGGER_TF içinde seçilen yön için izinli invalidation ID; fiyat yazma',
     'WHY: Türkçe, net ve somut gerekçe; grafik + veri birlikte değerlendirilsin',
     'RISK_NOTE: Türkçe, işlemi bozabilecek ana risk',
     'WAIT_FOR: Türkçe, sinyal için tam olarak ne beklendiği; QUALIFIED ise değer TAM OLARAK NONE olmalı',
@@ -1020,6 +1072,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'SMC context must not invent order blocks, breakers, mitigation, hidden liquidity or market-maker intent when those fields are not supplied.',
     'Do not invent news, levels, missing flow, liquidation maps, or hidden intent. Do not place an order.',
     '',
+    'TRIGGER_LEVEL_CANDIDATES_JSON:',
+    JSON.stringify(triggerCandidatesForPlan(unified,String(candidate?.side||'').toUpperCase())),
     'UNIFIED_CONTEXT_JSON:',
     JSON.stringify(compactUnifiedContext(unified))
   ].join('\n');
@@ -1034,6 +1088,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       localContext:compactLocalModelContext(unified)
     });
     plan = planFields(result.text);
+    plan = {...plan,triggerSpec:resolveNumericTriggerPlan(plan,unified)};
     plan = reconcileVisionPlanSemantics(plan);
     plan = {...plan,watchNeedsSemanticResolution:watchPlanNeedsSemanticResolution(plan)};
     if (Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
@@ -1064,7 +1119,9 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
             localContext:compactLocalModelContext(unified)
           });
           const mergedText=mergeVisionRepairText(result.text,repair?.text);
-          const repairedPlan=reconcileVisionPlanSemantics(planFields(mergedText));
+          let repairedPlan=planFields(mergedText);
+          repairedPlan={...repairedPlan,triggerSpec:resolveNumericTriggerPlan(repairedPlan,unified)};
+          repairedPlan=reconcileVisionPlanSemantics(repairedPlan);
           const repairedContract=visionPlanContract(repairedPlan);
           repairMeta={
             attempted:true,
@@ -1206,4 +1263,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
