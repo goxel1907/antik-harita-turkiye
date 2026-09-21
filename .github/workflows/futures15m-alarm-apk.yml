@@ -1,10 +1,10 @@
-name: Futures 15m Alarm v9.5.109-CLAUDE validation (Claude)
+name: Futures 15m Alarm v9.5.110 validation
 
 on:
   push:
     branches:
       - futures15m-alarm-public-build
-      - brainhub-v95109-signal-flow-hardening
+      - brainhub-v95110-multilane-momentum-office
   workflow_dispatch:
 
 permissions:
@@ -47,7 +47,7 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Prepare v9.5.97 source
+      - name: Prepare v9.5.110 source
         shell: bash
         run: |
           set -euo pipefail
