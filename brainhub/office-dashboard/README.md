@@ -1,4 +1,4 @@
-# BrainHub Trade Office (salt-okunur izleme ekranı) • v1.2.0-CLAUDE-V111
+# BrainHub Trade Office (salt-okunur izleme ekranı) • v1.3.0-CLAUDE-V111-JEV-FINAL
 
 > CLAUDE_V109: Bu ekran Claude (Anthropic, Cowork) tarafından yazıldı ve v9.5.109-CLAUDE ile güncellendi.
 > v9.5.109-CLAUDE PC güncellemesi (`UPDATE.ps1`) bu klasörü otomatik olarak `C:\BrainHub\office-dashboard` içine kopyalar;
@@ -14,8 +14,8 @@
 - `-Sim` seçeneği: v109 panellerini **uydurma** sayılarla gösterir (üst bantta SİMÜLASYON yazar).
 - Hareket azaltma: işletim sistemi “animasyonları azalt” ayarındaysa yürüyüş durdurulur.
 
-Brain Hub'ın beynini, görsel analistini, plan worker'larını, ücretsiz modelleri, Jev hakemini, risk ve yürütme masasını
-tek ekranda **canlı ve animasyonlu** gösterir. Emir göndermez, ayar değiştirmez, Brain Hub'ı yeniden başlatmaz.
+Brain Hub'ın beynini, görsel analistini, plan worker'larını, ücretsiz modelleri, JEV hakemini, hard-safety ve yürütme masasını
+tek ekranda **canlı ve animasyonlu** gösterir. v1.3'te JEV **son stratejik karar** olarak gösterilir; JEV onayından sonra yalnız hard safety (LIVE/kimlik, bakiye-pozisyon limitleri, stop-likidasyon, Binance filtreleri, taze fiyat, kill-switch, lease/lineage, one-shot grant) kalır. Chase/maliyet gibi soft filtreler JEV onayını tekrar veto etmez. Office emir göndermez, ayar değiştirmez, Brain Hub'ı yeniden başlatmaz.
 
 ## Kurulum (tek sefer)
 1. Bu klasörü `C:\BrainHub\office-dashboard` olarak kopyala (zip'i oraya çıkar).

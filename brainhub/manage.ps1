@@ -182,7 +182,7 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
     if ([string]$h.featureVersion -ne '9.5.111-CLAUDE-VISION') { throw "Beklenen PC Brain Hub surumu 9.5.111-CLAUDE-VISION; gelen=$($h.featureVersion)" }
     # CLAUDE_V111_UPDATER_FILESET: Claude v9.5.111 (ChatGPT v9.5.110 uzerine) isaretleri dogrulanir.
-    foreach ($v111Feature in @('CLAUDE_V111_BUILD','CLAUDE_V111_MOMENTUM_SCALP_TRIGGER','CLAUDE_V111_TRIGGER_REVALIDATION','CLAUDE_V111_TRAILING_RUNNER','CLAUDE_V111_RUNNER_NEVER_WIDEN','CLAUDE_V111_UPDATER_FILESET')) {
+    foreach ($v111Feature in @('CLAUDE_V111_BUILD','CLAUDE_V111_MOMENTUM_SCALP_TRIGGER','CLAUDE_V111_TRIGGER_REVALIDATION','CLAUDE_V111_JEV_FINAL_AUTHORITY','CLAUDE_V111_TRAILING_RUNNER','CLAUDE_V111_RUNNER_NEVER_WIDEN','CLAUDE_V111_UPDATER_FILESET')) {
         if (-not ($h.features -contains $v111Feature)) { throw "v9.5.111-CLAUDE eksik feature: $v111Feature" }
     }
     Write-Host ("CLAUDE_V111 marker={0} runnerMode={1} revalidation={2} v110={3}" -f (Get-PropValue $h 'claudeV111Marker' ''),(Get-PropValue (Get-PropValue $h 'claudeV111Config' $null) 'runnerMode' ''),(Get-PropValue (Get-PropValue $h 'claudeV111Config' $null) 'triggerRevalidation' ''),(Get-PropValue $h 'v110FeatureVersion' ''))

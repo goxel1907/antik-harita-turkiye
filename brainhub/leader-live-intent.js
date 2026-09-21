@@ -33,9 +33,15 @@ function buildLeaderLiveIntent({
   minimumScalpEdgeMultiple = 1.5,
   entryReferencePrice = null,
   maintenanceMarginRate = null,
-  liquidationSafetyBufferPct = 0.5
+  liquidationSafetyBufferPct = 0.5,
+  jevFinalAuthority = false
 } = {}) {
   const reasons = [];
+  const softWarnings = [];
+  const softOrHard = reason => {
+    if (jevFinalAuthority) softWarnings.push(reason);
+    else reasons.push(reason);
+  };
   const symbol = String(candidate?.symbol || unified?.symbol || '').trim().toUpperCase();
   const candidateSide = String(candidate?.side || '').trim().toUpperCase();
   const side = String(plan?.side || '').trim().toUpperCase();
@@ -58,8 +64,8 @@ function buildLeaderLiveIntent({
     unified?.microstructure?.depthSoftContext?.micropriceBps ??
     unified?.microstructure?.streaming?.depthSoftContext?.micropriceBps
   );
-  if (scalpCostGate && (takerRate === null || takerRate < 0)) reasons.push('SCALP_COMMISSION_RATE_REQUIRED');
-  if (scalpCostGate && (spreadBps === null || spreadBps < 0)) reasons.push('SCALP_SPREAD_COST_REQUIRED');
+  if (scalpCostGate && (takerRate === null || takerRate < 0)) softOrHard('SCALP_COMMISSION_RATE_REQUIRED');
+  if (scalpCostGate && (spreadBps === null || spreadBps < 0)) softOrHard('SCALP_SPREAD_COST_REQUIRED');
 
   const entryPrice = finite(unified?.livePrice);
   const referencePrice = finite(entryReferencePrice) ?? entryPrice;
@@ -189,7 +195,7 @@ function buildLeaderLiveIntent({
     : null;
   const requiredEdgeMultiple = Math.max(1, Number(minimumScalpEdgeMultiple) || 1.5);
   if (scalpCostGate && estimatedRoundTripCostBps !== null && costEdgeMultiple !== null && costEdgeMultiple < requiredEdgeMultiple) {
-    reasons.push('SCALP_COST_EDGE_NOT_VIABLE');
+    softOrHard('SCALP_COST_EDGE_NOT_VIABLE');
   }
   const costModel = {
     source:'LIVE_USER_COMMISSION_PLUS_CURRENT_MICROSTRUCTURE',
@@ -230,6 +236,8 @@ function buildLeaderLiveIntent({
     estimatedLiquidationDistancePct,
     liquidationSafetyBufferPct:liquidationBufferPct,
     costModel,
+    jevFinalAuthority:Boolean(jevFinalAuthority),
+    softWarnings:[...new Set(softWarnings)],
     reasons:[...new Set(reasons)]
   };
 
@@ -256,6 +264,8 @@ function buildLeaderLiveIntent({
     estimatedLiquidationDistancePct,
     liquidationSafetyBufferPct:liquidationBufferPct,
     costModel,
+    jevFinalAuthority:Boolean(jevFinalAuthority),
+    softWarnings:[...new Set(softWarnings)],
     reasons:[]
   };
 }

@@ -219,7 +219,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <dl class="kv" id="visKv" style="margin-top:10px"></dl>
     </div>
     <div class="card">
-      <h2>JEV Hakem <span class="hint">bağlayıcı: <span id="jevPolicy">v108 (herhangi biri ≥0,65)</span> • Claude rol-ağırlıklı kural gölgede</span></h2>
+      <h2>JEV Hakem <span class="hint">SON STRATEJİK KARAR • <span id="jevPolicy">v108 (herhangi biri ≥0,65)</span> • onaydan sonra yalnız hard safety</span></h2>
       <dl class="kv" id="jevKv"></dl>
       <div class="jev-list" id="jevList"></div>
     </div>
@@ -230,7 +230,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <dl class="kv" id="wKv" style="margin-top:10px"></dl>
     </div>
     <div class="card v109">
-      <h2>Claude v9.5.111 • kod-tetik → Jev • runner <span class="hint">v109 gölge ölçüm + v111 hızlı doğrulama</span></h2>
+      <h2>Claude v9.5.111 • kod-tetik → JEV FINAL → hard safety → emir <span class="hint">v111 hızlı doğrulama + runner</span></h2>
       <dl class="kv" id="v109Kv"></dl>
       <div class="v109-bars" id="v109Bars"></div>
       <div class="legend" id="v109Note"></div>
@@ -294,7 +294,7 @@ const DESKS = [
   { id:'vision',   x:550, y:98,  name:'Görsel Analist',       role:'Qwen3-VL • GPU' },
   { id:'positions',x:550, y:598, name:'Pozisyon Yöneticisi',  role:'açık pozisyon 9TF + Jev çıkış' },
   { id:'jev',      x:960, y:112, name:'JEV Hakem',            role:'OpenRouter Decisions' },
-  { id:'risk',     x:960, y:342, name:'Risk Masası',          role:'stop • likidasyon • kovalama' },
+  { id:'risk',     x:960, y:342, name:'Hard Safety',          role:'stop • likidasyon • bakiye • limit • grant' },
   { id:'exec',     x:960, y:572, name:'Yürütme / Binance',    role:'LIVE • grant • emir' }
 ];
 const BRAIN = { x:550, y:342 };
@@ -366,8 +366,8 @@ function deskSvg(d){
 function buildOffice(){
   const gates = [
     { id:'gQual',  a:'brain', b:'jev',  label:'QUALIFIED' },
-    { id:'gJev',   a:'jev',   b:'risk', label:'Jev' },
-    { id:'gIntent',a:'risk',  b:'exec', label:'Niyet' },
+    { id:'gJev',   a:'jev',   b:'risk', label:'JEV FINAL' },
+    { id:'gIntent',a:'risk',  b:'exec', label:'Hard safety' },
     { id:'gLive',  a:'exec',  b:'positions', label:'LIVE' }
   ];
   const edges = EDGES.map(([a,b],i)=>{
@@ -506,7 +506,7 @@ function renderLanes(s){
     card(mainReady?'good':'info','15m ANA İŞLEM',`${mainReady} hazır / ${mainPlans} plan`,'15m kapanmış-mum ve yapı ana karar hattı; 30m+ bağlamdır.',['MAIN_15M','LONG+SHORT']),
     card(scalpReady?'good':(scalpPlans?'warn':'info'),'SCALP 1m • 3m • 5m',`${scalpReady} hazır / ${scalpPlans} plan`,'Tek alt TF final karar vermez; en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü.',['2/3 alt TF','15m veto kontrol']),
     card(topStage==='EXHAUSTING'?'bad':'info','MOMENTUM MERDİVENİ',topStage,'1m’de yakalanan hareket 3m→5m→15m→30m+ boyunca izlenir; tükenme ayrıca işaretlenir.',stages.slice(0,3).map(x=>`${x.stage} ${x.count}`)),
-    card(binding?'good':(shadow?'info':'warn'),'JEV AKIŞI',`${binding} bağlayıcı • ${shadow} gölge`,'WATCH gölge incelemeleri de görünür; QUALIFIED gelince bağlayıcı JEV risk kapısına aktarır.',['veto '+(h.jevVetoed??0)])
+    card(binding?'good':(shadow?'info':'warn'),'JEV FINAL AUTHORITY',`${binding} bağlayıcı • ${shadow} gölge`,'QUALIFIED geldikten sonra JEV son stratejik kararı verir. JEV onayını chase/maliyet gibi soft filtreler tekrar veto etmez; yalnız hard safety kalır.',['veto '+(h.jevVetoed??0)])
   ].join('');
 }
 
@@ -669,7 +669,7 @@ function renderOffice(s, vinfo){
   setDesk('workers', wr>=10&&wref/wr>=.8?'warn':(la.planWorkers?.busy?'busy':(wr?'ok':'')), d.workers?.text);
   const orf=st.openRouterFreeWorker||{}; setDesk('orfree', orf.last?.called?(orf.last.ok?'ok':'blocked'):'', orf.last?.called?(orf.last.ok?'son çağrı OK':'son çağrı başarısız'):'çağrılmadı');
   const jevCalled=+h.jevCalled||0, jevShadow=+h.jevShadowCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):(jevShadow?'busy':''), d.jev?.text);
-  const lr = s.lastRisk; setDesk('risk', lr?'warn':'', lr?`${lr.symbol}: ${lr.reasons[0]}`:'bekliyor');
+  const lr = s.lastRisk; setDesk('risk', lr?'warn':'ok', lr?`${lr.symbol}: HARD • ${lr.reasons[0]}`:'JEV sonrası yalnız hard safety');
   setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${la.lastExecution||'—'}`:'LIVE KAPALI');
   setDesk('positions', st.positionManager?.busy?'busy':'', st.positionManager?.lastReview?.actionTr || 'açık pozisyon yok');
   const lastPlan=(s.plans||[])[0];
@@ -691,8 +691,8 @@ function renderOffice(s, vinfo){
   setEdge('exec','positions', orders>0?'active':'blocked');
   setEdge('positions','brain', st.positionManager?.lastReview?.symbol?'active':'');
   setGate('gQual', preQ>0, preQ>0?`QUALIFIED ${preQ}`:`QUALIFIED 0 • gölge ${jevShadow}`);
-  setGate('gJev', qual>0, `Jev ${h.jevCalled??0}/${h.jevVetoed??0} veto`);
-  setGate('gIntent', intent>0, `Niyet ${intent}`);
+  setGate('gJev', qual>0, `JEV final onay ${qual} • ${h.jevVetoed??0} veto`);
+  setGate('gIntent', intent>0, `Hard safety geçti ${intent}`);
   setGate('gLive', st.armed===true && orders>0, st.armed?`Emir ${orders}`:'LIVE KAPALI');
   // Yürüyen trader'lar: aktif rotada veri taşır; tıkalı rotada kapıda bekler.
   const lwr=la.planWorkers?.lastReview;
@@ -712,7 +712,7 @@ function renderOffice(s, vinfo){
     'exec-positions':[orders>0, `emir ${orders}`]
   };
   const WAIT={
-    'brain-jev':`✕ 0 aday`, 'jev-risk':`✕ onay yok`, 'risk-exec':`✕ niyet yok`, 'exec-positions':st.armed?`✕ emir yok`:`✕ LIVE kapalı`
+    'brain-jev':`✕ 0 aday`, 'jev-risk':`✕ JEV onayı yok`, 'risk-exec':`✕ hard safety`, 'exec-positions':st.armed?`✕ emir yok`:`✕ LIVE kapalı`
   };
   for(const [a,b,g] of ROUTES){
     const k=`${a}-${b}`; const [on,label]=W[k]||[false,''];
@@ -750,7 +750,7 @@ function renderV109(s){
   const hrs=num(h.shadowEvidenceHours);
   $('#v109Kv').innerHTML = (isV109 ? [
     ['Sürüm', `${fv} • ${s.health?.data?.builtBy?'Claude':''}`],
-    ['Mod', `kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • Jev ${cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED'?'rol-ağırlıklı':'v108'}`],
+    ['Mod', `kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • JEV FINAL ${cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED'?'rol-ağırlıklı':'v108'} • sonrası HARD SAFETY`],
     ...(isV111 ? [
       ['Kod-tetik → Jev (v111)', `<b>${c111?.revalidated??0}</b> hızlı doğrulama / ${c111?.revalidationAttempts??0} deneme • Jev’e giden <b>${c111?.jevCalledAfterCode??0}</b> • Jev onayı ${c111?.jevApprovedAfterCode??0}`],
       ['Momentum scalp tetiği', `${c111?.momentumScalpTriggers??0} (1m/3m/5m, 2/3 hizalı, 15m karşı değil)`],
@@ -761,7 +761,7 @@ function renderV109(s){
     ['Sayısal tetikli plan', `<b>${h.shadowPlans??0}</b> • tetik oto-seçim ${cv?.triggerAutoSelected??0} • WAIT onarımı ${cv?.numericWaitFallback??0}`],
     ['Gölge tetik', `<b>${h.shadowTriggers??0}</b> • 15 dk ölçülen ${h.shadow15mMeasured??0} (${pct(h.shadowAvg15mPct)}) • 60 dk ${h.shadow60mMeasured??0} (${pct(h.shadowAvg60mPct)})`],
     ['Kanıt süresi', `${hrs==null?'0':hrs.toFixed(1)} / 24 saat ${h.shadowReady24h?'• ✓ karar için hazır':''}`],
-    ['Kovalama kapısı', `${cv?.chaseBlocked??0} engel (ATR ölçekli)`]
+    ['Kovalama ölçümü', `${cv?.chaseBlocked??0} uyarı • JEV onayından sonra veto değil`]
   ] : [
     ['Durum', `PC sürümü ${fv||'?'} — v9.5.109-CLAUDE yüklenince bu panel dolar.`],
     ['Güncelleme', 'UPDATE.ps1 tek satır komutu (PDF Bölüm 9)'],

@@ -215,6 +215,11 @@ function summarizeJournal(items) {
     } else if (it.kind === 'CLAUDE_V111_REVALIDATION') {
       // CLAUDE_V111: worker sayısal tetiği → saklanan 9TF planı Vision'sız yeniden doğrulandı mı?
       events.push({ ...base, desk: p.ok ? 'jev' : 'workers', title: `Tetik yeniden doğrulama ${it.symbol || ''} ${p.side || ''}: ${p.ok ? (p.applied ? 'QUALIFIED → Jev' : 'geçerdi (gölge)') : 'geçmedi'}`, detail: clip(p.ok ? `${p.triggerTF || ''} tetik ${finite(p.triggerPrice) ?? '?'} • ${p.info?.laneName || ''}` : (p.reasons || []).join(', '), 160) });
+    } else if (it.kind === 'JEV_FINAL_AUTHORITY') {
+      const ok=String(p.stage||'')==='HARD_SAFETY_READY'||String(p.stage||'')==='ORDER_PLACED';
+      const detail=(p.reasons||[]).length ? (p.reasons||[]).join(', ') : ((p.softWarnings||[]).length ? 'soft uyarı: '+(p.softWarnings||[]).join(', ') : 'JEV onayı sonrası yalnız hard safety');
+      events.push({ ...base, desk: ok?'exec':'risk', title:`JEV final ${it.symbol||''}: ${p.stage||'?'}`, detail:clip(detail,180) });
+      if(!ok && (p.reasons||[]).length && !lastRisk) lastRisk={symbol:it.symbol,ts:base.ts,reasons:(p.reasons||[]).slice(0,8)};
     } else if (it.kind === 'CLAUDE_V111_RUNNER') {
       events.push({ ...base, desk: 'positions', title: `Runner ${it.symbol || ''}: ${p.kind || ''}${p.to != null ? ' → stop ' + p.to : (p.target != null ? ' → ' + p.target : '')}`, detail: clip(`${p.mode || ''} • faz ${p.phase || ''}${p.trailTf ? ' • iz TF ' + p.trailTf : ''}${p.reason ? ' • ' + p.reason : ''}`, 160) });
     } else if (it.kind === 'PLAN_WORKER_REVIEW') {
@@ -257,7 +262,7 @@ function derive(snap) {
     if (la.enabled !== true) add('critical', 'AUTO_DISABLED', 'OTO işlem kapalı', 'Leader AUTO etkin değil; hiçbir aday yürütmeye gitmez.');
     if (st.armed !== true) add('critical', 'LIVE_DISARMED', 'LIVE kapalı (analiz modu)', 'Plan QUALIFIED olsa bile emir gönderilmez. PC yeniden başlarsa LIVE otomatik kapanır.');
     const fv = String(snap.health?.data?.featureVersion || st.featureVersion || '');
-    const v109 = /9\.5\.109-CLAUDE|9\.5\.110/.test(fv);
+    const v109 = /9\.5\.109-CLAUDE|9\.5\.110|9\.5\.111-CLAUDE/.test(fv);
     const cv = h.claudeV109 || {};
     if (!v109) add('warning', 'VERSION_OLD', `PC sürümü ${fv || '?'}`, "v9.5.109-CLAUDE yüklenmemiş: sahte WAIT, worker döngüsü ve boş tetik adayı düzeltmeleri PC'de yok.");
     if (deep >= 3 && Number(h.preJevQualified || 0) === 0) add('serious', 'NO_QUALIFIED', 'Görsel analiz hiç işlem adayı üretmedi', v109
@@ -267,14 +272,14 @@ function derive(snap) {
       const hrs = finite(h.shadowEvidenceHours) ?? 0;
       add(h.shadowReady24h ? 'ok' : 'info', 'SHADOW', h.shadowReady24h ? 'Gölge kanıt 24 saati doldu' : `Gölge ölçüm sürüyor (${hrs.toFixed(1)}/24 sa)`,
         `Sayısal tetikli plan ${h.shadowPlans ?? 0} • gölge tetik ${h.shadowTriggers ?? 0} • 15 dk ort ${finite(h.shadowAvg15mPct) ?? '—'}% • 60 dk ort ${finite(h.shadowAvg60mPct) ?? '—'}%`);
-      if (Number(cv.chaseBlocked || 0) > 0) add('warning', 'CHASE', 'Kovalama kapısı giriş engelledi', `${cv.chaseBlocked} kez fiyat tetikten ATR sınırından fazla uzaklaştı veya içeri döndü.`);
+      if (Number(cv.chaseBlocked || 0) > 0) add('info', 'CHASE', 'Kovalama ölçümü (JEV sonrası veto değil)', `${cv.chaseBlocked} eski/ölçüm olayı var. v111 JEV_FINAL_AUTHORITY modunda JEV onayından sonra stratejik veto olarak uygulanmaz.`);
     }
     if (wr >= 10 && wref / Math.max(1, wr) >= 0.8) add('serious', 'WORKER_LOOP', 'Plan worker döngüsü', `${wr} incelemenin ${wref}'i "9TF yenile" (%${Math.round(100 * wref / wr)}). Aynı coinler tekrar tekrar analiz ediliyor.`);
     if (deep >= 6 && unique / Math.max(1, deep) < 0.5) add('warning', 'COVERAGE', 'Kapsam daralması', `${deep} derin analiz yalnız ${unique} farklı coinde.`);
     if (deep >= 3 && vu / Math.max(1, deep) >= 0.25) add('serious', 'VISION_DOWN', 'Görsel analiz sık düşüyor', `${vu}/${deep} analizde görsel komite yanıt vermedi.`);
     const fake = rows.filter(r => (String(r.state || '').toUpperCase() === 'WATCH' || String(r.planStatus || '').toUpperCase() === 'WATCH') && r.waitFor !== undefined && waitIsFake(r.waitFor));
     if (fake.length) add('warning', 'FAKE_WAIT', 'Sahte bekleme koşulu', `${fake.length} takipte bekleme metni "NONE ..." ile başlıyor; somut tetik yok.`);
-    if (Number(h.qualified || 0) > 0 && Number(h.intentReady || 0) === 0) add('warning', 'NO_INTENT', 'QUALIFIED var, emir niyeti yok', 'Risk/intent kapısı (fiyat sapması, stop, maliyet) engelliyor olabilir.');
+    if (Number(h.qualified || 0) > 0 && Number(h.intentReady || 0) === 0) add('warning', 'NO_INTENT', 'JEV onayı var, hard safety geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/hard safety: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve one-shot grant engel olabilir.');
     if (Number(h.intentReady || 0) > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Niyet hazır, emir yok', 'Yürütme kapısı (LIVE, bakiye, fiyat sapması, grant) engelliyor.');
     if (Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
     if (Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);
@@ -291,8 +296,8 @@ function derive(snap) {
     { key: 'deep', label: 'Derin 9TF analiz', value: deep },
     { key: 'preJev', label: 'QUALIFIED (Jev öncesi)', value: finite(h.preJevQualified) ?? 0 },
     { key: 'jev', label: 'Jev çağrısı', value: finite(h.jevCalled) ?? 0 },
-    { key: 'qualified', label: 'Jev sonrası aday', value: finite(h.qualified) ?? 0 },
-    { key: 'intent', label: 'Canlı niyet', value: finite(h.intentReady) ?? 0 },
+    { key: 'qualified', label: 'JEV ONAYI • final stratejik', value: finite(h.qualified) ?? 0 },
+    { key: 'intent', label: 'Hard safety geçti', value: finite(h.intentReady) ?? 0 },
     { key: 'orders', label: 'Açılan emir', value: finite(h.ordersPlaced) ?? 0 }
   ];
   const vp = snap.visionProgress?.data || st.visionProgress || {};

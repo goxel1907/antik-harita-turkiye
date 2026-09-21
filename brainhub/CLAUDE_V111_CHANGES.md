@@ -69,3 +69,14 @@ hesapları, transport TP3'süz giriş, runner BINDING/SHADOW döngüsü Binance 
 - Kod-tetik + yeniden doğrulamayı gölgeye al: `C:\BrainHub\config\claude-v109.json` → `"deterministicTriggerMode": "SHADOW"` (30 sn içinde etkin).
 - Runner'ı kapat: `C:\BrainHub\config\claude-v111.json` → `"runnerMode": "SHADOW"` veya `"OFF"` (yeni girişler TP3'lü olur).
 - Tam geri alma: `C:\BrainHubBackups` içindeki son yedek (`RESTORE.ps1`) veya GitHub `0bbabcf` (ChatGPT v9.5.110).
+
+
+## JEV_FINAL_AUTHORITY güncellemesi
+
+Kullanıcı kararıyla JEV, QUALIFIED plandan sonra **son stratejik karar mercii** haline getirildi.
+
+- JEV onayı sonrası `SCALP_COST_EDGE_NOT_VIABLE`, eksik scalp maliyet telemetrisi ve `CLAUDE_V109_CHASE_*` artık stratejik veto değildir; Office'te soft uyarı olarak görünür.
+- JEV onaylı akış ikinci kez scanner/side uygunluk oylamasından geçirilmez.
+- JEV sonrası yalnız hard safety kalır: LIVE/kimlik, kullanıcı panel boyutu ve kullanılabilir bakiye, açık pozisyon/günlük kayıp/aile maruziyet limitleri, geçerli Binance filtreleri, taze fiyat, yapısal stop ve likidasyon güvenliği, kill-switch, lease/claim/lineage ve one-shot grant.
+- `STOP_BEYOND_LIQUIDATION`, geçersiz stop/miktar/filtre, hesap limitleri veya teknik yürütme güvenliği hiçbir zaman JEV tarafından bypass edilmez.
+- Trade Office v1.3, huniyi `QUALIFIED → JEV FINAL → HARD SAFETY → EMİR` olarak gösterir.

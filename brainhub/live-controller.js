@@ -264,6 +264,32 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
   };
 }
 
+function jevFinalAuthorityPreflight({ plan, unified } = {}) {
+  const reasons=[];
+  const side=String(plan?.side||'').toUpperCase();
+  if (plan?.valid!==true) reasons.push('JEV_FINAL_PLAN_INVALID');
+  if (String(plan?.status||'').toUpperCase()!=='QUALIFIED') reasons.push('JEV_FINAL_PLAN_NOT_QUALIFIED');
+  if (!['LONG','SHORT'].includes(side)) reasons.push('JEV_FINAL_SIDE_INVALID');
+  if (!unified?.dataQuality?.advisoryUsable) reasons.push('JEV_FINAL_CONTEXT_NOT_USABLE');
+  if (finite(unified?.livePrice)===null) reasons.push('JEV_FINAL_LIVE_PRICE_UNAVAILABLE');
+  const unique=[...new Set(reasons)];
+  return {
+    ok:unique.length===0,
+    eligibleForDryRun:unique.length===0,
+    liveAllowed:false,
+    execution:'ADVISORY_ONLY',
+    finalAuthority:true,
+    reasons:unique,
+    remainingMandatoryControls:[
+      'ACCOUNT_RISK_CAPS',
+      'STRUCTURAL_STOP_AND_NO_WIDEN',
+      'LEASE_AND_LINEAGE_CLAIM',
+      'KILL_SWITCH',
+      'BINANCE_DRY_RUN_EXECUTOR'
+    ]
+  };
+}
+
 function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
@@ -313,6 +339,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const ticks = ev.filter(x => x.kind === 'TICK_RESULT');
     const executionStages = ev.filter(x => x.kind === 'EXECUTION_STAGE');
     const workerReviews = ev.filter(x => x.kind === 'WORKER_REVIEW');
+    const finalAuthorityEvents = ev.filter(x => x.kind === 'JEV_FINAL_AUTHORITY');
     // CLAUDE_V111: saniyelik yeniden doğrulamalar Vision süresi ortalamasını bozmasın.
     const durations = analyses.filter(x => x.claudeRevalidated !== true).map(x => Number(x.durationMs)).filter(Number.isFinite);
     const reasonCounts = new Map();
@@ -386,6 +413,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         jevCalledAfterCode:analyses.filter(x=>x.jevCalled===true&&(x.claudeRevalidated===true||x.claudeDtApplied===true)).length,
         jevApprovedAfterCode:analyses.filter(x=>x.jevCalled===true&&x.jevVeto!==true&&(x.claudeRevalidated===true||x.claudeDtApplied===true)).length,
         momentumScalpTriggers:analyses.filter(x=>x.claudeDtLane==='SCALP_MOMENTUM').length,
+        finalAuthorityApproved:finalAuthorityEvents.filter(x=>x.stage==='APPROVED').length,
+        finalAuthoritySoftWarnings:finalAuthorityEvents.filter(x=>x.stage==='SOFT_WARNING').length,
+        finalAuthorityHardBlocks:finalAuthorityEvents.filter(x=>x.stage==='HARD_BLOCK').length,
+        finalAuthorityHardSafetyReady:finalAuthorityEvents.filter(x=>x.stage==='HARD_SAFETY_READY').length,
         runner:runnerSummary()
       },
       jevShadowWouldVeto:analyses.filter(x=>x.jevShadowWouldVeto===true).length,
@@ -2820,6 +2851,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const qualifiedLifecycle=upsertLeaderLifecycle(candidate,advisory,'ARMED','PLAN_QUALIFIED');
     const completedWorkerLifecycle=finishPlanWorker(candidate.symbol,'PLAN_QUALIFIED_AFTER_FULL_9TF') || qualifiedLifecycle;
     annotateLeaderDiagnostic(candidate.symbol, 'PLAN_QUALIFIED', [], { ...visionDiagnosticExtras(advisory), lifecycle:completedWorkerLifecycle });
+    const bindingJev=advisory?.jevDecision || advisory?.plan?.jevDecision || null;
+    const jevFinalAuthority=bindingJev?.called===true && bindingJev?.veto!==true;
+    if(jevFinalAuthority){
+      leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'APPROVED',symbol:candidate.symbol,side:advisory.plan.side});
+    }
 
     if (analysisOnly) {
       // Analysis-only mode must not double-consume Vision on the same tick. The qualified
@@ -2838,6 +2874,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       };
     }
 
+    if (!jevFinalAuthority) {
+      const rs=['JEV_FINAL_APPROVAL_REQUIRED'];
+      annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{jevDecision:bindingJev});
+      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
+    }
+
     if (!armedNow() || generation !== armGeneration) {
       const rs=['LIVE_DISARMED_DURING_PREFLIGHT'];
       annotateLeaderDiagnostic(candidate.symbol,'EXECUTION_RESULT',rs,{execution:'LEADER_AUTO_BLOCKED',orderPlaced:false});
@@ -2850,26 +2892,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
 
     const scalpCostGate=['1m','3m','5m'].includes(String(advisory.plan.originTF || '').toLowerCase());
+    const finalAuthoritySoftWarnings=[];
     let commissionRate=null;
     let commissionMeta=null;
     if (scalpCostGate) {
       commissionMeta=await takerCommissionRateFor(candidate.symbol,creds);
       if (!commissionMeta.ok) {
-        const rs=[commissionMeta.reason || 'BINANCE_COMMISSION_RATE_UNAVAILABLE'];
-        annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{ commission:commissionMeta });
-        return {
-          ok:true,
-          orderPlaced:false,
-          liveAllowed:false,
-          retryable:true,
-          execution:'LEADER_AUTO_WAIT',
-          symbol:candidate.symbol,
-          plan:advisory.plan,
-          reasons:rs,
-          commission:commissionMeta
-        };
+        const warning=commissionMeta.reason || 'BINANCE_COMMISSION_RATE_UNAVAILABLE';
+        finalAuthoritySoftWarnings.push(warning);
+        leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'SOFT_WARNING',symbol:candidate.symbol,reason:warning});
+      } else {
+        commissionRate=commissionMeta.rate;
       }
-      commissionRate=commissionMeta.rate;
     }
 
     let symbolInfo;
@@ -2909,10 +2943,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       maxEntryDeviationPct:policy.maxEntryDeviationPct
     });
     if(!chase.ok){
-      const rs=[chase.reason||'CLAUDE_V109_CHASE_INPUT_INVALID'];
-      annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{chase});
-      leaderHealthEvent('EXECUTION_STAGE',{stage:'CHASE_BLOCKED',symbol:candidate.symbol,reason:rs[0],chase});
-      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,chase};
+      const warning=chase.reason||'CLAUDE_V109_CHASE_INPUT_INVALID';
+      finalAuthoritySoftWarnings.push(warning);
+      leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'SOFT_WARNING',symbol:candidate.symbol,reason:warning,chase});
     }
     const requestedNotional=Number(settings.marginQuote)*Number(settings.leverage);
     const maintenance=await maintenanceMarginRateFor(candidate.symbol,requestedNotional,creds);
@@ -2932,13 +2965,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       filters:exchangeFiltersFor(symbolInfo),
       takerCommissionRate:commissionRate,
       entryReferencePrice,
-      maintenanceMarginRate:maintenance.rate
+      maintenanceMarginRate:maintenance.rate,
+      jevFinalAuthority:true
     });
     intent.analysisEntryPrice=finite(advisory?.unifiedContext?.livePrice);
     intent.freshEntryPrice=freshEntryPrice;
     intent.chase=chase;
     intent.maintenanceMargin=maintenance;
+    intent.finalAuthoritySoftWarnings=[...new Set([...(intent.softWarnings||[]),...finalAuthoritySoftWarnings])];
     if (!intent.ok) {
+      leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:intent.reasons||[]});
       const rs=intent.reasons || ['LEADER_INTENT_NOT_READY'];
       annotateLeaderDiagnostic(candidate.symbol, 'INTENT_NOT_READY', rs, {
         costModel:intent.costModel || null,
@@ -2965,8 +3001,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       entryPrice:intent.entryPrice,
       entryReferencePrice:intent.entryReferencePrice,
       analysisEntryPrice:intent.analysisEntryPrice,
-      commission:commissionMeta
+      commission:commissionMeta,
+      jevFinalAuthority:true,
+      finalAuthoritySoftWarnings:intent.finalAuthoritySoftWarnings
     });
+    leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_SAFETY_READY',symbol:candidate.symbol,warnings:intent.finalAuthoritySoftWarnings});
 
     const now = clock();
     const eventBucket = Math.floor(now / 60000);
@@ -3013,7 +3052,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         side:intent.side,
         plan:advisory.plan,
         unifiedContext:advisory.unifiedContext,
-        jevDecision:advisory.jevDecision || advisory.plan?.jevDecision || null
+        jevDecision:advisory.jevDecision || advisory.plan?.jevDecision || null,
+        finalAuthority:true,
+        softWarnings:intent.finalAuthoritySoftWarnings
       }
     }, generation, { claudeRunnerMode:runnerModeAtEntry });
     leaderHealthEvent('EXECUTION_STAGE',{
@@ -3021,6 +3062,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       symbol:intent.symbol,
       orderPlaced:result?.orderPlaced===true,
       reason:Array.isArray(result?.reasons)&&result.reasons.length?String(result.reasons[0]):null
+    });
+    leaderHealthEvent('JEV_FINAL_AUTHORITY',{
+      stage:result?.orderPlaced===true?'ORDER_PLACED':'HARD_BLOCK',
+      symbol:intent.symbol,
+      reasons:Array.isArray(result?.reasons)?result.reasons:[]
     });
 
     const executionLifecycle=result?.orderPlaced === true
@@ -3135,36 +3181,38 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     catch { return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_LEASE_FAILED'] }; }
     if (!lease?.acquired) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:['LIVE_EXECUTOR_LEASE_UNAVAILABLE'] };
 
-    let scan;
-    try { scan = await scanner.scan(); }
-    catch { return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LIVE_BLOCKED', reasons:['SCANNER_UNAVAILABLE'] }; }
-
+    const approved=body?.approvedAnalysis && typeof body.approvedAnalysis==='object' ? body.approvedAnalysis : null;
+    let scan=null;
     let freshSelection=null;
-    if (typeof pipeline.resolveExecutionCandidate === 'function') {
-      freshSelection = pipeline.resolveExecutionCandidate(scan, order);
-      if (!freshSelection?.candidate) {
-        return {
-          ok:false,
-          orderPlaced:false,
-          liveAllowed:false,
-          execution:'LIVE_PREFLIGHT_BLOCKED',
-          retryable:true,
-          requestedSymbol:freshSelection?.requestedSymbol || String(order?.symbol || '').toUpperCase(),
-          reasons:[freshSelection?.reason || 'REQUESTED_SYMBOL_NOT_EXECUTION_ELIGIBLE']
-        };
-      }
-      const currentSide=String(freshSelection.candidate?.side || '').toUpperCase();
-      const requestedSide=String(order?.side || '').toUpperCase();
-      if (currentSide && requestedSide && currentSide!==requestedSide) {
-        return {
-          ok:false,
-          orderPlaced:false,
-          liveAllowed:false,
-          execution:'LIVE_PREFLIGHT_BLOCKED',
-          retryable:true,
-          requestedSymbol:freshSelection?.requestedSymbol || String(order?.symbol || '').toUpperCase(),
-          reasons:['REQUESTED_SIDE_NO_LONGER_EXECUTION_ELIGIBLE']
-        };
+    if (approved?.finalAuthority!==true) {
+      try { scan = await scanner.scan(); }
+      catch { return { ok:false, orderPlaced:false, liveAllowed:false, retryable:true, execution:'LIVE_BLOCKED', reasons:['SCANNER_UNAVAILABLE'] }; }
+      if (typeof pipeline.resolveExecutionCandidate === 'function') {
+        freshSelection = pipeline.resolveExecutionCandidate(scan, order);
+        if (!freshSelection?.candidate) {
+          return {
+            ok:false,
+            orderPlaced:false,
+            liveAllowed:false,
+            execution:'LIVE_PREFLIGHT_BLOCKED',
+            retryable:true,
+            requestedSymbol:freshSelection?.requestedSymbol || String(order?.symbol || '').toUpperCase(),
+            reasons:[freshSelection?.reason || 'REQUESTED_SYMBOL_NOT_EXECUTION_ELIGIBLE']
+          };
+        }
+        const currentSide=String(freshSelection.candidate?.side || '').toUpperCase();
+        const requestedSide=String(order?.side || '').toUpperCase();
+        if (currentSide && requestedSide && currentSide!==requestedSide) {
+          return {
+            ok:false,
+            orderPlaced:false,
+            liveAllowed:false,
+            execution:'LIVE_PREFLIGHT_BLOCKED',
+            retryable:true,
+            requestedSymbol:freshSelection?.requestedSymbol || String(order?.symbol || '').toUpperCase(),
+            reasons:['REQUESTED_SIDE_NO_LONGER_EXECUTION_ELIGIBLE']
+          };
+        }
       }
     }
 
@@ -3188,7 +3236,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const killSwitch = { control:{ available:true, tripped:!armedNow(), dryRunEnabled:true } };
 
     let planResult;
-    const approved=body?.approvedAnalysis && typeof body.approvedAnalysis==='object' ? body.approvedAnalysis : null;
     if (approved) {
       const approvedAt=finite(approved.approvedAt);
       const approvalAgeMs=approvedAt===null ? null : Math.max(0,clock()-approvedAt);
@@ -3200,11 +3247,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const orderSide=String(order?.side || '').toUpperCase();
       const reuseReasons=[];
       if (approved.source!=='LEADER_AUTO_9TF_JEV_APPROVED') reuseReasons.push('LEADER_APPROVAL_SOURCE_INVALID');
+      const approvedJev=approved.jevDecision || approvedPlan?.jevDecision || null;
+      if (approved?.finalAuthority===true && !(approvedJev?.called===true && approvedJev?.veto!==true)) reuseReasons.push('JEV_FINAL_APPROVAL_INVALID');
       if (approvedAt===null || approvalAgeMs>60000) reuseReasons.push('LEADER_APPROVAL_STALE');
       if (!approvedPlan || approvedPlan.valid!==true || String(approvedPlan.status||'').toUpperCase()!=='QUALIFIED') reuseReasons.push('LEADER_APPROVAL_NOT_QUALIFIED');
       if (!approvedUnified?.dataQuality?.advisoryUsable) reuseReasons.push('LEADER_APPROVAL_CONTEXT_NOT_USABLE');
       if (approvedSymbol!==orderSymbol || approvedSide!==orderSide || String(approvedPlan?.side||'').toUpperCase()!==orderSide) reuseReasons.push('LEADER_APPROVAL_ORDER_MISMATCH');
-      if (freshSelection?.candidate) {
+      if (approved?.finalAuthority!==true && freshSelection?.candidate) {
         const currentSymbol=String(freshSelection.candidate.symbol || '').toUpperCase();
         const currentSide=String(freshSelection.candidate.side || '').toUpperCase();
         if (currentSymbol!==orderSymbol || currentSide!==orderSide) reuseReasons.push('LEADER_APPROVAL_FRESH_SCAN_MISMATCH');
@@ -3224,7 +3273,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         };
       }
 
-      const preflight=preflightRiskGate({plan:approvedPlan,unified:approvedUnified});
+      const preflight=approved?.finalAuthority===true
+        ? jevFinalAuthorityPreflight({plan:approvedPlan,unified:approvedUnified})
+        : preflightRiskGate({plan:approvedPlan,unified:approvedUnified});
       const accountCaps=accountRiskCaps(accountRisk || {});
       const structuralStop=structuralStopGate({...(stopRisk || {}),side:approvedPlan.side});
       const killSwitchState=killSwitchGate(killSwitch || {});
@@ -3236,6 +3287,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         riskGate
       });
       const executionReadiness=combineReadiness(riskGate,dryRunExecutor);
+      if(approved?.finalAuthority===true){
+        const hardReasons=[...new Set([...(riskGate?.reasons||[]),...(executionReadiness?.reasons||[])])];
+        try{store.journal('JEV_FINAL_AUTHORITY',String(order?.symbol||'').toUpperCase(),{
+          stage:executionReadiness?.ok===true?'HARD_SAFETY_READY':'HARD_BLOCK',
+          side:String(order?.side||'').toUpperCase(),
+          hardSafetyOnly:true,
+          softWarnings:Array.isArray(approved?.softWarnings)?approved.softWarnings:[],
+          reasons:hardReasons
+        });}catch{}
+        leaderHealthEvent('JEV_FINAL_AUTHORITY',{
+          stage:executionReadiness?.ok===true?'HARD_SAFETY_READY':'HARD_BLOCK',
+          symbol:String(order?.symbol||'').toUpperCase(),
+          reasons:hardReasons
+        });
+      }
       planResult={
         ok:true,
         candidateFound:true,
@@ -3353,4 +3419,4 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
-module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, createLiveController };
+module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, jevFinalAuthorityPreflight, createLiveController };

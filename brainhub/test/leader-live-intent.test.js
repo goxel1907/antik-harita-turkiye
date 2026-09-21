@@ -164,3 +164,32 @@ test('entry reference can differ from refreshed live entry and is surfaced for t
   assert.equal(out.entryPrice,100);
   assert.equal(out.entryReferencePrice,99.8);
 });
+
+
+test('JEV final authority turns scalp cost viability into advisory warning but keeps intent buildable', () => {
+  const x = base({ side:'LONG', livePrice:100, low:99.98, high:101, atrPct:0.05 });
+  x.filters.tickSize = 0.01;
+  x.jevFinalAuthority = true;
+  const out = buildLeaderLiveIntent(x);
+  assert.equal(out.ok, true, JSON.stringify(out.reasons));
+  assert.equal(out.jevFinalAuthority, true);
+  assert.ok(out.softWarnings.includes('SCALP_COST_EDGE_NOT_VIABLE'));
+  assert.equal(out.reasons.length, 0);
+});
+
+test('JEV final authority treats missing scalp commission as soft warning but structural liquidation safety remains hard', () => {
+  const x = base({ side:'LONG', livePrice:100, low:98, high:103, atrPct:1 });
+  x.takerCommissionRate = null;
+  x.jevFinalAuthority = true;
+  let out = buildLeaderLiveIntent(x);
+  assert.equal(out.ok, true);
+  assert.ok(out.softWarnings.includes('SCALP_COMMISSION_RATE_REQUIRED'));
+
+  const unsafe = base({ side:'LONG', livePrice:100, low:88, high:103, atrPct:1 });
+  unsafe.takerCommissionRate = null;
+  unsafe.jevFinalAuthority = true;
+  unsafe.maintenanceMarginRate = 0.004;
+  out = buildLeaderLiveIntent(unsafe);
+  assert.equal(out.ok, false);
+  assert.ok(out.reasons.includes('STOP_BEYOND_LIQUIDATION'));
+});

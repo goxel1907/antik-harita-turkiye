@@ -39,3 +39,19 @@ test('office scrub removes secret-like fields', () => {
   assert.equal(JSON.stringify(out).includes('"y"'), false);
   assert.equal(JSON.stringify(out).includes('"z"'), false);
 });
+
+
+test('office recognizes v9.5.111 and describes JEV as final strategic authority with hard safety only after approval', () => {
+  const snap = JSON.parse(fs.readFileSync(path.join(dir, 'demo-sim-v109.json'), 'utf8'));
+  snap.health = snap.health || { ok:true, data:{} };
+  snap.health.ok = true;
+  snap.health.data = { ...(snap.health.data||{}), featureVersion:'9.5.111-CLAUDE-VISION' };
+  snap.status = snap.status || { ok:true, data:{} };
+  snap.status.ok = true;
+  snap.status.data = { ...(snap.status.data||{}), featureVersion:'9.5.111-CLAUDE-VISION' };
+  const blockers = office.derive(snap).blockers;
+  assert.equal(blockers.some(x => x.code === 'VERSION_OLD'), false);
+  const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
+  assert.match(html, /JEV FINAL AUTHORITY/);
+  assert.match(html, /JEV sonrası yalnız hard safety/);
+});
