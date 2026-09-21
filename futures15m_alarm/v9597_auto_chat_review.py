@@ -271,7 +271,7 @@ text=re.sub(r'versionCode\s+\d+','versionCode 26092106',text)
 text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.111'",text)
 build.write_text(text)
 assert "versionName '9.5.111'" in text
-assert 'versionCode 26092105' in text
+assert 'versionCode 26092106' in text
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
