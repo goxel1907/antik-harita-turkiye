@@ -446,12 +446,16 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
   const visionProbe=options?.visionProbe === true;
   const rows = await Promise.all(FRAME_ORDER.map(async frame => {
     try {
-      const chart = await chartContext(symbol, frame, requestedBars);
+      const fastFrame=['1m','3m','5m'].includes(frame);
+      const frameBars=fastFrame ? Math.max(100,Math.min(256,Number(requestedBars)||128)) : 64;
+      const outputWidth=fastFrame ? 448 : 896;
+      const outputHeight=fastFrame ? 252 : 504;
+      const chart = await chartContext(symbol, frame, frameBars);
       const visionProbeCell=visionProbe ? probeCells[frame] : null;
       const png = renderChartPng(chart, 'annotated', {
         ...(visionProbeCell?{visionProbeCell}:{}),
-        outputWidth:448,
-        outputHeight:252
+        outputWidth,
+        outputHeight
       });
       const last=Array.isArray(chart?.candles)&&chart.candles.length?chart.candles[chart.candles.length-1]:null;
       const visualLastCandle=last
@@ -464,6 +468,9 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
         closedBars:Number(chart?.closedBars || 0),
         formingBars:Number(chart?.formingBars || 0),
         generatedAt:chart?.generatedAt || null,
+        requestedBars:frameBars,
+        imageWidth:outputWidth,
+        imageHeight:outputHeight,
         visualLastCandle,
         visionProbeCell,
         dataUrl:'data:image/png;base64,'+png.toString('base64')
@@ -485,6 +492,9 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
       closedBars:row.closedBars,
       formingBars:row.formingBars,
       generatedAt:row.generatedAt,
+      requestedBars:row.requestedBars,
+      imageWidth:row.imageWidth,
+      imageHeight:row.imageHeight,
       visualLastCandle:row.visualLastCandle,
       ...(visionProbe ? { visionProbeCell:row.visionProbeCell } : {})
     };
@@ -495,7 +505,7 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
     attached:images.length,
     barsRequested:Math.max(100, Math.min(256, Number(requestedBars) || 128)),
     mode:'annotated',
-    imageSize:{width:448,height:252},
+    imageSize:{fast:{width:448,height:252,bars:Math.max(100,Math.min(256,Number(requestedBars)||128))},higher:{width:896,height:504,bars:64}},
     frames,
     failures,
     images
@@ -1057,7 +1067,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     'VISION_SUMMARY: Türkçe, 9 grafikte görülen ortak yapı, destek/veto ilişkisi, çelişkiler ve origin→owner devamlılığı',
     'EXECUTION: ADVISORY_ONLY',
     '',
-    'VISION_INPUT: 1m/3m/5m/15m/30m/45m/1h/4h/1d annotated charts are attached when available; each uses '+vision.barsRequested+' recent candles and includes the current forming candle for visual context.',
+    'VISION_INPUT: annotated charts are attached for 1m/3m/5m at 448x252 with '+vision.barsRequested+' recent candles; 15m/30m/45m/1h/4h/1d use 896x504 with 64 candles. Current forming candle is visual context only.',
     'Vision rule: read every attached chart image together with UNIFIED_CONTEXT_JSON. The current forming candle may shape a WATCH idea but MUST NOT be used as closed-candle confirmation. Do not ignore a visible structural conflict merely because numeric scores are high.',
     'Explanation rule: WHY, RISK_NOTE, WAIT_FOR, FORMING_CONTEXT, TF_* and VISION_SUMMARY must be in Turkish, coin-specific and evidence-based. Every TF must separately state WHY, WAIT, ROLE, FORMING and RISK. SUPPORT_TFS/VETO_TFS are summary fields and should copy exactly the timeframes marked SUPPORT/VETO in TF_*_ROLE; never list a NEUTRAL timeframe. State what supports the setup, what blocks it, and the exact condition that would change WATCH/REJECT into QUALIFIED. Avoid generic filler.',
     'Rules: any fresh timeframe may originate an opportunity. A valid 1m/3m/5m opportunity must not wait for 15m merely because 15m is higher. The legacy 15m strategy still keeps its own completed-15m confirmation rule.',
