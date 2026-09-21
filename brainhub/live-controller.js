@@ -337,6 +337,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       workerTriggers:workerReviews.filter(x=>x.state==='TRIGGERED').length,
       workerRefreshes:workerReviews.filter(x=>x.state==='REFRESH_REQUIRED').length,
       fullVisionAvoided:workerReviews.filter(x=>x.visionAvoided===true).length,
+      workerEscalationPending:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>
+        ['TRIGGERED','REFRESH_REQUIRED'].includes(String(x?.workerState||'').toUpperCase()) &&
+        Number(x?.workerEscalatedAt||0)>=Number(x?.lastAnalyzedAt||0)).length,
+      visionFreeQuotaFallbacks:analyses.filter(x=>x.visionFreeQuotaFallback===true).length,
+      avgVisionBatchSize:(()=>{
+        const xs=analyses.map(x=>Number(x.visionBatchSize)).filter(x=>Number.isFinite(x)&&x>0);
+        return xs.length?Number((xs.reduce((a,b)=>a+b,0)/xs.length).toFixed(2)):null;
+      })(),
       avgAnalysisMs:durations.length?Math.round(durations.reduce((a,b)=>a+b,0)/durations.length):null,
       lastAnalysisAt:analyses.length?new Date(analyses.at(-1).at).toISOString():null,
       lastQualifiedAt:(analyses.filter(x=>String(x.planStatus||'').toUpperCase()==='QUALIFIED').at(-1)?.at)
@@ -2190,6 +2198,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         durationMs:Math.max(0,analysisEndedAt-analysisStartedAt),
         visionAttached:Number(advisory?.vision?.attached || 0),
         visionRequired:Number(advisory?.vision?.required || 9),
+        visionBatchSize:Number(advisory?.committee?.localVisionBatchSize || 0) || null,
+        visionFreeQuotaFallback:advisory?.committee?.mode==='kiro_free_quota_fallback' || advisory?.committee?.visionKiroFreeQuota===true&&advisory?.committee?.localVisionFailed===true,
         visionUnavailable
       });
     } catch (e) {
