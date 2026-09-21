@@ -1,4 +1,4 @@
-name: Futures 15m Alarm v9.5.109 validation
+name: Futures 15m Alarm v9.5.109-CLAUDE validation (Claude)
 
 on:
   push:

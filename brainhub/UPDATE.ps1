@@ -86,7 +86,8 @@ try {
         $text -notmatch 'VISION_CHART_448X252' -or
         $text -notmatch 'VISION_PIXEL_PROBE' -or
         $text -notmatch 'KKK_DETAILED_9TF_DIAGNOSTICS' -or
-        $text -notmatch 'LEADER_DETAIL_PROBE'
+        $text -notmatch 'LEADER_DETAIL_PROBE' -or
+        $text -notmatch 'CLAUDE_V109_UPDATER_FILESET'
     ) {
         throw 'Guncel BrainHub updater bootstrap isaretleri bulunamadi; eski updater calistirilmadi.'
     }

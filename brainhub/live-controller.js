@@ -15,6 +15,7 @@ const { combineRiskGate:combineReadinessRiskGate, enforceExecutionLineage:enforc
 const positionManager = require('./position-manager');
 const planWorkers = require('./plan-workers');
 const { isNonConcreteWait } = require('./wait-condition');
+const claudeV109 = require('./claude-v109');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -94,12 +95,20 @@ function normalizePolicy(raw) {
   });
   if (!apiPolicy.ok) reasons.push(...apiPolicy.reasons);
 
+  // CLAUDE_V109_RISK_AUTHORITY_SWITCH: USER_PANEL_EXACT (varsayılan, v108 davranışı) panelde seçilen
+  // marj×kaldıraç'ı risk otoritesi sayar; likidasyon kapısı zarar tavanını sınırlar.
+  // STRICT_POLICY_CAP: ChatGPT v109 davranışı; maxRiskPctPerTrade sert tavan olarak uygulanır.
+  const riskAuthority = String(raw?.riskAuthority || 'USER_PANEL_EXACT').toUpperCase() === 'STRICT_POLICY_CAP'
+    ? 'STRICT_POLICY_CAP'
+    : 'USER_PANEL_EXACT';
+
   return {
     ok:reasons.length === 0,
     armMinutes,
     expectedLeverage,
     maxEntryDeviationPct,
     limits,
+    riskAuthority,
     apiPolicy,
     reasons:[...new Set(reasons)]
   };
@@ -124,6 +133,7 @@ function publicPolicy(policy) {
     expectedLeverage:policy.expectedLeverage ?? null,
     maxEntryDeviationPct:policy.maxEntryDeviationPct ?? null,
     limits:policy.limits || null,
+    riskAuthority:policy.riskAuthority || 'USER_PANEL_EXACT',
     apiPolicy:policy.apiPolicy || null,
     reasons:Array.isArray(policy.reasons) ? policy.reasons : []
   };
@@ -210,11 +220,14 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
     : null;
   const effectiveLimits = {
     ...policy.limits,
-    // Hard safety cap: exact panel sizing is never silently reduced, but a
-    // trade whose structural stop implies too much account risk is rejected.
-    // Unlike notional/family envelopes, this risk percentage is NOT inflated
-    // to make the current trade pass.
-    maxRiskPctPerTrade:policy.limits.maxRiskPctPerTrade,
+    // CLAUDE_V109_RISK_AUTHORITY_SWITCH: ChatGPT v109 bu tavanı sert yaptı. Kullanıcının gerçek
+    // ayarında (≈80 USDT bakiye, 25 USDT × 10x, maxRiskPctPerTrade=1) bu, yapısal stoplu hiçbir
+    // işlemin açılamaması demekti (0,8 USDT risk → %0,32 stop). Varsayılan v108 panel otoritesine
+    // döndü; artık likidasyon kapısı (STOP_BEYOND_LIQUIDATION) zarar tavanını sınırlıyor.
+    // live-policy.json "riskAuthority":"STRICT_POLICY_CAP" ile sert tavan seçilebilir.
+    maxRiskPctPerTrade:(policy.riskAuthority==='STRICT_POLICY_CAP'||riskPct===null)
+      ? policy.limits.maxRiskPctPerTrade
+      : Math.max(Number(policy.limits.maxRiskPctPerTrade)||0,riskPct*1.001),
     maxNotionalPctPerTrade:notionalPct===null
       ? policy.limits.maxNotionalPctPerTrade
       : Math.max(Number(policy.limits.maxNotionalPctPerTrade)||0,notionalPct*1.001),
@@ -232,6 +245,8 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
     accountRisk:{ ...accountRisk, limits:effectiveLimits },
     sizing:{
       sizingAuthority:'USER_PANEL_EXACT',
+      riskAuthority:policy.riskAuthority==='STRICT_POLICY_CAP'?'STRICT_POLICY_CAP':'USER_PANEL_EXACT',
+      riskPctOfEquity:riskPct===null?null:Number(riskPct.toFixed(4)),
       requestedMarginQuote:settings.marginQuote,
       appliedMarginQuote:settings.marginQuote,
       requestedLeverage:settings.leverage,
@@ -328,6 +343,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       jevCalled:analyses.filter(x=>x.jevCalled===true).length,
       jevVetoed:analyses.filter(x=>x.jevVeto===true).length,
       jevShadowCalled:analyses.filter(x=>x.jevShadowCalled===true).length,
+      // CLAUDE_V109 gölge ölçümleri (Office ekranı ve PDF raporu bunları okur)
+      claudeV109:{
+        config:claudeV109.readConfig(),
+        dtWouldQualify:analyses.filter(x=>x.claudeDtWouldQualify===true).length,
+        dtApplied:analyses.filter(x=>x.claudeDtApplied===true).length,
+        triggerAutoSelected:analyses.filter(x=>x.claudeTriggerAutoSelected===true).length,
+        numericWaitFallback:analyses.filter(x=>x.claudeNumericWait===true).length,
+        jevV108Veto:analyses.filter(x=>x.jevVeto===true).length,
+        jevRoleWeightedVeto:analyses.filter(x=>x.jevRoleWeightedVeto===true).length,
+        jevShadowV108WouldVeto:analyses.filter(x=>x.jevShadowWouldVeto===true).length,
+        jevShadowRoleWeightedWouldVeto:analyses.filter(x=>x.jevShadowRoleWeightedVeto===true).length,
+        chaseBlocked:executionStages.filter(x=>x.stage==='CHASE_BLOCKED').length
+      },
       jevShadowWouldVeto:analyses.filter(x=>x.jevShadowWouldVeto===true).length,
       jevShadowReasonCounts:(()=>{
         const m=new Map();
@@ -411,10 +439,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const lastAnalyzed=Number(row?.lastAnalyzedAt||0);
       const pending=['TRIGGERED','REFRESH_REQUIRED'].includes(String(row?.workerState || '').toUpperCase()) &&
         Number(row?.workerEscalatedAt||0)>=lastAnalyzed;
-      return pending && (!lastAnalyzed || now-lastAnalyzed>=LEADER_AUTO_REANALYSIS_COOLDOWN_MS);
+      // CLAUDE_V109_ESCALATION_ATTEMPT_COOLDOWN: tam 9TF analizi hata verirse lastAnalyzedAt
+      // güncellenmiyor; ChatGPT v109'da aynı sembol her tick önceliği yeniden alıyordu.
+      const attemptAt=Number(row?.workerEscalationAttemptAt||0);
+      const recentFailedAttempt=attemptAt>0&&attemptAt>=Number(row?.workerEscalatedAt||0)&&now-attemptAt<LEADER_AUTO_REANALYSIS_COOLDOWN_MS;
+      return pending && !recentFailedAttempt && (!lastAnalyzed || now-lastAnalyzed>=LEADER_AUTO_REANALYSIS_COOLDOWN_MS);
     });
     if(index>=0){
       const candidate=candidates[index];
+      const escRow=leaderAnalysisState.bySymbol?.[String(candidate?.symbol || '').toUpperCase()];
+      if(escRow){
+        escRow.workerEscalationAttemptAt=now;
+        escRow.workerEscalationAttempts=Number(escRow.workerEscalationAttempts||0)+1;
+      }
       leaderAutoCandidateCursor=(index+1)%candidates.length;
       return {candidate,index,reason:'WORKER_ESCALATION_PRIORITY'};
     }
@@ -1998,6 +2035,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     WORKER_OUTPUT_INVALID:'worker yanıt şeması geçersiz; kör 9TF yükseltme yapılmıyor',
     WORKER_DECISION_INVALID:'worker kararı geçersiz; plan WAIT durumunda tutuluyor',
     WORKER_ESCALATION_COOLDOWN:'aynı sembol için 15 dakikalık 9TF yükseltme bekleme süresi aktif',
+    CLAUDE_V109_TRIGGER_CHASE_TOO_FAR:'fiyat tetik seviyesinden ATR ölçekli kovalama sınırından fazla uzaklaştı; geç giriş yapılmıyor',
+    CLAUDE_V109_PRICE_BACK_INSIDE_TRIGGER:'fiyat tetik seviyesinin içine geri döndü; kırılım geçersiz',
+    CLAUDE_V109_PRICE_RAN_AWAY_SINCE_ANALYSIS:'analizden bu yana fiyat giriş yönünde çok uzaklaştı; kovalama yapılmıyor',
+    CLAUDE_V109_PRICE_MOVED_AGAINST_SINCE_ANALYSIS:'analizden bu yana fiyat ters yönde anlamlı hareket etti; plan yenilenmeli',
+    CLAUDE_V109_CHASE_INPUT_INVALID:'kovalama kapısı için fiyat/tetik verisi eksik',
+    CLAUDE_V109_DETERMINISTIC_TRIGGER:'kapanmış mumda kabul edilmiş kırılım (Claude v109 deterministik tetik, BINDING modu)',
     WORKER_NUMERIC_TRIGGER_WAIT:'sayısal kapanış tetiği henüz gerçekleşmedi; pahalı 9TF yeniden çalıştırılmıyor',
     WORKER_NUMERIC_TRIGGER_CLOSED:'sayısal kapanış tetiği gerçekleşti; gölge hızlı doğrulama ve sonraki 9TF slotu bekleniyor',
     WORKER_NUMERIC_TRIGGER_FRAME_NOT_FRESH:'sayısal tetik zaman dilimi taze değil; tetik uygulanmadı',
@@ -2377,6 +2420,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         jevReasons:Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons.slice(0,8):[],
         jevShadowCalled:jevShadowDecision?.called===true,
         jevShadowWouldVeto:jevShadowDecision?.veto===true,
+        jevRoleWeightedVeto:jevDecision?.claudeRoleWeighted?.veto===true,
+        jevShadowRoleWeightedVeto:jevShadowDecision?.claudeRoleWeighted?.veto===true,
+        jevShadowRoleWeightedCalled:Boolean(jevShadowDecision?.claudeRoleWeighted),
+        claudeDtWouldQualify:advisory?.plan?.claudeDeterministicTrigger?.wouldQualify===true,
+        claudeDtApplied:advisory?.plan?.claudeDeterministicTrigger?.applied===true,
+        claudeTriggerAutoSelected:advisory?.plan?.triggerSpec?.autoSelected===true,
+        claudeNumericWait:advisory?.plan?.waitForRepairedBy==='CLAUDE_V109_NUMERIC_WAIT_FALLBACK',
         jevShadowReasons:Array.isArray(jevShadowDecision?.vetoReasons)?jevShadowDecision.vetoReasons.slice(0,8):[],
         reason:planReason,
         reasons:[...new Set([planReason,...(Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons:[])].filter(Boolean))],
@@ -2444,6 +2494,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const workerLifecycle=String(advisory.plan.status||'').toUpperCase()==='WATCH'
         ? activatePlanWorker(candidate.symbol,'VISION_WATCH_REGISTERED')
         : lifecycle;
+      // CLAUDE_V109_DETERMINISTIC_TRIGGER_SHADOW: kod "QUALIFIED olurdu" dediyse ChatGPT'nin gölge
+      // sonuç altyapısına (15m/60m) aynı anda giriş fiyatıyla kaydedilir → 24 saatte isabet ölçülür.
+      try{
+        const dtShadow=advisory?.plan?.claudeDeterministicTrigger;
+        const dtRow=leaderAnalysisState.bySymbol?.[String(candidate.symbol||'').toUpperCase()];
+        if(dtShadow?.wouldQualify===true&&dtRow){
+          dtRow.claudeDtWouldQualifyAt=clock();
+          dtRow.claudeDtWouldQualifyCount=Number(dtRow.claudeDtWouldQualifyCount||0)+1;
+          dtRow.claudeDtTf=dtShadow.tf||null;
+          dtRow.claudeDtLevel=finite(dtShadow.level);
+          if(!Number(dtRow.shadowTriggeredAt||0)&&finite(dtShadow.livePrice)!==null){
+            dtRow.shadowTriggeredAt=clock();
+            dtRow.shadowEntryPrice=finite(dtShadow.livePrice);
+            dtRow.shadowTriggerReason='CLAUDE_V109_DT_WOULD_QUALIFY';
+            dtRow.shadowPlanAt=Number(dtRow.shadowPlanAt||0)||clock();
+          }
+          leaderAnalysisState.bySymbol[String(candidate.symbol||'').toUpperCase()]=dtRow;
+          writeLeaderAnalysisState();
+          leaderHealthEvent('CLAUDE_DT_SHADOW',{symbol:candidate.symbol,side:advisory.plan.side,tf:dtShadow.tf,level:dtShadow.level});
+        }
+      }catch{}
       annotateLeaderDiagnostic(candidate.symbol, 'PLAN_NOT_QUALIFIED', rs, { ...visionDiagnosticExtras(advisory), lifecycle:workerLifecycle });
       // Coverage-first: one deep 9TF analysis per Leader Auto tick when fresh candidates
       // exist. Persistent tracked setups are refreshed by the no-candidate path instead.
@@ -2533,6 +2604,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs);
       return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
     }
+    // CLAUDE_V109_TRIGGER_CHASE_GATE + CLAUDE_V109_ENTRY_REFERENCE_FRESH:
+    // ChatGPT v109 transport sapmasını tetik seviyesine göre %0,5 ile ölçüyordu; kırılım mumu çoğu
+    // altcoinde tetikten >%0,5 uzakta kapandığı için bu, girişi sistematik olarak kilitliyordu.
+    // Tetikten uzaklık ATR ölçekli ayrı kapıda ölçülür; transport sapması taze fiyata göre ölçülür
+    // (intent → gönderim arası kayma koruması).
+    const chasePlan=advisory?.plan||{};
+    const chaseTf=String(chasePlan?.triggerSpec?.valid===true?chasePlan.triggerSpec.tf:chasePlan.originTF||'').toLowerCase();
+    const chase=claudeV109.chaseGate({
+      side:chasePlan.side,
+      freshPrice:freshEntryPrice,
+      analyzedPrice:finite(advisory?.unifiedContext?.livePrice),
+      triggerPrice:chasePlan?.triggerSpec?.valid===true?finite(chasePlan.triggerSpec.triggerPrice):null,
+      atrPct:finite(advisory?.unifiedContext?.frames?.[chaseTf]?.atrPct),
+      maxEntryDeviationPct:policy.maxEntryDeviationPct
+    });
+    if(!chase.ok){
+      const rs=[chase.reason||'CLAUDE_V109_CHASE_INPUT_INVALID'];
+      annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{chase});
+      leaderHealthEvent('EXECUTION_STAGE',{stage:'CHASE_BLOCKED',symbol:candidate.symbol,reason:rs[0],chase});
+      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,chase};
+    }
     const requestedNotional=Number(settings.marginQuote)*Number(settings.leverage);
     const maintenance=await maintenanceMarginRateFor(candidate.symbol,requestedNotional,creds);
     if(!maintenance.ok){
@@ -2541,9 +2633,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,maintenanceMargin:maintenance};
     }
     const freshUnified={...advisory.unifiedContext,livePrice:freshEntryPrice};
-    const entryReferencePrice=advisory?.plan?.triggerSpec?.valid===true
-      ? finite(advisory.plan.triggerSpec.triggerPrice)
-      : freshEntryPrice;
+    const entryReferencePrice=freshEntryPrice;
     const intent = buildLeaderLiveIntent({
       candidate,
       unified:freshUnified,
@@ -2557,6 +2647,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     });
     intent.analysisEntryPrice=finite(advisory?.unifiedContext?.livePrice);
     intent.freshEntryPrice=freshEntryPrice;
+    intent.chase=chase;
     intent.maintenanceMargin=maintenance;
     if (!intent.ok) {
       const rs=intent.reasons || ['LEADER_INTENT_NOT_READY'];

@@ -583,7 +583,8 @@ async function performScan() {
     gainerCandidates:gainerCandidates.slice(0,12),
     accumulationCandidates:accumulationCandidates.slice(0,10),
     attentionCandidates:attentionCandidates.slice(0,10),
-    acceleratingCandidates:leaderHunters.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('LIGHTWEIGHT_ACCELERATION')).slice(0,10),
+    // CLAUDE_V109_SCANNER_NEW_ACCEL_ROUTE: ChatGPT'nin 8 'yeni sembol' slotu (LIGHTWEIGHT_NEW_ACCELERATION) derin analiz listesine hiç ulaşmıyordu.
+    acceleratingCandidates:leaderHunters.filter(x=>Array.isArray(x.targetSources)&&(x.targetSources.includes('LIGHTWEIGHT_ACCELERATION')||x.targetSources.includes('LIGHTWEIGHT_NEW_ACCELERATION'))).slice(0,10),
     longExpansion,
     shortExpansion,
     earlyTop5:leaderHunters.filter(x=>x.earlyTop5).slice(0,10),

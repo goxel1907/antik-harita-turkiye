@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK
+    name: Futures 15m Alarm PRO APK v9.5.109-CLAUDE (Claude)
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -21,7 +21,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.108 Turkish position-manager source
+      - name: Prepare Futures Alarm v9.5.109-CLAUDE (Claude) Turkish position-manager source
         script: |
           set -euo pipefail
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9526_gradle_compat_bootstrap.py"
@@ -155,9 +155,13 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.108'" "$BUILD"
-          grep -q 'versionCode 26092103' "$BUILD"
-          echo 'V95108_FLOW_RECOVERY_OK'
+          grep -q "versionName '9.5.109-CLAUDE'" "$BUILD"
+          grep -q 'versionCode 26092104' "$BUILD"
+          grep -q "CLAUDE_V109_BUILD" "$CM_BUILD_DIR/brainhub/claude-v109.js"
+          grep -q "9.5.109-CLAUDE-VISION" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "'claude-v109.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
+          grep -q "'wait-condition.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
+          echo 'V95109_CLAUDE_OK (Claude/Anthropic build marker CLAUDE_V109)'
 
       - name: Set Android SDK location
         script: |
@@ -328,7 +332,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.108 signed APK
+      - name: Build installable v9.5.109-CLAUDE signed APK (Claude)
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -374,9 +378,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.108.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.109-CLAUDE.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.108.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.109-CLAUDE.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -387,5 +391,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.108.apk
+      - Futures15mAlarm-PRO-v9.5.109-CLAUDE.apk
       - v9595-gradle.log

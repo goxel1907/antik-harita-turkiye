@@ -246,24 +246,25 @@ main=main.replace(
 )
 main=main.replace(
     'st.append("\\nPC OTO İŞLEM: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");',
-    'st.append("\\nPC OTO İŞLEM: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");\n            st.append("\\nPC otomasyon motoru PC BrainHub zamanlayıcısında çalışır; telefon ekranının açık kalması gerekmez.");'
+    'st.append("\\nPC OTO İŞLEM: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");\n            st.append("\\nPC otomasyon motoru PC BrainHub zamanlayıcısında çalışır; telefon ekranının açık kalması gerekmez.");\n            st.append("\\nSürüm: v9.5.109-CLAUDE • CLAUDE_V109 (Claude doğrulamalı, ChatGPT v9.5.109 tabanı)");'
 )
 main=main.replace('s=s.replace("QUALIFIED_WAIT_REQUIRED","işlem için beklenen koşul henüz tamamlanmadı");',
-                  's=s.replace("QUALIFIED_WAIT_REQUIRED","işlem için beklenen koşul henüz tamamlanmadı");\n        s=s.replace("WATCH_WAIT_FOR_NOT_CONCRETE","izleme planında somut bekleme koşulu yok; plan yenileniyor");\n        s=s.replace("GLOBAL_SEMANTIC_CONTRACT","karar/bekleme koşulu sözleşmesi tamamlanamadı");')
+                  's=s.replace("QUALIFIED_WAIT_REQUIRED","işlem için beklenen koşul henüz tamamlanmadı");\n        s=s.replace("WATCH_WAIT_FOR_NOT_CONCRETE","izleme planında somut bekleme koşulu yok; plan yenileniyor");\n        s=s.replace("GLOBAL_SEMANTIC_CONTRACT","karar/bekleme koşulu sözleşmesi tamamlanamadı");\n        s=s.replace("CLAUDE_V109_TRIGGER_CHASE_TOO_FAR","fiyat tetikten ATR sınırından fazla uzaklaştı (Claude v109)");\n        s=s.replace("CLAUDE_V109_PRICE_BACK_INSIDE_TRIGGER","fiyat tetik seviyesinin içine döndü (Claude v109)");\n        s=s.replace("CLAUDE_V109_PRICE_RAN_AWAY_SINCE_ANALYSIS","analizden beri fiyat çok kaçtı; kovalanmıyor (Claude v109)");\n        s=s.replace("CLAUDE_V109_PRICE_MOVED_AGAINST_SINCE_ANALYSIS","analizden beri fiyat ters döndü (Claude v109)");\n        s=s.replace("CLAUDE_V109_DETERMINISTIC_TRIGGER","kapanmış mum kırılımı deterministik tetik (Claude v109)");\n        s=s.replace("STOP_BEYOND_LIQUIDATION","stop likidasyon mesafesinin dışında; işlem reddedildi");\n        s=s.replace("WORKER_NUMERIC_TRIGGER_WAIT","sayısal kapanış tetiği bekleniyor");\n        s=s.replace("WORKER_NUMERIC_TRIGGER_CLOSED","sayısal kapanış tetiği gerçekleşti");')
 assert 'workerEscalationPending' in main
 assert 'visionFreeQuotaFallbacks' in main
 assert 'PC otomasyon motoru PC BrainHub zamanlayıcısında çalışır' in main
+assert 'CLAUDE_V109' in main, 'CLAUDE_V109 Android marker missing'
 main_path.write_text(main)
-analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.108')
+analysis=analysis.replace('ChatGPT ANALİZ PAKETİ • v9.5.76','ChatGPT ANALİZ PAKETİ • v9.5.109-CLAUDE')
 analysis_path.write_text(analysis)
 build=APP/'app/build.gradle'
 text=build.read_text()
-text=re.sub(r'versionCode\s+\d+','versionCode 26092103',text)
-text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.108'",text)
+text=re.sub(r'versionCode\s+\d+','versionCode 26092104',text)
+text=re.sub(r'versionName\s+[\"\'][^\"\']+[\"\']',"versionName '9.5.109-CLAUDE'",text)
 build.write_text(text)
-assert "versionName '9.5.108'" in text
-assert 'versionCode 26092103' in text
+assert "versionName '9.5.109-CLAUDE'" in text
+assert 'versionCode 26092104' in text
 assert 'v9597ChooseAutoReview' in main
 assert 'v9597WithAutoEvidence(symbol,prompt,now)' in analysis
 assert 'v9545_batch_symbols' in methods and 'v9538_autobuild' in methods
-print('v9.5.108 AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')
+print('v9.5.109-CLAUDE (Claude, CLAUDE_V109) AUTO candidate review + read-only Turkish decision + position manager card reuse manual chart/source/plan-code flow; user opens chat; no order action added.')

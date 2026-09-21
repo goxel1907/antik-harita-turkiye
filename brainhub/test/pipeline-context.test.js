@@ -281,9 +281,10 @@ test('per-TF roles are canonical while contradictory SUPPORT_TFS/VETO_TFS summar
   const plan=planFields([
     'STATUS: WATCH','SIDE: SHORT','CONFIDENCE: 72','ORIGIN_TF: 3m','OWNER_TF: 5m',
     'SETUP: support flip','EXEC_PATH: retest',
-    'TRIGGER_LEVEL_ID: PRIOR20_HIGH',
-    'TRIGGER_TF: 1m',
-    'INVALIDATION_LEVEL_ID: PRIOR20_LOW','WHY: somut','RISK_NOTE: risk','WAIT_FOR: NONE',
+    // CLAUDE_V109: SHORT için tetik PRIOR20_LOW, invalidation PRIOR20_HIGH; WATCH somut bekleme ister.
+    'TRIGGER_LEVEL_ID: PRIOR20_LOW',
+    'TRIGGER_TF: 3m',
+    'INVALIDATION_LEVEL_ID: PRIOR20_HIGH','WHY: somut','RISK_NOTE: risk','WAIT_FOR: 3m kapanışı 99.5 altında',
     'SUPPORT_TFS: 1m,3m,5m','VETO_TFS: 30m,1h,4h',
     'FORMING_CONTEXT: forming bağlamdır',...tfLines,'VISION_SUMMARY: ortak yapı','EXECUTION: ADVISORY_ONLY'
   ].join('\n'));
@@ -304,9 +305,12 @@ test('plan parser accepts harmless Markdown/JSON-like label decoration without i
     '- **OWNER_TF:** 1h',
     '- **SETUP:** reclaim',
     '- **EXEC_PATH:** continuation',
+    '- **TRIGGER_LEVEL_ID:** PRIOR20_HIGH',
+    '- **TRIGGER_TF:** 15m',
+    '- **INVALIDATION_LEVEL_ID:** PRIOR20_LOW',
     '- **WHY:** Türkçe somut neden',
     '- **RISK_NOTE:** Türkçe risk',
-    '- **WAIT_FOR:** NONE',
+    '- **WAIT_FOR:** 15m kapanışı 101.2 üstünde (CLAUDE_V109 fixture: v109 şeması somut bekleme ister)',
     '- **SUPPORT_TFS:** 1m,3m,1h',
     '- **VETO_TFS:** 15m',
     '- **FORMING_CONTEXT:** forming yalnız bağlamdır, teyit değildir'

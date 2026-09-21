@@ -843,7 +843,9 @@ test('Leader Auto reuses the already-qualified 9TF/Jev plan instead of requiring
     assert.equal(pipelineCalls,1,'live execution must reuse the first qualified Vision/Jev decision');
     assert.equal(out.orderPlaced,false);
     assert.ok(Array.isArray(out.reasons));
-    assert.ok(out.reasons.includes('LIVE_PRICE_DEVIATION_TOO_HIGH'));
+    // CLAUDE_V109_TRIGGER_CHASE_GATE: analizden bu yana %2 kaçan fiyat artık imzalı Binance
+    // çağrılarından (leverageBracket) ÖNCE, ATR ölçekli kovalama kapısında durur.
+    assert.ok(out.reasons.includes('LIVE_PRICE_DEVIATION_TOO_HIGH')||out.reasons.includes('CLAUDE_V109_PRICE_RAN_AWAY_SINCE_ANALYSIS'),JSON.stringify(out.reasons));
     assert.equal(fetches.some(x=>x.method==='POST'),false,'price-deviation preflight must block before any Binance write');
   } finally {
     fs.rmSync(root,{recursive:true,force:true});

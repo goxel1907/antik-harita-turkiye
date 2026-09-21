@@ -35,7 +35,8 @@ test('worker parser accepts only WAIT/TRIGGERED/REFRESH_REQUIRED schema',()=>{
   assert.deepEqual(x.recheckTFs,['1m','5m']);
   const bad=parseWorkerDecision('STATUS: QUALIFIED\nCONFIDENCE: 99\nREASON: trade\nRECHECK_TFS: 1m');
   assert.equal(bad.ok,false);
-  assert.equal(bad.state,'REFRESH_REQUIRED');
+  // v9.5.109 (ChatGPT, Claude doğruladı): bozuk şema kör 9TF yükseltmesi değil, güvenli WAIT.
+  assert.equal(bad.state,'WAIT');
 });
 
 test('deterministic worker forces full refresh on side change and waits on wide spread',()=>{

@@ -1,0 +1,7 @@
+{
+  "_comment": "CLAUDE_V109 (Claude, Anthropic) - v9.5.109-CLAUDE ayarlari. Varsayilan: gozlem (SHADOW). 24 saat golge olcumunden sonra kullanici BINDING / CLAUDE_V109_ROLE_WEIGHTED secebilir.",
+  "deterministicTriggerMode": "SHADOW",
+  "jevVetoPolicy": "V108_ANY_065",
+  "chaseAtrMultiple": 1.0,
+  "chaseCapPct": 3.0
+}

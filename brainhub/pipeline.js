@@ -4,6 +4,7 @@ const { pickCandidate, selectDeepCandidates, executionEligible } = require('./le
 const { symbolContext, globalContext, chartContext, renderChartPng } = require('./market');
 const { breakoutExecution, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached } = require('./engine');
 const { isNonConcreteWait } = require('./wait-condition');
+const claudeV109 = require('./claude-v109');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
 
@@ -601,6 +602,39 @@ function resolveNumericTriggerPlan(plan, unified) {
   };
 }
 
+// CLAUDE_V109_TRIGGER_AUTOSELECT: modelin tetik ID'leri eksik/geçersizse kod prior-20 adayını seçer.
+// WATCH planının WAIT_FOR metni somut değilse sayısal tetik metniyle değiştirilir (model metni saklanır).
+function withTriggerSpec(plan, unified) {
+  if (!plan || typeof plan !== 'object') return plan;
+  let p = { ...plan, triggerSpec:resolveNumericTriggerPlan(plan, unified) };
+  const st = String(p.status || '').toUpperCase();
+  if (!['WATCH','QUALIFIED'].includes(st)) return p;
+  if (p.triggerSpec?.valid !== true) {
+    const pick = claudeV109.autoSelectTrigger({ plan:p, unified });
+    if (!pick.ok) return { ...p, claudeTriggerAutoSelect:{ ok:false, reason:pick.reason } };
+    const next = {
+      ...p,
+      modelTriggerLevelId:p.triggerLevelId || null,
+      modelTriggerTF:p.triggerTF || null,
+      modelInvalidationLevelId:p.invalidationLevelId || null,
+      triggerLevelId:pick.triggerLevelId,
+      triggerTF:pick.triggerTF,
+      invalidationLevelId:pick.invalidationLevelId
+    };
+    p = { ...next, triggerSpec:{ ...resolveNumericTriggerPlan(next, unified), autoSelected:true }, claudeTriggerAutoSelect:pick };
+  }
+  if (st === 'WATCH' && p.triggerSpec?.valid === true && isNonConcreteWait(p.waitFor)) {
+    const dir = String(p.side || '').toUpperCase() === 'SHORT' ? 'altında' : 'üstünde';
+    p = {
+      ...p,
+      modelWaitFor:p.waitFor || null,
+      waitFor:`${p.triggerSpec.tf} kapanışı ${p.triggerSpec.triggerPrice} ${dir} (CLAUDE_V109 sayısal tetik ${p.triggerSpec.triggerLevelId})`,
+      waitForRepairedBy:'CLAUDE_V109_NUMERIC_WAIT_FALLBACK'
+    };
+  }
+  return p;
+}
+
 function deterministicFallbackPlan(candidate, unified, detail = '') {
   const side = String(candidate?.side || '').toUpperCase();
   const path = ['LONG','SHORT'].includes(side) ? unified?.opportunityPaths?.[side] : null;
@@ -872,8 +906,9 @@ function visionPlanContract(plan) {
   if (!String(plan?.why || '').trim()) missing.push('WHY');
   if (!String(plan?.riskNote || '').trim()) missing.push('RISK_NOTE');
   if (!String(plan?.waitFor || '').trim()) missing.push('WAIT_FOR');
+  // CLAUDE_V109_QUALIFIED_NONE_PREFIX: "NONE — tetik oluştu" da NONE sayılır.
   if (String(plan?.status || '').toUpperCase() === 'QUALIFIED' &&
-      String(plan?.waitFor || '').trim().toUpperCase() !== 'NONE') {
+      !claudeV109.qualifiedWaitIsNone(plan?.waitFor)) {
     missing.push('QUALIFIED_WAIT_FOR_NOT_NONE');
   }
   if (String(plan?.status || '').toUpperCase() === 'WATCH' && plan?.triggerSpec?.valid !== true && isNonConcreteWait(plan?.waitFor)) {
@@ -1100,7 +1135,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       localContext:compactLocalModelContext(unified)
     });
     plan = planFields(result.text);
-    plan = {...plan,triggerSpec:resolveNumericTriggerPlan(plan,unified)};
+    plan = withTriggerSpec(plan,unified);
     plan = reconcileVisionPlanSemantics(plan);
     plan = {...plan,watchNeedsSemanticResolution:watchPlanNeedsSemanticResolution(plan)};
     if (Number(result?.vision?.attached || 0) !== FRAME_ORDER.length) {
@@ -1132,7 +1167,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
           });
           const mergedText=mergeVisionRepairText(result.text,repair?.text);
           let repairedPlan=planFields(mergedText);
-          repairedPlan={...repairedPlan,triggerSpec:resolveNumericTriggerPlan(repairedPlan,unified)};
+          repairedPlan=withTriggerSpec(repairedPlan,unified);
           repairedPlan=reconcileVisionPlanSemantics(repairedPlan);
           const repairedContract=visionPlanContract(repairedPlan);
           repairMeta={
@@ -1218,6 +1253,21 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       });
     } catch {}
   }
+  // CLAUDE_V109_DETERMINISTIC_TRIGGER_SHADOW: model WATCH dediğinde kapanmış-mum kırılımı var mı?
+  // Varsayılan SHADOW (yalnız kayıt). config/claude-v109.json deterministicTriggerMode=BINDING ise
+  // WATCH→QUALIFIED; Jev, risk, likidasyon ve LIVE kapıları aynen uygulanır.
+  if(plan&&typeof plan==='object'&&executionIntent?.positionReviewOnly!==true&&['WATCH','QUALIFIED'].includes(String(plan.status||'').toUpperCase())){
+    const v109cfg=claudeV109.readConfig();
+    const dt=claudeV109.deterministicTrigger({plan,candidate,unified});
+    const wouldQualify=dt.ok===true&&String(plan.status||'').toUpperCase()==='WATCH';
+    if(wouldQualify&&v109cfg.deterministicTriggerMode==='BINDING'){
+      plan=claudeV109.applyDeterministicTrigger(plan,dt);
+      plan={...plan,triggerSpec:resolveNumericTriggerPlan(plan,unified)};
+    }else{
+      plan={...plan,claudeDeterministicTrigger:{...dt,wouldQualify,applied:false,mode:v109cfg.deterministicTriggerMode}};
+    }
+    if(wouldQualify){try{store.journal('CLAUDE_V109_DT',candidate.symbol,{side:plan.side,mode:v109cfg.deterministicTriggerMode,tf:dt.tf,level:dt.level,livePrice:dt.livePrice,applied:v109cfg.deterministicTriggerMode==='BINDING'});}catch{}}
+  }
   const preJevPlan=plan&&typeof plan==='object'?{...plan}:null;
   let jevDecision=null;
   let jevShadowDecision=null;
@@ -1228,6 +1278,8 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     }catch(e){
       jevDecision={ok:false,configured:true,required:true,called:true,veto:true,reason:'JEV_JUDGE_EXCEPTION',detail:String(e?.message||e).slice(0,300)};
     }
+    // CLAUDE_V109_JEV_ROLE_WEIGHTED_SHADOW: iki kural da hesaplanır; bağlayıcı olan config'e göre.
+    jevDecision=claudeV109.annotateJevDecision(jevDecision,plan);
     plan=applyDecisionJudgeResult(plan,jevDecision);
   }else if(typeof decisionJudge==='function'&&executionIntent?.positionReviewOnly!==true&&currentPlanStatus==='WATCH'){
     try{
@@ -1235,6 +1287,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     }catch(e){
       jevShadowDecision={ok:false,configured:true,required:false,called:true,shadow:true,veto:null,reason:'JEV_SHADOW_EXCEPTION',detail:String(e?.message||e).slice(0,300)};
     }
+    jevShadowDecision=claudeV109.annotateJevDecision(jevShadowDecision,plan,'V108_ANY_065');
     plan={...plan,jevShadowDecision,jevDecision:{ok:true,configured:null,required:false,called:false,veto:false,reason:'JEV_SHADOW_ONLY_FOR_WATCH'}};
     try{store.journal('JEV_SHADOW',candidate.symbol,{side:plan.side,status:'WATCH',decision:jevShadowDecision});}catch{}
   }else if(typeof decisionJudge==='function'){
@@ -1286,4 +1339,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, withTriggerSpec, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
