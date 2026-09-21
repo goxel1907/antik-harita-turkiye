@@ -343,6 +343,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       jevCalled:analyses.filter(x=>x.jevCalled===true).length,
       jevVetoed:analyses.filter(x=>x.jevVeto===true).length,
       jevShadowCalled:analyses.filter(x=>x.jevShadowCalled===true).length,
+      laneMain15Plans:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>x?.tradeLaneName==='MAIN_15M').length,
+      laneScalpPlans:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>x?.tradeLaneName==='SCALP_MOMENTUM').length,
+      laneScalpReady:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>x?.tradeLaneName==='SCALP_MOMENTUM'&&x?.scalpReady===true).length,
+      laneMain15Ready:Object.values(leaderAnalysisState.bySymbol||{}).filter(x=>x?.main15Ready===true).length,
+      momentumStages:(()=>{
+        const m=new Map();
+        for(const x of Object.values(leaderAnalysisState.bySymbol||{})){
+          const k=String(x?.momentumStage||'').trim();if(k)m.set(k,(m.get(k)||0)+1);
+        }
+        return [...m.entries()].sort((a,b)=>b[1]-a[1]).map(([stage,count])=>({stage,count}));
+      })(),
       // CLAUDE_V109 gölge ölçümleri (Office ekranı ve PDF raporu bunları okur)
       claudeV109:{
         config:claudeV109.readConfig(),
@@ -601,6 +612,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         planStatus:row?.planStatus || null,
         originTF:row?.originTF || null,
         ownerTF:row?.ownerTF || null,
+        tradeLaneName:row?.tradeLaneName || null,
+        momentumStage:row?.momentumStage || null,
+        momentumLadder:Array.isArray(row?.momentumLadder)?row.momentumLadder:[],
         rebaseCount:Number(row?.rebaseCount || 0),
         invalidationCount:Number(row?.invalidationCount || 0),
         detail:detail ? String(detail).slice(0,240) : null
@@ -684,6 +698,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       planStatus:planStatus || String(old?.planStatus || ''),
       originTF:String(plan.originTF || old?.originTF || ''),
       ownerTF:String(plan.ownerTF || old?.ownerTF || ''),
+      tradeLaneName:String(plan?.tradeLane?.name || old?.tradeLaneName || ''),
+      momentumStage:String(plan?.tradeLane?.stage || old?.momentumStage || ''),
+      momentumLadder:Array.isArray(plan?.tradeLane?.momentumLadder)?plan.tradeLane.momentumLadder.slice(0,9):(Array.isArray(old?.momentumLadder)?old.momentumLadder.slice(0,9):[]),
+      scalpAlignedCount:Number(plan?.tradeLane?.lowerAlignedCount ?? old?.scalpAlignedCount ?? 0),
+      scalpReady:plan?.tradeLane?.scalpReady===true || (advisory==null&&old?.scalpReady===true),
+      main15Ready:plan?.tradeLane?.main15Ready===true || (advisory==null&&old?.main15Ready===true),
+      hard15mVeto:plan?.tradeLane?.hard15mVeto===true,
       setup:String(plan.setup || old?.setup || ''),
       waitFor:String(plan.waitFor || old?.waitFor || ''),
       triggerLevelId:String(plan.triggerSpec?.triggerLevelId || plan.triggerLevelId || old?.triggerLevelId || ''),
@@ -760,7 +781,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     row.workerChecks=Number(row.workerChecks||0);
     row.workerVisionAvoided=Number(row.workerVisionAvoided||0);
     row.workerReason=detail;
-    row.workerSource='9TF_VISION_PLAN';
+    row.workerSource=row.tradeLaneName==='SCALP_MOMENTUM'?'SCALP_MOMENTUM_PLAN':'VISION_PLAN';
     row.workerRecheckTFs=[...new Set([row.originTF,row.ownerTF].map(x=>String(x||'').toLowerCase()).filter(x=>planWorkers.FRAMES.includes(x)))];
     leaderAnalysisState.bySymbol[key]=row;
     writeLeaderAnalysisState();
@@ -885,6 +906,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       router:{ok:router?.ok===true,model:router?.model||null,state:router?.state||null},
       openRouter:{called:Boolean(openRouter),ok:openRouter?.ok===true,model:openRouter?.model||null,state:openRouter?.state||null},
       numericTrigger:deterministic?.numericTrigger===true,
+      tradeLaneName:tracked.tradeLaneName||deterministic?.tradeLane?.name||null,
+      momentumStage:deterministic?.tradeLane?.stage||tracked.momentumStage||null,
+      scalpAlignedCount:Number(deterministic?.tradeLane?.lowerAlignedCount??tracked.scalpAlignedCount??0),
+      scalpReady:deterministic?.tradeLane?.scalpReady===true||tracked.scalpReady===true,
+      main15Ready:deterministic?.tradeLane?.main15Ready===true||tracked.main15Ready===true,
       triggerTF:tracked.triggerTF||null,
       triggerLevelId:tracked.triggerLevelId||null,
       triggerPrice:finite(tracked.triggerPrice),
@@ -2045,6 +2071,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     WORKER_NUMERIC_TRIGGER_CLOSED:'sayısal kapanış tetiği gerçekleşti; gölge hızlı doğrulama ve sonraki 9TF slotu bekleniyor',
     WORKER_NUMERIC_TRIGGER_FRAME_NOT_FRESH:'sayısal tetik zaman dilimi taze değil; tetik uygulanmadı',
     WORKER_NUMERIC_INVALIDATION_BREACHED:'sayısal invalidation seviyesi kapanışla bozuldu; plan yenilenmeli',
+    WORKER_SCALP_SECOND_CONFIRMATION_WAIT:'scalp hattında ikinci alt zaman dilimi teyidi veya 15m karşı-veto temizliği bekleniyor',
+    WORKER_SCALP_MOMENTUM_EXHAUSTED:'scalp momentumu alt zaman dilimlerinde tükendi veya 15m sert karşı-yapı oluştu',
+    SCALP_MULTI_TF_CONFIRMATION_REQUIRED:'1m/3m/5m tek başına final karar vermez; en az iki alt TF aynı yönde gerekli',
+    SCALP_15M_HARD_OPPOSITION:'15m ana bağlamı scalp yönüne sert karşı-veto veriyor',
+    MAIN_15M_CONFIRMATION_REQUIRED:'15m ana işlem hattı henüz kapanmış-mum/yapı teyidi üretmedi',
+    TRADE_LANE_NOT_READY:'ana 15m veya çoklu-TF scalp hattı henüz hazır değil',
     WORKER_SPREAD_ABOVE_8_BPS:'spread 8 bps üstünde; worker işlem tetiklemiyor',
     UNSTRUCTURED_COMMITTEE_OUTPUT:'model çıktısı beklenen plan şemasına uymadı',
     NO_FRESH_TIMEFRAME_CONTEXT:'taze zaman dilimi bağlamı yetersiz'
@@ -2165,6 +2197,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       triggerTF:String(plan.triggerTF || ''),
       invalidationLevelId:String(plan.invalidationLevelId || ''),
       triggerSpec:plan.triggerSpec || null,
+      tradeLane:plan.tradeLane || null,
       planWhy:String(plan.why || ''),
       planRisk:String(plan.riskNote || ''),
       waitFor:String(plan.waitFor || ''),
@@ -2415,6 +2448,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         symbol:String(candidate.symbol || ''),
         preJevStatus,
         planStatus,
+        tradeLaneName:String(advisory?.plan?.tradeLane?.name || advisory?.preJevPlan?.tradeLane?.name || ''),
+        momentumStage:String(advisory?.plan?.tradeLane?.stage || advisory?.preJevPlan?.tradeLane?.stage || ''),
+        scalpReady:advisory?.plan?.tradeLane?.scalpReady===true || advisory?.preJevPlan?.tradeLane?.scalpReady===true,
+        main15Ready:advisory?.plan?.tradeLane?.main15Ready===true || advisory?.preJevPlan?.tradeLane?.main15Ready===true,
         jevCalled:jevDecision?.called===true,
         jevVeto:jevDecision?.veto===true,
         jevReasons:Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons.slice(0,8):[],
