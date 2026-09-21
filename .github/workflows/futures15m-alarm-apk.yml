@@ -1,9 +1,10 @@
-name: Futures 15m Alarm v9.5.97 compile check
+name: Futures 15m Alarm v9.5.109 validation
 
 on:
   push:
     branches:
       - futures15m-alarm-public-build
+      - brainhub-v95109-signal-flow-hardening
   workflow_dispatch:
 
 permissions:
