@@ -376,3 +376,67 @@ test('runnerShare anahtarı yoksa v111 davranışı (ONE_THIRD) korunur', () => 
     assert.equal(v111.readConfig().runnerShare, 'TWO_THIRDS');
   } finally { process.env.BRAINHUB_ROOT = prev; v111.resetConfigCache(); fs.rmSync(root, { recursive:true, force:true }); }
 });
+
+test('pozisyonlar doluysa ajanlar dinlenir (Vision/hızlı hat/worker yok, Binance\'e emir yok); yer açılınca devam', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-v112-rest-'));
+  t.after(() => fs.rmSync(root, { recursive:true, force:true }));
+  setConfig(root, { deterministicTriggerMode:'BINDING' }, { scalpFastLane:'BINDING' });
+  const prevRoot = process.env.BRAINHUB_ROOT;
+  process.env.BRAINHUB_ROOT = root; require('../claude-v109').resetConfigCache(); v111.resetConfigCache();
+  t.after(() => { process.env.BRAINHUB_ROOT = prevRoot; require('../claude-v109').resetConfigCache(); v111.resetConfigCache(); });
+  fs.writeFileSync(path.join(root, 'config', 'leader-auto.json'), JSON.stringify({ enabled:true, marginQuote:30, leverage:10, maxOpenPositions:2, allowLong:true, allowShort:true }));
+  fs.writeFileSync(path.join(root, 'config', 'live-policy.json'), JSON.stringify({
+    armMinutes:1440, expectedLeverage:5, maxEntryDeviationPct:0.5,
+    limits:{ maxRiskPctPerTrade:0.5, maxNotionalPctPerTrade:10, maxDailyLossPct:100, maxOpenPositions:5, maxFamilyExposurePct:30 },
+    apiPermissions:{ configured:true, futuresEnabled:true, withdrawalsEnabled:false, ipRestricted:true }
+  }));
+  fs.mkdirSync(path.join(root, 'data'), { recursive:true });
+  let now = Date.now(), scans = 0, runs = 0;
+  let positions = [{ symbol:'AUSDT', positionAmt:'10' }, { symbol:'BUSDT', positionAmt:'-3' }];
+  const reply = body => ({ ok:true, status:200, async text() { return JSON.stringify(body); } });
+  const fetchImpl = async (url, options = {}) => {
+    const u = new URL(url);
+    assert.equal(options.method || 'GET', 'GET', 'dinlenirken Binance\'e yazma isteği gitmez');
+    if (u.pathname === '/fapi/v1/time') return reply({ serverTime:now });
+    if (u.pathname === '/fapi/v3/account') return reply({ totalWalletBalance:'146', totalMarginBalance:'146', availableBalance:'80', positions });
+    throw new Error('UNEXPECTED_' + u.pathname);
+  };
+  const journal = [];
+  const { createLiveController } = require('../live-controller');
+  const controller = createLiveController({
+    root, credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' }, fetchImpl, clock:() => now,
+    store:{ journal:(k, s, p) => { journal.push({ k, s, p }); return 'id'; }, latestJournal:() => null },
+    scanner:{ async scan() { scans++; return { leaders:[] }; } },
+    pipeline:{ async run() { runs++; return {}; } },
+    committee:async () => ({})
+  });
+  // Defter yoksa (hesap henüz okunmadı) dinlenilmez.
+  const pre = await controller.scalpFastLaneTick();
+  assert.notEqual(pre.reason, 'FAST_LANE_REST_POSITIONS_FULL');
+  const scansBefore = scans;
+  assert.equal((await controller.positionLedgerTick()).open, 2);
+  const fl = await controller.scalpFastLaneTick();
+  assert.equal(fl.reason, 'FAST_LANE_REST_POSITIONS_FULL', JSON.stringify(fl));
+  const lt = await controller.leaderAutoTick();
+  assert.equal(lt.execution, 'LEADER_AUTO_REST_POSITIONS_FULL', JSON.stringify(lt));
+  const wt = await controller.planWorkerTick();
+  assert.equal(wt.reason, 'PLAN_WORKER_REST_POSITIONS_FULL');
+  assert.equal(scans, scansBefore); assert.equal(runs, 0);
+  assert.ok(journal.some(x => x.k === 'CLAUDE_V112_POSITION_REST' && x.p.stage === 'START' && x.p.openPositions === 2 && x.p.maxOpenPositions === 2));
+  // Bir pozisyon kapandı → yer açıldı → bir sonraki turda devam.
+  positions = [{ symbol:'AUSDT', positionAmt:'10' }, { symbol:'BUSDT', positionAmt:'0' }];
+  now += 20000;
+  await controller.positionLedgerTick();
+  const fl2 = await controller.scalpFastLaneTick();
+  assert.notEqual(fl2.reason, 'FAST_LANE_REST_POSITIONS_FULL', JSON.stringify(fl2));
+  assert.equal(scans, scansBefore + 1, 'yer açılınca hızlı hat yeniden tarar');
+  assert.ok(journal.some(x => x.k === 'CLAUDE_V112_POSITION_REST' && x.p.stage === 'END'));
+  // Kural kapatılabilir.
+  fs.writeFileSync(path.join(root, 'config', 'claude-v111.json'), JSON.stringify({ scalpFastLane:'BINDING', restWhenPositionsFull:false }));
+  v111.resetConfigCache();
+  positions = [{ symbol:'AUSDT', positionAmt:'1' }, { symbol:'CUSDT', positionAmt:'2' }];
+  now += 20000;
+  await controller.positionLedgerTick();
+  const fl3 = await controller.scalpFastLaneTick();
+  assert.notEqual(fl3.reason, 'FAST_LANE_REST_POSITIONS_FULL');
+});

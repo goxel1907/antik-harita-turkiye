@@ -180,10 +180,10 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
-    if ([string]$h.featureVersion -ne '9.5.112-CLAUDE-VISION') { throw "Beklenen PC Brain Hub surumu 9.5.112-CLAUDE-VISION; gelen=$($h.featureVersion)" }
+    if ([string]$h.featureVersion -ne '9.5.113-CLAUDE-VISION') { throw "Beklenen PC Brain Hub surumu 9.5.113-CLAUDE-VISION; gelen=$($h.featureVersion)" }
     # CLAUDE_V112_UPDATER_FILESET: Claude v9.5.112 isaretleri dogrulanir.
-    foreach ($v112Feature in @('CLAUDE_V112_BUILD','CLAUDE_V112_SCALP_FAST_LANE','CLAUDE_V112_CONCURRENT_REVALIDATION','CLAUDE_V112_EXECUTION_LOCK_ONLY_AT_ORDER','CLAUDE_V112_RUNNER_TWO_THIRDS','CLAUDE_V112_BINANCE_V3_POSITION_FIX','CLAUDE_V112_UPDATER_FILESET')) {
-        if (-not ($h.features -contains $v112Feature)) { throw "v9.5.112-CLAUDE eksik feature: $v112Feature" }
+    foreach ($v112Feature in @('CLAUDE_V112_BUILD','CLAUDE_V112_SCALP_FAST_LANE','CLAUDE_V112_CONCURRENT_REVALIDATION','CLAUDE_V112_EXECUTION_LOCK_ONLY_AT_ORDER','CLAUDE_V112_RUNNER_TWO_THIRDS','CLAUDE_V112_BINANCE_V3_POSITION_FIX','CLAUDE_V112_UPDATER_FILESET','CLAUDE_V112_POSITION_SLOTS_REST','CLAUDE_V113_OUTCOME_LEDGER','CLAUDE_V113_POSITION_LEDGER','CLAUDE_V113_JEV_FULL_EVIDENCE','CLAUDE_V113_FAST_LANE_EXTENSION')) {
+        if (-not ($h.features -contains $v112Feature)) { throw "v9.5.113-CLAUDE eksik feature: $v112Feature" }
     }
     Write-Host ("CLAUDE_V112 marker={0} fastLane={1} runnerShare={2}" -f (Get-PropValue $h 'claudeV112Marker' ''),(Get-PropValue (Get-PropValue $h 'claudeV111Config' $null) 'scalpFastLane' ''),(Get-PropValue (Get-PropValue $h 'claudeV111Config' $null) 'runnerShare' ''))
     # CLAUDE_V111_UPDATER_FILESET: Claude v9.5.111 (ChatGPT v9.5.110 uzerine) isaretleri dogrulanir.
@@ -571,7 +571,7 @@ if ($Action -eq 'OpenRouterSetup') {
         softBudgetUsd = 0.25
         dailyCapUsd = 2.00
         timeoutMs = 30000
-        maxPayloadChars = 24000
+        maxPayloadChars = 48000
         reservePerCallUsd = 0.002
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jevPath -Encoding UTF8
     $candidate = ''

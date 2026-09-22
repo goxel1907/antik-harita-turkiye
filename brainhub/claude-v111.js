@@ -79,7 +79,13 @@ const DEFAULT_CONFIG = Object.freeze({
   fastLaneVetoCooldownMin: 30,
   fastLaneMaxJevPerHour: 20,
   // CLAUDE_V112_WORKER_SCALP_EVERY_TICK: 30 sn'de ek kontrol edilen alt-TF sayısal tetik planı sayısı.
-  workerScalpPerTick: 3
+  workerScalpPerTick: 3,
+  // CLAUDE_V112_POSITION_SLOTS_REST (kullanıcı kuralı): panel max pozisyon doluysa yeni giriş analizi
+  // (Vision, hızlı hat/Jev, plan worker) dinlenir; açık pozisyon yönetimi sürer; yer açılınca devam.
+  restWhenPositionsFull: true,
+  // CLAUDE_V113_FAST_LANE_EXTENSION: hızlı hat, işlem yönünde son ~5 saatlik (1h×5) getiri bu yüzdeyi
+  // aşmışsa girmez (geç giriş). 0 = kapalı. 22 Eyl: kaybedenler +5..+19% uzamış harekette girildi.
+  fastLaneMaxExtensionPct: 4
 });
 
 let cache = { at:0, file:null, value:DEFAULT_CONFIG };
@@ -111,7 +117,9 @@ function readConfig(now = Date.now()) {
     fastLaneSymbolCooldownMin: num(raw.fastLaneSymbolCooldownMin, DEFAULT_CONFIG.fastLaneSymbolCooldownMin, 1, 60),
     fastLaneVetoCooldownMin: num(raw.fastLaneVetoCooldownMin, DEFAULT_CONFIG.fastLaneVetoCooldownMin, 5, 240),
     fastLaneMaxJevPerHour: Math.round(num(raw.fastLaneMaxJevPerHour, DEFAULT_CONFIG.fastLaneMaxJevPerHour, 1, 120)),
-    workerScalpPerTick: Math.round(num(raw.workerScalpPerTick, DEFAULT_CONFIG.workerScalpPerTick, 0, 6))
+    workerScalpPerTick: Math.round(num(raw.workerScalpPerTick, DEFAULT_CONFIG.workerScalpPerTick, 0, 6)),
+    restWhenPositionsFull: raw.restWhenPositionsFull === undefined ? DEFAULT_CONFIG.restWhenPositionsFull : raw.restWhenPositionsFull === true,
+    fastLaneMaxExtensionPct: num(raw.fastLaneMaxExtensionPct, DEFAULT_CONFIG.fastLaneMaxExtensionPct, 0, 50)
   });
   cache = { at:now, file, value };
   return value;

@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.111 + PC v9.5.112-CLAUDE (Claude)
+    name: Futures 15m Alarm PRO APK v9.5.113-CLAUDE + PC v9.5.113-CLAUDE (Claude)
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -24,7 +24,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.111 Claude multilane Turkish source
+      - name: Prepare Futures Alarm v9.5.113 Claude multilane Turkish source
         script: |
           set -euo pipefail
           trap 'rc=$?; echo "PREPARE_V110_FAILED rc=$rc line=$LINENO command=$BASH_COMMAND"; exit $rc' ERR
@@ -99,7 +99,9 @@ workflows:
           # MainActivity migration to look for the old v9.5.78 anchor again.
           # v9597 still runs after the internal v9577 -> v9579 chain completes.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9597_auto_chat_review.py"
-          echo 'V110_ANDROID_PATCH_CHAIN_OK v9577->v9579->v9597'
+          # CLAUDE_V113 (Claude, Anthropic): Android PC LIVE truth; must run LAST (anchors come from v9579/v9597).
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95113_claude_live_truth.py"
+          echo 'V110_ANDROID_PATCH_CHAIN_OK v9577->v9579->v9597->v95113'
 
           APP=/tmp/futures15m-build/Futures15mAlarm
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
@@ -170,8 +172,8 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.111'" "$BUILD"
-          grep -q 'versionCode 26092106' "$BUILD"
+          grep -q "versionName '9.5.113'" "$BUILD"
+          grep -q 'versionCode 26092201' "$BUILD"
           grep -q "CLAUDE_V109_BUILD" "$CM_BUILD_DIR/brainhub/claude-v109.js"
           grep -q "9.5.110-VISION" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "'claude-v109.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
@@ -187,8 +189,16 @@ workflows:
           grep -q "SCALP_MOMENTUM" "$CM_BUILD_DIR/brainhub/trade-lanes.js"
           grep -q "640" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "896" "$CM_BUILD_DIR/brainhub/v110.js"
-          grep -q "versionName '9.5.111'" "$BUILD"
-          grep -q 'versionCode 26092106' "$BUILD"
+          grep -q "versionName '9.5.113'" "$BUILD"
+          grep -q 'versionCode 26092201' "$BUILD"
+          # CLAUDE_V113 (Claude, Anthropic): Android PC LIVE gercegi, dogrulanan ACIL DURDUR, salt-okunur PC pozisyonlari.
+          grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
+          grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
+          grep -q 'v95113StopAndVerify("ANDROID_EMERGENCY_STOP"' "$MAIN"
+          grep -q 'v9.5.113-CLAUDE' "$MAIN"
+          grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
+          grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
+          echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
           # CLAUDE_V111 (Claude, Anthropic): PC ve gorunen Android surum kimligi v9.5.111 ile esitlendi; v110 islem tabani korunur.
           grep -q "CLAUDE_V111_BUILD" "$CM_BUILD_DIR/brainhub/claude-v111.js"
           grep -q "CLAUDE_V111_TRIGGER_REVALIDATION" "$CM_BUILD_DIR/brainhub/claude-v111.js"
@@ -203,7 +213,18 @@ workflows:
           grep -q "CLAUDE_V112_BINANCE_V3_POSITION_FIX" "$CM_BUILD_DIR/brainhub/binance-live-transport.js"
           grep -q "/fapi/v1/symbolConfig" "$CM_BUILD_DIR/brainhub/binance-live-transport.js"
           echo 'CLAUDE_V112_PC_OK'
-          echo 'V95111_CLAUDE_ANDROID_IDENTITY_OK'
+          # CLAUDE_V113 (Claude, Anthropic): sonuç defteri, pozisyon ekranı, Jev tam kanıt, uzama filtresi.
+          grep -q "CLAUDE_V113_OUTCOME_LEDGER" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q "positionLedgerTick" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "/live/positions" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "extended_entry" "$CM_BUILD_DIR/brainhub/jev-decision.js"
+          grep -q "fibLevels" "$CM_BUILD_DIR/brainhub/engine.js"
+          grep -q "orderBlocks" "$CM_BUILD_DIR/brainhub/engine.js"
+          grep -q "FL_EXTENDED_CHASE_1H" "$CM_BUILD_DIR/brainhub/claude-v112.js"
+          grep -q "9.5.113-CLAUDE-VISION" "$CM_BUILD_DIR/brainhub/claude-v112.js"
+          grep -q "CLAUDE_V112_POSITION_SLOTS_REST" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          echo 'CLAUDE_V113_PC_OK'
+          echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
 
       - name: Set Android SDK location
@@ -375,7 +396,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.111 signed APK
+      - name: Build installable v9.5.113 signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -421,9 +442,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.111.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.113.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.111.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.113.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -434,5 +455,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.111.apk
+      - Futures15mAlarm-PRO-v9.5.113.apk
       - v9595-gradle.log

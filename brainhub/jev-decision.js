@@ -28,7 +28,11 @@ const CHECKS = [
   ['microstructure_reliability','microstructureReliability','JEV_MICROSTRUCTURE_UNRELIABLE','Mikro yapı kanıtı yanlış kullanılmış','The plan treats stale/partial depth, sampled CVD, proxy OFI or observed liquidations as reliable proof; correlated measures must stay one soft family.'],
   ['closed_candle_confirmation','closedCandleConfirmation','JEV_CLOSED_CONFIRMATION_MISSING','Kapanmış mum teyidi eksik','Required closed-candle breakout/reclaim/body-wick confirmation is absent in the supplied evidence.'],
   ['visual_data_consistency','visualDataConsistency','JEV_VISUAL_DATA_CONFLICT','Grafik-veri çelişkisi','Text extracted from the actual charts conflicts with deterministic candle/price evidence. You cannot see PNGs; missing visual evidence must not be invented.'],
-  ['wait_required','waitRequired','JEV_WAIT_REQUIRED','Bekleme koşulu tamamlanmamış','A stated setup-specific wait/reclaim/invalidation condition remains unresolved, so QUALIFIED should wait.']
+  ['wait_required','waitRequired','JEV_WAIT_REQUIRED','Bekleme koşulu tamamlanmamış','A stated setup-specific wait/reclaim/invalidation condition remains unresolved, so QUALIFIED should wait.'],
+  // CLAUDE_V113: 22 Eyl canlı sonuçları — kaybedenler uzamış hareketin sonunda (4 saatte +5..+9%) girildi.
+  ['extended_entry','extendedEntry','JEV_EXTENDED_LATE_ENTRY','Hareket uzamış / geç giriş','The move in the proposed direction is already extended: large supplied 1h/4h return in trade direction, price far from EMA20 in ATR units, RSI stretched, premium (for LONG) or discount (for SHORT) of the dealing range, or next liquidity/fib extension already reached. Entering now is chasing.'],
+  ['poor_risk_geometry','poorRiskGeometry','JEV_POOR_RISK_GEOMETRY','Risk geometrisi zayıf','Supplied stop distance is wide versus trigger-timeframe ATR or the first target (1R) is blocked by nearby opposing liquidity, order block, FVG or fib level before it can be reached.'],
+  ['negative_track_record','negativeTrackRecord','JEV_NEGATIVE_TRACK_RECORD','Geçmiş sonuçlar olumsuz','Supplied measured outcomes (learning stats / recent closed trades) for this same setup, side or symbol are materially negative, and nothing in the current evidence differs from those losing cases.']
 ];
 const FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const EXIT_CHECKS=[
@@ -113,6 +117,27 @@ function noulProbability(answer){
   }
   return null;
 }
+// CLAUDE_V113_JEV_FULL_EVIDENCE: kanıt tam ama tekrarsız (48k sınırı aşılırsa Jev veto sayılır).
+function compactSwing(s){
+  if(!s||typeof s!=='object')return null;
+  return {state:s.state||null,highSequence:s.highSequence||null,lowSequence:s.lowSequence||null,event:s.event||null,
+    lastSwingHigh:s.lastConfirmedSwingHigh?.price??null,lastSwingLow:s.lastConfirmedSwingLow?.price??null};
+}
+function compactOrderBlocks(ob){
+  if(!ob||typeof ob!=='object')return null;
+  const pick=list=>{const a=(Array.isArray(list)?list:[]);const x=a.find(o=>o&&o.broken!==true)||null;
+    return x?{low:x.low??null,high:x.high??null,mitigated:x.mitigated===true,distancePct:x.distancePct??null}:null;};
+  return {bullish:pick(ob.bullish),bearish:pick(ob.bearish)};
+}
+function compactSmc(m){
+  if(!m||typeof m!=='object')return null;
+  // Tekrar/boilerplate atılır (FVG zaten liquidity.fairValueGaps'te; not/semantics her TF'de aynı); diğer alanlar korunur.
+  const {fairValueGaps,note,semantics,source,oteReference,fibLevels,...rest}=m;
+  const fib=fibLevels||null;
+  if(fib)rest.fib={leg:fib.leg||null,r382:fib.retracement?.['0.382']??null,r5:fib.retracement?.['0.5']??null,r618:fib.retracement?.['0.618']??null,
+    r786:fib.retracement?.['0.786']??null,x1272:fib.extension?.['1.272']??null,x1618:fib.extension?.['1.618']??null,pricePositionPct:fib.pricePositionPct??null};
+  return rest;
+}
 function compactDecisionRecord({candidate,plan,unified},maxChars){
   const frames={};
   for(const tf of ['1m','3m','5m','15m','30m','45m','1h','4h','1d']){
@@ -120,7 +145,12 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
     const f=unified?.frames?.[tf]||{};
     frames[tf]={
       available:f.available===true, asOf:f.asOf||null, summary:String(d.summary||'').slice(0,240),
-      candle:f.candle||null, patterns:f.patterns||[], smcContext:f.smcContext||null, liquidity:f.liquidity||null,
+      // CLAUDE_V113_JEV_FULL_EVIDENCE: fiyat/ortalama/momentum, swing yapısı (HH/HL, BOS/CHoCH), Fibonacci,
+      // FVG, order block, likidite (eşit tepe/dip, sweep) — hepsi kapanmış mumdan deterministik.
+      close:f.close??null, ema20:f.ema20??null, ema50:f.ema50??null, rsi14:f.rsi14??null, atrPct:f.atrPct??null,
+      returnPct:f.returnPct??null, prior20High:f.prior20High??null, prior20Low:f.prior20Low??null,
+      swing:compactSwing(f.swingStructure), orderBlocks:compactOrderBlocks(f.orderBlocks),
+      candle:f.candle||null, patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[], smcContext:compactSmc(f.smcContext), liquidity:f.liquidity||null,
       role:d.role||null,
       why:String(d.why||'').slice(0,240),
       waitFor:String(d.waitFor||'').slice(0,180),
@@ -163,8 +193,22 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
       blockingVetoTFs:Array.isArray(plan?.blockingVetoTFs)?plan.blockingVetoTFs:[],
       contextualVetoTFs:Array.isArray(plan?.contextualVetoTFs)?plan.contextualVetoTFs:[],
       requiresJevTfReview:plan?.requiresJevTfReview===true,
-      visionSummary:String(plan?.visionSummary||'').slice(0,600)
+      visionSummary:String(plan?.visionSummary||'').slice(0,600),
+      // CLAUDE_V113: hızlı hat giriş metrikleri (uzama, stop/risk geometrisi, kovalama) — Jev'in geç giriş ve
+      // risk geometrisi sorularına kanıt.
+      fastLane:plan?.claudeFastLane?{
+        triggerTF:plan.claudeFastLane.tf||plan.triggerTF||null,
+        livePrice:plan.claudeFastLane.livePrice??null,
+        triggerLevel:plan.claudeFastLane.level??null,
+        invalidation:plan.claudeFastLane.invalidation??null,
+        momentumTags:Array.isArray(plan.claudeFastLane.momentum?.tags)?plan.claudeFastLane.momentum.tags.slice(0,8):[],
+        chase:plan.claudeFastLane.chase||null,
+        extension:plan.claudeFastLane.extension||null,
+        riskGeometry:plan.claudeFastLane.riskGeometry||null
+      }:null
     },
+    // CLAUDE_V113: aynı coinde son tam 9TF görsel analiz (grafik okuması) — hızlı hatta da Jev görür.
+    lastVisionAnalysis:unified?.lastVisionAnalysis||null,
     frames,
     dataQuality:unified?.dataQuality||null,
     opportunityPaths:unified?.opportunityPaths||null,
@@ -185,7 +229,22 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
     policy:unified?.policy||null,
     execution:'ADVISORY_ONLY'
   };
-  const raw=JSON.stringify(record);
+  // CLAUDE_V113: sınır aşılırsa veto yerine kademeli küçült (önce en az kritik kanıt).
+  const steps=[
+    r=>{if(r.lastVisionAnalysis)r.lastVisionAnalysis={...r.lastVisionAnalysis,frames:undefined};},
+    r=>{if(r.learning&&typeof r.learning==='object')r.learning={...r.learning,recent:Array.isArray(r.learning.recent)?r.learning.recent.slice(0,5):r.learning.recent};},
+    r=>{for(const f of Object.values(r.frames||{})){for(const k of ['summary','why','waitFor','formingContext','risk'])if(typeof f[k]==='string')f[k]=f[k].slice(0,90);}},
+    r=>{delete r.lastVisionAnalysis;},
+    r=>{for(const f of Object.values(r.frames||{}))f.patterns=Array.isArray(f.patterns)?f.patterns.slice(-1):[];},
+    r=>{if(r.learning&&typeof r.learning==='object')r.learning={source:r.learning.source,stats:Array.isArray(r.learning.stats)?r.learning.stats.slice(0,8):[]};}
+  ];
+  let raw=JSON.stringify(record);
+  for(const step of steps){
+    if(raw.length<=maxChars)break;
+    step(record);
+    record.evidenceTrimmed=true;
+    raw=JSON.stringify(record);
+  }
   if(raw.length>maxChars)throw new Error('JEV_EVIDENCE_PAYLOAD_TOO_LARGE');
   return raw;
 }
@@ -400,7 +459,13 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const timeframeConflicts=Object.fromEntries(FRAMES.map(tf=>[tf,noulProbability(answers['conflict_'+tf])]));
     const missing=Object.entries({...probabilities,...timeframeConflicts}).filter(([,v])=>v===null).map(([k])=>k);
     if(missing.length)return {ok:false,configured:true,required:true,called:true,veto:true,reason:'JEV_DECISION_SCHEMA_MISMATCH',missing,probabilities,timeframeConflicts,budget:out.budget,costUsd:out.costUsd,mode:cfg.mode};
-    const failed=CHECKS.filter(([,key])=>probabilities[key]>=(key==='formingDependency'?0.70:0.65));
+    let failed=CHECKS.filter(([,key])=>probabilities[key]>=(key==='formingDependency'?0.70:0.65));
+    // CLAUDE_V113: "geçmiş sonuçlar olumsuz" yalnız aynı setup+yönde ≥5 ölçülmüş kapanış varsa bağlayıcı
+    // (az örnekle setup kalıcı kilitlenmesin).
+    const trackSamples=(Array.isArray(unified?.learning?.stats)?unified.learning.stats:[])
+      .filter(x=>String(x?.side||'').toUpperCase()===String(plan?.side||'').toUpperCase()&&String(x?.setup||'')===String(plan?.setup||''))
+      .reduce((a,x)=>a+(Number(x?.samples)||0),0);
+    if(trackSamples<5)failed=failed.filter(([,key])=>key!=='negativeTrackRecord');
     const conflictingTFs=FRAMES.filter(tf=>timeframeConflicts[tf]>=0.65);
     const vetoReasons=failed.map(([, ,reason])=>reason);
     if(conflictingTFs.length&&!vetoReasons.includes('JEV_TF_CONFLICT'))vetoReasons.push('JEV_TF_CONFLICT');

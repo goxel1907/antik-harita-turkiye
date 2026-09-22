@@ -440,7 +440,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         fastLaneJevCalled:analyses.filter(x=>x.claudeFastLane&&x.jevCalled===true).length,
         fastLaneJevApproved:analyses.filter(x=>x.claudeFastLane&&x.jevCalled===true&&x.jevVeto!==true).length,
         concurrentRevalidations:analyses.filter(x=>x.claudeFastLane==='REVALIDATION').length,
-        fastLane:fastLaneSummary()
+        fastLane:fastLaneSummary(),
+        positionRest:positionRestStatus()
       },
       jevShadowWouldVeto:analyses.filter(x=>x.jevShadowWouldVeto===true).length,
       jevShadowReasonCounts:(()=>{
@@ -632,7 +633,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const last=Number(row.lastAnalyzedAt || row.detectedAt || 0);
         return !last || !Number.isFinite(now) || now-last <= LEADER_ANALYSIS_RETENTION_MS || row.state === 'ACTIVE';
       })
-      .sort((a,b) => Number(b[1].lastAnalyzedAt || b[1].detectedAt || 0) - Number(a[1].lastAnalyzedAt || a[1].detectedAt || 0))
+      // CLAUDE_V113: açık (ACTIVE) pozisyon satırları kapasite sınırında asla düşmez (sonuç defteri).
+      .sort((a,b) => (Number(b[1].state === 'ACTIVE') - Number(a[1].state === 'ACTIVE')) ||
+        (Number(b[1].lastAnalyzedAt || b[1].detectedAt || 0) - Number(a[1].lastAnalyzedAt || a[1].detectedAt || 0)))
       .slice(0,LEADER_ANALYSIS_MAX_TRACKS);
     leaderAnalysisState.bySymbol=Object.fromEntries(rows);
     leaderAnalysisState.updatedAt=Number.isFinite(now) ? now : Date.now();
@@ -827,6 +830,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       previousSetupId:sideChanged && old?.setupId ? old.setupId : (old?.previousSetupId || null),
       lastDetail:detail ? String(detail).slice(0,240) : null
     };
+    // CLAUDE_V113_OUTCOME_LEDGER: açık pozisyonun yürütme alanları yeniden analizde silinmez (sonuç/R hesabı).
+    if (oldState === 'ACTIVE' && old) {
+      for (const k of ['entryPrice','quantity','stopPrice','takeProfit1','takeProfit2','takeProfit3','activeAt','entryOrderAt','entryContext','lastPositionReview','closeMissCount','closeDetectedAt'])
+        if (old[k] !== undefined && row[k] === undefined) row[k]=old[k];
+    }
     if (!leaderAnalysisState.bySymbol || typeof leaderAnalysisState.bySymbol !== 'object') leaderAnalysisState.bySymbol={};
     leaderAnalysisState.bySymbol[symbol]=row;
     writeLeaderAnalysisState();
@@ -1036,6 +1044,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(planWorkerBusy)return {ok:true,skipped:true,reason:'PLAN_WORKER_BUSY'};
     const cfg=readLeaderAutoConfig();
     if(!cfg.ok||cfg.config?.enabled!==true)return {ok:true,skipped:true,reason:'PLAN_WORKER_AUTO_DISABLED'};
+    if(await positionSlotsFull(cfg.config.maxOpenPositions))return {ok:true,skipped:true,reason:'PLAN_WORKER_REST_POSITIONS_FULL'};
     const rows=Object.values(leaderAnalysisState.bySymbol||{})
       .filter(workerEligible)
       .sort((a,b)=>Number(a.lastWorkerCheckAt||0)-Number(b.lastWorkerCheckAt||0));
@@ -1165,10 +1174,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function exchangeOpenPositions() {
     const creds=currentCredentials();
     if(!credentialsReady(creds))return {ok:false,positions:[],reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    const snapshotStartedAt=clock();
+    const valid=x=>x&&/^[A-Z0-9]{1,28}USDT$/.test(x.symbol);
     try{
       await transport._syncServerTime();
-      const account=await transport._fetchJson('GET','/fapi/v3/account',{credentials:creds,signed:true});
-      const rows=Array.isArray(account?.positions)?account.positions:[];
+      // CLAUDE_V113: /fapi/v3/account pozisyonlarında giriş/mark/likidasyon fiyatı YOK; /fapi/v3/positionRisk
+      // (sembolsüz) açık pozisyonları bu alanlarla döndürür. Hata olursa hesap uç noktasına düşülür.
+      let rows=null, source='POSITION_RISK_V3';
+      try{rows=await transport._fetchJson('GET','/fapi/v3/positionRisk',{credentials:creds,signed:true});}catch{rows=null;}
+      if(!Array.isArray(rows)){
+        const account=await transport._fetchJson('GET','/fapi/v3/account',{credentials:creds,signed:true});
+        if(!Array.isArray(account?.positions))return {ok:false,positions:[],reason:'BINANCE_POSITIONS_FIELD_MISSING',snapshotStartedAt};
+        rows=account.positions; source='ACCOUNT_V3';
+      }
       const positions=rows.map(x=>{
         const amt=finite(x?.positionAmt);
         if(amt===null||Math.abs(amt)<=0)return null;
@@ -1179,50 +1197,172 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           signedQuantity:amt,
           entryPrice:finite(x?.entryPrice),
           markPrice:finite(x?.markPrice),
-          unrealizedPnl:finite(x?.unrealizedProfit)??0,
+          unrealizedPnl:finite(x?.unRealizedProfit??x?.unrealizedProfit)??0,
           leverage:finite(x?.leverage),
           notional:finite(x?.notional),
           liquidationPrice:finite(x?.liquidationPrice)
         };
-      }).filter(x=>x&&/^[A-Z0-9]{1,28}USDT$/.test(x.symbol));
-      return {ok:true,positions};
+      }).filter(valid);
+      return {ok:true,positions,source,snapshotStartedAt};
     }catch(e){
-      return {ok:false,positions:[],reason:'BINANCE_ACTIVE_POSITIONS_UNAVAILABLE',detail:String(e?.message||e).slice(0,180)};
+      return {ok:false,positions:[],reason:'BINANCE_ACTIVE_POSITIONS_UNAVAILABLE',detail:String(e?.message||e).slice(0,180),snapshotStartedAt};
     }
   }
 
-  async function finalizeClosedActiveRows(openPositions) {
+  // CLAUDE_V113_OUTCOME_LEDGER: kapanan her işlemin gerçek sonucu (Binance income: REALIZED_PNL +
+  // COMMISSION + FUNDING_FEE), R çarpanı, çıkış türü ve GİRİŞ NEDENİ beyne (learning_events) ve
+  // journal POSITION_CLOSED'a yazılır. Önceden bu adım yalnız Vision boştayken çalışan pozisyon
+  // incelemesinin içindeydi ve Vision neredeyse hiç boş olmadığı için hiç çalışmıyordu (12 işlem, 0 sonuç).
+  // Tek sahip: positionLedgerTick (tek uçuş). Kapanış = sembol ardışık 2 anlıkta yok; gelir okunamazsa
+  // satır ACTIVE kalır ve ≤10 dk yeniden denenir.
+  function runnerForRow(row,symbol){
+    const r=runnerState.bySymbol?.[symbol]||null;
+    if(!r)return null;
+    const a=Number(row?.activeAt||0), c=Number(r.createdAt||0);
+    return a>0&&c>0&&Math.abs(c-a)<=180000?r:null;
+  }
+  function classifyExit({ runner, netPnl, riskQuote }) {
+    const events = Array.isArray(runner?.events) ? runner.events : [];
+    const tp1Reached = Number(runner?.tp1ReachedAt||0)>0 || events.some(e => e?.kind === 'PHASE' && ['TRAILING','BREAKEVEN'].includes(String(e?.to || '').toUpperCase()));
+    const trailMoves = Math.max(Number(runner?.stopMoveCount||0), events.filter(e => e?.kind === 'STOP_MOVED').length);
+    if (tp1Reached) return netPnl !== null && netPnl > 0 ? (trailMoves > 1 ? 'TP1_RUNNER_TRAIL' : 'TP1_BREAKEVEN') : 'TP1_THEN_STOP';
+    if (netPnl !== null && riskQuote && riskQuote > 0 && netPnl <= -0.7 * riskQuote) return 'STOP_LOSS';
+    if (netPnl !== null && riskQuote && riskQuote > 0 && netPnl >= 0.9 * riskQuote) return 'TAKE_PROFIT';
+    return 'OTHER_CLOSE';
+  }
+  async function positionIncome(symbol, startTime, endTime, creds) {
+    try {
+      await transport._syncServerTime();
+      const income = await transport._fetchJson('GET', '/fapi/v1/income', {
+        params:{ symbol, startTime:Math.max(0, Math.floor(Number(startTime) || 0)), endTime:Math.floor(Number(endTime) || clock()), limit:1000 }, credentials:creds, signed:true
+      });
+      if (!Array.isArray(income) || income.length >= 1000) return null;
+      const sum = t => income.filter(x => String(x?.incomeType || '') === t).reduce((a, x) => a + (finite(x?.income) || 0), 0);
+      const realized = sum('REALIZED_PNL'), commission = sum('COMMISSION'), funding = sum('FUNDING_FEE');
+      return { realized, commission, funding, net:realized + commission + funding, rows:income.length };
+    } catch { return null; }
+  }
+  async function finalizeClosedActiveRows(openPositions, { snapshotStartedAt = clock() } = {}) {
     const openSet=new Set((openPositions||[]).map(x=>x.symbol));
     const creds=currentCredentials();
-    if(!credentialsReady(creds))return;
+    if(!credentialsReady(creds))return [];
+    const finalized=[];
     for(const [symbol,row] of Object.entries(leaderAnalysisState.bySymbol||{})){
-      if(!row||String(row.state||'').toUpperCase()!=='ACTIVE'||openSet.has(symbol))continue;
-      let realizedPnl=null;
-      try{
-        await transport._syncServerTime();
-        const income=await transport._fetchJson('GET','/fapi/v1/income',{
-          params:{symbol,incomeType:'REALIZED_PNL',startTime:Math.max(0,Number(row.lastStateChangeAt||row.detectedAt||0)),limit:1000},
-          credentials:creds,signed:true
-        });
-        if(Array.isArray(income)&&income.length<1000)realizedPnl=income.reduce((sum,x)=>sum+(finite(x?.income)||0),0);
-      }catch{}
-      const entry=finite(row.entryPrice),qty=finite(row.quantity);
+      if(!row||String(row.state||'').toUpperCase()!=='ACTIVE')continue;
+      if(openSet.has(symbol)){ if(row.closeMissCount){row.closeMissCount=0;row.closeDetectedAt=null;} continue; }
+      // Anlık görüntü alındıktan sonra/çok yakın açılan pozisyon "kapandı" sayılmaz.
+      if(Number(row.activeAt||0)>=Number(snapshotStartedAt)-5000)continue;
+      row.closeMissCount=Number(row.closeMissCount||0)+1;
+      if(!row.closeDetectedAt)row.closeDetectedAt=clock();
+      if(row.closeMissCount<2)continue;
+      const activeAt=Number(row.activeAt||0);
+      const entryAt=Number(row.entryOrderAt||0)||activeAt;
+      const startTs=Math.max(0,entryAt>0?entryAt-(row.entryOrderAt?2000:60000):Number(row.lastStateChangeAt||row.detectedAt||0));
+      const inc=await positionIncome(symbol,startTs,clock(),creds);
+      // Bekleme sırasında satır değişti mi (yeniden giriş / başka tur)? Değiştiyse bu turda dokunma.
+      if(leaderAnalysisState.bySymbol?.[symbol]!==row||String(row.state||'').toUpperCase()!=='ACTIVE'||Number(row.activeAt||0)!==activeAt)continue;
+      if(!inc&&clock()-Number(row.closeDetectedAt||clock())<10*60000)continue; // gelir okunamadı: 10 dk'ya kadar yeniden dene
+      const realizedPnl=inc?inc.realized:null;
+      const netPnl=inc?inc.net:null;
+      const entry=finite(row.entryPrice),qty=finite(row.quantity),stop=finite(row.stopPrice);
       const base=entry!==null&&qty!==null?Math.abs(entry*qty):null;
-      const outcomePct=realizedPnl!==null&&base&&base>0?realizedPnl/base*100:null;
+      const riskQuote=entry!==null&&qty!==null&&stop!==null?Math.abs(entry-stop)*Math.abs(qty):null;
+      const outcomePct=netPnl!==null&&base&&base>0?netPnl/base*100:null;
+      const rMultiple=netPnl!==null&&riskQuote&&riskQuote>0?netPnl/riskQuote:null;
+      const runner=runnerForRow(row,symbol);
+      const exitType=classifyExit({runner,netPnl,riskQuote});
+      const closedAt=clock();
+      const holdMinutes=activeAt>0?Math.round((closedAt-activeAt)/60000):null;
       const prev=row.state;
       row.state='CLOSED';
       row.reanalysisEligible=false;
       row.executionEligibleNow=false;
-      row.closedAt=clock();
+      row.closedAt=closedAt;
       row.realizedPnl=realizedPnl;
+      row.netPnl=netPnl;
       row.outcomePct=outcomePct;
+      row.rMultiple=rMultiple;
+      row.exitType=exitType;
       row.lastDetail='BINANCE_POSITION_CLOSED';
       leaderAnalysisState.bySymbol[symbol]=row;
       writeLeaderAnalysisState();
       journalLeaderLifecycle(symbol,prev,'CLOSED',row,'BINANCE_POSITION_CLOSED');
-      try{store.journal('POSITION_CLOSED',symbol,{side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,entryPrice:row.entryPrice,quantity:row.quantity,realizedPnl,outcomePct});}catch{}
-      try{store.recordLearning?.('POSITION_CLOSED',symbol,{side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,decision:'CLOSED',outcomePct,realizedPnl});}catch{}
+      const record={
+        side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,tradeLane:row.tradeLaneName||row.entryContext?.lane||null,
+        entryPrice:entry,stopPrice:stop,takeProfit1:finite(row.takeProfit1),quantity:qty,notional:base,riskQuote,
+        realizedPnl,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,outcomePct,rMultiple,exitType,
+        openedAt:activeAt>0?new Date(activeAt).toISOString():null,closedAt:new Date(closedAt).toISOString(),holdMinutes,
+        runner:runner?{phase:runner.phase,tpPlaced:runner.tpPlaced,stopMoves:Math.max(Number(runner.stopMoveCount||0),(runner.events||[]).filter(e=>e?.kind==='STOP_MOVED').length)}:null,
+        entryContext:row.entryContext||null,
+        incomeAvailable:inc!==null
+      };
+      try{store.journal('POSITION_CLOSED',symbol,record);}catch{}
+      try{store.recordLearning?.('POSITION_CLOSED',symbol,{...record,decision:'CLOSED_'+exitType});}catch{}
+      // Stop olan coine hızlı hat hemen geri girmesin (intikam işlemi yok): veto soğuması kadar.
+      if(exitType==='STOP_LOSS'||exitType==='TP1_THEN_STOP'){
+        try{fastLaneSeen.set('VETO|'+symbol,closedAt+claudeV111.readConfig().fastLaneVetoCooldownMin*60000);}catch{}
+      }
+      leaderHealthEvent('POSITION_CLOSED',{symbol,side:row.side,netPnl,rMultiple,exitType});
+      finalized.push({symbol,...record});
     }
+    return finalized;
+  }
+
+  // CLAUDE_V113_POSITION_LEDGER: Vision/Leader meşguliyetinden BAĞIMSIZ, 30 sn'de bir: Binance açık
+  // pozisyonları (Office/uygulama için) + kapananların sonuç kaydı. Emir göndermez.
+  let ledgerBusy=false;
+  let ledgerState={at:null,ok:false,error:null,open:[],lastFinalized:[],source:null};
+  async function positionLedgerTick(){
+    if(ledgerBusy)return {ok:true,skipped:true,reason:'LEDGER_BUSY'};
+    ledgerBusy=true;
+    try{
+      const open=await exchangeOpenPositions();
+      const at=new Date(clock()).toISOString();
+      if(!open.ok){ledgerState={...ledgerState,at,ok:false,error:open.reason};return {ok:false,reason:open.reason};}
+      const finalized=await finalizeClosedActiveRows(open.positions,{snapshotStartedAt:open.snapshotStartedAt});
+      ledgerState={at,ok:true,error:null,open:open.positions,source:open.source||null,lastFinalized:finalized.length?finalized:ledgerState.lastFinalized};
+      return {ok:true,open:open.positions.length,finalized:finalized.length};
+    }catch(e){
+      ledgerState={...ledgerState,ok:false,error:String(e?.message||e).slice(0,160)};
+      return {ok:false,reason:ledgerState.error};
+    }finally{ledgerBusy=false;}
+  }
+  function positionsStatus({ closedLimit = 40 } = {}){
+    const lifecycle=leaderAnalysisState.bySymbol||{};
+    const open=(ledgerState.open||[]).map(p=>{
+      const row=lifecycle[p.symbol]||{};
+      const rr=runnerState.bySymbol?.[p.symbol]||null;
+      const entry=finite(p.entryPrice),mark=finite(p.markPrice),qty=finite(p.quantity);
+      const stop=finite(rr&&rr.phase!=='CLOSED'?rr.currentStop:null)??finite(row.stopPrice);
+      const firstStop=finite(row.stopPrice)??stop;
+      const riskQuote=entry!==null&&firstStop!==null&&qty!==null?Math.abs(entry-firstStop)*qty:null;
+      const own=String(row.state||'').toUpperCase()==='ACTIVE';
+      return {
+        symbol:p.symbol,side:p.side,quantity:qty,entryPrice:entry,markPrice:mark,unrealizedPnl:finite(p.unrealizedPnl),
+        unrealizedR:riskQuote&&riskQuote>0&&finite(p.unrealizedPnl)!==null?Number((p.unrealizedPnl/riskQuote).toFixed(2)):null,
+        leverage:finite(p.leverage),notional:finite(p.notional),liquidationPrice:finite(p.liquidationPrice),
+        stopPrice:stop,originalStopPrice:finite(row.stopPrice),takeProfit1:finite(row.takeProfit1),
+        runnerPhase:rr&&rr.phase!=='CLOSED'?rr.phase:null,trailTf:rr?.lastDesired?.trail?.tf||null,
+        openedBy:own?'BRAINHUB_AUTO':'EXTERNAL',openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():null,
+        lane:row.tradeLaneName||row.entryContext?.lane||null,originTF:row.originTF||null,setup:row.setup||null,
+        entryReason:row.entryContext?.why||null
+      };
+    });
+    let closed=[];
+    try{closed=typeof store?.recentJournal==='function'?store.recentJournal('POSITION_CLOSED',{limit:closedLimit}):[];}catch{closed=[];}
+    const rows=closed.map(x=>({symbol:x.symbol,ts:new Date(x.ts).toISOString(),...x.payload}));
+    const measured=rows.filter(x=>Number.isFinite(Number(x.netPnl)));
+    const wins=measured.filter(x=>Number(x.netPnl)>0).length;
+    const net=measured.reduce((a,x)=>a+Number(x.netPnl),0);
+    const rs=measured.filter(x=>Number.isFinite(Number(x.rMultiple))).map(x=>Number(x.rMultiple));
+    return {
+      ok:true,asOf:ledgerState.at,ledgerOk:ledgerState.ok,ledgerError:ledgerState.error,
+      open,openCount:open.length,openUnrealizedPnl:Number(open.reduce((a,x)=>a+(Number(x.unrealizedPnl)||0),0).toFixed(4)),
+      closed:rows,
+      summary:{closed:measured.length,wins,losses:measured.length-wins,winRatePct:measured.length?Number((100*wins/measured.length).toFixed(1)):null,
+        netPnl:Number(net.toFixed(4)),avgR:rs.length?Number((rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(2)):null},
+      execution:'READ_ONLY'
+    };
   }
 
   function positionManagerStatus() {
@@ -1235,8 +1375,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       ruleTr:'Açık pozisyon ÇIKIŞ kuralı: tek bir 1m/3m/5m tersliği pozisyonu kapattırmaz; owner TF ve 15m/büyük resim doğrulaması gerekir. GİRİŞ: 15m ana hat; momentum coinlerde 1m/3m/5m scalp (2/3 alt TF hizalı + 15m karşı değil) değerlendirilir, kâr runner ile momentum tükenene kadar taşınır.',
       lastTickAt:positionManagerState.lastTickAt,
       lastError:positionManagerState.lastError,
-      lastReview:positionManagerState.lastReview,
-      history:positionManagerState.history.slice(0,6)
+      lastReview:(ledgerState.ok&&ledgerState.open.length&&(!positionManagerState.lastReview||String(positionManagerState.lastReview?.actionTr||'').includes('YOK')))
+        ? {action:'HOLD',actionTr:`AÇIK POZİSYON ${ledgerState.open.length} (defter ${String(ledgerState.at||'').slice(11,19)})`,checkedAt:ledgerState.at}
+        : positionManagerState.lastReview,
+      history:positionManagerState.history.slice(0,6),
+      // CLAUDE_V113_POSITION_LEDGER: Vision'dan bağımsız 30 sn'lik defter.
+      ledger:{at:ledgerState.at,ok:ledgerState.ok,error:ledgerState.error,openCount:(ledgerState.open||[]).length,
+        open:(ledgerState.open||[]).map(p=>({symbol:p.symbol,side:p.side,quantity:p.quantity,entryPrice:p.entryPrice,markPrice:p.markPrice,unrealizedPnl:p.unrealizedPnl}))}
     };
   }
 
@@ -1252,7 +1397,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         positionManagerState.lastError=open.reason;
         return {ok:false,skipped:true,reason:open.reason};
       }
-      await finalizeClosedActiveRows(open.positions);
+      // CLAUDE_V113: kapanış sonucu artık yalnız positionLedgerTick'te (çift kayıt yok).
       if(!open.positions.length){
         positionManagerState.lastReview={action:'HOLD',actionTr:'AÇIK POZİSYON YOK',checkedAt:new Date(clock()).toISOString()};
         return {ok:true,skipped:true,reason:'NO_OPEN_POSITION'};
@@ -1339,6 +1484,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   function runnerEvent(row,kind,data={}){
     const ev={at:new Date(clock()).toISOString(),kind,...data};
+    // CLAUDE_V113: kalıcı sayaçlar (olay listesi 20 ile sınırlı; uzun iz sürmede PHASE kaybolmasın).
+    if(kind==='PHASE'&&['TRAILING','BREAKEVEN'].includes(String(data?.to||'').toUpperCase())&&!row.tp1ReachedAt)row.tp1ReachedAt=clock();
+    if(kind==='STOP_MOVED')row.stopMoveCount=Number(row.stopMoveCount||0)+1;
     row.events=[...(Array.isArray(row.events)?row.events:[]),ev].slice(-20);
     try{store.journal('CLAUDE_V111_RUNNER',row.symbol,{kind,mode:row.mode,phase:row.phase,side:row.side,...data});}catch{}
   }
@@ -1552,6 +1700,47 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       history:fastLaneState.history.slice(0,8)
     };
   }
+  // CLAUDE_V112_POSITION_SLOTS_REST (kullanıcı kuralı): açık pozisyon sayısı panel max'a ulaştıysa
+  // yeni giriş analizi yapılmaz — Vision, hızlı hat/Jev ve plan worker'lar dinlenir. Açık pozisyon
+  // yönetimi (runner, pozisyon incelemesi, çıkış) sürer. Yer açılınca bir sonraki turda kendiliğinden
+  // devam eder. Emir tarafı zaten risk kapısında OPEN_POSITION_CAP_REACHED ile kapalıdır; bu kapı boşa
+  // Jev/Vision harcamasını ve dar boğaz gürültüsünü önler. Hesap okunamazsa dinlenmez (analiz sürer,
+  // risk kapısı emirde yine korur).
+  let slotRest={active:false,since:null,openPositions:null,maxOpenPositions:null,checkedAt:null,skips:0};
+  function endRest(reason){
+    if(!slotRest.active)return;
+    leaderHealthEvent('POSITION_REST',{stage:'END',reason,openPositions:slotRest.openPositions,maxOpenPositions:slotRest.maxOpenPositions});
+    try{store.journal('CLAUDE_V112_POSITION_REST',null,{stage:'END',reason,openPositions:slotRest.openPositions,maxOpenPositions:slotRest.maxOpenPositions,since:slotRest.since,skips:slotRest.skips});}catch{}
+    slotRest={active:false,since:null,openPositions:slotRest.openPositions,maxOpenPositions:slotRest.maxOpenPositions,checkedAt:new Date(clock()).toISOString(),skips:0};
+  }
+  async function positionSlotsFull(maxOpenPositions){
+    if(claudeV111.readConfig().restWhenPositionsFull!==true){endRest('RULE_OFF');return false;}
+    const max=Number(maxOpenPositions);
+    if(!Number.isInteger(max)||max<1){endRest('MAX_INVALID');return false;}
+    // Ek Binance isteği yok: 30 sn'lik pozisyon defteri (CLAUDE_V113_POSITION_LEDGER) kullanılır; defter
+    // 90 sn'den eskiyse dinlenilmez (analiz sürer; emirde risk kapısı yine korur).
+    const ledgerAge=ledgerState.at?clock()-Date.parse(ledgerState.at):Infinity;
+    if(!ledgerState.ok||!(ledgerAge>=0&&ledgerAge<=90000)){endRest('LEDGER_STALE');return false;}
+    const open=(ledgerState.open||[]).length;
+    const at=new Date(clock()).toISOString();
+    const full=open>=max;
+    if(full&&!slotRest.active){
+      slotRest={active:true,since:at,openPositions:open,maxOpenPositions:max,checkedAt:at,skips:0};
+      leaderHealthEvent('POSITION_REST',{stage:'START',openPositions:open,maxOpenPositions:max});
+      try{store.journal('CLAUDE_V112_POSITION_REST',null,{stage:'START',openPositions:open,maxOpenPositions:max});}catch{}
+    }else if(!full&&slotRest.active){
+      leaderHealthEvent('POSITION_REST',{stage:'END',openPositions:open,maxOpenPositions:max});
+      try{store.journal('CLAUDE_V112_POSITION_REST',null,{stage:'END',openPositions:open,maxOpenPositions:max,since:slotRest.since,skips:slotRest.skips});}catch{}
+      slotRest={active:false,since:null,openPositions:open,maxOpenPositions:max,checkedAt:at,skips:0};
+    }else{
+      slotRest={...slotRest,openPositions:open,maxOpenPositions:max,checkedAt:at};
+    }
+    if(full)slotRest.skips++;
+    return full;
+  }
+  function positionRestStatus(){
+    return {enabled:claudeV111.readConfig().restWhenPositionsFull===true,...slotRest};
+  }
   async function scalpFastLaneTick(){
     const cfg=claudeV111.readConfig();
     // SHADOW/OFF: Jev çağrılmaz, emir yok. BINDING: Vision'ı beklemeden Jev'e.
@@ -1561,6 +1750,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{
       const la=readLeaderAutoConfig();
       if(!la.ok||la.config?.enabled!==true)return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};
+      if(await positionSlotsFull(la.config.maxOpenPositions))return {ok:true,skipped:true,reason:'FAST_LANE_REST_POSITIONS_FULL',openPositions:slotRest.openPositions,maxOpenPositions:slotRest.maxOpenPositions};
       const generation=armGeneration;
       const now=clock();
       fastLaneState.lastTickAt=Number.isFinite(now)?new Date(now).toISOString():null;
@@ -1849,6 +2039,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
     if (!cfg.config.enabled) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });
     try{await shadowOutcomeTick();}catch{}
+    if (await positionSlotsFull(cfg.config.maxOpenPositions)) {
+      return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_REST_POSITIONS_FULL', orderPlaced:false, liveAllowed:false,
+        reasons:['CLAUDE_V112_POSITION_SLOTS_FULL'], openPositions:slotRest.openPositions, maxOpenPositions:slotRest.maxOpenPositions });
+    }
     const analysisOnly = !armedNow();
     leaderAutoBusy = true;
     try {
@@ -3250,6 +3444,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     executionBusy = true;
     let result;
+    const entryOrderAt = clock();
     try {
     result = await executeExclusive({
       eventId,
@@ -3296,6 +3491,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       executionLifecycle.takeProfit2=intent.takeProfit2;
       executionLifecycle.takeProfit3=intent.takeProfit3;
       executionLifecycle.activeAt=clock();
+      executionLifecycle.entryOrderAt=entryOrderAt;
+      executionLifecycle.closeMissCount=0;
+      executionLifecycle.closeDetectedAt=null;
+      // CLAUDE_V113_OUTCOME_LEDGER: neden girildi — kapanışta sonuçla birlikte beyne yazılır.
+      try{
+        const pl=advisory?.plan||{};
+        const jd=advisory?.jevDecision||pl.jevDecision||null;
+        const fl=pl.claudeFastLane||null;
+        executionLifecycle.entryContext={
+          why:String(pl.why||'').slice(0,400),waitFor:String(pl.waitFor||'').slice(0,200),setup:pl.setup||null,
+          lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||null,
+          originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
+          source:fl?'FAST_LANE':'VISION_9TF',
+          momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
+          extension:fl?.extension||null,riskGeometry:fl?.riskGeometry||null,
+          jev:jd?{veto:jd.veto===true,summaryTr:String(jd.summaryTr||'').slice(0,200),probabilities:jd.probabilities||null}:null,
+          riskPctOfEquity:finite(result?.sizing?.riskPctOfEquity)
+        };
+      }catch{}
       leaderAnalysisState.bySymbol[String(candidate.symbol||'').toUpperCase()]=executionLifecycle;
       writeLeaderAnalysisState();
       if(result?.stopProtected===true&&runnerModeAtEntry!=='OFF'){
@@ -3633,7 +3847,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, jevFinalAuthorityPreflight, createLiveController };

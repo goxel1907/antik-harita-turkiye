@@ -112,10 +112,13 @@ function summarizeFrame(frame, f, now, livePrice) {
     prior20High:f.prior20High,
     prior20Low:f.prior20Low,
     returnPct:f.returnPct,
+    ema20:f.ema20 ?? null,
+    ema50:f.ema50 ?? null,
     candle:f.candle || null,
     patterns:Array.isArray(f.patterns) ? f.patterns.slice(-6) : [],
     swingStructure:f.swingStructure || null,
     smcContext:f.smcContext || null,
+    orderBlocks:f.orderBlocks || null,
     liquidity:{
       buySide:f.buySideLiquidity,
       sellSide:f.sellSideLiquidity,
@@ -286,6 +289,12 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
   };
   return unified;
 }
+// CLAUDE_V113: Fib seviyeleri yalnız Jev kaydına gider; Vision/komite istemleri (16k bağlamlı yerel model) büyümez.
+function withoutFib(m) {
+  if (!m || typeof m !== 'object') return m || null;
+  const { fibLevels, ...rest } = m;
+  return rest;
+}
 function compactUnifiedContext(u) {
   const m = u.microstructure;
   return {
@@ -299,7 +308,7 @@ function compactUnifiedContext(u) {
       return [tf, {
         fresh:f.fresh, asOf:f.asOf, close:f.close, trend:f.trend, rsi14:f.rsi14, atrPct:f.atrPct,
         breakOfStructure:f.breakOfStructure, prior20High:f.prior20High, prior20Low:f.prior20Low,
-        candle:f.candle, patterns:f.patterns, liquidity:f.liquidity, swingStructure:f.swingStructure, smcContext:f.smcContext,
+        candle:f.candle, patterns:f.patterns, liquidity:f.liquidity, swingStructure:f.swingStructure, smcContext:withoutFib(f.smcContext),
         opportunity:f.opportunity, breakoutExecution:f.breakoutExecution
       }];
     })),
@@ -412,7 +421,7 @@ function compactLocalModelContext(u) {
         lastSweep:f.liquidity?.lastSweep??null,
         fairValueGaps:Array.isArray(f.liquidity?.fairValueGaps)?f.liquidity.fairValueGaps.slice(-2):[]
       },
-      smcContext:f.smcContext||null,
+      smcContext:withoutFib(f.smcContext),
       opportunity:f.opportunity||null,
       breakoutExecution:f.breakoutExecution?{status:f.breakoutExecution.status,allowed:f.breakoutExecution.allowed}:null
     }];
@@ -1148,6 +1157,22 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
       ? claudeV112.fastLanePlan({ signal:fastLane, unified, candidate })
       : { valid:false, status:'REVIEW_REQUIRED', reason:'CLAUDE_V112_FAST_LANE_SIGNAL_GONE', side:String(candidate?.side || '').toUpperCase(), fastLaneReasons:fastLane.reasons || [], fastLaneMisses:fastLane.misses || [], claudeFastLane:{ ok:false, applied:false, reasons:fastLane.reasons || [] }, confidence:0, execution:'ADVISORY_ONLY' };
     if (plan && plan.status === 'QUALIFIED') plan = { ...plan, triggerSpec:resolveNumericTriggerPlan(plan, unified) };
+    // CLAUDE_V113_JEV_FULL_EVIDENCE: aynı coinin son tam 9TF görsel analizi (≤120 dk) Jev kaydına eklenir —
+    // hızlı hatta da Jev grafik okumasını (Vision yorumu, TF başına özet/bekleme/risk) görür.
+    try {
+      const last = typeof store?.latestJournal === 'function' ? store.latestJournal('PLAN', candidate.symbol) : null;
+      const lp = last?.payload?.plan || null;
+      if (lp && Date.now() - Number(last.ts || 0) <= 120 * 60000) {
+        unified.lastVisionAnalysis = {
+          ageMin:Math.round((Date.now() - Number(last.ts)) / 60000), status:lp.status || null, side:lp.side || null,
+          setup:String(lp.setup || '').slice(0,160), why:String(lp.why || '').slice(0,500), waitFor:String(lp.waitFor || '').slice(0,240),
+          visionSummary:String(lp.visionSummary || '').slice(0,700),
+          frames:Object.fromEntries(Object.entries(lp.timeframeDiagnostics || {}).slice(0,9).map(([tf, d]) => [tf, {
+            summary:String(d?.summary || '').slice(0,200), role:d?.role || null, waitFor:String(d?.waitFor || '').slice(0,140), risk:String(d?.risk || '').slice(0,140)
+          }]))
+        };
+      }
+    } catch {}
   }
   // CLAUDE_V112_CONCURRENT_REVALIDATION: hızlı hat, yeniden doğrulama geçmezse tam Vision'a DÜŞMEZ
   // (ana Leader AUTO döngüsü o coini daha sonra tam 9TF ile yeniler).

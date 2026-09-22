@@ -1255,6 +1255,10 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/live/status'){
       return send(res,200,{...live.status(),featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV111Marker:claudeV111.marker,claudeV111Config:claudeV111.readConfig(),claudeRunner:live.runnerStatus(),claudeFastLane:live.fastLaneStatus(),v110FeatureVersion:v110.featureVersion,v110Marker:v110.marker,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,claudeV109Config:claudeV109.readConfig(),sizingAuthority:'USER_PANEL_EXACT',visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterFreeWorker:freeWorker.status(),openRouterBilling:jev.billingSnapshot()});
     }
+    // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar (Binance) + kapanan işlemler (sonuç, R, çıkış, giriş nedeni). Salt-okunur.
+    if(req.method==='GET'&&u.pathname==='/live/positions'){
+      return send(res,200,live.positionsStatus({closedLimit:Number(u.searchParams.get('limit'))||40}));
+    }
     if(req.method==='GET'&&u.pathname==='/live/account'){
       const out=await live.accountSummary();
       return send(res,out?.ok?200:503,out);
@@ -1865,3 +1869,14 @@ const claudeFastLaneTimer=setInterval(async()=>{
   }catch(e){log('CLAUDE FAST LANE TIMER '+String(e?.message||e).slice(0,180));}
 },20000);
 if(typeof claudeFastLaneTimer.unref==='function')claudeFastLaneTimer.unref();
+
+// CLAUDE_V113_POSITION_LEDGER: 30 sn'de bir, Vision/Leader meşguliyetinden bağımsız — açık pozisyon
+// görüntüsü + kapanan işlemlerin sonucu beyne (learning) yazılır. Emir göndermez.
+const claudeLedgerTimer=setInterval(async()=>{
+  try{
+    const out=await live.positionLedgerTick();
+    if(out?.finalized>0)log('CLAUDE LEDGER finalized='+out.finalized+' open='+out.open);
+  }catch(e){log('CLAUDE LEDGER TIMER '+String(e?.message||e).slice(0,180));}
+},30000);
+if(typeof claudeLedgerTimer.unref==='function')claudeLedgerTimer.unref();
+setTimeout(()=>{live.positionLedgerTick().catch(()=>{});},5000);

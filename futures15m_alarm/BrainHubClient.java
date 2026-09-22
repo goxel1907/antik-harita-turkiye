@@ -175,6 +175,12 @@ public final class BrainHubClient {
         check(c);
         return get(c, "/live/account");
     }
+    // CLAUDE_V113_ANDROID_LIVE_TRUTH: read-only PC position ledger (open Binance positions + closed-trade outcomes).
+    // GET only; Android never sends order/cancel/close through this path.
+    public static JSONObject livePositions(Context c) throws Exception {
+        check(c);
+        return get(c, "/live/positions");
+    }
     public static JSONObject leaderAutoStatus(Context c) throws Exception {
         check(c);
         return get(c, "/live/leader-auto");

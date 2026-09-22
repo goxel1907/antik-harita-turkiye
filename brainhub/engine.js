@@ -170,9 +170,23 @@ function smcContext(swings, lastClose, gaps = []) {
     ce50:round((Number(g.low)+Number(g.high))/2),
     at:g.at
   }));
+  // CLAUDE_V113_JEV_FULL_EVIDENCE: son onaylı swing bacağından Fibonacci düzeltme/uzatma seviyeleri.
+  // Bacak yönü: hangi swing daha yeni ise (düşük→yüksek = yükseliş bacağı; düzeltme tepeden ölçülür).
+  const highAt=Number(swings?.lastConfirmedSwingHigh?.at)||0, lowAt=Number(swings?.lastConfirmedSwingLow?.at)||0;
+  const upLeg=highAt>=lowAt; // eşit/eksik zaman damgası → yükseliş bacağı varsayılır (leg etiketi belirtir)
+  const lvl=r=>round(upLeg?high-range*r:low+range*r);
+  const ext=r=>round(upLeg?low+range*r:high-range*r);
+  const fibLevels={
+    leg:upLeg?'UP_LEG_LOW_TO_HIGH':'DOWN_LEG_HIGH_TO_LOW',
+    retracement:{ '0.236':lvl(0.236), '0.382':lvl(0.382), '0.5':lvl(0.5), '0.618':lvl(0.618), '0.705':lvl(0.705), '0.786':lvl(0.786) },
+    extension:{ '1.272':ext(1.272), '1.618':ext(1.618) },
+    pricePositionPct:round((upLeg?(high-lastClose):(lastClose-low))/range*100,2),
+    semantics:'REFERENCE_LEVELS_FROM_CONFIRMED_SWINGS'
+  };
   return {
     available:true,
     source:'CONFIRMED_SWING_RANGE_FROM_CLOSED_CANDLES',
+    fibLevels,
     swingEvent:swings?.event || null,
     swingState:swings?.state || null,
     dealingRange:{
@@ -359,6 +373,44 @@ function opportunity(c, frame, a14, context) {
     note:'Opportunity scores are advisory context; execution remains deterministic and DRY-RUN until explicitly enabled.'
   };
 }
+// CLAUDE_V113_JEV_FULL_EVIDENCE: deterministik order block. Kural: gövdesi ≥1,2 ATR olan ve önceki
+// 10 mumun zirvesini/dibini kapanışla kıran yer değiştirme mumundan önceki (≤5 mum) son TERS renkli mum.
+// Boğa OB = [low, open] (ayı mumu), ayı OB = [open, high] (boğa mumu). Mitigated = fiyat bölgeye döndü;
+// broken = kapanış bölgenin ötesine geçti. Yalnız yumuşak bağlamdır.
+function orderBlocks(c, a14) {
+  const out = { bullish:[], bearish:[] };
+  if (!Array.isArray(c) || c.length < 20 || !(a14 > 0)) return out;
+  const last = c.at(-1);
+  for (let i = c.length - 1; i >= Math.max(11, c.length - 80) && (out.bullish.length < 4 || out.bearish.length < 4); i--) {
+    const k = c[i], body = k.close - k.open;
+    const prev = c.slice(i - 10, i);
+    const upBreak = body >= 1.2 * a14 && k.close > Math.max(...prev.map(x => x.high));
+    const downBreak = -body >= 1.2 * a14 && k.close < Math.min(...prev.map(x => x.low));
+    if (!upBreak && !downBreak) continue;
+    for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+      const o = c[j];
+      if (upBreak && o.close < o.open && out.bullish.length < 4) {
+        const zone = { low:o.low, high:o.open };
+        const after = c.slice(i + 1);
+        out.bullish.push({ side:'BULL', low:round(zone.low), high:round(zone.high), at:o.closeTime, displacementAt:k.closeTime,
+          mitigated:after.some(x => x.low <= zone.high), broken:after.some(x => x.close < zone.low),
+          distancePct:round((last.close - zone.high) / last.close * 100, 3) });
+        break;
+      }
+      if (downBreak && o.close > o.open && out.bearish.length < 4) {
+        const zone = { low:o.open, high:o.high };
+        const after = c.slice(i + 1);
+        out.bearish.push({ side:'BEAR', low:round(zone.low), high:round(zone.high), at:o.closeTime, displacementAt:k.closeTime,
+          mitigated:after.some(x => x.high >= zone.low), broken:after.some(x => x.close > zone.high),
+          distancePct:round((zone.low - last.close) / last.close * 100, 3) });
+        break;
+      }
+    }
+  }
+  // Aynı mumdan çıkan tekrarlar atılır; bozulmamış bloklar önce.
+  const tidy = list => [...new Map(list.map(o => [o.at, o])).values()].sort((a, b) => Number(a.broken) - Number(b.broken)).slice(0, 2);
+  return { bullish:tidy(out.bullish), bearish:tidy(out.bearish) };
+}
 function structure(c, frame = null) {
   if (c.length < 52) return { available:false, reason:'INSUFFICIENT_CLOSED_CANDLES', closedCandles:c.length };
   const close = c.map(x => x.close), last = c.at(-1);
@@ -399,6 +451,7 @@ function structure(c, frame = null) {
     liquidity:{ equalHigh:eqHigh, equalLow:eqLow, lastSweep }
   };
   base.smcContext = smcContext(swings, last.close, gaps);
+  base.orderBlocks = orderBlocks(c, a14);
   base.opportunity = opportunity(c, frame, a14, base);
   return base;
 }
@@ -502,4 +555,4 @@ function handoff(initialStop, candidateStop, side) {
   const safe = side === 'LONG' ? candidateStop >= initialStop : side === 'SHORT' ? candidateStop <= initialStop : false;
   return { allowed:safe, stop:safe ? candidateStop : initialStop, reason:safe ? 'RISK_NOT_WIDENED' : 'WOULD_WIDEN_RISK' };
 }
-module.exports = { FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };
+module.exports = { FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, orderBlocks, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };

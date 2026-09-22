@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '1.4.0-CLAUDE-V112-JEV-FINAL';
+const OFFICE_VERSION = '1.5.0-CLAUDE-V113-LEDGER';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -30,7 +30,7 @@ if (!LOOPBACK && OFFICE_KEY.length < 24) {
 
 // Brain Hub tarafında yalnız bu GET yollarına izin var.
 const ALLOWED_BRAIN_PATHS = new Set([
-  '/health', '/live/status', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal'
+  '/health', '/live/status', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions'
 ]);
 
 const cache = new Map();
@@ -225,6 +225,11 @@ function summarizeJournal(items) {
     } else if (it.kind === 'VISION_BENCHMARK') {
       const sm = p.summary || {};
       events.push({ ...base, desk: 'vision', title: `Vision doğruluk testi: %${finite(sm.accuracyPct) ?? '?'} (${sm.matched ?? '?'}/${sm.cases ?? '?'})`, detail: clip(Object.entries(sm.byLabel || {}).map(([k, v]) => `${k} %${v.accuracyPct}`).join(' • '), 160) });
+    } else if (it.kind === 'POSITION_CLOSED') {
+      const net = finite(p.netPnl), r = finite(p.rMultiple);
+      events.push({ ...base, desk: 'learning', title: `İşlem kapandı ${it.symbol || ''} ${p.side || ''}: ${net === null ? '?' : (net >= 0 ? '+' : '') + net.toFixed(2)} USDT${r === null ? '' : ' • ' + r.toFixed(2) + 'R'}`, detail: clip(`${p.exitType || ''} • ${p.holdMinutes ?? '?'} dk • ${p.entryContext?.why || ''}`, 180) });
+    } else if (it.kind === 'CLAUDE_V112_POSITION_REST') {
+      events.push({ ...base, desk: 'positions', title: p.stage === 'START' ? `Pozisyonlar dolu (${p.openPositions}/${p.maxOpenPositions}) — ajanlar dinleniyor` : `Yer açıldı (${p.openPositions}/${p.maxOpenPositions}) — ajanlar devam`, detail: '' });
     } else if (it.kind === 'CLAUDE_V111_RUNNER') {
       events.push({ ...base, desk: 'positions', title: `Runner ${it.symbol || ''}: ${p.kind || ''}${p.to != null ? ' → stop ' + p.to : (p.target != null ? ' → ' + p.target : '')}`, detail: clip(`${p.mode || ''} • faz ${p.phase || ''}${p.trailTf ? ' • iz TF ' + p.trailTf : ''}${p.reason ? ' • ' + p.reason : ''}`, 160) });
     } else if (it.kind === 'PLAN_WORKER_REVIEW') {
@@ -285,7 +290,15 @@ function derive(snap) {
     if (deep >= 3 && vu / Math.max(1, deep) >= 0.25) add('serious', 'VISION_DOWN', 'Görsel analiz sık düşüyor', `${vu}/${deep} analizde görsel komite yanıt vermedi.`);
     const fake = rows.filter(r => (String(r.state || '').toUpperCase() === 'WATCH' || String(r.planStatus || '').toUpperCase() === 'WATCH') && r.waitFor !== undefined && waitIsFake(r.waitFor));
     if (fake.length) add('warning', 'FAKE_WAIT', 'Sahte bekleme koşulu', `${fake.length} takipte bekleme metni "NONE ..." ile başlıyor; somut tetik yok.`);
-    if (Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, hard safety geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/hard safety: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve one-shot grant engel olabilir.');
+    // CLAUDE_V113: Binance pozisyon defteri okunamıyorsa (anahtar/ağ) Office pozisyon ve sonuç göremez.
+    const pos = snap.positions?.data || null;
+    if (snap.positions && snap.positions.ok !== true && !snap.positions.disabled) add('warning', 'LEDGER_DOWN', 'Pozisyon defteri okunamıyor', 'Brain Hub /live/positions yanıt vermedi; açık pozisyon ve işlem sonuçları görünmez.');
+    else if (pos && pos.ledgerOk === false) add('warning', 'LEDGER_DOWN', 'Binance pozisyonları okunamıyor', String(pos.ledgerError || 'bilinmiyor'));
+    // CLAUDE_V112_POSITION_SLOTS_REST: pozisyonlar doluysa ajanlar bilinçli olarak dinlenir.
+    const pr = h.claudeV112?.positionRest || null;
+    if (pr?.active) add('ok', 'POSITION_REST', `Pozisyonlar dolu (${pr.openPositions}/${pr.maxOpenPositions}) — ajanlar dinleniyor`, `Yeni giriş analizi (Vision, hızlı hat/Jev, plan worker) ${pr.since ? new Date(pr.since).toLocaleTimeString('tr-TR') + "'den beri " : ''}durdu; Binance'e yeni emir gitmez. Açık pozisyonlar runner ve pozisyon yöneticisiyle yönetiliyor; yer açılınca kendiliğinden devam eder.`);
+    // CLAUDE_V112: LIVE kapalıyken Jev onayı hard safety'ye hiç gitmez; bu uyarı yalnız LIVE açıkken anlamlı.
+    if (st.armed === true && !pr?.active && Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, hard safety geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/hard safety: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve one-shot grant engel olabilir.');
     if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Hard safety geçti, emir yok', 'Yürütme/transport katmanı (LIVE grant, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
     if (Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
     if (Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);
@@ -348,6 +361,8 @@ async function buildSnapshot() {
     cached('ollama', 10000, () => getJson(OLLAMA_URL + '/api/ps', { timeoutMs: 3000 })),
     ACCOUNT_ENABLED ? cached('account', 30000, () => brainGet('/live/account')) : Promise.resolve(null)
   ]);
+  // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, salt-okunur).
+  const positions = ACCOUNT_ENABLED ? await cached('positions', 10000, () => brainGet('/live/positions', 'limit=40')) : null;
   const router = await cached('router', 30000, () => getJson(ROUTER_URL + '/', { timeoutMs: 3000 }).then(r => ({ ok: r.status > 0 && r.status < 500, status: r.status, ms: r.ms, error: r.error || null })));
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
   const backups = await cached('backups', 60000, async () => listBackups());
@@ -368,6 +383,7 @@ async function buildSnapshot() {
     visionProgress: { ok: visionProgress?.ok === true, data: scrub(visionProgress?.data) },
     models: { ok: models?.ok === true, data: scrub(models?.data) },
     account: account ? { ok: account.ok === true, data: scrub(account.data), error: account.error || null } : { ok: false, disabled: true },
+    positions: positions ? { ok: positions.ok === true, data: positions.ok === true ? scrub(positions.data) : null, error: positions.error || (positions.ok ? null : 'HTTP ' + positions.status) } : { ok: false, disabled: true },
     ollama: { ok: ollama?.ok === true, data: scrub(ollama?.data), error: ollama?.error || null },
     router,
     backups,

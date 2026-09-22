@@ -68,6 +68,16 @@ function openStore(root) {
     try { payload = JSON.parse(row.payload); } catch { return null; }
     return { id:row.id, ts:row.ts, kind:row.kind, symbol:row.symbol, payload };
   }
+  // CLAUDE_V113_POSITION_LEDGER: son N kayıt (tek tür) — Office/uygulama kapanan işlemler tablosu.
+  const recentByKind = db.prepare('SELECT id,ts,kind,symbol,payload FROM journal WHERE kind=? AND ts>=? ORDER BY ts DESC LIMIT ?');
+  function recentJournal(kind, { limit = 30, sinceTs = 0 } = {}) {
+    if (!/^[A-Z0-9_]{2,40}$/.test(String(kind || ''))) return [];
+    return recentByKind.all(kind, Math.max(0, Number(sinceTs) || 0), Math.max(1, Math.min(500, Number(limit) || 30))).map(row => {
+      let payload = null;
+      try { payload = JSON.parse(row.payload); } catch { payload = null; }
+      return { id:row.id, ts:row.ts, kind:row.kind, symbol:row.symbol, payload };
+    }).filter(x => x.payload);
+  }
   function getJournal(limit = 50) {
     return list.all(Math.max(1, Math.min(200, Number(limit) || 50))).map(x => ({ ...x, payload: JSON.parse(x.payload) }));
   }
@@ -193,6 +203,6 @@ function openStore(root) {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 
-  return { db, journal, getJournal, latestJournal, label, learning, recordLearning, learningContext, lease, claim, releaseClaim };
+  return { db, journal, getJournal, latestJournal, recentJournal, label, learning, recordLearning, learningContext, lease, claim, releaseClaim };
 }
 module.exports = { openStore };

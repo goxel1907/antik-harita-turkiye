@@ -251,6 +251,16 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
   </section>
 
+  <!-- CLAUDE_V113_POSITION_LEDGER: Binance açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, 30 sn) -->
+  <section>
+    <div class="card">
+      <h2>Açık pozisyonlar <span class="hint" id="posHint">Binance • 30 sn defter</span></h2>
+      <div style="overflow:auto"><table id="openPos"></table></div>
+      <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + funding)</span></h2>
+      <div style="overflow:auto"><table id="closedPos"></table></div>
+    </div>
+  </section>
+
   <section class="row2">
     <div class="card">
       <h2>Olay akışı <span class="hint">journal + brainpub.log</span></h2>
@@ -630,9 +640,31 @@ function renderTimeline(s){
   $('#tlLegend').innerHTML = keys.map(k=>`<span><i style="background:${STATUS_COLOR[k]}"></i>${STATUS_TR[k]}</span>`).join('');
 }
 
+function renderLedger(s){
+  // CLAUDE_V113_POSITION_LEDGER
+  const d=s.positions?.ok===true?(s.positions.data||null):null;
+  const N=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':esc(String(Number(v)));
+  const num=(v,p=4)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toFixed(p).replace(/\.?0+$/,'');
+  const sgn=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':`<span style="color:${Number(v)>=0?'var(--good)':'var(--critical)'}">${Number(v)>=0?'+':''}${Number(v).toFixed(2)}</span>`;
+  const side=x=>`<span class="pill ${esc(x||'')}">${esc(x||'')}</span>`;
+  if(!d){ $('#openPos').innerHTML=`<tr><td class="muted">${s.positions?.disabled?'Hesap verisi kapalı (OFFICE_ACCOUNT=0).':'Pozisyon defteri alınamadı'+(s.positions?.error?' ('+esc(s.positions.error)+')':'')+' — Brain Hub v9.5.113 gerekir.'}</td></tr>`; $('#closedPos').innerHTML=''; return; }
+  const open=d.open||[];
+  $('#posHint').textContent=`${open.length} açık • açık PnL ${Number(d.openUnrealizedPnl||0).toFixed(2)} USDT • defter ${d.asOf?fmtTime(Date.parse(d.asOf)):'—'}${d.ledgerOk===false?' • OKUNAMIYOR: '+(d.ledgerError||''):''}`;
+  $('#openPos').innerHTML = open.length ? `<tr><th>Sembol</th><th>Yön</th><th>Açan</th><th>Giriş</th><th>Anlık</th><th>PnL USDT</th><th>R</th><th>Stop</th><th>TP1</th><th>Runner</th><th>Açılış</th><th>Hat/TF</th><th>Giriş nedeni</th></tr>`+
+    open.map(p=>`<tr><td><b>${esc(p.symbol)}</b></td><td>${side(p.side)}</td><td>${p.openedBy==='BRAINHUB_AUTO'?'OTO':'dış/manuel'}</td><td>${num(p.entryPrice,6)}</td><td>${num(p.markPrice,6)}</td><td>${sgn(p.unrealizedPnl)}</td><td>${p.unrealizedR===null?'—':Number(p.unrealizedR).toFixed(2)}</td><td>${num(p.stopPrice,6)}${p.originalStopPrice&&p.stopPrice!==p.originalStopPrice?` <span class="muted">(ilk ${num(p.originalStopPrice,6)})</span>`:''}</td><td>${num(p.takeProfit1,6)}</td><td>${esc(p.runnerPhase||'—')}${p.trailTf?' • '+esc(p.trailTf):''}</td><td>${p.openedAt?fmtTime(Date.parse(p.openedAt)):'—'}</td><td>${esc([p.lane,p.originTF].filter(Boolean).join(' • ')||'—')}</td><td style="max-width:360px">${esc(String(p.entryReason||'').slice(0,160))}</td></tr>`).join('')
+    : '<tr><td class="muted">Binance\'te açık pozisyon yok.</td></tr>';
+  const cl=d.closed||[], sm=d.summary||{};
+  $('#closedHint').textContent=`${sm.closed||0} kapanan • ${sm.wins||0} kazanç / ${sm.losses||0} kayıp${sm.winRatePct!=null?' (%'+sm.winRatePct+')':''} • net ${Number(sm.netPnl||0).toFixed(2)} USDT${sm.avgR!=null?' • ort '+sm.avgR+'R':''}`;
+  const EXIT_TR={STOP_LOSS:'stop',TAKE_PROFIT:'hedef',TP1_RUNNER_TRAIL:'TP1 + runner iz',TP1_BREAKEVEN:'TP1 + başabaş',TP1_THEN_STOP:'TP1 sonra stop',OTHER_CLOSE:'başka kapanış (manuel?)'};
+  $('#closedPos').innerHTML = cl.length ? `<tr><th>Kapanış</th><th>Sembol</th><th>Yön</th><th>Net PnL</th><th>R</th><th>Çıkış</th><th>Süre</th><th>Hat/TF</th><th>Uzama (1h)</th><th>Stop %</th><th>Jev</th><th>Giriş nedeni</th></tr>`+
+    cl.slice(0,40).map(c=>{const ec=c.entryContext||{}; return `<tr><td>${c.closedAt?fmtTime(Date.parse(c.closedAt)):fmtTime(Date.parse(c.ts))}</td><td><b>${esc(c.symbol||'')}</b></td><td>${side(c.side)}</td><td>${sgn(c.netPnl)}</td><td>${c.rMultiple==null?'—':Number(c.rMultiple).toFixed(2)}</td><td>${esc(EXIT_TR[c.exitType]||c.exitType||'—')}</td><td>${N(c.holdMinutes)} dk</td><td>${esc([c.tradeLane,c.originTF].filter(Boolean).join(' • ')||'—')}</td><td>${ec.extension?.return1hDirPct!=null?(Number(ec.extension.return1hDirPct)>0?'+':'')+N(ec.extension.return1hDirPct)+'%':'—'}</td><td>${ec.riskGeometry?.stopPct!=null?N(ec.riskGeometry.stopPct)+'%':'—'}</td><td>${ec.jev?(ec.jev.veto?'veto':'onay'):'—'}</td><td style="max-width:360px">${esc(String(ec.why||'').slice(0,160))}</td></tr>`;}).join('')
+    : '<tr><td class="muted">Henüz sonucu ölçülmüş kapanan işlem yok.</td></tr>';
+}
+
 function renderPositions(s){
   const st=s.status?.data||{}; const pm=st.positionManager||{}; const lr=pm.lastReview||{}; const le=st.learning||{};
   const stats=le.stats||[]; const samples=stats.reduce((a,x)=>a+Number(x.samples||0),0);
+  renderLedger(s);
   $('#posKv').innerHTML = [
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
     ['Kural', pm.ruleTr || '15m ana işlem hattıdır. Momentum coinlerde 1m/3m/5m scalp fırsatı değerlendirilir (en az iki alt TF uyumu + 15m karşı-veto yok); tek bir alt TF tek başına giriş/çıkış kararı vermez.'],
@@ -760,7 +792,8 @@ function renderV109(s){
       ...(c112 ? [
         ['Hızlı scalp hattı (v112)', `${c112.fastLaneMode||'SHADOW'} • sinyal <b>${c112.fastLaneSignals??0}</b> • nitelikli ${c112.fastLaneQualified??0} • Jev ${c112.fastLaneJevCalled??0} (onay ${c112.fastLaneJevApproved??0})`],
         ['Vision beklemeden doğrulama', `${c112.fastLaneRevalidationTriggers??0} tetik • ${c112.concurrentRevalidations??0} analiz`],
-        ['Son hızlı hat olayı', (()=>{const l=c112.fastLane?.lastResult||c112.fastLane?.lastSignal; return l?`${l.symbol||''} ${l.kind||''} ${l.execution||l.tf||''} ${l.planStatus||''}`:'—';})()]
+        ['Son hızlı hat olayı', (()=>{const l=c112.fastLane?.lastResult||c112.fastLane?.lastSignal; return l?`${l.symbol||''} ${l.kind||''} ${l.execution||l.tf||''} ${l.planStatus||''}`:'—';})()],
+        ['Pozisyon dolu → dinlen', (()=>{const r=c112.positionRest; if(!r) return '—'; const n=`${r.openPositions??'—'}/${r.maxOpenPositions??'—'}`; return r.active?`<b>DİNLENİYOR</b> • açık ${n} • ${r.skips??0} tur atlandı • yeni emir yok`:`${r.enabled===false?'kapalı':'hazır'} • açık ${n}`;})()]
       ] : []),
     ] : []),
     ['Kod-tetik “QUALIFIED olurdu”', `<b>${cv?.dtWouldQualify??0}</b> (60 dk) • uygulanan ${cv?.dtApplied??0}`],
