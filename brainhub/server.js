@@ -1880,3 +1880,10 @@ const claudeLedgerTimer=setInterval(async()=>{
 },30000);
 if(typeof claudeLedgerTimer.unref==='function')claudeLedgerTimer.unref();
 setTimeout(()=>{live.positionLedgerTick().catch(()=>{});},5000);
+// CLAUDE_V113_OUTCOME_BACKFILL: son 3 günün kapanmış canlı işlemleri bir kez beyne yazılır (tekrar yazmaz).
+setTimeout(async()=>{
+  try{
+    const out=await live.backfillClosedOutcomes({sinceTs:Date.now()-3*86400000});
+    log('CLAUDE BACKFILL '+(out?.ok?('written='+out.written):('skip '+String(out?.reason||'').slice(0,120))));
+  }catch(e){log('CLAUDE BACKFILL ERROR '+String(e?.message||e).slice(0,160));}
+},20000);

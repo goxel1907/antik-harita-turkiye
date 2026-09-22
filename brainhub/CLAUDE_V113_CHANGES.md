@@ -23,6 +23,7 @@
 | CLAUDE_V113_FAST_LANE_EXTENSION | claude-v112.js, claude-v111.js | İşlem yönünde son ~5 saatlik (1h×5 mum) getiri > `fastLaneMaxExtensionPct` (vars. 4) → `FL_EXTENDED_CHASE_1H`, giriş yok. 22 Eyl verisinde bu kural 5 kaybeden işlemi (≈ −50 USDT) eler, kazananları elemezdi (küçük örnek). |
 | — | office-dashboard 1.5.0-CLAUDE-V113-LEDGER | Açık pozisyonlar tablosu (giriş, anlık, PnL, R, stop/runner, TP1, giriş nedeni) + kapanan işlemler tablosu (net PnL, R, çıkış, süre, uzama, stop %, Jev, neden) + özet; olaylar: işlem kapandı, dinlenme. |
 | CLAUDE_V113_ANDROID_LIVE_TRUTH | futures15m_alarm/v95113_claude_live_truth.py, V95113PcTruth.java, BrainHubClient.java | "PC LIVE" yalnız PC'nin ≤90 sn içinde onayladığı durumdan; ulaşılamazsa kırmızı "BİLİNMİYOR — son bağlantı HH:MM". Acil Durdur ve OTO kapatma: PC `armed=false` onaylayana kadar 5 deneme; başarısızsa kalıcı kırmızı uyarı. PC pozisyonları ve kapanan özet salt-okunur. |
+| CLAUDE_V113_OUTCOME_BACKFILL | live-controller.js, server.js | Açılıştan 20 sn sonra son 3 günün kapanmış canlı işlemleri (LIVE_EXECUTION) için gerçek sonuç Binance income’dan bir kez beyne yazılır (eventId ile tekrarsız; `data/claude-v113-backfill.json`). |
 | — | manage.ps1 | Test-Brain 9.5.113 + v113 özellikleri; OpenRouterSetup `maxPayloadChars` 24000 → 48000. |
 
 ## 2. Config (config/claude-v111.json)
@@ -30,7 +31,7 @@
 - `live-policy.json limits.maxDailyLossPct` = 100 (kullanıcı isteğiyle günlük zarar limiti fiilen kapalı).
 
 ## 3. Testler
-261/261 (`node --test brainhub/test/*.test.js`). Yeni: `test/claude-v113.test.js` (4) + dinlenme testi (claude-v112.test.js). Android kaynak zinciri `tools/run_futures_source_chain.py` → `SOURCE_CHAIN_OK`.
+262/262 (`node --test brainhub/test/*.test.js`). Yeni: `test/claude-v113.test.js` (4) + dinlenme testi (claude-v112.test.js). Android kaynak zinciri `tools/run_futures_source_chain.py` → `SOURCE_CHAIN_OK`.
 
 ## 4. Geri dönüş
 - Uzama filtresi: `"fastLaneMaxExtensionPct": 0`. Dinlenme: `"restWhenPositionsFull": false`.

@@ -1239,7 +1239,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if (!Array.isArray(income) || income.length >= 1000) return null;
       const sum = t => income.filter(x => String(x?.incomeType || '') === t).reduce((a, x) => a + (finite(x?.income) || 0), 0);
       const realized = sum('REALIZED_PNL'), commission = sum('COMMISSION'), funding = sum('FUNDING_FEE');
-      return { realized, commission, funding, net:realized + commission + funding, rows:income.length };
+      const pnlTimes = income.filter(x => String(x?.incomeType || '') === 'REALIZED_PNL').map(x => Number(x?.time)).filter(Number.isFinite);
+      return { realized, commission, funding, net:realized + commission + funding, rows:income.length, lastPnlAt:pnlTimes.length ? Math.max(...pnlTimes) : null, pnlRows:pnlTimes.length };
     } catch { return null; }
   }
   async function finalizeClosedActiveRows(openPositions, { snapshotStartedAt = clock() } = {}) {
@@ -1294,6 +1295,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         openedAt:activeAt>0?new Date(activeAt).toISOString():null,closedAt:new Date(closedAt).toISOString(),holdMinutes,
         runner:runner?{phase:runner.phase,tpPlaced:runner.tpPlaced,stopMoves:Math.max(Number(runner.stopMoveCount||0),(runner.events||[]).filter(e=>e?.kind==='STOP_MOVED').length)}:null,
         entryContext:row.entryContext||null,
+        eventId:row.eventId||null,
         incomeAvailable:inc!==null
       };
       try{store.journal('POSITION_CLOSED',symbol,record);}catch{}
@@ -1327,6 +1329,80 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {ok:false,reason:ledgerState.error};
     }finally{ledgerBusy=false;}
   }
+  // CLAUDE_V113_OUTCOME_BACKFILL: v9.5.113 öncesi açılıp kapanan işlemler (LIVE_EXECUTION journal) için
+  // gerçek sonuç Binance income'dan bir kez hesaplanıp beyne yazılır. Aynı eventId iki kez yazılmaz.
+  function entryContextFromPlan(plan, jd, sizing){
+    const pl=plan||{}; const fl=pl.claudeFastLane||null;
+    return {
+      why:String(pl.why||'').slice(0,400),waitFor:String(pl.waitFor||'').slice(0,200),setup:pl.setup||null,
+      lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||null,
+      originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
+      source:fl?'FAST_LANE':'VISION_9TF',momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
+      extension:fl?.extension||null,riskGeometry:fl?.riskGeometry||null,
+      jev:jd?{veto:jd.veto===true,summaryTr:String(jd.summaryTr||'').slice(0,200),probabilities:jd.probabilities||null}:null,
+      riskPctOfEquity:finite(sizing?.riskPctOfEquity)
+    };
+  }
+  let backfillBusy=false;
+  async function backfillClosedOutcomes({ sinceTs = 0, limit = 200 } = {}){
+    if(backfillBusy)return {ok:true,skipped:true,reason:'BACKFILL_BUSY'};
+    if(typeof store?.recentJournal!=='function')return {ok:false,reason:'STORE_RECENT_JOURNAL_UNAVAILABLE'};
+    const creds=currentCredentials();
+    if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    backfillBusy=true;
+    const marker=path.join(root,'data','claude-v113-backfill.json');
+    let done={};
+    try{done=JSON.parse(fs.readFileSync(marker,'utf8'))||{};}catch{done={};}
+    const written=[];
+    try{
+      const open=await exchangeOpenPositions();
+      if(!open.ok)return {ok:false,reason:open.reason};
+      const openSet=new Set(open.positions.map(p=>p.symbol));
+      const execs=store.recentJournal('LIVE_EXECUTION',{limit,sinceTs})
+        .filter(x=>x.payload?.result?.orderPlaced===true&&x.symbol).sort((a,b)=>a.ts-b.ts);
+      const closedIds=new Set(store.recentJournal('POSITION_CLOSED',{limit:500,sinceTs}).map(x=>x.payload?.eventId).filter(Boolean));
+      const runnerRows=store.recentJournal('CLAUDE_V111_RUNNER',{limit:500,sinceTs});
+      for(let i=0;i<execs.length;i++){
+        const e=execs[i], p=e.payload||{}, r=p.result||{}, sym=e.symbol;
+        const eventId=String(p.eventId||r.authorization?.clientOrderId||e.id);
+        if(done[eventId]||closedIds.has(eventId))continue;
+        const next=execs.slice(i+1).find(x=>x.symbol===sym);
+        if(!next&&openSet.has(sym))continue; // hâlâ açık: defter kapanışta yazar
+        const endTs=next?next.ts-1000:clock();
+        const inc=await positionIncome(sym,e.ts-2000,endTs,creds);
+        if(!inc||!inc.pnlRows)continue; // kapanış geliri yok/okunamadı: sonra tekrar denenir
+        const ss=p.riskGate?.structuralStop||{};
+        const side=String(r.side||p.plan?.side||'').toUpperCase();
+        const qty=finite(r.executedQty), entry=finite(ss.entryPrice)??finite(r.livePrice), stop=finite(ss.stopPrice);
+        const base=entry!==null&&qty!==null?Math.abs(entry*qty):null;
+        const riskQuote=entry!==null&&qty!==null&&stop!==null?Math.abs(entry-stop)*Math.abs(qty):null;
+        const netPnl=inc.net;
+        const rMultiple=riskQuote&&riskQuote>0?netPnl/riskQuote:null;
+        const ev=runnerRows.filter(x=>x.symbol===sym&&x.ts>=e.ts&&x.ts<=endTs).map(x=>({kind:x.payload?.kind,to:x.payload?.to}));
+        const exitType=classifyExit({runner:{events:ev},netPnl,riskQuote});
+        const closedAt=inc.lastPnlAt||endTs;
+        const record={
+          side,setup:p.plan?.setup||null,originTF:p.plan?.originTF||null,ownerTF:p.plan?.ownerTF||null,
+          tradeLane:(p.plan?.tradeLane&&typeof p.plan.tradeLane==='object'?p.plan.tradeLane.name:p.plan?.tradeLane)||null,
+          entryPrice:entry,stopPrice:stop,takeProfit1:null,quantity:qty,notional:base,riskQuote,
+          realizedPnl:inc.realized,commission:inc.commission,funding:inc.funding,netPnl,
+          outcomePct:base&&base>0?netPnl/base*100:null,rMultiple,exitType,
+          openedAt:new Date(e.ts).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-e.ts)/60000),
+          runner:ev.length?{events:ev.length}:null,
+          entryContext:entryContextFromPlan(p.plan,p.plan?.jevDecision,p.sizing),
+          eventId,backfilled:true,incomeAvailable:true
+        };
+        try{store.journal('POSITION_CLOSED',sym,record);}catch{}
+        try{store.recordLearning?.('POSITION_CLOSED',sym,{...record,decision:'CLOSED_'+exitType});}catch{}
+        done[eventId]=new Date(clock()).toISOString();
+        written.push({symbol:sym,netPnl,rMultiple,exitType});
+      }
+      try{fs.mkdirSync(path.dirname(marker),{recursive:true});fs.writeFileSync(marker,JSON.stringify(done,null,2));}catch{}
+      return {ok:true,written:written.length,rows:written};
+    }catch(e){
+      return {ok:false,reason:String(e?.message||e).slice(0,160)};
+    }finally{backfillBusy=false;}
+  }
   function positionsStatus({ closedLimit = 40 } = {}){
     const lifecycle=leaderAnalysisState.bySymbol||{};
     const open=(ledgerState.open||[]).map(p=>{
@@ -1350,7 +1426,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     });
     let closed=[];
     try{closed=typeof store?.recentJournal==='function'?store.recentJournal('POSITION_CLOSED',{limit:closedLimit}):[];}catch{closed=[];}
-    const rows=closed.map(x=>({symbol:x.symbol,ts:new Date(x.ts).toISOString(),...x.payload}));
+    const rows=closed.map(x=>({symbol:x.symbol,ts:new Date(x.ts).toISOString(),...x.payload}))
+      .filter(x=>x.incomeAvailable!==undefined||Number.isFinite(Number(x.netPnl)))
+      .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts));
     const measured=rows.filter(x=>Number.isFinite(Number(x.netPnl)));
     const wins=measured.filter(x=>Number(x.netPnl)>0).length;
     const net=measured.reduce((a,x)=>a+Number(x.netPnl),0);
@@ -3492,6 +3570,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       executionLifecycle.takeProfit3=intent.takeProfit3;
       executionLifecycle.activeAt=clock();
       executionLifecycle.entryOrderAt=entryOrderAt;
+      executionLifecycle.eventId=eventId;
       executionLifecycle.closeMissCount=0;
       executionLifecycle.closeDetectedAt=null;
       // CLAUDE_V113_OUTCOME_LEDGER: neden girildi — kapanışta sonuçla birlikte beyne yazılır.
@@ -3847,7 +3926,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)) };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, jevFinalAuthorityPreflight, createLiveController };

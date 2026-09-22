@@ -169,3 +169,51 @@ test('motor: order block ve Fibonacci seviyeleri kapanmış mumdan üretilir', (
     assert.ok(s.smcContext.fibLevels && s.smcContext.fibLevels.retracement['0.618'] !== undefined);
   }
 });
+
+test('geçmiş işlemler: LIVE_EXECUTION kayıtlarından gerçek sonuç bir kez beyne yazılır; açık olan ve tekrar yazılmaz', async t => {
+  const root = freshRoot(t);
+  fs.writeFileSync(path.join(root, 'config', 'live-policy.json'), JSON.stringify({ armMinutes:1440, expectedLeverage:5, maxEntryDeviationPct:0.5,
+    limits:{ maxRiskPctPerTrade:0.5, maxNotionalPctPerTrade:10, maxDailyLossPct:100, maxOpenPositions:5, maxFamilyExposurePct:30 },
+    apiPermissions:{ configured:true, futuresEnabled:true, withdrawalsEnabled:false, ipRestricted:true } }));
+  const now = Date.now();
+  const exec = (sym, side, ts, qty, entry, stop, why) => ({ id:sym + ts, ts, kind:'LIVE_EXECUTION', symbol:sym, payload:{ eventId:'LH:' + sym + ':' + ts,
+    plan:{ side, setup:'CLAUDE_V112_MOMENTUM_SCALP', originTF:'1m', why, claudeFastLane:{ momentum:{ tags:['VOLATILE_1M'] } }, jevDecision:{ called:true, veto:false } },
+    riskGate:{ structuralStop:{ entryPrice:entry, stopPrice:stop } }, sizing:{ riskPctOfEquity:9 },
+    result:{ orderPlaced:true, side, executedQty:qty } } });
+  const journal = [
+    exec('COOKIEUSDT', 'LONG', now - 7 * 3600e3, 24398, 0.012296, 0.011622, 'ilk COOKIE'),
+    exec('COOKIEUSDT', 'LONG', now - 2 * 3600e3, 23069, 0.013004, 0.012496, 'ikinci COOKIE'),
+    exec('TAOUSDT', 'LONG', now - 3600e3, 0.929, 322.66, 313.3, 'açık TAO')
+  ];
+  const incomeCalls = [];
+  const reply2 = body => ({ ok:true, status:200, async text() { return JSON.stringify(body); } });
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/fapi/v1/time') return reply2({ serverTime:Date.now() });
+    if (u.pathname === '/fapi/v3/positionRisk') return reply2([{ symbol:'TAOUSDT', positionAmt:'0.929', entryPrice:'322.66', markPrice:'323', unRealizedProfit:'0.3' }]);
+    if (u.pathname === '/fapi/v1/income') {
+      const st = Number(u.searchParams.get('startTime')), en = Number(u.searchParams.get('endTime'));
+      incomeCalls.push([u.searchParams.get('symbol'), st, en]);
+      const first = st < now - 5 * 3600e3;
+      return reply2([{ incomeType:'REALIZED_PNL', income:first ? '-16.4' : '-11.7', time:String(first ? now - 6.5 * 3600e3 : now - 1.5 * 3600e3) }, { incomeType:'COMMISSION', income:'-0.3', time:'0' }]);
+    }
+    throw new Error('UNEXPECTED_' + u.pathname);
+  };
+  const written = [];
+  const store = {
+    journal:(k, s, p) => { written.push({ k, s, p, ts:Date.now() }); return 'id'; }, latestJournal:() => null, recordLearning:() => 'id',
+    recentJournal:(kind) => kind === 'LIVE_EXECUTION' ? journal : written.filter(x => x.k === kind).map(x => ({ id:'w', ts:x.ts, kind:x.k, symbol:x.s, payload:x.p }))
+  };
+  const { createLiveController } = require('../live-controller');
+  const controller = createLiveController({ root, credentials:{ apiKey:'test-api-key', apiSecret:'test-api-secret' }, fetchImpl, store,
+    scanner:{ async scan() { return { leaders:[] }; } }, pipeline:{ async run() { return {}; } }, committee:async () => ({}) });
+  const out = await controller.backfillClosedOutcomes({ sinceTs:0 });
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.equal(out.written, 2, 'iki kapanmış COOKIE yazılır, açık TAO yazılmaz');
+  const rows = written.filter(x => x.k === 'POSITION_CLOSED');
+  assert.equal(rows[0].p.netPnl.toFixed(1), '-16.7');
+  assert.equal(rows[0].p.exitType, 'STOP_LOSS');
+  assert.match(rows[0].p.entryContext.why, /ilk COOKIE/);
+  assert.ok(incomeCalls[0][2] < journal[1].ts, 'ilk işlemin gelir penceresi ikinci girişten önce biter');
+  assert.equal((await controller.backfillClosedOutcomes({ sinceTs:0 })).written, 0, 'tekrar yazılmaz');
+});
