@@ -395,7 +395,7 @@ test('Unified Brain can originate at 1m without waiting for 15m and carries obse
   assert.equal(u.opportunityPaths.LONG.ownerTF, '5m');
   assert.equal(u.policy.unifiedEngineDoesNotWaitFor15m, true);
   assert.equal(u.liquidationContext.available, true);
-  assert.equal(u.liquiditySemantics.marketMakerIntent, 'NOT_INFERRED');
+  assert.equal(u.liquiditySemantics.marketMakerIntent, 'NOT_ASSERTED');
   assert.equal(u.dataQuality.microstructureQuality, 'STREAMING_PARTIAL_BOOK');
 });
 
