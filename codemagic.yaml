@@ -204,13 +204,13 @@ workflows:
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
           grep -q 'v95113StopAndVerify("ANDROID_EMERGENCY_STOP"' "$MAIN"
-          grep -q 'v9.5.114-JEV-CORTEX' "$MAIN"
+          grep -q 'v9.5.114-JEV-PRO-SCALPER-R2531' "$MAIN"
           grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
           grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
-          # V95114 JEV Cortex mobile truth: JEV is final authority; workers/observer never execute.
-          grep -q 'V95114_JEV_CORTEX_MOBILE' "$MAIN"
-          grep -q 'JEV CORTEX P2: FINAL AUTHORITY' "$MAIN"
+          # V95115/R2531 mobile truth: JEV is final authority; workers/observer never execute.
+          grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' "$MAIN"
+          grep -q 'R2.5.3.1 SOVEREIGN EVIDENCE: FINAL AUTHORITY' "$MAIN"
           grep -q 'scalp execution yalnız KAPANMIŞ 5m' "$MAIN"
           grep -q 'worker EVIDENCE_ONLY' "$MAIN"
           grep -q 'JEV: NİHAİ STRATEJİK KARAR MERCİİ' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
@@ -219,7 +219,7 @@ workflows:
             echo 'V95114_STALE_JEV_AUTHORITY_TEXT'
             exit 1
           fi
-          echo 'V95114_JEV_CORTEX_MOBILE_OK'
+          echo 'V95115_R2531_POSTPATCH_GATES_OK'
           # CLAUDE_V111 (Claude, Anthropic): PC ve gorunen Android surum kimligi v9.5.111 ile esitlendi; v110 islem tabani korunur.
           grep -q "CLAUDE_V111_BUILD" "$CM_BUILD_DIR/brainhub/claude-v111.js"
           grep -q "CLAUDE_V111_TRIGGER_REVALIDATION" "$CM_BUILD_DIR/brainhub/claude-v111.js"
