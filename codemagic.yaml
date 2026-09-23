@@ -24,7 +24,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.114 JEV Cortex Turkish source
+      - name: Prepare Futures Alarm v9.5.114-r2531 JEV Pro Scalper Turkish source
         script: |
           set -euo pipefail
           trap 'rc=$?; echo "PREPARE_V110_FAILED rc=$rc line=$LINENO command=$BASH_COMMAND"; exit $rc' ERR
@@ -181,8 +181,8 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.114'" "$BUILD"
-          grep -q 'versionCode 26092301' "$BUILD"
+          grep -q "versionName '9.5.114-r2531'" "$BUILD"
+          grep -q 'versionCode 26092302' "$BUILD"
           grep -q "CLAUDE_V109_BUILD" "$CM_BUILD_DIR/brainhub/claude-v109.js"
           grep -q "9.5.110-VISION" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "'claude-v109.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
@@ -198,8 +198,8 @@ workflows:
           grep -q "SCALP_MOMENTUM" "$CM_BUILD_DIR/brainhub/trade-lanes.js"
           grep -q "640" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "896" "$CM_BUILD_DIR/brainhub/v110.js"
-          grep -q "versionName '9.5.114'" "$BUILD"
-          grep -q 'versionCode 26092301' "$BUILD"
+          grep -q "versionName '9.5.114-r2531'" "$BUILD"
+          grep -q 'versionCode 26092302' "$BUILD"
           # CLAUDE_V113 (Claude, Anthropic): Android PC LIVE gercegi, dogrulanan ACIL DURDUR, salt-okunur PC pozisyonlari.
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
