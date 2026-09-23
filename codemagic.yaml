@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.114-JEV-CORTEX + PC R2.5.2 JEV-CORTEX
+    name: Futures 15m Alarm PRO APK v9.5.114-r2531 JEV PRO SCALPER + PC R2.5.3.1
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -101,10 +101,16 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v9597_auto_chat_review.py"
           # CLAUDE_V113: retain verified PC LIVE truth / emergency-stop behavior.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95113_claude_live_truth.py"
-          # V95114: align the Android UI/identity with BrainHub R2.5.2 JEV Cortex.
-          # UI/metadata only: does not arm LIVE and adds no order/cancel/close path.
+          # V95114: align Android UI/identity with BrainHub R2.5.2 JEV Cortex.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95114_jev_cortex_mobile.py"
-          echo 'V114_ANDROID_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114'
+          # V95115/R2531: align Android with installed R2.5.3.1 Pro Trader/Scalper evidence contract.
+          # UI/metadata only; PC remains the strategic/execution brain and LIVE stays explicit/manual.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95115_jev_pro_scalper_r2531_mobile.py"
+          echo 'V115_ANDROID_R2531_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114->v95115'
+          grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'JEV PRO FUTURES TRADER/SCALPER' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "versionName '9.5.114-r2531'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          echo 'V115_ANDROID_R2531_CONTRACT_OK'
 
           APP=/tmp/futures15m-build/Futures15mAlarm
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
@@ -411,7 +417,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.114 JEV Cortex signed APK
+      - name: Build installable v9.5.114-r2531 JEV Pro Scalper signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -457,9 +463,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2531.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2531.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -470,5 +476,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.114.apk
+      - Futures15mAlarm-PRO-v9.5.114-R2531.apk
       - v9595-gradle.log
