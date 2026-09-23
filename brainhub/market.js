@@ -9,6 +9,7 @@ const GECKO = 'https://api.coingecko.com/api/v3';
 const FUTURES_WS = 'wss://fstream.binance.com/ws';
 const frameCache = new Map();
 const depthCache = new Map();
+const derivativesCache = new Map();
 let globalCache = { at: 0, result: null };
 
 function finite(v) {
@@ -127,6 +128,173 @@ function liquidationZones(records, mid, bucketBps = 10) {
     .slice(0, 6);
 }
 
+
+function median(values) {
+  const a=(Array.isArray(values)?values:[]).map(Number).filter(Number.isFinite).sort((x,y)=>x-y);
+  if(!a.length)return 0;
+  const m=Math.floor(a.length/2);
+  return a.length%2?a[m]:(a[m-1]+a[m])/2;
+}
+function parseDepthLevels(rows,limit=12) {
+  return (Array.isArray(rows)?rows:[]).slice(0,limit).map(x=>{
+    const price=finite(x?.[0]), qty=finite(x?.[1]);
+    return {price,qty,quote:price&&qty?price*qty:null};
+  }).filter(x=>x.price>0&&x.qty>0&&x.quote>0);
+}
+function flowWindowStats(trades, now, windowMs) {
+  const rows=(Array.isArray(trades)?trades:[]).filter(x=>now>=x.at&&now-x.at<=windowMs);
+  const buy=rows.filter(x=>x.sign>0), sell=rows.filter(x=>x.sign<0);
+  const sum=a=>a.reduce((s,x)=>s+(Number(x.quote)||0),0);
+  const buyQuote=sum(buy), sellQuote=sum(sell), totalQuote=buyQuote+sellQuote;
+  const first=rows[0], last=rows.at(-1);
+  const priceMoveBps=first?.price>0&&last?.price>0 ? (last.price-first.price)/first.price*10000 : null;
+  const quotes=rows.map(x=>Number(x.quote)||0).filter(x=>x>0).sort((a,b)=>a-b);
+  const p90=quotes.length?quotes[Math.min(quotes.length-1,Math.floor(quotes.length*0.90))]:0;
+  const threshold=Math.max(p90, totalQuote>0?totalQuote*0.03:0);
+  const large=rows.filter(x=>(Number(x.quote)||0)>=threshold&&threshold>0);
+  const largeBuy=large.filter(x=>x.sign>0), largeSell=large.filter(x=>x.sign<0);
+  const regularity = sideRows => {
+    if(sideRows.length<4)return null;
+    const ints=[];
+    for(let i=1;i<sideRows.length;i++)ints.push(sideRows[i].at-sideRows[i-1].at);
+    const mean=ints.reduce((s,x)=>s+x,0)/ints.length;
+    if(!(mean>0))return null;
+    const variance=ints.reduce((s,x)=>s+(x-mean)**2,0)/ints.length;
+    return Math.sqrt(variance)/mean;
+  };
+  const buyCv=regularity(largeBuy), sellCv=regularity(largeSell);
+  let possibleTwapLike=null;
+  if(buyCv!==null&&buyCv<=0.45)possibleTwapLike={side:'BUY',samples:largeBuy.length,intervalCv:round(buyCv,4)};
+  if(sellCv!==null&&sellCv<=0.45&&(!possibleTwapLike||largeSell.length>possibleTwapLike.samples))possibleTwapLike={side:'SELL',samples:largeSell.length,intervalCv:round(sellCv,4)};
+  return {
+    windowMs,
+    trades:rows.length,
+    buyQuote:round(buyQuote,2),
+    sellQuote:round(sellQuote,2),
+    deltaQuote:round(buyQuote-sellQuote,2),
+    buyRatio:totalQuote>0?round(buyQuote/totalQuote,4):null,
+    sellRatio:totalQuote>0?round(sellQuote/totalQuote,4):null,
+    priceMoveBps:priceMoveBps===null?null:round(priceMoveBps,3),
+    largestTradeQuote:quotes.length?round(quotes.at(-1),2):null,
+    largeTradeThresholdQuote:threshold>0?round(threshold,2):null,
+    largeBuyCount:largeBuy.length,
+    largeSellCount:largeSell.length,
+    possibleTwapLike,
+    semantics:'PUBLIC_AGGTRADE_FLOW_EVIDENCE_ONLY'
+  };
+}
+function depthDynamics(history, trades, now, mid) {
+  if(!(mid>0))return {available:false,reason:'MID_UNAVAILABLE'};
+  const rows=(Array.isArray(history)?history:[]).filter(x=>now>=x.at&&now-x.at<=45000);
+  if(rows.length<3)return {available:false,reason:'DEPTH_HISTORY_WARMING'};
+  const step=Math.max(mid*0.0002,Number.EPSILON);
+  const bucket=p=>Math.round(Number(p)/step);
+  const mapSide=(levels)=>{
+    const m=new Map();
+    for(const x of Array.isArray(levels)?levels:[]){
+      if(!(x?.price>0)||!(x?.quote>0))continue;
+      const k=bucket(x.price);
+      const prev=m.get(k)||{priceSum:0,quote:0};
+      prev.priceSum+=x.price*x.quote; prev.quote+=x.quote; m.set(k,prev);
+    }
+    return m;
+  };
+  const snapshots=rows.map(r=>({at:r.at,bids:mapSide(r.bids),asks:mapSide(r.asks)}));
+  const last=snapshots.at(-1);
+  const currentLevels=(side)=>{
+    const m=last[side], vals=[...m.entries()].map(([k,v])=>({k,price:v.quote>0?v.priceSum/v.quote:null,quote:v.quote}));
+    const med=median(vals.map(x=>x.quote));
+    const total=vals.reduce((s,x)=>s+x.quote,0);
+    return vals.map(x=>{
+      let seen=0, peak=0;
+      for(const s of snapshots){const q=s[side].get(x.k)?.quote||0;if(q>0)seen++;if(q>peak)peak=q;}
+      return {...x,persistence:seen/snapshots.length,peakQuote:peak,wall:x.quote>=Math.max(med*2.5,total*0.10)};
+    }).filter(x=>x.wall).sort((a,b)=>b.quote-a.quote).slice(0,4);
+  };
+  const bidWalls=currentLevels('bids'), askWalls=currentLevels('asks');
+  const peakMap=(side)=>{
+    const m=new Map();
+    for(const s of snapshots)for(const [k,v] of s[side]){
+      const p=m.get(k)||{peakQuote:0,price:0,seen:0};
+      if(v.quote>p.peakQuote){p.peakQuote=v.quote;p.price=v.priceSum/v.quote;}
+      p.seen++;m.set(k,p);
+    }
+    return m;
+  };
+  const currentBid=last.bids,currentAsk=last.asks, peakBid=peakMap('bids'),peakAsk=peakMap('asks');
+  const nearbyTradeQuote=(price)=>{
+    if(!(price>0))return 0;
+    return (Array.isArray(trades)?trades:[]).filter(t=>now>=t.at&&now-t.at<=45000&&t.price>0&&Math.abs(t.price-price)/price<=0.0006)
+      .reduce((s,t)=>s+(Number(t.quote)||0),0);
+  };
+  const pulls=[];
+  const scanPull=(side,peaks,current)=>{
+    const peakVals=[...peaks.values()].map(x=>x.peakQuote).filter(x=>x>0);
+    const threshold=Math.max(median(peakVals)*2.5,1);
+    for(const [k,p] of peaks){
+      if(p.peakQuote<threshold)continue;
+      const cur=current.get(k)?.quote||0;
+      const removed=Math.max(0,p.peakQuote-cur);
+      const traded=nearbyTradeQuote(p.price);
+      if(cur<=p.peakQuote*0.25&&removed>0&&traded<=removed*0.35){
+        pulls.push({side:side==='bids'?'BID':'ASK',price:round(p.price),peakQuote:round(p.peakQuote,2),remainingQuote:round(cur,2),removedQuote:round(removed,2),nearbyTradedQuote:round(traded,2)});
+      }
+    }
+  };
+  scanPull('bids',peakBid,currentBid); scanPull('asks',peakAsk,currentAsk);
+  pulls.sort((a,b)=>b.removedQuote-a.removedQuote);
+  const f30=flowWindowStats(trades,now,30000);
+  const strongestBid=bidWalls[0]||null, strongestAsk=askWalls[0]||null;
+  let absorption={available:false,reason:'NO_CLEAR_ABSORPTION'};
+  if(f30.sellRatio>=0.65&&Number(f30.priceMoveBps)>-8&&strongestBid?.persistence>=0.35){
+    const confidence=Math.min(0.88,0.45+(f30.sellRatio-0.65)*0.9+strongestBid.persistence*0.18);
+    absorption={available:true,type:'SELL_AGGRESSION_ABSORBED_AT_BID',side:'BID',confidence:round(confidence,3),wallPrice:round(strongestBid.price),wallQuote:round(strongestBid.quote,2)};
+  }else if(f30.buyRatio>=0.65&&Number(f30.priceMoveBps)<8&&strongestAsk?.persistence>=0.35){
+    const confidence=Math.min(0.88,0.45+(f30.buyRatio-0.65)*0.9+strongestAsk.persistence*0.18);
+    absorption={available:true,type:'BUY_AGGRESSION_ABSORBED_AT_ASK',side:'ASK',confidence:round(confidence,3),wallPrice:round(strongestAsk.price),wallQuote:round(strongestAsk.quote,2)};
+  }
+  const replenishment=[];
+  const scanReplenish=(walls,side)=>{
+    for(const w of walls){
+      const traded=nearbyTradeQuote(w.price);
+      if(w.persistence>=0.45&&traded>=w.quote*0.30){
+        replenishment.push({side,price:round(w.price),currentQuote:round(w.quote,2),peakQuote:round(w.peakQuote,2),persistence:round(w.persistence,3),nearbyTradedQuote:round(traded,2),confidence:round(Math.min(0.85,0.4+w.persistence*0.35+Math.min(0.2,traded/Math.max(1,w.quote)*0.05)),3)});
+      }
+    }
+  };
+  scanReplenish(bidWalls,'BID'); scanReplenish(askWalls,'ASK');
+  return {
+    available:true,
+    windowMs:45000,
+    samples:snapshots.length,
+    bucketBps:2,
+    bidWalls:bidWalls.map(x=>({price:round(x.price),quote:round(x.quote,2),persistence:round(x.persistence,3)})),
+    askWalls:askWalls.map(x=>({price:round(x.price),quote:round(x.quote,2),persistence:round(x.persistence,3)})),
+    possibleLiquidityPulls:pulls.slice(0,6),
+    replenishment:replenishment.slice(0,6),
+    absorption,
+    semantics:'HEURISTIC_PUBLIC_L2_PLUS_AGGTRADE_EVIDENCE_ONLY',
+    note:'Top-of-book persistence, pull, replenishment and absorption are heuristics from public partial L2 plus aggTrade. They do not identify an exchange participant or prove spoofing/iceberg intent.'
+  };
+}
+function liquidationVelocity(records, now) {
+  const stats=ms=>{
+    const rows=(Array.isArray(records)?records:[]).filter(x=>now>=x.at&&now-x.at<=ms);
+    const long=rows.filter(x=>x.side==='LONG_LIQUIDATED'), short=rows.filter(x=>x.side==='SHORT_LIQUIDATED');
+    const sum=a=>a.reduce((s,x)=>s+(Number(x.quote)||0),0);
+    return {windowMs:ms,count:rows.length,longQuote:round(sum(long),2),shortQuote:round(sum(short),2),longCount:long.length,shortCount:short.length};
+  };
+  const s10=stats(10000),s60=stats(60000),s300=stats(300000);
+  const total=s60.longQuote+s60.shortQuote;
+  let cascade={available:false,reason:'NO_CLEAR_CASCADE'};
+  if(s60.count>=3&&total>=10000){
+    const longShare=total>0?s60.longQuote/total:0, shortShare=total>0?s60.shortQuote/total:0;
+    if(longShare>=0.75)cascade={available:true,type:'LONG_LIQUIDATION_CASCADE',confidence:round(Math.min(0.95,0.55+(longShare-0.75)+Math.min(0.2,s60.count/30)),3),quote:s60.longQuote,count:s60.longCount};
+    else if(shortShare>=0.75)cascade={available:true,type:'SHORT_LIQUIDATION_CASCADE',confidence:round(Math.min(0.95,0.55+(shortShare-0.75)+Math.min(0.2,s60.count/30)),3),quote:s60.shortQuote,count:s60.shortCount};
+  }
+  return {windows:{'10s':s10,'60s':s60,'300s':s300},cascade,semantics:'OBSERVED_BINANCE_FORCE_ORDER_ONLY'};
+}
+
 class StreamingMarket {
   constructor({ WebSocketImpl = (typeof WebSocket === 'function' ? WebSocket : null), now = () => Date.now() } = {}) {
     this.WebSocketImpl = WebSocketImpl;
@@ -150,6 +318,7 @@ class StreamingMarket {
       if (this.states.size >= this.maxSymbols) throw new Error('stream symbol capacity reached');
       this.states.set(symbol, {
         symbol, lastEventAt:0, book:null, depth:null, depthAt:0,
+        depthHistory:[], lastDepthHistoryAt:0,
         trades:[], tradeAt:0, liquidations:[], liquidationAt:0
       });
     }
@@ -217,6 +386,7 @@ class StreamingMarket {
   cleanup(state, now = this.now()) {
     state.trades = state.trades.filter(x => now - x.at <= this.tradeWindowMs && now >= x.at);
     state.liquidations = state.liquidations.filter(x => now - x.at <= this.liquidationWindowMs && now >= x.at);
+    state.depthHistory = (Array.isArray(state.depthHistory)?state.depthHistory:[]).filter(x => now - x.at <= 90000 && now >= x.at).slice(-180);
   }
   ingest(message) {
     const data = message?.data && typeof message.data === 'object' ? message.data : message;
@@ -235,10 +405,15 @@ class StreamingMarket {
       const imbalance = depthImbalance(data.b, data.a);
       state.depth = { bids:Array.isArray(data.b) ? data.b.slice(0,20) : [], asks:Array.isArray(data.a) ? data.a.slice(0,20) : [], imbalance, at:eventAt || now };
       state.depthAt = eventAt || now;
+      if(!state.lastDepthHistoryAt || (eventAt||now)-state.lastDepthHistoryAt>=500){
+        state.depthHistory.push({at:eventAt||now,bids:parseDepthLevels(data.b,12),asks:parseDepthLevels(data.a,12)});
+        state.lastDepthHistoryAt=eventAt||now;
+        if(state.depthHistory.length>180)state.depthHistory.splice(0,state.depthHistory.length-180);
+      }
     } else if (eventType === 'aggTrade') {
       const price = finite(data.p), qty = finite(data.q), at = finite(data.T) ?? eventAt ?? now;
       if (price > 0 && qty > 0 && at <= now + 5000) {
-        state.trades.push({ at, quote:price * qty, sign:data.m ? -1 : 1 });
+        state.trades.push({ at, price, qty, quote:price * qty, sign:data.m ? -1 : 1 });
         state.tradeAt = Math.max(state.tradeAt, at);
       }
     } else if (eventType === 'forceOrder') {
@@ -277,6 +452,9 @@ class StreamingMarket {
     const longLiqQuote = state.liquidations.filter(x => x.side === 'LONG_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
     const shortLiqQuote = state.liquidations.filter(x => x.side === 'SHORT_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
     const zones = liquidationZones(state.liquidations, mid || state.book?.bid || state.book?.ask || 0);
+    const flow10=flowWindowStats(state.trades,now,10000), flow30=flowWindowStats(state.trades,now,30000), flow120=flowWindowStats(state.trades,now,120000);
+    const dynamics=depthDynamics(state.depthHistory,state.trades,now,mid || state.book?.bid || state.book?.ask || 0);
+    const liqVelocity=liquidationVelocity(state.liquidations,now);
     const depthFresh = Boolean(state.depth && now >= state.depth.at && now - state.depth.at <= this.staleMs);
     const softDepth = depthFresh ? depthSoftContext(state.depth.bids, state.depth.asks) : null;
     const available = Boolean(bookFresh && ageMs !== null && ageMs <= this.staleMs);
@@ -298,6 +476,8 @@ class StreamingMarket {
       cvdQuote120s:state.trades.length ? round(cvdQuote, 2) : null,
       cvdTrades120s:state.trades.length,
       cvdAsOf:state.tradeAt || null,
+      orderFlow:{windows:{'10s':flow10,'30s':flow30,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
+      depthDynamics:dynamics,
       observedLiquidations:{
         available:state.liquidations.length > 0,
         windowMs:this.liquidationWindowMs,
@@ -306,6 +486,8 @@ class StreamingMarket {
         longLiquidatedQuote:round(longLiqQuote, 2),
         shortLiquidatedQuote:round(shortLiqQuote, 2),
         zones,
+        velocity:liqVelocity.windows,
+        cascade:liqVelocity.cascade,
         semantics:'OBSERVED_BINANCE_FORCE_ORDER_ONLY',
         note:'Observed liquidation prints only; not a complete liquidation heatmap, future cluster map, or proof of market-maker intent.'
       },
@@ -352,6 +534,56 @@ async function getJson(base, endpoint, timeout = 10000) {
   if (!res.ok) throw new Error(`${new URL(base).hostname} HTTP ${res.status}`);
   return res.json();
 }
+
+async function derivativesContext(symbol) {
+  if(!validSymbol(symbol))throw new Error('invalid USDT perpetual symbol');
+  const now=Date.now();
+  const cached=derivativesCache.get(symbol);
+  if(cached&&now-cached.at<30000)return cached.result;
+  const endpoints=[
+    ['/fapi/v1/openInterest?symbol='+symbol,'openInterest'],
+    ['/futures/data/openInterestHist?symbol='+symbol+'&period=5m&limit=3','openInterestHist'],
+    ['/fapi/v1/premiumIndex?symbol='+symbol,'premium'],
+    ['/futures/data/takerlongshortRatio?symbol='+symbol+'&period=5m&limit=3','taker'],
+    ['/futures/data/topLongShortPositionRatio?symbol='+symbol+'&period=5m&limit=3','topPosition'],
+    ['/futures/data/topLongShortAccountRatio?symbol='+symbol+'&period=5m&limit=3','topAccount'],
+    ['/futures/data/globalLongShortAccountRatio?symbol='+symbol+'&period=5m&limit=3','globalAccount']
+  ];
+  const settled=await Promise.allSettled(endpoints.map(([url])=>getJson(FUTURES,url,7000)));
+  const by={};
+  settled.forEach((r,i)=>{by[endpoints[i][1]]=r.status==='fulfilled'?r.value:null;});
+  const hist=Array.isArray(by.openInterestHist)?by.openInterestHist:[];
+  const prev=hist.length>=2?Number(hist.at(-2)?.sumOpenInterestValue||hist.at(-2)?.sumOpenInterest):null;
+  const last=hist.length?Number(hist.at(-1)?.sumOpenInterestValue||hist.at(-1)?.sumOpenInterest):null;
+  const oiDeltaPct=Number.isFinite(prev)&&prev!==0&&Number.isFinite(last)?(last-prev)/prev*100:null;
+  const lastRow=x=>Array.isArray(x)&&x.length?x.at(-1):null;
+  const tak=lastRow(by.taker), tp=lastRow(by.topPosition), ta=lastRow(by.topAccount), ga=lastRow(by.globalAccount);
+  const out={
+    available:Boolean(by.openInterest||by.premium||tak||tp||ta||ga),
+    source:'Binance USD-M public REST',
+    asOf:now,
+    openInterest:{
+      current:finite(by.openInterest?.openInterest),
+      time:finite(by.openInterest?.time),
+      delta5mPct:oiDeltaPct===null?null:round(oiDeltaPct,4),
+      valueLast:Number.isFinite(last)?round(last,2):null
+    },
+    funding:by.premium?{
+      markPrice:finite(by.premium.markPrice),indexPrice:finite(by.premium.indexPrice),
+      lastFundingRate:finite(by.premium.lastFundingRate),nextFundingTime:finite(by.premium.nextFundingTime),
+      interestRate:finite(by.premium.interestRate)
+    }:null,
+    taker:tak?{buySellRatio:finite(tak.buySellRatio),buyVol:finite(tak.buyVol),sellVol:finite(tak.sellVol),timestamp:finite(tak.timestamp)}:null,
+    topTraderPosition:tp?{longShortRatio:finite(tp.longShortRatio),longAccount:finite(tp.longAccount),shortAccount:finite(tp.shortAccount),timestamp:finite(tp.timestamp)}:null,
+    topTraderAccount:ta?{longShortRatio:finite(ta.longShortRatio),longAccount:finite(ta.longAccount),shortAccount:finite(ta.shortAccount),timestamp:finite(ta.timestamp)}:null,
+    globalAccount:ga?{longShortRatio:finite(ga.longShortRatio),longAccount:finite(ga.longAccount),shortAccount:finite(ga.shortAccount),timestamp:finite(ga.timestamp)}:null,
+    semantics:'DERIVATIVES_POSITIONING_CONTEXT_ONLY',
+    note:'Open interest, funding, taker flow and long/short ratios are contextual evidence. Top-trader ratios do not identify market makers and do not independently qualify a trade.'
+  };
+  derivativesCache.set(symbol,{at:now,result:out});
+  return out;
+}
+
 async function frameSet(symbol, base = FUTURES, path = '/fapi/v1/klines') {
   const cacheKey = `${base}:${symbol}`;
   const cached = frameCache.get(cacheKey);
@@ -373,10 +605,11 @@ async function frameSet(symbol, base = FUTURES, path = '/fapi/v1/klines') {
 async function symbolContext(symbol) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
   marketStream.ensureSymbol(symbol);
-  const [frames, depthResult, tradeResult] = await Promise.allSettled([
+  const [frames, depthResult, tradeResult, derivativesResult] = await Promise.allSettled([
     frameSet(symbol),
     getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=20`, 9000),
-    getJson(FUTURES, `/fapi/v1/aggTrades?symbol=${symbol}&limit=100`, 9000)
+    getJson(FUTURES, `/fapi/v1/aggTrades?symbol=${symbol}&limit=100`, 9000),
+    derivativesContext(symbol)
   ]);
   if (frames.status !== 'fulfilled') throw frames.reason;
   const now = Date.now();
@@ -388,7 +621,9 @@ async function symbolContext(symbol) {
     delete micro.snapshot;
   }
   const streaming = marketStream.snapshot(symbol, now);
+  const derivatives = derivativesResult.status==='fulfilled' ? derivativesResult.value : {available:false,reason:String(derivativesResult.reason?.message||derivativesResult.reason||'DERIVATIVES_UNAVAILABLE')};
   micro.sourceQuality = 'REST_SNAPSHOT_APPROX';
+  micro.derivatives = derivatives;
   micro.streaming = streaming;
   micro.observedLiquidations = streaming.observedLiquidations || {
     available:false, count:0, longLiquidatedQuote:0, shortLiquidatedQuote:0, zones:[], semantics:'OBSERVED_BINANCE_FORCE_ORDER_ONLY'
@@ -414,6 +649,7 @@ async function symbolContext(symbol) {
     source: 'Binance USDT-M public REST + public WebSocket when fresh; closed candles only; 45m causally aggregated from three closed 15m candles',
     timeframes: frames.value.frames, timeframeErrors: frames.value.errors,
     microstructure: micro,
+    derivatives,
     streamHealth: marketStream.health(),
     limitations: [
       'Streaming depth20 is a partial book and does not prove resting-liquidity persistence or true sequenced OFI',
@@ -737,4 +973,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { globalContext, symbolContext, chartContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, depthImbalance, depthSoftContext };
+module.exports = { globalContext, symbolContext, derivativesContext, chartContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };

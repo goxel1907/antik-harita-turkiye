@@ -2,6 +2,7 @@
 
 const { pickCandidate, selectDeepCandidates, executionEligible } = require('./leader-committee');
 const { symbolContext, globalContext, chartContext, renderChartPng } = require('./market');
+const { buildMarketMakerEvidence } = require('./market-maker-evidence');
 const { breakoutExecution, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached } = require('./engine');
 const { isNonConcreteWait } = require('./wait-condition');
 const claudeV109 = require('./claude-v109');
@@ -177,6 +178,7 @@ function globalAsset(asset) {
 function compactCandidate(c) {
   if (!c) return null;
   return {
+    authority:'ATTENTION_ONLY',
     symbol:c.symbol,
     side:c.side,
     leaderState:c.leaderState,
@@ -229,8 +231,10 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
   const freshFrames = FRAME_ORDER.filter(x => frames[x]?.available && frames[x].fresh);
   const staleFrames = FRAME_ORDER.filter(x => frames[x]?.available && !frames[x].fresh);
   const microQuality = symbol?.microstructure?.sourceQuality || (symbol?.microstructure?.available ? 'REST_SNAPSHOT_APPROX' : 'UNAVAILABLE');
+  const derivatives=symbol?.derivatives||symbol?.microstructure?.derivatives||{available:false};
+  const marketMakerEvidence=buildMarketMakerEvidence({streaming:symbol?.microstructure?.streaming||{},derivatives,microstructure:symbol?.microstructure||{}});
   const unified={
-    version:'UNIFIED_BRAIN_CONTEXT_V9578E',
+    version:'UNIFIED_BRAIN_CONTEXT_JEV_SOVEREIGN_EVIDENCE_V1',
     symbol:symbol?.symbol || candidate?.symbol || null,
     generatedAt:new Date(now).toISOString(),
     livePrice,
@@ -239,6 +243,10 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
     opportunityPaths:{ LONG:sidePath(frames, 'LONG'), SHORT:sidePath(frames, 'SHORT') },
     tradeLanes:null,
     microstructure:symbol?.microstructure || { available:false, reason:'UNAVAILABLE' },
+    derivatives,
+    marketMakerEvidence,
+    authority:{finalStrategicAuthority:'JEV',scannerAuthority:'ATTENTION_ONLY',workerAuthority:'EVIDENCE_ONLY'},
+    visualPolicy:{tradingViewPrimaryWhenValidated:true,binanceInternalChartFallback:true,numericAuthority:'BINANCE_BRAINHUB',visualMayOverrideNumeric:false},
     global:{
       btc:globalAsset(global?.btc),
       eth:globalAsset(global?.eth),
@@ -252,8 +260,9 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
       } : { available:false, reason:global?.marketCap?.reason || 'UNAVAILABLE' }
     },
     liquiditySemantics:{
-      marketMakerIntent:'NOT_INFERRED',
-      note:'BSL/SSL, equal highs/lows, wick sweeps, FVGs and observed force orders are liquidity context, not proof of a hidden market-maker target.'
+      marketMakerIntent:'NOT_ASSERTED',
+      marketMakerIdentity:'NOT_IDENTIFIED',
+      note:'BSL/SSL, equal highs/lows, wick sweeps, FVGs, order-flow heuristics and observed force orders are evidence context, not proof of a hidden market-maker identity or target.'
     },
     liquidationContext:liquidationContext(symbol?.microstructure),
     dataQuality:{
@@ -277,6 +286,11 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
       timeframesAreNotVotes:true,
       synthetic45mIsContextNotIndependentVote:true,
       observedLiquidationsAreContextNotIntent:true,
+      marketMakerEvidenceOnly:true,
+      finalStrategicAuthority:'JEV',
+      workerAuthority:'EVIDENCE_ONLY',
+      scannerAuthority:'ATTENTION_ONLY',
+      visualCannotOverrideNumericTruth:true,
       trueOfiClaimed:false,
       microstructureSoftFamilySingleVote:true,
       missingAuxiliaryDataIsScoreless:true,
@@ -349,6 +363,10 @@ function compactUnifiedContext(u) {
       } : { available:false }
     } : { available:false, reason:m?.reason },
     liquidationContext:u.liquidationContext,
+    derivatives:u.derivatives||null,
+    marketMakerEvidence:u.marketMakerEvidence||null,
+    authority:u.authority||null,
+    visualPolicy:u.visualPolicy||null,
     global:u.global,
     liquiditySemantics:u.liquiditySemantics,
     dataQuality:u.dataQuality,

@@ -1718,6 +1718,13 @@ const server=http.createServer(async(req,res)=>{
       const unified=pipeline.buildUnifiedContext({symbol:sym,global,candidate:candidateForSymbol(scan,symbol)});
       return send(res,200,{ok:true,...unified});
     }
+    if(req.method==='GET'&&u.pathname==='/context/jev-evidence'){
+      const symbol=(u.searchParams.get('symbol')||'').toUpperCase();
+      if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
+      const [sym,global,scan]=await Promise.all([market.symbolContext(symbol),market.globalContext(),scanner.scan()]);
+      const unified=pipeline.buildUnifiedContext({symbol:sym,global,candidate:candidateForSymbol(scan,symbol)});
+      return send(res,200,{ok:true,readOnly:true,symbol,generatedAt:unified.generatedAt,authority:unified.authority,visualPolicy:unified.visualPolicy,dataQuality:unified.dataQuality,marketMakerEvidence:unified.marketMakerEvidence,derivatives:unified.derivatives,liquidationContext:unified.liquidationContext,microstructure:unified.microstructure,frames:unified.frames,policy:unified.policy});
+    }
     if(req.method==='GET'&&u.pathname==='/chart/data'){
       const symbol=(u.searchParams.get('symbol')||'').toUpperCase();
       const tf=(u.searchParams.get('tf')||'15m').toLowerCase();

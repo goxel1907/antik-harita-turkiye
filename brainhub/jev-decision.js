@@ -176,6 +176,10 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
     candidateSide:String(candidate?.side||'').toUpperCase()||null,
     contextSymbol:unified?.symbol||null, generatedAt:unified?.generatedAt||null,
     global:unified?.global||null, liquidationContext:unified?.liquidationContext||null,
+    derivatives:unified?.derivatives||null,
+    marketMakerEvidence:unified?.marketMakerEvidence||null,
+    authority:unified?.authority||{finalStrategicAuthority:'JEV'},
+    visualPolicy:unified?.visualPolicy||null,
     plan:{
       status:plan?.status||null,
       side:plan?.side||null,
@@ -446,8 +450,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       model:cfg.model,
       state:{
         description:shadowWatch
-          ? 'Shadow calibration only: one BrainHub WATCH plan. Estimate the same veto signals that would apply after qualification, but do not change status and never create a trade, entry, stop, target, leverage, size, or order.'
-          : 'One compact BrainHub crypto-futures advisory plan. Judge only whether existing QUALIFIED status must be vetoed or held for review. Never create a trade, entry, stop, target, leverage, size, or order.',
+          ? 'Shadow calibration only. Read the complete multi-timeframe, TradingView/visual metadata, Binance numeric, order-flow, derivatives and liquidation evidence like a professional futures trader/scalper. Workers and scanner are evidence/attention only. Never infer a market-maker identity from public data, and never let visual evidence override Binance/BrainHub numeric truth. Do not change live state or place an order.'
+          : 'JEV is the final strategic authority for this BrainHub decision. Evaluate the complete multi-timeframe, TradingView/visual metadata, Binance numeric truth, structure, OB/FVG/liquidity, order-flow, absorption/replenishment/liquidity-pull heuristics, OI/funding/taker/top-trader context and observed liquidations as a professional futures trader/scalper. Scanner and workers are evidence/attention only. Treat market-maker/iceberg/spoof/TWAP labels as probabilistic footprints, never identity. Numeric Binance/BrainHub truth outranks visual interpretation. This call may accept/hold/veto strategy but must not itself mutate the user capital envelope or bypass deterministic execution safety.',
         record
       },
       questions:decisionQuestions()
