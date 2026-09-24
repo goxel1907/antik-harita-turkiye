@@ -1340,17 +1340,17 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   if(!pass1?.ok){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:pass1?.reason||'JEV_SOVEREIGN_PASS1_UNAVAILABLE',jevPass1:pass1||null,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
   }
+  const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee});
   let knowledgeResearchResult=null;
   if(pass1.knowledgeResearchRequested===true&&typeof knowledgeResearch==='function'){
     try{
-      knowledgeResearchResult=await knowledgeResearch({candidate,unified,familyHint:pass1.knowledgeFamily||'AUTO'});
+      knowledgeResearchResult=await knowledgeResearch({candidate,unified,evidence,familyHint:pass1.knowledgeFamily||'AUTO'});
       unified.knowledgeResearch=knowledgeResearchResult||null;
     }catch(e){
       knowledgeResearchResult={ok:false,called:true,reason:'KNOWLEDGE_RESEARCH_EXCEPTION',detail:String(e?.message||e).slice(0,240)};
       unified.knowledgeResearch=knowledgeResearchResult;
     }
   }
-  const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee});
   if(executionIntent?.positionReviewOnly===true){
     const reviewSide=['LONG','SHORT'].includes(String(executionIntent?.side||'').toUpperCase())?String(executionIntent.side).toUpperCase():null;
     const plan={
