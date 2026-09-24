@@ -687,9 +687,13 @@ function renderPositions(s){
   const recentLearning=Array.isArray(le.recent)?le.recent:[];
   const jevLessons=recentLearning.filter(x=>String(x?.kind||'').toUpperCase()==='JEV_LESSON').length;
   renderLedger(s);
+  const js=st.jevSovereign||s.health?.data?.jevSovereign||{};
+  const cx=js.traderCortex||s.health?.data?.jevSovereign?.traderCortex||{};
   $('#posKv').innerHTML = [
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
     ['Kural', pm.ruleTr || 'JEV SOVEREIGN: 5m LONG/SHORT scalp ve 15m LONG/SHORT trade kararını JEV verir; 1m/3m/30m+ yalnız JEV isterse ek kanıttır. Worker/scanner stratejik veto veya puan kapısı koymaz.'],
+    ['JEV Cortex', cx.version?`${cx.version} • ${cx.mode||'—'} • PASS-1/PASS-2/pozisyon yönetiminde sürekli`:'Cortex bilgisi bekleniyor'],
+    ['Deneyim hafızası', js.experienceMemory?`${js.experienceMemory} • geçmişi istemeden hatırlar`:'ölçülmüş geçmiş bekleniyor'],
     ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup • JEV shadow lesson ${jevLessons}`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)'],
     ['Teacher güvenliği', 'JEV lesson = SHADOW_ONLY • self-modify KAPALI • auto-promotion KAPALI']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
@@ -807,7 +811,7 @@ function renderV109(s){
   const hrs=num(h.shadowEvidenceHours);
   $('#v109Kv').innerHTML = (isV109 ? [
     ['Sürüm', `${fv} • ${s.health?.data?.builtBy?'Claude':''}`],
-    ['Mod', sovereign ? 'R2.5.3.2 SOVEREIGN • JEV PASS-1 → evidence → PASS-2 FINAL → HARD SAFETY' : `kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • legacy JEV • sonrası HARD SAFETY`],
+    ['Mod', sovereign ? 'R2.5.3.2 SOVEREIGN + R2.5.3.4 LIVE CORTEX • PASS-1 → evidence → PASS-2 FINAL → HARD SAFETY' : `kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • legacy JEV • sonrası HARD SAFETY`],
     ...(isV111 ? [
       ['Kod-tetik → Jev (v111)', `<b>${c111?.revalidated??0}</b> hızlı doğrulama / ${c111?.revalidationAttempts??0} deneme • Jev’e giden <b>${c111?.jevCalledAfterCode??0}</b> • Jev onayı ${c111?.jevApprovedAfterCode??0}`],
       ['Momentum / radar attention', sovereign ? `${c112?.fastLane?.history?.filter?.(x=>x.kind==='JEV_ATTENTION')?.length??0} JEV attention • yön/TF filtresi stratejik kapı değil` : `${c111?.momentumScalpTriggers??0} legacy momentum tetiği`],
