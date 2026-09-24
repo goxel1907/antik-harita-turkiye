@@ -666,6 +666,75 @@ class BinanceLiveTransport {
   }
 
   // ------------------------------------------------------------------
+  // R2535_JEV_POSITION_REDUCTION: JEV position-management actions may reduce an
+  // already-open position only. This helper can never increase/reverse exposure.
+  // The controller must separately require explicit LIVE arm + BrainHub ownership.
+  // ------------------------------------------------------------------
+  async reducePositionMarket({ symbol, side, fraction = 1, credentials, reason = 'JEV_POSITION_MANAGEMENT' } = {}) {
+    const sym=text(symbol)?.toUpperCase();
+    const s=text(side)?.toUpperCase();
+    const f=finite(fraction);
+    const apiKey=text(credentials?.apiKey),apiSecret=text(credentials?.apiSecret);
+    if(!sym||!/^[A-Z0-9]{1,28}USDT$/.test(sym)||!['LONG','SHORT'].includes(s)||f===null||f<=0||f>1){
+      return {ok:false,orderPlaced:false,reason:'POSITION_REDUCE_INPUT_INVALID'};
+    }
+    if(!apiKey||!apiSecret)return {ok:false,orderPlaced:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    try{
+      await this._syncServerTime();
+      const mode=await this._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials,signed:true});
+      const hedgeMode=mode?.dualSidePosition===true;
+      const rows=await this._fetchJson('GET','/fapi/v3/positionRisk',{params:{symbol:sym},credentials,signed:true});
+      const list=Array.isArray(rows)?rows:[];
+      const row=hedgeMode
+        ? list.find(x=>text(x?.positionSide)?.toUpperCase()===s)
+        : list.find(x=>text(x?.positionSide||'BOTH')?.toUpperCase()==='BOTH');
+      const amt=finite(row?.positionAmt)||0;
+      const sideMatches=hedgeMode ? Math.abs(amt)>0 : (s==='LONG'?amt>0:amt<0);
+      if(!sideMatches)return {ok:false,orderPlaced:false,reason:'POSITION_NOT_OPEN_OR_SIDE_MISMATCH',actualPositionAmt:amt};
+      const actualQty=Math.abs(amt);
+      const exchangeInfo=await this._fetchJson('GET','/fapi/v1/exchangeInfo');
+      const info=Array.isArray(exchangeInfo?.symbols)?exchangeInfo.symbols.find(x=>x?.symbol===sym):null;
+      const lot=filterOf(info,'MARKET_LOT_SIZE')||filterOf(info,'LOT_SIZE');
+      const step=finite(lot?.stepSize),minQty=finite(lot?.minQty);
+      if(step===null||step<=0||minQty===null||minQty<=0)return {ok:false,orderPlaced:false,reason:'POSITION_REDUCE_LOT_FILTER_REQUIRED'};
+      let qty=f>=0.999999?floorToStep(actualQty,step):floorToStep(actualQty*f,step);
+      if(qty===null||qty<minQty||qty<=0)return {ok:false,orderPlaced:false,reason:'POSITION_REDUCE_QTY_BELOW_MIN',actualQty,fraction:f,step,minQty};
+      if(qty>actualQty)qty=floorToStep(actualQty,step);
+      const closeSide=s==='LONG'?'SELL':'BUY';
+      const cid='JX'+crypto.createHash('sha256').update(sym+'|'+s+'|'+String(this.clock())+'|'+String(f)+'|'+String(reason)).digest('hex').slice(0,30);
+      const params={
+        symbol:sym,side:closeSide,positionSide:hedgeMode?s:'BOTH',type:'MARKET',
+        quantity:decimal(qty),newClientOrderId:cid,newOrderRespType:'RESULT'
+      };
+      if(!hedgeMode)params.reduceOnly='true';
+      const ack=await this._fetchJson('POST','/fapi/v1/order',{credentials,signed:true,params});
+      const orderId=ack?.orderId??null;
+      const executedQty=finite(ack?.executedQty)||0;
+      if(orderId===null||executedQty<=0){
+        return {ok:false,orderPlaced:orderId!==null,requestSent:true,reason:'POSITION_REDUCE_FILL_UNCLEAR',symbol:sym,side:s,quantity:qty,orderId,status:text(ack?.status)};
+      }
+      let remainingQty=null;
+      try{
+        const after=await this._fetchJson('GET','/fapi/v3/positionRisk',{params:{symbol:sym},credentials,signed:true});
+        const rows2=Array.isArray(after)?after:[];
+        const r2=hedgeMode
+          ? rows2.find(x=>text(x?.positionSide)?.toUpperCase()===s)
+          : rows2.find(x=>text(x?.positionSide||'BOTH')?.toUpperCase()==='BOTH');
+        const a2=finite(r2?.positionAmt)||0;
+        remainingQty=Math.abs(a2);
+      }catch{}
+      return {
+        ok:true,orderPlaced:true,requestSent:true,execution:f>=0.999999?'JEV_EXIT_NOW_REDUCE_ONLY_MARKET':'JEV_PARTIAL_REDUCE_ONLY_MARKET',
+        symbol:sym,side:s,fraction:f,requestedQty:qty,executedQty,remainingQty,
+        fullyClosed:remainingQty===0||(f>=0.999999&&remainingQty===null),orderId,status:text(ack?.status),hedgeMode,
+        reduceOnly:!hedgeMode,reason:String(reason||'JEV_POSITION_MANAGEMENT').slice(0,80)
+      };
+    }catch(e){
+      return {ok:false,orderPlaced:false,requestSent:Boolean(e?.requestSent),reason:String(e?.message||'POSITION_REDUCE_FAILED').slice(0,160),exchangeError:e?.body||null};
+    }
+  }
+
+  // ------------------------------------------------------------------
   // CLAUDE_V111_TRAILING_RUNNER: yalnız koruyucu (reduce-only) emir yönetimi.
   // Giriş/pozisyon açma yetkisi yoktur; grant tüketmez.
   // ------------------------------------------------------------------
