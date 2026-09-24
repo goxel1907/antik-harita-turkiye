@@ -67,12 +67,13 @@ for stale in [
     "Uygulamanın açtığı aktif işlem yok",
     "uygulamanın açtığı aktif pozisyon yok",
     "Uygulamanın açtığı aktif pozisyon yok",
+    "Açık oto pozisyon yok • uygun sinyal oluşursa burada coin / yön / canlı PnL / STOP / TP durumları görünür.",
 ]:
     main = main.replace(stale, "PC/Binance pozisyon defteri otoritatiftir; aktif pozisyon durumu aşağıdaki PC pozisyon panelinden alınır.")
     card = card.replace(stale, "PC/Binance pozisyon defteri otoritatiftir; aktif pozisyon durumu aşağıdaki PC pozisyon panelinden alınır.")
 
 # Never show an old local JEV placeholder as if it overruled a newer PC FINAL result.
-for stale in ["Jev henüz değerlendirilmedi", "JEV henüz değerlendirilmedi"]:
+for stale in ["Jev henüz değerlendirilmedi", "JEV henüz değerlendirilmedi", "Henüz değerlendirilmedi"]:
     main = main.replace(stale, "JEV sonucu PC FINAL AUTHORITY telemetrisinden alınır")
     card = card.replace(stale, "JEV sonucu PC FINAL AUTHORITY telemetrisinden alınır")
 
@@ -118,6 +119,8 @@ stale_checks = [
     "Uygulamanın açtığı aktif işlem yok",
     "Jev henüz değerlendirilmedi",
     "JEV henüz değerlendirilmedi",
+    "Henüz değerlendirilmedi",
+    "Açık oto pozisyon yok",
 ]
 bad_stale = [x for x in stale_checks if x in joined]
 if bad_stale:
