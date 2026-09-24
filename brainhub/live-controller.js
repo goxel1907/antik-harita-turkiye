@@ -291,7 +291,7 @@ function jevFinalAuthorityPreflight({ plan, unified } = {}) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
@@ -1257,6 +1257,28 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return { realized, commission, funding, net:realized + commission + funding, rows:income.length, lastPnlAt:pnlTimes.length ? Math.max(...pnlTimes) : null, pnlRows:pnlTimes.length };
     } catch { return null; }
   }
+  async function recordJevShadowLesson(symbol,record){
+    if(typeof lessonJudge!=='function')return null;
+    try{
+      const lesson=await lessonJudge({symbol,outcome:record});
+      if(!lesson?.ok)return lesson||null;
+      const payload={
+        side:record?.side||null,setup:record?.setup||null,originTF:record?.originTF||null,ownerTF:record?.ownerTF||null,
+        outcomePct:record?.outcomePct??null,rMultiple:record?.rMultiple??null,
+        decision:'SHADOW_LESSON',
+        teacher:'JEV',application:'SHADOW_ONLY',selfModify:false,autoPromotion:false,
+        lessonFocus:lesson.lessonFocus,evidenceFocus:lesson.evidenceFocus,lessonAction:lesson.lessonAction,scope:lesson.scope
+      };
+      try{store.recordLearning?.('JEV_LESSON',symbol,payload);}catch{}
+      try{store.journal('JEV_LESSON',symbol,payload);}catch{}
+      leaderHealthEvent('JEV_LESSON',{symbol,lessonFocus:lesson.lessonFocus,evidenceFocus:lesson.evidenceFocus,lessonAction:lesson.lessonAction,scope:lesson.scope});
+      return lesson;
+    }catch(e){
+      leaderHealthEvent('JEV_LESSON_ERROR',{symbol,reason:String(e?.message||e).slice(0,160)});
+      return {ok:false,reason:'JEV_LESSON_ERROR'};
+    }
+  }
+
   async function finalizeClosedActiveRows(openPositions, { snapshotStartedAt = clock() } = {}) {
     const openSet=new Set((openPositions||[]).map(x=>x.symbol));
     const creds=currentCredentials();
@@ -1314,6 +1336,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       };
       try{store.journal('POSITION_CLOSED',symbol,record);}catch{}
       try{store.recordLearning?.('POSITION_CLOSED',symbol,{...record,decision:'CLOSED_'+exitType});}catch{}
+      await recordJevShadowLesson(symbol,record);
       // Stop olan coine hızlı hat hemen geri girmesin (intikam işlemi yok): veto soğuması kadar.
       if(exitType==='STOP_LOSS'||exitType==='TP1_THEN_STOP'){
         try{fastLaneSeen.set('VETO|'+symbol,closedAt+claudeV111.readConfig().fastLaneVetoCooldownMin*60000);}catch{}
