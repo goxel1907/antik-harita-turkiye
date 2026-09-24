@@ -6,7 +6,7 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 
-const {createJevClient}=require('../jev-decision');
+const {createJevClient,compactSovereignEvidence}=require('../jev-decision');
 const {buildSovereignPlanOptions}=require('../pipeline');
 const {preflightRiskGate}=require('../risk-gate');
 const {buildLeaderLiveIntent}=require('../leader-live-intent');
@@ -149,4 +149,28 @@ test('JEV sovereign position manager chooses HOLD/PROTECT/PARTIAL/EXIT directly 
   assert.equal(out.finalAuthority,true);
   assert.equal(out.action,'EXIT_NOW');
   assert.equal(out.mode,'SOVEREIGN_CHOICE');
+});
+
+
+test('sovereign plan options expose JEV-selectable invalidation bases without score gates',()=>{
+  const u=unified();
+  u.frames['5m'].swingStructure={lastConfirmedSwingLow:{price:99.4},lastConfirmedSwingHigh:{price:100.6}};
+  u.frames['5m'].prior20Low=98.8;
+  u.frames['5m'].prior20High=101.2;
+  const plans=buildSovereignPlanOptions(u);
+  const longs=plans.filter(x=>x.side==='LONG'&&x.lane==='5M_SCALP');
+  assert.ok(longs.length>=2,JSON.stringify(longs));
+  assert.ok(longs.every(x=>['SWING','PRIOR20','LIQUIDITY','ATR_FALLBACK'].includes(x.invalidationSource)));
+  assert.equal(plans.some(x=>Object.prototype.hasOwnProperty.call(x,'score')),false);
+});
+
+test('bounded sovereign evidence prevents oversized final decision payloads',()=>{
+  const huge={
+    requested:['TRADINGVIEW_5M','TRADINGVIEW_15M','ORDER_FLOW_CVD','DERIVATIVES'],
+    visual:{authority:'EVIDENCE_ONLY',requestedFrames:['5m','15m'],attached:2,required:2,source:'TEST',text:'x'.repeat(80000),frames:{'5m':{blob:'y'.repeat(20000)}}},
+    historyOutcome:{recentOutcomes:Array.from({length:50},(_,i)=>({i,text:'z'.repeat(1000)})),stats:[]}
+  };
+  const out=compactSovereignEvidence(huge,12000);
+  assert.ok(JSON.stringify(out).length<=12000,JSON.stringify(out).length);
+  assert.equal(out.requested.includes('TRADINGVIEW_5M'),true);
 });

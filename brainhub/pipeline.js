@@ -1119,13 +1119,57 @@ function resolveAttentionCandidate(scan,executionIntent=null){
   const candidate=pool[0]||null;
   return {candidate,requestedSymbol:null,targeted:false,reason:candidate?null:'NO_ATTENTION_CANDIDATE'};
 }
-function structuralInvalidation(frame,side,livePrice){
-  const values=side==='LONG'
-    ? [frame?.swingStructure?.lastConfirmedSwingLow?.price,frame?.prior20Low,frame?.liquidity?.sellSide]
-    : [frame?.swingStructure?.lastConfirmedSwingHigh?.price,frame?.prior20High,frame?.liquidity?.buySide];
-  const clean=values.map(finite).filter(x=>x!==null&&x>0&&(side==='LONG'?x<livePrice:x>livePrice));
-  if(!clean.length)return null;
-  return side==='LONG'?Math.max(...clean):Math.min(...clean);
+function structuralInvalidationCandidates(frame,side,livePrice){
+  const rows=side==='LONG'
+    ? [
+        {source:'SWING',price:frame?.swingStructure?.lastConfirmedSwingLow?.price},
+        {source:'PRIOR20',price:frame?.prior20Low},
+        {source:'LIQUIDITY',price:frame?.liquidity?.sellSide}
+      ]
+    : [
+        {source:'SWING',price:frame?.swingStructure?.lastConfirmedSwingHigh?.price},
+        {source:'PRIOR20',price:frame?.prior20High},
+        {source:'LIQUIDITY',price:frame?.liquidity?.buySide}
+      ];
+  const clean=[];
+  for(const row of rows){
+    const price=finite(row.price);
+    if(price===null||price<=0)continue;
+    if(side==='LONG'&&price>=livePrice)continue;
+    if(side==='SHORT'&&price<=livePrice)continue;
+    if(clean.some(x=>Math.abs(x.price-price)<=Math.max(livePrice*1e-8,1e-12)))continue;
+    clean.push({source:row.source,price});
+  }
+  clean.sort((a,b)=>Math.abs(livePrice-a.price)-Math.abs(livePrice-b.price));
+  return clean;
+}
+function atrFallbackInvalidation(frame,side,livePrice){
+  const atrPct=Math.max(0,finite(frame?.atrPct)??0);
+  if(!(atrPct>0))return null;
+  const distance=livePrice*Math.max(atrPct/100,0.0025);
+  const price=side==='LONG'?livePrice-distance:livePrice+distance;
+  return price>0?{source:'ATR_FALLBACK',price,note:'No explicit structural anchor was available; JEV may reject this option.'}:null;
+}
+function sovereignPlanOption({side,lane,tf,live,frame,anchor,id}){
+  const atrPct=Math.max(0,finite(frame?.atrPct)??0);
+  const buffer=Math.max(live*0.0002,live*(atrPct/100)*0.05);
+  const invalidation=anchor.price;
+  const stop=side==='LONG'?invalidation-buffer:invalidation+buffer;
+  const risk=Math.abs(live-stop);
+  if(!(risk>0))return null;
+  const sign=side==='LONG'?1:-1;
+  const tp1=live+sign*risk;
+  const tp2=live+sign*risk*2;
+  const tp3=live+sign*risk*3;
+  if(tp3<=0)return null;
+  return {
+    id,side,lane,originTF:tf,ownerTF:tf,entryMode:'MARKET_NOW',
+    entryPrice:live,invalidationPrice:invalidation,invalidationSource:anchor.source,
+    stopPrice:stop,takeProfit1:tp1,takeProfit2:tp2,takeProfit3:tp3,
+    basis:'CLOSED_'+tf.toUpperCase()+'_'+anchor.source,
+    anchorNote:anchor.note||null,
+    management:'JEV_SELECTED_AFTER_ENTRY'
+  };
 }
 function buildSovereignPlanOptions(unified){
   const live=finite(unified?.livePrice);
@@ -1135,30 +1179,20 @@ function buildSovereignPlanOptions(unified){
     const frame=unified?.frames?.[tf];
     if(!frame?.available||frame?.fresh!==true)continue;
     for(const side of ['LONG','SHORT']){
-      const invalidation=structuralInvalidation(frame,side,live);
-      if(invalidation===null)continue;
-      const atrPct=Math.max(0,finite(frame?.atrPct)??0);
-      const buffer=Math.max(live*0.0002,live*(atrPct/100)*0.05);
-      const stop=side==='LONG'?invalidation-buffer:invalidation+buffer;
-      const risk=Math.abs(live-stop);
-      if(!(risk>0))continue;
-      const sign=side==='LONG'?1:-1;
-      const tp1=live+sign*risk;
-      const tp2=live+sign*risk*2;
-      const tp3=live+sign*risk*3;
-      if(tp3<=0)continue;
       const lane=tf==='5m'?'5M_SCALP':'15M_TRADE';
-      out.push({
-        id:side+'_'+lane,
-        side,lane,originTF:tf,ownerTF:tf,entryMode:'MARKET_NOW',
-        entryPrice:live,invalidationPrice:invalidation,stopPrice:stop,
-        takeProfit1:tp1,takeProfit2:tp2,takeProfit3:tp3,
-        basis:'CLOSED_'+tf.toUpperCase()+'_STRUCTURE',
-        management:'JEV_SELECTED_AFTER_ENTRY'
+      let anchors=structuralInvalidationCandidates(frame,side,live);
+      if(!anchors.length){
+        const fallback=atrFallbackInvalidation(frame,side,live);
+        if(fallback)anchors=[fallback];
+      }
+      anchors.slice(0,3).forEach((anchor,index)=>{
+        const suffix=index===0?'':'_'+anchor.source;
+        const option=sovereignPlanOption({side,lane,tf,live,frame,anchor,id:side+'_'+lane+suffix});
+        if(option)out.push(option);
       });
     }
   }
-  return out;
+  return out.slice(0,12);
 }
 function sovereignRequestedFrames(pass1){
   const requested=new Set(Array.isArray(pass1?.requestedEvidence)?pass1.requestedEvidence:[]);
@@ -1243,7 +1277,7 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,riskGate,exe
     candidate:{symbol:candidate?.symbol||null,attentionSource:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[]},
     plan:plan?{
       valid:plan.valid,status:plan.status,side:plan.side||null,originTF:plan.originTF||null,ownerTF:plan.ownerTF||null,
-      lane:plan.lane||null,entryPrice:plan.entryPrice??null,invalidationPrice:plan.invalidationPrice??null,stopPrice:plan.stopPrice??null,
+      lane:plan.lane||null,entryPrice:plan.entryPrice??null,invalidationPrice:plan.invalidationPrice??null,invalidationSource:plan.invalidationSource||null,stopPrice:plan.stopPrice??null,
       takeProfit1:plan.takeProfit1??null,takeProfit2:plan.takeProfit2??null,takeProfit3:plan.takeProfit3??null,
       managementStyle:plan.managementStyle||null,waitFor:plan.waitFor||null,jevSovereign:plan.jevSovereign===true
     }:null,
@@ -1298,6 +1332,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     valid:true,status:'QUALIFIED',side:chosen.side,originTF:chosen.originTF,ownerTF:chosen.ownerTF,
     lane:chosen.lane,setup:'JEV_SOVEREIGN_'+chosen.lane,execPath:'JEV_FINAL_MARKET_NOW',
     entryMode:chosen.entryMode,entryPrice:chosen.entryPrice,invalidationPrice:chosen.invalidationPrice,
+    invalidationSource:chosen.invalidationSource||null,basis:chosen.basis||null,
     stopPrice:chosen.stopPrice,takeProfit1:chosen.takeProfit1,takeProfit2:chosen.takeProfit2,takeProfit3:chosen.takeProfit3,
     managementStyle:final.managementStyle,waitFor:'NONE',formingContext:'CONTEXT_ONLY',
     why:'JEV FINAL selected '+chosen.id+' after directing evidence collection.',

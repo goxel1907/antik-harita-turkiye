@@ -157,7 +157,7 @@ function compactWorkerContext({tracked,candidate,unified}={}){
     }:{available:false},
     policy:{
       workerCannotQualify:true,workerCannotPlaceOrder:true,formingCandleIsContextOnly:true,
-      full9TfRequiredAfterTrigger:true
+      jevDirectedEvidenceOnly:true,full9TfRequiredAfterTrigger:false
     }
   };
 }
@@ -167,10 +167,10 @@ function buildWorkerPrompt(args={}){
   return [
     'PLAN_WORKER_V110. Daha once Vision tarafindan uretilmis WATCH plani icin yalniz takip karari ver.',
     'Bu worker QUALIFIED veremez, emir veremez ve eski plani tek basina degistiremez.',
-    '15m ana islem hattidir. 1m/3m/5m SCALP_MOMENTUM hattinda tek alt TF karar vermez; en az iki alt TF ayni yone hizalanmali ve 15m sert karsi-veto vermemelidir.',
-    '1m erken yakalarsa 3m/5m dogrulamasini ve momentumun 15m/30m+ zaman dilimlerine tasinip tasinmadigini takip et; LONG ve SHORT simetriktir.',
-    'Yalniz mevcut deterministik verinin TRACKED_PLAN.waitFor/sayisal tetik kosuluna yaklasip yaklasmadigini kontrol et.',
-    'TRIGGERED yalniz beklenen kosulun artik gerceklesmis olabilecegine dair somut kapali-mum/deterministik kanit varsa kullan; yine de tam 9TF yeniden dogrulama zorunludur.',
+    'JEV SOVEREIGN modunda hangi kanitin gerekli olduguna yalniz JEV karar verir; worker kendi evidence listesini, yonunu veya zaman dilimi oylamasini dayatamaz.',
+    '5m LONG/SHORT scalp ve 15m LONG/SHORT trade ana karar hatlaridir; 1m/3m/30m/1h/4h/1d ancak JEV isterse ek kanittir.',
+    'Yalniz JEV tarafindan istenen somut kaniti topla veya mevcut TRACKED_PLAN tetiginin gerceklesip gerceklesmedigini raporla.',
+    'TRIGGERED yalniz somut kapali-mum/deterministik olayi bildirir; bu QUALIFIED/VETO degildir ve yeni kanit gerekiyorsa onu yine JEV ister.',
     'WAIT kosul henuz yoksa; REFRESH_REQUIRED plan eskidi, yon/yapi degisti, kritik veri eksik veya yorum guvenilir degilse.',
     'Forming mum teyit degildir. Gizli market-maker niyeti, haber veya veride olmayan seviye uydurma.',
     'Tam olarak dort satir dondur:',
@@ -208,7 +208,7 @@ function combineWorkerReviews({deterministic,router,openRouter}={}){
     };
     return {
       state:'REFRESH_REQUIRED',source:'WORKER_DISAGREEMENT',
-      reason:'9Router tetik gordu; OpenRouter free ajan farkli gorus bildirdi. Tam 9TF yeniden dogrulama gerekli.',
+      reason:'9Router tetik gordu; OpenRouter free ajan farkli gorus bildirdi. Worker karar vermez; JEV yeni kanit isteyebilir.',
       recheckTFs:[...new Set([...(r.recheckTFs||[]),...(o.recheckTFs||[])])]
     };
   }

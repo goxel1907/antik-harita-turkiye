@@ -367,6 +367,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const statusCount = status => analyses.filter(x => String(x.planStatus || '').toUpperCase() === status).length;
     const uniqueAnalyzedSymbols=[...new Set(analyses.map(x=>String(x.symbol||'')).filter(Boolean))];
     const latestScan=scans.at(-1) || null;
+    const sovereignAnalyses=analyses.filter(x=>x.jevSovereign===true);
     const windowStart=Math.max(leaderAutoHealthStartedAt,now-LEADER_AUTO_HEALTH_WINDOW_MS);
     return {
       windowMinutes:60,
@@ -380,6 +381,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       deepAnalyses:analyses.length,
       uniqueAnalyzedSymbols:uniqueAnalyzedSymbols.length,
       preJevQualified:analyses.filter(x=>String(x.preJevStatus||'').toUpperCase()==='QUALIFIED').length,
+      sovereignPass1Calls:sovereignAnalyses.filter(x=>x.jevPass1Called===true).length,
+      sovereignFinalCalls:sovereignAnalyses.filter(x=>x.jevCalled===true).length,
+      sovereignLong:sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='LONG').length,
+      sovereignShort:sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='SHORT').length,
+      sovereignWait:sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='WAIT').length,
+      sovereignEvidenceRequests:sovereignAnalyses.reduce((sum,x)=>sum+Math.max(0,Number(x.jevRequestedEvidenceCount)||0),0),
       jevCalled:analyses.filter(x=>x.jevCalled===true).length,
       jevVetoed:analyses.filter(x=>x.jevVeto===true).length,
       jevShadowCalled:analyses.filter(x=>x.jevShadowCalled===true).length,
@@ -1044,6 +1051,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
 
   async function planWorkerTick() {
+    // R2.5.3.2 JEV SOVEREIGN: legacy autonomous plan workers are disabled.
+    // Workers run only when JEV PASS-1 explicitly requests evidence.
+    if(pipeline?.sovereignFlow===true)return {ok:true,skipped:true,reason:'JEV_SOVEREIGN_WORKERS_ON_DEMAND'};
     if(planWorkerBusy)return {ok:true,skipped:true,reason:'PLAN_WORKER_BUSY'};
     const cfg=readLeaderAutoConfig();
     if(!cfg.ok||cfg.config?.enabled!==true)return {ok:true,skipped:true,reason:'PLAN_WORKER_AUTO_DISABLED'};
@@ -1763,9 +1773,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // =====================================================================
   // CLAUDE_V112_SCALP_FAST_LANE + CLAUDE_V112_CONCURRENT_REVALIDATION (20 sn, Vision ile eşzamanlı)
   // 1) Worker'ın kapanmış-mum tetiği gördüğü planlar Vision bitmesini beklemeden yeniden doğrulanır → Jev.
-  // 2) Momentum coinlerde (erken ilgi / top sıralama / ivme / volatil) 1m/3m/5m kapanmış kırılım +
-  //    2/3 alt TF hizalı + 15m karşı değil → Vision'sız plan → v110 hat kuralı → Jev → aynı kapılar.
-  // SHADOW: yalnız sinyal kaydı (Jev çağrılmaz, emir yok). BINDING: Jev + LIVE açıksa normal yürütme.
+  // 2) Legacy modda momentum fast-lane korunur. JEV SOVEREIGN modda ise bu timer yalnız
+  //    radar attention hızlandırıcısıdır; 2/3 TF, hard-15m veto veya scanner yönü stratejik kapı değildir.
+  //    JEV PASS-1 kanıtı seçer, PASS-2 LONG/SHORT/WAIT kararını verir.
   // =====================================================================
   function fastLaneRecord(kind,data){
     const ev={at:new Date(clock()).toISOString(),kind,...data};
@@ -1856,6 +1866,32 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{return await executeLeaderExclusive({...body,claudeFastLane:{kind,symbol:sym,side,...extra}},generation);}
         finally{fastLaneSymbol=null;}
       };
+      if(pipeline?.sovereignFlow===true){
+        // JEV SOVEREIGN fast attention: no 2/3 TF gate, no 15m strategic veto,
+        // no scanner-side qualification. Radar only selects which symbol reaches
+        // JEV sooner; JEV PASS-1 decides which evidence workers fetch.
+        if(!jevBudgetOk)return {ok:true,skipped:true,reason:'JEV_SOVEREIGN_FAST_ATTENTION_HOURLY_CAP'};
+        let scan;
+        try{scan=await scanner.scan();}catch{return {ok:false,reason:'SCANNER_UNAVAILABLE'};}
+        const candidates=selectDeepCandidates(scan,24)
+          .filter(c=>/^[A-Z0-9]{1,28}USDT$/.test(String(c?.symbol||'').toUpperCase()))
+          .filter(c=>String(leaderAnalysisState.bySymbol?.[String(c?.symbol||'').toUpperCase()]?.state||'').toUpperCase()!=='ACTIVE');
+        const cooldownMs=60000;
+        const chosen=candidates.find(c=>{
+          const sym=String(c?.symbol||'').toUpperCase();
+          if(!sym||sym===leaderVisionSymbol)return false;
+          const last=Number(fastLaneSeen.get('JEVATTN|'+sym)||0);
+          return !last||now-last>=cooldownMs;
+        });
+        if(!chosen)return {ok:true,skipped:true,reason:'JEV_SOVEREIGN_FAST_ATTENTION_NO_SYMBOL',checked:candidates.length};
+        const sym=String(chosen.symbol||'').toUpperCase();
+        fastLaneSeen.set('JEVATTN|'+sym,now);
+        fastLaneState.lastSignal=fastLaneRecord('JEV_ATTENTION',{symbol:sym,source:chosen.deepScanReason||null,targetSources:Array.isArray(chosen.targetSources)?chosen.targetSources.slice(0,8):[]});
+        leaderHealthEvent('FAST_LANE',{fastKind:'JEV_ATTENTION',symbol:sym,applied:true});
+        const out=await run('JEV_ATTENTION',sym,null,{});
+        fastLaneState.lastResult=fastLaneRecord('RESULT',{symbol:sym,kind:'JEV_ATTENTION',execution:out?.execution||null,orderPlaced:out?.orderPlaced===true,planStatus:out?.plan?.status||null,jevAction:out?.jevDecision?.action||null,reasons:(out?.reasons||[]).slice(0,4)});
+        return {ok:true,kind:'JEV_ATTENTION',symbol:sym,result:out};
+      }
       const vetoed=out=>String(out?.plan?.reason||'').startsWith('JEV_')||(Array.isArray(out?.reasons)&&out.reasons.some(r=>String(r).startsWith('JEV_')));
       // (1) Tetiği görülmüş Vision planları: Vision'ı beklemeden Jev'e (yalnız BINDING).
       if(binding&&jevBudgetOk&&claudeV109.readConfig().deterministicTriggerMode==='BINDING'){
@@ -3195,10 +3231,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         symbol:String(candidate.symbol || ''),
         preJevStatus,
         planStatus,
-        tradeLaneName:String(advisory?.plan?.tradeLane?.name || advisory?.preJevPlan?.tradeLane?.name || ''),
+        tradeLaneName:String(advisory?.plan?.lane || advisory?.plan?.tradeLane?.name || advisory?.preJevPlan?.tradeLane?.name || ''),
         momentumStage:String(advisory?.plan?.tradeLane?.stage || advisory?.preJevPlan?.tradeLane?.stage || ''),
         scalpReady:advisory?.plan?.tradeLane?.scalpReady===true || advisory?.preJevPlan?.tradeLane?.scalpReady===true,
         main15Ready:advisory?.plan?.tradeLane?.main15Ready===true || advisory?.preJevPlan?.tradeLane?.main15Ready===true,
+        jevSovereign:advisory?.jevSovereign===true,
+        jevPass1Called:advisory?.jevPass1?.called===true,
+        jevLaneFocus:advisory?.jevPass1?.laneFocus||null,
+        jevDirectionFocus:advisory?.jevPass1?.directionFocus||null,
+        jevRequestedEvidence:Array.isArray(advisory?.jevPass1?.requestedEvidence)?advisory.jevPass1.requestedEvidence.slice(0,16):[],
+        jevRequestedEvidenceCount:Array.isArray(advisory?.jevPass1?.requestedEvidence)?advisory.jevPass1.requestedEvidence.length:0,
+        jevFinalAction:advisory?.jevDecision?.action||null,
         jevCalled:jevDecision?.called===true,
         jevVeto:jevDecision?.veto===true,
         jevReasons:Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons.slice(0,8):[],
@@ -3222,7 +3265,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         reasons:[...new Set([planReason,...(Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons:[])].filter(Boolean))],
         durationMs:Math.max(0,analysisEndedAt-analysisStartedAt),
         visionAttached:Number(advisory?.vision?.attached || 0),
-        visionRequired:Number(advisory?.vision?.required || 9),
+        visionRequired:Number(advisory?.vision?.required ?? (advisory?.jevSovereign===true?0:9)),
         visionBatchSize:Number(advisory?.committee?.localVisionBatchSize || 0) || null,
         visionFreeQuotaFallback:advisory?.committee?.mode==='kiro_free_quota_fallback' || advisory?.committee?.visionKiroFreeQuota===true&&advisory?.committee?.localVisionFailed===true,
         visionUnavailable

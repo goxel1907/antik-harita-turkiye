@@ -99,6 +99,56 @@ function sovereignAttentionRecord(candidate,unified){
   };
 }
 
+function compactSovereignEvidence(evidence,maxChars=28000){
+  const src=evidence&&typeof evidence==='object'?evidence:{};
+  const visual=src.visual&&typeof src.visual==='object'?src.visual:null;
+  const out={
+    requested:Array.isArray(src.requested)?src.requested.slice(0,16):[],
+    timing1m:src.timing1m||null,
+    timing3m:src.timing3m||null,
+    higherTf:src.higherTf||null,
+    orderFlow:src.orderFlow||null,
+    depth:src.depth||null,
+    derivatives:src.derivatives||null,
+    observedLiquidations:src.observedLiquidations||null,
+    historyOutcome:src.historyOutcome||null,
+    visual:visual?{
+      authority:visual.authority||'EVIDENCE_ONLY',
+      requestedFrames:Array.isArray(visual.requestedFrames)?visual.requestedFrames.slice(0,8):[],
+      attached:finiteNumber(visual.attached),required:finiteNumber(visual.required),
+      source:visual.source||null,error:visual.error||null,
+      text:String(visual.text||'').slice(0,6000),
+      frames:visual.frames||null,
+      failures:Array.isArray(visual.failures)?visual.failures.slice(0,6):[]
+    }:null
+  };
+  const limit=Math.max(6000,Math.min(36000,Number(maxChars)||28000));
+  const shrink=[
+    x=>{if(x.visual)x.visual.text=String(x.visual.text||'').slice(0,3200);},
+    x=>{if(x.visual)delete x.visual.frames;},
+    x=>{if(x.historyOutcome&&typeof x.historyOutcome==='object'){x.historyOutcome={...x.historyOutcome,recentOutcomes:Array.isArray(x.historyOutcome.recentOutcomes)?x.historyOutcome.recentOutcomes.slice(0,4):[],stats:Array.isArray(x.historyOutcome.stats)?x.historyOutcome.stats.slice(0,4):[]};}},
+    x=>{if(x.higherTf&&typeof x.higherTf==='object')x.higherTf=Object.fromEntries(Object.entries(x.higherTf).slice(0,2));},
+    x=>{if(x.visual)x.visual.text=String(x.visual.text||'').slice(0,1600);}
+  ];
+  let raw=JSON.stringify(out);
+  for(const fn of shrink){
+    if(raw.length<=limit)break;
+    fn(out);out.evidenceTrimmed=true;raw=JSON.stringify(out);
+  }
+  if(raw.length>limit){
+    return {
+      requested:out.requested,
+      evidenceTrimmed:true,
+      visual:out.visual?{authority:'EVIDENCE_ONLY',requestedFrames:out.visual.requestedFrames,attached:out.visual.attached,required:out.visual.required,source:out.visual.source,error:out.visual.error,text:String(out.visual.text||'').slice(0,800)}:null,
+      orderFlow:out.orderFlow?{available:out.orderFlow.available??null,source:out.orderFlow.source||null,reason:out.orderFlow.reason||null}:null,
+      derivatives:out.derivatives?{available:out.derivatives.available??null}:null,
+      observedLiquidations:out.observedLiquidations?{available:out.observedLiquidations.available??null,count:finiteNumber(out.observedLiquidations.count),reason:out.observedLiquidations.reason||null}:null,
+      note:'Evidence was compacted to keep the JEV decision payload bounded. Missing optional detail is not negative evidence.'
+    };
+  }
+  return out;
+}
+
 const EXIT_CHECKS=[
   ['owner_structure_failure','ownerStructureFailure','Sahip zaman dilimi yapısı bozuldu','Owner TF üzerinde kapanmış mum/yapısal kanıt mevcut pozisyon yönünü bozuyor.'],
   ['anchor_structure_failure','anchorStructureFailure','Büyük resim yapısı bozuldu','15m/30m/1h/4h/1d bağlamında pozisyon yönüne karşı anlamlı ve kalıcı yapısal bozulma var.'],
@@ -528,17 +578,19 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         p.side,p.lane,'entry='+p.entryPrice,'stop='+p.stopPrice,
         'tp1='+p.takeProfit1,'tp2='+p.takeProfit2,'tp3='+p.takeProfit3,
         'invalidation='+p.invalidationPrice,
+        'invalidationSource='+String(p.invalidationSource||'UNKNOWN'),
         'frame='+p.originTF,
         'basis='+String(p.basis||'STRUCTURE')
       ].join(' | ');
     }
+    const boundedEvidence=compactSovereignEvidence(evidence,Math.min(28000,Math.max(8000,cfg.maxPayloadChars-12000)));
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-2 is the final strategic decision. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. Scanner and workers have no qualification or veto authority. 5m is the scalp lane; 15m is the trade lane. Numeric Binance/BrainHub truth outranks visual interpretation.',
+        description:'JEV PASS-2 is the final strategic decision. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. 5m is the scalp lane; 15m is the trade lane. Numeric Binance/BrainHub truth outranks visual interpretation.',
         record:{
           attention:sovereignAttentionRecord(candidate,unified),
-          requestedEvidence:evidence||{},
+          requestedEvidence:boundedEvidence,
           executablePlanOptions:plans
         }
       },
@@ -573,7 +625,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     return {
       ok:true,configured:true,required:true,called:true,pass:2,finalAuthority:true,veto:false,
       action:selectedId==='WAIT'?'WAIT':selectedPlan.side,
-      selectedPlanId:selectedId,selectedPlan,managementStyle,
+      selectedPlanId:selectedId,selectedPlan,managementStyle,evidenceTrimmed:boundedEvidence.evidenceTrimmed===true,
       model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };
   }
@@ -733,4 +785,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignExit,budgetStatus};
 }
-module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,createJevClient};
+module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,createJevClient};
