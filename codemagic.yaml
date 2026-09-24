@@ -283,6 +283,7 @@ workflows:
           grep -q "target_profile" "$CM_BUILD_DIR/brainhub/jev-decision.js"
           grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q "JEV_EXIT_NOW_REDUCE_ONLY_BINDING" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "JEV_PARTIAL_REDUCE_ONLY_BINDING" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "JEV_FREE_MODEL_KNOWLEDGE_RESEARCH" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "JEV_LIFETIME_MEMORY_AGGREGATE" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "reducePositionMarket" "$CM_BUILD_DIR/brainhub/binance-live-transport.js"
