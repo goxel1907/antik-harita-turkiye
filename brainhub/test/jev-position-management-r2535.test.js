@@ -28,5 +28,5 @@ test('R2535 transport exposes a reduction helper but entry submit still requires
   assert.match(src,/reduceOnly='true'/);
   assert.match(src,/POSITION_NOT_OPEN_OR_SIDE_MISMATCH/);
   assert.match(src,/JEV_EXIT_NOW_REDUCE_ONLY_MARKET/);
-  assert.match(src,/if\(normalized\.action !== 'OPEN'\) reasons\.push\('LIVE_OPEN_ACTION_REQUIRED'\)/);
+  assert.match(src,/if\s*\(\s*normalized\.action\s*!==\s*'OPEN'\s*\)\s*reasons\.push\(\s*'LIVE_OPEN_ACTION_REQUIRED'\s*\)/);
 });
