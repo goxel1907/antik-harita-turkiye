@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '1.5.0-CLAUDE-V113-LEDGER';
+const OFFICE_VERSION = '2.0.0-JEV-SOVEREIGN-R2532';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -265,6 +265,10 @@ function derive(snap) {
   const wref = Number(h.workerRefreshes || 0);
   const vu = Number(h.visionUnavailable || 0);
   const hardSafetyReady = Number(h.claudeV111?.finalAuthorityHardSafetyReady ?? h.intentReady ?? 0);
+  const sovereign = st.jevSovereign?.enabled === true || snap.health?.data?.jevSovereign?.enabled === true;
+  const pass1 = Number(h.sovereignPass1Calls || 0);
+  const finalCalls = Number(h.sovereignFinalCalls || 0);
+  const evidenceRequests = Number(h.sovereignEvidenceRequests || 0);
   const blockers = [];
   const add = (level, code, title, detail) => blockers.push({ level, code, title, detail });
 
@@ -276,7 +280,7 @@ function derive(snap) {
     const v109 = /9\.5\.(109-CLAUDE|11\d)/.test(fv); // CLAUDE_V112: 9.5.110+ (9.5.112-CLAUDE dahil)
     const cv = h.claudeV109 || {};
     if (!v109) add('warning', 'VERSION_OLD', `PC sürümü ${fv || '?'}`, "v9.5.109-CLAUDE yüklenmemiş: sahte WAIT, worker döngüsü ve boş tetik adayı düzeltmeleri PC'de yok.");
-    if (deep >= 3 && Number(h.preJevQualified || 0) === 0) add('serious', 'NO_QUALIFIED', 'Görsel analiz hiç işlem adayı üretmedi', v109
+    if (!sovereign && deep >= 3 && Number(h.preJevQualified || 0) === 0) add('serious', 'NO_QUALIFIED', 'Görsel analiz hiç işlem adayı üretmedi', v109
       ? `${deep} derin analizde 0 QUALIFIED. Kod-tetik ${cv.dtWouldQualify ?? 0} planda "QUALIFIED olurdu" dedi (gölge).`
       : `${deep} derin analizde 0 QUALIFIED. Prompt her TF için WAIT/FORMING yazdırdığı için model WATCH'ta kalıyor.`);
     if (v109) {
@@ -285,7 +289,7 @@ function derive(snap) {
         `Sayısal tetikli plan ${h.shadowPlans ?? 0} • gölge tetik ${h.shadowTriggers ?? 0} • 15 dk ort ${finite(h.shadowAvg15mPct) ?? '—'}% • 60 dk ort ${finite(h.shadowAvg60mPct) ?? '—'}%`);
       if (Number(cv.chaseBlocked || 0) > 0) add('info', 'CHASE', 'Kovalama ölçümü (JEV sonrası veto değil)', `${cv.chaseBlocked} eski/ölçüm olayı var. v111 JEV_FINAL_AUTHORITY modunda JEV onayından sonra stratejik veto olarak uygulanmaz.`);
     }
-    if (wr >= 10 && wref / Math.max(1, wr) >= 0.8) add('serious', 'WORKER_LOOP', 'Plan worker döngüsü', `${wr} incelemenin ${wref}'i "9TF yenile" (%${Math.round(100 * wref / wr)}). Aynı coinler tekrar tekrar analiz ediliyor.`);
+    if (!sovereign && wr >= 10 && wref / Math.max(1, wr) >= 0.8) add('serious', 'WORKER_LOOP', 'Plan worker döngüsü', `${wr} incelemenin ${wref}'i "9TF yenile" (%${Math.round(100 * wref / wr)}). Aynı coinler tekrar tekrar analiz ediliyor.`);
     if (deep >= 6 && unique / Math.max(1, deep) < 0.5) add('warning', 'COVERAGE', 'Kapsam daralması', `${deep} derin analiz yalnız ${unique} farklı coinde.`);
     if (deep >= 3 && vu / Math.max(1, deep) >= 0.25) add('serious', 'VISION_DOWN', 'Görsel analiz sık düşüyor', `${vu}/${deep} analizde görsel komite yanıt vermedi.`);
     const fake = rows.filter(r => (String(r.state || '').toUpperCase() === 'WATCH' || String(r.planStatus || '').toUpperCase() === 'WATCH') && r.waitFor !== undefined && waitIsFake(r.waitFor));
@@ -300,14 +304,29 @@ function derive(snap) {
     // CLAUDE_V112: LIVE kapalıyken Jev onayı hard safety'ye hiç gitmez; bu uyarı yalnız LIVE açıkken anlamlı.
     if (st.armed === true && !pr?.active && Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, hard safety geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/hard safety: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve one-shot grant engel olabilir.');
     if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Hard safety geçti, emir yok', 'Yürütme/transport katmanı (LIVE grant, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
-    if (Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
-    if (Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);
-    if (Number(h.laneScalpPlans || 0) > 0) add(Number(h.laneScalpReady||0)>0?'ok':'info','SCALP_LANE',`Scalp momentum hattı ${Number(h.laneScalpReady||0)>0?'hazır aday taşıyor':'izliyor'}`,`${h.laneScalpPlans||0} scalp planı • hazır ${h.laneScalpReady||0}. Tek 1m/3m/5m final karar vermez; en az iki alt TF + 15m karşı-veto kontrolü gerekir.`);
-    if (Number(h.laneMain15Plans || 0) > 0) add('info','MAIN_15M_LANE','15m ana işlem hattı aktif',`${h.laneMain15Plans||0} plan • 15m hazır ${h.laneMain15Ready||0}. 30m+ yapı/likidite/formasyon bağlamıdır.`);
+    if (sovereign && deep >= 1 && pass1 === 0) add('serious','JEV_PASS1_MISSING','Radar/analiz JEV PASS-1’e ulaşmıyor',`${deep} değerlendirme var ama PASS-1 çağrısı yok. Scanner yalnız ATTENTION_ONLY olmalı ve stratejik kapı JEV’den önce çalışmamalı.`);
+    if (sovereign && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • evidence request ${evidenceRequests} • PASS-2/final 0. Evidence worker veya JEV final çağrısı kontrol edilmeli.`);
+
+    if (!sovereign && Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
+    if (!sovereign && Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);
+    if (!sovereign && Number(h.laneScalpPlans || 0) > 0) add(Number(h.laneScalpReady||0)>0?'ok':'info','SCALP_LANE',`Scalp momentum hattı ${Number(h.laneScalpReady||0)>0?'hazır aday taşıyor':'izliyor'}`,`${h.laneScalpPlans||0} scalp planı • hazır ${h.laneScalpReady||0}. Tek 1m/3m/5m final karar vermez; en az iki alt TF + 15m karşı-veto kontrolü gerekir.`);
+    if (!sovereign && Number(h.laneMain15Plans || 0) > 0) add('info','MAIN_15M_LANE','15m ana işlem hattı aktif',`${h.laneMain15Plans||0} plan • 15m hazır ${h.laneMain15Ready||0}. 30m+ yapı/likidite/formasyon bağlamıdır.`);
     if (finite(h.avgAnalysisMs) !== null && h.avgAnalysisMs > 240000) add('warning', 'SLOW', 'Derin analiz yavaş', `Ortalama ${(h.avgAnalysisMs / 1000).toFixed(0)} sn; 1m/3m/5m kurulumları için geç.`);
     if (Number(h.skippedBusy || 0) > 60) add('info', 'BUSY', 'Turların çoğu atlanıyor', `${h.skippedBusy} tur yoğunluk nedeniyle atlandı (tek GPU, tek analiz).`);
   }
-  const funnel = [
+  const funnel = sovereign ? [
+    { key: 'universe', label: 'Binance evreni', value: finite(h.latestLightweightUniverseCount) ?? finite(h.latestUniverseCount) },
+    { key: 'target', label: 'Radar hedef evreni', value: finite(la.diagnostics?.universeCount) },
+    { key: 'shortlist', label: 'Radar attention listesi', value: finite(h.latestShortlistCount) },
+    { key: 'deep', label: 'JEV değerlendirme', value: deep },
+    { key: 'pass1', label: 'JEV PASS-1 • kanıt seçimi', value: pass1 },
+    { key: 'evidence', label: 'JEV kanıt istekleri', value: evidenceRequests },
+    { key: 'final', label: 'JEV PASS-2 • FINAL', value: finalCalls },
+    { key: 'action', label: 'LONG + SHORT final', value: Number(h.sovereignLong||0)+Number(h.sovereignShort||0) },
+    { key: 'wait', label: 'JEV WAIT', value: Number(h.sovereignWait||0) },
+    { key: 'intent', label: 'Hard safety geçti', value: hardSafetyReady },
+    { key: 'orders', label: 'Açılan emir', value: finite(h.ordersPlaced) ?? 0 }
+  ] : [
     { key: 'universe', label: 'Binance evreni', value: finite(h.latestLightweightUniverseCount) ?? finite(h.latestUniverseCount) },
     { key: 'target', label: 'Hedef evren', value: finite(la.diagnostics?.universeCount) },
     { key: 'shortlist', label: 'Derin kısa liste', value: finite(h.latestShortlistCount) },
@@ -324,8 +343,8 @@ function derive(snap) {
   const desks = {
     scanner: { busy: Number(h.scanRuns || 0) > 0, text: `Evren ${funnel[0].value ?? '?'} → hedef ${funnel[1].value ?? '?'} → uygun ${funnel[3].value ?? '?'}` },
     vision: { busy: !/^(IDLE|DETAIL_RUN_COMPLETE|PIXEL_RUN_COMPLETE|DETAIL_RUN_ERROR|PIXEL_RUN_ERROR)$/.test(stage), stage, text: stage },
-    workers: { busy: la.planWorkers?.busy === true, text: `inceleme ${wr} • bekle ${h.workerWaits ?? 0} • tetik ${h.workerTriggers ?? 0} • yenile ${wref}` },
-    jev: { busy: false, text: `bağlayıcı ${h.jevCalled ?? 0} • gölge ${h.jevShadowCalled ?? 0} • bugün ${Number(st.jev?.budget?.spentUsd || 0).toFixed(4)}` },
+    workers: { busy: la.planWorkers?.busy === true, text: sovereign ? `JEV talep ettiği kanıt • istek ${evidenceRequests}` : `inceleme ${wr} • bekle ${h.workerWaits ?? 0} • tetik ${h.workerTriggers ?? 0} • yenile ${wref}` },
+    jev: { busy: false, text: sovereign ? `PASS-1 ${pass1} • FINAL ${finalCalls} • L ${h.sovereignLong??0} / S ${h.sovereignShort??0} / WAIT ${h.sovereignWait??0}` : `bağlayıcı ${h.jevCalled ?? 0} • gölge ${h.jevShadowCalled ?? 0} • bugün ${Number(st.jev?.budget?.spentUsd || 0).toFixed(4)}` },
     exec: { busy: la.busy === true, text: String(la.lastExecution || '—') },
     positions: { busy: st.positionManager?.busy === true, text: String(st.positionManager?.lastReview?.actionTr || '—') }
   };
