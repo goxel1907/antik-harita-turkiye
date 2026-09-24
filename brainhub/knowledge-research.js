@@ -56,7 +56,7 @@ function sourceLooksRelevant(topic,text){
   if(!terms.length)return false;
   return terms.some(x=>t.includes(x)) && /(futures|trading|price|market|order|volume|trend|pattern|risk|liquid|margin|support|resistance|indicator|open interest|funding)/i.test(t);
 }
-function topicCandidates(unified){
+function topicCandidates(unified,evidence=null){
   const out=[];
   for(const tf of ['1m','3m','5m','15m','30m','45m','1h','4h','1d']){
     const f=unified?.frames?.[tf];
@@ -68,7 +68,14 @@ function topicCandidates(unified){
     const candle=safeTopic(f?.candle?.pattern||f?.candle?.type||'');
     if(candle)out.push({topic:candle,family:'CANDLE',tf});
   }
-  return out.filter((x,i,a)=>a.findIndex(y=>y.topic.toUpperCase()===x.topic.toUpperCase())===i).slice(0,12);
+  const visual=String(evidence?.visual?.text||'').slice(0,12000);
+  const rx=/(?:SETUP|PATTERN|FORMATION|CANDLE)\s*[:=]\s*([A-Za-z0-9_+\-/ ]{2,60})/gi;
+  let m;
+  while((m=rx.exec(visual))!==null){
+    const v=safeTopic(m[1]);
+    if(v&&!/^(NONE|NO|N A|UNKNOWN|WAIT)$/i.test(v))out.push({topic:v,family:'PATTERN',tf:'VISUAL'});
+  }
+  return out.filter((x,i,a)=>a.findIndex(y=>y.topic.toUpperCase()===x.topic.toUpperCase())===i).slice(0,16);
 }
 function createKnowledgeResearch({
   root,
@@ -104,10 +111,10 @@ function createKnowledgeResearch({
     const key=String(topic||'').toUpperCase();
     return state().entries.some(x=>x?.status==='VERIFIED_REFERENCE'&&String(x.topic||'').toUpperCase()===key);
   }
-  function detectGap(unified,cortexText=''){
+  function detectGap(unified,cortexText='',evidence=null){
     const dynamic=reference(12000);
     const known=(String(cortexText||'')+' '+dynamic.map(x=>x.topic+' '+x.summary).join(' ')).toUpperCase();
-    return topicCandidates(unified).find(x=>!known.includes(String(x.topic||'').replace(/_/g,' ').toUpperCase())&&!hasTopic(x.topic))||null;
+    return topicCandidates(unified,evidence).find(x=>!known.includes(String(x.topic||'').replace(/_/g,' ').toUpperCase())&&!hasTopic(x.topic))||null;
   }
   async function askChannel(fn,{topic,family,sourceText=''}) {
     if(typeof fn!=='function')return {ok:false,reason:'CHANNEL_UNAVAILABLE'};
@@ -201,8 +208,8 @@ function createKnowledgeResearch({
       return {...last,entry};
     }finally{busy=false;}
   }
-  async function researchFromContext({unified,cortexText='',familyHint=null}={}){
-    const gap=detectGap(unified,cortexText);
+  async function researchFromContext({unified,evidence=null,cortexText='',familyHint=null}={}){
+    const gap=detectGap(unified,cortexText,evidence);
     if(!gap)return {ok:true,called:false,reason:'NO_UNVERIFIED_KNOWLEDGE_GAP'};
     if(familyHint&&String(familyHint).toUpperCase()!=='AUTO'&&String(familyHint).toUpperCase()!==gap.family)return {ok:true,called:false,reason:'NO_MATCHING_KNOWLEDGE_GAP',gap};
     return research({topic:gap.topic,family:gap.family});
