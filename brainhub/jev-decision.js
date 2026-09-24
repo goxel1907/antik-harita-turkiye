@@ -8,7 +8,7 @@ const DEFAULTS={
   keyUrl:'https://openrouter.ai/api/v1/key',
   creditsUrl:'https://openrouter.ai/api/v1/credits',
   billingCacheMs:300000,
-  mode:'ADVISORY_VETO_ONLY',
+  mode:'SOVEREIGN_DIRECTOR_5M15M',
   softBudgetUsd:0.25,
   dailyCapUsd:2.00,
   timeoutMs:30000,
@@ -16,6 +16,9 @@ const DEFAULTS={
   reservePerCallUsd:0.002
 };
 
+// LEGACY COMPATIBILITY ONLY. The active R2.5.3.2 server path uses sovereignPass1/sovereignFinal;
+// these historical veto checks are retained only for old tests/rollback compatibility and are not
+// a pre-JEV qualification gate in the sovereign flow.
 const CHECKS = [
   ['structural_veto','structuralVeto','JEV_STRUCTURAL_VETO','Yapısal çelişki', 'BOS/CHoCH, failed breakout, body/wick or candle-pattern evidence contradicts the existing setup.'],
   ['forming_dependency','formingDependency','JEV_FORMING_CONFIRMATION_DEPENDENCY','Açık mum teyit yerine kullanılmış','The plan needs a forming candle as confirmation rather than context.'],
@@ -192,7 +195,7 @@ function normalizeConfig(root){
   const softBudgetUsd=Math.max(0,Math.min(dailyCapUsd,Number(raw.softBudgetUsd??DEFAULTS.softBudgetUsd)));
   const maxPayloadChars=Math.max(4000,Math.min(64000,Number(raw.maxPayloadChars||DEFAULTS.maxPayloadChars)));
   const reservePerCallUsd=Math.max(0.001,Math.min(0.05,Number(raw.reservePerCallUsd||DEFAULTS.reservePerCallUsd)));
-  return {enabled:raw.enabled===true,model,decisionsUrl,keyUrl,creditsUrl,billingCacheMs,mode:'ADVISORY_VETO_ONLY',softBudgetUsd,dailyCapUsd,timeoutMs,maxPayloadChars,reservePerCallUsd};
+  return {enabled:raw.enabled===true,model,decisionsUrl,keyUrl,creditsUrl,billingCacheMs,mode:'SOVEREIGN_DIRECTOR_5M15M',softBudgetUsd,dailyCapUsd,timeoutMs,maxPayloadChars,reservePerCallUsd};
 }
 function sanitizedKeyMetadata(data){
   const d=data&&typeof data==='object'?data:{};
@@ -434,6 +437,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       ok:true,configured,enabled:cfg.enabled,keyLoaded:!!key,model:cfg.model,mode:cfg.mode,
       softBudgetUsd:cfg.softBudgetUsd,dailyCapUsd:cfg.dailyCapUsd,decisionsApi:'OPENROUTER_ALPHA_DECISIONS',
       managementConfigured,
+      authority:{decisionOwner:'JEV',scanner:'ATTENTION_ONLY',workers:'EVIDENCE_ONLY',legacyJudge:'COMPATIBILITY_ONLY'},
+      lanes:{scalp:'5m',trade:'15m',longShortSymmetric:true},
+      passLimit:2,
       paidFallbackEnabled:false,budget:budgetStatus()
     };
   }
