@@ -1556,6 +1556,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       const position=open.positions[positionReviewCursor%open.positions.length];
       positionReviewCursor=(positionReviewCursor+1)%Math.max(1,open.positions.length);
+      const reviewArmGeneration=armGeneration;
+      const reviewLiveArmedAtStart=armedNow();
       let scan;
       try{scan=await scanner.scan();}catch(e){throw new Error('SCANNER_UNAVAILABLE');}
       const existing=leaderAnalysisState.bySymbol?.[position.symbol]||{};
@@ -1594,16 +1596,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const la=readLeaderAutoConfig();
         if(!brainOwned){
           managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_EXIT_EXTERNAL_POSITION_ADVISORY_ONLY',reason:'POSITION_NOT_BRAINHUB_OWNED'};
-        }else if(!armedNow()){
-          managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_EXIT_WAIT_LIVE_ARM',reason:'LIVE_NOT_ARMED'};
+        }else if(!reviewLiveArmedAtStart||!armedNow()){
+          managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_EXIT_WAIT_LIVE_ARM',reason:'LIVE_NOT_ARMED_FOR_FULL_REVIEW'};
         }else if(!la.ok||la.config?.enabled!==true){
           managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_EXIT_WAIT_AUTO_ENABLE',reason:'LEADER_AUTO_DISABLED'};
         }else{
-          const generation=armGeneration;
           const creds=currentCredentials();
           if(!credentialsReady(creds)){
             managementExecution={ok:false,attempted:false,orderPlaced:false,execution:'JEV_EXIT_BLOCKED',reason:'BINANCE_CREDENTIALS_REQUIRED'};
-          }else if(generation!==armGeneration||!armedNow()){
+          }else if(reviewArmGeneration!==armGeneration||!armedNow()){
             managementExecution={ok:false,attempted:false,orderPlaced:false,execution:'JEV_EXIT_BLOCKED',reason:'LIVE_DISARMED_DURING_POSITION_REVIEW'};
           }else{
             executionBusy=true;
