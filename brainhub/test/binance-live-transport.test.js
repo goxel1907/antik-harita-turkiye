@@ -422,3 +422,58 @@ test('Binance v3: sembolde açık pozisyon varsa ikinci giriş engellenir', asyn
   assert.ok(result.reasons.includes('SYMBOL_POSITION_ALREADY_OPEN'));
   assert.equal(calls.includes('POST /fapi/v1/order'), false);
 });
+
+
+test('R2535 JEV EXIT_NOW closes only the existing LONG quantity with reduce-only MARKET in one-way mode', async () => {
+  const calls=[];
+  let positionReads=0;
+  const fetchImpl=async (url,options={})=>{
+    const path=pathOf(url), method=options.method||'GET';
+    calls.push({path,method,body:options.body||''});
+    if(path==='/fapi/v1/time')return ok({serverTime:1000000});
+    if(path==='/fapi/v1/positionSide/dual')return ok({dualSidePosition:false});
+    if(path==='/fapi/v3/positionRisk'){
+      positionReads++;
+      return ok(positionReads===1
+        ? [{symbol:'BTCUSDT',positionSide:'BOTH',positionAmt:'0.300',entryPrice:'100',markPrice:'99'}]
+        : [{symbol:'BTCUSDT',positionSide:'BOTH',positionAmt:'0',entryPrice:'0',markPrice:'99'}]);
+    }
+    if(path==='/fapi/v1/exchangeInfo')return ok(exchangeInfo());
+    if(path==='/fapi/v1/order'&&method==='POST')return ok({orderId:991,status:'FILLED',executedQty:'0.300'});
+    throw new Error(`unexpected mocked request ${method} ${path}`);
+  };
+  const transport=new BinanceLiveTransport({registry:{consume:()=>({ok:false})},fetchImpl,clock:()=>1000000});
+  const out=await transport.reducePositionMarket({
+    symbol:'BTCUSDT',side:'LONG',fraction:1,credentials:credentials(),reason:'JEV_EXIT_NOW'
+  });
+  assert.equal(out.ok,true,JSON.stringify(out));
+  assert.equal(out.orderPlaced,true);
+  assert.equal(out.execution,'JEV_EXIT_NOW_REDUCE_ONLY_MARKET');
+  assert.equal(out.fullyClosed,true);
+  assert.equal(out.remainingQty,0);
+  const close=calls.find(x=>x.path==='/fapi/v1/order'&&x.method==='POST');
+  assert.ok(close);
+  assert.match(close.body,/side=SELL/);
+  assert.match(close.body,/type=MARKET/);
+  assert.match(close.body,/quantity=0.3/);
+  assert.match(close.body,/reduceOnly=true/);
+  assert.equal(calls.filter(x=>x.path==='/fapi/v1/order'&&x.method==='POST').length,1);
+});
+
+test('R2535 position reduction refuses side mismatch without sending a MARKET order', async () => {
+  const calls=[];
+  const fetchImpl=async (url,options={})=>{
+    const path=pathOf(url),method=options.method||'GET';
+    calls.push({path,method,body:options.body||''});
+    if(path==='/fapi/v1/time')return ok({serverTime:1000000});
+    if(path==='/fapi/v1/positionSide/dual')return ok({dualSidePosition:false});
+    if(path==='/fapi/v3/positionRisk')return ok([{symbol:'BTCUSDT',positionSide:'BOTH',positionAmt:'-0.300',entryPrice:'100',markPrice:'101'}]);
+    throw new Error(`unexpected mocked request ${method} ${path}`);
+  };
+  const transport=new BinanceLiveTransport({registry:{consume:()=>({ok:false})},fetchImpl,clock:()=>1000000});
+  const out=await transport.reducePositionMarket({symbol:'BTCUSDT',side:'LONG',fraction:1,credentials:credentials(),reason:'JEV_EXIT_NOW'});
+  assert.equal(out.ok,false);
+  assert.equal(out.orderPlaced,false);
+  assert.equal(out.reason,'POSITION_NOT_OPEN_OR_SIDE_MISMATCH');
+  assert.equal(calls.some(x=>x.path==='/fapi/v1/order'&&x.method==='POST'),false);
+});
