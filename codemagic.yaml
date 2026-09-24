@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.114-r2533 + PC R2532 SOVEREIGN + R2533 CORTEX SHADOW
+    name: Futures 15m Alarm PRO APK v9.5.114-r2534 + PC R2532 SOVEREIGN + R2534 FULL CORTEX ALWAYS-ON
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -110,14 +110,18 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95116_jev_sovereign_r2532_mobile.py"
           # V95117: UI/metadata only. Shows R2533 Trader Cortex SHADOW + experience-memory telemetry.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95117_jev_cortex_shadow_r2533_mobile.py"
-          echo 'V117_ANDROID_R2533_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114->v95115->v95116->v95117'
+          # V95118: UI/metadata only. Shows R2534 LIVE read-only Cortex + ALWAYS-ON measured experience memory.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95118_jev_full_cortex_r2534_mobile.py"
+          echo 'V118_ANDROID_R2534_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114->v95115->v95116->v95117->v95118'
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'V95116_JEV_SOVEREIGN_R2532_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'V95117_JEV_CORTEX_SHADOW_R2533_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'V95118_JEV_FULL_CORTEX_R2534_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'R2534 FULL CORTEX' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'JEV PRO FUTURES TRADER/SCALPER' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'JEV PATRON' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'R2.5.3.2 SOVEREIGN FLOW' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
-          grep -q "versionName '9.5.114-r2533'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q "versionName '9.5.114-r2534'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           echo 'V117_ANDROID_R2533_CONTRACT_OK'
 
           APP=/tmp/futures15m-build/Futures15mAlarm
@@ -189,8 +193,8 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.114-r2533'" "$BUILD"
-          grep -q 'versionCode 26092402' "$BUILD"
+          grep -q "versionName '9.5.114-r2534'" "$BUILD"
+          grep -q 'versionCode 26092403' "$BUILD"
           grep -q "CLAUDE_V109_BUILD" "$CM_BUILD_DIR/brainhub/claude-v109.js"
           grep -q "9.5.110-VISION" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "'claude-v109.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
@@ -206,8 +210,8 @@ workflows:
           grep -q "SCALP_MOMENTUM" "$CM_BUILD_DIR/brainhub/trade-lanes.js"
           grep -q "640" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "896" "$CM_BUILD_DIR/brainhub/v110.js"
-          grep -q "versionName '9.5.114-r2533'" "$BUILD"
-          grep -q 'versionCode 26092402' "$BUILD"
+          grep -q "versionName '9.5.114-r2534'" "$BUILD"
+          grep -q 'versionCode 26092403' "$BUILD"
           # CLAUDE_V113 (Claude, Anthropic): Android PC LIVE gercegi, dogrulanan ACIL DURDUR, salt-okunur PC pozisyonlari.
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
@@ -237,7 +241,10 @@ workflows:
             echo 'V95114_STALE_JEV_AUTHORITY_TEXT'
             exit 1
           fi
-          echo 'V95117_R2533_POSTPATCH_GATES_OK'
+          grep -q 'V95118_JEV_FULL_CORTEX_R2534_MOBILE' "$MAIN"
+          grep -q 'R2534 LIVE READ-ONLY CORTEX' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2534 FULL CORTEX ALWAYS-ON' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
+          echo 'V95118_R2534_POSTPATCH_GATES_OK'
           # CLAUDE_V111 (Claude, Anthropic): PC ve gorunen Android surum kimligi v9.5.111 ile esitlendi; v110 islem tabani korunur.
           grep -q "CLAUDE_V111_BUILD" "$CM_BUILD_DIR/brainhub/claude-v111.js"
           grep -q "CLAUDE_V111_TRIGGER_REVALIDATION" "$CM_BUILD_DIR/brainhub/claude-v111.js"
@@ -448,7 +455,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.114-r2533 JEV Cortex Shadow signed APK
+      - name: Build installable v9.5.114-r2534 JEV Full Cortex signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -494,9 +501,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2533.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2534.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2533.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2534.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -507,5 +514,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.114-R2533.apk
+      - Futures15mAlarm-PRO-v9.5.114-R2534.apk
       - v9595-gradle.log
