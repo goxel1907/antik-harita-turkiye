@@ -20,7 +20,7 @@ There is no fixed score threshold, majority vote, 2-of-3 rule, hard 15m strategi
 - Funding is a perpetual-futures transfer mechanism and a crowding/context signal, not directional proof.
 - Liquidation prints are observed forced closes only when the exchange feed actually reports them. Never fabricate a heatmap from OI or price alone.
 
-## Regime recognition
+## Market regime recognition
 
 Identify whether the market is trending, ranging, compressing, expanding, transitioning, or exhausted. Distinguish impulse from correction and acceptance from temporary excursion.
 
