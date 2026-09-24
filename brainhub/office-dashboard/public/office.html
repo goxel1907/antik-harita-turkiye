@@ -572,10 +572,17 @@ function renderJev(s){
   const st=s.status?.data||{}; const j=st.jev||{}; const b=j.budget||{}; const lj=s.lastJev;
   const h=st.leaderAuto?.health||{}; const sovereign=st.jevSovereign?.enabled===true || s.health?.data?.jevSovereign?.enabled===true;
   if(sovereign){
+    const le=st.learning||{};
+    const sel=h.sovereignSelectivityDiagnostic||{};
+    const selectivity=sel.code==='NO_WAIT_OBSERVED_INFO_ONLY'
+      ? `bilgi: son ${h.sovereignFinalTotal??0} finalde WAIT yok • BLOK YOK`
+      : `WAIT oranı ${h.sovereignWaitRatePct==null?'—':h.sovereignWaitRatePct+'%'} • BLOK YOK`;
     $('#jevKv').innerHTML = [
       ['Durum', j.configured?`hazır • ${j.model||''} • JEV PATRON`:'yapılandırılmamış'],
       ['Akış', `PASS-1 ${h.sovereignPass1Calls??0} • evidence request ${h.sovereignEvidenceRequests??0} • PASS-2 ${h.sovereignFinalCalls??0}`],
       ['Final', `LONG ${h.sovereignLong??0} • SHORT ${h.sovereignShort??0} • WAIT ${h.sovereignWait??0}`],
+      ['Seçicilik', selectivity],
+      ['Deneyim hafızası', `ölçülmüş ${le.measuredSampleCount??0} • JEV lesson ${le.jevLessonCount??0} • soft context`],
       ['Kural', 'Puanlama/2-of-3/hard-15m stratejik kapı yok; kanıt önem sırasını JEV belirler.']
     ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
     $('#jevList').innerHTML = [
