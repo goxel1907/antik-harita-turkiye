@@ -182,6 +182,15 @@ function writeJsonAtomic(file,obj){
   fs.writeFileSync(tmp,JSON.stringify(obj,null,2),'utf8');
   fs.renameSync(tmp,file);
 }
+function traderCortexReference(root){
+  const file=path.join(root,'docs','JEV-PRO-TRADER-CORTEX-R2533.md');
+  try{
+    const raw=fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'').trim();
+    return {loaded:true,version:'R2.5.3.3',mode:'SHADOW_KNOWLEDGE_REFERENCE',text:raw.slice(0,18000)};
+  }catch{
+    return {loaded:false,version:'R2.5.3.3',mode:'SHADOW_KNOWLEDGE_REFERENCE',text:''};
+  }
+}
 function utcDay(now=Date.now()){return new Date(now).toISOString().slice(0,10);}
 function normalizeConfig(root){
   const raw=readJson(path.join(root,'config','jev.json'));
@@ -440,6 +449,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       authority:{decisionOwner:'JEV',scanner:'ATTENTION_ONLY',workers:'EVIDENCE_ONLY',legacyJudge:'COMPATIBILITY_ONLY'},
       lanes:{scalp:'5m',trade:'15m',longShortSymmetric:true},
       passLimit:2,
+      traderCortex:(()=>{const t=traderCortexReference(root);return {loaded:t.loaded,version:t.version,mode:t.mode};})(),
       paidFallbackEnabled:false,budget:budgetStatus()
     };
   }
@@ -709,10 +719,12 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         managementStyle:src.entryContext?.managementStyle||src.managementStyle||null
       }
     };
+    const cortex=traderCortexReference(root);
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the BrainHub teacher for closed-trade learning. Choose what this measured outcome should teach future JEV decisions. This is SHADOW learning only: do not create hard rules, scores, vetoes, automatic code changes, or auto-promotion. A single trade must not become a mandatory rule.',
+        description:'JEV is the BrainHub teacher for closed-trade learning. Use the professional trader/scalper knowledge reference when interpreting the measured outcome, but keep the result SHADOW-only. Do not create hard rules, scores, vetoes, automatic code changes, or auto-promotion. A single trade must not become a mandatory rule.',
+        professionalTraderCortex:cortex.loaded?{version:cortex.version,mode:cortex.mode,reference:cortex.text}:null,
         record
       },
       questions:{
