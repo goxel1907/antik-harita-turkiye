@@ -55,7 +55,10 @@ function curatedGithubUrl(u){
   if(host==='github.com'){
     if(parts.length<2)return false;
     const key=(parts[0]+'/'+parts[1]).toLowerCase();
-    return CURATED_OPEN_SOURCE_REPOS.some(x=>x.repo.toLowerCase()===key);
+    const registered=CURATED_OPEN_SOURCE_REPOS.some(x=>x.repo.toLowerCase()===key);
+    if(!registered)return false;
+    if(parts.length===2)return true;
+    return ['blob','tree'].includes(String(parts[2]||'').toLowerCase());
   }
   if(host==='raw.githubusercontent.com'){
     if(parts.length<3)return false;
