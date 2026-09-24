@@ -76,3 +76,32 @@ test('recordLearning keeps null outcome as unknown instead of 0 percent',()=>{
     fs.rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
   }
 });
+
+
+test('JEV lesson rows do not double-count measured trade PnL',()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-learning-dedupe-'));
+  let store=null;
+  try{
+    store=openStore(root);
+    store.recordLearning('POSITION_CLOSED','AAAUSDT',{
+      side:'LONG',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',
+      decision:'CLOSED_STOP_LOSS',outcomePct:-1.25,rMultiple:-1,netPnl:-3.5,exitType:'STOP_LOSS'
+    });
+    store.recordLearning('JEV_LESSON','AAAUSDT',{
+      side:'LONG',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',
+      decision:'SHADOW_LESSON',outcomePct:-1.25,
+      lessonFocus:'ENTRY_TIMING',evidenceFocus:'ORDER_FLOW',lessonAction:'OBSERVE_MORE',scope:'THIS_SETUP_ONLY'
+    });
+    const ctx=store.learningContext({symbol:'AAAUSDT'});
+    assert.equal(ctx.stats.length,1);
+    assert.equal(ctx.stats[0].samples,1);
+    assert.equal(ctx.stats[0].wins,0);
+    assert.equal(ctx.measuredOutcomes.length,1);
+    assert.equal(ctx.jevLessons.length,1);
+    assert.equal(ctx.measuredSampleCount,1);
+    assert.equal(ctx.jevLessonCount,1);
+  }finally{
+    try{ store?.db?.close?.(); }catch{}
+    fs.rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+  }
+});
