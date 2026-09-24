@@ -66,7 +66,7 @@ function topicCandidates(unified,evidence=null){
       if(v)out.push({topic:v,family:'PATTERN',tf});
     }
     const candle=safeTopic(f?.candle?.pattern||f?.candle?.type||'');
-    if(candle)out.push({topic:candle,family:'CANDLE',tf});
+    if(candle)out.push({topic:candle,family:'PATTERN',tf});
   }
   const visual=String(evidence?.visual?.text||'').slice(0,12000);
   const rx=/(?:SETUP|PATTERN|FORMATION|CANDLE)\s*[:=]\s*([A-Za-z0-9_+\-/ ]{2,60})/gi;
