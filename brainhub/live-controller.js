@@ -671,12 +671,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const e=c ? executionEligibility(c) : null;
       const side=String(c?.side || row?.side || '').toUpperCase();
       const directionAllowed=(side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
-      const eligibleNow=Boolean(c && e?.eligible === true && directionAllowed);
+      const sovereignFlow=pipeline?.sovereignFlow===true;
+      const eligibleNow=sovereignFlow
+        ? Boolean(c && /^[A-Z0-9]{1,28}USDT$/.test(String(c?.symbol||'').toUpperCase()))
+        : Boolean(c && e?.eligible === true && directionAllowed);
       if (!eligibleNow) {
         row.executionEligibleNow=false;
         row.lastEligibilityCheckAt=now;
         row.eligibilityReason=c
-          ? (directionAllowed ? ((e?.reasons || [])[0] || 'NOT_EXECUTION_ELIGIBLE_NOW') : 'DIRECTION_DISABLED')
+          ? (sovereignFlow ? 'INVALID_ATTENTION_SYMBOL' : (directionAllowed ? ((e?.reasons || [])[0] || 'NOT_EXECUTION_ELIGIBLE_NOW') : 'DIRECTION_DISABLED'))
           : 'NOT_IN_CURRENT_DEEP_SHORTLIST';
         changed=true;
       } else {
@@ -1450,7 +1453,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       cadenceMinutes:5,
       execution:'ADVISORY_ONLY',
       // CLAUDE_V111: bu kural AÇIK POZİSYONDAN ÇIKIŞ içindir; giriş/scalp fırsatlarını engellemez.
-      ruleTr:'Açık pozisyon ÇIKIŞ kuralı: tek bir 1m/3m/5m tersliği pozisyonu kapattırmaz; owner TF ve 15m/büyük resim doğrulaması gerekir. GİRİŞ: 15m ana hat; momentum coinlerde 1m/3m/5m scalp (2/3 alt TF hizalı + 15m karşı değil) değerlendirilir, kâr runner ile momentum tükenene kadar taşınır.',
+      ruleTr:'JEV SOVEREIGN: açık pozisyonda HOLD / kârı koru / kısmi al / EXIT kararını JEV verir. 5m, 15m, 1m/3m timing, akış, likidite ve derivatives kanıttır; sabit 2/3 veya 15m stratejik veto kuralı yoktur. Kod yalnız execution integrity ve hard safety uygular.',
       lastTickAt:positionManagerState.lastTickAt,
       lastError:positionManagerState.lastError,
       lastReview:(ledgerState.ok&&ledgerState.open.length&&(!positionManagerState.lastReview||String(positionManagerState.lastReview?.actionTr||'').includes('YOK')))
@@ -1499,11 +1502,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const assessment=positionManager.assessPosition({position,lifecycle,unified:advisory?.unifiedContext||{}});
       let jevExit={ok:false,called:false,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi kullanılamadı.'};
       if(typeof exitJudge==='function'&&advisory?.unifiedContext){
-        try{jevExit=await exitJudge({position,lifecycle,currentPlan:advisory.plan,unified:advisory.unifiedContext});}
+        try{jevExit=await exitJudge({position,lifecycle,currentPlan:advisory.plan,unified:advisory.unifiedContext,evidence:advisory?.evidence||null});}
         catch(e){jevExit={ok:false,called:true,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi hata verdi; agresif çıkış kararı uygulanmadı.',reason:'JEV_EXIT_EXCEPTION'};}
       }
       const requestedAction=String(jevExit?.action||'HOLD_REVIEW');
-      const action=positionManager.capJevExitAction(requestedAction,assessment);
+      const action=jevExit?.finalAuthority===true
+        ? (['HOLD','PROTECT_PROFIT','PARTIAL_TAKE_PROFIT','EXIT_NOW'].includes(requestedAction)?requestedAction:'HOLD_REVIEW')
+        : positionManager.capJevExitAction(requestedAction,assessment);
       const actionTr=positionManager.actionTurkish(action);
       let reasonTr='Büyük resim ve owner yapı korunuyor; pozisyon izleniyor.';
       if(assessment.lowTfNoiseOnly)reasonTr='1m/3m/5m tersliği büyük resim tarafından doğrulanmadı; gürültü/erken uyarı olarak izlendi.';
@@ -1517,7 +1522,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         pnlPct:assessment.pnlPct,originTF:lifecycle.originTF,ownerTF:lifecycle.ownerTF,
         action,actionTr,reasonTr,requestedJevAction:requestedAction,
         jevSummaryTr:String(jevExit?.summaryTr||'').slice(0,360),
-        assessment,jev:{called:jevExit?.called===true,ok:jevExit?.ok===true,model:jevExit?.model||null,probabilities:jevExit?.probabilities||null},
+        assessment,jev:{called:jevExit?.called===true,ok:jevExit?.ok===true,finalAuthority:jevExit?.finalAuthority===true,model:jevExit?.model||null,mode:jevExit?.mode||null},
         execution:'ADVISORY_ONLY',orderPlaced:false
       };
       positionManagerState.lastReview=review;
@@ -2994,12 +2999,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
 
   function setLeaderAutoDiagnostics(scan, rawCandidates, allowLong, allowShort) {
+    const sovereignFlow=pipeline?.sovereignFlow===true;
     const rows = (Array.isArray(rawCandidates) ? rawCandidates : []).map(c => {
       const e = executionEligibility(c);
       const side = String(c?.side || '').toUpperCase();
       const directionAllowed = (side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
-      const reasons = [...(e.reasons || [])];
-      if (!directionAllowed) reasons.push(side === 'LONG' ? 'LONG_DISABLED_BY_USER' : side === 'SHORT' ? 'SHORT_DISABLED_BY_USER' : 'DIRECTION_DISABLED');
+      const symbolValid=/^[A-Z0-9]{1,28}USDT$/.test(String(c?.symbol||'').toUpperCase());
+      const reasons = sovereignFlow ? (symbolValid?[]:['INVALID_USDT_PERPETUAL_SYMBOL']) : [...(e.reasons || [])];
+      if (!sovereignFlow && !directionAllowed) reasons.push(side === 'LONG' ? 'LONG_DISABLED_BY_USER' : side === 'SHORT' ? 'SHORT_DISABLED_BY_USER' : 'DIRECTION_DISABLED');
       const row = {
         symbol:String(c?.symbol || ''),
         side:side || 'NONE',
@@ -3007,9 +3014,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         projectedRank:finite(c?.projectedRank),
         leaderState:String(c?.leaderState || ''),
         deepScanReason:String(c?.deepScanReason || ''),
-        eligible:e.eligible && directionAllowed,
+        eligible:sovereignFlow ? symbolValid : (e.eligible && directionAllowed),
         reasons:[...new Set(reasons)],
-        warnings:[...(e.warnings || [])],
+        warnings:sovereignFlow ? ['SCANNER_ATTENTION_ONLY_JEV_DECIDES'] : [...(e.warnings || [])],
         reasonsTr:[...new Set(reasons)].map(leaderReasonTr),
         warningsTr:[...(e.warnings || [])].map(leaderReasonTr),
         tradeQuality:e.tradeQuality,
@@ -3091,25 +3098,29 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // CLAUDE_V112_SCALP_FAST_LANE / CONCURRENT_REVALIDATION: hızlı hat aynı akışı kullanır, ama
     // aday seçimi/worker/teşhis sayaçlarına dokunmaz ve tam Vision'a düşmez.
     const fastMode = body?.claudeFastLane && typeof body.claudeFastLane === 'object' ? body.claudeFastLane : null;
-    const rawCandidates = selectDeepCandidates(scan, 16);
+    const sovereignFlow=pipeline?.sovereignFlow===true;
+    const rawCandidates = selectDeepCandidates(scan, sovereignFlow?24:16);
     if (!fastMode) setLeaderAutoDiagnostics(scan, rawCandidates, allowLong, allowShort);
     reconcileLeaderEligibility(rawCandidates, allowLong, allowShort);
 
     const candidates = rawCandidates
-      .filter(executionEligible)
+      .filter(x=>sovereignFlow
+        ? /^[A-Z0-9]{1,28}USDT$/.test(String(x?.symbol||'').toUpperCase())
+        : executionEligible(x))
       .filter(x => {
+        if(sovereignFlow)return true; // scanner side is attention only; JEV may choose LONG or SHORT.
         const side = String(x?.side || '').toUpperCase();
         return (side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
       })
-      // CLAUDE_V112: hızlı hattın o an işlediği coin ana döngüde ikinci kez Jev'e gitmesin.
       .filter(x => fastMode || String(x?.symbol || '').toUpperCase() !== fastLaneSymbol);
-    if (fastMode && !candidates.some(c => String(c?.symbol || '').toUpperCase() === String(fastMode.symbol || '').toUpperCase() && String(c?.side || '').toUpperCase() === String(fastMode.side || '').toUpperCase())) {
-      return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', symbol:fastMode.symbol, reasons:['CLAUDE_V112_FAST_LANE_CANDIDATE_NOT_ELIGIBLE'], fastLane:fastMode.kind };
+    if (fastMode && !candidates.some(c => String(c?.symbol || '').toUpperCase() === String(fastMode.symbol || '').toUpperCase() && (sovereignFlow || String(c?.side || '').toUpperCase() === String(fastMode.side || '').toUpperCase()))) {
+      return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', symbol:fastMode.symbol, reasons:[sovereignFlow?'JEV_ATTENTION_SYMBOL_NOT_FOUND':'CLAUDE_V112_FAST_LANE_CANDIDATE_NOT_ELIGIBLE'], fastLane:fastMode.kind };
     }
     if (!candidates.length) {
       leaderAutoCandidateCursor = 0;
-      // Even when there is no fresh execution candidate, keep one existing setup
-      // alive with a fresh analysis-only 9TF/Vision pass.
+      if(sovereignFlow){
+        return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', reasons:['NO_JEV_ATTENTION_CANDIDATE'], trackedRefresh:null };
+      }
       const trackedRefresh = await refreshOneTrackedAnalysis(scan);
       if (trackedRefresh) leaderAutoLastDiagnostics.trackedRefresh=trackedRefresh;
       return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', reasons:['NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER'], trackedRefresh };
@@ -3130,7 +3141,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     annotateLeaderDiagnostic(candidate.symbol, 'PIPELINE_SELECTED', [], { selectedIndex, lifecycle:existingLifecycle || leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null });
 
     const trackedBeforeVision=leaderAnalysisState.bySymbol?.[String(candidate.symbol || '').toUpperCase()] || null;
-    if(!fastMode&&workerEligible(trackedBeforeVision)){
+    if(!sovereignFlow&&!fastMode&&workerEligible(trackedBeforeVision)){
       const worker=await reviewTrackedPlan(candidate,scan);
       if(worker?.handled&&worker.state==='WAIT'){
         annotateLeaderDiagnostic(candidate.symbol,'WORKER_WAIT',['PLAN_WORKER_WAIT'],{
@@ -3358,6 +3369,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const rs=['JEV_FINAL_APPROVAL_REQUIRED'];
       annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{jevDecision:bindingJev});
       return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
+    }
+    const jevSide=String(advisory?.plan?.side||'').toUpperCase();
+    if((jevSide==='LONG'&&!allowLong)||(jevSide==='SHORT'&&!allowShort)){
+      const rs=[jevSide==='LONG'?'LONG_DISABLED_BY_USER':'SHORT_DISABLED_BY_USER'];
+      annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{jevDecision:bindingJev});
+      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:false,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
     }
 
     const creds = currentCredentials();

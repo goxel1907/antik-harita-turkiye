@@ -578,6 +578,72 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     };
   }
 
+
+  async function sovereignExit({position,lifecycle,currentPlan,unified,evidence=null}={}){
+    if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,finalAuthority:false,action:'HOLD_REVIEW',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
+    if(unified?.dataQuality?.advisoryUsable!==true)return {ok:false,configured:true,required:true,called:false,finalAuthority:false,action:'HOLD_REVIEW',reason:'JEV_EXIT_CONTEXT_NOT_USABLE'};
+    const entry=finiteNumber(position?.entryPrice),mark=finiteNumber(position?.markPrice);
+    const side=String(position?.side||lifecycle?.side||'').toUpperCase();
+    const pnlPct=entry!==null&&entry>0&&mark!==null&&['LONG','SHORT'].includes(side)
+      ? (side==='LONG'?(mark-entry)/entry:(entry-mark)/entry)*100:null;
+    const record={
+      contract:'R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT',
+      authority:{decisionOwner:'JEV',workers:'EVIDENCE_ONLY',postJevStrategicRevote:false},
+      position:{
+        symbol:String(position?.symbol||unified?.symbol||'').toUpperCase(),side,
+        entryPrice:entry,markPrice:mark,quantity:finiteNumber(position?.quantity),
+        unrealizedPnl:finiteNumber(position?.unrealizedPnl),pnlPct
+      },
+      lifecycle:{
+        originTF:lifecycle?.originTF||currentPlan?.originTF||null,
+        ownerTF:lifecycle?.ownerTF||currentPlan?.ownerTF||null,
+        setup:lifecycle?.setup||currentPlan?.setup||null,
+        managementStyle:currentPlan?.managementStyle||null,
+        initialInvalidation:finiteNumber(currentPlan?.invalidationPrice),
+        initialStop:finiteNumber(currentPlan?.stopPrice),
+        tp1:finiteNumber(currentPlan?.takeProfit1),tp2:finiteNumber(currentPlan?.takeProfit2),tp3:finiteNumber(currentPlan?.takeProfit3)
+      },
+      frames:{'5m':sovereignFrame(unified?.frames?.['5m']),'15m':sovereignFrame(unified?.frames?.['15m'])},
+      orderFlow:unified?.marketMakerEvidence?.orderFlow||null,
+      depth:unified?.marketMakerEvidence?.bookBehavior||null,
+      derivatives:unified?.derivatives||null,
+      observedLiquidations:unified?.liquidationContext||null,
+      learning:unified?.learning||null,
+      requestedEvidence:evidence||null
+    };
+    const body={
+      model:cfg.model,
+      state:{
+        description:'JEV is the sole strategic position manager. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action.',
+        record
+      },
+      questions:{
+        position_action:{
+          type:'choice',
+          instructions:'Choose the best position-management action now. HOLD is valid when the thesis still deserves room. EXIT_NOW is valid whenever the supplied evidence makes the thesis/invalidation no longer worth holding; it does not require a fixed number of timeframe conflicts.',
+          criteria:{
+            HOLD:'Keep the position open; current evidence does not justify changing the strategy.',
+            PROTECT_PROFIT:'Keep exposure but protect accumulated profit more aggressively, for example by tightening protective management.',
+            PARTIAL_TAKE_PROFIT:'Reduce part of the position while keeping a runner because reward remains but some profit should be secured.',
+            EXIT_NOW:'Close the position because the JEV thesis, invalidation, or current opportunity has materially failed or been replaced.'
+          }
+        }
+      }
+    };
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:true,finalAuthority:false,action:'HOLD_REVIEW',mode:'SOVEREIGN_CHOICE'};
+    const action=choiceValue(out.data?.answers?.position_action);
+    if(!['HOLD','PROTECT_PROFIT','PARTIAL_TAKE_PROFIT','EXIT_NOW'].includes(action)){
+      return {ok:false,configured:true,required:true,called:true,finalAuthority:false,action:'HOLD_REVIEW',reason:'JEV_SOVEREIGN_EXIT_SCHEMA_MISMATCH',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
+    }
+    const actionTr={HOLD:'TUT',PROTECT_PROFIT:'KÂRI KORU',PARTIAL_TAKE_PROFIT:'KISMİ KÂR AL',EXIT_NOW:'ÇIK'}[action];
+    return {
+      ok:true,configured:true,required:true,called:true,finalAuthority:true,action,actionTr,
+      summaryTr:'JEV FINAL position action: '+actionTr+'.',model:cfg.model,mode:'SOVEREIGN_CHOICE',
+      durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
+    };
+  }
+
   async function judgeExit({position,lifecycle,currentPlan,unified}={}){
     if(!configured)return {ok:!cfg.enabled,configured:false,required:cfg.enabled,called:false,action:'HOLD_REVIEW',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     const entry=Number(position?.entryPrice),mark=Number(position?.markPrice);
@@ -665,6 +731,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignExit,budgetStatus};
 }
 module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,createJevClient};

@@ -1211,6 +1211,7 @@ let decisionPipelineActive=0;
 let decisionPipelineLastFinishedAt=0;
 const decisionPipeline={
   ...pipeline,
+  sovereignFlow:true,
   isBusy:()=>decisionPipelineActive>0,
   activeRuns:()=>decisionPipelineActive,
   run:async(args)=>{
@@ -1225,7 +1226,7 @@ const decisionPipeline={
 function backgroundAnalysisWindowOpen(){
   return decisionPipelineActive===0&&localVisionQueueDepth===0&&(Date.now()-decisionPipelineLastFinishedAt)>=30000;
 }
-const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.judgeExit,credentials:BINANCE_CREDENTIALS});
+const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,credentials:BINANCE_CREDENTIALS});
 
 const server=http.createServer(async(req,res)=>{
   try{

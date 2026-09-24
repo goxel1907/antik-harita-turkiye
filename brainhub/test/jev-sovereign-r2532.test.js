@@ -125,3 +125,28 @@ test('live intent accepts JEV direction over scanner hint and preserves JEV stru
   assert.equal(out.takeProfit1,101.1);
   assert.ok(out.softWarnings.includes('SCANNER_SIDE_HINT_OVERRIDDEN_BY_JEV'));
 });
+
+
+test('JEV sovereign position manager chooses HOLD/PROTECT/PARTIAL/EXIT directly by choice',async t=>{
+  const r=root();t.after(()=>fs.rmSync(r,{recursive:true,force:true}));
+  const client=createJevClient({
+    root:r,apiKey:'sk-or-v1-'+'x'.repeat(40),
+    fetchImpl:async(_url,opt={})=>{
+      const body=JSON.parse(opt.body);
+      assert.equal(body.questions.position_action.type,'choice');
+      assert.deepEqual(Object.keys(body.questions.position_action.criteria).sort(),['EXIT_NOW','HOLD','PARTIAL_TAKE_PROFIT','PROTECT_PROFIT'].sort());
+      return response({answers:{position_action:{type:'choice',choice:'EXIT_NOW'}},usage:{cost:0.00001}});
+    }
+  });
+  const out=await client.sovereignExit({
+    position:{symbol:'BTCUSDT',side:'LONG',entryPrice:100,markPrice:99,quantity:1,unrealizedPnl:-1},
+    lifecycle:{originTF:'5m',ownerTF:'15m',setup:'JEV_SOVEREIGN_5M_SCALP'},
+    currentPlan:{status:'QUALIFIED',side:'LONG',originTF:'5m',ownerTF:'15m',jevSovereign:true},
+    unified:unified(),
+    evidence:{requested:['TRADINGVIEW_5M']}
+  });
+  assert.equal(out.ok,true);
+  assert.equal(out.finalAuthority,true);
+  assert.equal(out.action,'EXIT_NOW');
+  assert.equal(out.mode,'SOVEREIGN_CHOICE');
+});

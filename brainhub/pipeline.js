@@ -1271,6 +1271,23 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:pass1?.reason||'JEV_SOVEREIGN_PASS1_UNAVAILABLE',jevPass1:pass1||null,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
   }
   const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee});
+  if(executionIntent?.positionReviewOnly===true){
+    const reviewSide=['LONG','SHORT'].includes(String(executionIntent?.side||'').toUpperCase())?String(executionIntent.side).toUpperCase():null;
+    const plan={
+      valid:true,status:'WATCH',side:reviewSide,originTF:'5m',ownerTF:'15m',
+      lane:'POSITION_REVIEW',setup:'JEV_SOVEREIGN_POSITION_REVIEW',execPath:'NO_NEW_ENTRY',
+      waitFor:'NONE',why:'JEV-directed evidence package prepared for active-position management.',
+      riskNote:'No new entry may be authorized from this review context.',
+      jevSovereign:true,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
+    };
+    return {
+      ok:true,candidateFound:true,committeeCalled:Boolean(evidence?.visual),candidate,targetedExecution:selection.targeted,
+      unifiedContext:unified,vision:evidence?.visual||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0},
+      committee:{mode:'JEV_DIRECTED_POSITION_EVIDENCE_ONLY',available:true},plan,preJevPlan:null,
+      jevPass1:pass1,jevDecision:null,evidence,riskGate:null,dryRunExecutor:null,executionReadiness:null,
+      execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true,positionReviewOnly:true
+    };
+  }
   const planOptions=buildSovereignPlanOptions(unified);
   const final=await decisionFinal({candidate,unified,evidence,planOptions});
   if(!final?.ok){
