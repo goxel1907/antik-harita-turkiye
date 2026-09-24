@@ -1287,6 +1287,7 @@ async function buildSovereignEvidence({candidate,unified,pass1,committee}){
         const labels=visualFrames.map(tf=>'OBS_'+tf.toUpperCase()+': concise factual visual observations only').join('\n');
         const vr=await committee({
           role:'STRUCTURE',
+          evidenceOnly:true,
           system:'You are a Vision EVIDENCE_ONLY worker for JEV. Read only the requested chart images. Report factual structure, candle, liquidity, OB/FVG/sweep observations. Do not choose LONG/SHORT, do not score, do not QUALIFY/VETO, and do not propose an order. Forming candles are context only. Binance/BrainHub numeric truth outranks visual interpretation.',
           prompt:'Requested symbol: '+candidate.symbol+'\nRequested frames: '+visualFrames.join(',')+'\nReturn only evidence observations, one line per requested timeframe.\n'+labels,
           images:vision.images,
