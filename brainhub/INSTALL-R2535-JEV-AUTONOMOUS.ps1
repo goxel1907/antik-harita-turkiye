@@ -75,6 +75,8 @@ if (-not (Test-Path -LiteralPath $manage)) { throw 'Downloaded BrainHub manage.p
 if (-not (Test-Path -LiteralPath $cortexDoc)) { throw 'Downloaded R2534 Full Trader Cortex document is missing.' }
 $researchModule = Join-Path $source 'knowledge-research.js'
 if (-not (Test-Path -LiteralPath $researchModule)) { throw 'Downloaded knowledge-research.js is missing.' }
+$managementTest = Join-Path $source 'test\jev-r2535-management.test.js'
+if (-not (Test-Path -LiteralPath $managementTest)) { throw 'Downloaded R2535 management/research regression test is missing.' }
 
 Stop-Office $Root
 
@@ -112,6 +114,9 @@ if ([string]$live.jev.mode -ne 'SOVEREIGN_DIRECTOR_5M15M') { throw "Unexpected J
 if (-not [bool]$live.jev.traderCortex.loaded) { throw 'Trader Cortex reference did not load at runtime.' }
 if ([string]$live.jev.traderCortex.version -ne $ExpectedCortex) { throw 'Runtime Trader Cortex version mismatch.' }
 if ([string]$live.jev.traderCortex.mode -ne $ExpectedCortexMode) { throw 'Runtime Trader Cortex mode mismatch.' }
+if ([string]$live.positionManager.execution -ne 'JEV_POSITION_REDUCE_BINDING_WHEN_LIVE_ARMED') { throw "Position manager execution mismatch: $($live.positionManager.execution)" }
+if (-not ($live.positionManager.bindingActions -contains 'EXIT_NOW')) { throw 'Runtime EXIT_NOW binding missing.' }
+if (-not ($live.positionManager.bindingActions -contains 'PARTIAL_TAKE_PROFIT')) { throw 'Runtime PARTIAL binding missing.' }
 if ($live.armed -eq $true) { throw 'LIVE became armed during update.' }
 
 if (-not $office.ok -or [string]$office.officeVersion -ne $ExpectedOffice) { throw "Office version mismatch: $($office.officeVersion)" }
@@ -125,7 +130,9 @@ Write-Host 'R2535_PC_UPDATE_OK'
 Write-Host 'R2535_OFFICE_UPDATE_OK'
 Write-Host 'R2535_CORTEX_RUNTIME_LOADED_OK'
 Write-Host 'R2535_MEMORY_LIFETIME_OK'
+Write-Host 'R2535_LIFETIME_MEMORY_OK'
 Write-Host 'R2535_RESEARCH_DESK_OK'
+Write-Host 'R2535_FREE_RESEARCH_OK'
 Write-Host 'R2535_EXIT_BINDING_OK'
 Write-Host 'R2535_PARTIAL_BINDING_OK'
 Write-Host 'R2535_LIVE_VERIFIED_OFF'
