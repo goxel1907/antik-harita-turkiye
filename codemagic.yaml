@@ -212,10 +212,13 @@ workflows:
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
           # V95115/R2531 mobile truth: JEV is final authority; workers/observer never execute.
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' "$MAIN"
-          grep -q 'R2.5.3.1 SOVEREIGN EVIDENCE: FINAL AUTHORITY' "$MAIN"
+          grep -q 'JEV PATRON' "$MAIN"
+          grep -q 'R2.5.3.2 SOVEREIGN FLOW' "$MAIN"
+          grep -q 'R2.5.3.2 SOVEREIGN FLOW: FINAL AUTHORITY' "$MAIN"
           grep -q 'scalp execution yalnız KAPANMIŞ 5m' "$MAIN"
           grep -q 'worker EVIDENCE_ONLY' "$MAIN"
           grep -q 'JEV: NİHAİ STRATEJİK KARAR MERCİİ' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2.5.3.2 SOVEREIGN FLOW' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
           grep -q 'hazır • FINAL AUTHORITY' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           if grep -q 'Jev yalnız işlem adayı planın ek güvenlik denetimidir' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then
             echo 'V95114_STALE_JEV_AUTHORITY_TEXT'
@@ -238,6 +241,9 @@ workflows:
           echo 'CLAUDE_V112_PC_OK'
           # CLAUDE_V113 (Claude, Anthropic): sonuç defteri, pozisyon ekranı, Jev tam kanıt, uzama filtresi.
           grep -q "CLAUDE_V113_OUTCOME_LEDGER" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q "SOVEREIGN_DIRECTOR_5M15M" "$CM_BUILD_DIR/brainhub/jev-decision.js"
+          grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q "2.0.0-JEV-SOVEREIGN-R2532" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           grep -q "positionLedgerTick" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/live/positions" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "extended_entry" "$CM_BUILD_DIR/brainhub/jev-decision.js"
