@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.0.0-JEV-SOVEREIGN-R2532';
+const OFFICE_VERSION = '2.0.1-JEV-CORTEX-SHADOW-R2533';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
