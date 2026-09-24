@@ -579,7 +579,7 @@ if ($Action -eq 'OpenRouterSetup') {
         keyUrl = 'https://openrouter.ai/api/v1/key'
         creditsUrl = 'https://openrouter.ai/api/v1/credits'
         billingCacheMs = 300000
-        mode = 'ADVISORY_VETO_ONLY'
+        mode = 'SOVEREIGN_DIRECTOR_5M15M'
         softBudgetUsd = 0.25
         dailyCapUsd = 2.00
         timeoutMs = 30000
@@ -595,7 +595,7 @@ if ($Action -eq 'OpenRouterSetup') {
     Start-Brain $rootFull $node $routerKey
     Test-Brain $rootFull
     $local = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/openrouter/status' -Headers (Auth-Headers $rootFull) -TimeoutSec 10
-    if (-not $local.configured -or -not $local.keyLoaded -or $local.model -ne 'typesafe/jev-1.13' -or $local.mode -ne 'ADVISORY_VETO_ONLY') {
+    if (-not $local.configured -or -not $local.keyLoaded -or $local.model -ne 'typesafe/jev-1.13' -or $local.mode -ne 'SOVEREIGN_DIRECTOR_5M15M') {
         throw 'OpenRouter/Jev yerel yapilandirmasi dogrulanamadi.'
     }
     $probeOk = $false
@@ -608,7 +608,7 @@ if ($Action -eq 'OpenRouterSetup') {
     } catch {
         Write-Warning 'OpenRouter key DPAPI ile guvenli kaydedildi ancak Jev alpha probe su anda tamamlanamadi. JEV-PROBE.ps1 ile tekrar denenebilir.'
     }
-    Write-Host ("BRAINHUB_OPENROUTER_SETUP_OK model=typesafe/jev-1.13 mode=ADVISORY_VETO_ONLY softBudgetUsd=0.25 dailyCapUsd=2.00 probe={0}" -f $probeOk) -ForegroundColor Green
+    Write-Host ("BRAINHUB_OPENROUTER_SETUP_OK model=typesafe/jev-1.13 mode=SOVEREIGN_DIRECTOR_5M15M softBudgetUsd=0.25 dailyCapUsd=2.00 probe={0}" -f $probeOk) -ForegroundColor Green
     exit 0
 }
 if ($Action -eq 'OpenRouterCreditSetup') {
