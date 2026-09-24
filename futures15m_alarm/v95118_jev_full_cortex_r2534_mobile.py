@@ -47,7 +47,7 @@ if anchor not in main:
     fail("R2533 status anchor missing")
 main = main.replace(
     anchor,
-    anchor + '\n            st.append("\\nR2534 FULL CORTEX: profesyonel trader/scalper bilgi referansı PASS-1 + PASS-2 + pozisyon yönetiminde sürekli • measured outcome + JEV lesson hafızası ALWAYS-ON • bilinmeyen bilgi uydurulmaz."); // ' + MARKER,
+    '            st.append("\\nR2534 FULL CORTEX: profesyonel trader/scalper bilgi referansı PASS-1 + PASS-2 + pozisyon yönetiminde sürekli • measured outcome + JEV lesson hafızası ALWAYS-ON • bilinmeyen bilgi uydurulmaz."); // V95117_JEV_CORTEX_SHADOW_R2533_MOBILE ' + MARKER,
     1,
 )
 
@@ -56,7 +56,7 @@ if card_anchor not in card:
     fail("AutoDecisionCard R2533 anchor missing")
 card = card.replace(
     card_anchor,
-    card_anchor + '\n        b.append("\\nR2534 LIVE READ-ONLY CORTEX: chart formations + price action/SMC + indicators + order-flow/depth + derivatives + execution/risk bilgisi; geçmiş ölçülmüş işlemler PASS-1/PASS-2/pozisyon yönetiminde istemeden hatırlanır."); // ' + MARKER,
+    '        b.append("\\nR2534 LIVE READ-ONLY CORTEX: chart formations + price action/SMC + indicators + order-flow/depth + derivatives + execution/risk bilgisi; geçmiş ölçülmüş işlemler PASS-1/PASS-2/pozisyon yönetiminde istemeden hatırlanır."); // V95117_JEV_CORTEX_SHADOW_R2533_MOBILE ' + MARKER,
     1,
 )
 
@@ -78,6 +78,16 @@ analysis = analysis.replace(
 )
 analysis += "\n// " + MARKER + "\n"
 
+# Remove stale pre-sovereign UI copy that contradicts the current JEV contract.
+stale_gate = "Scalp için en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü."
+current_gate = "Scalp kanıtlarını JEV önemine göre seçer; 1m/3m/15m hizalanması zorunlu değildir, 15m ters yapı yalnız kanıttır."
+for label, text in (("MainActivity", main), ("AutoDecisionCard", card)):
+    pass
+main = main.replace(stale_gate, current_gate)
+card = card.replace(stale_gate, current_gate)
+main = main.replace("JEV CORTEX P2 + R2.5.3.2 SOVEREIGN FLOW:", "JEV R2534 FULL CORTEX + R2.5.3.2 SOVEREIGN FLOW:")
+card = card.replace("JEV CORTEX P2 + R2.5.3.2 SOVEREIGN FLOW:", "JEV R2534 FULL CORTEX + R2.5.3.2 SOVEREIGN FLOW:")
+
 if len(re.findall(r"versionCode\s+\d+", build)) != 1:
     fail("versionCode anchor missing/ambiguous")
 if len(re.findall(r"versionName\s+[\"'][^\"']+[\"']", build)) != 1:
@@ -95,6 +105,8 @@ checks = {
     "marker": MARKER in MAIN.read_text(encoding="utf-8"),
     "identity": "v9.5.114-JEV-FULL-CORTEX-R2534" in MAIN.read_text(encoding="utf-8"),
     "full cortex": "R2534 FULL CORTEX" in MAIN.read_text(encoding="utf-8"),
+    "no stale scalp gate": stale_gate not in MAIN.read_text(encoding="utf-8") and stale_gate not in CARD.read_text(encoding="utf-8"),
+    "no visible R2533 shadow cortex": "R2533 CORTEX:" not in MAIN.read_text(encoding="utf-8") and "R2533 SHADOW CORTEX:" not in CARD.read_text(encoding="utf-8"),
     "card": "R2534 LIVE READ-ONLY CORTEX" in CARD.read_text(encoding="utf-8"),
     "client": "R2534 FULL CORTEX ALWAYS-ON" in CLIENT.read_text(encoding="utf-8"),
     "build": "versionCode 26092403" in BUILD.read_text(encoding="utf-8") and "versionName '9.5.114-r2534'" in BUILD.read_text(encoding="utf-8"),
