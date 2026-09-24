@@ -1226,7 +1226,7 @@ const decisionPipeline={
 function backgroundAnalysisWindowOpen(){
   return decisionPipelineActive===0&&localVisionQueueDepth===0&&(Date.now()-decisionPipelineLastFinishedAt)>=30000;
 }
-const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,credentials:BINANCE_CREDENTIALS});
+const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,credentials:BINANCE_CREDENTIALS});
 
 const server=http.createServer(async(req,res)=>{
   try{
