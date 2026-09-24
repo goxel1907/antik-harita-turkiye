@@ -99,6 +99,10 @@ test('JEV lesson rows do not double-count measured trade PnL',()=>{
     assert.equal(ctx.measuredOutcomes.length,1);
     assert.equal(ctx.jevLessons.length,1);
     assert.equal(ctx.measuredSampleCount,1);
+    assert.equal(ctx.lifetime.measuredSamples,1);
+    assert.equal(ctx.lifetime.wins,0);
+    assert.equal(ctx.lifetime.losses,1);
+    assert.equal(ctx.lifetime.representation,'ALL_MEASURED_POSITION_CLOSED_ROWS_AGGREGATED');
     assert.equal(ctx.jevLessonCount,1);
   }finally{
     try{ store?.db?.close?.(); }catch{}
