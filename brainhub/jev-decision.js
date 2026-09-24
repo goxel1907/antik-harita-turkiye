@@ -795,11 +795,13 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
     };
     const cortex=traderCortexReference(root);
+    const dynamic=dynamicKnowledgeReference(root);
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the BrainHub teacher for closed-trade learning. Use the professional trader/scalper knowledge reference when interpreting the measured outcome, but keep the result SHADOW-only. Do not create hard rules, scores, vetoes, automatic code changes, or auto-promotion. A single trade must not become a mandatory rule.',
+        description:'JEV is the BrainHub teacher for closed-trade learning. Use the professional trader/scalper Cortex plus only JEV-verified dynamic knowledge when interpreting the measured outcome, but keep the result SHADOW-only. Do not create hard rules, scores, vetoes, automatic code changes, or auto-promotion. A single trade must not become a mandatory rule.',
         professionalTraderCortex:cortex.loaded?{version:cortex.version,mode:cortex.mode,reference:cortex.text}:null,
+        dynamicKnowledge:dynamic.loaded?{mode:dynamic.mode,entries:dynamic.entries}:null,
         record
       },
       questions:{
