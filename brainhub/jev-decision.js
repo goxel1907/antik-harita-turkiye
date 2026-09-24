@@ -202,9 +202,10 @@ function compactExperienceMemory(learning,maxChars=6500){
     source:src.source||'BrainHub measured experience memory',
     measuredSampleCount:Number(src.measuredSampleCount)||0,
     jevLessonCount:Number(src.jevLessonCount)||0,
-    stats:Array.isArray(src.stats)?src.stats.slice(0,8):[],
-    measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,8):[],
-    jevLessons:Array.isArray(src.jevLessons)?src.jevLessons.slice(0,8):[],
+    lifetime:src.lifetime&&typeof src.lifetime==='object'?src.lifetime:null,
+    stats:Array.isArray(src.stats)?src.stats.slice(0,20):[],
+    measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,16):[],
+    jevLessons:Array.isArray(src.jevLessons)?src.jevLessons.slice(0,16):[],
     note:'Always-on soft context. Measured outcomes and JEV lessons inform interpretation but never create hard gates, change capital settings, or bypass deterministic safety.'
   };
   const limit=Math.max(2500,Math.min(9000,Number(maxChars)||6500));
@@ -220,11 +221,26 @@ function compactExperienceMemory(learning,maxChars=6500){
   }
   return out;
 }
+function dynamicKnowledgeReference(root,maxChars=7000){
+  const file=path.join(root,'data','jev-knowledge.json');
+  try{
+    const raw=JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));
+    const entries=(Array.isArray(raw?.entries)?raw.entries:[])
+      .filter(x=>x&&x.status==='VERIFIED_REFERENCE')
+      .slice(-24).reverse()
+      .map(x=>({topic:x.topic||null,family:x.family||null,verifiedAt:x.verifiedAt||null,summary:String(x.summary||'').slice(0,900),keyPoints:Array.isArray(x.keyPoints)?x.keyPoints.slice(0,6):[],sourceUrls:Array.isArray(x.sourceUrls)?x.sourceUrls.slice(0,4):[]}));
+    let text=JSON.stringify(entries);
+    while(text.length>maxChars&&entries.length>2){entries.pop();text=JSON.stringify(entries);}
+    return {loaded:true,mode:'VERIFIED_READ_ONLY_DYNAMIC_REFERENCE',entries,text};
+  }catch{return {loaded:false,mode:'VERIFIED_READ_ONLY_DYNAMIC_REFERENCE',entries:[],text:'[]'};}
+}
 function liveReasoningContext(root,learning){
   const cortex=traderCortexReference(root);
+  const dynamic=dynamicKnowledgeReference(root);
   return {
     professionalTraderCortex:cortex.loaded?{version:cortex.version,mode:cortex.mode,reference:cortex.text}:null,
-    experienceMemory:compactExperienceMemory(learning)
+    dynamicKnowledge:dynamic.loaded?{mode:dynamic.mode,entries:dynamic.entries}:null,
+    experienceMemory:compactExperienceMemory(learning,8500)
   };
 }
 function utcDay(now=Date.now()){return new Date(now).toISOString().slice(0,10);}
@@ -584,6 +600,16 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         }
       }
     };
+    questions.knowledge_research={
+      type:'choice',
+      instructions:'Is there a material trading concept, formation, indicator, microstructure term, derivatives concept or execution concept in the supplied state that is not adequately covered by the professional Cortex/dynamic knowledge? Request research only for a real knowledge gap, never just to delay a decision.',
+      criteria:{SKIP:'Existing verified knowledge is adequate for this decision.',RESEARCH_IF_GAP:'A material knowledge gap should be researched by the free-model research desk before PASS-2.'}
+    };
+    questions.knowledge_family={
+      type:'choice',
+      instructions:'If research is requested, choose the closest family. This routes research only; it never approves a trade.',
+      criteria:{AUTO:'Let BrainHub detect the unfamiliar term.',PATTERN:'Chart/candlestick formation.',INDICATOR:'Indicator or quantitative transform.',MICROSTRUCTURE:'Order flow/depth/tape concept.',DERIVATIVES:'OI/funding/liquidation/positioning concept.',EXECUTION:'Futures execution/risk mechanics.',OTHER:'Other trading knowledge.'}
+    };
     for(const [id,description] of SOVEREIGN_EVIDENCE){
       questions['evidence_'+id.toLowerCase()]={
         type:'choice',
@@ -599,6 +625,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       state:{
         description:'JEV PASS-1 is the sole strategic evidence director. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON and must be used as read-only reasoning context; JEV never needs to request HISTORY_OUTCOME merely to remember its own measured past. Radar only raises attention. Decide which evidence workers should fetch. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies. If a material concept is not understood from the supplied Cortex/evidence, do not invent it; prefer WAIT until verified knowledge is available.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
+        dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
         record
       },
@@ -609,6 +636,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const laneFocus=choiceValue(answers.lane_focus);
     const directionFocus=choiceValue(answers.direction_focus);
+    const knowledgeResearch=choiceValue(answers.knowledge_research)||'SKIP';
+    const knowledgeFamily=choiceValue(answers.knowledge_family)||'AUTO';
     const requestedEvidence=[];
     for(const [id] of SOVEREIGN_EVIDENCE){
       const v=choiceValue(answers['evidence_'+id.toLowerCase()]);
@@ -618,6 +647,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     return {
       ok:true,configured:true,required:true,called:true,pass:1,finalAuthority:'JEV',
       laneFocus,directionFocus,requestedEvidence,
+      knowledgeResearchRequested:knowledgeResearch==='RESEARCH_IF_GAP',knowledgeFamily,
       model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };
   }
@@ -645,6 +675,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       state:{
         description:'JEV PASS-2 is the final strategic decision. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. 5m is the scalp lane; 15m is the trade lane. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
+        dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
         record:{
           attention:sovereignAttentionRecord(candidate,unified),
@@ -834,6 +865,34 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
 
 
+  async function sovereignKnowledgeReview({topic,family,router,openRouter,sources}={}){
+    if(!configured)return {ok:false,configured:false,called:false,verdict:'REJECT',reason:'JEV_KEY_UNAVAILABLE'};
+    const body={
+      model:cfg.model,
+      state:{
+        description:'JEV research gate. Decide whether this read-only knowledge note is sufficiently grounded to enter the dynamic trading knowledge reference. It must never change code, capital settings, risk limits, permissions, or hard safety. Model agreement without fetched source evidence is insufficient.',
+        record:{
+          topic:String(topic||'').slice(0,120),family:String(family||'OTHER').slice(0,32),
+          router:router||null,openRouter:openRouter||null,
+          verifiedSources:Array.isArray(sources)?sources.slice(0,4):[],
+          authority:{application:'READ_ONLY_KNOWLEDGE_REFERENCE',selfModify:false,autoPromotionToRules:false,executionAuthority:false}
+        }
+      },
+      questions:{
+        research_verdict:{
+          type:'choice',
+          instructions:'Accept only if the supplied fetched source excerpts materially support the research summary and there is no important unsupported claim. Reject hallucinated, contradictory, source-free, identity/intent speculation, or trading-rule promotion.',
+          criteria:{ACCEPT_REFERENCE:'Grounded enough for a read-only knowledge reference.',REJECT:'Not sufficiently grounded or contains unsupported claims.',RESEARCH_MORE:'Potentially useful, but evidence is incomplete or conflicting.'}
+        }
+      }
+    };
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:true,verdict:'REJECT'};
+    const verdict=choiceValue(out.data?.answers?.research_verdict);
+    if(!['ACCEPT_REFERENCE','REJECT','RESEARCH_MORE'].includes(verdict))return {ok:false,called:true,verdict:'REJECT',reason:'JEV_KNOWLEDGE_REVIEW_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
+    return {ok:true,called:true,verdict,model:cfg.model,mode:'SOVEREIGN_KNOWLEDGE_REVIEW',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+  }
+
   async function sovereignExit({position,lifecycle,currentPlan,unified,evidence=null}={}){
     if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,finalAuthority:false,action:'HOLD_REVIEW',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     if(unified?.dataQuality?.advisoryUsable!==true)return {ok:false,configured:true,required:true,called:false,finalAuthority:false,action:'HOLD_REVIEW',reason:'JEV_EXIT_CONTEXT_NOT_USABLE'};
@@ -872,6 +931,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       state:{
         description:'JEV is the sole strategic position manager. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action. If a material concept is not understood, do not invent it.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
+        dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
         record
       },
@@ -885,18 +945,26 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
             PARTIAL_TAKE_PROFIT:'Reduce part of the position while keeping a runner because reward remains but some profit should be secured.',
             EXIT_NOW:'Close the position because the JEV thesis, invalidation, or current opportunity has materially failed or been replaced.'
           }
+        },
+        partial_fraction:{
+          type:'choice',
+          instructions:'Used only when PARTIAL_TAKE_PROFIT is selected. Choose how much of the current remaining position to reduce. Otherwise this answer is ignored.',
+          criteria:{P25:'Reduce 25% and keep 75% runner.',P33:'Reduce about one third and keep about two thirds.',P50:'Reduce 50% and keep 50% runner.'}
         }
       }
     };
     const out=await decisions(body,{reserve:true});
     if(!out.ok)return {...out,called:true,finalAuthority:false,action:'HOLD_REVIEW',mode:'SOVEREIGN_CHOICE'};
     const action=choiceValue(out.data?.answers?.position_action);
+    const partialChoice=choiceValue(out.data?.answers?.partial_fraction)||'P33';
+    const partialFraction={P25:0.25,P33:1/3,P50:0.5}[partialChoice]||1/3;
     if(!['HOLD','PROTECT_PROFIT','PARTIAL_TAKE_PROFIT','EXIT_NOW'].includes(action)){
       return {ok:false,configured:true,required:true,called:true,finalAuthority:false,action:'HOLD_REVIEW',reason:'JEV_SOVEREIGN_EXIT_SCHEMA_MISMATCH',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
     }
     const actionTr={HOLD:'TUT',PROTECT_PROFIT:'KÂRI KORU',PARTIAL_TAKE_PROFIT:'KISMİ KÂR AL',EXIT_NOW:'ÇIK'}[action];
     return {
       ok:true,configured:true,required:true,called:true,finalAuthority:true,action,actionTr,
+      partialFraction:action==='PARTIAL_TAKE_PROFIT'?partialFraction:null,
       summaryTr:'JEV FINAL position action: '+actionTr+'.',model:cfg.model,mode:'SOVEREIGN_CHOICE',
       durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };
@@ -989,6 +1057,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignExit,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
 }
-module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,createJevClient};
+module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,dynamicKnowledgeReference,createJevClient};
