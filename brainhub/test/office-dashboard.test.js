@@ -60,7 +60,7 @@ test('office recognizes v9.5.111 and describes JEV as final strategic authority 
 test('R2536 Office keeps JEV policy DOM refresh null-safe and exposes resilient research, memory and position execution telemetry', () => {
   const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
   const serverSrc = fs.readFileSync(path.join(dir, 'office-server.js'), 'utf8');
-  assert.match(serverSrc, /2\\.0\\.4-JEV-RESILIENT-R2536/);
+  assert.match(serverSrc, /2\.0\.4-JEV-RESILIENT-R2536/);
   assert.match(html, /const jevPolicyEl=\$\('#jevPolicy'\); if\(jevPolicyEl\)/);
   assert.equal(html.includes("$('#jevPolicy').textContent ="), false);
   assert.match(html, /JEV Cortex/);
