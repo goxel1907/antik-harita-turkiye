@@ -193,6 +193,11 @@ test('JEV shadow teacher keeps outcome learning shadow-only',async t=>{
       assert.equal(body.state.record.authority.application,'SHADOW_ONLY');
       assert.equal(body.state.record.authority.selfModify,false);
       assert.equal(body.state.record.authority.autoPromotion,false);
+      assert.equal(body.state.professionalTraderCortex.version,'R2.5.3.3');
+      assert.equal(body.state.professionalTraderCortex.mode,'SHADOW_KNOWLEDGE_REFERENCE');
+      assert.match(body.state.professionalTraderCortex.reference,/Market regime/i);
+      assert.match(body.state.professionalTraderCortex.reference,/5m scalp expertise/i);
+      assert.match(body.state.professionalTraderCortex.reference,/No fixed score/i);
       return response({answers:{
         lesson_focus:{type:'choice',choice:'ENTRY_TIMING'},
         evidence_focus:{type:'choice',choice:'ORDER_FLOW'},
