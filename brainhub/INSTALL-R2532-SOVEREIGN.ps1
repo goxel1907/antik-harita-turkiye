@@ -108,7 +108,7 @@ if (-not [bool]$health.jevSovereign.noHard15mStrategicVeto) { throw 'Hard 15m st
 if ([string]$live.jev.mode -ne 'SOVEREIGN_DIRECTOR_5M15M') { throw "Unexpected JEV mode: $($live.jev.mode)" }
 if ($live.armed -eq $true) { throw 'LIVE became armed during update; refusing success.' }
 if (-not $office.ok -or [string]$office.officeVersion -ne $ExpectedOffice) { throw "Office version mismatch: $($office.officeVersion)" }
-if (-not $snapshot.ok) { throw 'Office snapshot is not OK after update.' }
+if (-not $snapshot.health.ok -or -not $snapshot.status.ok) { throw 'Office snapshot is not healthy after update.' }
 
 Write-Host 'R2532_PC_UPDATE_OK'
 Write-Host 'R2532_OFFICE_UPDATE_OK'
