@@ -14,6 +14,11 @@ const {buildLeaderLiveIntent}=require('../leader-live-intent');
 function root(){
   const r=fs.mkdtempSync(path.join(os.tmpdir(),'jev-r2532-'));
   fs.mkdirSync(path.join(r,'config'),{recursive:true});
+  fs.mkdirSync(path.join(r,'docs'),{recursive:true});
+  fs.copyFileSync(
+    path.join(__dirname,'..','docs','JEV-PRO-TRADER-CORTEX-R2533.md'),
+    path.join(r,'docs','JEV-PRO-TRADER-CORTEX-R2533.md')
+  );
   fs.writeFileSync(path.join(r,'config','jev.json'),JSON.stringify({enabled:true,model:'typesafe/jev-1.13',dailyCapUsd:2,softBudgetUsd:0.25,maxPayloadChars:48000}));
   return r;
 }
