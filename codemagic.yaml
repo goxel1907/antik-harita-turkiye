@@ -260,6 +260,8 @@ workflows:
           grep -q 'R2535 AUTONOMOUS MGMT' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           if grep -qi 'uygulamanın açtığı aktif işlem yok' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_LOCAL_POSITION_COPY_PRESENT'; exit 1; fi
           if grep -qi 'Jev henüz değerlendirilmedi' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_PLACEHOLDER_PRESENT'; exit 1; fi
+          if grep -qi 'Henüz değerlendirilmedi' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_GENERIC_PLACEHOLDER_PRESENT'; exit 1; fi
+          if grep -qi 'Açık oto pozisyon yok' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_LOCAL_AUTO_POSITION_COPY_PRESENT'; exit 1; fi
           if grep -qi 'Jev yalnız işlem adayı planın ek güvenlik denetimidir' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_SECONDARY_AUTHORITY_PRESENT'; exit 1; fi
           echo 'V95119_R2535_POSTPATCH_GATES_OK'
           # CLAUDE_V111 (Claude, Anthropic): PC ve gorunen Android surum kimligi v9.5.111 ile esitlendi; v110 islem tabani korunur.
@@ -287,7 +289,8 @@ workflows:
           grep -q "JEV_FREE_MODEL_KNOWLEDGE_RESEARCH" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "JEV_LIFETIME_MEMORY_AGGREGATE" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "reducePositionMarket" "$CM_BUILD_DIR/brainhub/binance-live-transport.js"
-          grep -q "JEV_EXIT_NOW_BINDING_WHEN_LIVE_ARMED" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q "JEV_POSITION_REDUCE_BINDING_WHEN_LIVE_ARMED" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          grep -q "bindingActions:\['EXIT_NOW','PARTIAL_TAKE_PROFIT'\]" "$CM_BUILD_DIR/brainhub/live-controller.js"
           test -f "$CM_BUILD_DIR/brainhub/knowledge-research.js"
           grep -q "2.0.3-JEV-AUTONOMOUS-MGMT-R2535" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           test -f "$CM_BUILD_DIR/brainhub/docs/JEV-PRO-TRADER-CORTEX-R2534.md"
