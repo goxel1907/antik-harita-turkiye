@@ -221,7 +221,7 @@ workflows:
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
           grep -q 'v95113StopAndVerify("ANDROID_EMERGENCY_STOP"' "$MAIN"
-          grep -q 'v9.5.114-JEV-AUTONOMOUS-R2535' "$MAIN"
+          grep -q 'v9.5.114-JEV-RESILIENT-R2536' "$MAIN"
           grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
           grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
@@ -229,8 +229,8 @@ workflows:
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' "$MAIN"
           grep -q 'V95116_JEV_SOVEREIGN_R2532_MOBILE' "$MAIN"
           grep -q 'V95117_JEV_CORTEX_SHADOW_R2533_MOBILE' "$MAIN"
-          grep -q 'R2535 JEV: FULL CORTEX' "$MAIN"
-          grep -q 'R2535 AUTONOMOUS JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2536 JEV:' "$MAIN"
+          grep -q 'R2536 RESILIENT JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
           grep -q 'JEV PATRON' "$MAIN"
           grep -q 'R2.5.3.2 SOVEREIGN FLOW' "$MAIN"
           grep -q 'JEV YÖNETİMİ' "$MAIN"
@@ -247,8 +247,8 @@ workflows:
             exit 1
           fi
           grep -q 'V95118_JEV_FULL_CORTEX_R2534_MOBILE' "$MAIN"
-          grep -q 'R2535 AUTONOMOUS JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
-          grep -q 'R2535 AUTONOMOUS MGMT' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
+          grep -q 'R2536 RESILIENT JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2536 RESILIENT VISION' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           if grep -q 'Scalp için en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then
             echo 'STALE_SCALP_VETO_COPY_PRESENT'
             exit 1
@@ -258,15 +258,15 @@ workflows:
             exit 1
           fi
           grep -q 'V95119_JEV_AUTONOMOUS_R2535_MOBILE' "$MAIN"
-          grep -q 'R2535 JEV: FULL CORTEX' "$MAIN"
-          grep -q 'R2535 AUTONOMOUS JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
-          grep -q 'R2535 AUTONOMOUS MGMT' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
+          grep -q 'R2536 JEV:' "$MAIN"
+          grep -q 'R2536 RESILIENT JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2536 RESILIENT VISION' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           if grep -qi 'uygulamanın açtığı aktif işlem yok' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_LOCAL_POSITION_COPY_PRESENT'; exit 1; fi
           if grep -qi 'Jev henüz değerlendirilmedi' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_PLACEHOLDER_PRESENT'; exit 1; fi
           if grep -qi 'Henüz değerlendirilmedi' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_GENERIC_PLACEHOLDER_PRESENT'; exit 1; fi
           if grep -qi 'Açık oto pozisyon yok' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_LOCAL_AUTO_POSITION_COPY_PRESENT'; exit 1; fi
           if grep -qi 'Jev yalnız işlem adayı planın ek güvenlik denetimidir' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_SECONDARY_AUTHORITY_PRESENT'; exit 1; fi
-          echo 'V95119_R2535_POSTPATCH_GATES_OK'
+          echo 'V95120_R2536_POSTPATCH_GATES_OK'
           # CLAUDE_V111 (Claude, Anthropic): PC ve gorunen Android surum kimligi v9.5.111 ile esitlendi; v110 islem tabani korunur.
           grep -q "CLAUDE_V111_BUILD" "$CM_BUILD_DIR/brainhub/claude-v111.js"
           grep -q "CLAUDE_V111_TRIGGER_REVALIDATION" "$CM_BUILD_DIR/brainhub/claude-v111.js"
