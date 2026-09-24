@@ -45,6 +45,7 @@ function openStore(root) {
   // Only measured POSITION_CLOSED rows count as PnL samples. JEV_LESSON may carry the same
   // outcomePct for context, but must never double-count the underlying trade in win/loss stats.
   const learnStats=db.prepare("SELECT side,setup,origin_tf AS originTF,owner_tf AS ownerTF,COUNT(*) AS samples,AVG(outcome_pct) AS avgOutcomePct,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins FROM learning_events WHERE kind='POSITION_CLOSED' AND outcome_pct IS NOT NULL GROUP BY side,setup,origin_tf,owner_tf ORDER BY samples DESC LIMIT 20");
+  const learnLifetime=db.prepare("SELECT COUNT(*) AS samples,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins,SUM(CASE WHEN outcome_pct<0 THEN 1 ELSE 0 END) AS losses,SUM(CASE WHEN outcome_pct=0 THEN 1 ELSE 0 END) AS flats,AVG(outcome_pct) AS avgOutcomePct FROM learning_events WHERE kind='POSITION_CLOSED' AND outcome_pct IS NOT NULL");
   const leaseGet = db.prepare('SELECT owner,token_hash,expires_at FROM leases WHERE resource=?');
   const leaseSet = db.prepare('INSERT INTO leases(resource,owner,token_hash,expires_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,token_hash=excluded.token_hash,expires_at=excluded.expires_at,updated_at=excluded.updated_at');
   const leaseDelete = db.prepare('DELETE FROM leases WHERE resource=? AND token_hash=?');
@@ -124,7 +125,14 @@ function openStore(root) {
     const key=symbol&&/^[A-Z0-9]{2,28}$/.test(symbol)?symbol:null;
     const recent=learnRecent.all(key,key,20);
     const stats=learnStats.all().map(x=>({...x,winRate:x.samples?Number((100*Number(x.wins||0)/x.samples).toFixed(1)):null,avgOutcomePct:x.avgOutcomePct==null?null:Number(Number(x.avgOutcomePct).toFixed(4))}));
-    const measuredOutcomes=learnByKind.all('POSITION_CLOSED',key,key,12).map(row=>{
+    const life=learnLifetime.get()||{};
+    const lifetime={
+      measuredSamples:Number(life.samples||0),wins:Number(life.wins||0),losses:Number(life.losses||0),flats:Number(life.flats||0),
+      winRatePct:Number(life.samples||0)>0?Number((100*Number(life.wins||0)/Number(life.samples)).toFixed(1)):null,
+      avgOutcomePct:life.avgOutcomePct==null?null:Number(Number(life.avgOutcomePct).toFixed(4)),
+      representation:'ALL_MEASURED_POSITION_CLOSED_ROWS_AGGREGATED'
+    };
+    const measuredOutcomes=learnByKind.all('POSITION_CLOSED',key,key,24).map(row=>{
       const p=safeLearningPayload(row.payload), ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
       return {
         ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
@@ -133,7 +141,7 @@ function openStore(root) {
         marketSignature:ec.marketSignature||null
       };
     });
-    const jevLessons=learnByKind.all('JEV_LESSON',key,key,12).map(row=>{
+    const jevLessons=learnByKind.all('JEV_LESSON',key,key,24).map(row=>{
       const p=safeLearningPayload(row.payload);
       return {
         ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
@@ -144,13 +152,15 @@ function openStore(root) {
     return {
       source:'BrainHub ölçülebilir işlem/karar geçmişi',
       recent,
+      lifetime,
       stats,
       measuredOutcomes,
       jevLessons,
-      measuredSampleCount:measuredOutcomes.length,
+      measuredSampleCount:lifetime.measuredSamples,
+      recentMeasuredDetailCount:measuredOutcomes.length,
       jevLessonCount:jevLessons.length,
       changesAppliedToHardRisk:false,
-      note:'Öğrenme yumuşak deneyim bağlamıdır; yalnız POSITION_CLOSED satırları PnL istatistiğine girer. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez.'
+      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez.'
     };
   }
   function lease(action, resource, owner, token, ttlMs = 30000) {
