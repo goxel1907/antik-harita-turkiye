@@ -615,6 +615,43 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
             'PARTIALS_RUNNER':'Use staged partial profits while preserving a runner until thesis failure.',
             'HOLD_TO_INVALIDATION':'Avoid premature exits; hold unless the JEV thesis/invalidation breaks or a later JEV review changes the plan.'
           }
+        },
+        target_profile:{
+          type:'choice',
+          instructions:'Choose the reward geometry that best fits this specific opportunity. This is a JEV strategic choice, not a fixed score or timeframe rule.',
+          criteria:{
+            'FAST_SCALP':'Prioritize earlier profit realization: approximately 0.75R / 1.5R / 2.5R.',
+            'BALANCED':'Balanced geometry: approximately 1R / 2R / 3R.',
+            'RUNNER_EXTENDED':'Preserve more convexity: approximately 1R / 2R / 4R.',
+            'DEFENSIVE':'Use closer targets when continuation room is limited: approximately 0.75R / 1.25R / 2R.'
+          }
+        },
+        partial_profile:{
+          type:'choice',
+          instructions:'Choose how much of the position should remain for later targets/runner. JEV owns this strategic distribution.',
+          criteria:{
+            'THIRDS':'Roughly one third at each stage; final third is the runner portion.',
+            'HALF_QUARTER_RUNNER':'Take about half early, one quarter later, keep one quarter as runner.',
+            'RUNNER_HEAVY':'Take about one quarter at TP1, one quarter at TP2, keep about half for TP3/runner.'
+          }
+        },
+        breakeven_rule:{
+          type:'choice',
+          instructions:'Choose when protective management may move toward breakeven. This does not permit widening risk.',
+          criteria:{
+            'AFTER_TP1':'Breakeven protection may be considered after TP1 is achieved.',
+            'AFTER_1R_CLOSE':'Breakeven protection may be considered after a closed-candle move of about 1R.',
+            'STRUCTURE_ONLY':'Do not force breakeven mechanically; protect only when structure/evidence supports it.'
+          }
+        },
+        trail_rule:{
+          type:'choice',
+          instructions:'Choose the preferred runner trailing evidence. Later JEV position review remains authoritative.',
+          criteria:{
+            '5M_STRUCTURE':'Trail primarily from evolving closed 5m swing/structure evidence.',
+            '15M_STRUCTURE':'Give the runner more room and trail primarily from closed 15m structure.',
+            'JEV_DYNAMIC':'Let later JEV position reviews choose the appropriate structure/timeframe dynamically.'
+          }
         }
       }
     };
@@ -623,7 +660,17 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const selectedId=choiceValue(answers.trade_plan);
     const managementStyle=choiceValue(answers.management_style);
-    if(!selectedId||!Object.prototype.hasOwnProperty.call(criteria,selectedId)||!managementStyle){
+    const targetProfile=choiceValue(answers.target_profile);
+    const partialProfile=choiceValue(answers.partial_profile);
+    const breakevenRule=choiceValue(answers.breakeven_rule);
+    const trailRule=choiceValue(answers.trail_rule);
+    const validTargetProfiles=new Set(['FAST_SCALP','BALANCED','RUNNER_EXTENDED','DEFENSIVE']);
+    const validPartialProfiles=new Set(['THIRDS','HALF_QUARTER_RUNNER','RUNNER_HEAVY']);
+    const validBreakevenRules=new Set(['AFTER_TP1','AFTER_1R_CLOSE','STRUCTURE_ONLY']);
+    const validTrailRules=new Set(['5M_STRUCTURE','15M_STRUCTURE','JEV_DYNAMIC']);
+    if(!selectedId||!Object.prototype.hasOwnProperty.call(criteria,selectedId)||!managementStyle||
+       !validTargetProfiles.has(targetProfile)||!validPartialProfiles.has(partialProfile)||
+       !validBreakevenRules.has(breakevenRule)||!validTrailRules.has(trailRule)){
       return {ok:false,configured:true,required:true,called:true,pass:2,reason:'JEV_SOVEREIGN_FINAL_SCHEMA_MISMATCH',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
     }
     const selectedPlan=selectedId==='WAIT'?null:plans.find(x=>x.id===selectedId)||null;
@@ -631,7 +678,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     return {
       ok:true,configured:true,required:true,called:true,pass:2,finalAuthority:true,veto:false,
       action:selectedId==='WAIT'?'WAIT':selectedPlan.side,
-      selectedPlanId:selectedId,selectedPlan,managementStyle,evidenceTrimmed:boundedEvidence.evidenceTrimmed===true,
+      selectedPlanId:selectedId,selectedPlan,managementStyle,targetProfile,partialProfile,breakevenRule,trailRule,evidenceTrimmed:boundedEvidence.evidenceTrimmed===true,
       model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };
   }
