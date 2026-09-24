@@ -49,10 +49,10 @@ new_arch = r'''            st.append("\nKarar mimarisi: 5m LONG/SHORT SCALP • 
             st.append("\nJEV PRO FUTURES TRADER/SCALPER: 5m scalp ve 15m trade için yapı/SMC/likidite/grafik/order-flow/depth/OI/funding/taker/top-trader/observed liquidation kanıtlarının önem sırasını JEV kendisi belirler; tüm şartların aynı anda hizalanması gerekmez.");
             st.append("\nChart truth: yalnız doğrulanmış TradingView görsel kanıtı; sayısal çatışmada Binance/BrainHub üstündür.");
             st.append("\nOrder-flow truth: streaming tercih edilir; REST aggTrades fallback açıkça etiketlenir; eksik veri NÖTR/0 kabul edilmez.");'''
-main = rep(main, old_arch, new_arch, "R2.5.3.1 trade/chart evidence wording")
+main = rep(main, old_arch, new_arch, "R2.5.3.2 trade/chart evidence wording")
 
 old_status = r'''            st.append("\nJEV CORTEX P2: FINAL AUTHORITY • worker EVIDENCE_ONLY • learning SHADOW • self-modify/auto-promotion KAPALI"); // V95114_JEV_CORTEX_MOBILE'''
-new_status = r'''            st.append("\nJEV CORTEX P2 + R2.5.3.1 SOVEREIGN EVIDENCE: FINAL AUTHORITY • scanner ATTENTION_ONLY • worker EVIDENCE_ONLY • learning SHADOW • self-modify/auto-promotion KAPALI"); // V95115_JEV_PRO_SCALPER_R2531_MOBILE'''
+new_status = r'''            st.append("\nJEV CORTEX P2 + R2.5.3.2 SOVEREIGN FLOW: FINAL AUTHORITY • scanner ATTENTION_ONLY • worker EVIDENCE_ONLY • learning SHADOW • self-modify/auto-promotion KAPALI"); // V95115_JEV_PRO_SCALPER_R2531_MOBILE'''
 main = rep(main, old_status, new_status, "JEV sovereign evidence status")
 
 if "v9.5.114-JEV-CORTEX" not in main:
@@ -72,8 +72,8 @@ CARD.write_text(card, encoding="utf-8")
 # --------------------------------------------------------------------------- BrainHubClient label
 client = CLIENT.read_text(encoding="utf-8")
 old_label = '''        String label=jev==null?"JEV durumu alınamadı":("JEV: "+(jev.optBoolean("configured")?"hazır • FINAL AUTHORITY":"yapılandırma/anahtar eksik")); // V95114_JEV_CORTEX_MOBILE'''
-new_label = '''        String label=jev==null?"JEV durumu alınamadı":("JEV: "+(jev.optBoolean("configured")?"hazır • FINAL AUTHORITY • R2.5.3.1 PRO EVIDENCE":"yapılandırma/anahtar eksik")); // V95115_JEV_PRO_SCALPER_R2531_MOBILE'''
-client = rep(client, old_label, new_label, "BrainHubClient R2.5.3.1 label")
+new_label = '''        String label=jev==null?"JEV durumu alınamadı":("JEV: "+(jev.optBoolean("configured")?"hazır • FINAL AUTHORITY • R2.5.3.2 SOVEREIGN":"yapılandırma/anahtar eksik")); // V95115_JEV_PRO_SCALPER_R2531_MOBILE'''
+client = rep(client, old_label, new_label, "BrainHubClient R2.5.3.2 label")
 CLIENT.write_text(client, encoding="utf-8")
 
 # --------------------------------------------------------------------------- Analysis title
@@ -81,7 +81,7 @@ analysis = ANALYSIS.read_text(encoding="utf-8")
 analysis = rep(
     analysis,
     "JEV CORTEX ANALİZ PAKETİ • v9.5.114",
-    "JEV PRO TRADER/SCALPER ANALİZ PAKETİ • R2.5.3.1",
+    "JEV PRO TRADER/SCALPER ANALİZ PAKETİ • R2.5.3.2",
     "AnalysisPackActivity title",
 )
 ANALYSIS.write_text(analysis, encoding="utf-8")
@@ -114,8 +114,8 @@ checks = {
     "missing not neutral": "eksik veri NÖTR/0 kabul edilmez" in main,
     "authority": "scanner ATTENTION_ONLY" in main and "worker EVIDENCE_ONLY" in main,
     "live truth retained": "CLAUDE_V113_ANDROID_LIVE_TRUTH" in main and "v95113StopAndVerify" in main,
-    "client label": "R2.5.3.1 PRO EVIDENCE" in client,
-    "analysis title": "JEV PRO TRADER/SCALPER ANALİZ PAKETİ • R2.5.3.1" in analysis,
+    "client label": "R2.5.3.2 SOVEREIGN" in client,
+    "analysis title": "JEV PRO TRADER/SCALPER ANALİZ PAKETİ • R2.5.3.2" in analysis,
     "build identity": "versionCode 26092302" in build and "versionName '9.5.114-r2531'" in build,
 }
 bad = [k for k, v in checks.items() if not v]
@@ -124,7 +124,7 @@ if bad:
 
 print("V95115_JEV_PRO_SCALPER_R2531_MOBILE_OK")
 print("Android identity: v9.5.114-JEV-PRO-SCALPER-R2531 / versionCode 26092302 / versionName 9.5.114-r2531")
-print("Authority: JEV FINAL; scanner ATTENTION_ONLY; workers EVIDENCE_ONLY; observer READ_ONLY/NONE")
+print("Authority: JEV PATRON / FINAL; scanner ATTENTION_ONLY; workers JEV-DIRECTED EVIDENCE_ONLY; observer READ_ONLY/NONE")
 print("Trade lanes: 5m LONG/SHORT scalp; 15m LONG/SHORT trade; extra TF evidence only when JEV requests it")
 print("Chart truth: validated TradingView visual evidence; Binance/BrainHub numeric authority")
 print("Order flow: streaming preferred; labeled REST fallback; missing evidence is not neutral")
