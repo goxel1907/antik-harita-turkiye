@@ -1237,7 +1237,7 @@ const decisionPipeline={
         try{cortexText=fs.readFileSync(path.join(ROOT,'docs','JEV-PRO-TRADER-CORTEX-R2534.md'),'utf8');}catch{}
         return knowledgeResearch.researchFromContext({unified,evidence,cortexText,familyHint});
       }
-    });
+    });}
     finally{
       decisionPipelineActive=Math.max(0,decisionPipelineActive-1);
       decisionPipelineLastFinishedAt=Date.now();
