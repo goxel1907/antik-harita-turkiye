@@ -264,6 +264,7 @@ workflows:
           grep -q "sovereignSelectivityDiagnostic" "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q "SHADOW_KNOWLEDGE_REFERENCE" "$CM_BUILD_DIR/brainhub/jev-decision.js"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2532-SOVEREIGN.ps1"
+          test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2533-CORTEX-SHADOW.ps1"
           grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q "2.0.1-JEV-CORTEX-SHADOW-R2533" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           grep -q "positionLedgerTick" "$CM_BUILD_DIR/brainhub/server.js"
