@@ -1,0 +1,116 @@
+param(
+  [string]$Root = 'C:\BrainHub',
+  [string]$InstallRoot = 'C:\BrainHubInstall',
+  [string]$BackupRoot = 'C:\BrainHubBackups'
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$Branch = 'futures15m-alarm-public-build'
+$Repo = 'goxel1907/antik-harita-turkiye'
+$ExpectedSovereign = '9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M'
+$ExpectedCortex = 'R2.5.3.3'
+$ExpectedCortexMode = 'SHADOW_KNOWLEDGE_REFERENCE'
+$ExpectedOffice = '2.0.1-JEV-CORTEX-SHADOW-R2533'
+$Work = Join-Path $InstallRoot 'R2533-JEV-CORTEX-SHADOW'
+$Zip = Join-Path $Work 'source.zip'
+$Extract = Join-Path $Work 'source'
+
+function Read-Dpapi([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return '' }
+  $secure = (Get-Content -LiteralPath $Path -Raw).Trim() | ConvertTo-SecureString
+  $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+  try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+  finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+}
+function Brain-Headers([string]$BrainRoot) {
+  if (-not (Test-Path -LiteralPath (Join-Path $BrainRoot 'config\remote-enabled'))) { return @{} }
+  $token = Read-Dpapi (Join-Path $BrainRoot 'config\client-token.dpapi')
+  if ($token) { return @{ Authorization = "Bearer $token" } }
+  return @{}
+}
+function Stop-Office([string]$BrainRoot) {
+  $stop = Join-Path $BrainRoot 'office-dashboard\STOP-OFFICE.ps1'
+  if (Test-Path -LiteralPath $stop) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $stop
+    if ($LASTEXITCODE -ne 0) { throw 'Office stop failed.' }
+  }
+}
+function Start-Office([string]$BrainRoot,[string]$BackupRoot) {
+  $start = Join-Path $BrainRoot 'office-dashboard\START-OFFICE.ps1'
+  if (-not (Test-Path -LiteralPath $start)) { throw "Office starter missing: $start" }
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $start -NoBrowser -BrainRoot $BrainRoot -BackupRoot $BackupRoot
+  if ($LASTEXITCODE -ne 0) { throw 'Office start failed.' }
+}
+
+if (-not (Test-Path -LiteralPath $Root)) { throw "BrainHub root missing: $Root" }
+
+$headers = Brain-Headers $Root
+$before = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 8
+if ($before.armed -eq $true) {
+  throw 'LIVE IS ARMED. Disarm LIVE first. This updater never disarms or re-arms LIVE automatically.'
+}
+Write-Host 'R2533_PRECHECK_LIVE_OFF'
+
+New-Item -ItemType Directory -Force -Path $Work | Out-Null
+Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $Extract -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $Extract | Out-Null
+
+$archive = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
+Invoke-WebRequest -UseBasicParsing -Uri $archive -OutFile $Zip -TimeoutSec 120
+Expand-Archive -LiteralPath $Zip -DestinationPath $Extract -Force
+
+$repoDir = Get-ChildItem -LiteralPath $Extract -Directory | Select-Object -First 1
+if (-not $repoDir) { throw 'Downloaded repository archive is empty.' }
+$source = Join-Path $repoDir.FullName 'brainhub'
+$manage = Join-Path $source 'manage.ps1'
+$cortexDoc = Join-Path $source 'docs\JEV-PRO-TRADER-CORTEX-R2533.md'
+if (-not (Test-Path -LiteralPath $manage)) { throw 'Downloaded BrainHub manage.ps1 is missing.' }
+if (-not (Test-Path -LiteralPath $cortexDoc)) { throw 'Downloaded R2533 Trader Cortex document is missing.' }
+
+Stop-Office $Root
+
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $manage -Action Update -Root $Root -Source $source
+if ($LASTEXITCODE -ne 0) { throw "BrainHub update failed with exit code $LASTEXITCODE" }
+
+Start-Office $Root $BackupRoot
+
+$headers = Brain-Headers $Root
+$health = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 10
+$live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 10
+$office = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/ping' -TimeoutSec 10
+$snapshot = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/snapshot' -TimeoutSec 20
+
+if (-not $health.ok) { throw 'BrainHub health failed.' }
+if ([string]$health.jevSovereign.packageVersion -ne $ExpectedSovereign) { throw "Unexpected sovereign package: $($health.jevSovereign.packageVersion)" }
+if ([string]$health.jevSovereign.decisionOwner -ne 'JEV') { throw 'Unexpected decision owner.' }
+if ([string]$health.jevSovereign.traderCortex.version -ne $ExpectedCortex) { throw 'R2533 Trader Cortex health metadata missing.' }
+if ([string]$health.jevSovereign.traderCortex.mode -ne $ExpectedCortexMode) { throw 'Trader Cortex mode mismatch.' }
+if ([string]$health.jevSovereign.experienceMemory -ne 'MEASURED_OUTCOMES_PLUS_JEV_LESSONS') { throw 'Experience Memory metadata missing.' }
+
+if ([string]$live.jev.mode -ne 'SOVEREIGN_DIRECTOR_5M15M') { throw "Unexpected JEV mode: $($live.jev.mode)" }
+if (-not [bool]$live.jev.traderCortex.loaded) { throw 'Trader Cortex reference did not load at runtime.' }
+if ([string]$live.jev.traderCortex.version -ne $ExpectedCortex) { throw 'Runtime Trader Cortex version mismatch.' }
+if ([string]$live.jev.traderCortex.mode -ne $ExpectedCortexMode) { throw 'Runtime Trader Cortex mode mismatch.' }
+if ($live.armed -eq $true) { throw 'LIVE became armed during update.' }
+
+if (-not $office.ok -or [string]$office.officeVersion -ne $ExpectedOffice) { throw "Office version mismatch: $($office.officeVersion)" }
+if (-not $snapshot.health.ok -or -not $snapshot.status.ok) { throw 'Office snapshot health/status failed.' }
+
+$installedDoc = Join-Path $Root 'docs\JEV-PRO-TRADER-CORTEX-R2533.md'
+if (-not (Test-Path -LiteralPath $installedDoc)) { throw 'Installed Trader Cortex document is missing.' }
+
+Write-Host 'R2533_PC_UPDATE_OK'
+Write-Host 'R2533_OFFICE_UPDATE_OK'
+Write-Host 'R2533_CORTEX_DOC_OK'
+Write-Host 'R2533_CORTEX_RUNTIME_LOADED_OK'
+Write-Host 'R2533_EXPERIENCE_MEMORY_OK'
+Write-Host 'R2533_LIVE_VERIFIED_OFF'
+Write-Host ("Sovereign package : {0}" -f $health.jevSovereign.packageVersion)
+Write-Host ("Trader Cortex     : {0} / {1}" -f $live.jev.traderCortex.version,$live.jev.traderCortex.mode)
+Write-Host ("Experience Memory : {0}" -f $health.jevSovereign.experienceMemory)
+Write-Host ("JEV mode           : {0}" -f $live.jev.mode)
+Write-Host ("Office             : {0}" -f $office.officeVersion)
+Write-Host 'Office URL         : http://127.0.0.1:8790/'
+Write-Host 'LIVE was not armed or re-armed by this update.'
