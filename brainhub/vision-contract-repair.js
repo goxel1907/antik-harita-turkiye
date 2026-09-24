@@ -17,7 +17,8 @@ function normTf(v){
 function arr(v){return Array.isArray(v)?v:[];}
 function useTag(side,use){return side+'_'+use;}
 function candidateOk(x,side,use,tf){
-  return x&&normTf(x.tf)===tf&&arr(x.uses).map(v=>String(v).toUpperCase()).includes(useTag(side,use))&&/^[A-Z0-9_]{3,64}$/.test(String(x.id||'').toUpperCase());
+  const declaredSide=normSide(x?.side);
+  return x&&(!declaredSide||declaredSide===side)&&normTf(x.tf)===tf&&arr(x.uses).map(v=>String(v).toUpperCase()).includes(useTag(side,use))&&/^[A-Z0-9_]{3,64}$/.test(String(x.id||'').toUpperCase());
 }
 function pref(side,use,id){
   const z=String(id||'').toUpperCase();
@@ -45,15 +46,21 @@ function deterministicCoreLevelRepair(coreContract,context={}){
   const side=normSide(lines.get('SIDE'))||normSide(context?.sourceCandidate?.side);
   if(!side)return {applied:false,reason:'SIDE_UNAVAILABLE',contract:{...base,lines}};
   const candidates=arr(context?.triggerCandidates);
-  const tfHints=[
-    normTf(lines.get('TRIGGER_TF')),
-    normTf(lines.get('ORIGIN_TF')),
-    normTf(context?.opportunityPaths?.[side]?.originTF),
-    normTf(context?.opportunityPaths?.[side]?.ownerTF)
-  ].filter((x,i,a)=>x&&a.indexOf(x)===i);
-  for(const x of candidates){
-    const tf=normTf(x?.tf);
-    if(tf&&!tfHints.includes(tf))tfHints.push(tf);
+  const modelTf=normTf(lines.get('TRIGGER_TF'));
+  const tfHints=(needsTf
+    ? [
+        modelTf,
+        normTf(lines.get('ORIGIN_TF')),
+        normTf(context?.opportunityPaths?.[side]?.originTF),
+        normTf(context?.opportunityPaths?.[side]?.ownerTF)
+      ]
+    : [modelTf]
+  ).filter((x,i,a)=>x&&a.indexOf(x)===i);
+  if(needsTf){
+    for(const x of candidates){
+      const tf=normTf(x?.tf);
+      if(tf&&!tfHints.includes(tf))tfHints.push(tf);
+    }
   }
   for(const tf of tfHints){
     const trigger=best(candidates,side,'TRIGGER',tf);
