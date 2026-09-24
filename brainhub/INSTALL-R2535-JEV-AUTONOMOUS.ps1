@@ -16,6 +16,7 @@ $ExpectedExperience = 'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS'
 $ExpectedKnowledgeVersion = 'R2.5.3.5'
 $ExpectedKnowledgeMode = 'JEV_VERIFIED_FREE_RESEARCH_REFERENCE'
 $ExpectedExitMode = 'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED'
+$ExpectedPartialMode = 'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED'
 $Work = Join-Path $InstallRoot 'R2535-JEV-FULL-CORTEX'
 $Zip = Join-Path $Work 'source.zip'
 $Extract = Join-Path $Work 'source'
@@ -98,12 +99,14 @@ if ([string]$health.jevSovereign.experienceMemory -ne $ExpectedExperience) { thr
 if ([string]$health.jevSovereign.dynamicKnowledge.version -ne $ExpectedKnowledgeVersion) { throw 'Dynamic knowledge version mismatch.' }
 if ([string]$health.jevSovereign.dynamicKnowledge.mode -ne $ExpectedKnowledgeMode) { throw 'Dynamic knowledge mode mismatch.' }
 if ([string]$health.jevSovereign.positionManagement.exitNow -ne $ExpectedExitMode) { throw 'JEV EXIT_NOW binding metadata mismatch.' }
+if ([string]$health.jevSovereign.positionManagement.partial -ne $ExpectedPartialMode) { throw 'JEV PARTIAL binding metadata mismatch.' }
 if (-not ($health.features -contains 'JEV_CORTEX_LIVE_REASONING_ALWAYS_ON')) { throw 'Always-on Cortex feature marker missing.' }
 if (-not ($health.features -contains 'JEV_EXPERIENCE_MEMORY_ALWAYS_ON')) { throw 'Always-on experience feature marker missing.' }
 if (-not ($health.features -contains 'JEV_LIFETIME_MEMORY_AGGREGATE')) { throw 'Lifetime memory feature marker missing.' }
 if (-not ($health.features -contains 'JEV_FREE_MODEL_KNOWLEDGE_RESEARCH')) { throw 'Free-model research feature marker missing.' }
 if (-not ($health.features -contains 'JEV_VERIFIED_DYNAMIC_KNOWLEDGE')) { throw 'Verified dynamic knowledge feature marker missing.' }
 if (-not ($health.features -contains 'JEV_EXIT_NOW_REDUCE_ONLY_BINDING')) { throw 'Binding JEV EXIT_NOW feature marker missing.' }
+if (-not ($health.features -contains 'JEV_PARTIAL_REDUCE_ONLY_BINDING')) { throw 'Binding JEV PARTIAL feature marker missing.' }
 
 if ([string]$live.jev.mode -ne 'SOVEREIGN_DIRECTOR_5M15M') { throw "Unexpected JEV mode: $($live.jev.mode)" }
 if (-not [bool]$live.jev.traderCortex.loaded) { throw 'Trader Cortex reference did not load at runtime.' }
@@ -124,12 +127,14 @@ Write-Host 'R2535_CORTEX_RUNTIME_LOADED_OK'
 Write-Host 'R2535_MEMORY_LIFETIME_OK'
 Write-Host 'R2535_RESEARCH_DESK_OK'
 Write-Host 'R2535_EXIT_BINDING_OK'
+Write-Host 'R2535_PARTIAL_BINDING_OK'
 Write-Host 'R2535_LIVE_VERIFIED_OFF'
 Write-Host ("Sovereign package : {0}" -f $health.jevSovereign.packageVersion)
 Write-Host ("Trader Cortex     : {0} / {1}" -f $live.jev.traderCortex.version,$live.jev.traderCortex.mode)
 Write-Host ("Experience Memory : {0}" -f $health.jevSovereign.experienceMemory)
 Write-Host ("Dynamic Knowledge : {0} / {1}" -f $health.jevSovereign.dynamicKnowledge.version,$health.jevSovereign.dynamicKnowledge.mode)
 Write-Host ("JEV EXIT_NOW       : {0}" -f $health.jevSovereign.positionManagement.exitNow)
+Write-Host ("JEV PARTIAL        : {0}" -f $health.jevSovereign.positionManagement.partial)
 Write-Host ("Research verified  : {0}" -f $knowledge.verifiedCount)
 Write-Host ("JEV mode           : {0}" -f $live.jev.mode)
 Write-Host ("Office             : {0}" -f $office.officeVersion)
