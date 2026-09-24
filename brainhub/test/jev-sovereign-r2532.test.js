@@ -84,7 +84,11 @@ test('JEV sovereign PASS-2 selects a concrete LONG/SHORT 5m or 15m plan by choic
       assert.ok(body.questions.trade_plan.criteria.LONG_5M_SCALP);
       return response({answers:{
         trade_plan:{type:'choice',choice:'LONG_5M_SCALP'},
-        management_style:{type:'choice',choice:'TP1_BE_TRAIL'}
+        management_style:{type:'choice',choice:'TP1_BE_TRAIL'},
+        target_profile:{type:'choice',choice:'RUNNER_EXTENDED'},
+        partial_profile:{type:'choice',choice:'RUNNER_HEAVY'},
+        breakeven_rule:{type:'choice',choice:'AFTER_TP1'},
+        trail_rule:{type:'choice',choice:'5M_STRUCTURE'}
       },usage:{cost:0.00001}});
     }
   });
@@ -94,6 +98,10 @@ test('JEV sovereign PASS-2 selects a concrete LONG/SHORT 5m or 15m plan by choic
   assert.equal(out.selectedPlan.side,'LONG');
   assert.equal(out.selectedPlan.originTF,'5m');
   assert.equal(out.managementStyle,'TP1_BE_TRAIL');
+  assert.equal(out.targetProfile,'RUNNER_EXTENDED');
+  assert.equal(out.partialProfile,'RUNNER_HEAVY');
+  assert.equal(out.breakevenRule,'AFTER_TP1');
+  assert.equal(out.trailRule,'5M_STRUCTURE');
 });
 
 test('post-JEV sovereign preflight checks integrity but does not re-vote structure or side-path scores',()=>{
