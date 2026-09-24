@@ -1431,6 +1431,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         };
         try{store.journal('POSITION_CLOSED',sym,record);}catch{}
         try{store.recordLearning?.('POSITION_CLOSED',sym,{...record,decision:'CLOSED_'+exitType});}catch{}
+        await recordJevShadowLesson(sym,record);
         done[eventId]=new Date(clock()).toISOString();
         written.push({symbol:sym,netPnl,rMultiple,exitType});
       }
