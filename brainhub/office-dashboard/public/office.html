@@ -693,8 +693,9 @@ function renderPositions(s){
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
     ['Kural', pm.ruleTr || 'JEV SOVEREIGN: 5m LONG/SHORT scalp ve 15m LONG/SHORT trade kararını JEV verir; 1m/3m/30m+ yalnız JEV isterse ek kanıttır. Worker/scanner stratejik veto veya puan kapısı koymaz.'],
     ['JEV Cortex', cx.version?`${cx.version} • ${cx.mode||'—'} • PASS-1/PASS-2/pozisyon yönetiminde sürekli`:'Cortex bilgisi bekleniyor'],
-    ['Dinamik araştırma', js.dynamicKnowledge?`${js.dynamicKnowledge.version} • ${js.dynamicKnowledge.mode||'—'} • 9Router + OpenRouter free → JEV doğrulama`:'araştırma telemetrisi bekleniyor'],
+    ['Dinamik araştırma', js.dynamicKnowledge?`${js.dynamicKnowledge.version} • ${js.dynamicKnowledge.mode||'—'} • 9Router + OpenRouter free → JEV doğrulama • doğrulanmış ${st.knowledgeResearch?.verifiedCount??0}`:'araştırma telemetrisi bekleniyor'],
     ['Pozisyon yürütme', js.positionManagement?`EXIT_NOW ${js.positionManagement.exitNow||'—'} • partial ${js.positionManagement.partial||'—'}`:'pozisyon yürütme telemetrisi bekleniyor'],
+    ['Son pozisyon yürütmesi', lr.execution?`${lr.execution} • emir ${lr.orderPlaced?'GÖNDERİLDİ':'YOK'}${lr.managementExecution?.reason?' • '+lr.managementExecution.reason:''}`:'henüz pozisyon yürütmesi yok'],
     ['Deneyim hafızası', js.experienceMemory?`${js.experienceMemory} • lifetime özet + son ayrıntılar sürekli`:'ölçülmüş geçmiş bekleniyor'],
     ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup • JEV shadow lesson ${jevLessons}`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)'],
     ['Teacher güvenliği', 'JEV lesson = SHADOW_ONLY • self-modify KAPALI • auto-promotion KAPALI']
