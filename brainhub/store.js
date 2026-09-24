@@ -41,7 +41,10 @@ function openStore(root) {
   const latestByKind = db.prepare('SELECT id,ts,kind,symbol,payload FROM journal WHERE kind=? AND symbol=? ORDER BY ts DESC LIMIT 1');
   const learnInsert=db.prepare('INSERT INTO learning_events(id,ts,kind,symbol,side,setup,origin_tf,owner_tf,decision,confidence,outcome_pct,payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
   const learnRecent=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct FROM learning_events WHERE (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
-  const learnStats=db.prepare("SELECT side,setup,origin_tf AS originTF,owner_tf AS ownerTF,COUNT(*) AS samples,AVG(outcome_pct) AS avgOutcomePct,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins FROM learning_events WHERE outcome_pct IS NOT NULL GROUP BY side,setup,origin_tf,owner_tf ORDER BY samples DESC LIMIT 20");
+  const learnByKind=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct,payload FROM learning_events WHERE kind=? AND (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
+  // Only measured POSITION_CLOSED rows count as PnL samples. JEV_LESSON may carry the same
+  // outcomePct for context, but must never double-count the underlying trade in win/loss stats.
+  const learnStats=db.prepare("SELECT side,setup,origin_tf AS originTF,owner_tf AS ownerTF,COUNT(*) AS samples,AVG(outcome_pct) AS avgOutcomePct,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins FROM learning_events WHERE kind='POSITION_CLOSED' AND outcome_pct IS NOT NULL GROUP BY side,setup,origin_tf,owner_tf ORDER BY samples DESC LIMIT 20");
   const leaseGet = db.prepare('SELECT owner,token_hash,expires_at FROM leases WHERE resource=?');
   const leaseSet = db.prepare('INSERT INTO leases(resource,owner,token_hash,expires_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,token_hash=excluded.token_hash,expires_at=excluded.expires_at,updated_at=excluded.updated_at');
   const leaseDelete = db.prepare('DELETE FROM leases WHERE resource=? AND token_hash=?');
@@ -111,16 +114,43 @@ function openStore(root) {
     learnInsert.run(id,Date.now(),k,symbol||null,['LONG','SHORT'].includes(side)?side:null,setup,originTF,ownerTF,decision,Number.isFinite(confidence)?confidence:null,Number.isFinite(outcomePct)?outcomePct:null,safe);
     return id;
   }
+  function safeLearningPayload(raw){
+    try{
+      const x=JSON.parse(String(raw||'{}'));
+      return x&&typeof x==='object'&&!Array.isArray(x)?x:{};
+    }catch{return {};}
+  }
   function learningContext({symbol=null}={}){
     const key=symbol&&/^[A-Z0-9]{2,28}$/.test(symbol)?symbol:null;
     const recent=learnRecent.all(key,key,20);
     const stats=learnStats.all().map(x=>({...x,winRate:x.samples?Number((100*Number(x.wins||0)/x.samples).toFixed(1)):null,avgOutcomePct:x.avgOutcomePct==null?null:Number(Number(x.avgOutcomePct).toFixed(4))}));
+    const measuredOutcomes=learnByKind.all('POSITION_CLOSED',key,key,12).map(row=>{
+      const p=safeLearningPayload(row.payload), ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
+      return {
+        ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
+        outcomePct:row.outcomePct,rMultiple:p.rMultiple??null,netPnl:p.netPnl??null,exitType:p.exitType||null,
+        lane:p.tradeLane||ec.lane||null,holdMinutes:p.holdMinutes??null,
+        marketSignature:ec.marketSignature||null
+      };
+    });
+    const jevLessons=learnByKind.all('JEV_LESSON',key,key,12).map(row=>{
+      const p=safeLearningPayload(row.payload);
+      return {
+        ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
+        lessonFocus:p.lessonFocus||null,evidenceFocus:p.evidenceFocus||null,lessonAction:p.lessonAction||null,scope:p.scope||null,
+        marketSignature:p.marketSignature||null
+      };
+    });
     return {
       source:'BrainHub ölçülebilir işlem/karar geçmişi',
       recent,
       stats,
+      measuredOutcomes,
+      jevLessons,
+      measuredSampleCount:measuredOutcomes.length,
+      jevLessonCount:jevLessons.length,
       changesAppliedToHardRisk:false,
-      note:'Öğrenme yalnız yumuşak bağlamdır; stop, risk, kill-switch, stale ve execution güvenliklerini değiştiremez.'
+      note:'Öğrenme yumuşak deneyim bağlamıdır; yalnız POSITION_CLOSED satırları PnL istatistiğine girer. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez.'
     };
   }
   function lease(action, resource, owner, token, ttlMs = 30000) {
