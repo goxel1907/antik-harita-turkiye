@@ -726,7 +726,7 @@ class BinanceLiveTransport {
       return {
         ok:true,orderPlaced:true,requestSent:true,execution:f>=0.999999?'JEV_EXIT_NOW_REDUCE_ONLY_MARKET':'JEV_PARTIAL_REDUCE_ONLY_MARKET',
         symbol:sym,side:s,fraction:f,requestedQty:qty,executedQty,remainingQty,
-        fullyClosed:remainingQty===0||(f>=0.999999&&remainingQty===null),orderId,status:text(ack?.status),hedgeMode,
+        fullyClosed:remainingQty===0,closeVerification:remainingQty===null?'UNVERIFIED':'POSITION_RISK_RECHECKED',orderId,status:text(ack?.status),hedgeMode,
         reduceOnly:!hedgeMode,reason:String(reason||'JEV_POSITION_MANAGEMENT').slice(0,80)
       };
     }catch(e){
