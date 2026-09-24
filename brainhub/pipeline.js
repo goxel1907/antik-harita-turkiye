@@ -1324,7 +1324,7 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,riskGate,exe
     executionReadiness:executionReadiness?{ok:executionReadiness.ok,reasons:executionReadiness.reasons||[]}:null
   };
 }
-async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=null,killSwitch=null,executionClaim=null,executionIntent=null,decisionPass1,decisionFinal}){
+async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=null,killSwitch=null,executionClaim=null,executionIntent=null,decisionPass1,decisionFinal,knowledgeResearch=null}){
   const selection=resolveAttentionCandidate(scan,executionIntent);
   const candidate=selection.candidate;
   if(!candidate)return {ok:true,candidateFound:false,reason:selection.reason||'NO_ATTENTION_CANDIDATE',execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
@@ -1340,6 +1340,16 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   if(!pass1?.ok){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:pass1?.reason||'JEV_SOVEREIGN_PASS1_UNAVAILABLE',jevPass1:pass1||null,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
   }
+  let knowledgeResearchResult=null;
+  if(pass1.knowledgeResearchRequested===true&&typeof knowledgeResearch==='function'){
+    try{
+      knowledgeResearchResult=await knowledgeResearch({candidate,unified,familyHint:pass1.knowledgeFamily||'AUTO'});
+      unified.knowledgeResearch=knowledgeResearchResult||null;
+    }catch(e){
+      knowledgeResearchResult={ok:false,called:true,reason:'KNOWLEDGE_RESEARCH_EXCEPTION',detail:String(e?.message||e).slice(0,240)};
+      unified.knowledgeResearch=knowledgeResearchResult;
+    }
+  }
   const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee});
   if(executionIntent?.positionReviewOnly===true){
     const reviewSide=['LONG','SHORT'].includes(String(executionIntent?.side||'').toUpperCase())?String(executionIntent.side).toUpperCase():null;
@@ -1354,7 +1364,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
       ok:true,candidateFound:true,committeeCalled:Boolean(evidence?.visual),candidate,targetedExecution:selection.targeted,
       unifiedContext:unified,vision:evidence?.visual||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0},
       committee:{mode:'JEV_DIRECTED_POSITION_EVIDENCE_ONLY',available:true},plan,preJevPlan:null,
-      jevPass1:pass1,jevDecision:null,evidence,riskGate:null,dryRunExecutor:null,executionReadiness:null,
+      jevPass1:pass1,jevDecision:null,evidence,knowledgeResearch:knowledgeResearchResult,riskGate:null,dryRunExecutor:null,executionReadiness:null,
       execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true,positionReviewOnly:true
     };
   }
@@ -1394,7 +1404,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     ok:true,candidateFound:true,committeeCalled:Boolean(visionMeta),candidate,targetedExecution:selection.targeted,
     unifiedContext:unified,vision:visionMeta||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0},
     committee:{mode:'JEV_DIRECTED_EVIDENCE_ONLY',available:true},plan,preJevPlan:null,
-    jevPass1:pass1,jevDecision:final,evidence,riskGate,dryRunExecutor,executionReadiness,
+    jevPass1:pass1,jevDecision:final,evidence,knowledgeResearch:knowledgeResearchResult,riskGate,dryRunExecutor,executionReadiness,
     execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true
   };
   try{
@@ -1409,9 +1419,9 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
 }
 
 
-async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null, decisionJudge = null, decisionPass1 = null, decisionFinal = null }) {
+async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null, decisionJudge = null, decisionPass1 = null, decisionFinal = null, knowledgeResearch = null }) {
   if(typeof decisionPass1==='function'&&typeof decisionFinal==='function'){
-    return runSovereignFlow({scan,committee,store,accountRisk,stopRisk,killSwitch,executionClaim,executionIntent,decisionPass1,decisionFinal});
+    return runSovereignFlow({scan,committee,store,accountRisk,stopRisk,killSwitch,executionClaim,executionIntent,decisionPass1,decisionFinal,knowledgeResearch});
   }
   const selection = resolveExecutionCandidate(scan, executionIntent);
   const candidate = selection.candidate;
