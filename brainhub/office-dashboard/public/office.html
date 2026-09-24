@@ -677,11 +677,14 @@ function renderLedger(s){
 function renderPositions(s){
   const st=s.status?.data||{}; const pm=st.positionManager||{}; const lr=pm.lastReview||{}; const le=st.learning||{};
   const stats=le.stats||[]; const samples=stats.reduce((a,x)=>a+Number(x.samples||0),0);
+  const recentLearning=Array.isArray(le.recent)?le.recent:[];
+  const jevLessons=recentLearning.filter(x=>String(x?.kind||'').toUpperCase()==='JEV_LESSON').length;
   renderLedger(s);
   $('#posKv').innerHTML = [
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
     ['Kural', pm.ruleTr || 'JEV SOVEREIGN: 5m LONG/SHORT scalp ve 15m LONG/SHORT trade kararını JEV verir; 1m/3m/30m+ yalnız JEV isterse ek kanıttır. Worker/scanner stratejik veto veya puan kapısı koymaz.'],
-    ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)']
+    ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup • JEV shadow lesson ${jevLessons}`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)'],
+    ['Teacher güvenliği', 'JEV lesson = SHADOW_ONLY • self-modify KAPALI • auto-promotion KAPALI']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
 }
 
