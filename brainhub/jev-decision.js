@@ -214,7 +214,7 @@ function compactExperienceMemory(learning,maxChars=6500){
   if(raw.length>limit){out.stats=out.stats.slice(0,5);out.measuredOutcomes=out.measuredOutcomes.slice(0,3);out.jevLessons=out.jevLessons.slice(0,3);raw=JSON.stringify(out);}
   if(raw.length>limit){
     return {
-      alwaysOn:true,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,
+      alwaysOn:true,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
       stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),
       memoryTrimmed:true,note:out.note
     };
@@ -636,8 +636,10 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const laneFocus=choiceValue(answers.lane_focus);
     const directionFocus=choiceValue(answers.direction_focus);
-    const knowledgeResearch=choiceValue(answers.knowledge_research)||'SKIP';
-    const knowledgeFamily=choiceValue(answers.knowledge_family)||'AUTO';
+    const rawKnowledgeResearch=choiceValue(answers.knowledge_research)||'SKIP';
+    const knowledgeResearch=['SKIP','RESEARCH_IF_GAP'].includes(rawKnowledgeResearch)?rawKnowledgeResearch:'SKIP';
+    const rawKnowledgeFamily=choiceValue(answers.knowledge_family)||'AUTO';
+    const knowledgeFamily=['AUTO','PATTERN','INDICATOR','MICROSTRUCTURE','DERIVATIVES','EXECUTION','OTHER'].includes(rawKnowledgeFamily)?rawKnowledgeFamily:'AUTO';
     const requestedEvidence=[];
     for(const [id] of SOVEREIGN_EVIDENCE){
       const v=choiceValue(answers['evidence_'+id.toLowerCase()]);
