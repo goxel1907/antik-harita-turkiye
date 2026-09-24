@@ -961,8 +961,8 @@ $sourceDir = Get-Source $Source
 # CLAUDE_V109_UPDATER_FILESET: ChatGPT v9.5.109 wait-condition.js ve vision-benchmark.js eklemis ama bu listeye
 # koymamisti -> PC'de server.js MODULE_NOT_FOUND ile acilmaz, guncelleme geri alinirdi.
 $files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','market-maker-evidence.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js','claude-v112.js')
-$cortexDoc = Join-Path $sourceDir 'docs\JEV-PRO-TRADER-CORTEX-R2533.md'
-if (-not (Test-Path -LiteralPath $cortexDoc)) { throw 'Eksik dosya: docs\JEV-PRO-TRADER-CORTEX-R2533.md' }
+$cortexDoc = Join-Path $sourceDir 'docs\JEV-PRO-TRADER-CORTEX-R2534.md'
+if (-not (Test-Path -LiteralPath $cortexDoc)) { throw 'Eksik dosya: docs\JEV-PRO-TRADER-CORTEX-R2534.md' }
 
 foreach ($name in $files) {
     $p = Join-Path $sourceDir $name
@@ -987,8 +987,8 @@ try {
     foreach ($name in $files) { Copy-Item -LiteralPath (Join-Path $sourceDir $name) -Destination (Join-Path $rootFull 'server') -Force }
     $docsDst = Join-Path $rootFull 'docs'
     New-Item -ItemType Directory -Force -Path $docsDst | Out-Null
-    Copy-Item -LiteralPath $cortexDoc -Destination (Join-Path $docsDst 'JEV-PRO-TRADER-CORTEX-R2533.md') -Force
-    Write-Host "JEV_TRADER_CORTEX_DEPLOYED"
+    Copy-Item -LiteralPath $cortexDoc -Destination (Join-Path $docsDst 'JEV-PRO-TRADER-CORTEX-R2534.md') -Force
+    Write-Host "JEV_TRADER_CORTEX_DEPLOYED R2534 LIVE_REASONING_REFERENCE_READ_ONLY"
     foreach ($cfg in @(@('models.example.json','models.json'),@('committee.example.json','committee.json'),@('claude-v109.example.json','claude-v109.json'),@('claude-v111.example.json','claude-v111.json'))) {
         $dst = Join-Path (Join-Path $rootFull 'config') $cfg[1]
         if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $sourceDir $cfg[0]) -Destination $dst }
