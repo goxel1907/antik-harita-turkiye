@@ -16,8 +16,8 @@ function root(){
   fs.mkdirSync(path.join(r,'config'),{recursive:true});
   fs.mkdirSync(path.join(r,'docs'),{recursive:true});
   fs.copyFileSync(
-    path.join(__dirname,'..','docs','JEV-PRO-TRADER-CORTEX-R2533.md'),
-    path.join(r,'docs','JEV-PRO-TRADER-CORTEX-R2533.md')
+    path.join(__dirname,'..','docs','JEV-PRO-TRADER-CORTEX-R2534.md'),
+    path.join(r,'docs','JEV-PRO-TRADER-CORTEX-R2534.md')
   );
   fs.writeFileSync(path.join(r,'config','jev.json'),JSON.stringify({enabled:true,model:'typesafe/jev-1.13',dailyCapUsd:2,softBudgetUsd:0.25,maxPayloadChars:48000}));
   return r;
@@ -42,7 +42,14 @@ function unified(){
     marketMakerEvidence:{participantIdentity:'NOT_IDENTIFIED',participantIntent:'NOT_ASSERTED',orderFlow:{available:true}},
     derivatives:{available:true},
     liquidationContext:{available:false,reason:'NO_RECENT_OBSERVED_FORCE_ORDER_PRINTS'},
-    learning:{recent:[],stats:[]},
+    learning:{
+      source:'test measured memory',
+      recent:[],
+      stats:[{side:'LONG',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',samples:3,wins:2,winRate:66.7,avgOutcomePct:0.2}],
+      measuredOutcomes:[{ts:1,kind:'POSITION_CLOSED',symbol:'BTCUSDT',side:'LONG',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',outcomePct:0.4,rMultiple:0.8,netPnl:2,exitType:'TP1'}],
+      jevLessons:[{ts:2,kind:'JEV_LESSON',symbol:'BTCUSDT',side:'LONG',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',lessonFocus:'ENTRY_TIMING',evidenceFocus:'ORDER_FLOW',lessonAction:'OBSERVE_MORE',scope:'THIS_SETUP_ONLY'}],
+      measuredSampleCount:1,jevLessonCount:1
+    },
     opportunityPaths:{LONG:{continuity:[]},SHORT:{continuity:[]}}
   };
 }
@@ -54,6 +61,12 @@ test('JEV sovereign PASS-1 directly chooses evidence requests without score thre
     root:r,apiKey:'sk-or-v1-'+'x'.repeat(40),
     fetchImpl:async(_url,opt={})=>{
       const body=JSON.parse(opt.body);seen=body;
+      assert.equal(body.state.professionalTraderCortex.version,'R2.5.3.4');
+      assert.equal(body.state.professionalTraderCortex.mode,'LIVE_REASONING_REFERENCE_READ_ONLY');
+      assert.match(body.state.professionalTraderCortex.reference,/Classical chart formations/i);
+      assert.equal(body.state.experienceMemory.alwaysOn,true);
+      assert.equal(body.state.experienceMemory.measuredSampleCount,1);
+      assert.equal(body.state.experienceMemory.jevLessonCount,1);
       const answers={};
       for(const [id,q] of Object.entries(body.questions)){
         assert.equal(q.type,'choice');
@@ -84,6 +97,10 @@ test('JEV sovereign PASS-2 selects a concrete LONG/SHORT 5m or 15m plan by choic
     root:r,apiKey:'sk-or-v1-'+'x'.repeat(40),
     fetchImpl:async(_url,opt={})=>{
       const body=JSON.parse(opt.body);
+      assert.equal(body.state.professionalTraderCortex.version,'R2.5.3.4');
+      assert.equal(body.state.professionalTraderCortex.mode,'LIVE_REASONING_REFERENCE_READ_ONLY');
+      assert.equal(body.state.experienceMemory.alwaysOn,true);
+      assert.equal(body.state.experienceMemory.measuredSampleCount,1);
       assert.equal(body.questions.trade_plan.type,'choice');
       assert.ok(body.questions.trade_plan.criteria.WAIT);
       assert.ok(body.questions.trade_plan.criteria.LONG_5M_SCALP);
@@ -198,8 +215,8 @@ test('JEV shadow teacher keeps outcome learning shadow-only',async t=>{
       assert.equal(body.state.record.authority.application,'SHADOW_ONLY');
       assert.equal(body.state.record.authority.selfModify,false);
       assert.equal(body.state.record.authority.autoPromotion,false);
-      assert.equal(body.state.professionalTraderCortex.version,'R2.5.3.3');
-      assert.equal(body.state.professionalTraderCortex.mode,'SHADOW_KNOWLEDGE_REFERENCE');
+      assert.equal(body.state.professionalTraderCortex.version,'R2.5.3.4');
+      assert.equal(body.state.professionalTraderCortex.mode,'LIVE_REASONING_REFERENCE_READ_ONLY');
       assert.match(body.state.professionalTraderCortex.reference,/Market regime/i);
       assert.match(body.state.professionalTraderCortex.reference,/5m scalp expertise/i);
       assert.match(body.state.professionalTraderCortex.reference,/No fixed score/i);
