@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.114-r2534 + PC R2532 SOVEREIGN + R2534 FULL CORTEX ALWAYS-ON
+    name: Futures 15m Alarm PRO APK v9.5.114-r2535 + PC JEV SOVEREIGN + R2535 AUTONOMOUS MGMT + VERIFIED RESEARCH
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -24,7 +24,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.114-r2533 JEV Cortex Shadow Turkish source
+      - name: Prepare Futures Alarm v9.5.114-r2535 JEV Autonomous Turkish source
         script: |
           set -euo pipefail
           trap 'rc=$?; echo "PREPARE_V110_FAILED rc=$rc line=$LINENO command=$BASH_COMMAND"; exit $rc' ERR
@@ -112,17 +112,19 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95117_jev_cortex_shadow_r2533_mobile.py"
           # V95118: UI/metadata only. Shows R2534 LIVE read-only Cortex + ALWAYS-ON measured experience memory.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95118_jev_full_cortex_r2534_mobile.py"
-          echo 'V118_ANDROID_R2534_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114->v95115->v95116->v95117->v95118'
+          # V95119: UI/metadata only. Shows R2535 binding EXIT_NOW + verified research + lifetime-memory truth.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95119_jev_autonomous_r2535_mobile.py"
+          echo 'V119_ANDROID_R2535_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114->v95115->v95116->v95117->v95118->v95119'
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'V95116_JEV_SOVEREIGN_R2532_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'V95117_JEV_CORTEX_SHADOW_R2533_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'V95118_JEV_FULL_CORTEX_R2534_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
-          grep -q 'R2534 FULL CORTEX' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'R2535 JEV: FULL CORTEX' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'JEV PRO FUTURES TRADER/SCALPER' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'JEV PATRON' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'R2.5.3.2 SOVEREIGN FLOW' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
-          grep -q "versionName '9.5.114-r2534'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
-          echo 'V118_ANDROID_R2534_CONTRACT_OK'
+          grep -q "versionName '9.5.114-r2535'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          echo 'V119_ANDROID_R2535_CONTRACT_OK'
 
           APP=/tmp/futures15m-build/Futures15mAlarm
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
@@ -193,8 +195,8 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.114-r2534'" "$BUILD"
-          grep -q 'versionCode 26092403' "$BUILD"
+          grep -q "versionName '9.5.114-r2535'" "$BUILD"
+          grep -q 'versionCode 26092404' "$BUILD"
           grep -q "CLAUDE_V109_BUILD" "$CM_BUILD_DIR/brainhub/claude-v109.js"
           grep -q "9.5.110-VISION" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "'claude-v109.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
@@ -210,13 +212,13 @@ workflows:
           grep -q "SCALP_MOMENTUM" "$CM_BUILD_DIR/brainhub/trade-lanes.js"
           grep -q "640" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "896" "$CM_BUILD_DIR/brainhub/v110.js"
-          grep -q "versionName '9.5.114-r2534'" "$BUILD"
-          grep -q 'versionCode 26092403' "$BUILD"
+          grep -q "versionName '9.5.114-r2535'" "$BUILD"
+          grep -q 'versionCode 26092404' "$BUILD"
           # CLAUDE_V113 (Claude, Anthropic): Android PC LIVE gercegi, dogrulanan ACIL DURDUR, salt-okunur PC pozisyonlari.
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
           grep -q 'v95113StopAndVerify("ANDROID_EMERGENCY_STOP"' "$MAIN"
-          grep -q 'v9.5.114-JEV-FULL-CORTEX-R2534' "$MAIN"
+          grep -q 'v9.5.114-JEV-AUTONOMOUS-R2535' "$MAIN"
           grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
           grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
@@ -224,8 +226,8 @@ workflows:
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' "$MAIN"
           grep -q 'V95116_JEV_SOVEREIGN_R2532_MOBILE' "$MAIN"
           grep -q 'V95117_JEV_CORTEX_SHADOW_R2533_MOBILE' "$MAIN"
-          grep -q 'R2534 FULL CORTEX' "$MAIN"
-          grep -q 'R2534 LIVE READ-ONLY CORTEX' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2535 JEV: FULL CORTEX' "$MAIN"
+          grep -q 'R2535 AUTONOMOUS JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
           grep -q 'JEV PATRON' "$MAIN"
           grep -q 'R2.5.3.2 SOVEREIGN FLOW' "$MAIN"
           grep -q 'JEV YÖNETİMİ' "$MAIN"
@@ -242,8 +244,8 @@ workflows:
             exit 1
           fi
           grep -q 'V95118_JEV_FULL_CORTEX_R2534_MOBILE' "$MAIN"
-          grep -q 'R2534 LIVE READ-ONLY CORTEX' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
-          grep -q 'R2534 FULL CORTEX ALWAYS-ON' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
+          grep -q 'R2535 AUTONOMOUS JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2535 AUTONOMOUS MGMT' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           if grep -q 'Scalp için en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then
             echo 'STALE_SCALP_VETO_COPY_PRESENT'
             exit 1
@@ -252,7 +254,14 @@ workflows:
             echo 'STALE_R2533_VISIBLE_CORTEX_COPY_PRESENT'
             exit 1
           fi
-          echo 'V95118_R2534_POSTPATCH_GATES_OK'
+          grep -q 'V95119_JEV_AUTONOMOUS_R2535_MOBILE' "$MAIN"
+          grep -q 'R2535 JEV: FULL CORTEX' "$MAIN"
+          grep -q 'R2535 AUTONOMOUS JEV' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2535 AUTONOMOUS MGMT' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
+          if grep -qi 'uygulamanın açtığı aktif işlem yok' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_LOCAL_POSITION_COPY_PRESENT'; exit 1; fi
+          if grep -qi 'Jev henüz değerlendirilmedi' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_PLACEHOLDER_PRESENT'; exit 1; fi
+          if grep -qi 'Jev yalnız işlem adayı planın ek güvenlik denetimidir' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_SECONDARY_AUTHORITY_PRESENT'; exit 1; fi
+          echo 'V95119_R2535_POSTPATCH_GATES_OK'
           # CLAUDE_V111 (Claude, Anthropic): PC ve gorunen Android surum kimligi v9.5.111 ile esitlendi; v110 islem tabani korunur.
           grep -q "CLAUDE_V111_BUILD" "$CM_BUILD_DIR/brainhub/claude-v111.js"
           grep -q "CLAUDE_V111_TRIGGER_REVALIDATION" "$CM_BUILD_DIR/brainhub/claude-v111.js"
@@ -273,7 +282,13 @@ workflows:
           grep -q "sovereignLesson" "$CM_BUILD_DIR/brainhub/jev-decision.js"
           grep -q "target_profile" "$CM_BUILD_DIR/brainhub/jev-decision.js"
           grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
-          grep -q "2.0.2-JEV-FULL-CORTEX-R2534" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
+          grep -q "JEV_EXIT_NOW_REDUCE_ONLY_BINDING" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "JEV_FREE_MODEL_KNOWLEDGE_RESEARCH" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "JEV_LIFETIME_MEMORY_AGGREGATE" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "reducePositionMarket" "$CM_BUILD_DIR/brainhub/binance-live-transport.js"
+          grep -q "JEV_EXIT_NOW_BINDING_WHEN_LIVE_ARMED" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          test -f "$CM_BUILD_DIR/brainhub/knowledge-research.js"
+          grep -q "2.0.3-JEV-AUTONOMOUS-MGMT-R2535" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           test -f "$CM_BUILD_DIR/brainhub/docs/JEV-PRO-TRADER-CORTEX-R2534.md"
           grep -q "measuredOutcomes" "$CM_BUILD_DIR/brainhub/store.js"
           grep -q "sovereignSelectivityDiagnostic" "$CM_BUILD_DIR/brainhub/live-controller.js"
@@ -281,8 +296,9 @@ workflows:
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2532-SOVEREIGN.ps1"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2533-CORTEX-SHADOW.ps1"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2534-JEV-FULL-CORTEX.ps1"
+          test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2535-JEV-AUTONOMOUS.ps1"
           grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
-          grep -q "2.0.2-JEV-FULL-CORTEX-R2534" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
+          grep -q "2.0.3-JEV-AUTONOMOUS-MGMT-R2535" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           grep -q "positionLedgerTick" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/live/positions" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "extended_entry" "$CM_BUILD_DIR/brainhub/jev-decision.js"
@@ -464,7 +480,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.114-r2534 JEV Full Cortex signed APK
+      - name: Build installable v9.5.114-r2535 JEV Autonomous signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -510,9 +526,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2534.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2535.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2534.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2535.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -523,5 +539,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.114-R2534.apk
+      - Futures15mAlarm-PRO-v9.5.114-R2535.apk
       - v9595-gradle.log
