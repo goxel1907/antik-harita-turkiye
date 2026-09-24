@@ -46,13 +46,13 @@ main = main.replace(old_identity, "v9.5.114-JEV-AUTONOMOUS-R2535", 1)
 old_status = '            st.append("\\nR2534 FULL CORTEX: profesyonel trader/scalper bilgi referansı PASS-1 + PASS-2 + pozisyon yönetiminde sürekli • measured outcome + JEV lesson hafızası ALWAYS-ON • bilinmeyen bilgi uydurulmaz."); // V95117_JEV_CORTEX_SHADOW_R2533_MOBILE V95118_JEV_FULL_CORTEX_R2534_MOBILE'
 if old_status not in main:
     fail("R2534 status anchor missing")
-new_status = '            st.append("\\nR2535 JEV: FULL CORTEX sürekli • lifetime measured memory + son ayrıntılar ALWAYS-ON • bilgi boşluğunda 9Router + OpenRouter free araştırır, kaynak getirir, JEV doğrulamadan bilgi kalıcı olmaz • EXIT_NOW PC LIVE+OTO açık ve BrainHub-owned pozisyonda reduce-only MARKET olarak uygulanır."); // V95117_JEV_CORTEX_SHADOW_R2533_MOBILE V95118_JEV_FULL_CORTEX_R2534_MOBILE ' + MARKER
+new_status = '            st.append("\\nR2535 JEV: FULL CORTEX sürekli • lifetime measured memory + son ayrıntılar ALWAYS-ON • bilgi boşluğunda 9Router + OpenRouter free araştırır, kaynak getirir, JEV doğrulamadan bilgi kalıcı olmaz • EXIT_NOW ve PARTIAL_TAKE_PROFIT PC LIVE açık ve BrainHub-owned pozisyonda reduce-only MARKET olarak uygulanır."); // V95117_JEV_CORTEX_SHADOW_R2533_MOBILE V95118_JEV_FULL_CORTEX_R2534_MOBILE ' + MARKER
 main = main.replace(old_status, new_status, 1)
 
 old_card = '        b.append("\\nR2534 LIVE READ-ONLY CORTEX: chart formations + price action/SMC + indicators + order-flow/depth + derivatives + execution/risk bilgisi; geçmiş ölçülmüş işlemler PASS-1/PASS-2/pozisyon yönetiminde istemeden hatırlanır."); // V95117_JEV_CORTEX_SHADOW_R2533_MOBILE V95118_JEV_FULL_CORTEX_R2534_MOBILE'
 if old_card not in card:
     fail("AutoDecisionCard R2534 anchor missing")
-new_card = '        b.append("\\nR2535 AUTONOMOUS JEV: LIVE read-only Cortex + lifetime measured experience + doğrulanmış dinamik araştırma; EXIT_NOW BrainHub-owned pozisyonda LIVE+OTO açıkken gerçek reduce-only kapanışa bağlanır. External/manual pozisyon otomatik kapatılmaz."); // V95117_JEV_CORTEX_SHADOW_R2533_MOBILE V95118_JEV_FULL_CORTEX_R2534_MOBILE ' + MARKER
+new_card = '        b.append("\\nR2535 AUTONOMOUS JEV: LIVE read-only Cortex + lifetime measured experience + doğrulanmış dinamik araştırma; EXIT_NOW ve PARTIAL_TAKE_PROFIT BrainHub-owned pozisyonda LIVE açıkken gerçek reduce-only yönetim emrine bağlanır. External/manual pozisyon otomatik yönetilmez."); // V95117_JEV_CORTEX_SHADOW_R2533_MOBILE V95118_JEV_FULL_CORTEX_R2534_MOBILE ' + MARKER
 card = card.replace(old_card, new_card, 1)
 
 # Remove stale authority wording if an older source/patch path left it visible.
