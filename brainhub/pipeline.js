@@ -1194,6 +1194,41 @@ function buildSovereignPlanOptions(unified){
   }
   return out.slice(0,12);
 }
+function materializeJevManagement(base,final){
+  if(!base)return null;
+  const entry=finite(base.entryPrice),stop=finite(base.stopPrice);
+  if(entry===null||stop===null)return null;
+  const risk=Math.abs(entry-stop);
+  if(!(risk>0))return null;
+  const side=String(base.side||'').toUpperCase();
+  const sign=side==='LONG'?1:side==='SHORT'?-1:0;
+  if(!sign)return null;
+  const ratios={
+    FAST_SCALP:[0.75,1.5,2.5],
+    BALANCED:[1,2,3],
+    RUNNER_EXTENDED:[1,2,4],
+    DEFENSIVE:[0.75,1.25,2]
+  }[final?.targetProfile]||[1,2,3];
+  const partials={
+    THIRDS:[0.33,0.33,0.34],
+    HALF_QUARTER_RUNNER:[0.50,0.25,0.25],
+    RUNNER_HEAVY:[0.25,0.25,0.50]
+  }[final?.partialProfile]||[0.33,0.33,0.34];
+  const [r1,r2,r3]=ratios;
+  return {
+    ...base,
+    takeProfit1:entry+sign*risk*r1,
+    takeProfit2:entry+sign*risk*r2,
+    takeProfit3:entry+sign*risk*r3,
+    targetProfile:final?.targetProfile||'BALANCED',
+    targetRatios:ratios,
+    partialProfile:final?.partialProfile||'THIRDS',
+    partialFractions:partials,
+    breakevenRule:final?.breakevenRule||'AFTER_TP1',
+    trailRule:final?.trailRule||'JEV_DYNAMIC',
+    managementStyle:final?.managementStyle||null
+  };
+}
 function sovereignRequestedFrames(pass1){
   const requested=new Set(Array.isArray(pass1?.requestedEvidence)?pass1.requestedEvidence:[]);
   const frames=[];
@@ -1279,10 +1314,11 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,riskGate,exe
       valid:plan.valid,status:plan.status,side:plan.side||null,originTF:plan.originTF||null,ownerTF:plan.ownerTF||null,
       lane:plan.lane||null,entryPrice:plan.entryPrice??null,invalidationPrice:plan.invalidationPrice??null,invalidationSource:plan.invalidationSource||null,stopPrice:plan.stopPrice??null,
       takeProfit1:plan.takeProfit1??null,takeProfit2:plan.takeProfit2??null,takeProfit3:plan.takeProfit3??null,
-      managementStyle:plan.managementStyle||null,waitFor:plan.waitFor||null,jevSovereign:plan.jevSovereign===true
+      managementStyle:plan.managementStyle||null,targetProfile:plan.targetProfile||null,partialProfile:plan.partialProfile||null,
+      breakevenRule:plan.breakevenRule||null,trailRule:plan.trailRule||null,waitFor:plan.waitFor||null,jevSovereign:plan.jevSovereign===true
     }:null,
     jevPass1:pass1?{laneFocus:pass1.laneFocus,directionFocus:pass1.directionFocus,requestedEvidence:pass1.requestedEvidence||[],costUsd:pass1.costUsd??null}:null,
-    jevFinal:final?{action:final.action,selectedPlanId:final.selectedPlanId,managementStyle:final.managementStyle,costUsd:final.costUsd??null}:null,
+    jevFinal:final?{action:final.action,selectedPlanId:final.selectedPlanId,managementStyle:final.managementStyle,targetProfile:final.targetProfile,partialProfile:final.partialProfile,breakevenRule:final.breakevenRule,trailRule:final.trailRule,costUsd:final.costUsd??null}:null,
     vision:vision?{requestedFrames:vision.requestedFrames||[],attached:vision.attached??0,required:vision.required??0,source:vision.source||null,error:vision.error||null}:null,
     riskGate:riskGate?{ok:riskGate.ok,reasons:riskGate.reasons||[]}:null,
     executionReadiness:executionReadiness?{ok:executionReadiness.ok,reasons:executionReadiness.reasons||[]}:null
@@ -1327,14 +1363,17 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   if(!final?.ok){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:final?.reason||'JEV_SOVEREIGN_FINAL_UNAVAILABLE',jevPass1:pass1,jevDecision:final||null,evidence,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
   }
-  const chosen=final.selectedPlan;
+  const chosen=materializeJevManagement(final.selectedPlan,final);
   const plan=chosen?{
     valid:true,status:'QUALIFIED',side:chosen.side,originTF:chosen.originTF,ownerTF:chosen.ownerTF,
     lane:chosen.lane,setup:'JEV_SOVEREIGN_'+chosen.lane,execPath:'JEV_FINAL_MARKET_NOW',
     entryMode:chosen.entryMode,entryPrice:chosen.entryPrice,invalidationPrice:chosen.invalidationPrice,
     invalidationSource:chosen.invalidationSource||null,basis:chosen.basis||null,
     stopPrice:chosen.stopPrice,takeProfit1:chosen.takeProfit1,takeProfit2:chosen.takeProfit2,takeProfit3:chosen.takeProfit3,
-    managementStyle:final.managementStyle,waitFor:'NONE',formingContext:'CONTEXT_ONLY',
+    managementStyle:final.managementStyle,targetProfile:chosen.targetProfile,targetRatios:chosen.targetRatios,
+    partialProfile:chosen.partialProfile,partialFractions:chosen.partialFractions,
+    breakevenRule:chosen.breakevenRule,trailRule:chosen.trailRule,
+    waitFor:'NONE',formingContext:'CONTEXT_ONLY',
     why:'JEV FINAL selected '+chosen.id+' after directing evidence collection.',
     riskNote:'Post-JEV code may block only hard execution/integrity safety; it must not re-vote strategy.',
     jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
