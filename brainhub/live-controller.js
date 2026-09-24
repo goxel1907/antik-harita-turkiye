@@ -387,6 +387,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       sovereignShort:sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='SHORT').length,
       sovereignWait:sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='WAIT').length,
       sovereignEvidenceRequests:sovereignAnalyses.reduce((sum,x)=>sum+Math.max(0,Number(x.jevRequestedEvidenceCount)||0),0),
+      sovereignFinalTotal:sovereignAnalyses.filter(x=>x.jevCalled===true).length,
+      sovereignWaitRatePct:(()=>{
+        const finals=sovereignAnalyses.filter(x=>x.jevCalled===true).length;
+        const waits=sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='WAIT').length;
+        return finals?Number((100*waits/finals).toFixed(1)):null;
+      })(),
+      sovereignSelectivityDiagnostic:(()=>{
+        const finals=sovereignAnalyses.filter(x=>x.jevCalled===true).length;
+        const waits=sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='WAIT').length;
+        return finals>=5&&waits===0
+          ? {code:'NO_WAIT_OBSERVED_INFO_ONLY',blocking:false,note:'Recent JEV finals contain no WAIT decisions. This is a selectivity diagnostic only and never blocks or scores JEV.'}
+          : {code:'NORMAL',blocking:false};
+      })(),
       jevCalled:analyses.filter(x=>x.jevCalled===true).length,
       jevVetoed:analyses.filter(x=>x.jevVeto===true).length,
       jevShadowCalled:analyses.filter(x=>x.jevShadowCalled===true).length,
@@ -1368,6 +1381,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   // CLAUDE_V113_OUTCOME_BACKFILL: v9.5.113 öncesi açılıp kapanan işlemler (LIVE_EXECUTION journal) için
   // gerçek sonuç Binance income'dan bir kez hesaplanıp beyne yazılır. Aynı eventId iki kez yazılmaz.
+  function marketSignatureFromAdvisory(advisory){
+    const u=advisory?.unifiedContext||{};
+    const f5=u?.frames?.['5m']||{}, f15=u?.frames?.['15m']||{};
+    const flow=u?.marketMakerEvidence?.orderFlow||u?.microstructure?.streaming?.orderFlow||{};
+    const depth=u?.microstructure||{};
+    const d=u?.derivatives||{};
+    const liq=u?.liquidationContext||{};
+    const pickFrame=f=>({
+      trend:f?.trend||null,breakOfStructure:f?.breakOfStructure||null,rsi14:finite(f?.rsi14),atrPct:finite(f?.atrPct),
+      swingState:f?.swingStructure?.state||null,patterns:Array.isArray(f?.patterns)?f.patterns.slice(-3):[],
+      sweep:f?.liquidity?.sweep||f?.liquidity?.lastSweep||null
+    });
+    return {
+      regime5m:pickFrame(f5),regime15m:pickFrame(f15),
+      orderFlow:{available:flow?.available===true,source:flow?.source||null,cvd120s:finite(flow?.cvdQuote120s??flow?.cvd120s??depth?.streaming?.cvdQuote120s)},
+      depth:{imbalance:finite(depth?.depth20Imbalance??depth?.streaming?.depth20Imbalance),spreadBps:finite(depth?.spreadBps)},
+      derivatives:{oiDeltaPct:finite(d?.openInterest?.delta5mPct??d?.oiDelta5mPct),fundingRate:finite(d?.fundingRate),takerBuySellRatio:finite(d?.takerBuySellRatio)},
+      observedLiquidations:{available:liq?.available===true,count:finite(liq?.count),source:liq?.source||null}
+    };
+  }
+
   function entryContextFromPlan(plan, jd, sizing){
     const pl=plan||{}; const fl=pl.claudeFastLane||null;
     return {
@@ -3671,7 +3705,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
           extension:fl?.extension||null,riskGeometry:fl?.riskGeometry||null,
           jev:jd?{veto:jd.veto===true,summaryTr:String(jd.summaryTr||'').slice(0,200),probabilities:jd.probabilities||null}:null,
-          riskPctOfEquity:finite(result?.sizing?.riskPctOfEquity)
+          riskPctOfEquity:finite(result?.sizing?.riskPctOfEquity),
+          marketSignature:marketSignatureFromAdvisory(advisory)
         };
       }catch{}
       leaderAnalysisState.bySymbol[String(candidate.symbol||'').toUpperCase()]=executionLifecycle;
