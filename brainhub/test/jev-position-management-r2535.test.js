@@ -13,6 +13,9 @@ test('R2535 binds only JEV EXIT_NOW to BrainHub-owned reduce-only execution whil
   assert.match(src,/LIVE_NOT_ARMED/);
   assert.match(src,/LEADER_AUTO_DISABLED/);
   assert.match(src,/LIVE_DISARMED_DURING_POSITION_REVIEW/);
+  assert.match(src,/const reviewArmGeneration=armGeneration/);
+  assert.match(src,/const reviewLiveArmedAtStart=armedNow\(\)/);
+  assert.match(src,/reviewArmGeneration!==armGeneration/);
   assert.match(src,/transport\.reducePositionMarket\(/);
   assert.match(src,/fraction:1/);
   assert.match(src,/JEV_POSITION_EXECUTION/);
