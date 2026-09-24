@@ -119,6 +119,7 @@ if (-not ($health.features -contains 'JEV_RESEARCH_RETRY_FAILOVER')) { throw 'Re
 if (-not ($health.features -contains 'JEV_CURATED_OSS_REFERENCE_REGISTRY')) { throw 'Curated OSS reference feature marker missing.' }
 if (-not ($health.features -contains 'VISION_CORE_LEVEL_DETERMINISTIC_REPAIR')) { throw 'Vision deterministic core-level repair marker missing.' }
 if (-not ($health.features -contains 'VISION_BOTH_SIDE_TRIGGER_CANDIDATES')) { throw 'Vision both-side trigger candidate marker missing.' }
+if (-not ($health.features -contains 'JEV_VISION_EVIDENCE_ONLY_NO_PLAN_SCHEMA')) { throw 'JEV Vision evidence-only schema bypass marker missing.' }
 if (-not ($health.features -contains 'JEV_EXIT_NOW_REDUCE_ONLY_BINDING')) { throw 'Binding JEV EXIT_NOW feature marker missing.' }
 if (-not ($health.features -contains 'JEV_PARTIAL_REDUCE_ONLY_BINDING')) { throw 'Binding JEV PARTIAL feature marker missing.' }
 
@@ -151,6 +152,7 @@ Write-Host 'R2536_RESEARCH_DESK_OK'
 Write-Host 'R2536_RESEARCH_RETRY_OK'
 Write-Host 'R2536_OSS_REFERENCE_OK'
 Write-Host 'R2536_VISION_SCHEMA_REPAIR_OK'
+Write-Host 'R2536_VISION_EVIDENCE_ONLY_OK'
 Write-Host 'R2536_FREE_RESEARCH_OK'
 Write-Host 'R2536_EXIT_BINDING_OK'
 Write-Host 'R2536_PARTIAL_BINDING_OK'
