@@ -1215,7 +1215,7 @@ const decisionPipeline={
   activeRuns:()=>decisionPipelineActive,
   run:async(args)=>{
     decisionPipelineActive++;
-    try{return await pipeline.run({...args,decisionJudge:jev.judge});}
+    try{return await pipeline.run({...args,decisionJudge:jev.judge,decisionPass1:jev.sovereignPass1,decisionFinal:jev.sovereignFinal});}
     finally{
       decisionPipelineActive=Math.max(0,decisionPipelineActive-1);
       decisionPipelineLastFinishedAt=Date.now();

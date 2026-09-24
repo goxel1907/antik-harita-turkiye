@@ -44,13 +44,17 @@ function buildLeaderLiveIntent({
   };
   const symbol = String(candidate?.symbol || unified?.symbol || '').trim().toUpperCase();
   const candidateSide = String(candidate?.side || '').trim().toUpperCase();
+  const sovereign = plan?.jevSovereign === true;
   const side = String(plan?.side || '').trim().toUpperCase();
   const status = String(plan?.status || '').trim().toUpperCase();
   const originTF = String(plan?.originTF || '').trim().toLowerCase();
 
   if (!/^[A-Z0-9]{1,24}USDT$/.test(symbol)) reasons.push('INTENT_SYMBOL_INVALID');
   if (!['LONG','SHORT'].includes(side)) reasons.push('INTENT_SIDE_INVALID');
-  if (candidateSide && candidateSide !== side) reasons.push('CANDIDATE_PLAN_SIDE_MISMATCH');
+  if (candidateSide && candidateSide !== side) {
+    if (sovereign) softWarnings.push('SCANNER_SIDE_HINT_OVERRIDDEN_BY_JEV');
+    else reasons.push('CANDIDATE_PLAN_SIDE_MISMATCH');
+  }
   if (status !== 'QUALIFIED') reasons.push('PLAN_NOT_QUALIFIED');
   if (!originTF) reasons.push('ORIGIN_TF_REQUIRED');
 
@@ -88,11 +92,14 @@ function buildLeaderLiveIntent({
   if (lev === null || !Number.isInteger(lev) || lev < 1 || lev > 125) reasons.push('LEVERAGE_INVALID');
 
   const atrPct = finite(frame?.atrPct);
-  const structuralInvalidationPrice = side === 'LONG'
-    ? finite(frame?.prior20Low)
-    : side === 'SHORT'
-      ? finite(frame?.prior20High)
-      : null;
+  const sovereignInvalidation=finite(plan?.invalidationPrice);
+  const structuralInvalidationPrice = sovereign && sovereignInvalidation!==null
+    ? sovereignInvalidation
+    : side === 'LONG'
+      ? finite(frame?.prior20Low)
+      : side === 'SHORT'
+        ? finite(frame?.prior20High)
+        : null;
 
   if (structuralInvalidationPrice === null || structuralInvalidationPrice <= 0) {
     reasons.push('STRUCTURAL_INVALIDATION_REQUIRED');
@@ -117,9 +124,12 @@ function buildLeaderLiveIntent({
     ? structuralInvalidationPrice - buffer
     : structuralInvalidationPrice + buffer;
 
-  const stopPrice = side === 'LONG'
-    ? floorStep(structuralBoundary, tickSize)
-    : ceilStep(structuralBoundary, tickSize);
+  const plannedStop=sovereign?finite(plan?.stopPrice):null;
+  const stopPrice = plannedStop!==null
+    ? (side==='LONG'?floorStep(plannedStop,tickSize):ceilStep(plannedStop,tickSize))
+    : side === 'LONG'
+      ? floorStep(structuralBoundary, tickSize)
+      : ceilStep(structuralBoundary, tickSize);
 
   if (stopPrice === null || stopPrice <= 0) reasons.push('STOP_PRICE_INVALID');
   if (side === 'LONG' && !(stopPrice < entryPrice && stopPrice <= structuralBoundary)) reasons.push('LONG_STOP_GEOMETRY_INVALID');
@@ -129,7 +139,20 @@ function buildLeaderLiveIntent({
   if (riskDistance === null || riskDistance <= 0) reasons.push('RISK_DISTANCE_INVALID');
 
   let takeProfit1 = null, takeProfit2 = null, takeProfit3 = null;
-  if (riskDistance !== null && riskDistance > 0) {
+  const plannedTp1=sovereign?finite(plan?.takeProfit1):null;
+  const plannedTp2=sovereign?finite(plan?.takeProfit2):null;
+  const plannedTp3=sovereign?finite(plan?.takeProfit3):null;
+  if(plannedTp1!==null&&plannedTp2!==null&&plannedTp3!==null){
+    if(side==='LONG'){
+      takeProfit1=floorStep(plannedTp1,tickSize);
+      takeProfit2=floorStep(plannedTp2,tickSize);
+      takeProfit3=floorStep(plannedTp3,tickSize);
+    }else{
+      takeProfit1=ceilStep(plannedTp1,tickSize);
+      takeProfit2=ceilStep(plannedTp2,tickSize);
+      takeProfit3=ceilStep(plannedTp3,tickSize);
+    }
+  }else if (riskDistance !== null && riskDistance > 0) {
     if (side === 'LONG') {
       takeProfit1 = floorStep(entryPrice + riskDistance, tickSize);
       takeProfit2 = floorStep(entryPrice + riskDistance * 2, tickSize);

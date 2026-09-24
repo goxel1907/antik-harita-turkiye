@@ -478,6 +478,9 @@ function compactLocalModelContext(u) {
 }
 
 async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
+  const requestedFrames=Array.isArray(options?.frames)&&options.frames.length
+    ? [...new Set(options.frames.map(x=>String(x||'').toLowerCase()))].filter(x=>FRAME_ORDER.includes(x))
+    : FRAME_ORDER.slice();
   const frames = {};
   const images = [];
   const failures = [];
@@ -486,7 +489,7 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
     '45m':8,'1h':5,'4h':3,'1d':6
   };
   const visionProbe=options?.visionProbe === true;
-  const rows = await Promise.all(FRAME_ORDER.map(async frame => {
+  const rows = await Promise.all(requestedFrames.map(async frame => {
     try {
       const lowFrame=['1m','3m','5m'].includes(frame);
       const mainFrame=frame==='15m';
@@ -546,8 +549,8 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
     };
   }
   return {
-    ok:images.length === FRAME_ORDER.length,
-    required:FRAME_ORDER.length,
+    ok:images.length === requestedFrames.length,
+    required:requestedFrames.length,
     attached:images.length,
     barsRequested:Math.max(100, Math.min(256, Number(requestedBars) || 128)),
     mode:'annotated',
@@ -1100,7 +1103,225 @@ function applyDecisionJudgeResult(plan,decision){
   };
 }
 
-async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null, decisionJudge = null }) {
+
+function resolveAttentionCandidate(scan,executionIntent=null){
+  const requestedSymbol=String(executionIntent?.symbol||'').trim().toUpperCase();
+  const requestedSide=String(executionIntent?.side||'').trim().toUpperCase();
+  const pool=selectDeepCandidates(scan,24);
+  if(requestedSymbol){
+    const found=pool.find(x=>String(x?.symbol||'').trim().toUpperCase()===requestedSymbol);
+    if(found)return {candidate:{...found,deepScanReason:found.deepScanReason||'DIRECT_JEV_ATTENTION'},requestedSymbol,targeted:true,reason:null};
+    if(/^[A-Z0-9]{1,28}USDT$/.test(requestedSymbol)){
+      return {candidate:{symbol:requestedSymbol,side:['LONG','SHORT'].includes(requestedSide)?requestedSide:null,deepScanReason:'DIRECT_JEV_ATTENTION',targetSources:['DIRECT_JEV_ATTENTION']},requestedSymbol,targeted:true,reason:null};
+    }
+    return {candidate:null,requestedSymbol,targeted:true,reason:'REQUESTED_SYMBOL_INVALID'};
+  }
+  const candidate=pool[0]||null;
+  return {candidate,requestedSymbol:null,targeted:false,reason:candidate?null:'NO_ATTENTION_CANDIDATE'};
+}
+function structuralInvalidation(frame,side,livePrice){
+  const values=side==='LONG'
+    ? [frame?.swingStructure?.lastConfirmedSwingLow?.price,frame?.prior20Low,frame?.liquidity?.sellSide]
+    : [frame?.swingStructure?.lastConfirmedSwingHigh?.price,frame?.prior20High,frame?.liquidity?.buySide];
+  const clean=values.map(finite).filter(x=>x!==null&&x>0&&(side==='LONG'?x<livePrice:x>livePrice));
+  if(!clean.length)return null;
+  return side==='LONG'?Math.max(...clean):Math.min(...clean);
+}
+function buildSovereignPlanOptions(unified){
+  const live=finite(unified?.livePrice);
+  if(live===null||live<=0)return [];
+  const out=[];
+  for(const tf of ['5m','15m']){
+    const frame=unified?.frames?.[tf];
+    if(!frame?.available||frame?.fresh!==true)continue;
+    for(const side of ['LONG','SHORT']){
+      const invalidation=structuralInvalidation(frame,side,live);
+      if(invalidation===null)continue;
+      const atrPct=Math.max(0,finite(frame?.atrPct)??0);
+      const buffer=Math.max(live*0.0002,live*(atrPct/100)*0.05);
+      const stop=side==='LONG'?invalidation-buffer:invalidation+buffer;
+      const risk=Math.abs(live-stop);
+      if(!(risk>0))continue;
+      const sign=side==='LONG'?1:-1;
+      const tp1=live+sign*risk;
+      const tp2=live+sign*risk*2;
+      const tp3=live+sign*risk*3;
+      if(tp3<=0)continue;
+      const lane=tf==='5m'?'5M_SCALP':'15M_TRADE';
+      out.push({
+        id:side+'_'+lane,
+        side,lane,originTF:tf,ownerTF:tf,entryMode:'MARKET_NOW',
+        entryPrice:live,invalidationPrice:invalidation,stopPrice:stop,
+        takeProfit1:tp1,takeProfit2:tp2,takeProfit3:tp3,
+        basis:'CLOSED_'+tf.toUpperCase()+'_STRUCTURE',
+        management:'JEV_SELECTED_AFTER_ENTRY'
+      });
+    }
+  }
+  return out;
+}
+function sovereignRequestedFrames(pass1){
+  const requested=new Set(Array.isArray(pass1?.requestedEvidence)?pass1.requestedEvidence:[]);
+  const frames=[];
+  if(requested.has('TRADINGVIEW_5M'))frames.push('5m');
+  if(requested.has('TRADINGVIEW_15M'))frames.push('15m');
+  if(requested.has('TIMING_1M'))frames.push('1m');
+  if(requested.has('TIMING_3M'))frames.push('3m');
+  if(requested.has('HIGHER_TF_CONTEXT'))frames.push('30m','1h','4h','1d');
+  return [...new Set(frames)];
+}
+function compactEvidenceFrame(f){
+  if(!f?.available)return {available:false,reason:f?.reason||'UNAVAILABLE'};
+  return {
+    available:true,fresh:f.fresh===true,asOf:f.asOf||null,close:f.close??null,trend:f.trend||null,
+    rsi14:f.rsi14??null,atrPct:f.atrPct??null,breakOfStructure:f.breakOfStructure||null,
+    prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,
+    candle:f.candle||null,patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[],
+    swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,smcContext:withoutFib(f.smcContext)
+  };
+}
+async function buildSovereignEvidence({candidate,unified,pass1,committee}){
+  const requested=new Set(Array.isArray(pass1?.requestedEvidence)?pass1.requestedEvidence:[]);
+  const evidence={requested:[...requested],missing:[],visual:null};
+  if(requested.has('TIMING_1M'))evidence.timing1m=compactEvidenceFrame(unified?.frames?.['1m']);
+  if(requested.has('TIMING_3M'))evidence.timing3m=compactEvidenceFrame(unified?.frames?.['3m']);
+  if(requested.has('HIGHER_TF_CONTEXT')){
+    evidence.higherTf=Object.fromEntries(['30m','1h','4h','1d'].map(tf=>[tf,compactEvidenceFrame(unified?.frames?.[tf])]));
+  }
+  if(requested.has('ORDER_FLOW_CVD')){
+    evidence.orderFlow=unified?.marketMakerEvidence?.orderFlow||unified?.microstructure?.streaming?.orderFlow||{available:false,reason:'ORDER_FLOW_UNAVAILABLE'};
+  }
+  if(requested.has('DEPTH_L2')){
+    evidence.depth={
+      sourceQuality:unified?.dataQuality?.microstructureQuality||null,
+      depth20Imbalance:unified?.microstructure?.depth20Imbalance??unified?.microstructure?.streaming?.depth20Imbalance??null,
+      spreadBps:unified?.microstructure?.spreadBps??null,
+      bookBehavior:unified?.marketMakerEvidence?.bookBehavior||null,
+      participantIdentity:unified?.marketMakerEvidence?.participantIdentity||'NOT_IDENTIFIED',
+      participantIntent:unified?.marketMakerEvidence?.participantIntent||'NOT_ASSERTED'
+    };
+  }
+  if(requested.has('DERIVATIVES'))evidence.derivatives=unified?.derivatives||{available:false};
+  if(requested.has('OBSERVED_LIQUIDATIONS'))evidence.observedLiquidations=unified?.liquidationContext||{available:false};
+  if(requested.has('HISTORY_OUTCOME'))evidence.historyOutcome=compactOutcomeLearningContext(unified?.learning||null);
+  const visualFrames=sovereignRequestedFrames(pass1).filter(tf=>
+    (tf==='5m'&&requested.has('TRADINGVIEW_5M'))||
+    (tf==='15m'&&requested.has('TRADINGVIEW_15M'))||
+    (tf==='1m'&&requested.has('TIMING_1M'))||
+    (tf==='3m'&&requested.has('TIMING_3M'))||
+    (['30m','1h','4h','1d'].includes(tf)&&requested.has('HIGHER_TF_CONTEXT'))
+  );
+  if(visualFrames.length){
+    const vision=await buildVisionCharts(candidate.symbol,128,{frames:visualFrames});
+    if(vision.attached>0){
+      try{
+        const labels=visualFrames.map(tf=>'OBS_'+tf.toUpperCase()+': concise factual visual observations only').join('\n');
+        const vr=await committee({
+          role:'STRUCTURE',
+          system:'You are a Vision EVIDENCE_ONLY worker for JEV. Read only the requested chart images. Report factual structure, candle, liquidity, OB/FVG/sweep observations. Do not choose LONG/SHORT, do not score, do not QUALIFY/VETO, and do not propose an order. Forming candles are context only. Binance/BrainHub numeric truth outranks visual interpretation.',
+          prompt:'Requested symbol: '+candidate.symbol+'\nRequested frames: '+visualFrames.join(',')+'\nReturn only evidence observations, one line per requested timeframe.\n'+labels,
+          images:vision.images,
+          localContext:{symbol:unified.symbol,frames:Object.fromEntries(visualFrames.map(tf=>[tf,compactEvidenceFrame(unified?.frames?.[tf])]))}
+        });
+        evidence.visual={
+          authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:vision.attached,required:vision.required,
+          source:vr?.vision?.source||vision.mode||'VISION_EVIDENCE',text:String(vr?.text||'').slice(0,6000),
+          frames:vision.frames,failures:vision.failures
+        };
+      }catch(e){
+        evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:vision.attached,required:vision.required,error:String(e?.message||e).slice(0,300),frames:vision.frames,failures:vision.failures};
+      }
+    }else{
+      evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:0,required:vision.required,failures:vision.failures};
+    }
+  }
+  return evidence;
+}
+function sovereignJournalPayload({candidate,plan,pass1,final,vision,riskGate,executionReadiness}){
+  return {
+    contract:'R2.5.3.2_JEV_SOVEREIGN_5M_15M',
+    candidate:{symbol:candidate?.symbol||null,attentionSource:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[]},
+    plan:plan?{
+      valid:plan.valid,status:plan.status,side:plan.side||null,originTF:plan.originTF||null,ownerTF:plan.ownerTF||null,
+      lane:plan.lane||null,entryPrice:plan.entryPrice??null,invalidationPrice:plan.invalidationPrice??null,stopPrice:plan.stopPrice??null,
+      takeProfit1:plan.takeProfit1??null,takeProfit2:plan.takeProfit2??null,takeProfit3:plan.takeProfit3??null,
+      managementStyle:plan.managementStyle||null,waitFor:plan.waitFor||null,jevSovereign:plan.jevSovereign===true
+    }:null,
+    jevPass1:pass1?{laneFocus:pass1.laneFocus,directionFocus:pass1.directionFocus,requestedEvidence:pass1.requestedEvidence||[],costUsd:pass1.costUsd??null}:null,
+    jevFinal:final?{action:final.action,selectedPlanId:final.selectedPlanId,managementStyle:final.managementStyle,costUsd:final.costUsd??null}:null,
+    vision:vision?{requestedFrames:vision.requestedFrames||[],attached:vision.attached??0,required:vision.required??0,source:vision.source||null,error:vision.error||null}:null,
+    riskGate:riskGate?{ok:riskGate.ok,reasons:riskGate.reasons||[]}:null,
+    executionReadiness:executionReadiness?{ok:executionReadiness.ok,reasons:executionReadiness.reasons||[]}:null
+  };
+}
+async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=null,killSwitch=null,executionClaim=null,executionIntent=null,decisionPass1,decisionFinal}){
+  const selection=resolveAttentionCandidate(scan,executionIntent);
+  const candidate=selection.candidate;
+  if(!candidate)return {ok:true,candidateFound:false,reason:selection.reason||'NO_ATTENTION_CANDIDATE',execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
+  const [symbol,global]=await Promise.all([symbolContext(candidate.symbol),globalContext()]);
+  const unified=buildUnifiedContext({symbol,global,candidate});
+  if(typeof store?.learningContext==='function'){
+    try{unified.learning=store.learningContext({symbol:candidate.symbol});}catch{unified.learning=null;}
+  }
+  if(!unified?.dataQuality?.advisoryUsable||finite(unified?.livePrice)===null){
+    return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:'SOVEREIGN_BASE_CONTEXT_UNUSABLE',execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
+  }
+  const pass1=await decisionPass1({candidate,unified});
+  if(!pass1?.ok){
+    return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:pass1?.reason||'JEV_SOVEREIGN_PASS1_UNAVAILABLE',jevPass1:pass1||null,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
+  }
+  const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee});
+  const planOptions=buildSovereignPlanOptions(unified);
+  const final=await decisionFinal({candidate,unified,evidence,planOptions});
+  if(!final?.ok){
+    return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:final?.reason||'JEV_SOVEREIGN_FINAL_UNAVAILABLE',jevPass1:pass1,jevDecision:final||null,evidence,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
+  }
+  const chosen=final.selectedPlan;
+  const plan=chosen?{
+    valid:true,status:'QUALIFIED',side:chosen.side,originTF:chosen.originTF,ownerTF:chosen.ownerTF,
+    lane:chosen.lane,setup:'JEV_SOVEREIGN_'+chosen.lane,execPath:'JEV_FINAL_MARKET_NOW',
+    entryMode:chosen.entryMode,entryPrice:chosen.entryPrice,invalidationPrice:chosen.invalidationPrice,
+    stopPrice:chosen.stopPrice,takeProfit1:chosen.takeProfit1,takeProfit2:chosen.takeProfit2,takeProfit3:chosen.takeProfit3,
+    managementStyle:final.managementStyle,waitFor:'NONE',formingContext:'CONTEXT_ONLY',
+    why:'JEV FINAL selected '+chosen.id+' after directing evidence collection.',
+    riskNote:'Post-JEV code may block only hard execution/integrity safety; it must not re-vote strategy.',
+    jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
+  }:{
+    valid:true,status:'WATCH',side:null,originTF:null,ownerTF:null,lane:null,setup:'JEV_SOVEREIGN_WAIT',
+    execPath:'WAIT',waitFor:'JEV will reconsider on a new radar event or materially changed evidence.',
+    why:'JEV FINAL chose WAIT.',riskNote:'No order is authorized.',jevSovereign:true,jevDecision:final,
+    evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
+  };
+  const riskGate=preflightRiskGate({plan,unified});
+  const dryRunExecutor=buildDryRunOrder({
+    intent:{mode:'DRY_RUN',live:false,symbol:candidate.symbol,side:plan.side},
+    riskGate
+  });
+  const executionReadiness=combineExecutionReadiness(riskGate,dryRunExecutor);
+  const visionMeta=evidence?.visual||null;
+  const out={
+    ok:true,candidateFound:true,committeeCalled:Boolean(visionMeta),candidate,targetedExecution:selection.targeted,
+    unifiedContext:unified,vision:visionMeta||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0},
+    committee:{mode:'JEV_DIRECTED_EVIDENCE_ONLY',available:true},plan,preJevPlan:null,
+    jevPass1:pass1,jevDecision:final,evidence,riskGate,dryRunExecutor,executionReadiness,
+    execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true
+  };
+  try{
+    out.journalId=store.journal('PLAN',candidate.symbol,sovereignJournalPayload({candidate,plan,pass1,final,vision:visionMeta,riskGate,executionReadiness}));
+  }catch(e){
+    out.journalWarning=String(e?.message||e).slice(0,160);
+  }
+  if(typeof store?.recordLearning==='function'){
+    try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:null,jevDecision:{action:final.action,selectedPlanId:final.selectedPlanId,managementStyle:final.managementStyle},contextVersion:unified.version});}catch{}
+  }
+  return out;
+}
+
+
+async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null, decisionJudge = null, decisionPass1 = null, decisionFinal = null }) {
+  if(typeof decisionPass1==='function'&&typeof decisionFinal==='function'){
+    return runSovereignFlow({scan,committee,store,accountRisk,stopRisk,killSwitch,executionClaim,executionIntent,decisionPass1,decisionFinal});
+  }
   const selection = resolveExecutionCandidate(scan, executionIntent);
   const candidate = selection.candidate;
   if (!candidate) return {
@@ -1501,4 +1722,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, withTriggerSpec, tradeLanes, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, withTriggerSpec, tradeLanes, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, resolveAttentionCandidate, buildSovereignPlanOptions, buildSovereignEvidence, runSovereignFlow, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };

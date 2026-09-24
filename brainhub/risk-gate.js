@@ -34,6 +34,33 @@ function preflightRiskGate({ plan, unified } = {}) {
     reasons.push('OWNER_TF_BELOW_ORIGIN');
   }
 
+  // R2.5.3.2 JEV SOVEREIGN: once JEV has made the final strategic choice, this
+  // gate checks integrity/freshness only. Opportunity scores, continuity,
+  // failed-breakout labels and timeframe alignment are evidence for JEV, not a
+  // second strategic vote after JEV.
+  if (plan?.jevSovereign === true) {
+    const uniqueReasons = [...new Set(reasons)];
+    return {
+      ok: uniqueReasons.length === 0,
+      eligibleForDryRun: uniqueReasons.length === 0,
+      liveAllowed: false,
+      execution: 'ADVISORY_ONLY',
+      finalStrategicAuthority:'JEV',
+      strategicRevote:false,
+      side: ['LONG','SHORT'].includes(side) ? side : null,
+      originTF: FRAME_ORDER.includes(originTF) ? originTF : null,
+      ownerTF: FRAME_ORDER.includes(ownerTF) ? ownerTF : null,
+      reasons: uniqueReasons,
+      remainingMandatoryControls: [
+        'ACCOUNT_RISK_CAPS',
+        'STRUCTURAL_STOP_AND_NO_WIDEN',
+        'LEASE_AND_LINEAGE_CLAIM',
+        'KILL_SWITCH',
+        'BINANCE_DRY_RUN_EXECUTOR'
+      ]
+    };
+  }
+
   const path = ['LONG','SHORT'].includes(side) ? unified?.opportunityPaths?.[side] : null;
   const continuity = Array.isArray(path?.continuity) ? path.continuity : [];
   const originPath = continuity.find(x => x?.frame === originTF);

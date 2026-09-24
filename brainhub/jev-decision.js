@@ -35,6 +35,70 @@ const CHECKS = [
   ['negative_track_record','negativeTrackRecord','JEV_NEGATIVE_TRACK_RECORD','Geçmiş sonuçlar olumsuz','Supplied measured outcomes (learning stats / recent closed trades) for this same setup, side or symbol are materially negative, and nothing in the current evidence differs from those losing cases.']
 ];
 const FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
+const SOVEREIGN_EVIDENCE=[
+  ['TRADINGVIEW_5M','Request a fresh validated 5m TradingView visual reading for the 5m scalp lane.'],
+  ['TRADINGVIEW_15M','Request a fresh validated 15m TradingView visual reading for the 15m trade lane and primary context.'],
+  ['TIMING_1M','Request 1m timing evidence only if it materially helps entry timing; it is never a mandatory vote.'],
+  ['TIMING_3M','Request 3m timing evidence only if it materially helps entry timing; it is never a mandatory vote.'],
+  ['ORDER_FLOW_CVD','Request current order-flow/CVD evidence with source and freshness labels.'],
+  ['DEPTH_L2','Request current public depth/L2 footprint evidence; never infer participant identity.'],
+  ['DERIVATIVES','Request OI/funding/taker/top-trader/global positioning context.'],
+  ['OBSERVED_LIQUIDATIONS','Request observed Binance forceOrder prints only; never fabricate a liquidation heatmap.'],
+  ['HIGHER_TF_CONTEXT','Request 30m/1h/4h/1d context only when it materially changes the decision.'],
+  ['HISTORY_OUTCOME','Request measured closed-trade outcome/history context; never treat it as a hard rule.']
+];
+function finiteNumber(v){
+  if(v===null||v===undefined||(typeof v==='string'&&!v.trim()))return null;
+  const n=Number(v);return Number.isFinite(n)?n:null;
+}
+function choiceValue(answer){
+  if(!answer||typeof answer!=='object'||Array.isArray(answer))return null;
+  const v=String(answer.choice||'').trim();
+  return v||null;
+}
+function sovereignFrame(f){
+  if(!f?.available)return {available:false,reason:f?.reason||'UNAVAILABLE'};
+  return {
+    available:true,fresh:f.fresh===true,asOf:f.asOf||null,close:finiteNumber(f.close),trend:f.trend||null,
+    rsi14:finiteNumber(f.rsi14),atrPct:finiteNumber(f.atrPct),breakOfStructure:f.breakOfStructure||null,
+    prior20High:finiteNumber(f.prior20High),prior20Low:finiteNumber(f.prior20Low),
+    swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[],
+    candle:f.candle||null
+  };
+}
+function sovereignAttentionRecord(candidate,unified){
+  return {
+    contract:'R2.5.3.2_JEV_SOVEREIGN_5M_15M',
+    authority:{decisionOwner:'JEV',scanner:'ATTENTION_ONLY',workers:'EVIDENCE_ONLY'},
+    lanes:{scalp:'5m',trade:'15m',longShortSymmetric:true,allConditionsNeedNotAlign:true},
+    symbol:String(candidate?.symbol||unified?.symbol||'').toUpperCase(),
+    radar:{
+      sideHint:['LONG','SHORT'].includes(String(candidate?.side||'').toUpperCase())?String(candidate.side).toUpperCase():null,
+      source:candidate?.deepScanReason||null,
+      targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[],
+      attackRank:finiteNumber(candidate?.attackRank),projectedRank:finiteNumber(candidate?.projectedRank),
+      rankVelocity:finiteNumber(candidate?.rankVelocity),rankAcceleration:finiteNumber(candidate?.rankAcceleration),
+      m1:finiteNumber(candidate?.m1),m3:finiteNumber(candidate?.m3),m5:finiteNumber(candidate?.m5),
+      volumeAcceleration:finiteNumber(candidate?.volumeAcceleration),rangeExpansion:finiteNumber(candidate?.rangeExpansion),
+      spreadBps:finiteNumber(candidate?.spreadBps),oiDeltaPct:finiteNumber(candidate?.oiDeltaPct),
+      takerBuyRatio:finiteNumber(candidate?.takerBuyRatio),fundingRate:finiteNumber(candidate?.fundingRate)
+    },
+    livePrice:finiteNumber(unified?.livePrice),
+    baseFrames:{'5m':sovereignFrame(unified?.frames?.['5m']),'15m':sovereignFrame(unified?.frames?.['15m'])},
+    dataQuality:unified?.dataQuality||null,
+    semantics:{
+      scannerSideIsHintOnly:true,
+      noPreJevQualification:true,
+      noScoreThresholds:true,
+      noTwoOfThreeRequirement:true,
+      noHard15mStrategicVeto:true,
+      formingCandleIsContextOnly:true,
+      numericTruth:'BINANCE_BRAINHUB',
+      visualWorker:'EVIDENCE_ONLY'
+    }
+  };
+}
+
 const EXIT_CHECKS=[
   ['owner_structure_failure','ownerStructureFailure','Sahip zaman dilimi yapısı bozuldu','Owner TF üzerinde kapanmış mum/yapısal kanıt mevcut pozisyon yönünü bozuyor.'],
   ['anchor_structure_failure','anchorStructureFailure','Büyük resim yapısı bozuldu','15m/30m/1h/4h/1d bağlamında pozisyon yönüne karşı anlamlı ve kalıcı yapısal bozulma var.'],
@@ -391,6 +455,129 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       return {ok:false,configured:true,required:true,reason:'JEV_REQUEST_ERROR',durationMs:clock()-started,detail:String(e?.message||e).slice(0,300),budget:budgetStatus()};
     }
   }
+
+  async function sovereignPass1({candidate,unified}={}){
+    if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,pass:1,reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
+    const record=sovereignAttentionRecord(candidate,unified);
+    const questions={
+      lane_focus:{
+        type:'choice',
+        instructions:'Which lane deserves first attention for this symbol? Choose by the supplied market state, not by a fixed rule. This is only an evidence-routing decision, not a trade approval.',
+        criteria:{
+          '5M_SCALP':'The immediate opportunity is primarily a 5-minute scalp question.',
+          '15M_TRADE':'The immediate opportunity is primarily a 15-minute trade question.',
+          'BOTH':'Both 5m scalp and 15m trade hypotheses deserve evidence.',
+          'UNDECIDED':'The base state is insufficient to prefer a lane before evidence.'
+        }
+      },
+      direction_focus:{
+        type:'choice',
+        instructions:'Which directional hypothesis deserves evidence first? Scanner side is only an attention hint and must not bind this choice.',
+        criteria:{
+          'LONG':'LONG deserves first evidence attention.',
+          'SHORT':'SHORT deserves first evidence attention.',
+          'BOTH':'LONG and SHORT both remain live hypotheses.',
+          'UNDECIDED':'Do not privilege either direction yet.'
+        }
+      }
+    };
+    for(const [id,description] of SOVEREIGN_EVIDENCE){
+      questions['evidence_'+id.toLowerCase()]={
+        type:'choice',
+        instructions:'Decide whether this evidence should be requested for the current decision. '+description+' Do not request it merely because a checklist exists; request it only if it can materially improve the decision.',
+        criteria:{
+          REQUEST:'Request this evidence now.',
+          SKIP:'Do not spend time or payload on this evidence for this decision.'
+        }
+      };
+    }
+    const body={
+      model:cfg.model,
+      state:{
+        description:'JEV PASS-1 is the sole strategic evidence director. Radar only raises attention. Decide which evidence workers should fetch. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies.',
+        record
+      },
+      questions
+    };
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:true,pass:1,mode:'SOVEREIGN_CHOICE'};
+    const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
+    const laneFocus=choiceValue(answers.lane_focus);
+    const directionFocus=choiceValue(answers.direction_focus);
+    const requestedEvidence=[];
+    for(const [id] of SOVEREIGN_EVIDENCE){
+      const v=choiceValue(answers['evidence_'+id.toLowerCase()]);
+      if(v==='REQUEST')requestedEvidence.push(id);
+    }
+    if(!laneFocus||!directionFocus)return {ok:false,configured:true,required:true,called:true,pass:1,reason:'JEV_SOVEREIGN_PASS1_SCHEMA_MISMATCH',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
+    return {
+      ok:true,configured:true,required:true,called:true,pass:1,finalAuthority:'JEV',
+      laneFocus,directionFocus,requestedEvidence,
+      model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
+    };
+  }
+
+  async function sovereignFinal({candidate,unified,evidence,planOptions}={}){
+    if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,pass:2,reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
+    const plans=Array.isArray(planOptions)?planOptions.filter(x=>x&&typeof x==='object'&&/^[A-Z0-9_]{3,64}$/.test(String(x.id||''))).slice(0,12):[];
+    const criteria={
+      WAIT:'No supplied executable plan is worth taking now. WAIT is a valid strategic decision and should be chosen when the opportunity is not real enough right now.'
+    };
+    for(const p of plans){
+      criteria[p.id]=[
+        p.side,p.lane,'entry='+p.entryPrice,'stop='+p.stopPrice,
+        'tp1='+p.takeProfit1,'tp2='+p.takeProfit2,'tp3='+p.takeProfit3,
+        'invalidation='+p.invalidationPrice,
+        'frame='+p.originTF,
+        'basis='+String(p.basis||'STRUCTURE')
+      ].join(' | ');
+    }
+    const body={
+      model:cfg.model,
+      state:{
+        description:'JEV PASS-2 is the final strategic decision. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. Scanner and workers have no qualification or veto authority. 5m is the scalp lane; 15m is the trade lane. Numeric Binance/BrainHub truth outranks visual interpretation.',
+        record:{
+          attention:sovereignAttentionRecord(candidate,unified),
+          requestedEvidence:evidence||{},
+          executablePlanOptions:plans
+        }
+      },
+      questions:{
+        trade_plan:{
+          type:'choice',
+          instructions:'Choose the single best action now. Select one supplied executable plan only when its direction, lane, timing and risk geometry are justified by the evidence; otherwise choose WAIT. There is no numeric score threshold and no requirement that all evidence agree.',
+          criteria
+        },
+        management_style:{
+          type:'choice',
+          instructions:'If a trade plan is selected, choose how JEV wants the position managed after entry. If WAIT is selected this answer is recorded but not executed.',
+          criteria:{
+            'TP1_BE_TRAIL':'Take a first partial at TP1, protect around breakeven when appropriate, then trail the runner as structure evolves.',
+            'STRUCTURE_TRAIL':'Manage primarily by evolving 5m/15m structure; keep the runner until the thesis is structurally broken.',
+            'PARTIALS_RUNNER':'Use staged partial profits while preserving a runner until thesis failure.',
+            'HOLD_TO_INVALIDATION':'Avoid premature exits; hold unless the JEV thesis/invalidation breaks or a later JEV review changes the plan.'
+          }
+        }
+      }
+    };
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:true,pass:2,mode:'SOVEREIGN_CHOICE'};
+    const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
+    const selectedId=choiceValue(answers.trade_plan);
+    const managementStyle=choiceValue(answers.management_style);
+    if(!selectedId||!Object.prototype.hasOwnProperty.call(criteria,selectedId)||!managementStyle){
+      return {ok:false,configured:true,required:true,called:true,pass:2,reason:'JEV_SOVEREIGN_FINAL_SCHEMA_MISMATCH',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
+    }
+    const selectedPlan=selectedId==='WAIT'?null:plans.find(x=>x.id===selectedId)||null;
+    if(selectedId!=='WAIT'&&!selectedPlan)return {ok:false,configured:true,required:true,called:true,pass:2,reason:'JEV_SOVEREIGN_PLAN_NOT_FOUND',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
+    return {
+      ok:true,configured:true,required:true,called:true,pass:2,finalAuthority:true,veto:false,
+      action:selectedId==='WAIT'?'WAIT':selectedPlan.side,
+      selectedPlanId:selectedId,selectedPlan,managementStyle,
+      model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
+    };
+  }
+
   async function judgeExit({position,lifecycle,currentPlan,unified}={}){
     if(!configured)return {ok:!cfg.enabled,configured:false,required:cfg.enabled,called:false,action:'HOLD_REVIEW',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     const entry=Number(position?.entryPrice),mark=Number(position?.markPrice);
@@ -478,6 +665,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,budgetStatus};
 }
-module.exports={CHECKS,EXIT_CHECKS,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,compactDecisionRecord,createJevClient};
+module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,createJevClient};
