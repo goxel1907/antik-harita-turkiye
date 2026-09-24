@@ -66,6 +66,7 @@ test('R2535 Office keeps JEV policy DOM refresh null-safe and exposes live corte
   assert.match(html, /JEV Cortex/);
   assert.match(html, /Dinamik araştırma/);
   assert.match(html, /Pozisyon yürütme/);
+  assert.match(html, /Son pozisyon yürütmesi/);
   assert.match(html, /Deneyim hafızası/);
   assert.match(html, /lifetime özet/);
   assert.match(html, /sovereignSelectivityDiagnostic/);
