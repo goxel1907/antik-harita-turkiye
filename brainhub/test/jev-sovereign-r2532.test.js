@@ -48,7 +48,8 @@ function unified(){
       stats:[{side:'LONG',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',samples:3,wins:2,winRate:66.7,avgOutcomePct:0.2}],
       measuredOutcomes:[{ts:1,kind:'POSITION_CLOSED',symbol:'BTCUSDT',side:'LONG',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',outcomePct:0.4,rMultiple:0.8,netPnl:2,exitType:'TP1'}],
       jevLessons:[{ts:2,kind:'JEV_LESSON',symbol:'BTCUSDT',side:'LONG',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',lessonFocus:'ENTRY_TIMING',evidenceFocus:'ORDER_FLOW',lessonAction:'OBSERVE_MORE',scope:'THIS_SETUP_ONLY'}],
-      measuredSampleCount:1,jevLessonCount:1
+      lifetime:{measuredSamples:1,wins:1,losses:0,flats:0,winRatePct:100,avgOutcomePct:0.4,representation:'ALL_MEASURED_POSITION_CLOSED_ROWS_AGGREGATED'},
+      measuredSampleCount:1,recentMeasuredDetailCount:1,jevLessonCount:1
     },
     opportunityPaths:{LONG:{continuity:[]},SHORT:{continuity:[]}}
   };
@@ -72,6 +73,8 @@ test('JEV sovereign PASS-1 directly chooses evidence requests without score thre
         assert.equal(q.type,'choice');
         if(id==='lane_focus')answers[id]={type:'choice',choice:'5M_SCALP'};
         else if(id==='direction_focus')answers[id]={type:'choice',choice:'BOTH'};
+        else if(id==='knowledge_research')answers[id]={type:'choice',choice:'SKIP'};
+        else if(id==='knowledge_family')answers[id]={type:'choice',choice:'AUTO'};
         else answers[id]={type:'choice',choice:(id==='evidence_tradingview_5m'||id==='evidence_order_flow_cvd')?'REQUEST':'SKIP'};
       }
       return response({answers,usage:{cost:0.00001}});
@@ -81,6 +84,8 @@ test('JEV sovereign PASS-1 directly chooses evidence requests without score thre
   assert.equal(out.ok,true);
   assert.equal(out.laneFocus,'5M_SCALP');
   assert.equal(out.directionFocus,'BOTH');
+  assert.equal(out.knowledgeResearchRequested,false);
+  assert.equal(out.knowledgeFamily,'AUTO');
   assert.deepEqual(out.requestedEvidence,['TRADINGVIEW_5M','ORDER_FLOW_CVD']);
   assert.match(seen.state.description,/sole strategic evidence director/i);
   assert.equal(JSON.stringify(seen).includes('0.65'),false);
@@ -178,9 +183,34 @@ test('JEV sovereign position manager chooses HOLD/PROTECT/PARTIAL/EXIT directly 
   assert.equal(out.ok,true);
   assert.equal(out.finalAuthority,true);
   assert.equal(out.action,'EXIT_NOW');
+  assert.equal(out.partialFraction,null);
   assert.equal(out.mode,'SOVEREIGN_CHOICE');
 });
 
+
+test('R2535 JEV verifies researched knowledge before it can become a read-only reference',async t=>{
+  const r=root();t.after(()=>fs.rmSync(r,{recursive:true,force:true}));
+  const client=createJevClient({
+    root:r,apiKey:'sk-or-v1-'+'x'.repeat(40),
+    fetchImpl:async(_url,opt={})=>{
+      const body=JSON.parse(opt.body);
+      assert.equal(body.state.record.authority.application,'READ_ONLY_KNOWLEDGE_REFERENCE');
+      assert.equal(body.state.record.authority.selfModify,false);
+      assert.equal(body.state.record.authority.executionAuthority,false);
+      assert.equal(body.questions.research_verdict.type,'choice');
+      return response({answers:{research_verdict:{type:'choice',choice:'ACCEPT_REFERENCE'}},usage:{cost:0.00001}});
+    }
+  });
+  const out=await client.sovereignKnowledgeReview({
+    topic:'SYMMETRICAL_TRIANGLE',family:'PATTERN',
+    router:{summary:'Source-grounded note.',keyPoints:['Contraction pattern.']},
+    openRouter:{summary:'Source-grounded note.',keyPoints:['Direction requires breakout evidence.']},
+    sources:[{url:'https://www.cmegroup.com/education/courses/technical-analysis/chart-patterns.html',excerpt:'Technical analysis source excerpt about chart patterns.'}]
+  });
+  assert.equal(out.ok,true);
+  assert.equal(out.verdict,'ACCEPT_REFERENCE');
+  assert.equal(out.mode,'SOVEREIGN_KNOWLEDGE_REVIEW');
+});
 
 test('sovereign plan options expose JEV-selectable invalidation bases without score gates',()=>{
   const u=unified();
