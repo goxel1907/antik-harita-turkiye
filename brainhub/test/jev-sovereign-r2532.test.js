@@ -182,3 +182,34 @@ test('bounded sovereign evidence prevents oversized final decision payloads',()=
   assert.ok(JSON.stringify(out).length<=12000,JSON.stringify(out).length);
   assert.equal(out.requested.includes('TRADINGVIEW_5M'),true);
 });
+
+
+test('JEV shadow teacher keeps outcome learning shadow-only',async t=>{
+  const r=root();t.after(()=>fs.rmSync(r,{recursive:true,force:true}));
+  const client=createJevClient({
+    root:r,apiKey:'sk-or-v1-'+'x'.repeat(40),
+    fetchImpl:async(_url,opt={})=>{
+      const body=JSON.parse(opt.body);
+      assert.equal(body.state.record.authority.application,'SHADOW_ONLY');
+      assert.equal(body.state.record.authority.selfModify,false);
+      assert.equal(body.state.record.authority.autoPromotion,false);
+      return response({answers:{
+        lesson_focus:{type:'choice',choice:'ENTRY_TIMING'},
+        evidence_focus:{type:'choice',choice:'ORDER_FLOW'},
+        lesson_action:{type:'choice',choice:'OBSERVE_MORE'},
+        scope:{type:'choice',choice:'THIS_SETUP_ONLY'}
+      },usage:{cost:0.00001}});
+    }
+  });
+  const out=await client.sovereignLesson({
+    symbol:'BTCUSDT',
+    outcome:{side:'LONG',tradeLane:'5M_SCALP',setup:'JEV_SOVEREIGN_5M_SCALP',originTF:'5m',ownerTF:'5m',entryPrice:100,stopPrice:99,outcomePct:-0.2,rMultiple:-0.5,netPnl:-1,exitType:'STOP_LOSS',holdMinutes:8}
+  });
+  assert.equal(out.ok,true);
+  assert.equal(out.teacher,'JEV');
+  assert.equal(out.application,'SHADOW_ONLY');
+  assert.equal(out.selfModify,false);
+  assert.equal(out.autoPromotion,false);
+  assert.equal(out.lessonFocus,'ENTRY_TIMING');
+  assert.equal(out.evidenceFocus,'ORDER_FLOW');
+});
