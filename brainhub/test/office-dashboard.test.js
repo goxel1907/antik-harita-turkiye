@@ -57,15 +57,17 @@ test('office recognizes v9.5.111 and describes JEV as final strategic authority 
 });
 
 
-test('R2534 Office keeps JEV policy DOM refresh null-safe and exposes live cortex memory telemetry', () => {
+test('R2535 Office keeps JEV policy DOM refresh null-safe and exposes live cortex, research, memory and position execution telemetry', () => {
   const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
   const serverSrc = fs.readFileSync(path.join(dir, 'office-server.js'), 'utf8');
-  assert.match(serverSrc, /2\.0\.2-JEV-FULL-CORTEX-R2534/);
+  assert.match(serverSrc, /2\.0\.3-JEV-AUTONOMOUS-MGMT-R2535/);
   assert.match(html, /const jevPolicyEl=\$\('#jevPolicy'\); if\(jevPolicyEl\)/);
   assert.equal(html.includes("$('#jevPolicy').textContent ="), false);
   assert.match(html, /JEV Cortex/);
+  assert.match(html, /Dinamik araştırma/);
+  assert.match(html, /Pozisyon yürütme/);
   assert.match(html, /Deneyim hafızası/);
-  assert.match(html, /geçmişi istemeden hatırlar/);
+  assert.match(html, /lifetime özet/);
   assert.match(html, /sovereignSelectivityDiagnostic/);
   assert.match(html, /BLOK YOK/);
 });
