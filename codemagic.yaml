@@ -213,7 +213,7 @@ workflows:
           grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
           grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
-          # V95115/R2531 mobile truth: JEV is final authority; workers/observer never execute.
+          # V95116/R2532 mobile truth: JEV is final authority; workers/observer never execute.
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' "$MAIN"
           grep -q 'V95116_JEV_SOVEREIGN_R2532_MOBILE' "$MAIN"
           grep -q 'JEV PATRON' "$MAIN"
@@ -437,7 +437,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.114-r2531 JEV Pro Scalper signed APK
+      - name: Build installable v9.5.114-r2532 JEV Sovereign signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
