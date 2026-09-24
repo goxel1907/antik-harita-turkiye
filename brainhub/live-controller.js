@@ -1520,9 +1520,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       ok:true,
       busy:positionReviewBusy,
       cadenceMinutes:5,
-      execution:'JEV_EXIT_NOW_BINDING_WHEN_LIVE_ARMED',
-      bindingActions:['EXIT_NOW'],
-      advisoryActions:['HOLD','PROTECT_PROFIT','PARTIAL_TAKE_PROFIT'],
+      execution:'JEV_POSITION_REDUCE_BINDING_WHEN_LIVE_ARMED',
+      bindingActions:['EXIT_NOW','PARTIAL_TAKE_PROFIT'],
+      advisoryActions:['HOLD','PROTECT_PROFIT'],
       // CLAUDE_V111: bu kural AÇIK POZİSYONDAN ÇIKIŞ içindir; giriş/scalp fırsatlarını engellemez.
       ruleTr:'JEV SOVEREIGN: açık pozisyonda HOLD / kârı koru / kısmi al / EXIT kararını JEV verir. 5m, 15m, 1m/3m timing, akış, likidite ve derivatives kanıttır; sabit 2/3 veya 15m stratejik veto kuralı yoktur. Kod yalnız execution integrity ve hard safety uygular.',
       lastTickAt:positionManagerState.lastTickAt,
@@ -1586,46 +1586,49 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let reasonTr='Büyük resim ve owner yapı korunuyor; pozisyon izleniyor.';
       if(assessment.lowTfNoiseOnly)reasonTr='1m/3m/5m tersliği büyük resim tarafından doğrulanmadı; gürültü/erken uyarı olarak izlendi.';
       if(action==='PROTECT_PROFIT')reasonTr='Pozisyon kârda; düşük/orta zaman dilimi zayıflığı nedeniyle kârı koruma adayı, fakat yapısal çıkış teyidi yok.';
-      if(action==='PARTIAL_TAKE_PROFIT')reasonTr='Açık kâr risk altında ve owner/büyük resimde ek zayıflık var; kısmi kâr alma değerlendirmesi.';
+      if(action==='PARTIAL_TAKE_PROFIT')reasonTr='JEV açık pozisyonun bir bölümünü azaltmayı seçti; LIVE açıksa BrainHub-owned pozisyon seçilen oranla reduce-only MARKET azaltılır.';
       if(action==='EXIT_NOW')reasonTr='JEV tezi/invalidation artık pozisyonu taşımayı haklı çıkarmıyor; LIVE açıksa BrainHub-owned pozisyon reduce-only MARKET ile kapatılır.';
       if(action==='HOLD_REVIEW')reasonTr='Veri/kanıt yeterli değil; agresif çıkış uygulanmadı, yeniden analiz bekleniyor.';
 
       let managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'ADVISORY_ONLY',reason:null};
       const brainOwned=String(existing?.state||'').toUpperCase()==='ACTIVE';
-      if(action==='EXIT_NOW'&&jevExit?.finalAuthority===true){
-        const la=readLeaderAutoConfig();
+      const bindingReduceAction=jevExit?.finalAuthority===true&&['EXIT_NOW','PARTIAL_TAKE_PROFIT'].includes(action);
+      if(bindingReduceAction){
         if(!brainOwned){
-          managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_EXIT_EXTERNAL_POSITION_ADVISORY_ONLY',reason:'POSITION_NOT_BRAINHUB_OWNED'};
+          managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_POSITION_EXTERNAL_ADVISORY_ONLY',reason:'POSITION_NOT_BRAINHUB_OWNED'};
         }else if(!reviewLiveArmedAtStart||!armedNow()){
-          managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_EXIT_WAIT_LIVE_ARM',reason:'LIVE_NOT_ARMED_FOR_FULL_REVIEW'};
-        }else if(!la.ok||la.config?.enabled!==true){
-          managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_EXIT_WAIT_AUTO_ENABLE',reason:'LEADER_AUTO_DISABLED'};
+          managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'JEV_POSITION_WAIT_LIVE_ARM',reason:'LIVE_NOT_ARMED_FOR_POSITION_MANAGEMENT'};
         }else{
           const creds=currentCredentials();
           if(!credentialsReady(creds)){
-            managementExecution={ok:false,attempted:false,orderPlaced:false,execution:'JEV_EXIT_BLOCKED',reason:'BINANCE_CREDENTIALS_REQUIRED'};
+            managementExecution={ok:false,attempted:false,orderPlaced:false,execution:'JEV_POSITION_REDUCE_BLOCKED',reason:'BINANCE_CREDENTIALS_REQUIRED'};
           }else if(reviewArmGeneration!==armGeneration||!armedNow()){
-            managementExecution={ok:false,attempted:false,orderPlaced:false,execution:'JEV_EXIT_BLOCKED',reason:'LIVE_DISARMED_DURING_POSITION_REVIEW'};
+            managementExecution={ok:false,attempted:false,orderPlaced:false,execution:'JEV_POSITION_REDUCE_BLOCKED',reason:'LIVE_DISARMED_DURING_POSITION_REVIEW'};
           }else{
+            const fraction=action==='EXIT_NOW'?1:Math.max(0.01,Math.min(0.99,finite(jevExit?.partialFraction)??(1/3)));
             executionBusy=true;
             try{
               const result=await transport.reducePositionMarket({
-                symbol:position.symbol,side:position.side,fraction:1,credentials:creds,reason:'JEV_EXIT_NOW'
+                symbol:position.symbol,side:position.side,fraction,credentials:creds,
+                reason:action==='EXIT_NOW'?'JEV_EXIT_NOW':'JEV_PARTIAL_TAKE_PROFIT'
               });
-              managementExecution={...result,attempted:true};
-              if(result?.ok===true&&result?.orderPlaced===true&&result?.fullyClosed===true){
-                const rr=runnerState.bySymbol?.[position.symbol]||null;
-                if(rr){
-                  const cleanup=[];
-                  for(const ref of runnerOrderRefs(rr)){
-                    try{cleanup.push(await transport.cancelAlgoOrder({...ref,credentials:creds}));}catch{}
+              managementExecution={...result,attempted:true,requestedFraction:fraction};
+              if(result?.ok===true&&result?.orderPlaced===true){
+                if(Number.isFinite(Number(result?.remainingQty)))existing.quantity=Number(result.remainingQty);
+                if(result?.fullyClosed===true){
+                  const rr=runnerState.bySymbol?.[position.symbol]||null;
+                  if(rr){
+                    const cleanup=[];
+                    for(const ref of runnerOrderRefs(rr)){
+                      try{cleanup.push(await transport.cancelAlgoOrder({...ref,credentials:creds}));}catch{}
+                    }
+                    rr.phase='CLOSED';rr.runnerOrdersLive=false;rr.closedBy=action;rr.closedAt=clock();
+                    runnerState.bySymbol[position.symbol]=rr;writeRunnerState();
+                    managementExecution.cleanup=cleanup;
                   }
-                  rr.phase='CLOSED';rr.runnerOrdersLive=false;rr.closedBy='JEV_EXIT_NOW';rr.closedAt=clock();
-                  runnerState.bySymbol[position.symbol]=rr;writeRunnerState();
-                  managementExecution.cleanup=cleanup;
                 }
               }
-              try{store.journal('JEV_POSITION_EXECUTION',position.symbol,{action,brainOwned,requestedJevAction:requestedAction,result:managementExecution});}catch{}
+              try{store.journal('JEV_POSITION_EXECUTION',position.symbol,{action,brainOwned,requestedJevAction:requestedAction,fraction,result:managementExecution});}catch{}
             }finally{executionBusy=false;}
           }
         }
