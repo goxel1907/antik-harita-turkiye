@@ -122,7 +122,7 @@ workflows:
           grep -q 'JEV PATRON' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'R2.5.3.2 SOVEREIGN FLOW' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
           grep -q "versionName '9.5.114-r2534'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
-          echo 'V117_ANDROID_R2533_CONTRACT_OK'
+          echo 'V118_ANDROID_R2534_CONTRACT_OK'
 
           APP=/tmp/futures15m-build/Futures15mAlarm
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
@@ -216,7 +216,7 @@ workflows:
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
           grep -q 'v95113StopAndVerify("ANDROID_EMERGENCY_STOP"' "$MAIN"
-          grep -q 'v9.5.114-JEV-CORTEX-R2533' "$MAIN"
+          grep -q 'v9.5.114-JEV-FULL-CORTEX-R2534' "$MAIN"
           grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
           grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
@@ -265,15 +265,16 @@ workflows:
           grep -q "sovereignLesson" "$CM_BUILD_DIR/brainhub/jev-decision.js"
           grep -q "target_profile" "$CM_BUILD_DIR/brainhub/jev-decision.js"
           grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
-          grep -q "2.0.1-JEV-CORTEX-SHADOW-R2533" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
-          test -f "$CM_BUILD_DIR/brainhub/docs/JEV-PRO-TRADER-CORTEX-R2533.md"
+          grep -q "2.0.2-JEV-FULL-CORTEX-R2534" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
+          test -f "$CM_BUILD_DIR/brainhub/docs/JEV-PRO-TRADER-CORTEX-R2534.md"
           grep -q "measuredOutcomes" "$CM_BUILD_DIR/brainhub/store.js"
           grep -q "sovereignSelectivityDiagnostic" "$CM_BUILD_DIR/brainhub/live-controller.js"
-          grep -q "SHADOW_KNOWLEDGE_REFERENCE" "$CM_BUILD_DIR/brainhub/jev-decision.js"
+          grep -q "LIVE_REASONING_REFERENCE_READ_ONLY" "$CM_BUILD_DIR/brainhub/jev-decision.js"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2532-SOVEREIGN.ps1"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2533-CORTEX-SHADOW.ps1"
+          test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2534-JEV-FULL-CORTEX.ps1"
           grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
-          grep -q "2.0.1-JEV-CORTEX-SHADOW-R2533" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
+          grep -q "2.0.2-JEV-FULL-CORTEX-R2534" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           grep -q "positionLedgerTick" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/live/positions" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "extended_entry" "$CM_BUILD_DIR/brainhub/jev-decision.js"
