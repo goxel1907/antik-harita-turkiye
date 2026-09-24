@@ -48,7 +48,7 @@ const SOVEREIGN_EVIDENCE=[
   ['DERIVATIVES','Request OI/funding/taker/top-trader/global positioning context.'],
   ['OBSERVED_LIQUIDATIONS','Request observed Binance forceOrder prints only; never fabricate a liquidation heatmap.'],
   ['HIGHER_TF_CONTEXT','Request 30m/1h/4h/1d context only when it materially changes the decision.'],
-  ['HISTORY_OUTCOME','Request measured closed-trade outcome/history context; never treat it as a hard rule.']
+  ['HISTORY_OUTCOME','Request deeper measured closed-trade detail when it can help; a compact measured experience memory is already ALWAYS_ON and must never become a hard rule.']
 ];
 function finiteNumber(v){
   if(v===null||v===undefined||(typeof v==='string'&&!v.trim()))return null;
@@ -183,13 +183,49 @@ function writeJsonAtomic(file,obj){
   fs.renameSync(tmp,file);
 }
 function traderCortexReference(root){
-  const file=path.join(root,'docs','JEV-PRO-TRADER-CORTEX-R2533.md');
-  try{
-    const raw=fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'').trim();
-    return {loaded:true,version:'R2.5.3.3',mode:'SHADOW_KNOWLEDGE_REFERENCE',text:raw.slice(0,18000)};
-  }catch{
-    return {loaded:false,version:'R2.5.3.3',mode:'SHADOW_KNOWLEDGE_REFERENCE',text:''};
+  const candidates=[
+    {file:path.join(root,'docs','JEV-PRO-TRADER-CORTEX-R2534.md'),version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},
+    {file:path.join(root,'docs','JEV-PRO-TRADER-CORTEX-R2533.md'),version:'R2.5.3.3',mode:'SHADOW_KNOWLEDGE_REFERENCE'}
+  ];
+  for(const x of candidates){
+    try{
+      const raw=fs.readFileSync(x.file,'utf8').replace(/^\uFEFF/,'').trim();
+      if(raw)return {loaded:true,version:x.version,mode:x.mode,text:raw.slice(0,14000),file:x.file};
+    }catch{}
   }
+  return {loaded:false,version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY',text:'',file:null};
+}
+function compactExperienceMemory(learning,maxChars=6500){
+  const src=learning&&typeof learning==='object'?learning:{};
+  const out={
+    alwaysOn:true,
+    source:src.source||'BrainHub measured experience memory',
+    measuredSampleCount:Number(src.measuredSampleCount)||0,
+    jevLessonCount:Number(src.jevLessonCount)||0,
+    stats:Array.isArray(src.stats)?src.stats.slice(0,8):[],
+    measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,8):[],
+    jevLessons:Array.isArray(src.jevLessons)?src.jevLessons.slice(0,8):[],
+    note:'Always-on soft context. Measured outcomes and JEV lessons inform interpretation but never create hard gates, change capital settings, or bypass deterministic safety.'
+  };
+  const limit=Math.max(2500,Math.min(9000,Number(maxChars)||6500));
+  let raw=JSON.stringify(out);
+  if(raw.length>limit){out.measuredOutcomes=out.measuredOutcomes.slice(0,5);out.jevLessons=out.jevLessons.slice(0,5);raw=JSON.stringify(out);}
+  if(raw.length>limit){out.stats=out.stats.slice(0,5);out.measuredOutcomes=out.measuredOutcomes.slice(0,3);out.jevLessons=out.jevLessons.slice(0,3);raw=JSON.stringify(out);}
+  if(raw.length>limit){
+    return {
+      alwaysOn:true,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,
+      stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),
+      memoryTrimmed:true,note:out.note
+    };
+  }
+  return out;
+}
+function liveReasoningContext(root,learning){
+  const cortex=traderCortexReference(root);
+  return {
+    professionalTraderCortex:cortex.loaded?{version:cortex.version,mode:cortex.mode,reference:cortex.text}:null,
+    experienceMemory:compactExperienceMemory(learning)
+  };
 }
 function utcDay(now=Date.now()){return new Date(now).toISOString().slice(0,10);}
 function normalizeConfig(root){
@@ -525,6 +561,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   async function sovereignPass1({candidate,unified}={}){
     if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,pass:1,reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     const record=sovereignAttentionRecord(candidate,unified);
+    const liveContext=liveReasoningContext(root,unified?.learning);
     const questions={
       lane_focus:{
         type:'choice',
@@ -560,7 +597,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-1 is the sole strategic evidence director. Radar only raises attention. Decide which evidence workers should fetch. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies.',
+        description:'JEV PASS-1 is the sole strategic evidence director. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON and must be used as read-only reasoning context; JEV never needs to request HISTORY_OUTCOME merely to remember its own measured past. Radar only raises attention. Decide which evidence workers should fetch. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies. If a material concept is not understood from the supplied Cortex/evidence, do not invent it; prefer WAIT until verified knowledge is available.',
+        professionalTraderCortex:liveContext.professionalTraderCortex,
+        experienceMemory:liveContext.experienceMemory,
         record
       },
       questions
@@ -599,11 +638,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         'basis='+String(p.basis||'STRUCTURE')
       ].join(' | ');
     }
-    const boundedEvidence=compactSovereignEvidence(evidence,Math.min(28000,Math.max(8000,cfg.maxPayloadChars-12000)));
+    const liveContext=liveReasoningContext(root,unified?.learning);
+    const boundedEvidence=compactSovereignEvidence(evidence,Math.min(18000,Math.max(6000,cfg.maxPayloadChars-25000)));
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-2 is the final strategic decision. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. 5m is the scalp lane; 15m is the trade lane. Numeric Binance/BrainHub truth outranks visual interpretation.',
+        description:'JEV PASS-2 is the final strategic decision. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. 5m is the scalp lane; 15m is the trade lane. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT.',
+        professionalTraderCortex:liveContext.professionalTraderCortex,
+        experienceMemory:liveContext.experienceMemory,
         record:{
           attention:sovereignAttentionRecord(candidate,unified),
           requestedEvidence:boundedEvidence,
@@ -799,6 +841,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const side=String(position?.side||lifecycle?.side||'').toUpperCase();
     const pnlPct=entry!==null&&entry>0&&mark!==null&&['LONG','SHORT'].includes(side)
       ? (side==='LONG'?(mark-entry)/entry:(entry-mark)/entry)*100:null;
+    const liveContext=liveReasoningContext(root,unified?.learning);
     const record={
       contract:'R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT',
       authority:{decisionOwner:'JEV',workers:'EVIDENCE_ONLY',postJevStrategicRevote:false},
@@ -821,13 +864,15 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       depth:unified?.marketMakerEvidence?.bookBehavior||null,
       derivatives:unified?.derivatives||null,
       observedLiquidations:unified?.liquidationContext||null,
-      learning:unified?.learning||null,
+      experienceMemory:liveContext.experienceMemory,
       requestedEvidence:evidence||null
     };
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the sole strategic position manager. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action.',
+        description:'JEV is the sole strategic position manager. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action. If a material concept is not understood, do not invent it.',
+        professionalTraderCortex:liveContext.professionalTraderCortex,
+        experienceMemory:liveContext.experienceMemory,
         record
       },
       questions:{
@@ -946,4 +991,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignExit,budgetStatus};
 }
-module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,createJevClient};
+module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,createJevClient};
