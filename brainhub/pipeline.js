@@ -1342,9 +1342,16 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   }
   const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee});
   let knowledgeResearchResult=null;
-  if(pass1.knowledgeResearchRequested===true&&typeof knowledgeResearch==='function'){
+  // R2535: knowledge-gap detection runs for every sovereign decision. It is local/cheap when no gap exists.
+  // If a real unfamiliar term is present, 9Router free + OpenRouter free research it, fetched sources are
+  // grounded, and JEV must accept the note before it can enter the read-only dynamic knowledge reference.
+  if(typeof knowledgeResearch==='function'){
     try{
-      knowledgeResearchResult=await knowledgeResearch({candidate,unified,evidence,familyHint:pass1.knowledgeFamily||'AUTO'});
+      knowledgeResearchResult=await knowledgeResearch({
+        candidate,unified,evidence,
+        familyHint:pass1.knowledgeResearchRequested===true?(pass1.knowledgeFamily||'AUTO'):'AUTO',
+        requestedByJev:pass1.knowledgeResearchRequested===true
+      });
       unified.knowledgeResearch=knowledgeResearchResult||null;
     }catch(e){
       knowledgeResearchResult={ok:false,called:true,reason:'KNOWLEDGE_RESEARCH_EXCEPTION',detail:String(e?.message||e).slice(0,240)};
