@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.114-r2531 + PC R2.5.3.2 JEV SOVEREIGN 5M/15M
+    name: Futures 15m Alarm PRO APK v9.5.114-r2532 + PC R2.5.3.2 JEV SOVEREIGN 5M/15M
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -24,7 +24,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.114-r2531 JEV Pro Scalper Turkish source
+      - name: Prepare Futures Alarm v9.5.114-r2532 JEV Sovereign Turkish source
         script: |
           set -euo pipefail
           trap 'rc=$?; echo "PREPARE_V110_FAILED rc=$rc line=$LINENO command=$BASH_COMMAND"; exit $rc' ERR
@@ -106,13 +106,16 @@ workflows:
           # V95115 mobile surface: align with R2.5.3.2 JEV SOVEREIGN 5m/15m decision flow while keeping APK identity stable.
           # UI/metadata only; PC remains the strategic/execution brain and LIVE stays explicit/manual.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95115_jev_pro_scalper_r2531_mobile.py"
-          echo 'V115_ANDROID_R2531_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114->v95115'
+          # V95116: bump installable Android identity to R2532 and surface JEV management/teacher.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95116_jev_sovereign_r2532_mobile.py"
+          echo 'V116_ANDROID_R2532_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114->v95115->v95116'
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'V95116_JEV_SOVEREIGN_R2532_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'JEV PRO FUTURES TRADER/SCALPER' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'JEV PATRON' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'R2.5.3.2 SOVEREIGN FLOW' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
-          grep -q "versionName '9.5.114-r2531'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
-          echo 'V115_ANDROID_R2531_CONTRACT_OK'
+          grep -q "versionName '9.5.114-r2532'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          echo 'V116_ANDROID_R2532_CONTRACT_OK'
 
           APP=/tmp/futures15m-build/Futures15mAlarm
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
@@ -183,8 +186,8 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.114-r2531'" "$BUILD"
-          grep -q 'versionCode 26092302' "$BUILD"
+          grep -q "versionName '9.5.114-r2532'" "$BUILD"
+          grep -q 'versionCode 26092401' "$BUILD"
           grep -q "CLAUDE_V109_BUILD" "$CM_BUILD_DIR/brainhub/claude-v109.js"
           grep -q "9.5.110-VISION" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "'claude-v109.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
@@ -200,18 +203,19 @@ workflows:
           grep -q "SCALP_MOMENTUM" "$CM_BUILD_DIR/brainhub/trade-lanes.js"
           grep -q "640" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "896" "$CM_BUILD_DIR/brainhub/v110.js"
-          grep -q "versionName '9.5.114-r2531'" "$BUILD"
-          grep -q 'versionCode 26092302' "$BUILD"
+          grep -q "versionName '9.5.114-r2532'" "$BUILD"
+          grep -q 'versionCode 26092401' "$BUILD"
           # CLAUDE_V113 (Claude, Anthropic): Android PC LIVE gercegi, dogrulanan ACIL DURDUR, salt-okunur PC pozisyonlari.
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
           grep -q 'v95113StopAndVerify("ANDROID_EMERGENCY_STOP"' "$MAIN"
-          grep -q 'v9.5.114-JEV-PRO-SCALPER-R2531' "$MAIN"
+          grep -q 'v9.5.114-JEV-SOVEREIGN-R2532' "$MAIN"
           grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
           grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
           # V95115/R2531 mobile truth: JEV is final authority; workers/observer never execute.
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' "$MAIN"
+          grep -q 'V95116_JEV_SOVEREIGN_R2532_MOBILE' "$MAIN"
           grep -q 'JEV PATRON' "$MAIN"
           grep -q 'R2.5.3.2 SOVEREIGN FLOW' "$MAIN"
           grep -q 'JEV YÖNETİMİ' "$MAIN"
@@ -227,7 +231,7 @@ workflows:
             echo 'V95114_STALE_JEV_AUTHORITY_TEXT'
             exit 1
           fi
-          echo 'V95115_R2531_POSTPATCH_GATES_OK'
+          echo 'V95116_R2532_POSTPATCH_GATES_OK'
           # CLAUDE_V111 (Claude, Anthropic): PC ve gorunen Android surum kimligi v9.5.111 ile esitlendi; v110 islem tabani korunur.
           grep -q "CLAUDE_V111_BUILD" "$CM_BUILD_DIR/brainhub/claude-v111.js"
           grep -q "CLAUDE_V111_TRIGGER_REVALIDATION" "$CM_BUILD_DIR/brainhub/claude-v111.js"
@@ -479,9 +483,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2531.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2532.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2531.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2532.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -492,5 +496,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.114-R2531.apk
+      - Futures15mAlarm-PRO-v9.5.114-R2532.apk
       - v9595-gradle.log
