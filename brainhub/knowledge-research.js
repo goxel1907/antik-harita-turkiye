@@ -68,12 +68,23 @@ function topicCandidates(unified,evidence=null){
     const candle=safeTopic(f?.candle?.pattern||f?.candle?.type||'');
     if(candle)out.push({topic:candle,family:'PATTERN',tf});
   }
-  const visual=String(evidence?.visual?.text||'').slice(0,12000);
-  const rx=/(?:SETUP|PATTERN|FORMATION|CANDLE)\s*[:=]\s*([A-Za-z0-9_+\-/ ]{2,60})/gi;
+  // R2535: named unfamiliar concepts may arrive from Vision/workers, not only frame.patterns.
+  // Extract explicit labels only; never turn free narrative or a symbol name into "knowledge".
+  const evidenceText=clip(JSON.stringify(evidence||{}),20000);
+  const visual=(String(evidence?.visual?.text||'')+'\n'+evidenceText).slice(0,26000);
+  const rx=/(SETUP|PATTERN|FORMATION|CANDLE|INDICATOR|CONCEPT|MICROSTRUCTURE|DERIVATIVES|ORDER[_ ]?FLOW|LIQUIDITY)\s*[:=]\s*([A-Za-z0-9_+\-/ ]{2,60})/gi;
+  const familyOf=label=>{
+    const z=String(label||'').toUpperCase().replace(/ /g,'_');
+    if(['SETUP','PATTERN','FORMATION','CANDLE'].includes(z))return 'PATTERN';
+    if(z==='INDICATOR')return 'INDICATOR';
+    if(['MICROSTRUCTURE','ORDER_FLOW','LIQUIDITY'].includes(z))return 'MICROSTRUCTURE';
+    if(z==='DERIVATIVES')return 'DERIVATIVES';
+    return 'OTHER';
+  };
   let m;
   while((m=rx.exec(visual))!==null){
-    const v=safeTopic(m[1]);
-    if(v&&!/^(NONE|NO|N A|UNKNOWN|WAIT)$/i.test(v))out.push({topic:v,family:'PATTERN',tf:'VISUAL'});
+    const v=safeTopic(m[2]);
+    if(v&&!/^(NONE|NO|N A|UNKNOWN|WAIT|LONG|SHORT)$/i.test(v))out.push({topic:v,family:familyOf(m[1]),tf:'EVIDENCE'});
   }
   return out.filter((x,i,a)=>a.findIndex(y=>y.topic.toUpperCase()===x.topic.toUpperCase())===i).slice(0,16);
 }
