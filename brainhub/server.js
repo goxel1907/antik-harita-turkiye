@@ -1232,10 +1232,10 @@ const decisionPipeline={
       decisionJudge:jev.judge,
       decisionPass1:jev.sovereignPass1,
       decisionFinal:jev.sovereignFinal,
-      knowledgeResearch:async({unified,familyHint})=>{
+      knowledgeResearch:async({unified,evidence,familyHint})=>{
         let cortexText='';
         try{cortexText=fs.readFileSync(path.join(ROOT,'docs','JEV-PRO-TRADER-CORTEX-R2534.md'),'utf8');}catch{}
-        return knowledgeResearch.researchFromContext({unified,cortexText,familyHint});
+        return knowledgeResearch.researchFromContext({unified,evidence,cortexText,familyHint});
       }
     });
     finally{
