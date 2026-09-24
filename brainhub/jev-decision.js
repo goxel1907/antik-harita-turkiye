@@ -684,6 +684,102 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
 
 
+  async function sovereignLesson({symbol,outcome}={}){
+    if(!configured)return {ok:false,configured:false,required:false,called:false,reason:'JEV_KEY_UNAVAILABLE'};
+    const src=outcome&&typeof outcome==='object'?outcome:{};
+    const record={
+      contract:'R2.5.3.2_JEV_SHADOW_TEACHER',
+      authority:{teacher:'JEV',application:'SHADOW_ONLY',selfModify:false,autoPromotion:false},
+      symbol:String(symbol||src.symbol||'').toUpperCase(),
+      outcome:{
+        side:String(src.side||'').toUpperCase()||null,
+        lane:src.tradeLane||src.entryContext?.lane||null,
+        setup:src.setup||null,
+        originTF:src.originTF||null,
+        ownerTF:src.ownerTF||null,
+        entryPrice:finiteNumber(src.entryPrice),
+        stopPrice:finiteNumber(src.stopPrice),
+        takeProfit1:finiteNumber(src.takeProfit1),
+        outcomePct:finiteNumber(src.outcomePct),
+        rMultiple:finiteNumber(src.rMultiple),
+        netPnl:finiteNumber(src.netPnl),
+        exitType:src.exitType||null,
+        holdMinutes:finiteNumber(src.holdMinutes),
+        entryWhy:String(src.entryContext?.why||'').slice(0,400),
+        managementStyle:src.entryContext?.managementStyle||src.managementStyle||null
+      }
+    };
+    const body={
+      model:cfg.model,
+      state:{
+        description:'JEV is the BrainHub teacher for closed-trade learning. Choose what this measured outcome should teach future JEV decisions. This is SHADOW learning only: do not create hard rules, scores, vetoes, automatic code changes, or auto-promotion. A single trade must not become a mandatory rule.',
+        record
+      },
+      questions:{
+        lesson_focus:{
+          type:'choice',
+          instructions:'Which strategic area deserves the main lesson from this measured outcome?',
+          criteria:{
+            'KEEP_CURRENT':'No material strategy lesson; keep current reasoning and gather more outcomes.',
+            'ENTRY_TIMING':'Entry timing/why-now deserves review.',
+            'INVALIDATION_STOP':'Invalidation/stop placement deserves review.',
+            'TARGET_MANAGEMENT':'Targets, partials, runner, breakeven or trailing deserves review.',
+            'EVIDENCE_WEIGHTING':'The relative importance of structure/liquidity/order-flow/derivatives/visual evidence deserves review.',
+            'LANE_SELECTION':'Choosing 5m scalp versus 15m trade deserves review.'
+          }
+        },
+        evidence_focus:{
+          type:'choice',
+          instructions:'Which evidence family should receive the most attention in later SHADOW comparison for similar setups?',
+          criteria:{
+            'STRUCTURE':'Closed-candle market structure/BOS/CHoCH/swing context.',
+            'LIQUIDITY':'Liquidity, sweep/reclaim, OB/FVG and location.',
+            'ORDER_FLOW':'CVD/order-flow/depth footprints.',
+            'DERIVATIVES':'OI/funding/taker/top-trader positioning.',
+            'VISUAL':'Validated TradingView visual observations.',
+            'EXECUTION_COST':'Spread, fees, slippage and execution geometry.',
+            'COMBINATION':'No single family dominates; compare the combination.'
+          }
+        },
+        lesson_action:{
+          type:'choice',
+          instructions:'How should the lesson influence future SHADOW reasoning? Never make it a hard gate.',
+          criteria:{
+            'KEEP_WEIGHT':'Keep current soft weighting until more measured outcomes exist.',
+            'OBSERVE_MORE':'Collect more comparable outcomes before changing emphasis.',
+            'UPWEIGHT_SOFT':'Softly pay more attention to the selected evidence/focus in similar cases.',
+            'DOWNWEIGHT_SOFT':'Softly pay less attention to the selected evidence/focus in similar cases.'
+          }
+        },
+        scope:{
+          type:'choice',
+          instructions:'Choose the narrowest scope justified by this single measured outcome.',
+          criteria:{
+            'THIS_SETUP_ONLY':'Apply only as a shadow lesson for the same setup/lane/direction pattern.',
+            'THIS_LANE':'Apply as a shadow lesson to the same 5m or 15m lane.',
+            'BOTH_LANES':'The lesson plausibly matters to both 5m and 15m, but remains shadow-only.'
+          }
+        }
+      }
+    };
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:true,teacher:'JEV',mode:'SOVEREIGN_SHADOW_TEACHER'};
+    const a=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
+    const lessonFocus=choiceValue(a.lesson_focus);
+    const evidenceFocus=choiceValue(a.evidence_focus);
+    const lessonAction=choiceValue(a.lesson_action);
+    const scope=choiceValue(a.scope);
+    if(!lessonFocus||!evidenceFocus||!lessonAction||!scope){
+      return {ok:false,configured:true,called:true,reason:'JEV_LESSON_SCHEMA_MISMATCH',teacher:'JEV',mode:'SOVEREIGN_SHADOW_TEACHER',budget:out.budget,costUsd:out.costUsd};
+    }
+    return {
+      ok:true,configured:true,called:true,teacher:'JEV',application:'SHADOW_ONLY',
+      selfModify:false,autoPromotion:false,lessonFocus,evidenceFocus,lessonAction,scope,
+      model:cfg.model,mode:'SOVEREIGN_SHADOW_TEACHER',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
+    };
+  }
+
+
   async function sovereignExit({position,lifecycle,currentPlan,unified,evidence=null}={}){
     if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,finalAuthority:false,action:'HOLD_REVIEW',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     if(unified?.dataQuality?.advisoryUsable!==true)return {ok:false,configured:true,required:true,called:false,finalAuthority:false,action:'HOLD_REVIEW',reason:'JEV_EXIT_CONTEXT_NOT_USABLE'};
@@ -836,6 +932,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignExit,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignExit,budgetStatus};
 }
 module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,createJevClient};
