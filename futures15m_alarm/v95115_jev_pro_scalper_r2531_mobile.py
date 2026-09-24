@@ -47,6 +47,8 @@ old_arch = r'''            st.append("\nKarar mimarisi: 15m ANA/KONTEXT • scal
 new_arch = r'''            st.append("\nKarar mimarisi: 5m LONG/SHORT SCALP • scalp execution yalnız KAPANMIŞ 5m • 15m LONG/SHORT TRADE • 1m/3m/30m+ yalnız JEV isterse ek kanıttır • 15m ters yapı JEV için kanıttır; worker stratejik veto üretmez • oluşan mum bağlamdır, onay değildir."); // V95115_JEV_PRO_SCALPER_R2531_MOBILE
             st.append("\nJEV PATRON: PASS-1 hangi kanıtın gerekli olduğunu seçer → workerlar yalnız o kanıtı getirir → PASS-2 LONG / SHORT / WAIT final kararını verir.");
             st.append("\nJEV PRO FUTURES TRADER/SCALPER: 5m scalp ve 15m trade için yapı/SMC/likidite/grafik/order-flow/depth/OI/funding/taker/top-trader/observed liquidation kanıtlarının önem sırasını JEV kendisi belirler; tüm şartların aynı anda hizalanması gerekmez.");
+            st.append("\nJEV YÖNETİMİ: seçilen işlemde invalidation/stop tabanı, hedef profili, partial dağılımı, breakeven ve runner/trailing yaklaşımını JEV belirler; kod yalnız sayısal/exchange bütünlüğünü uygular.");
+            st.append("\nJEV TEACHER: kapanmış ölçülmüş işlemlerden SHADOW lesson üretir; self-modify ve auto-promotion kapalıdır.");
             st.append("\nChart truth: yalnız doğrulanmış TradingView görsel kanıtı; sayısal çatışmada Binance/BrainHub üstündür.");
             st.append("\nOrder-flow truth: streaming tercih edilir; REST aggTrades fallback açıkça etiketlenir; eksik veri NÖTR/0 kabul edilmez.");'''
 main = rep(main, old_arch, new_arch, "R2.5.3.2 trade/chart evidence wording")
@@ -65,7 +67,8 @@ card = CARD.read_text(encoding="utf-8")
 old_card = r'''        b.append("\nJEV CORTEX P2: PASS-1 → hedefli evidence dispatch → çözümlenmiş kanıt varsa tek PASS-2; Phase-3 observer READ_ONLY ve decision authority NONE.");'''
 new_card = r'''        b.append("\nJEV CORTEX P2: PASS-1 → JEV kanıtı seçer → worker yalnız isteneni toplar → tek PASS-2 → JEV FINAL LONG/SHORT/WAIT; Phase-3 observer READ_ONLY ve decision authority NONE.");
         b.append("\nR2.5.3.2 SOVEREIGN FLOW: 5m LONG/SHORT scalp + 15m LONG/SHORT trade; 1m/3m/30m+ zorunlu oy değil, yalnız JEV isterse ek kanıttır. Sabit puan/2-of-3/hard-15m stratejik veto yoktur."); // V95115_JEV_PRO_SCALPER_R2531_MOBILE
-        b.append("\nTV görseli ancak identity/freshness/range/nonblank doğrulanırsa kanıttır; numeric conflict → Binance/BrainHub wins.");'''
+        b.append("\nTV görseli ancak identity/freshness/range/nonblank doğrulanırsa kanıttır; numeric conflict → Binance/BrainHub wins.");
+        b.append("\nJEV ayrıca target/partial/BE/trail yönetim tercihini verir; kapanan işlemlerden SHADOW teacher lesson üretir. Self-modify / auto-promotion yok.");'''
 card = rep(card, old_card, new_card, "AutoDecisionCard pro scalper evidence review")
 CARD.write_text(card, encoding="utf-8")
 
@@ -110,6 +113,8 @@ checks = {
     "closed5m": "scalp execution yalnız KAPANMIŞ 5m" in main,
     "worker no veto": "worker stratejik veto üretmez" in main,
     "pro review": "JEV PRO FUTURES TRADER/SCALPER" in main and "R2.5.3.2 SOVEREIGN FLOW" in card and "JEV PATRON" in main,
+    "jev management": "JEV YÖNETİMİ" in main and "target/partial/BE/trail" in card,
+    "jev teacher": "JEV TEACHER" in main and "SHADOW teacher lesson" in card,
     "numeric truth": "Binance/BrainHub üstündür" in main and "Binance/BrainHub wins" in card,
     "missing not neutral": "eksik veri NÖTR/0 kabul edilmez" in main,
     "authority": "scanner ATTENTION_ONLY" in main and "worker EVIDENCE_ONLY" in main,
