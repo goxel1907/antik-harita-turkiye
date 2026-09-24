@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.114-r2531 JEV PRO SCALPER + PC R2.5.3.1
+    name: Futures 15m Alarm PRO APK v9.5.114-r2531 + PC R2.5.3.2 JEV SOVEREIGN 5M/15M
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -103,12 +103,14 @@ workflows:
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95113_claude_live_truth.py"
           # V95114: align Android UI/identity with BrainHub R2.5.2 JEV Cortex.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95114_jev_cortex_mobile.py"
-          # V95115/R2531: align Android with installed R2.5.3.1 Pro Trader/Scalper evidence contract.
+          # V95115 mobile surface: align with R2.5.3.2 JEV SOVEREIGN 5m/15m decision flow while keeping APK identity stable.
           # UI/metadata only; PC remains the strategic/execution brain and LIVE stays explicit/manual.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95115_jev_pro_scalper_r2531_mobile.py"
           echo 'V115_ANDROID_R2531_PATCH_CHAIN_OK v9577->v9579->v9597->v95113->v95114->v95115'
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'JEV PRO FUTURES TRADER/SCALPER' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'JEV PATRON' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'R2.5.3.2 SOVEREIGN FLOW' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
           grep -q "versionName '9.5.114-r2531'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           echo 'V115_ANDROID_R2531_CONTRACT_OK'
 

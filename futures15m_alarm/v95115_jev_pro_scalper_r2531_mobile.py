@@ -44,8 +44,9 @@ if "V95114_JEV_CORTEX_MOBILE" not in main:
     fail("requires v95114 JEV Cortex mobile patch first")
 
 old_arch = r'''            st.append("\nKarar mimarisi: 15m ANA/KONTEXT • scalp execution yalnız KAPANMIŞ 5m • 1m/3m destek/timing, tek başına tetik değil • taze sert ters 15m scalp'i veto eder • oluşan mum bağlamdır, onay değildir • 30m+ yapı/likidite/formasyon/tükenme bağlamı."); // V95114_JEV_CORTEX_MOBILE'''
-new_arch = r'''            st.append("\nKarar mimarisi: 15m ANA/KONTEXT • scalp execution yalnız KAPANMIŞ 5m • 1m/3m destek/timing, tek başına tetik değil • 15m ters yapı JEV için ana bağlamdır; worker stratejik veto üretmez • oluşan mum bağlamdır, onay değildir • 30m+ yapı/likidite/formasyon/tükenme bağlamı."); // V95115_JEV_PRO_SCALPER_R2531_MOBILE
-            st.append("\nJEV PRO FUTURES TRADER/SCALPER: rejim+lokasyon → 15m yapı → CLOSED 5m execution → 1m/3m timing → BOS/CHoCH/OB/FVG/likidite → CVD/order-flow/depth → OI/funding/taker/top-trader → observed liquidation → invalidation/SL/TP/runner.");
+new_arch = r'''            st.append("\nKarar mimarisi: 5m LONG/SHORT SCALP • scalp execution yalnız KAPANMIŞ 5m • 15m LONG/SHORT TRADE • 1m/3m/30m+ yalnız JEV isterse ek kanıttır • 15m ters yapı JEV için kanıttır; worker stratejik veto üretmez • oluşan mum bağlamdır, onay değildir."); // V95115_JEV_PRO_SCALPER_R2531_MOBILE
+            st.append("\nJEV PATRON: PASS-1 hangi kanıtın gerekli olduğunu seçer → workerlar yalnız o kanıtı getirir → PASS-2 LONG / SHORT / WAIT final kararını verir.");
+            st.append("\nJEV PRO FUTURES TRADER/SCALPER: 5m scalp ve 15m trade için yapı/SMC/likidite/grafik/order-flow/depth/OI/funding/taker/top-trader/observed liquidation kanıtlarının önem sırasını JEV kendisi belirler; tüm şartların aynı anda hizalanması gerekmez.");
             st.append("\nChart truth: yalnız doğrulanmış TradingView görsel kanıtı; sayısal çatışmada Binance/BrainHub üstündür.");
             st.append("\nOrder-flow truth: streaming tercih edilir; REST aggTrades fallback açıkça etiketlenir; eksik veri NÖTR/0 kabul edilmez.");'''
 main = rep(main, old_arch, new_arch, "R2.5.3.1 trade/chart evidence wording")
@@ -62,8 +63,8 @@ MAIN.write_text(main, encoding="utf-8")
 # --------------------------------------------------------------------------- AutoDecisionCard
 card = CARD.read_text(encoding="utf-8")
 old_card = r'''        b.append("\nJEV CORTEX P2: PASS-1 → hedefli evidence dispatch → çözümlenmiş kanıt varsa tek PASS-2; Phase-3 observer READ_ONLY ve decision authority NONE.");'''
-new_card = r'''        b.append("\nJEV CORTEX P2: PASS-1 → hedefli evidence dispatch → çözümlenmiş kanıt varsa tek PASS-2; Phase-3 observer READ_ONLY ve decision authority NONE.");
-        b.append("\nR2.5.3.1 PRO SCALPER REVIEW: 15m context + CLOSED 5m execution + 1m/3m timing; structure/SMC/liquidity/order-flow/derivatives/liquidation birlikte JEV tarafından değerlendirilir."); // V95115_JEV_PRO_SCALPER_R2531_MOBILE
+new_card = r'''        b.append("\nJEV CORTEX P2: PASS-1 → JEV kanıtı seçer → worker yalnız isteneni toplar → tek PASS-2 → JEV FINAL LONG/SHORT/WAIT; Phase-3 observer READ_ONLY ve decision authority NONE.");
+        b.append("\nR2.5.3.2 SOVEREIGN FLOW: 5m LONG/SHORT scalp + 15m LONG/SHORT trade; 1m/3m/30m+ zorunlu oy değil, yalnız JEV isterse ek kanıttır. Sabit puan/2-of-3/hard-15m stratejik veto yoktur."); // V95115_JEV_PRO_SCALPER_R2531_MOBILE
         b.append("\nTV görseli ancak identity/freshness/range/nonblank doğrulanırsa kanıttır; numeric conflict → Binance/BrainHub wins.");'''
 card = rep(card, old_card, new_card, "AutoDecisionCard pro scalper evidence review")
 CARD.write_text(card, encoding="utf-8")
@@ -108,7 +109,7 @@ checks = {
     "no legacy hard-veto text": "taze sert ters 15m scalp'i veto eder" not in main,
     "closed5m": "scalp execution yalnız KAPANMIŞ 5m" in main,
     "worker no veto": "worker stratejik veto üretmez" in main,
-    "pro review": "JEV PRO FUTURES TRADER/SCALPER" in main and "R2.5.3.1 PRO SCALPER REVIEW" in card,
+    "pro review": "JEV PRO FUTURES TRADER/SCALPER" in main and "R2.5.3.2 SOVEREIGN FLOW" in card and "JEV PATRON" in main,
     "numeric truth": "Binance/BrainHub üstündür" in main and "Binance/BrainHub wins" in card,
     "missing not neutral": "eksik veri NÖTR/0 kabul edilmez" in main,
     "authority": "scanner ATTENTION_ONLY" in main and "worker EVIDENCE_ONLY" in main,
@@ -124,7 +125,7 @@ if bad:
 print("V95115_JEV_PRO_SCALPER_R2531_MOBILE_OK")
 print("Android identity: v9.5.114-JEV-PRO-SCALPER-R2531 / versionCode 26092302 / versionName 9.5.114-r2531")
 print("Authority: JEV FINAL; scanner ATTENTION_ONLY; workers EVIDENCE_ONLY; observer READ_ONLY/NONE")
-print("Trade lanes: 15m context; CLOSED 5m execution; 1m/3m timing/support only")
+print("Trade lanes: 5m LONG/SHORT scalp; 15m LONG/SHORT trade; extra TF evidence only when JEV requests it")
 print("Chart truth: validated TradingView visual evidence; Binance/BrainHub numeric authority")
 print("Order flow: streaming preferred; labeled REST fallback; missing evidence is not neutral")
 print("LIVE: unchanged; explicit/manual PC truth and emergency-stop verification retained")
