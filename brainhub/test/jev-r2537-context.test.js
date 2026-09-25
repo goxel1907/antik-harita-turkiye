@@ -79,14 +79,14 @@ test('R2538 explicit FVG field mirrors the real unified-frame liquidity.fairValu
 });
 
 
-test('R2540 annotated Vision charts include range, trend guide, swing structure and observed liquidation levels',()=>{
+test('R2541 annotated Vision charts include range extension, confirmed trend lines, pattern geometry and observed liquidation levels',()=>{
   const market=fs.readFileSync(path.join(__dirname,'..','market.js'),'utf8');
   const pipeline=fs.readFileSync(path.join(__dirname,'..','pipeline.js'),'utf8');
-  assert.match(market,/R2540 FULL MIRROR/);
-  assert.match(market,/trendRows/);
+  assert.match(market,/R2541_CONFIRMED_SWING_TRENDLINES/);
+  assert.match(market,/trendLines/);
   assert.match(market,/dealingRange/);
   assert.match(market,/lastConfirmedSwingHigh/);
-  assert.match(market,/lastConfirmedSwingLow/);
+  assert.match(market,/lastConfirmedSwingLow/);\n  assert.match(market,/R2541_PATTERN_GEOMETRY/);\n  assert.match(market,/ARALIK UST/);
   assert.match(market,/options\?\.observedLiquidations/);
   assert.match(pipeline,/observedLiquidations:Array\.isArray\(unified\?\.liquidationContext\?\.zones\)/);
 });
