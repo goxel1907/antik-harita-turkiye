@@ -685,7 +685,9 @@ function renderPositions(s){
   const st=s.status?.data||{}; const pm=st.positionManager||{}; const lr=pm.lastReview||{}; const le=st.learning||{};
   const stats=le.stats||[]; const samples=stats.reduce((a,x)=>a+Number(x.samples||0),0);
   const recentLearning=Array.isArray(le.recent)?le.recent:[];
-  const jevLessons=recentLearning.filter(x=>String(x?.kind||'').toUpperCase()==='JEV_LESSON').length;
+  const jevLessons=Number.isFinite(Number(le.jevLessonCount))
+    ? Number(le.jevLessonCount)
+    : recentLearning.filter(x=>String(x?.kind||'').toUpperCase()==='JEV_LESSON').length;
   renderLedger(s);
   const js=st.jevSovereign||s.health?.data?.jevSovereign||{};
   const cx=js.traderCortex||s.health?.data?.jevSovereign?.traderCortex||{};
