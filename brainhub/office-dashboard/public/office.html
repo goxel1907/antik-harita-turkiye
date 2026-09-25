@@ -364,6 +364,12 @@ const UI_TR = {
   DOUBLE_TOP:'ÇİFT TEPE', DOUBLE_BOTTOM:'ÇİFT DİP', HEAD_AND_SHOULDERS:'OMUZ BAŞ OMUZ',
   INVERSE_HEAD_AND_SHOULDERS:'TERS OMUZ BAŞ OMUZ', RANGE:'YATAY ARALIK',
   LONG_15M_TRADE:'15 DK ALIŞ ANA İŞLEM', SHORT_15M_TRADE:'15 DK SATIŞ ANA İŞLEM',
+  LONG_5M_SCALP:'5 DK ALIŞ SCALP', SHORT_5M_SCALP:'5 DK SATIŞ SCALP',
+  FRESH_SCANNER_SELECTION:'YENİ TARAYICI SEÇİMİ', LEADER_AUTO_BLOCKED:'OTO YÜRÜTME ENGELLENDİ',
+  LIVE_REASONING_REFERENCE_READ_ONLY:'CANLI AKIL YÜRÜTME REFERANSI — SALT OKUNUR',
+  COMPLETE_CORE_5M15M_PLUS_CONTEXT:'5 DK + 15 DK TAM ÇEKİRDEK BAĞLAMI',
+  JEV_EXPLICIT:'JEV AÇIK SEÇİMİ', BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED:'LIVE AÇIKKEN BAĞLAYICI — YALNIZCA AZALT',
+  SHADOW_ONLY:'YALNIZCA GÖLGE',
   DAILY_LOSS_CAP_REACHED:'GÜNLÜK ZARAR TAVANI DOLDU',
   TRADE_RISK_CAP_EXCEEDED:'İŞLEM RİSK TAVANI AŞILDI',
   TRADE_NOTIONAL_CAP_EXCEEDED:'İŞLEM BÜYÜKLÜK TAVANI AŞILDI',
@@ -373,11 +379,18 @@ const UI_TR = {
 };
 function trUi(v){
   let s=String(v??'');
-  for(const [k,val] of Object.entries(UI_TR)) s=s.replace(new RegExp('\\b'+k+'\\b','g'),val);
-  s=s.replace(/JEV FINAL selected SHORT_15M_TRADE after directing evidence collection\.?/g,'JEV kanıt toplama sürecini yönettikten sonra 15 dk ana işlem hattında SATIŞ (SHORT) seçti.')
-     .replace(/JEV FINAL selected LONG_15M_TRADE after directing evidence collection\.?/g,'JEV kanıt toplama sürecini yönettikten sonra 15 dk ana işlem hattında ALIŞ (LONG) seçti.')
+  // Önce tüm tarihsel İngilizce giriş nedeni cümlesini çevir; sonra içindeki enumları Türkçeleştir.
+  s=s.replace(/JEV FINAL selected ([A-Z0-9_]+) after directing evidence collection\.?/g,
+      'JEV kanıt toplama sürecini yönettikten sonra $1 seçti.')
+     .replace(/stream symbol capacity reached/gi,'akış sembol kapasitesi dolu')
+     .replace(/execution=/gi,'yürütme=')
+     .replace(/reasons=/gi,'nedenler=')
+     .replace(/self-modify/gi,'kendi kendini değiştirme')
+     .replace(/auto-promotion/gi,'otomatik terfi')
+     .replace(/JEV lesson/gi,'JEV dersi')
      .replace(/hard safety/gi,'zorunlu güvenlik')
      .replace(/worker/gi,'kanıt ajanı');
+  for(const [k,val] of Object.entries(UI_TR)) s=s.replace(new RegExp('\\b'+k+'\\b','g'),val);
   return s;
 }
 const JEV_CHECKS = [
@@ -801,14 +814,14 @@ function renderPositions(s){
   $('#posKv').innerHTML = [
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
     ['Kural', pm.ruleTr || 'JEV SOVEREIGN: 5 dk ALIŞ/SATIŞ scalp ve 15 dk ALIŞ/SATIŞ ana işlem kararını JEV verir; 1 dk/3 dk/30 dk+ yalnız JEV isterse ek kanıttır. Kanıt ajanı/tarayıcı stratejik veto veya puan kapısı koymaz.'],
-    ['JEV Cortex', cx.version?`${cx.version} • ${cx.mode||'—'} • PASS-1/PASS-2/pozisyon yönetiminde sürekli`:'Cortex bilgisi bekleniyor'],
-    ['JEV piyasa bağlamı', js.marketContext?`${js.marketContext.version} • ${js.marketContext.mode||'—'} • giriş zamanlaması ${trUi(js.marketContext.entryTiming||'—')} • öğrenme ${trUi(js.marketContext.learningTaxonomy||'—')}`:'R2537 piyasa bağlamı bekleniyor'],
-    ['Dinamik araştırma', js.dynamicKnowledge?`${js.dynamicKnowledge.version} • ${js.dynamicKnowledge.mode||'—'} • 9Router + OpenRouter ücretsiz yeniden deneme/yedek geçiş → JEV doğrulama • doğrulanmış ${st.knowledgeResearch?.verifiedCount??0} • OSS kaynak ${st.knowledgeResearch?.openSourceRepoCount??0}`:'araştırma telemetrisi bekleniyor'],
+    ['JEV Cortex', cx.version?`${cx.version} • ${trUi(cx.mode||'—')} • PASS-1/PASS-2/pozisyon yönetiminde sürekli`:'Cortex bilgisi bekleniyor'],
+    ['JEV piyasa bağlamı', js.marketContext?`${js.marketContext.version} • ${trUi(js.marketContext.mode||'—')} • giriş zamanlaması ${trUi(js.marketContext.entryTiming||'—')} • öğrenme ${trUi(js.marketContext.learningTaxonomy||'—')}`:'R2537 piyasa bağlamı bekleniyor'],
+    ['Dinamik araştırma', js.dynamicKnowledge?`${js.dynamicKnowledge.version} • ${trUi(js.dynamicKnowledge.mode||'—')} • 9Router + OpenRouter ücretsiz yeniden deneme/yedek geçiş → JEV doğrulama • doğrulanmış ${st.knowledgeResearch?.verifiedCount??0} • OSS kaynak ${st.knowledgeResearch?.openSourceRepoCount??0}`:'araştırma telemetrisi bekleniyor'],
     ['Pozisyon yürütme', js.positionManagement?`EXIT_NOW ${trUi(js.positionManagement.exitNow||'—')} • kısmi ${trUi(js.positionManagement.partial||'—')}`:'pozisyon yürütme telemetrisi bekleniyor'],
-    ['Son pozisyon yürütmesi', lr.execution?`${lr.execution} • emir ${lr.orderPlaced?'GÖNDERİLDİ':'YOK'}${lr.managementExecution?.reason?' • '+lr.managementExecution.reason:''}`:'henüz pozisyon yürütmesi yok'],
-    ['Deneyim hafızası', js.experienceMemory?`${js.experienceMemory} • ömür boyu özet + son ayrıntılar sürekli`:'ölçülmüş geçmiş bekleniyor'],
+    ['Son pozisyon yürütmesi', lr.execution?`${trUi(lr.execution)} • emir ${lr.orderPlaced?'GÖNDERİLDİ':'YOK'}${lr.managementExecution?.reason?' • '+trUi(lr.managementExecution.reason):''}`:'henüz pozisyon yürütmesi yok'],
+    ['Deneyim hafızası', js.experienceMemory?`${trUi(js.experienceMemory)} • ömür boyu özet + son ayrıntılar sürekli`:'ölçülmüş geçmiş bekleniyor'],
     ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup • JEV gölge dersi ${jevLessons}`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)'],
-    ['Teacher güvenliği', 'JEV lesson = SHADOW_ONLY • self-modify KAPALI • auto-promotion KAPALI']
+    ['Öğretmen güvenliği', trUi('JEV lesson = SHADOW_ONLY • self-modify KAPALI • auto-promotion KAPALI')]
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
 }
 
@@ -1018,6 +1031,15 @@ function mirrorFmt(v,d=3){
   if(Math.abs(n)>=1)return n.toFixed(d);
   return n.toFixed(Math.min(8,d+3));
 }
+function loadMirrorImage(img,url,seq){
+  if(!img)return Promise.resolve();
+  return new Promise((resolve,reject)=>{
+    img.style.opacity='.12';
+    img.onload=()=>{ if(seq===mirrorSeq)img.style.opacity='1'; resolve(); };
+    img.onerror=()=>reject(new Error('grafik PNG yüklenemedi'));
+    img.src=url;
+  });
+}
 async function renderMirror(s){
   const symbol=syncMirrorSymbol(s);
   if(!symbol)return;
@@ -1029,6 +1051,11 @@ async function renderMirror(s){
   const seq=++mirrorSeq, stamp=Date.now();
   const mirrorBars=mirrorTf==='15m'?180:72;
   const clean=$('#mirrorClean'), annotated=$('#mirrorAnnotated');
+  const parityLoading=$('#mirrorParity');
+  parityLoading.className='mirror-parity warn';
+  parityLoading.textContent='Yeni atomik snapshot yükleniyor…';
+  if(clean)clean.style.opacity='.12';
+  if(annotated)annotated.style.opacity='.12';
   $('#mirrorCleanLabel').textContent=`${symbol} • ${mirrorTf}`;
   $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${mirrorTf} • TAM SMC + LİKİDİTE`;
 
@@ -1040,8 +1067,11 @@ async function renderMirror(s){
     const snapshotId=String(j.snapshotId||'');
     const cleanUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'clean',bars:mirrorBars,snapshotId,_:stamp});
     const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:mirrorBars,snapshotId,_:stamp});
-    if(clean)clean.src=cleanUrl;
-    if(annotated)annotated.src=annotatedUrl;
+    await Promise.all([
+      loadMirrorImage(clean,cleanUrl,seq),
+      loadMirrorImage(annotated,annotatedUrl,seq)
+    ]);
+    if(seq!==mirrorSeq)return;
     const p=j.packet||{}, f=p?.coreFrames?.[mirrorTf]||{}, smc=f?.smcContext||{};
     const ob=f?.orderBlocks||{}, ms=p?.microstructure||{}, der=p?.derivatives||{}, liq=p?.observedLiquidations||{};
     const d=j.latestDecision||{}, p1=d.jevPass1||{}, p2=d.jevFinal||{}, pl=d.plan||{};
