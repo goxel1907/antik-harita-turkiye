@@ -386,11 +386,28 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       sovereignLong:sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='LONG').length,
       sovereignShort:sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='SHORT').length,
       sovereignWait:sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='WAIT').length,
+      sovereignMarketNow:sovereignAnalyses.filter(x=>String(x.jevEntryTiming||'').toUpperCase()==='MARKET_NOW').length,
+      sovereignTimingWait:sovereignAnalyses.filter(x=>String(x.jevEntryTiming||'').toUpperCase().startsWith('WAIT_')).length,
+      sovereignEntryTimingCounts:(()=>{
+        const m=new Map();
+        for(const x of sovereignAnalyses){const k=String(x.jevEntryTiming||'UNSPECIFIED').toUpperCase();m.set(k,(m.get(k)||0)+1);}
+        return [...m.entries()].sort((a,b)=>b[1]-a[1]).map(([entryTiming,count])=>({entryTiming,count}));
+      })(),
+      sovereignWaitReasonCounts:(()=>{
+        const m=new Map();
+        for(const x of sovereignAnalyses){const k=String(x.jevWaitReason||'UNSPECIFIED').toUpperCase();m.set(k,(m.get(k)||0)+1);}
+        return [...m.entries()].sort((a,b)=>b[1]-a[1]).map(([waitReason,count])=>({waitReason,count}));
+      })(),
       sovereignEvidenceRequests:sovereignAnalyses.reduce((sum,x)=>sum+Math.max(0,Number(x.jevRequestedEvidenceCount)||0),0),
       sovereignFinalTotal:sovereignAnalyses.filter(x=>x.jevCalled===true).length,
       sovereignWaitRatePct:(()=>{
         const finals=sovereignAnalyses.filter(x=>x.jevCalled===true).length;
         const waits=sovereignAnalyses.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='WAIT').length;
+        return finals?Number((100*waits/finals).toFixed(1)):null;
+      })(),
+      sovereignTimingWaitRatePct:(()=>{
+        const finals=sovereignAnalyses.filter(x=>x.jevCalled===true).length;
+        const waits=sovereignAnalyses.filter(x=>String(x.jevEntryTiming||'').toUpperCase().startsWith('WAIT_')).length;
         return finals?Number((100*waits/finals).toFixed(1)):null;
       })(),
       sovereignSelectivityDiagnostic:(()=>{
@@ -3362,6 +3379,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         jevRequestedEvidence:Array.isArray(advisory?.jevPass1?.requestedEvidence)?advisory.jevPass1.requestedEvidence.slice(0,16):[],
         jevRequestedEvidenceCount:Array.isArray(advisory?.jevPass1?.requestedEvidence)?advisory.jevPass1.requestedEvidence.length:0,
         jevFinalAction:advisory?.jevDecision?.action||null,
+        jevEntryTiming:advisory?.jevDecision?.entryTiming||advisory?.plan?.entryTiming||null,
+        jevWaitReason:advisory?.jevDecision?.waitReason||advisory?.plan?.waitReason||null,
+        jevSetupFamily:advisory?.jevDecision?.setupFamily||advisory?.plan?.setupFamily||null,
         jevCalled:jevDecision?.called===true,
         jevVeto:jevDecision?.veto===true,
         jevReasons:Array.isArray(jevDecision?.vetoReasons)?jevDecision.vetoReasons.slice(0,8):[],
