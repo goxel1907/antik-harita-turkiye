@@ -31,6 +31,8 @@ test('R2539 final mobile patch hardens auto, manual signed mutations, truth TTL 
   assert.match(patch,/historical PHONE Binance executor permanently inert/);
   assert.match(patch,/R2539_ANDROID_SIGNED_MUTATION_DISABLED_PC_ONLY/);
   assert.match(patch,/signed && !\"GET\"\.equalsIgnoreCase\(method\)/);
-  assert.match(truth,/FRESH_MS = 15000L/);
+  assert.match(truth,/FRESH_MS = 45000L/);
+  assert.match(truth,/MIN_FAILURES_BEFORE_UNHEALTHY = 3/);
+  assert.match(truth,/shouldMarkProbeUnhealthy/);
   assert.match(truth,/stopNeedsRetry/);
 });
