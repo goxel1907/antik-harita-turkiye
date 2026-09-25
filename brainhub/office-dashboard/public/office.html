@@ -354,6 +354,16 @@ const UI_TR = {
   FORMING:'OLUŞUYOR', CONFIRMED:'TEYİTLİ',
   SHADOW:'GÖLGE', BINDING:'BAĞLAYICI', OFF:'KAPALI', ACTIVE:'AKTİF', CLOSED:'KAPANDI',
   TRAILING:'İZ SÜRME', BREAKEVEN:'BAŞABAŞ', TRIGGERED:'TETİKLENDİ', REFRESH_REQUIRED:'YENİ ANALİZ GEREKLİ',
+  UP:'YÜKSELİŞ', DOWN:'DÜŞÜŞ', MIXED:'KARMA', BULL:'BOĞA', BEAR:'AYI',
+  BULLISH:'YÜKSELİŞ YAPISI', BEARISH:'DÜŞÜŞ YAPISI', NEUTRAL:'NÖTR',
+  HH:'DAHA YÜKSEK TEPE', HL:'DAHA YÜKSEK DİP', LH:'DAHA ALÇAK TEPE', LL:'DAHA ALÇAK DİP', EH:'EŞİT TEPE', EL:'EŞİT DİP',
+  BOS_UP:'BOS YUKARI', BOS_DOWN:'BOS AŞAĞI', CHOCH_UP:'CHoCH YUKARI', CHOCH_DOWN:'CHoCH AŞAĞI',
+  SELL_SIDE_RECLAIM:'SATIŞ TARAFI SÜPÜRME + GERİ ALIM', BUY_SIDE_REJECT:'ALIŞ TARAFI SÜPÜRME + RED',
+  ASCENDING_TRIANGLE:'YÜKSELEN ÜÇGEN', DESCENDING_TRIANGLE:'ALÇALAN ÜÇGEN', SYMMETRICAL_TRIANGLE:'SİMETRİK ÜÇGEN',
+  RISING_WEDGE:'YÜKSELEN KAMA', FALLING_WEDGE:'ALÇALAN KAMA', RISING_CHANNEL:'YÜKSELEN KANAL', FALLING_CHANNEL:'ALÇALAN KANAL',
+  DOUBLE_TOP:'ÇİFT TEPE', DOUBLE_BOTTOM:'ÇİFT DİP', HEAD_AND_SHOULDERS:'OMUZ BAŞ OMUZ',
+  INVERSE_HEAD_AND_SHOULDERS:'TERS OMUZ BAŞ OMUZ', RANGE:'YATAY ARALIK',
+  LONG_15M_TRADE:'15 DK ALIŞ ANA İŞLEM', SHORT_15M_TRADE:'15 DK SATIŞ ANA İŞLEM',
   DAILY_LOSS_CAP_REACHED:'GÜNLÜK ZARAR TAVANI DOLDU',
   TRADE_RISK_CAP_EXCEEDED:'İŞLEM RİSK TAVANI AŞILDI',
   TRADE_NOTIONAL_CAP_EXCEEDED:'İŞLEM BÜYÜKLÜK TAVANI AŞILDI',
@@ -1041,7 +1051,7 @@ async function renderMirror(s){
     const parityBad=(parity.checks||[]).filter(x=>x?.match===false).slice(0,3);
     const parityDetail=parityBad.map(x=>`${x.name}: JEV=${x.packet} / grafik=${x.chart}`).join(' • ');
     parityEl.textContent=parity.ok
-      ? `Paket ↔ grafik UYUMU OK • ${parity.compared||0} alan eşleşti`
+      ? `Paket ↔ grafik YAPISAL UYUM OK • ${parity.compared||0} alan eşleşti • trend/formasyon dahil`
       : (Number(parity.mismatches)>0
           ? `Paket ↔ grafik FARKI • ${parity.mismatches} uyuşmazlık / ${parity.compared||0} kontrol${parityDetail?' • '+parityDetail:''}`
           : 'Paket ↔ grafik doğrulaması için yeterli alan bekleniyor');
@@ -1055,16 +1065,16 @@ async function renderMirror(s){
     const ageSec=Number.isFinite(Number(d?.ageMs))?Math.round(Number(d.ageMs)/1000):null;
     const fmtRange=z=>z&&num(z.low)!==null&&num(z.high)!==null?`${mirrorFmt(z.low,4)}→${mirrorFmt(z.high,4)}`:'—';
     const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.broken?' kırık':''}`).join(' • ')||'yok';
-    const fmtFvg=list=>(list||[]).map((x,i)=>`#${i+1} ${x?.side||'?'} ${fmtRange(x)} CE50 ${mirrorFmt(x?.ce50,4)}`).join(' • ')||'yok';
-    const fmtLiq=list=>(list||[]).map((x,i)=>`#${i+1} ${x?.side||'?'} @${mirrorFmt(x?.price,4)} ≈${mirrorFmt(x?.observedQuote,0)} USDT`).join(' • ')||'yok';
-    const patterns=(f?.patterns||[]).slice(-6).map(x=>`${x?.type||x?.name||'PATTERN'}${x?.status?'('+x.status+')':''}`).join(' • ')||'yok';
+    const fmtFvg=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} ${fmtRange(x)} CE50 ${mirrorFmt(x?.ce50,4)}`).join(' • ')||'yok';
+    const fmtLiq=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} @${mirrorFmt(x?.price,4)} ≈${mirrorFmt(x?.observedQuote,0)} USDT`).join(' • ')||'yok';
+    const patterns=(f?.patterns||[]).slice(-6).map(x=>`${trUi(x?.type||x?.name||'FORMASYON')}${x?.status?' ('+trUi(x.status)+')':''}`).join(' • ')||'yok';
     const swing=f?.swingStructure||{};
     const rows=[
       ['Anlık fiyat', mirrorFmt(p.livePrice,4)],
-      ['Trend / yapı', `${f.trend||'—'} • swing ${swing.state||'—'} ${swing.highSequence||''}/${swing.lowSequence||''} • event ${swing.event||'—'} • BOS ${f.breakOfStructure||'—'}`],
+      ['Trend / yapı', `${trUi(f.trend||'—')} • swing ${trUi(swing.state||'—')} • ${trUi(swing.highSequence||'')}/${trUi(swing.lowSequence||'')} • olay ${trUi(swing.event||'—')} • BOS ${trUi(f.breakOfStructure||'—')}`],
       ['Momentum', `RSI ${mirrorFmt(f.rsi14,1)} • ATR ${mirrorFmt(f.atrPct,2)}% • EMA20 ${mirrorFmt(f.ema20,4)} • EMA50 ${mirrorFmt(f.ema50,4)}`],
       ['Aralık', `${trUi(dr.zone||'—')} • alt ${mirrorFmt(dr.low,4)} • denge ${mirrorFmt(dr.equilibrium,4)} • üst ${mirrorFmt(dr.high,4)} • konum ${mirrorFmt(dr.positionPct,1)}%`],
-      ['Likidite', `prior20 H/L ${mirrorFmt(f.prior20High,4)} / ${mirrorFmt(f.prior20Low,4)} • equal H/L ${mirrorFmt(f?.liquidity?.equalHigh?.price,4)} / ${mirrorFmt(f?.liquidity?.equalLow?.price,4)} • sweep ${f?.liquidity?.lastSweep||'—'}`],
+      ['Likidite', `önceki20 tepe/dip ${mirrorFmt(f.prior20High,4)} / ${mirrorFmt(f.prior20Low,4)} • eşit tepe/dip ${mirrorFmt(f?.liquidity?.equalHigh?.price,4)} / ${mirrorFmt(f?.liquidity?.equalLow?.price,4)} • süpürme ${trUi(f?.liquidity?.lastSweep||'—')}`],
       ['Boğa OB', fmtOb(ob.bullish)],
       ['Ayı OB', fmtOb(ob.bearish)],
       ['FVG', fmtFvg(f.recentFairValueGaps)],
@@ -1077,7 +1087,7 @@ async function renderMirror(s){
       ['Tasfiye akışı', `${liq.count??0} kayıt • ALIŞ ${mirrorFmt(liq.longLiquidatedQuote,0)} • SATIŞ ${mirrorFmt(liq.shortLiquidatedQuote,0)} • hız ${liq?.velocity?.state||liq?.velocity?.level||'—'} • zincirleme ${liq?.cascade?.state||liq?.cascade?.level||'—'}`],
       ['Emir akışı', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • depth ${mirrorFmt(ms.depth20Imbalance,3)} • microprice ${mirrorFmt(ms.microprice,4)} • spread ${mirrorFmt(ms.spreadBps,2)} bps`],
       ['Türevler', `OIΔ5m ${mirrorFmt(der.oiDelta5mPct,2)}% • fonlama ${mirrorFmt(der.fundingRate,6)} • taker ${mirrorFmt(der.takerBuySellRatio,3)} • top ${mirrorFmt(der.topTraderLongShortRatio,3)} • global ${mirrorFmt(der.globalLongShortRatio,3)}`],
-      ['PASS-1', d.ts?`${p1.laneFocus||'—'} • yön ${p1.directionFocus||'—'} • istek ${(p1.requestedEvidence||[]).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
+      ['PASS-1', d.ts?`${trUi(p1.laneFocus||'—')} • yön ${trUi(p1.directionFocus||'—')} • istek ${(p1.requestedEvidence||[]).map(trUi).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
       ['PASS-2', d.ts?`${trUi(p2.action||pl.side||'WAIT')} • ${trUi(p2.setupFamily||pl.setupFamily||'—')} • giriş ${trUi(p2.entryTiming||pl.entryTiming||'—')} • avantaj ${trUi(p2.edgeBasis||pl.edgeBasis||'—')}`:'henüz son karar kaydı yok'],
       ['Son karar görüntüsü', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski kayıt / kesin snapshot yok':mirrorFmt(recordedPx,4)}${ageSec!=null&&ageSec>120?' • ⚠ ESKİ KARAR — ŞİMDİKİ PİYASA İLE KARIŞTIRMA':''}`:'—']
     ];
