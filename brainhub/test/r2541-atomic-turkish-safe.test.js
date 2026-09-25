@@ -150,3 +150,15 @@ test('R2541 live Office funnel and mode labels stay Turkish',()=>{
   assert.ok(server.includes("label: 'JEV BEKLE'"));
   assert.ok(server.includes("label: 'Zorunlu güvenlik geçti'"));
 });
+
+
+test('R2541 JEV paid decision hard cap is five dollars and legacy two-dollar config migrates',()=>{
+  const jev=read('jev-decision.js');
+  const manage=read('manage.ps1');
+  assert.match(jev,/dailyCapUsd:5\.00/);
+  assert.doesNotMatch(jev,/dailyCapUsd:2\.00/);
+  assert.match(manage,/NotePropertyName dailyCapUsd -NotePropertyValue 5\.00/);
+  assert.match(manage,/Abs\(\$daily - 2\.00\).*\$jev\.dailyCapUsd = 5\.00/s);
+  assert.match(manage,/dailyCapUsd = 5\.00/);
+  assert.match(manage,/hardUsd=5\.00/);
+});
