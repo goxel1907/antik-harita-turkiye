@@ -88,7 +88,9 @@ public final class V95113PcTruth {
         if (sp == null || out == null || !out.optBoolean("ok", false) || !out.optBoolean("armed", false)) return;
         SharedPreferences.Editor ed = sp.edit().putLong(K_OK_TS, now).putBoolean(K_ARMED, true)
             .putString(K_EXPIRES, str(out, "expiresAt")).putInt(K_FAIL_COUNT, 0);
-        if ("CONFIRMED".equals(sp.getString(K_STOP_STATE, ""))) ed.putString(K_STOP_STATE, "").putString(K_STOP_MSG, "");
+        String stopState = sp.getString(K_STOP_STATE, "");
+        if ("CONFIRMED".equals(stopState) || "FAILED".equals(stopState) || "PENDING".equals(stopState))
+            ed.putString(K_STOP_STATE, "").putString(K_STOP_MSG, "");
         ed.apply();
     }
 
