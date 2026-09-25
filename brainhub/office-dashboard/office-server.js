@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.0.5-JEV-CONTEXT-COMPLETE-R2537';
+const OFFICE_VERSION = '2.0.6-JEV-LIVE-MIRROR-R2538';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -30,7 +30,7 @@ if (!LOOPBACK && OFFICE_KEY.length < 24) {
 
 // Brain Hub tarafında yalnız bu GET yollarına izin var.
 const ALLOWED_BRAIN_PATHS = new Set([
-  '/health', '/live/status', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions'
+  '/health', '/live/status', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png'
 ]);
 
 const cache = new Map();
@@ -75,6 +75,18 @@ function brainGet(p, query = '') {
   if (!ALLOWED_BRAIN_PATHS.has(p)) throw new Error('BRAIN_PATH_NOT_ALLOWED');
   const headers = TOKEN ? { authorization: 'Bearer ' + TOKEN } : {};
   return getJson(BRAIN_URL + p + (query ? '?' + query : ''), { headers, timeoutMs: p === '/live/account' ? 15000 : 9000 });
+}
+async function brainBinary(p, query = '') {
+  if (!ALLOWED_BRAIN_PATHS.has(p)) throw new Error('BRAIN_PATH_NOT_ALLOWED');
+  const headers = TOKEN ? { authorization: 'Bearer ' + TOKEN } : {};
+  const started = Date.now();
+  try {
+    const r = await fetch(BRAIN_URL + p + (query ? '?' + query : ''), { method:'GET', headers, signal:AbortSignal.timeout(12000) });
+    const buf = Buffer.from(await r.arrayBuffer());
+    return { ok:r.ok, status:r.status, data:buf, type:String(r.headers.get('content-type')||'application/octet-stream'), ms:Date.now()-started };
+  } catch (e) {
+    return { ok:false, status:0, data:Buffer.alloc(0), type:'application/octet-stream', error:clip(e?.cause?.code || e?.message || e,160), ms:Date.now()-started };
+  }
 }
 
 async function cached(key, ttlMs, fn) {
@@ -446,6 +458,26 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, fs.readFileSync(path.join(HERE, 'public', 'office.html')), 'text/html; charset=utf-8');
     }
     if (u.pathname === '/api/snapshot') { DEMO_SCENARIO = u.searchParams.get('demo') === 'sim' ? 'sim' : 'base'; return send(res, 200, await buildSnapshot()); }
+    if (u.pathname === '/api/jev-mirror') {
+      const symbol=String(u.searchParams.get('symbol')||'').trim().toUpperCase();
+      const tf=String(u.searchParams.get('tf')||'15m').trim().toLowerCase();
+      if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol)) return send(res,400,{ok:false,error:'invalid symbol'});
+      if(!['5m','15m'].includes(tf)) return send(res,400,{ok:false,error:'invalid tf'});
+      const upstream=await brainGet('/context/jev-live-mirror',new URLSearchParams({symbol,tf}).toString());
+      return send(res,upstream?.ok===true?200:(upstream?.status||503),upstream?.ok===true?scrub(upstream.data):{ok:false,error:upstream?.error||upstream?.data?.error||'mirror unavailable'});
+    }
+    if (u.pathname === '/api/chart') {
+      const symbol=String(u.searchParams.get('symbol')||'').trim().toUpperCase();
+      const tf=String(u.searchParams.get('tf')||'15m').trim().toLowerCase();
+      const mode=String(u.searchParams.get('mode')||'clean').trim().toLowerCase();
+      const bars=Math.max(64,Math.min(256,Number(u.searchParams.get('bars'))||128));
+      if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol)) return send(res,400,{ok:false,error:'invalid symbol'});
+      if(!['5m','15m'].includes(tf)) return send(res,400,{ok:false,error:'invalid tf'});
+      if(!['clean','annotated'].includes(mode)) return send(res,400,{ok:false,error:'invalid mode'});
+      const upstream=await brainBinary('/chart/png',new URLSearchParams({symbol,tf,mode,bars:String(bars)}).toString());
+      if(!upstream.ok)return send(res,upstream.status||503,{ok:false,error:upstream.error||'chart unavailable'});
+      return send(res,200,upstream.data,'image/png');
+    }
     if (u.pathname === '/api/ping') return send(res, 200, { ok: true, officeVersion: OFFICE_VERSION, demo: DEMO, time: nowIso() });
     return send(res, 404, { ok: false, error: 'not found' });
   } catch (e) {
