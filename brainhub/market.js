@@ -961,8 +961,22 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     function xForAt(at){
       const t=Number(at);if(!Number.isFinite(t))return null;
       let best=-1,dist=Infinity;
-      for(let i=0;i<candles.length;i++){const d=Math.abs(Number(candles[i].closeTime)-t);if(d<dist){dist=d;best=i;}}
-      return best>=0?xAt(best):null;
+      for(let i=0;i<candles.length;i++){
+        const ct=Number(candles[i].closeTime);
+        if(!Number.isFinite(ct))continue;
+        const d=Math.abs(ct-t);
+        if(d===0)return xAt(i);
+        if(d<dist){dist=d;best=i;}
+      }
+      // R2541_STRICT_TIME_AXIS: koordinatı grafiğin kenarına körlemesine yapıştırma.
+      // Yalnız gerçek mum zamanına yarım mum aralığından daha yakınsa toleranslı eşleştir.
+      const gaps=[];
+      for(let i=1;i<candles.length;i++){
+        const a=Number(candles[i-1].closeTime),b=Number(candles[i].closeTime);
+        if(Number.isFinite(a)&&Number.isFinite(b)&&b>a)gaps.push(b-a);
+      }
+      const stepMs=gaps.length?[...gaps].sort((a,b)=>a-b)[Math.floor(gaps.length/2)]:0;
+      return best>=0&&stepMs>0&&dist<=stepMs*0.5?xAt(best):null;
     }
     const levelLabels=[];
     const fmtP=p=>{const n=Number(p);if(!Number.isFinite(n))return '';const d=Math.abs(n)>=100?2:Math.abs(n)>=1?4:6;return n.toFixed(d).replace(/0+$/,'').replace(/\.$/,'');};
