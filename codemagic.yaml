@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.114-r2539 + PC R2538 JEV + ANDROID PC-ONLY FAIL-CLOSED
+    name: Futures 15m Alarm PRO APK v9.5.114-r2539 + PC R2540 FULL JEV MIRROR + ANDROID PC-ONLY FAIL-CLOSED
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -333,7 +333,7 @@ workflows:
           grep -q "JEV_POSITION_REDUCE_BINDING_WHEN_LIVE_ARMED" "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q "bindingActions:\['EXIT_NOW','PARTIAL_TAKE_PROFIT'\]" "$CM_BUILD_DIR/brainhub/live-controller.js"
           test -f "$CM_BUILD_DIR/brainhub/knowledge-research.js"
-          grep -q "2.0.6-JEV-LIVE-MIRROR-R2538" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
+          grep -q "2.0.7-JEV-FULL-MIRROR-R2540" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           test -f "$CM_BUILD_DIR/brainhub/docs/JEV-PRO-TRADER-CORTEX-R2534.md"
           grep -q "measuredOutcomes" "$CM_BUILD_DIR/brainhub/store.js"
           grep -q "sovereignSelectivityDiagnostic" "$CM_BUILD_DIR/brainhub/live-controller.js"
@@ -346,12 +346,19 @@ workflows:
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2537-JEV-CONTEXT-COMPLETE.ps1"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2538-JEV-LIVE-MIRROR.ps1"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2539-ANDROID-PC-ONLY-SAFETY.ps1"
+          test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2540-JEV-FULL-MIRROR.ps1"
           grep -q "JEV_LIVE_MIRROR_READ_ONLY" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "JEV_LIVE_MIRROR_FULL_OVERLAYS" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "R2540_JEV_LIVE_MIRROR" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "R2540_FULL_SMC_LIQUIDATION" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/context/jev-live-mirror" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/api/jev-mirror" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           grep -q "JEV Canlı Görüş Aynası" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
+          grep -q "JEV Canlı Görüş Aynası — Tam Görünüm" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
+          grep -q "Observed liquidation zones" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
+          grep -q "FULL ANNOTATED" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
           grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
-          grep -q "2.0.6-JEV-LIVE-MIRROR-R2538" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
+          grep -q "2.0.7-JEV-FULL-MIRROR-R2540" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           grep -q "positionLedgerTick" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/live/positions" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "extended_entry" "$CM_BUILD_DIR/brainhub/jev-decision.js"
