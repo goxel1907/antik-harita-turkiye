@@ -65,7 +65,7 @@ test('R2541 Office keeps JEV policy DOM refresh null-safe and exposes full-width
   assert.equal(html.includes("$('#jevPolicy').textContent ="), false);
   assert.match(html, /JEV Cortex/);
   assert.match(html, /Dinamik araştırma/);
-  assert.match(html, /JEV market context/);
+  assert.match(html, /JEV piyasa bağlamı/);
   assert.match(html, /ŞİMDİ PİYASA GİRİŞİ değilse emir yetkilenmez/);
   assert.match(html, /yeniden deneme\/yedek geçiş/);
   assert.match(html, /OSS kaynak/);
