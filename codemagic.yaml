@@ -140,6 +140,10 @@ workflows:
           grep -q 'telefondan emir başlatılmaz' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoTradeEngine.java
           grep -q 'historical PHONE Binance executor permanently inert' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoTradeEngine.java
           grep -q 'ANDROID DIRECT EXECUTOR DISABLED • PC ONLY' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoTradeEngine.java
+          grep -q 'R2539_ANDROID_SIGNED_MUTATION_DISABLED_PC_ONLY' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'ANDROID SIGNED MUTATION DISABLED • PC BrainHub only' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'REMOTE_LIVE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY' "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q 'ANDROID_REMOTE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'FRESH_MS = 15000L' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
           grep -q "versionName '9.5.114-r2539'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           grep -q 'versionCode 26092501' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
@@ -243,6 +247,8 @@ workflows:
           grep -q 'ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           grep -q 'R2539_FIRST_RUN_FAIL_CLOSED' "$MAIN"
           grep -q 'R2539_RETRY_PENDING_STOP' "$MAIN"
+          grep -q 'R2539_ANDROID_SIGNED_MUTATION_DISABLED_PC_ONLY' "$MAIN"
+          grep -q 'REMOTE_LIVE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY' "$CM_BUILD_DIR/brainhub/server.js"
           grep -q 'FRESH_MS = 15000L' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
           if grep -q 'post(c, "/live/execute", intent, true)' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"; then echo 'ANDROID_ORDER_POST_PRESENT'; exit 1; fi
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
