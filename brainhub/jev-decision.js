@@ -1,5 +1,6 @@
 const fs=require('fs');
 const path=require('path');
+const {marketPacket}=require('./jev-market-packet');
 
 const DEFAULTS={
   enabled:false,
@@ -578,6 +579,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,pass:1,reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     const record=sovereignAttentionRecord(candidate,unified);
     const liveContext=liveReasoningContext(root,unified?.learning);
+    const coreMarket=marketPacket(unified);
     const questions={
       lane_focus:{
         type:'choice',
@@ -627,6 +629,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
+        coreMarketPacket:coreMarket,
         record
       },
       questions
@@ -671,7 +674,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       ].join(' | ');
     }
     const liveContext=liveReasoningContext(root,unified?.learning);
-    const boundedEvidence=compactSovereignEvidence(evidence,Math.min(18000,Math.max(6000,cfg.maxPayloadChars-25000)));
+    const coreMarket=marketPacket(unified);
+    const boundedEvidence=compactSovereignEvidence(evidence,Math.min(14000,Math.max(5000,cfg.maxPayloadChars-29000)));
     const body={
       model:cfg.model,
       state:{
@@ -679,6 +683,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
+        coreMarketPacket:coreMarket,
         record:{
           attention:sovereignAttentionRecord(candidate,unified),
           requestedEvidence:boundedEvidence,
