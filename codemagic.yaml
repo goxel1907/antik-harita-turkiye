@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.115-r2541-hf4 + PC R2541 ATOMIC TÜRKÇE MIRROR + ANDROID PC-ONLY FAIL-CLOSED
+    name: Futures 15m Alarm PRO APK v9.5.115-r2541-hf4 + PC R2542 JEV TRADER OFFICE + ANDROID PC-ONLY FAIL-CLOSED
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -11,6 +11,9 @@ workflows:
           include: true
           source: true
         - pattern: r2541-atomic-turkish-safe
+          include: true
+          source: true
+        - pattern: r2542-jev-trader-office
           include: true
           source: true
         - pattern: brainhub-v95110-multilane-momentum-office
@@ -27,6 +30,11 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
+          grep -q '5M_SCALP is a professional scalper desk' brainhub/jev-decision.js
+          grep -q '15M_TRADE is a professional trader desk' brainhub/jev-decision.js
+          grep -q 'WAIT is an active strategic decision that requires a concrete market reason' brainhub/jev-decision.js
+          grep -q 'sovereignTimingWaitRatePct' brainhub/live-controller.js
+          echo 'R2542_JEV_TRADER_OFFICE_CONTRACT_OK'
       - name: Prepare Futures Alarm v9.5.115-r2541 JEV PC-only fail-closed Turkish source
         script: |
           set -euo pipefail
