@@ -11,6 +11,7 @@ test('R2541 atomic packet/chart contract is wired end-to-end',()=>{
   assert.match(market,/R2541_ATOMIC_PACKET_CHART/);
   assert.match(market,/atomicMirrorContext/);
   assert.match(server,/R2541_ATOMIC_TURKISH_MIRROR/);
+  assert.match(server,/releaseVersion:'R2541-ATOMIC-TURKISH-SAFE'/);
   assert.match(server,/x-brainhub-snapshot-id/);
   assert.match(server,/MIRROR_SNAPSHOT_EXPIRED_OR_UNKNOWN/);
   assert.match(office,/snapshotId/);
@@ -44,6 +45,10 @@ test('R2541 Android build preserves PC-only fail-closed boundary',()=>{
   assert.match(patch,/ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY/);
   assert.match(patch,/post\(c, "\/live\/execute", intent, true\).*not in/s);
   assert.match(patch,/versionName '9\.5\.115-r2541'/);
+  assert.match(patch,/GERİ ÇEKİLME BEKLENİYOR/);
+  assert.match(patch,/ŞİMDİ PİYASA GİRİŞİ/);
+  assert.match(patch,/KIRILIM \+ GERİ TEST/);
+  assert.match(cm,/GERİ ÇEKİLME BEKLENİYOR.*AutoDecisionCard/);
 });
 
 
