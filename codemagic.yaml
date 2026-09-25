@@ -276,7 +276,7 @@ workflows:
           if grep -q 'post(c, "/live/execute", intent, true)' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"; then echo 'ANDROID_ORDER_POST_PRESENT'; exit 1; fi
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
           grep -q 'v95113StopAndVerify("ANDROID_EMERGENCY_STOP"' "$MAIN"
-          grep -q 'v9.5.114-JEV-PC-ONLY-R2539' "$MAIN"
+          grep -q 'v9.5.115-JEV-PC-ONLY-R2541' "$MAIN"
           grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
           grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
@@ -284,8 +284,8 @@ workflows:
           grep -q 'V95115_JEV_PRO_SCALPER_R2531_MOBILE' "$MAIN"
           grep -q 'V95116_JEV_SOVEREIGN_R2532_MOBILE' "$MAIN"
           grep -q 'V95117_JEV_CORTEX_SHADOW_R2533_MOBILE' "$MAIN"
-          grep -q 'R2539 ANDROID SAFETY:' "$MAIN"
-          grep -q 'R2539 PC-ONLY FAIL-CLOSED' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2541 ANDROID GÜVENLİĞİ:' "$MAIN"
+          grep -q 'R2541 PC-ONLY FAIL-CLOSED • TÜRKÇE DURUM' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
           grep -q 'JEV PATRON' "$MAIN"
           grep -q 'R2.5.3.2 SOVEREIGN FLOW' "$MAIN"
           grep -q 'JEV YÖNETİMİ' "$MAIN"
@@ -302,7 +302,7 @@ workflows:
             exit 1
           fi
           grep -q 'V95118_JEV_FULL_CORTEX_R2534_MOBILE' "$MAIN"
-          grep -q 'R2539 PC-ONLY FAIL-CLOSED' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2541 PC-ONLY FAIL-CLOSED • TÜRKÇE DURUM' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
           grep -q 'PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           if grep -q 'Scalp için en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then
             echo 'STALE_SCALP_VETO_COPY_PRESENT'
@@ -313,8 +313,8 @@ workflows:
             exit 1
           fi
           grep -q 'V95119_JEV_AUTONOMOUS_R2535_MOBILE' "$MAIN"
-          grep -q 'R2539 ANDROID SAFETY:' "$MAIN"
-          grep -q 'R2539 PC-ONLY FAIL-CLOSED' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2541 ANDROID GÜVENLİĞİ:' "$MAIN"
+          grep -q 'R2541 PC-ONLY FAIL-CLOSED • TÜRKÇE DURUM' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
           grep -q 'PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           if grep -qi 'uygulamanın açtığı aktif işlem yok' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_LOCAL_POSITION_COPY_PRESENT'; exit 1; fi
           if grep -qi 'Jev henüz değerlendirilmedi' "$MAIN" "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then echo 'STALE_JEV_PLACEHOLDER_PRESENT'; exit 1; fi
@@ -354,7 +354,7 @@ workflows:
           grep -q "JEV_POSITION_REDUCE_BINDING_WHEN_LIVE_ARMED" "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q "bindingActions:\['EXIT_NOW','PARTIAL_TAKE_PROFIT'\]" "$CM_BUILD_DIR/brainhub/live-controller.js"
           test -f "$CM_BUILD_DIR/brainhub/knowledge-research.js"
-          grep -q "2.0.7-JEV-FULL-MIRROR-R2540" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
+          grep -q "2.0.8-JEV-ATOMIC-TR-R2541" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           test -f "$CM_BUILD_DIR/brainhub/docs/JEV-PRO-TRADER-CORTEX-R2534.md"
           grep -q "measuredOutcomes" "$CM_BUILD_DIR/brainhub/store.js"
           grep -q "sovereignSelectivityDiagnostic" "$CM_BUILD_DIR/brainhub/live-controller.js"
@@ -370,8 +370,8 @@ workflows:
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2540-JEV-FULL-MIRROR.ps1"
           grep -q "JEV_LIVE_MIRROR_READ_ONLY" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "JEV_LIVE_MIRROR_FULL_OVERLAYS" "$CM_BUILD_DIR/brainhub/server.js"
-          grep -q "R2540_JEV_LIVE_MIRROR" "$CM_BUILD_DIR/brainhub/server.js"
-          grep -q "R2540_FULL_SMC_LIQUIDATION" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "R2541_ATOMIC_TURKISH_MIRROR" "$CM_BUILD_DIR/brainhub/server.js"
+          grep -q "R2541_ATOMIC_FULL_SMC_TURKISH_LABELS" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/context/jev-live-mirror" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/api/jev-mirror" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           grep -q "JEV Canlı Görüş Aynası" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
@@ -379,7 +379,7 @@ workflows:
           grep -q "Observed liquidation zones" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
           grep -q "FULL ANNOTATED" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
           grep -q "JEV_SOVEREIGN_WORKERS_ON_DEMAND" "$CM_BUILD_DIR/brainhub/live-controller.js"
-          grep -q "2.0.7-JEV-FULL-MIRROR-R2540" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
+          grep -q "2.0.8-JEV-ATOMIC-TR-R2541" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
           grep -q "positionLedgerTick" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/live/positions" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "extended_entry" "$CM_BUILD_DIR/brainhub/jev-decision.js"
@@ -561,7 +561,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.114-r2539 PC-only fail-closed signed APK
+      - name: Build installable v9.5.115-r2541 PC-only fail-closed signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
