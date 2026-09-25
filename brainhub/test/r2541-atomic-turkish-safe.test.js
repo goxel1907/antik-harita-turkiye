@@ -117,3 +117,23 @@ test('R2541 installer fails closed on structural parity',()=>{
   assert.match(ps,/R2541_STRUCTURAL_TREND_PATTERN_PARITY_OK/);
   assert.match(ps,/mismatches -ne 0/);
 });
+
+
+test('R2541 Office hides stale chart while a new atomic snapshot is loading',()=>{
+  const office=read('office-dashboard/public/office.html');
+  assert.match(office,/Yeni atomik snapshot yükleniyor/);
+  assert.match(office,/function loadMirrorImage/);
+  assert.match(office,/await Promise\.all\(\[/);
+  assert.match(office,/loadMirrorImage\(clean,cleanUrl,seq\)/);
+  assert.match(office,/loadMirrorImage\(annotated,annotatedUrl,seq\)/);
+});
+
+test('R2541 Office fully translates historical JEV entry reasons and event blockers',()=>{
+  const office=read('office-dashboard/public/office.html');
+  assert.match(office,/JEV FINAL selected \(\[A-Z0-9_\]\+\) after directing evidence collection/);
+  assert.match(office,/LONG_5M_SCALP:'5 DK ALIŞ SCALP'/);
+  assert.match(office,/SHORT_5M_SCALP:'5 DK SATIŞ SCALP'/);
+  assert.match(office,/FRESH_SCANNER_SELECTION:'YENİ TARAYICI SEÇİMİ'/);
+  assert.match(office,/LEADER_AUTO_BLOCKED:'OTO YÜRÜTME ENGELLENDİ'/);
+  assert.match(office,/akış sembol kapasitesi dolu/);
+});
