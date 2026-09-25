@@ -78,8 +78,12 @@ function marketPacket(u){
     },
     observedLiquidations:{
       available:liq?.available===true,source:liq?.source||null,
-      count:finite(liq?.count),longNotional:finite(liq?.longNotional),shortNotional:finite(liq?.shortNotional),
-      imbalance:finite(liq?.imbalance),clusters:arr(liq?.clusters).slice(0,6),
+      count:finite(liq?.count),
+      longLiquidatedQuote:finite(liq?.longLiquidatedQuote),
+      shortLiquidatedQuote:finite(liq?.shortLiquidatedQuote),
+      zones:arr(liq?.zones).slice(0,6),
+      velocity:liq?.velocity||null,
+      cascade:liq?.cascade||null,
       note:'Observed exchange force-order/liquidation evidence only; no synthetic heatmap.'
     },
     dataQuality:u?.dataQuality||null,
