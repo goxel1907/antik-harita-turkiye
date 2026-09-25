@@ -12,6 +12,7 @@ test('R2541 atomic packet/chart contract is wired end-to-end',()=>{
   assert.match(market,/atomicMirrorContext/);
   assert.match(server,/R2541_ATOMIC_TURKISH_MIRROR/);
   assert.match(server,/x-brainhub-snapshot-id/);
+  assert.match(server,/MIRROR_SNAPSHOT_EXPIRED_OR_UNKNOWN/);
   assert.match(office,/snapshotId/);
 });
 
