@@ -343,6 +343,7 @@ workflows:
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2536-JEV-RESILIENT.ps1"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2537-JEV-CONTEXT-COMPLETE.ps1"
           test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2538-JEV-LIVE-MIRROR.ps1"
+          test -f "$CM_BUILD_DIR/brainhub/INSTALL-R2539-ANDROID-PC-ONLY-SAFETY.ps1"
           grep -q "JEV_LIVE_MIRROR_READ_ONLY" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/context/jev-live-mirror" "$CM_BUILD_DIR/brainhub/server.js"
           grep -q "/api/jev-mirror" "$CM_BUILD_DIR/brainhub/office-dashboard/office-server.js"
