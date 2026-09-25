@@ -504,6 +504,7 @@ async function buildVisionCharts(symbol, requestedBars = 128, options = {}) {
       const visionProbeCell=visionProbe ? probeCells[frame] : null;
       const png = renderChartPng(chart, 'annotated', {
         ...(visionProbeCell?{visionProbeCell}:{}),
+        observedLiquidations:Array.isArray(options?.observedLiquidations)?options.observedLiquidations:[],
         outputWidth,
         outputHeight
       });
@@ -1282,7 +1283,10 @@ async function buildSovereignEvidence({candidate,unified,pass1,committee}){
     (['30m','1h','4h','1d'].includes(tf)&&requested.has('HIGHER_TF_CONTEXT'))
   );
   if(visualFrames.length){
-    const vision=await buildVisionCharts(candidate.symbol,128,{frames:visualFrames});
+    const vision=await buildVisionCharts(candidate.symbol,128,{
+      frames:visualFrames,
+      observedLiquidations:Array.isArray(unified?.liquidationContext?.zones)?unified.liquidationContext.zones:[]
+    });
     if(vision.attached>0){
       try{
         const labels=visualFrames.map(tf=>'OBS_'+tf.toUpperCase()+': concise factual visual observations only').join('\n');
@@ -1545,7 +1549,9 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
     return out;
   }
   if (!plan) {
-  vision = await buildVisionCharts(candidate.symbol, 128);
+  vision = await buildVisionCharts(candidate.symbol, 128,{
+    observedLiquidations:Array.isArray(unified?.liquidationContext?.zones)?unified.liquidationContext.zones:[]
+  });
   if (!vision.ok) {
     const out = {
       ok:true,
