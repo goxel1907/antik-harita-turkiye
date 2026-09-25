@@ -57,10 +57,10 @@ test('office recognizes v9.5.111 and describes JEV as final strategic authority 
 });
 
 
-test('R2540 Office keeps JEV policy DOM refresh null-safe and exposes full-width full-overlay JEV mirror telemetry', () => {
+test('R2541 Office keeps JEV policy DOM refresh null-safe and exposes full-width atomic Turkish JEV mirror telemetry', () => {
   const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
   const serverSrc = fs.readFileSync(path.join(dir, 'office-server.js'), 'utf8');
-  assert.match(serverSrc, /2\.0\.7-JEV-FULL-MIRROR-R2540/);
+  assert.match(serverSrc, /2\.0\.8-JEV-ATOMIC-TR-R2541/);
   assert.match(html, /const jevPolicyEl=\$\('#jevPolicy'\); if\(jevPolicyEl\)/);
   assert.equal(html.includes("$('#jevPolicy').textContent ="), false);
   assert.match(html, /JEV Cortex/);
@@ -85,11 +85,11 @@ test('R2540 Office keeps JEV policy DOM refresh null-safe and exposes full-width
   assert.match(html, /Vision metin aynası/);
   assert.match(html, /JEV PNG pikselini doğrudan tüketmez/);
   assert.match(html, /JEV Canlı Görüş Aynası — Tam Görünüm/);
-  assert.match(html, /FULL ANNOTATED/);
-  assert.match(html, /Observed liquidation zones/);
+  assert.match(html, /TAM AÇIKLAMALI/);
+  assert.match(html, /Gözlenen tasfiye bölgeleri/);
   assert.match(html, /Fib retracement/);
-  assert.match(html, /Bullish OB/);
-  assert.match(html, /Bearish OB/);
+  assert.match(html, /Boğa OB/);
+  assert.match(html, /Ayı OB/);
   assert.match(html, /Oluşumlar/);
   assert.match(html, /mirror-charts/);
 });
