@@ -888,6 +888,33 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       const low=Number(g.low),high=Number(g.high);
       if(Number.isFinite(low)&&Number.isFinite(high))blendRect(left,yPrice(high),right,yPrice(low),g.side==='BULL'?[46,204,113]:[231,76,60],0.10);
     }
+    // R2537: make the same deterministic SMC location data visible to the Vision worker.
+    for(const ob of Array.isArray(a?.orderBlocks?.bullish)?a.orderBlocks.bullish:[]){
+      const low=Number(ob.low),high=Number(ob.high);
+      if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high))blendRect(left,yPrice(high),right,yPrice(low),[0,150,136],0.12);
+    }
+    for(const ob of Array.isArray(a?.orderBlocks?.bearish)?a.orderBlocks.bearish:[]){
+      const low=Number(ob.low),high=Number(ob.high);
+      if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high))blendRect(left,yPrice(high),right,yPrice(low),[244,67,54],0.12);
+    }
+    const ote=a?.smcContext?.oteReference||{};
+    const drawZone=(z,col,alpha)=>{
+      const low=Number(z?.low),high=Number(z?.high);
+      if(Number.isFinite(low)&&Number.isFinite(high))blendRect(left,yPrice(high),right,yPrice(low),col,alpha);
+    };
+    drawZone(ote.longDiscountZone,[33,150,243],0.07);
+    drawZone(ote.shortPremiumZone,[255,87,34],0.07);
+    const fib=a?.smcContext?.fibLevels?.retracement||{};
+    const fibCols={
+      '0.382':[126,87,194,255],'0.5':[255,235,59,255],'0.618':[0,188,212,255],
+      '0.705':[205,220,57,255],'0.786':[255,152,0,255]
+    };
+    for(const key of Object.keys(fibCols)){
+      const price=Number(fib[key]);
+      if(Number.isFinite(price))line(left,yPrice(price),right,yPrice(price),fibCols[key]);
+    }
+    const eq=Number(a?.smcContext?.dealingRange?.equilibrium);
+    if(Number.isFinite(eq))line(left,yPrice(eq),right,yPrice(eq),[158,158,158,255]);
   }
   line(left,volumeTop-8,right,volumeTop-8,grid);
 
