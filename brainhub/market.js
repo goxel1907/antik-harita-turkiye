@@ -760,7 +760,7 @@ async function chartContext(symbol, frame, requestedBars = 128) {
     analysis,
     imageContract:{
       clean:'candles + volume only; current forming candle included and explicitly marked in data',
-      annotated:'candles + volume + EMA20/EMA50 + structural liquidity/FVG overlays; confirmed overlays come only from closed candles',
+      annotated:'candles + volume + EMA20/EMA50 + trend guide + dealing range/premium-discount + prior/equal liquidity + FVG/CE50 + OB + OTE + Fib + swing/BOS/CHoCH reference levels; optional observed force-order liquidation levels; confirmed structural overlays come only from closed candles',
       formingCandlesIncluded:true,
       formingCandleMayConfirmSignal:false,
       structuralAnalysisUsesClosedCandlesOnly:true,
@@ -877,6 +877,33 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     path(emaSeries(20),[255,193,7,255]);
     path(emaSeries(50),[156,92,204,255]);
     const a=chart.analysis||{};
+
+    // R2540 FULL MIRROR: range + premium/discount + regression trend guide.
+    const dr=a?.smcContext?.dealingRange||{};
+    const drLow=Number(dr.low),drHigh=Number(dr.high),drEq=Number(dr.equilibrium);
+    if(Number.isFinite(drLow)&&Number.isFinite(drHigh)&&drHigh>drLow){
+      if(Number.isFinite(drEq)){
+        blendRect(left,yPrice(drHigh),right,yPrice(drEq),[255,87,34],0.035);
+        blendRect(left,yPrice(drEq),right,yPrice(drLow),[33,150,243],0.035);
+      }
+      line(left,yPrice(drHigh),right,yPrice(drHigh),[255,112,67,255]);
+      line(left,yPrice(drLow),right,yPrice(drLow),[66,165,245,255]);
+    }
+    const trendRows=candles.map((x,i)=>({i,close:Number(x.close),forming:x.forming===true}))
+      .filter(x=>Number.isFinite(x.close)&&!x.forming).slice(-30);
+    if(trendRows.length>=8){
+      const n=trendRows.length;
+      const mx=trendRows.reduce((s,x)=>s+x.i,0)/n;
+      const my=trendRows.reduce((s,x)=>s+x.close,0)/n;
+      let num=0,den=0;
+      for(const x of trendRows){num+=(x.i-mx)*(x.close-my);den+=(x.i-mx)*(x.i-mx);}
+      if(den>0){
+        const slope=num/den, intercept=my-slope*mx;
+        const first=trendRows[0], last=trendRows.at(-1);
+        const col=a.trend==='UP'?[0,230,118,255]:a.trend==='DOWN'?[255,82,82,255]:[189,189,189,255];
+        line(xAt(first.i),yPrice(slope*first.i+intercept),xAt(last.i),yPrice(slope*last.i+intercept),col);
+      }
+    }
     const levels=[
       [a.prior20High,[0,188,212,255]],
       [a.prior20Low,[255,152,0,255]],
@@ -885,8 +912,11 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     ];
     for(const [price,col] of levels){if(Number.isFinite(Number(price)))line(left,yPrice(price),right,yPrice(price),col);}
     for(const g of Array.isArray(a.recentFairValueGaps)?a.recentFairValueGaps:[]){
-      const low=Number(g.low),high=Number(g.high);
-      if(Number.isFinite(low)&&Number.isFinite(high))blendRect(left,yPrice(high),right,yPrice(low),g.side==='BULL'?[46,204,113]:[231,76,60],0.10);
+      const low=Number(g.low),high=Number(g.high),ce=Number(g.ce50);
+      if(Number.isFinite(low)&&Number.isFinite(high)){
+        blendRect(left,yPrice(high),right,yPrice(low),g.side==='BULL'?[46,204,113]:[231,76,60],0.10);
+        if(Number.isFinite(ce))line(left,yPrice(ce),right,yPrice(ce),g.side==='BULL'?[76,255,145,255]:[255,112,96,255]);
+      }
     }
     // R2537: make the same deterministic SMC location data visible to the Vision worker.
     for(const ob of Array.isArray(a?.orderBlocks?.bullish)?a.orderBlocks.bullish:[]){
@@ -915,6 +945,27 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     }
     const eq=Number(a?.smcContext?.dealingRange?.equilibrium);
     if(Number.isFinite(eq))line(left,yPrice(eq),right,yPrice(eq),[158,158,158,255]);
+
+    // Swing/BOS/CHoCH reference levels.
+    const swingHi=Number(a?.swingStructure?.lastConfirmedSwingHigh?.price);
+    const swingLo=Number(a?.swingStructure?.lastConfirmedSwingLow?.price);
+    if(Number.isFinite(swingHi))line(left,yPrice(swingHi),right,yPrice(swingHi),
+      ['BOS_UP','CHOCH_UP'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255]);
+    if(Number.isFinite(swingLo))line(left,yPrice(swingLo),right,yPrice(swingLo),
+      ['BOS_DOWN','CHOCH_DOWN'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255]);
+
+    // Observed Binance force-order liquidation clusters (historical prints only, not a future heatmap).
+    for(const z of Array.isArray(options?.observedLiquidations)?options.observedLiquidations:[]){
+      const price=Number(z?.price);
+      if(!Number.isFinite(price)||price<pmin||price>pmax)continue;
+      const side=String(z?.side||'').toUpperCase();
+      const col=side.includes('LONG')?[255,82,82,255]:side.includes('SHORT')?[0,230,118,255]:[255,255,255,255];
+      line(left,yPrice(price),right,yPrice(price),col);
+      line(left,yPrice(price)+1,right,yPrice(price)+1,col);
+    }
+
+    const lastPx=Number(candles.at(-1)?.close);
+    if(Number.isFinite(lastPx))line(left,yPrice(lastPx),right,yPrice(lastPx),[255,255,255,255]);
   }
   line(left,volumeTop-8,right,volumeTop-8,grid);
 
