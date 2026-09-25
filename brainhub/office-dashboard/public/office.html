@@ -232,7 +232,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 
   <section class="mirror-wide">
     <div class="card mirror-card">
-      <h2>📡 JEV Canlı Görüş Aynası — Tam Görünüm <span class="hint">read-only • JEV sayısal packet + Vision grafiği • 5 sn</span></h2>
+      <h2>📡 JEV Canlı Görüş Aynası — Tam Görünüm <span class="hint">salt-okunur • JEV sayısal paketi + Vision grafiği • 5 sn</span></h2>
       <div class="mirror-controls">
         <select id="mirrorSymbol" aria-label="JEV aynası coin seçimi"></select>
         <button class="mirror-tf" id="mirrorTf5" data-mirror-tf="5m">5m</button>
@@ -240,12 +240,12 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       </div>
       <div class="mirror-charts">
         <figure class="mirror-figure">
-          <div class="mh"><b>Piyasa / CLEAN</b><span id="mirrorCleanLabel">—</span></div>
+          <div class="mh"><b>Piyasa / TEMİZ</b><span id="mirrorCleanLabel">—</span></div>
           <img id="mirrorClean" alt="Seçilen coinin temiz canlı grafiği">
         </figure>
         <figure class="mirror-figure">
-          <div class="mh"><b>JEV + Vision / FULL ANNOTATED</b><span id="mirrorAnnotatedLabel">—</span></div>
-          <img id="mirrorAnnotated" alt="OB FVG OTE Fib range trend likidite ve liquidation katmanlı grafik">
+          <div class="mh"><b>JEV + Vision / TAM AÇIKLAMALI</b><span id="mirrorAnnotatedLabel">—</span></div>
+          <img id="mirrorAnnotated" alt="OB FVG OTE Fib aralık trend likidite ve tasfiye katmanlı grafik">
         </figure>
       </div>
       <div class="mirror-parity warn" id="mirrorParity">JEV paket/grafik uyumu bekleniyor…</div>
@@ -272,18 +272,18 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <dl class="kv" id="visKv" style="margin-top:10px"></dl>
     </div>
     <div class="card">
-      <h2>JEV Patron / Son Karar <span class="hint">PASS-1 kanıtı seçer • worker yalnız kanıt toplar • PASS-2 ALIŞ/SATIŞ/BEKLE • sonrası yalnız zorunlu güvenlik</span></h2>
+      <h2>JEV Patron / Son Karar <span class="hint">PASS-1 kanıtı seçer • kanıt ajanı yalnız istenen veriyi toplar • PASS-2 ALIŞ/SATIŞ/BEKLE • sonrası yalnız zorunlu güvenlik</span></h2>
       <dl class="kv" id="jevKv"></dl>
       <div class="jev-list" id="jevList"></div>
     </div>
     <div class="card">
-      <h2>Plan Worker'lar & ücretsiz modeller</h2>
+      <h2>Plan Kanıt Ajanları & ücretsiz modeller</h2>
       <div class="bar" id="wBar" role="img" aria-label="worker kararları"></div>
       <div class="legend" id="wLegend"></div>
       <dl class="kv" id="wKv" style="margin-top:10px"></dl>
     </div>
     <div class="card v109">
-      <h2>Claude v9.5.112 • hızlı scalp / kod-tetik → JEV SON KARAR → zorunlu güvenlik → emir <span class="hint">v111 doğrulama + v112 hızlı hat + runner</span></h2>
+      <h2>Claude v9.5.112 • hızlı scalp / kod-tetik → JEV SON KARAR → zorunlu güvenlik → emir <span class="hint">v111 doğrulama + v112 hızlı hat + iz süren pozisyon</span></h2>
       <dl class="kv" id="v109Kv"></dl>
       <div class="v109-bars" id="v109Bars"></div>
       <div class="legend" id="v109Note"></div>
@@ -292,7 +292,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 
   <section class="row2">
     <div class="card">
-      <h2>Takip edilen setuplar <span class="hint">⚠ = bekleme “NONE…” • tetik = kapanış seviyesi (v109)</span></h2>
+      <h2>Takip edilen setuplar <span class="hint">⚠ = somut bekleme koşulu yok • tetik = kapanış seviyesi (v109)</span></h2>
       <div style="overflow:auto"><table id="setups"></table></div>
     </div>
     <div class="card tl">
@@ -309,14 +309,14 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="card">
       <h2>Açık pozisyonlar <span class="hint" id="posHint">Binance • 30 sn defter</span></h2>
       <div style="overflow:auto"><table id="openPos"></table></div>
-      <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + funding)</span></h2>
+      <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + fonlama)</span></h2>
       <div style="overflow:auto"><table id="closedPos"></table></div>
     </div>
   </section>
 
   <section class="row2">
     <div class="card">
-      <h2>Olay akışı <span class="hint">journal + brainpub.log</span></h2>
+      <h2>Olay akışı <span class="hint">işlem günlüğü + brainpub.log</span></h2>
       <div class="feed" id="feed"></div>
     </div>
     <div class="card">
@@ -377,8 +377,8 @@ const DESKS = [
   { id:'orfree',   x:140, y:572, name:'OpenRouter Free',      role:'ikinci görüş' },
   { id:'vision',   x:550, y:98,  name:'Görsel Analist',       role:'Qwen3-VL • GPU' },
   { id:'positions',x:550, y:598, name:'Pozisyon Yöneticisi',  role:'açık pozisyon • JEV yönetimi' },
-  { id:'jev',      x:960, y:112, name:'JEV Patron',            role:'PASS-1 evidence director • PASS-2 FINAL' },
-  { id:'risk',     x:960, y:342, name:'Hard Safety',          role:'stop • likidasyon • bakiye • limit • grant' },
+  { id:'jev',      x:960, y:112, name:'JEV Patron',            role:'PASS-1 kanıt yöneticisi • PASS-2 SON KARAR' },
+  { id:'risk',     x:960, y:342, name:'Zorunlu Güvenlik',    role:'stop • likidasyon • bakiye • limit • yürütme yetkisi' },
   { id:'exec',     x:960, y:572, name:'Yürütme / Binance',    role:'LIVE • grant • emir' }
 ];
 const BRAIN = { x:550, y:342 };
@@ -450,7 +450,7 @@ function deskSvg(d){
 function buildOffice(){
   const gates = [
     { id:'gQual',  a:'brain', b:'jev',  label:'JEV PASS-1' },
-    { id:'gJev',   a:'jev',   b:'risk', label:'JEV FINAL' },
+    { id:'gJev',   a:'jev',   b:'risk', label:'JEV SON KARAR' },
     { id:'gIntent',a:'risk',  b:'exec', label:'Hard safety' },
     { id:'gLive',  a:'exec',  b:'positions', label:'LIVE' }
   ];
