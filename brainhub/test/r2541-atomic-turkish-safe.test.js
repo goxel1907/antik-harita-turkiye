@@ -102,8 +102,9 @@ test('R2541 renderer refuses stale geometry time-axis snapping',()=>{
 test('R2541 structural parity covers trend and pattern geometry',()=>{
   const server=read('server.js');
   assert.match(server,/R2541_STRUCTURAL_PARITY/);
-  assert.match(server,/upSupportProjectedPrice/);
-  assert.match(server,/downResistanceProjectedPrice/);
+  assert.match(server,/addTrendParity\('upSupport'/);
+  assert.match(server,/addTrendParity\('downResistance'/);
+  assert.match(server,/name\+'ProjectedPrice'/);
   assert.match(server,/patternGeometryDigest/);
   assert.match(server,/R2541_PACKET_VS_CHART_SWING_TREND_PATTERN_PARITY/);
 });
