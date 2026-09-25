@@ -16,7 +16,8 @@ function framePacket(f,{full=false}={}){
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null
   };
   if(full){
-    base.recentFairValueGaps=clipArr(f.recentFairValueGaps,3);
+    const fvgSource=arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps;
+    base.recentFairValueGaps=clipArr(fvgSource,3);
     base.orderBlocks={
       bullish:clipArr(f?.orderBlocks?.bullish,2),
       bearish:clipArr(f?.orderBlocks?.bearish,2)
@@ -101,7 +102,7 @@ function mirrorFrameDigest(f){
     trend:f.trend||null,breakOfStructure:f.breakOfStructure||null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,
     prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,candle:f.candle||null,
     patterns:arr(f.patterns).slice(-6),swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,
-    recentFairValueGaps:arr(f.recentFairValueGaps).slice(-3),
+    recentFairValueGaps:clipArr(arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps,3),
     orderBlocks:{bullish:arr(f?.orderBlocks?.bullish).slice(-2),bearish:arr(f?.orderBlocks?.bearish).slice(-2)},
     smcContext:f.smcContext||null
   };
