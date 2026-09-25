@@ -192,6 +192,7 @@ if (-not ($health.features -contains 'R2541_CONFIRMED_SWING_TRENDLINES')) { thro
 if (-not ($health.features -contains 'R2541_PATTERN_GEOMETRY')) { throw 'R2541 pattern-geometry marker missing.' }
 if (-not ($health.features -contains 'R2541_TURKISH_OFFICE_UI')) { throw 'R2541 Turkish Office marker missing.' }
 if (-not ($health.features -contains 'ANDROID_REMOTE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY')) { throw 'R2539 PC remote-execute block marker missing.' }
+if ([string]$health.jevSovereign.releaseVersion -ne 'R2541-ATOMIC-TURKISH-SAFE') { throw 'R2541 release identity missing.' }
 if ([string]$health.jevSovereign.liveMirror.version -ne 'R2.5.4.1') { throw 'R2541 live mirror metadata missing.' }
 if (-not ($health.features -contains 'JEV_SETUP_FAMILY_LEARNING')) { throw 'R2537 setup-family learning marker missing.' }
 if (-not ($health.features -contains 'JEV_EXPLICIT_ENTRY_TIMING')) { throw 'R2537 entry-timing marker missing.' }
@@ -281,6 +282,7 @@ Write-Host 'R2541_STALE_DECISION_OK'
 Write-Host 'R2541_ANDROID_PC_ONLY_FAIL_CLOSED_OK'
 Write-Host 'R2541_INSTALL_TRANSCRIPT_OK'
 Write-Host 'R2541_LIVE_VERIFIED_OFF'
+Write-Host ("Release           : {0}" -f $health.jevSovereign.releaseVersion)
 Write-Host ("Sovereign package : {0}" -f $health.jevSovereign.packageVersion)
 Write-Host ("Trader Cortex     : {0} / {1}" -f $live.jev.traderCortex.version,$live.jev.traderCortex.mode)
 Write-Host ("Experience Memory : {0}" -f $health.jevSovereign.experienceMemory)
