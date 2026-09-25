@@ -86,7 +86,9 @@ test('R2541 annotated Vision charts include range extension, confirmed trend lin
   assert.match(market,/trendLines/);
   assert.match(market,/dealingRange/);
   assert.match(market,/lastConfirmedSwingHigh/);
-  assert.match(market,/lastConfirmedSwingLow/);\n  assert.match(market,/R2541_PATTERN_GEOMETRY/);\n  assert.match(market,/ARALIK UST/);
+  assert.match(market,/lastConfirmedSwingLow/);
+  assert.match(market,/R2541_PATTERN_GEOMETRY/);
+  assert.match(market,/ARALIK UST/);
   assert.match(market,/options\?\.observedLiquidations/);
   assert.match(pipeline,/observedLiquidations:Array\.isArray\(unified\?\.liquidationContext\?\.zones\)/);
 });
