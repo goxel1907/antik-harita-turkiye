@@ -87,10 +87,28 @@ $r2538MirrorTest = Join-Path $source 'test\jev-live-mirror-r2538.test.js'
 if (-not (Test-Path -LiteralPath $r2538MirrorTest)) { throw 'Downloaded R2538 live mirror regression test is missing.' }
 $r2539AndroidTest = Join-Path $source 'test\android-pc-only-r2539.test.js'
 if (-not (Test-Path -LiteralPath $r2539AndroidTest)) { throw 'Downloaded R2539 Android PC-only regression test is missing.' }
+$officeTest = Join-Path $source 'test\office-dashboard.test.js'
+if (-not (Test-Path -LiteralPath $officeTest)) { throw 'Downloaded Office regression test is missing.' }
 $r2541Test = Join-Path $source 'test\r2541-atomic-turkish-safe.test.js'
 if (-not (Test-Path -LiteralPath $r2541Test)) { throw 'Downloaded R2541 atomic/Turkish regression test is missing.' }
-& node --test $r2541Test
-if ($LASTEXITCODE -ne 0) { throw 'R2541 regression test failed.' }
+
+$syntaxFiles = @(
+  (Join-Path $source 'engine.js'),
+  (Join-Path $source 'market.js'),
+  (Join-Path $source 'server.js'),
+  (Join-Path $source 'live-controller.js'),
+  (Join-Path $source 'office-dashboard\office-server.js')
+)
+foreach ($sf in $syntaxFiles) {
+  & node --check $sf
+  if ($LASTEXITCODE -ne 0) { throw "Node syntax check failed: $sf" }
+}
+Write-Host 'R2541_NODE_SYNTAX_OK'
+
+foreach ($tf in @($r2537Test,$r2538MirrorTest,$r2539AndroidTest,$officeTest,$r2541Test)) {
+  & node --test $tf
+  if ($LASTEXITCODE -ne 0) { throw "Regression test failed: $tf" }
+}
 Write-Host 'R2541_SOURCE_REGRESSION_OK'
 $visionRepairModule = Join-Path $source 'vision-contract-repair.js'
 $visionRepairTest = Join-Path $source 'test\vision-contract-repair-r2536.test.js'
@@ -169,6 +187,10 @@ if (-not ($health.features -contains 'JEV_CONTEXT_COMPLETE_PACKET')) { throw 'R2
 if (-not ($health.features -contains 'JEV_LIVE_MIRROR_READ_ONLY')) { throw 'R2541 live mirror marker missing.' }
 if (-not ($health.features -contains 'JEV_MIRROR_PACKET_CHART_PARITY')) { throw 'R2541 packet/chart parity marker missing.' }
 if (-not ($health.features -contains 'JEV_LIVE_MIRROR_FULL_OVERLAYS')) { throw 'R2541 full-overlay mirror marker missing.' }
+if (-not ($health.features -contains 'R2541_ATOMIC_PACKET_CHART')) { throw 'R2541 atomic packet/chart marker missing.' }
+if (-not ($health.features -contains 'R2541_CONFIRMED_SWING_TRENDLINES')) { throw 'R2541 confirmed-swing trend marker missing.' }
+if (-not ($health.features -contains 'R2541_PATTERN_GEOMETRY')) { throw 'R2541 pattern-geometry marker missing.' }
+if (-not ($health.features -contains 'R2541_TURKISH_OFFICE_UI')) { throw 'R2541 Turkish Office marker missing.' }
 if (-not ($health.features -contains 'ANDROID_REMOTE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY')) { throw 'R2539 PC remote-execute block marker missing.' }
 if ([string]$health.jevSovereign.liveMirror.version -ne 'R2.5.4.1') { throw 'R2541 live mirror metadata missing.' }
 if (-not ($health.features -contains 'JEV_SETUP_FAMILY_LEARNING')) { throw 'R2537 setup-family learning marker missing.' }
