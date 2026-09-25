@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.114-r2539 + PC R2540 FULL JEV MIRROR + ANDROID PC-ONLY FAIL-CLOSED
+    name: Futures 15m Alarm PRO APK v9.5.115-r2541 + PC R2541 ATOMIC TÜRKÇE MIRROR + ANDROID PC-ONLY FAIL-CLOSED
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -8,6 +8,9 @@ workflows:
         - push
       branch_patterns:
         - pattern: futures15m-alarm-public-build
+          include: true
+          source: true
+        - pattern: r2541-atomic-turkish-safe
           include: true
           source: true
         - pattern: brainhub-v95110-multilane-momentum-office
@@ -24,7 +27,7 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR"
           node --test brainhub/test/*.test.js
-      - name: Prepare Futures Alarm v9.5.114-r2539 JEV PC-only fail-closed Turkish source
+      - name: Prepare Futures Alarm v9.5.115-r2541 JEV PC-only fail-closed Turkish source
         script: |
           set -euo pipefail
           trap 'rc=$?; echo "PREPARE_V110_FAILED rc=$rc line=$LINENO command=$BASH_COMMAND"; exit $rc' ERR
