@@ -159,10 +159,16 @@ if sync_old in main:
     main=main.replace(sync_old,sync_new,1)
 
 # PC'den gelen bütçe kilidi kullanıcıya ham enum yerine anlaşılır Türkçe görünsün.
-main=main.replace(
-    'if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\\nNeden: ").append(lastPcReasons.trim());',
-    'if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\\nNeden: ").append(lastPcReasons.trim().replace("JEV_DAILY_BUDGET_EXHAUSTED","JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU"));'
-)
+# Tam satıra bağlı olma: patch zincirindeki küçük format farklarında da çalışır.
+budget_tr='JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU'
+if budget_tr not in main:
+    main,budget_hits=re.subn(
+        r'append\(lastPcReasons\.trim\(\)\)',
+        'append(lastPcReasons.trim().replace("JEV_DAILY_BUDGET_EXHAUSTED","'+budget_tr+'"))',
+        main
+    )
+    if budget_hits < 1:
+        raise SystemExit("R2541 budget reason UI anchor missing")
 
 # Öğrenim özeti BrainLearning.java tarafından dinamik üretilir.
 # Parça bazlı dönüşüm sırası bağımsızdır; önceki genel çeviriler uygulanmış olsa da çalışır.
