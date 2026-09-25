@@ -112,6 +112,20 @@ new_run=r'''    // R2539: historical PHONE Binance executor permanently inert.
     }'''
 auto=auto[:rb[0]]+new_run+auto[rb[1]:]
 
+# Also make the historical PC-bridge caller inside Android inert. The PC scheduler
+# runs independently on BrainHub and does not need a phone-side runPc loop.
+pcb=method_bounds(auto,"    private static void runPc(Context c,String s)")
+if not pcb: fail("Android runPc bridge method missing")
+new_runpc=r'''    // R2539: phone-side PC bridge executor permanently inert.
+    private static void runPc(Context c,String s){
+        if(c==null)return;
+        try{
+            c.getApplicationContext().getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE)
+                .edit().putString("v9576_auto_last_status","ANDROID runPc DISABLED • PC scheduler owns execution").apply();
+        }catch(Throwable ignored){}
+    }'''
+auto=auto[:pcb[0]]+new_runpc+auto[pcb[1]:]
+
 if "runPc(app,s)" in auto[auto.find("public static void onSignal"):auto.find("public static void onSignal")+1800]:
     fail("onSignal still reaches runPc")
 if "IO.execute(()->run(app,s))" in auto:
@@ -234,6 +248,7 @@ checks={
     "client order boundary":"ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in CLIENT.read_text(encoding="utf-8") and 'post(c, "/live/execute", intent, true)' not in CLIENT.read_text(encoding="utf-8"),
     "auto onSignal pc-only":"telefondan emir başlatılmaz" in AUTO.read_text(encoding="utf-8") and "runPc(app,s)" not in AUTO.read_text(encoding="utf-8")[AUTO.read_text(encoding="utf-8").find("public static void onSignal"):AUTO.read_text(encoding="utf-8").find("public static void onSignal")+1800],
     "legacy direct runner inert":"historical PHONE Binance executor permanently inert" in AUTO.read_text(encoding="utf-8") and "ANDROID DIRECT EXECUTOR DISABLED • PC ONLY" in AUTO.read_text(encoding="utf-8"),
+    "phone PC bridge inert":"phone-side PC bridge executor permanently inert" in AUTO.read_text(encoding="utf-8") and "ANDROID runPc DISABLED • PC scheduler owns execution" in AUTO.read_text(encoding="utf-8"),
     "signed Android mutations blocked":"R2539_ANDROID_SIGNED_MUTATION_DISABLED_PC_ONLY" in MAIN.read_text(encoding="utf-8") and 'if(signed && !"GET".equalsIgnoreCase(method))' in MAIN.read_text(encoding="utf-8"),
     "truth 15s":"FRESH_MS = 15000L" in TRUTH.read_text(encoding="utf-8"),
     "card":"R2539 PC-ONLY FAIL-CLOSED" in CARD.read_text(encoding="utf-8"),
