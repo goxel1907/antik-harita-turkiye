@@ -41,11 +41,11 @@ test('R2541 Android build preserves PC-only fail-closed boundary',()=>{
   const cm=read('../codemagic.yaml');
   const patch=read('../futures15m_alarm/v95122_r2541_turkish_contract.py');
   assert.match(cm,/V122_ANDROID_R2541_CONTRACT_OK/);
-  assert.match(cm,/Futures15mAlarm-PRO-v9\.5\.115-R2541-HF2\.apk/);
+  assert.match(cm,/Futures15mAlarm-PRO-v9\.5\.115-R2541-HF3\.apk/);
   assert.match(patch,/ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY/);
   assert.match(patch,/post\(c, "\/live\/execute", intent, true\).*not in/s);
-  assert.match(patch,/versionName '9\.5\.115-r2541-hf2'/);
-  assert.match(patch,/versionCode 26092504/);
+  assert.match(patch,/versionName '9\.5\.115-r2541-hf3'/);
+  assert.match(patch,/versionCode 26092505/);
   assert.match(cm,/R2541_HF2_AUTO_PERSIST_AFTER_FIRST_MIGRATION/);
   assert.match(patch,/GERİ ÇEKİLME BEKLENİYOR/);
   assert.match(patch,/ŞİMDİ PİYASA GİRİŞİ/);
@@ -164,4 +164,18 @@ test('R2541 Android learning and agent translations target their real source fil
   assert.match(patch,/İŞLEM AJANI • ÖNCE ÜCRETSİZ/);
   assert.match(cm,/ÖĞRENME_SÜRÜMÜ=1 KAPANAN=.*BrainLearning\.java/);
   assert.match(cm,/İŞLEM AJANI • ÖNCE ÜCRETSİZ.*TradeAgentActivity\.java/);
+});
+
+
+test('R2541 HF3 hardens Android Binance time sync without restoring phone order execution',()=>{
+  const patch=read('../futures15m_alarm/v95122_r2541_turkish_contract.py');
+  const cm=read('../codemagic.yaml');
+  assert.match(patch,/R2541_HF3_BINANCE_TIME_SYNC/);
+  assert.match(patch,/v9522TimeSyncAt/);
+  assert.match(patch,/recvWindow", "10000"/);
+  assert.match(patch,/long midpoint=t0\+\(\(t1-t0\)\/2L\)/);
+  assert.match(patch,/JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU/);
+  assert.match(cm,/v9522TimeSyncAt.*MainActivity\.java/);
+  assert.match(cm,/JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU.*MainActivity\.java/);
+  assert.match(patch,/ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY/);
 });
