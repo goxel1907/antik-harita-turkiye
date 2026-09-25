@@ -57,11 +57,25 @@ header .sub{color:var(--text-muted);font-size:12px}
 .lane-card .mini span{padding:1px 6px;border-radius:999px;background:var(--surface-2);font-size:10.5px;color:var(--text-secondary);border:1px solid var(--line)}
 @media (max-width:900px){.lane-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:520px){.lane-strip{grid-template-columns:1fr}}
-.grid-main{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px;align-items:start}
+.grid-main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(360px,1fr) minmax(300px,.78fr);gap:12px;align-items:start}
 .card{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:12px;min-width:0}
 .card h2{font-size:14px;margin:0 0 8px;font-weight:650;display:flex;align-items:center;gap:8px}
 .card h2 .hint{font-weight:400;color:var(--text-muted);font-size:12px}
 .office svg{width:100%;height:auto;display:block;border-radius:8px}
+.mirror-card{overflow:hidden}
+.mirror-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.mirror-controls select{flex:1;min-width:150px;background:var(--surface-2);color:var(--text-primary);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit}
+.mirror-tf{background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--line);border-radius:7px;padding:4px 9px;font:inherit;font-size:12px;cursor:pointer}
+.mirror-tf.active{background:var(--series-1);border-color:var(--series-1);color:#fff}
+.mirror-figure{margin:0 0 8px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.mirror-figure .mh{display:flex;justify-content:space-between;gap:8px;padding:5px 8px;color:var(--text-secondary);font-size:11.5px}
+.mirror-figure img{width:100%;height:auto;display:block;aspect-ratio:16/9;object-fit:contain;background:#0d1117}
+.mirror-parity{padding:6px 8px;border-radius:7px;background:var(--surface-2);border-left:4px solid var(--text-muted);font-size:12px;margin:8px 0}
+.mirror-parity.good{border-color:var(--good)} .mirror-parity.bad{border-color:var(--critical)} .mirror-parity.warn{border-color:var(--warning)}
+.mirror-vision{margin-top:8px;padding:8px;border-radius:8px;background:var(--surface-2);font-size:12px;color:var(--text-secondary);white-space:pre-wrap;max-height:130px;overflow:auto}
+.mirror-note{font-size:11px;color:var(--text-muted);line-height:1.35;margin-top:6px}
+@media (max-width:1400px){.grid-main{grid-template-columns:minmax(0,1.5fr) minmax(360px,1fr)}.diag-card{grid-column:1/-1}}
+
 .blockers{display:flex;flex-direction:column;gap:8px}
 .blk{display:grid;grid-template-columns:22px 1fr;gap:8px;padding:8px 10px;border-radius:8px;background:var(--surface-2);border-left:4px solid var(--text-muted)}
 .blk .ic{font-weight:700;font-size:14px;line-height:20px;text-align:center;border-radius:50%;width:20px;height:20px;color:#fff;background:var(--text-muted)}
@@ -203,7 +217,27 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <h2>Ofis katı <span class="hint">yürüyen trader'lar veriyi beyne taşır • kapıda bekleyen trader = hattın tıkandığı yer</span></h2>
       <div id="officeHost"></div>
     </div>
-    <div class="card">
+    <div class="card mirror-card">
+      <h2>📡 JEV Canlı Görüş Aynası <span class="hint">read-only • seçilen coin • 5 sn</span></h2>
+      <div class="mirror-controls">
+        <select id="mirrorSymbol" aria-label="JEV aynası coin seçimi"></select>
+        <button class="mirror-tf" id="mirrorTf5" data-mirror-tf="5m">5m</button>
+        <button class="mirror-tf active" id="mirrorTf15" data-mirror-tf="15m">15m</button>
+      </div>
+      <figure class="mirror-figure">
+        <div class="mh"><b>Piyasa / CLEAN</b><span id="mirrorCleanLabel">—</span></div>
+        <img id="mirrorClean" alt="Seçilen coinin temiz canlı grafiği">
+      </figure>
+      <figure class="mirror-figure">
+        <div class="mh"><b>JEV kanıt aynası / ANNOTATED</b><span id="mirrorAnnotatedLabel">—</span></div>
+        <img id="mirrorAnnotated" alt="JEV kanıt katmanlarını gösteren anotasyonlu grafik">
+      </figure>
+      <div class="mirror-parity warn" id="mirrorParity">JEV paket/grafik uyumu bekleniyor…</div>
+      <dl class="kv" id="mirrorKv"></dl>
+      <div class="mirror-vision" id="mirrorVision">Vision kanıt özeti bekleniyor…</div>
+      <div class="mirror-note">ANNOTATED görüntü, Vision worker'a verilen deterministik grafiğin aynasıdır. JEV PNG pikselini doğrudan tüketmez; R2537 sayısal packet'i tüketir. Bu panel ikisini yan yana doğrulamak içindir.</div>
+    </div>
+    <div class="card diag-card">
       <h2>Neden işlem yok? <span class="hint">canlı teşhis</span></h2>
       <div class="blockers" id="blockers"></div>
       <h2 style="margin-top:14px">Sinyal hunisi <span class="hint">son 60 dk</span></h2>
