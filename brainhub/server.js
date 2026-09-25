@@ -54,6 +54,19 @@ jev.billingStatus({force:true}).catch(()=>{});
 fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
 const visionState=new Map();
+// R2541_ATOMIC_PACKET_CHART: Office mirror PNG'leri, packet/parity ile aynı snapshot'tan çizilir.
+const mirrorSnapshots=new Map();
+function rememberMirrorSnapshot(snapshotId,value){
+  const now=Date.now();
+  for(const [k,v] of mirrorSnapshots){if(now-Number(v?.at||0)>30000)mirrorSnapshots.delete(k);}
+  mirrorSnapshots.set(snapshotId,{...value,at:now});
+}
+function getMirrorSnapshot(snapshotId,symbol,tf){
+  const v=mirrorSnapshots.get(String(snapshotId||''));
+  if(!v||Date.now()-Number(v.at||0)>30000)return null;
+  if(v.symbol!==symbol||v.tf!==tf)return null;
+  return v;
+}
 let rr=0;
 const ROLE_HINTS={
   DEFAULT:[],
@@ -1870,31 +1883,35 @@ const server=http.createServer(async(req,res)=>{
       if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
       if(!['5m','15m'].includes(tf))return send(res,400,{ok:false,error:'tf must be 5m or 15m'});
       try{
-        // frameSet() feeds JEV with 180 closed 15m candles and 72 on native non-15m frames.
-        // Use the same history window here so the mirror compares identical deterministic inputs.
         const mirrorBars=tf==='15m'?180:72;
-        const [sym,global,chart]=await Promise.all([
-          market.symbolContext(symbol),
-          market.globalContext(),
-          market.chartContext(symbol,tf,mirrorBars)
-        ]);
+        // Tek frameSet çağrısı: JEV packet ve grafik analizi aynı kapalı mum snapshot'ını kullanır.
+        const mirror=await market.atomicMirrorContext(symbol,tf,mirrorBars);
+        const [global,scan]=await Promise.all([market.globalContext(),scanner.scan()]);
+        const sym=mirror.symbolContext;
+        const chart=mirror.chart;
         const unified=pipeline.buildUnifiedContext({
           symbol:sym,global,
           candidate:{symbol,side:null,deepScanReason:'OFFICE_READ_ONLY_JEV_MIRROR',targetSources:['OFFICE_READ_ONLY_JEV_MIRROR']}
         });
         const packet=marketPacket(unified);
+        const parity=jevMirrorParity(packet,chart,tf);
         const p1=store.latestJournal('PLAN',symbol);
         const p2=store.latestJournal('PLAN_FAST',symbol);
         const latest=!p1?p2:!p2?p1:(Number(p1.ts)>=Number(p2.ts)?p1:p2);
         const jp=latest?.payload||null;
+        rememberMirrorSnapshot(mirror.snapshotId,{
+          symbol,tf,chart,
+          observedLiquidations:Array.isArray(sym?.microstructure?.observedLiquidations?.zones)
+            ? sym.microstructure.observedLiquidations.zones : []
+        });
         return send(res,200,{
-          ok:true,readOnly:true,contract:'R2540_JEV_LIVE_MIRROR',symbol,tf,
-          generatedAt:new Date().toISOString(),
-          packetSemantics:'CURRENT_RECONSTRUCTED_JEV_DIRECT_NUMERIC_PACKET',
-          visualSemantics:'CLEAN and ANNOTATED use the same history window as the JEV R2537 frame packet (15m=180, 5m=72). ANNOTATED shows EMA/trend guide, range premium-discount, prior/equal liquidity, FVG/CE50, OB, OTE, Fib, swing/BOS/CHoCH reference levels and observed Binance force-order liquidation levels. The same deterministic renderer is supplied to the Vision evidence worker. JEV itself consumes the numeric packet, not PNG pixels.',
-          mirrorBars,
-          packet,
-          parity:jevMirrorParity(packet,chart,tf),
+          ok:true,readOnly:true,contract:'R2541_ATOMIC_TURKISH_MIRROR',symbol,tf,
+          generatedAt:chart.generatedAt||new Date().toISOString(),
+          snapshotId:mirror.snapshotId,
+          snapshotAsOf:mirror.snapshotAsOf,
+          packetSemantics:'ATOMIC_CURRENT_RECONSTRUCTED_JEV_DIRECT_NUMERIC_PACKET',
+          visualSemantics:'CLEAN ve TAM AÇIKLAMALI grafik, bu yanıttaki packet/parity ile aynı atomik kapalı-mum snapshot kimliğini kullanır. Yapısal trend çizgileri yalnız teyitli swing pivotlarından; formasyon geometrisi yalnız engine tarafından üretilen koordinatlardan çizilir.',
+          mirrorBars,packet,parity,
           latestDecision:latest?{
             id:latest.id,ts:latest.ts,ageMs:Math.max(0,Date.now()-Number(latest.ts||0)),
             plan:jp?.plan||null,jevPass1:jp?.jevPass1||null,jevFinal:jp?.jevFinal||null,
@@ -1918,26 +1935,30 @@ const server=http.createServer(async(req,res)=>{
       const tf=(u.searchParams.get('tf')||'15m').toLowerCase();
       const mode=(u.searchParams.get('mode')||'clean').toLowerCase();
       const bars=Number(u.searchParams.get('bars')||128);
+      const snapshotId=String(u.searchParams.get('snapshotId')||'');
       if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
       try{
-        let chart, observedLiquidations=[];
-        if(mode==='annotated'){
-          const [chartResult,symResult]=await Promise.all([
-            market.chartContext(symbol,tf,bars),
-            market.symbolContext(symbol)
-          ]);
-          chart=chartResult;
-          observedLiquidations=Array.isArray(symResult?.microstructure?.observedLiquidations?.zones)
-            ? symResult.microstructure.observedLiquidations.zones : [];
+        let chart,observedLiquidations=[],resolvedSnapshotId=snapshotId;
+        const remembered=snapshotId?getMirrorSnapshot(snapshotId,symbol,tf):null;
+        if(remembered){
+          chart=remembered.chart;
+          observedLiquidations=remembered.observedLiquidations||[];
         }else{
-          chart=await market.chartContext(symbol,tf,bars);
+          // Tek başına grafik isteğinde de chart+overlay verisini aynı frame snapshot'ından üret.
+          const atomic=await market.atomicMirrorContext(symbol,tf,bars);
+          chart=atomic.chart;
+          resolvedSnapshotId=atomic.snapshotId;
+          observedLiquidations=Array.isArray(atomic.symbolContext?.microstructure?.observedLiquidations?.zones)
+            ? atomic.symbolContext.microstructure.observedLiquidations.zones : [];
+          rememberMirrorSnapshot(resolvedSnapshotId,{symbol,tf,chart,observedLiquidations});
         }
         const png=market.renderChartPng(chart,mode,{observedLiquidations});
         return sendBuffer(res,200,png,'image/png',{
           'x-brainhub-symbol':symbol,
           'x-brainhub-timeframe':tf,
           'x-brainhub-chart-mode':mode,
-          'x-brainhub-overlay-contract':mode==='annotated'?'R2540_FULL_SMC_LIQUIDATION':'CLEAN'
+          'x-brainhub-snapshot-id':resolvedSnapshotId,
+          'x-brainhub-overlay-contract':mode==='annotated'?'R2541_ATOMIC_FULL_SMC_TURKISH_LABELS':'R2541_ATOMIC_CLEAN'
         });
       }catch(e){return send(res,400,{ok:false,error:String(e.message||e)});}
     }
