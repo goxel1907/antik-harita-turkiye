@@ -1382,24 +1382,36 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:final?.reason||'JEV_SOVEREIGN_FINAL_UNAVAILABLE',jevPass1:pass1,jevDecision:final||null,evidence,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
   }
   const chosen=materializeJevManagement(final.selectedPlan,final);
+  const setupFamily=String(final?.setupFamily||'').toUpperCase()||null;
+  const entryTiming=String(final?.entryTiming||'').toUpperCase()||null;
+  const entryNow=Boolean(chosen)&&entryTiming==='MARKET_NOW';
+  const setupLabel=chosen
+    ? 'JEV_R2537_'+(setupFamily&&setupFamily!=='NONE_WAIT'?setupFamily:'UNCLASSIFIED')+'_'+chosen.lane
+    : 'JEV_R2537_WAIT';
   const plan=chosen?{
-    valid:true,status:'QUALIFIED',side:chosen.side,originTF:chosen.originTF,ownerTF:chosen.ownerTF,
-    lane:chosen.lane,setup:'JEV_SOVEREIGN_'+chosen.lane,execPath:'JEV_FINAL_MARKET_NOW',
-    entryMode:chosen.entryMode,entryPrice:chosen.entryPrice,invalidationPrice:chosen.invalidationPrice,
+    valid:true,status:entryNow?'QUALIFIED':'WATCH',side:chosen.side,originTF:chosen.originTF,ownerTF:chosen.ownerTF,
+    lane:chosen.lane,setup:setupLabel,setupFamily,edgeBasis:final?.edgeBasis||null,entryTiming,
+    execPath:entryNow?'JEV_FINAL_MARKET_NOW':'JEV_FINAL_WAIT_TIMING',
+    entryMode:entryNow?'MARKET_NOW':'WAIT_TRIGGER',
+    entryPrice:chosen.entryPrice,invalidationPrice:chosen.invalidationPrice,
     invalidationSource:chosen.invalidationSource||null,basis:chosen.basis||null,
     stopPrice:chosen.stopPrice,takeProfit1:chosen.takeProfit1,takeProfit2:chosen.takeProfit2,takeProfit3:chosen.takeProfit3,
     managementStyle:final.managementStyle,targetProfile:chosen.targetProfile,targetRatios:chosen.targetRatios,
     partialProfile:chosen.partialProfile,partialFractions:chosen.partialFractions,
     breakevenRule:chosen.breakevenRule,trailRule:chosen.trailRule,
-    waitFor:'NONE',formingContext:'CONTEXT_ONLY',
-    why:'JEV FINAL selected '+chosen.id+' after directing evidence collection.',
-    riskNote:'Post-JEV code may block only hard execution/integrity safety; it must not re-vote strategy.',
+    waitFor:entryNow?'NONE':(entryTiming||'WAIT_NEW_EVIDENCE'),formingContext:'CONTEXT_ONLY',
+    why:'JEV '+(setupFamily||'UNCLASSIFIED')+' selected '+chosen.id+'; timing='+(entryTiming||'UNSPECIFIED')+'; edge='+(final?.edgeBasis||'UNSPECIFIED')+'.',
+    riskNote:entryNow
+      ? 'Post-JEV code may block only hard execution/integrity safety; it must not re-vote strategy.'
+      : 'JEV directional thesis exists but entry timing/location is not MARKET_NOW; no order is authorized.',
+    contractVersion:'R2.5.3.7_JEV_CONTEXT_COMPLETE',
     jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
   }:{
-    valid:true,status:'WATCH',side:null,originTF:null,ownerTF:null,lane:null,setup:'JEV_SOVEREIGN_WAIT',
-    execPath:'WAIT',waitFor:'JEV will reconsider on a new radar event or materially changed evidence.',
-    why:'JEV FINAL chose WAIT.',riskNote:'No order is authorized.',jevSovereign:true,jevDecision:final,
-    evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
+    valid:true,status:'WATCH',side:null,originTF:null,ownerTF:null,lane:null,setup:'JEV_R2537_WAIT',
+    setupFamily:setupFamily||'NONE_WAIT',edgeBasis:final?.edgeBasis||'NO_EDGE',entryTiming:entryTiming||'WAIT_NEW_EVIDENCE',
+    execPath:'WAIT',waitFor:entryTiming||'JEV will reconsider on a new radar event or materially changed evidence.',
+    why:'JEV FINAL chose WAIT.',riskNote:'No order is authorized.',contractVersion:'R2.5.3.7_JEV_CONTEXT_COMPLETE',
+    jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
   };
   const riskGate=preflightRiskGate({plan,unified});
   const dryRunExecutor=buildDryRunOrder({
