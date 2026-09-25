@@ -89,3 +89,11 @@ test('R2541 daily loss cap remains binding and visible',()=>{
   assert.ok(office.includes('GÜNLÜK ZARAR TAVANI DOLDU'));
   assert.ok(office.includes('Stop sonrası yeniden giriş'));
 });
+
+
+test('R2541 renderer refuses stale geometry time-axis snapping',()=>{
+  const market=read('market.js');
+  assert.match(market,/R2541_STRICT_TIME_AXIS/);
+  assert.match(market,/dist<=stepMs\*0\.5/);
+  assert.match(market,/if\(d===0\)return xAt\(i\)/);
+});
