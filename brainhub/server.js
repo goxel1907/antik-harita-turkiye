@@ -54,6 +54,19 @@ jev.billingStatus({force:true}).catch(()=>{});
 fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
 const visionState=new Map();
+// R2541_ATOMIC_PACKET_CHART: Office mirror PNG'leri, packet/parity ile aynı snapshot'tan çizilir.
+const mirrorSnapshots=new Map();
+function rememberMirrorSnapshot(snapshotId,value){
+  const now=Date.now();
+  for(const [k,v] of mirrorSnapshots){if(now-Number(v?.at||0)>30000)mirrorSnapshots.delete(k);}
+  mirrorSnapshots.set(snapshotId,{...value,at:now});
+}
+function getMirrorSnapshot(snapshotId,symbol,tf){
+  const v=mirrorSnapshots.get(String(snapshotId||''));
+  if(!v||Date.now()-Number(v.at||0)>30000)return null;
+  if(v.symbol!==symbol||v.tf!==tf)return null;
+  return v;
+}
 let rr=0;
 const ROLE_HINTS={
   DEFAULT:[],
@@ -985,11 +998,44 @@ function jevMirrorParity(packet,chart,tf){
   if(pBull.length&&aBull.length)addZone('latestBullishOB',pBull.at(-1),aBull.at(-1));
   if(pBear.length&&aBear.length)addZone('latestBearishOB',pBear.at(-1),aBear.at(-1));
   if(pFvg.length&&aFvg.length)addZone('latestFVG',pFvg.at(-1),aFvg.at(-1));
+
+  // R2541_STRUCTURAL_PARITY: packet ve çizici aynı swing/trend/formasyon geometrisini taşımalı.
+  add('swingState',p?.swingStructure?.state||'NONE',a?.swingStructure?.state||'NONE');
+  add('swingHighAt',p?.swingStructure?.lastConfirmedSwingHigh?.at,a?.swingStructure?.lastConfirmedSwingHigh?.at);
+  add('swingHighPrice',p?.swingStructure?.lastConfirmedSwingHigh?.price,a?.swingStructure?.lastConfirmedSwingHigh?.price,'number');
+  add('swingLowAt',p?.swingStructure?.lastConfirmedSwingLow?.at,a?.swingStructure?.lastConfirmedSwingLow?.at);
+  add('swingLowPrice',p?.swingStructure?.lastConfirmedSwingLow?.price,a?.swingStructure?.lastConfirmedSwingLow?.price,'number');
+
+  const addTrendParity=(name,left,right)=>{
+    if(!left&&!right)return;
+    add(name+'Kind',left?.kind||'NONE',right?.kind||'NONE');
+    add(name+'Active',String(left?.active===true),String(right?.active===true));
+    add(name+'FromAt',left?.from?.at,right?.from?.at);
+    add(name+'FromPrice',left?.from?.price,right?.from?.price,'number');
+    add(name+'ToAt',left?.to?.at,right?.to?.at);
+    add(name+'ToPrice',left?.to?.price,right?.to?.price,'number');
+    add(name+'ProjectedAt',left?.projected?.at,right?.projected?.at);
+    add(name+'ProjectedPrice',left?.projected?.price,right?.projected?.price,'number');
+  };
+  addTrendParity('upSupport',p?.swingStructure?.trendLines?.upSupport,a?.swingStructure?.trendLines?.upSupport);
+  addTrendParity('downResistance',p?.swingStructure?.trendLines?.downResistance,a?.swingStructure?.trendLines?.downResistance);
+
+  const patternDigest=list=>(Array.isArray(list)?list:[]).slice(-6).map(x=>({
+    type:x?.type||null,side:x?.side||null,status:x?.status||null,
+    lines:(Array.isArray(x?.geometry?.lines)?x.geometry.lines:[]).map(gl=>({
+      role:gl?.role||null,
+      from:{at:gl?.from?.at??null,price:mirrorFinite(gl?.from?.price)},
+      to:{at:gl?.to?.at??null,price:mirrorFinite(gl?.to?.price)}
+    }))
+  }));
+  add('patternGeometryDigest',JSON.stringify(patternDigest(p?.patterns)),JSON.stringify(patternDigest(a?.patterns)));
+
   const mismatches=checks.filter(x=>x.match===false);
   return {
     ok:checks.length>=3&&mismatches.length===0,
     compared:checks.length,mismatches:mismatches.length,checks,
-    semantics:'R2538_PACKET_VS_ANNOTATED_CHART_DETERMINISTIC_PARITY'
+    semantics:'R2538_PACKET_VS_ANNOTATED_CHART_DETERMINISTIC_PARITY',
+    structuralSemantics:'R2541_PACKET_VS_CHART_SWING_TREND_PATTERN_PARITY'
   };
 }
 async function runLocalVisionCommittee(body){
@@ -1356,7 +1402,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',enabled:true,decisionOwner:'JEV',scannerAuthority:'ATTENTION_ONLY',workerAuthority:'EVIDENCE_ONLY',primaryLanes:['5m','15m'],passLimit:2,autonomousPlanWorkers:false,noScoreThresholds:true,noTwoOfThreeGate:true,noHard15mStrategicVeto:true,experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.4.0',mode:'READ_ONLY_FULL_OVERLAY_PACKET_PARITY'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',externalPositions:'ADVISORY_ONLY'}},featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV112Base:claudeV112.baseBranch,claudeV111Marker:claudeV111.marker,claudeV111Base:claudeV111.baseBranch,claudeV111Config:claudeV111.readConfig(),v110FeatureVersion:v110.featureVersion,v110BuiltBy:v110.builtBy,v110Marker:v110.marker,v110Base:v110.base,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,baseBranch:claudeV109.baseBranch,changesDoc:claudeV109.changesDoc,claudeV109Config:claudeV109.readConfig(),execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_BATCH3_ACTIVE','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CORE_LEVEL_DETERMINISTIC_REPAIR','VISION_BOTH_SIDE_TRIGGER_CANDIDATES','JEV_VISION_EVIDENCE_ONLY_NO_PLAN_SCHEMA','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','JEV_CORTEX_LIVE_REASONING_ALWAYS_ON','JEV_EXPERIENCE_MEMORY_ALWAYS_ON','JEV_LIFETIME_MEMORY_AGGREGATE','JEV_FREE_MODEL_KNOWLEDGE_RESEARCH','JEV_VERIFIED_DYNAMIC_KNOWLEDGE','JEV_RESEARCH_RETRY_FAILOVER','JEV_CURATED_OSS_REFERENCE_REGISTRY','JEV_CONTEXT_COMPLETE_PACKET','JEV_LIVE_MIRROR_READ_ONLY','JEV_MIRROR_PACKET_CHART_PARITY','JEV_LIVE_MIRROR_FULL_OVERLAYS','ANDROID_REMOTE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY','JEV_SETUP_FAMILY_LEARNING','JEV_EXPLICIT_ENTRY_TIMING','VISION_OB_OTE_FIB_OVERLAYS','JEV_EXIT_NOW_REDUCE_ONLY_BINDING','JEV_PARTIAL_REDUCE_ONLY_BINDING','TARGETED_PRIORITY_UNIVERSE_24','BINANCE_TOP24_GAINER_DISCOVERY','ACCUMULATION_PROXY_DISCOVERY','ANDROID_ATTENTION_SYNC','PLAN_WORKER_ORCHESTRATION','PLAN_WORKER_9ROUTER_TEXT','PLAN_WORKER_9ROUTER_FREE_ONLY','OPENROUTER_FREE_WORKER_SECOND_OPINION','WORKER_VISION_AVOIDANCE_TELEMETRY','PLAN_WORKER_PARALLEL_TIMER','V108_WORKER_ESCALATION_LATCH','V108_CONCRETE_WATCH_CONTRACT','LOCAL_VISION_FREE_QUOTA_FAILOVER','V109_EXPLICIT_FREE_QUOTA_FAILOVER','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_SYNTHETIC_ACCURACY_BENCHMARK','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED',...claudeV109.features,...v110.features,...claudeV111.features,...claudeV112.features],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_SINGLE_TF:'FALLBACK_CAPABILITY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',releaseVersion:'R2541-ATOMIC-TURKISH-SAFE',enabled:true,decisionOwner:'JEV',scannerAuthority:'ATTENTION_ONLY',workerAuthority:'EVIDENCE_ONLY',primaryLanes:['5m','15m'],passLimit:2,autonomousPlanWorkers:false,noScoreThresholds:true,noTwoOfThreeGate:true,noHard15mStrategicVeto:true,experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.4.1',mode:'ATOMIC_PACKET_CHART_TURKISH_STRUCTURAL'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',externalPositions:'ADVISORY_ONLY'}},featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV112Base:claudeV112.baseBranch,claudeV111Marker:claudeV111.marker,claudeV111Base:claudeV111.baseBranch,claudeV111Config:claudeV111.readConfig(),v110FeatureVersion:v110.featureVersion,v110BuiltBy:v110.builtBy,v110Marker:v110.marker,v110Base:v110.base,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,baseBranch:claudeV109.baseBranch,changesDoc:claudeV109.changesDoc,claudeV109Config:claudeV109.readConfig(),execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_BATCH3_ACTIVE','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CORE_LEVEL_DETERMINISTIC_REPAIR','VISION_BOTH_SIDE_TRIGGER_CANDIDATES','JEV_VISION_EVIDENCE_ONLY_NO_PLAN_SCHEMA','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','JEV_CORTEX_LIVE_REASONING_ALWAYS_ON','JEV_EXPERIENCE_MEMORY_ALWAYS_ON','JEV_LIFETIME_MEMORY_AGGREGATE','JEV_FREE_MODEL_KNOWLEDGE_RESEARCH','JEV_VERIFIED_DYNAMIC_KNOWLEDGE','JEV_RESEARCH_RETRY_FAILOVER','JEV_CURATED_OSS_REFERENCE_REGISTRY','JEV_CONTEXT_COMPLETE_PACKET','JEV_LIVE_MIRROR_READ_ONLY','JEV_MIRROR_PACKET_CHART_PARITY','JEV_LIVE_MIRROR_FULL_OVERLAYS','R2541_ATOMIC_PACKET_CHART','R2541_CONFIRMED_SWING_TRENDLINES','R2541_PATTERN_GEOMETRY','R2541_TURKISH_OFFICE_UI','ANDROID_REMOTE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY','JEV_SETUP_FAMILY_LEARNING','JEV_EXPLICIT_ENTRY_TIMING','VISION_OB_OTE_FIB_OVERLAYS','JEV_EXIT_NOW_REDUCE_ONLY_BINDING','JEV_PARTIAL_REDUCE_ONLY_BINDING','TARGETED_PRIORITY_UNIVERSE_24','BINANCE_TOP24_GAINER_DISCOVERY','ACCUMULATION_PROXY_DISCOVERY','ANDROID_ATTENTION_SYNC','PLAN_WORKER_ORCHESTRATION','PLAN_WORKER_9ROUTER_TEXT','PLAN_WORKER_9ROUTER_FREE_ONLY','OPENROUTER_FREE_WORKER_SECOND_OPINION','WORKER_VISION_AVOIDANCE_TELEMETRY','PLAN_WORKER_PARALLEL_TIMER','V108_WORKER_ESCALATION_LATCH','V108_CONCRETE_WATCH_CONTRACT','LOCAL_VISION_FREE_QUOTA_FAILOVER','V109_EXPLICIT_FREE_QUOTA_FAILOVER','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_SYNTHETIC_ACCURACY_BENCHMARK','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED',...claudeV109.features,...v110.features,...claudeV111.features,...claudeV112.features],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_SINGLE_TF:'FALLBACK_CAPABILITY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
@@ -1870,31 +1916,35 @@ const server=http.createServer(async(req,res)=>{
       if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
       if(!['5m','15m'].includes(tf))return send(res,400,{ok:false,error:'tf must be 5m or 15m'});
       try{
-        // frameSet() feeds JEV with 180 closed 15m candles and 72 on native non-15m frames.
-        // Use the same history window here so the mirror compares identical deterministic inputs.
         const mirrorBars=tf==='15m'?180:72;
-        const [sym,global,chart]=await Promise.all([
-          market.symbolContext(symbol),
-          market.globalContext(),
-          market.chartContext(symbol,tf,mirrorBars)
-        ]);
+        // Tek frameSet çağrısı: JEV packet ve grafik analizi aynı kapalı mum snapshot'ını kullanır.
+        const mirror=await market.atomicMirrorContext(symbol,tf,mirrorBars);
+        const [global,scan]=await Promise.all([market.globalContext(),scanner.scan()]);
+        const sym=mirror.symbolContext;
+        const chart=mirror.chart;
         const unified=pipeline.buildUnifiedContext({
           symbol:sym,global,
           candidate:{symbol,side:null,deepScanReason:'OFFICE_READ_ONLY_JEV_MIRROR',targetSources:['OFFICE_READ_ONLY_JEV_MIRROR']}
         });
         const packet=marketPacket(unified);
+        const parity=jevMirrorParity(packet,chart,tf);
         const p1=store.latestJournal('PLAN',symbol);
         const p2=store.latestJournal('PLAN_FAST',symbol);
         const latest=!p1?p2:!p2?p1:(Number(p1.ts)>=Number(p2.ts)?p1:p2);
         const jp=latest?.payload||null;
+        rememberMirrorSnapshot(mirror.snapshotId,{
+          symbol,tf,chart,
+          observedLiquidations:Array.isArray(sym?.microstructure?.observedLiquidations?.zones)
+            ? sym.microstructure.observedLiquidations.zones : []
+        });
         return send(res,200,{
-          ok:true,readOnly:true,contract:'R2540_JEV_LIVE_MIRROR',symbol,tf,
-          generatedAt:new Date().toISOString(),
-          packetSemantics:'CURRENT_RECONSTRUCTED_JEV_DIRECT_NUMERIC_PACKET',
-          visualSemantics:'CLEAN and ANNOTATED use the same history window as the JEV R2537 frame packet (15m=180, 5m=72). ANNOTATED shows EMA/trend guide, range premium-discount, prior/equal liquidity, FVG/CE50, OB, OTE, Fib, swing/BOS/CHoCH reference levels and observed Binance force-order liquidation levels. The same deterministic renderer is supplied to the Vision evidence worker. JEV itself consumes the numeric packet, not PNG pixels.',
-          mirrorBars,
-          packet,
-          parity:jevMirrorParity(packet,chart,tf),
+          ok:true,readOnly:true,contract:'R2541_ATOMIC_TURKISH_MIRROR',symbol,tf,
+          generatedAt:chart.generatedAt||new Date().toISOString(),
+          snapshotId:mirror.snapshotId,
+          snapshotAsOf:mirror.snapshotAsOf,
+          packetSemantics:'ATOMIC_CURRENT_RECONSTRUCTED_JEV_DIRECT_NUMERIC_PACKET',
+          visualSemantics:'CLEAN ve TAM AÇIKLAMALI grafik, bu yanıttaki packet/parity ile aynı atomik kapalı-mum snapshot kimliğini kullanır. Yapısal trend çizgileri yalnız teyitli swing pivotlarından; formasyon geometrisi yalnız engine tarafından üretilen koordinatlardan çizilir.',
+          mirrorBars,packet,parity,
           latestDecision:latest?{
             id:latest.id,ts:latest.ts,ageMs:Math.max(0,Date.now()-Number(latest.ts||0)),
             plan:jp?.plan||null,jevPass1:jp?.jevPass1||null,jevFinal:jp?.jevFinal||null,
@@ -1918,26 +1968,33 @@ const server=http.createServer(async(req,res)=>{
       const tf=(u.searchParams.get('tf')||'15m').toLowerCase();
       const mode=(u.searchParams.get('mode')||'clean').toLowerCase();
       const bars=Number(u.searchParams.get('bars')||128);
+      const snapshotId=String(u.searchParams.get('snapshotId')||'');
       if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
       try{
-        let chart, observedLiquidations=[];
-        if(mode==='annotated'){
-          const [chartResult,symResult]=await Promise.all([
-            market.chartContext(symbol,tf,bars),
-            market.symbolContext(symbol)
-          ]);
-          chart=chartResult;
-          observedLiquidations=Array.isArray(symResult?.microstructure?.observedLiquidations?.zones)
-            ? symResult.microstructure.observedLiquidations.zones : [];
+        let chart,observedLiquidations=[],resolvedSnapshotId=snapshotId;
+        const remembered=snapshotId?getMirrorSnapshot(snapshotId,symbol,tf):null;
+        if(snapshotId&&!remembered){
+          return send(res,409,{ok:false,error:'MIRROR_SNAPSHOT_EXPIRED_OR_UNKNOWN',snapshotId});
+        }
+        if(remembered){
+          chart=remembered.chart;
+          observedLiquidations=remembered.observedLiquidations||[];
         }else{
-          chart=await market.chartContext(symbol,tf,bars);
+          // Yalnız snapshotId verilmemiş bağımsız grafik isteğinde yeni atomik snapshot üret.
+          const atomic=await market.atomicMirrorContext(symbol,tf,bars);
+          chart=atomic.chart;
+          resolvedSnapshotId=atomic.snapshotId;
+          observedLiquidations=Array.isArray(atomic.symbolContext?.microstructure?.observedLiquidations?.zones)
+            ? atomic.symbolContext.microstructure.observedLiquidations.zones : [];
+          rememberMirrorSnapshot(resolvedSnapshotId,{symbol,tf,chart,observedLiquidations});
         }
         const png=market.renderChartPng(chart,mode,{observedLiquidations});
         return sendBuffer(res,200,png,'image/png',{
           'x-brainhub-symbol':symbol,
           'x-brainhub-timeframe':tf,
           'x-brainhub-chart-mode':mode,
-          'x-brainhub-overlay-contract':mode==='annotated'?'R2540_FULL_SMC_LIQUIDATION':'CLEAN'
+          'x-brainhub-snapshot-id':resolvedSnapshotId,
+          'x-brainhub-overlay-contract':mode==='annotated'?'R2541_ATOMIC_FULL_SMC_TURKISH_LABELS':'R2541_ATOMIC_CLEAN'
         });
       }catch(e){return send(res,400,{ok:false,error:String(e.message||e)});}
     }

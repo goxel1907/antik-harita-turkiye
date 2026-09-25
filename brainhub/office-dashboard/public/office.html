@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BrainHub Trade Office</title>
+<title>BrainHub İşlem Ofisi</title>
 <style>
 :root{
   color-scheme: dark;
@@ -202,7 +202,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   <div class="demo-banner" id="demoBanner">DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.</div>
   <header>
     <div>
-      <h1>🧠 BrainHub Trade Office</h1>
+      <h1>🧠 BrainHub İşlem Ofisi</h1>
       <div class="sub">C:\BrainHub • C:\BrainHubBackups • salt-okunur izleme — emir göndermez, ayar değiştirmez</div>
     </div>
     <div class="spacer"></div>
@@ -232,7 +232,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 
   <section class="mirror-wide">
     <div class="card mirror-card">
-      <h2>📡 JEV Canlı Görüş Aynası — Tam Görünüm <span class="hint">read-only • JEV sayısal packet + Vision grafiği • 5 sn</span></h2>
+      <h2>📡 JEV Canlı Görüş Aynası — Tam Görünüm <span class="hint">salt-okunur • JEV sayısal paketi + Vision grafiği • 5 sn</span></h2>
       <div class="mirror-controls">
         <select id="mirrorSymbol" aria-label="JEV aynası coin seçimi"></select>
         <button class="mirror-tf" id="mirrorTf5" data-mirror-tf="5m">5m</button>
@@ -240,27 +240,27 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       </div>
       <div class="mirror-charts">
         <figure class="mirror-figure">
-          <div class="mh"><b>Piyasa / CLEAN</b><span id="mirrorCleanLabel">—</span></div>
+          <div class="mh"><b>Piyasa / TEMİZ</b><span id="mirrorCleanLabel">—</span></div>
           <img id="mirrorClean" alt="Seçilen coinin temiz canlı grafiği">
         </figure>
         <figure class="mirror-figure">
-          <div class="mh"><b>JEV + Vision / FULL ANNOTATED</b><span id="mirrorAnnotatedLabel">—</span></div>
-          <img id="mirrorAnnotated" alt="OB FVG OTE Fib range trend likidite ve liquidation katmanlı grafik">
+          <div class="mh"><b>JEV + Vision / TAM AÇIKLAMALI</b><span id="mirrorAnnotatedLabel">—</span></div>
+          <img id="mirrorAnnotated" alt="OB FVG OTE Fib aralık trend likidite ve tasfiye katmanlı grafik">
         </figure>
       </div>
       <div class="mirror-parity warn" id="mirrorParity">JEV paket/grafik uyumu bekleniyor…</div>
       <div class="mirror-legend">
-        <span>EMA20/EMA50</span><span>Trend guide</span><span>Range HIGH/LOW/EQ</span>
-        <span>Premium/Discount</span><span>FVG + CE50</span><span>Bull/Bear OB</span>
-        <span>OTE Long/Short</span><span>Fib .382/.5/.618/.705/.786</span>
-        <span>Prior20 + Equal H/L</span><span>Swing + BOS/CHoCH referansı</span>
-        <span>Observed liquidation zones</span>
+        <span>EMA20/EMA50</span><span>Teyitli swing trend çizgisi</span><span>Aralık ÜST/ALT/EQ</span>
+        <span>Premium/Discount/Aralık dışı</span><span>FVG + CE50</span><span>Boğa/Ayı OB</span>
+        <span>OTE Alış/Satış</span><span>Fib .382/.5/.618/.705/.786</span>
+        <span>Önceki20 + Eşit Tepe/Dip</span><span>Swing + BOS/CHoCH referansı</span>
+        <span>Gözlenen tasfiye bölgeleri</span>
       </div>
       <div class="mirror-details">
         <dl class="kv" id="mirrorKv"></dl>
         <div class="mirror-vision" id="mirrorVision">Vision kanıt özeti bekleniyor…</div>
       </div>
-      <div class="mirror-note">FULL ANNOTATED, Vision worker'ın kullandığı deterministik renderer ile aynı katmanları gösterir. JEV PNG pikselini doğrudan tüketmez; OB/FVG/OTE/Fib/range/trend/yapı/liquidation dahil R2537 sayısal packet'i tüketir. Observed liquidation çizgileri Binance force-order geçmiş kümeleridir; gelecekteki gizli liquidation heatmap iddiası değildir.</div>
+      <div class="mirror-note">TAM AÇIKLAMALI grafik, Vision kanıt ajanının kullandığı deterministik çiziciyle aynı katmanları gösterir. JEV PNG pikselini doğrudan tüketmez; OB/FVG/OTE/Fib/aralık/trend/yapı/tasfiye dahil sayısal JEV paketini tüketir. Gözlenen tasfiye çizgileri Binance geçmiş zorunlu-tasfiye kümeleridir; gelecekteki gizli tasfiye ısı haritası iddiası değildir.</div>
     </div>
   </section>
 
@@ -272,18 +272,18 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <dl class="kv" id="visKv" style="margin-top:10px"></dl>
     </div>
     <div class="card">
-      <h2>JEV Patron / Final Trader <span class="hint">PASS-1 kanıtı seçer • worker EVIDENCE_ONLY • PASS-2 LONG/SHORT/WAIT • sonrası yalnız hard safety</span></h2>
+      <h2>JEV Patron / Son Karar <span class="hint">PASS-1 kanıtı seçer • kanıt ajanı yalnız istenen veriyi toplar • PASS-2 ALIŞ/SATIŞ/BEKLE • sonrası yalnız zorunlu güvenlik</span></h2>
       <dl class="kv" id="jevKv"></dl>
       <div class="jev-list" id="jevList"></div>
     </div>
     <div class="card">
-      <h2>Plan Worker'lar & ücretsiz modeller</h2>
+      <h2>Plan Kanıt Ajanları & ücretsiz modeller</h2>
       <div class="bar" id="wBar" role="img" aria-label="worker kararları"></div>
       <div class="legend" id="wLegend"></div>
       <dl class="kv" id="wKv" style="margin-top:10px"></dl>
     </div>
     <div class="card v109">
-      <h2>Claude v9.5.112 • hızlı scalp / kod-tetik → JEV FINAL → hard safety → emir <span class="hint">v111 doğrulama + v112 hızlı hat + runner</span></h2>
+      <h2>Claude v9.5.112 • hızlı scalp / kod-tetik → JEV SON KARAR → zorunlu güvenlik → emir <span class="hint">v111 doğrulama + v112 hızlı hat + iz süren pozisyon</span></h2>
       <dl class="kv" id="v109Kv"></dl>
       <div class="v109-bars" id="v109Bars"></div>
       <div class="legend" id="v109Note"></div>
@@ -292,7 +292,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 
   <section class="row2">
     <div class="card">
-      <h2>Takip edilen setuplar <span class="hint">⚠ = bekleme “NONE…” • tetik = kapanış seviyesi (v109)</span></h2>
+      <h2>Takip edilen setuplar <span class="hint">⚠ = somut bekleme koşulu yok • tetik = kapanış seviyesi (v109)</span></h2>
       <div style="overflow:auto"><table id="setups"></table></div>
     </div>
     <div class="card tl">
@@ -309,14 +309,14 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="card">
       <h2>Açık pozisyonlar <span class="hint" id="posHint">Binance • 30 sn defter</span></h2>
       <div style="overflow:auto"><table id="openPos"></table></div>
-      <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + funding)</span></h2>
+      <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + fonlama)</span></h2>
       <div style="overflow:auto"><table id="closedPos"></table></div>
     </div>
   </section>
 
   <section class="row2">
     <div class="card">
-      <h2>Olay akışı <span class="hint">journal + brainpub.log</span></h2>
+      <h2>Olay akışı <span class="hint">işlem günlüğü + brainpub.log</span></h2>
       <div class="feed" id="feed"></div>
     </div>
     <div class="card">
@@ -341,6 +341,70 @@ const TFS = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const DESK_COLOR = { scanner:'var(--series-4)', vision:'var(--series-1)', brain:'var(--series-7)', workers:'var(--series-3)', orfree:'var(--series-3)', jev:'var(--series-5)', risk:'var(--series-2)', exec:'var(--series-2)', positions:'var(--series-4)', archive:'var(--text-muted)', learning:'var(--series-7)' };
 const STATUS_COLOR = { QUALIFIED:'var(--good)', WATCH:'var(--warning)', REVIEW_REQUIRED:'var(--serious)', REJECT:'var(--critical)' };
 const STATUS_TR = { QUALIFIED:'İşlem adayı', WATCH:'İzle/bekle', REVIEW_REQUIRED:'Yeniden incele', REJECT:'Red' };
+const UI_TR = {
+  LONG:'ALIŞ (LONG)', SHORT:'SATIŞ (SHORT)', WAIT:'BEKLE', WATCH:'İZLE / BEKLE',
+  DETECTED:'TESPİT EDİLDİ', QUALIFIED:'İŞLEM ADAYI', REVIEW_REQUIRED:'YENİDEN İNCELE', REJECT:'RED',
+  WAIT_PULLBACK:'GERİ ÇEKİLME BEKLENİYOR', WAIT_STRUCTURE_CLOSE:'YAPI KAPANIŞI BEKLENİYOR',
+  MARKET_NOW:'ŞİMDİ PİYASA GİRİŞİ', BREAKOUT_RETEST:'KIRILIM + GERİ TEST',
+  MOMENTUM_CONTINUATION:'MOMENTUM DEVAMI', STRUCTURAL_REVERSAL:'YAPISAL DÖNÜŞ',
+  EVIDENCE_ONLY:'YALNIZCA KANIT TOPLAMA', ATTENTION_ONLY:'YALNIZCA DİKKAT',
+  HARD_SAFETY_READY:'ZORUNLU GÜVENLİK HAZIR', ORDER_PLACED:'EMİR GÖNDERİLDİ',
+  PREMIUM:'PREMİUM', DISCOUNT:'DİSKONT', EQUILIBRIUM:'DENGE',
+  ABOVE_RANGE_EXTENSION:'ARALIK ÜSTÜ / UZAMA', BELOW_RANGE_EXTENSION:'ARALIK ALTI / UZAMA',
+  FORMING:'OLUŞUYOR', CONFIRMED:'TEYİTLİ',
+  SHADOW:'GÖLGE', BINDING:'BAĞLAYICI', OFF:'KAPALI', ACTIVE:'AKTİF', CLOSED:'KAPANDI',
+  TRAILING:'İZ SÜRME', BREAKEVEN:'BAŞABAŞ', TRIGGERED:'TETİKLENDİ', REFRESH_REQUIRED:'YENİ ANALİZ GEREKLİ',
+  UP:'YÜKSELİŞ', DOWN:'DÜŞÜŞ', MIXED:'KARMA', BULL:'BOĞA', BEAR:'AYI',
+  BULLISH:'YÜKSELİŞ YAPISI', BEARISH:'DÜŞÜŞ YAPISI', NEUTRAL:'NÖTR',
+  HH:'DAHA YÜKSEK TEPE', HL:'DAHA YÜKSEK DİP', LH:'DAHA ALÇAK TEPE', LL:'DAHA ALÇAK DİP', EH:'EŞİT TEPE', EL:'EŞİT DİP',
+  BOS_UP:'BOS YUKARI', BOS_DOWN:'BOS AŞAĞI', CHOCH_UP:'CHoCH YUKARI', CHOCH_DOWN:'CHoCH AŞAĞI',
+  SELL_SIDE_RECLAIM:'SATIŞ TARAFI SÜPÜRME + GERİ ALIM', BUY_SIDE_REJECT:'ALIŞ TARAFI SÜPÜRME + RED',
+  ASCENDING_TRIANGLE:'YÜKSELEN ÜÇGEN', DESCENDING_TRIANGLE:'ALÇALAN ÜÇGEN', SYMMETRICAL_TRIANGLE:'SİMETRİK ÜÇGEN',
+  RISING_WEDGE:'YÜKSELEN KAMA', FALLING_WEDGE:'ALÇALAN KAMA', RISING_CHANNEL:'YÜKSELEN KANAL', FALLING_CHANNEL:'ALÇALAN KANAL',
+  DOUBLE_TOP:'ÇİFT TEPE', DOUBLE_BOTTOM:'ÇİFT DİP', HEAD_AND_SHOULDERS:'OMUZ BAŞ OMUZ',
+  INVERSE_HEAD_AND_SHOULDERS:'TERS OMUZ BAŞ OMUZ', RANGE:'YATAY ARALIK',
+  LONG_15M_TRADE:'15 DK ALIŞ ANA İŞLEM', SHORT_15M_TRADE:'15 DK SATIŞ ANA İŞLEM',
+  LONG_5M_SCALP:'5 DK ALIŞ SCALP', SHORT_5M_SCALP:'5 DK SATIŞ SCALP',
+  '15M_TRADE':'15 DK ANA İŞLEM', '5M_SCALP':'5 DK SCALP',
+  IDLE:'BOŞTA', DONE:'TAMAM', ERROR:'HATA', NOT_CALLED:'ÇAĞRILMADI',
+  BEARISH_ENGULFING:'AYI YUTAN FORMASYONU', BULLISH_ENGULFING:'BOĞA YUTAN FORMASYONU',
+  SHOOTING_STAR_REJECTION:'KAYAN YILDIZ REDDİ', HAMMER_REJECTION:'ÇEKİÇ REDDİ',
+  VOLATILITY_COMPRESSION:'VOLATİLİTE SIKIŞMASI', STRUCTURE_LOCATION:'YAPI KONUMU',
+  ORDER_FLOW_CVD:'EMİR AKIŞI / CVD', DERIVATIVES:'TÜREVLER',
+  NO_NEW_WAIT:'YENİ BEKLEME YOK', COMBINATION:'BİRLEŞİK KANIT',
+  SWING_LOW:'SWING DİBİ', SWING_HIGH:'SWING TEPESİ',
+  FRESH_SCANNER_SELECTION:'YENİ TARAYICI SEÇİMİ', LEADER_AUTO_BLOCKED:'OTO YÜRÜTME ENGELLENDİ',
+  LIVE_REASONING_REFERENCE_READ_ONLY:'CANLI AKIL YÜRÜTME REFERANSI — SALT OKUNUR',
+  COMPLETE_CORE_5M15M_PLUS_CONTEXT:'5 DK + 15 DK TAM ÇEKİRDEK BAĞLAMI',
+  JEV_EXPLICIT:'JEV AÇIK SEÇİMİ', BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED:'LIVE AÇIKKEN BAĞLAYICI — YALNIZCA AZALT',
+  SHADOW_ONLY:'YALNIZCA GÖLGE',
+  LEADER_AUTO_WAIT:'OTO LİDER BEKLİYOR',
+  MARKET_SETUP_FAMILY_TIMING_EDGE:'PİYASA / SETUP AİLESİ / ZAMANLAMA / AVANTAJ',
+  EXIT_NOW:'HEMEN ÇIK', HOLD:'TUT', PROTECT:'KORU', PARTIAL:'KISMİ KÂR AL',
+  SOVEREIGN:'BAĞIMSIZ JEV', LIVE_CORTEX:'CANLI CORTEX',
+  DAILY_LOSS_CAP_REACHED:'GÜNLÜK ZARAR TAVANI DOLDU',
+  TRADE_RISK_CAP_EXCEEDED:'İŞLEM RİSK TAVANI AŞILDI',
+  TRADE_NOTIONAL_CAP_EXCEEDED:'İŞLEM BÜYÜKLÜK TAVANI AŞILDI',
+  OPEN_POSITION_CAP_REACHED:'AÇIK POZİSYON SINIRI DOLDU',
+  FAMILY_EXPOSURE_CAP_EXCEEDED:'TOPLAM MARUZİYET SINIRI AŞILDI',
+  FAILED_BREAKOUT_REQUIRES_RECLAIM:'BAŞARISIZ KIRILIM — GERİ KAZANIM BEKLENİYOR'
+};
+function trUi(v){
+  let s=String(v??'');
+  // Önce tüm tarihsel İngilizce giriş nedeni cümlesini çevir; sonra içindeki enumları Türkçeleştir.
+  s=s.replace(/JEV FINAL selected ([A-Z0-9_]+) after directing evidence collection\.?/g,
+      'JEV kanıt toplama sürecini yönettikten sonra $1 seçti.')
+     .replace(/stream symbol capacity reached/gi,'akış sembol kapasitesi dolu')
+     .replace(/execution=/gi,'yürütme=')
+     .replace(/reasons=/gi,'nedenler=')
+     .replace(/self-modify/gi,'kendi kendini değiştirme')
+     .replace(/auto-promotion/gi,'otomatik terfi')
+     .replace(/JEV lesson/gi,'JEV dersi')
+     .replace(/hard safety/gi,'zorunlu güvenlik')
+     .replace(/worker/gi,'kanıt ajanı');
+  for(const [k,val] of Object.entries(UI_TR)) s=s.replace(new RegExp('\\b'+k+'\\b','g'),val);
+  return s;
+}
 const JEV_CHECKS = [
   ['structuralVeto','Yapısal çelişki'],['formingDependency','Açık mum teyit gibi kullanılmış (≥0,70)'],['dataQualityInsufficient','Veri kalitesi yetersiz'],
   ['directionConflict','Yön çelişkisi'],['symbolPackageIntegrity','Coin/paket uyuşmazlığı'],['originOwnerContinuity','Başlangıç-sahip sürekliliği'],
@@ -352,13 +416,13 @@ const JEV_CHECKS = [
 const VW=1100, VH=680;
 const DESKS = [
   { id:'scanner',  x:140, y:112, name:'Tarayıcı',            role:'Binance evreni → hedef 24' },
-  { id:'workers',  x:140, y:342, name:"Plan Worker'lar",      role:'9Router ücretsiz metin' },
+  { id:'workers',  x:140, y:342, name:'Plan Kanıt Ajanları',   role:'9Router ücretsiz metin' },
   { id:'orfree',   x:140, y:572, name:'OpenRouter Free',      role:'ikinci görüş' },
   { id:'vision',   x:550, y:98,  name:'Görsel Analist',       role:'Qwen3-VL • GPU' },
   { id:'positions',x:550, y:598, name:'Pozisyon Yöneticisi',  role:'açık pozisyon • JEV yönetimi' },
-  { id:'jev',      x:960, y:112, name:'JEV Patron',            role:'PASS-1 evidence director • PASS-2 FINAL' },
-  { id:'risk',     x:960, y:342, name:'Hard Safety',          role:'stop • likidasyon • bakiye • limit • grant' },
-  { id:'exec',     x:960, y:572, name:'Yürütme / Binance',    role:'LIVE • grant • emir' }
+  { id:'jev',      x:960, y:112, name:'JEV Patron',            role:'PASS-1 kanıt yöneticisi • PASS-2 SON KARAR' },
+  { id:'risk',     x:960, y:342, name:'Zorunlu Güvenlik',    role:'stop • likidasyon • bakiye • limit • yürütme yetkisi' },
+  { id:'exec',     x:960, y:572, name:'Yürütme / Binance',    role:'LIVE • yürütme yetkisi • emir' }
 ];
 const BRAIN = { x:550, y:342 };
 // Yürüyen trader rotaları: [kaynak, hedef, kapı id]
@@ -429,8 +493,8 @@ function deskSvg(d){
 function buildOffice(){
   const gates = [
     { id:'gQual',  a:'brain', b:'jev',  label:'JEV PASS-1' },
-    { id:'gJev',   a:'jev',   b:'risk', label:'JEV FINAL' },
-    { id:'gIntent',a:'risk',  b:'exec', label:'Hard safety' },
+    { id:'gJev',   a:'jev',   b:'risk', label:'JEV SON KARAR' },
+    { id:'gIntent',a:'risk',  b:'exec', label:'Zorunlu güvenlik' },
     { id:'gLive',  a:'exec',  b:'positions', label:'LIVE' }
   ];
   const edges = EDGES.map(([a,b],i)=>{
@@ -542,17 +606,23 @@ function renderKpis(s){
   const armed = st.armed===true; const exp = st.expiresAt ? Math.max(0,Math.round((Date.parse(st.expiresAt)-Date.now())/60000)) : null;
   const eq = num(acc.equity ?? acc.account?.equity ?? acc.totalWalletBalance);
   const avail = num(acc.availableBalance ?? acc.account?.availableBalance);
+  const policy=st.policy||{};
+  const maxDailyLossPct=num(policy?.limits?.maxDailyLossPct);
+  const cfg111=s.health?.data?.claudeV111Config||{};
+  const stopCooldown=num(cfg111.fastLaneVetoCooldownMin);
   $('#kpis').innerHTML = [
     kpi('LIVE', armed?'AÇIK':'KAPALI', armed?(exp!=null?`kalan ${exp} dk`:'süre bilinmiyor'):'emir gönderilmez', armed?'good':'critical'),
-    kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`max ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'LONG':'',la.allowShort?'SHORT':''].filter(Boolean).join(' ')}`:'Leader AUTO etkin değil', la.enabled?null:'critical'),
+    kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`en fazla ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'ALIŞ (LONG)':'',la.allowShort?'SATIŞ (SHORT)':''].filter(Boolean).join(' ')}`:'Otomatik lider etkin değil', la.enabled?null:'critical'),
     kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
-    kpi('JEV değerlendirme (60 dk)', `${h.deepAnalyses??0} / ${h.uniqueAnalyzedSymbols??0} coin`, `PASS-1 ${h.sovereignPass1Calls??0} • final ${h.sovereignFinalCalls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0}`),
-    kpi('JEV final karar', `${(h.sovereignLong??0)+(h.sovereignShort??0)} işlem / ${h.sovereignWait??0} WAIT`, `LONG ${h.sovereignLong??0} • SHORT ${h.sovereignShort??0} • hard safety sonrası emir ${h.ordersPlaced??0}`, ((h.sovereignLong||0)+(h.sovereignShort||0))>0?'good':'info'),
-    kpi('Açılan emir', `${h.ordersPlaced??0}`, `hard safety ${h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null)
+    kpi('JEV değerlendirme (60 dk)', `${h.deepAnalyses??0} / ${h.uniqueAnalyzedSymbols??0} coin`, `PASS-1 ${h.sovereignPass1Calls??0} • son karar ${h.sovereignFinalCalls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0}`),
+    kpi('JEV son karar', `${(h.sovereignLong??0)+(h.sovereignShort??0)} işlem / ${h.sovereignWait??0} BEKLE`, `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • zorunlu güvenlik sonrası emir ${h.ordersPlaced??0}`, ((h.sovereignLong||0)+(h.sovereignShort||0))>0?'good':'info'),
+    kpi('Açılan emir', `${h.ordersPlaced??0}`, `zorunlu güvenlik ${h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null),
+    kpi('Günlük zarar freni', maxDailyLossPct!=null?`%${maxDailyLossPct}`:'—', maxDailyLossPct!=null?'eşik dolunca yeni emir zorunlu güvenlikte engellenir':'live-policy sınırı okunamadı', maxDailyLossPct!=null?'good':'warn'),
+    kpi('Stop sonrası yeniden giriş', stopCooldown!=null?`${stopCooldown} dk`:'aktif', 'aynı coin hızlı hatta hemen yeniden açılmaz; intikam işlemi engellenir', 'good')
   ].join('');
   chip('#chipVer', s.health?.ok?'good':'bad', `PC ${s.health?.data?.featureVersion || st.featureVersion || '—'}`);
   chip('#chipLive', armed?'good':'bad', armed?`LIVE AÇIK${exp!=null?' • '+exp+' dk':''}`:'LIVE KAPALI');
-  chip('#chipAuto', la.enabled?'good':'bad', la.enabled?`OTO AKTİF • ${la.lastExecution||'—'}`:'OTO KAPALI');
+  chip('#chipAuto', la.enabled?'good':'bad', la.enabled?`OTO AKTİF • ${trUi(la.lastExecution||'—')}`:'OTO KAPALI');
   const age = s.generatedAt ? Math.round((Date.now()-Date.parse(s.generatedAt))/1000) : null;
   chip('#chipFresh', s.status?.ok?'good':'bad', s.status?.ok?`veri ${age!=null?age+' sn':''} önce`:'Brain Hub yok');
 }
@@ -566,10 +636,10 @@ function renderLanes(s){
   const pass1=+(h.sovereignPass1Calls??0), binding=+(h.sovereignFinalCalls??h.jevCalled??0);
   const card=(tone,title,value,sub,mini=[])=>`<div class="lane-card ${tone}"><div class="t">${esc(title)}</div><div class="v">${esc(value)}</div><div class="s">${esc(sub)}</div><div class="mini">${mini.map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`;
   $('#laneStrip').innerHTML=[
-    card('info','15m LONG / SHORT TRADE',`${h.sovereignLong??0} LONG • ${h.sovereignShort??0} SHORT`,'15m ana trade lane’idir; 30m+ zorunlu oy değildir, JEV isterse ek kanıttır.',['15M_TRADE','JEV decides']),
-    card('info','5m LONG / SHORT SCALP',`${binding} final karar`,'5m scalp lane’idir. 1m/3m teyit zorunlu değildir; JEV isterse timing kanıtı olarak çağırır.',['5M_SCALP','no 2/3 gate']),
-    card(pass1?'good':'info','JEV KANIT YÖNETİMİ',`PASS-1 ${pass1} • istek ${h.sovereignEvidenceRequests??0}`,'Radar yalnız dikkat çeker. Hangi grafik/veri/worker kanıtının gerekli olduğunu JEV belirler.',['ATTENTION_ONLY','EVIDENCE_ONLY']),
-    card(binding?'good':'warn','JEV FINAL AUTHORITY',`${binding} final • WAIT ${h.sovereignWait??0}`,'JEV önem sırasını kendi belirler; bütün şartların hizalanmasını beklemek zorunda değildir. Sonrasında yalnız mekanik hard safety vardır.',['LONG/SHORT/WAIT'])
+    card('info','15 dk ALIŞ / SATIŞ ANA İŞLEM',`${h.sovereignLong??0} ALIŞ • ${h.sovereignShort??0} SATIŞ`,'15 dk ana işlem hattıdır; 30 dk+ zorunlu oy değildir, JEV isterse ek kanıttır.',['15 DK ANA İŞLEM','KARARI JEV VERİR']),
+    card('info','5 dk ALIŞ / SATIŞ SCALP',`${binding} son karar`,'5 dk scalp hattıdır. 1 dk/3 dk teyit zorunlu değildir; JEV isterse giriş zamanlaması kanıtı olarak çağırır.',['5 DK SCALP','2/3 KAPISI YOK']),
+    card(pass1?'good':'info','JEV KANIT YÖNETİMİ',`PASS-1 ${pass1} • istek ${h.sovereignEvidenceRequests??0}`,'Radar yalnız dikkat çeker. Hangi grafik/veri/kanıt ajanı bilgisinin gerekli olduğunu JEV belirler.',['YALNIZCA DİKKAT','YALNIZCA KANIT']),
+    card(binding?'good':'warn','JEV SON KARAR YETKİSİ',`${binding} son karar • BEKLE ${h.sovereignWait??0}`,'JEV önem sırasını kendi belirler; bütün şartların hizalanmasını beklemek zorunda değildir. Sonrasında yalnız mekanik zorunlu güvenlik vardır.',['ALIŞ/SATIŞ/BEKLE'])
   ].join('');
 }
 
@@ -604,13 +674,13 @@ function renderVision(s){
   const st=s.status?.data||{}; const vp = s.visionProgress?.data || st.visionProgress || {}; const va = st.visionAvailability||{};
   const info = stageInfo(vp.stage);
   $('#tfs').innerHTML = TFS.map((t,i)=>`<div class="tf ${info.active.includes(t)?'now':(i<=info.doneIdx?'done':'')}">${t}</div>`).join('');
-  const phases=[['VISUAL','9 grafik okuma'],['CORE','Çekirdek karar'],['NARRATIVE','Anlatım'],['SEMANTIC','WATCH onarımı'],['DONE','Tamam']];
+  const phases=[['VISUAL','9 grafik okuma'],['CORE','Çekirdek karar'],['NARRATIVE','Anlatım'],['SEMANTIC','BEKLE onarımı'],['DONE','Tamam']];
   const order=phases.map(p=>p[0]); const cur=order.indexOf(info.phase);
   $('#stages').innerHTML = phases.map(([k,l],i)=>`<span class="stg ${k===info.phase?'on':(cur>i?'done':'')}">${l}</span>`).join('') + (info.phase==='ERROR'?`<span class="stg" style="background:var(--critical);color:#fff">HATA</span>`:'');
   const ps = s.ollama?.data?.models||[]; const gpu = ps[0];
   $('#visHint').textContent = va.summaryTr ? va.summaryTr.slice(0,70) : '';
   $('#visKv').innerHTML = [
-    ['Aşama', vp.stage||'IDLE'],
+    ['Aşama', trUi(vp.stage||'IDLE')],
     ['Model', vp.model || (va.models?.[0]?.model) || '—'],
     ['Aşama süresi', vp.lastStageDurationMs?Math.round(vp.lastStageDurationMs/1000)+' sn':'—'],
     ['Kuyruk', `${vp.queueDepth??0} • pipeline ${vp.pipelineActive??0}`],
@@ -628,18 +698,18 @@ function renderJev(s){
     const le=st.learning||{};
     const sel=h.sovereignSelectivityDiagnostic||{};
     const selectivity=sel.code==='NO_WAIT_OBSERVED_INFO_ONLY'
-      ? `bilgi: son ${h.sovereignFinalTotal??0} finalde WAIT yok • BLOK YOK`
-      : `WAIT oranı ${h.sovereignWaitRatePct==null?'—':h.sovereignWaitRatePct+'%'} • BLOK YOK`;
+      ? `bilgi: son ${h.sovereignFinalTotal??0} son kararda BEKLE yok • BLOK YOK`
+      : `BEKLE oranı ${h.sovereignWaitRatePct==null?'—':h.sovereignWaitRatePct+'%'} • BLOK YOK`;
     $('#jevKv').innerHTML = [
       ['Durum', j.configured?`hazır • ${j.model||''} • JEV PATRON`:'yapılandırılmamış'],
-      ['Akış', `PASS-1 ${h.sovereignPass1Calls??0} • evidence request ${h.sovereignEvidenceRequests??0} • PASS-2 ${h.sovereignFinalCalls??0}`],
-      ['Final', `LONG ${h.sovereignLong??0} • SHORT ${h.sovereignShort??0} • WAIT ${h.sovereignWait??0}`],
+      ['Akış', `PASS-1 ${h.sovereignPass1Calls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0} • PASS-2 ${h.sovereignFinalCalls??0}`],
+      ['Son karar', `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • BEKLE ${h.sovereignWait??0}`],
       ['Seçicilik', selectivity],
-      ['Deneyim hafızası', `ölçülmüş ${le.measuredSampleCount??0} • JEV lesson ${le.jevLessonCount??0} • soft context`],
-      ['Kural', 'Puanlama/2-of-3/hard-15m stratejik kapı yok; JEV setup ailesi + edge kaynağı + giriş zamanlamasını ayrıca seçer. MARKET_NOW değilse emir yetkilenmez.']
+      ['Deneyim hafızası', `ölçülmüş ${le.measuredSampleCount??0} • JEV dersi ${le.jevLessonCount??0} • yumuşak bağlam`],
+      ['Kural', 'Puanlama/2-of-3/zorunlu-15dk stratejik kapı yok; JEV setup ailesi + avantaj kaynağı + giriş zamanlamasını ayrıca seçer. ŞİMDİ PİYASA GİRİŞİ değilse emir yetkilenmez.']
     ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
     $('#jevList').innerHTML = [
-      ['5m scalp','LONG / SHORT'],['15m trade','LONG / SHORT'],['Radar','ATTENTION_ONLY'],['Worker','JEV-directed EVIDENCE_ONLY'],['Sonrası','HARD SAFETY ONLY']
+      ['5 dk scalp','ALIŞ / SATIŞ'],['15 dk ana işlem','ALIŞ / SATIŞ'],['Radar','YALNIZCA DİKKAT'],['Kanıt ajanı','JEV yönlendirmeli YALNIZCA KANIT'],['Sonrası','YALNIZCA ZORUNLU GÜVENLİK']
     ].map(([a,b])=>`<div class="jq"><span class="t">${esc(a)}</span><span class="p" style="width:auto">${esc(b)}</span></div>`).join('');
     return;
   }
@@ -648,7 +718,7 @@ function renderJev(s){
     ['Bugün', `${b.calls??0} çağrı • $${Number(b.spentUsd||0).toFixed(4)} / $${Number(b.dailyCapUsd||2).toFixed(2)} (uyarı $${Number(b.softBudgetUsd||0.25).toFixed(2)})`],
     ['Son karar', lj?`${lj.symbol} ${lj.side||''} • ${lj.veto?'VETO':'geçti'} • ${fmtTime(lj.ts)}`:
       ((st.leaderAuto?.health?.jevShadowCalled||0)>0
-        ? `WATCH gölge inceleme ${st.leaderAuto.health.jevShadowCalled} • bağlayıcı çağrı ${st.leaderAuto.health.jevCalled||0}`
+        ? `BEKLE gölge inceleme ${st.leaderAuto.health.jevShadowCalled} • bağlayıcı çağrı ${st.leaderAuto.health.jevCalled||0}`
         : 'henüz Jev incelemesi yok')]
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   const probs = lj?.probabilities||{}; const tfc = lj?.timeframeConflicts||{};
@@ -682,14 +752,14 @@ function renderWorkers(s){
 function isFakeWait(w){ const z=String(w||'').trim().toUpperCase(); return !z || /^NONE\b/.test(z) || /^YOK\b/.test(z) || /SOMUT BEKLEME KOŞULU ÜRETMEDİ/i.test(String(w||'')); }
 function renderSetups(s){
   const rows = s.status?.data?.leaderAuto?.analysisLifecycle?.rows||[];
-  const head = `<tr><th>Sembol</th><th>Yön</th><th>Hat</th><th>Momentum</th><th>Durum</th><th>Plan</th><th>TF</th><th>Tetik</th><th>Worker</th><th>Beklenen</th><th>Son</th></tr>`;
+  const head = `<tr><th>Sembol</th><th>Yön</th><th>Hat</th><th>Momentum</th><th>Durum</th><th>Plan</th><th>TF</th><th>Tetik</th><th>Kanıt ajanı</th><th>Beklenen</th><th>Son</th></tr>`;
   $('#setups').innerHTML = head + (rows.length ? rows.slice(0,24).map(r=>{
     const plan=String(r.planStatus||''); const fake = (plan==='WATCH'||String(r.state||'')==='WATCH') && String(r.waitFor||'').trim()!=='' && isFakeWait(r.waitFor);
     const lane=r.tradeLaneName==='SCALP_MOMENTUM'?'SCALP':r.tradeLaneName==='MAIN_15M'?'15m ANA':(r.tradeLaneName||'—');
-    return `<tr><td><b>${esc(r.symbol)}</b></td><td><span class="pill ${esc(r.side)}">${esc(r.side||'—')}</span></td><td><span class="pill">${esc(lane)}</span></td><td>${esc(r.momentumStage||'—')} ${r.scalpAlignedCount!=null?'('+r.scalpAlignedCount+'/3)':''}</td><td>${esc(r.state||'—')}</td>
+    return `<tr><td><b>${esc(r.symbol)}</b></td><td><span class="pill ${esc(r.side)}">${esc(trUi(r.side||'—'))}</span></td><td><span class="pill">${esc(lane)}</span></td><td>${esc(trUi(r.momentumStage||'—'))} ${r.scalpAlignedCount!=null?'('+r.scalpAlignedCount+'/3)':''}</td><td>${esc(trUi(r.state||'—'))}</td>
       <td><span style="color:${STATUS_COLOR[plan]||'var(--text-secondary)'}">●</span> ${esc(STATUS_TR[plan]||plan||'—')}</td>
-      <td>${esc(r.originTF||'—')}→${esc(r.ownerTF||'—')}</td><td class="trig">${r.triggerTF&&r.triggerPrice!=null?esc(r.triggerTF+' '+(String(r.side).toUpperCase()==='SHORT'?'<':'>')+' '+r.triggerPrice)+(r.shadowTriggeredAt?' ✓':''):'—'}</td><td>${esc(r.workerState||'—')}</td>
-      <td class="wait">${fake?'<span class="flag">⚠ NONE</span>':''}${esc(String(r.waitFor||'—').slice(0,150))}</td><td>${fmtTime(r.lastAnalyzedAt)}</td></tr>`;
+      <td>${esc(r.originTF||'—')}→${esc(r.ownerTF||'—')}</td><td class="trig">${r.triggerTF&&r.triggerPrice!=null?esc(r.triggerTF+' '+(String(r.side).toUpperCase()==='SHORT'?'<':'>')+' '+r.triggerPrice)+(r.shadowTriggeredAt?' ✓':''):'—'}</td><td>${esc(trUi(r.workerState||'—'))}</td>
+      <td class="wait">${fake?'<span class="flag">⚠ KOŞUL YOK</span>':''}${esc(trUi(String(r.waitFor||'—')).slice(0,150))}</td><td>${fmtTime(r.lastAnalyzedAt)}</td></tr>`;
   }).join('') : `<tr><td colspan="11" class="muted">Takip edilen setup yok.</td></tr>`);
 }
 
@@ -719,18 +789,27 @@ function renderLedger(s){
   const N=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':esc(String(Number(v)));
   const num=(v,p=4)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toFixed(p).replace(/\.?0+$/,'');
   const sgn=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':`<span style="color:${Number(v)>=0?'var(--good)':'var(--critical)'}">${Number(v)>=0?'+':''}${Number(v).toFixed(2)}</span>`;
-  const side=x=>`<span class="pill ${esc(x||'')}">${esc(x||'')}</span>`;
+  const side=x=>`<span class="pill ${esc(x||'')}">${esc(trUi(x||''))}</span>`;
   if(!d){ $('#openPos').innerHTML=`<tr><td class="muted">${s.positions?.disabled?'Hesap verisi kapalı (OFFICE_ACCOUNT=0).':'Pozisyon defteri alınamadı'+(s.positions?.error?' ('+esc(s.positions.error)+')':'')+' — Brain Hub v9.5.113 gerekir.'}</td></tr>`; $('#closedPos').innerHTML=''; return; }
   const open=d.open||[];
   $('#posHint').textContent=`${open.length} açık • açık PnL ${Number(d.openUnrealizedPnl||0).toFixed(2)} USDT • defter ${d.asOf?fmtTime(Date.parse(d.asOf)):'—'}${d.ledgerOk===false?' • OKUNAMIYOR: '+(d.ledgerError||''):''}`;
-  $('#openPos').innerHTML = open.length ? `<tr><th>Sembol</th><th>Yön</th><th>Açan</th><th>Giriş</th><th>Anlık</th><th>PnL USDT</th><th>R</th><th>Stop</th><th>TP1</th><th>Runner</th><th>Açılış</th><th>Hat/TF</th><th>Giriş nedeni</th></tr>`+
-    open.map(p=>`<tr><td><b>${esc(p.symbol)}</b></td><td>${side(p.side)}</td><td>${p.openedBy==='BRAINHUB_AUTO'?'OTO':'dış/manuel'}</td><td>${num(p.entryPrice,6)}</td><td>${num(p.markPrice,6)}</td><td>${sgn(p.unrealizedPnl)}</td><td>${p.unrealizedR===null?'—':Number(p.unrealizedR).toFixed(2)}</td><td>${num(p.stopPrice,6)}${p.originalStopPrice&&p.stopPrice!==p.originalStopPrice?` <span class="muted">(ilk ${num(p.originalStopPrice,6)})</span>`:''}</td><td>${num(p.takeProfit1,6)}</td><td>${esc(p.runnerPhase||'—')}${p.trailTf?' • '+esc(p.trailTf):''}</td><td>${p.openedAt?fmtTime(Date.parse(p.openedAt)):'—'}</td><td>${esc([p.lane,p.originTF].filter(Boolean).join(' • ')||'—')}</td><td style="max-width:360px">${esc(String(p.entryReason||'').slice(0,160))}</td></tr>`).join('')
+  $('#openPos').innerHTML = open.length ? `<tr><th>Sembol</th><th>Yön</th><th>Açan</th><th>Sürüm</th><th>Giriş</th><th>Anlık</th><th>PnL USDT</th><th>R</th><th>Stop</th><th>TP1</th><th>İz süren</th><th>Açılış</th><th>Hat/TF</th><th>Giriş nedeni</th></tr>`+
+    open.map(p=>`<tr><td><b>${esc(p.symbol)}</b></td><td>${side(p.side)}</td><td>${p.openedBy==='BRAINHUB_AUTO'?'OTO':'dış/manuel'}</td><td>${esc(p.releaseContract||p.strategyVersion||'ESKİ/ETİKETSİZ')}</td><td>${num(p.entryPrice,6)}</td><td>${num(p.markPrice,6)}</td><td>${sgn(p.unrealizedPnl)}</td><td>${p.unrealizedR===null?'—':Number(p.unrealizedR).toFixed(2)}</td><td>${num(p.stopPrice,6)}${p.originalStopPrice&&p.stopPrice!==p.originalStopPrice?` <span class="muted">(ilk ${num(p.originalStopPrice,6)})</span>`:''}</td><td>${num(p.takeProfit1,6)}</td><td>${esc(trUi(p.runnerPhase||'—'))}${p.trailTf?' • '+esc(p.trailTf):''}</td><td>${p.openedAt?fmtTime(Date.parse(p.openedAt)):'—'}</td><td>${esc([p.lane,p.originTF].filter(Boolean).join(' • ')||'—')}</td><td style="max-width:360px">${esc(trUi(String(p.entryReason||'')).slice(0,160))}</td></tr>`).join('')
     : '<tr><td class="muted">Binance\'te açık pozisyon yok.</td></tr>';
   const cl=d.closed||[], sm=d.summary||{};
+  const versionKey=row=>String(row?.entryContext?.releaseContract||row?.entryContext?.strategyVersion||'ESKİ/ETİKETSİZ');
+  const versionGroups=new Map();
+  for(const row of cl){
+    const key=versionKey(row), g=versionGroups.get(key)||{n:0,net:0};
+    const pnl=Number(row?.netPnl); g.n++; if(Number.isFinite(pnl)) g.net+=pnl;
+    versionGroups.set(key,g);
+  }
+  const versionText=[...versionGroups.entries()].slice(0,4).map(([k,g])=>`${k}: ${g.n} işlem • ${g.net>=0?'+':''}${g.net.toFixed(2)} USDT`).join(' | ');
   $('#closedHint').textContent=`${sm.closed||0} kapanan • ${sm.wins||0} kazanç / ${sm.losses||0} kayıp${sm.winRatePct!=null?' (%'+sm.winRatePct+')':''} • net ${Number(sm.netPnl||0).toFixed(2)} USDT${sm.avgR!=null?' • ort '+sm.avgR+'R':''}`;
-  const EXIT_TR={STOP_LOSS:'stop',TAKE_PROFIT:'hedef',TP1_RUNNER_TRAIL:'TP1 + runner iz',TP1_BREAKEVEN:'TP1 + başabaş',TP1_THEN_STOP:'TP1 sonra stop',OTHER_CLOSE:'başka kapanış (manuel?)'};
-  $('#closedPos').innerHTML = cl.length ? `<tr><th>Kapanış</th><th>Sembol</th><th>Yön</th><th>Net PnL</th><th>R</th><th>Çıkış</th><th>Süre</th><th>Hat/TF</th><th>Uzama (1h)</th><th>Stop %</th><th>Jev</th><th>Giriş nedeni</th></tr>`+
-    cl.slice(0,40).map(c=>{const ec=c.entryContext||{}; return `<tr><td>${c.closedAt?fmtTime(Date.parse(c.closedAt)):fmtTime(Date.parse(c.ts))}</td><td><b>${esc(c.symbol||'')}</b></td><td>${side(c.side)}</td><td>${sgn(c.netPnl)}</td><td>${c.rMultiple==null?'—':Number(c.rMultiple).toFixed(2)}</td><td>${esc(EXIT_TR[c.exitType]||c.exitType||'—')}</td><td>${N(c.holdMinutes)} dk</td><td>${esc([c.tradeLane,c.originTF].filter(Boolean).join(' • ')||'—')}</td><td>${ec.extension?.return1hDirPct!=null?(Number(ec.extension.return1hDirPct)>0?'+':'')+N(ec.extension.return1hDirPct)+'%':'—'}</td><td>${ec.riskGeometry?.stopPct!=null?N(ec.riskGeometry.stopPct)+'%':'—'}</td><td>${ec.jev?(ec.jev.veto?'veto':'onay'):'—'}</td><td style="max-width:360px">${esc(String(ec.why||'').slice(0,160))}</td></tr>`;}).join('')
+  if(versionText) $('#closedHint').textContent += ` • SÜRÜM BAZI: ${versionText}`;
+  const EXIT_TR={STOP_LOSS:'stop',TAKE_PROFIT:'hedef',TP1_RUNNER_TRAIL:'TP1 + iz süren',TP1_BREAKEVEN:'TP1 + başabaş',TP1_THEN_STOP:'TP1 sonra stop',OTHER_CLOSE:'başka kapanış (manuel?)'};
+  $('#closedPos').innerHTML = cl.length ? `<tr><th>Kapanış</th><th>Sembol</th><th>Yön</th><th>Sürüm</th><th>Net PnL</th><th>R</th><th>Çıkış</th><th>Süre</th><th>Hat/TF</th><th>Uzama (1s)</th><th>Stop %</th><th>JEV</th><th>Giriş nedeni</th></tr>`+
+    cl.slice(0,40).map(c=>{const ec=c.entryContext||{}; return `<tr><td>${c.closedAt?fmtTime(Date.parse(c.closedAt)):fmtTime(Date.parse(c.ts))}</td><td><b>${esc(c.symbol||'')}</b></td><td>${side(c.side)}</td><td>${esc(versionKey(c))}</td><td>${sgn(c.netPnl)}</td><td>${c.rMultiple==null?'—':Number(c.rMultiple).toFixed(2)}</td><td>${esc(EXIT_TR[c.exitType]||c.exitType||'—')}</td><td>${N(c.holdMinutes)} dk</td><td>${esc([c.tradeLane,c.originTF].filter(Boolean).join(' • ')||'—')}</td><td>${ec.extension?.return1hDirPct!=null?(Number(ec.extension.return1hDirPct)>0?'+':'')+N(ec.extension.return1hDirPct)+'%':'—'}</td><td>${ec.riskGeometry?.stopPct!=null?N(ec.riskGeometry.stopPct)+'%':'—'}</td><td>${ec.jev?(ec.jev.veto?'veto':'onay'):'—'}</td><td style="max-width:360px">${esc(trUi(String(ec.why||'')).slice(0,160))}</td></tr>`;}).join('')
     : '<tr><td class="muted">Henüz sonucu ölçülmüş kapanan işlem yok.</td></tr>';
 }
 
@@ -746,21 +825,21 @@ function renderPositions(s){
   const cx=js.traderCortex||s.health?.data?.jevSovereign?.traderCortex||{};
   $('#posKv').innerHTML = [
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
-    ['Kural', pm.ruleTr || 'JEV SOVEREIGN: 5m LONG/SHORT scalp ve 15m LONG/SHORT trade kararını JEV verir; 1m/3m/30m+ yalnız JEV isterse ek kanıttır. Worker/scanner stratejik veto veya puan kapısı koymaz.'],
-    ['JEV Cortex', cx.version?`${cx.version} • ${cx.mode||'—'} • PASS-1/PASS-2/pozisyon yönetiminde sürekli`:'Cortex bilgisi bekleniyor'],
-    ['JEV market context', js.marketContext?`${js.marketContext.version} • ${js.marketContext.mode||'—'} • timing ${js.marketContext.entryTiming||'—'} • learning ${js.marketContext.learningTaxonomy||'—'}`:'R2537 market context bekleniyor'],
-    ['Dinamik araştırma', js.dynamicKnowledge?`${js.dynamicKnowledge.version} • ${js.dynamicKnowledge.mode||'—'} • 9Router + OpenRouter free retry/failover → JEV doğrulama • doğrulanmış ${st.knowledgeResearch?.verifiedCount??0} • OSS kaynak ${st.knowledgeResearch?.openSourceRepoCount??0}`:'araştırma telemetrisi bekleniyor'],
-    ['Pozisyon yürütme', js.positionManagement?`EXIT_NOW ${js.positionManagement.exitNow||'—'} • partial ${js.positionManagement.partial||'—'}`:'pozisyon yürütme telemetrisi bekleniyor'],
-    ['Son pozisyon yürütmesi', lr.execution?`${lr.execution} • emir ${lr.orderPlaced?'GÖNDERİLDİ':'YOK'}${lr.managementExecution?.reason?' • '+lr.managementExecution.reason:''}`:'henüz pozisyon yürütmesi yok'],
-    ['Deneyim hafızası', js.experienceMemory?`${js.experienceMemory} • lifetime özet + son ayrıntılar sürekli`:'ölçülmüş geçmiş bekleniyor'],
-    ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup • JEV shadow lesson ${jevLessons}`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)'],
-    ['Teacher güvenliği', 'JEV lesson = SHADOW_ONLY • self-modify KAPALI • auto-promotion KAPALI']
+    ['Kural', trUi(pm.ruleTr || 'JEV BAĞIMSIZ YÖNETİM: 5 dk ALIŞ/SATIŞ scalp ve 15 dk ALIŞ/SATIŞ ana işlem kararını JEV verir; 1 dk/3 dk/30 dk+ yalnız JEV isterse ek kanıttır. Kanıt ajanı/tarayıcı stratejik veto veya puan kapısı koymaz.')],
+    ['JEV Cortex', cx.version?`${cx.version} • ${trUi(cx.mode||'—')} • PASS-1/PASS-2/pozisyon yönetiminde sürekli`:'Cortex bilgisi bekleniyor'],
+    ['JEV piyasa bağlamı', js.marketContext?`${js.marketContext.version} • ${trUi(js.marketContext.mode||'—')} • giriş zamanlaması ${trUi(js.marketContext.entryTiming||'—')} • öğrenme ${trUi(js.marketContext.learningTaxonomy||'—')}`:'R2537 piyasa bağlamı bekleniyor'],
+    ['Dinamik araştırma', js.dynamicKnowledge?`${js.dynamicKnowledge.version} • ${trUi(js.dynamicKnowledge.mode||'—')} • 9Router + OpenRouter ücretsiz yeniden deneme/yedek geçiş → JEV doğrulama • doğrulanmış ${st.knowledgeResearch?.verifiedCount??0} • OSS kaynak ${st.knowledgeResearch?.openSourceRepoCount??0}`:'araştırma telemetrisi bekleniyor'],
+    ['Pozisyon yürütme', js.positionManagement?`HEMEN ÇIK ${trUi(js.positionManagement.exitNow||'—')} • KISMİ KÂR AL ${trUi(js.positionManagement.partial||'—')}`:'pozisyon yürütme telemetrisi bekleniyor'],
+    ['Son pozisyon yürütmesi', lr.execution?`${trUi(lr.execution)} • emir ${lr.orderPlaced?'GÖNDERİLDİ':'YOK'}${lr.managementExecution?.reason?' • '+trUi(lr.managementExecution.reason):''}`:'henüz pozisyon yürütmesi yok'],
+    ['Deneyim hafızası', js.experienceMemory?`${trUi(js.experienceMemory)} • ömür boyu özet + son ayrıntılar sürekli`:'ölçülmüş geçmiş bekleniyor'],
+    ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup • JEV gölge dersi ${jevLessons}`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)'],
+    ['Öğretmen güvenliği', trUi('JEV lesson = SHADOW_ONLY • self-modify KAPALI • auto-promotion KAPALI')]
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
 }
 
 function renderFeed(s){
   const ev = s.events||[];
-  $('#feed').innerHTML = ev.length ? ev.slice(0,80).map(e=>`<div class="ev"><time>${fmtTime(e.ts)}</time><span class="d" style="background:${DESK_COLOR[e.desk]||'var(--text-muted)'}"></span><div><div>${esc(e.title)}</div>${e.detail?`<div class="x">${esc(e.detail)}</div>`:''}</div></div>`).join('')
+  $('#feed').innerHTML = ev.length ? ev.slice(0,80).map(e=>`<div class="ev"><time>${fmtTime(e.ts)}</time><span class="d" style="background:${DESK_COLOR[e.desk]||'var(--text-muted)'}"></span><div><div>${esc(trUi(e.title))}</div>${e.detail?`<div class="x">${esc(trUi(e.detail))}</div>`:''}</div></div>`).join('')
     : '<div class="muted">Henüz olay yok.</div>';
 }
 
@@ -782,19 +861,19 @@ function renderOffice(s, vinfo){
   const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h=la.health||{}; const d=s.derived?.desks||{};
   const visBusy = !['IDLE','DONE','ERROR'].includes(vinfo.phase);
   setDesk('scanner', (h.scanRuns||0)>0?'busy':'', d.scanner?.text);
-  setDesk('vision', vinfo.phase==='ERROR'?'blocked':(visBusy?'busy':''), (s.visionProgress?.data?.stage || 'IDLE'));
+  setDesk('vision', vinfo.phase==='ERROR'?'blocked':(visBusy?'busy':''), (trUi(s.visionProgress?.data?.stage || 'IDLE')));
   const wr=+h.workerReviews||0, wref=+h.workerRefreshes||0;
   setDesk('workers', wr>=10&&wref/wr>=.8?'warn':(la.planWorkers?.busy?'busy':(wr?'ok':'')), d.workers?.text);
   const orf=st.openRouterFreeWorker||{}; setDesk('orfree', orf.last?.called?(orf.last.ok?'ok':'blocked'):'', orf.last?.called?(orf.last.ok?'son çağrı OK':'son çağrı başarısız'):'çağrılmadı');
   const jevCalled=+h.jevCalled||0, jevShadow=+h.jevShadowCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):(jevShadow?'busy':''), d.jev?.text);
-  const lr = s.lastRisk; setDesk('risk', lr?'warn':'ok', lr?`${lr.symbol}: HARD • ${lr.reasons[0]}`:'JEV sonrası yalnız hard safety');
+  const lr = s.lastRisk; setDesk('risk', lr?'warn':'ok', lr?`${lr.symbol}: ZORUNLU • ${trUi(lr.reasons[0])}`:'JEV sonrası yalnız zorunlu güvenlik');
   setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${la.lastExecution||'—'}`:'LIVE KAPALI');
   setDesk('positions', st.positionManager?.busy?'busy':'', st.positionManager?.lastReview?.actionTr || 'açık pozisyon yok');
   const lastPlan=(s.plans||[])[0];
   $('#brainTxt').textContent = lastPlan ? `${lastPlan.symbol} ${lastPlan.side||''} → ${STATUS_TR[lastPlan.status]||lastPlan.status}` : 'plan bekleniyor';
   const pass1=+(h.sovereignPass1Calls??h.preJevQualified??0), qual=+h.qualified||0, intent=+(h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0)||0, orders=+h.ordersPlaced||0;
   const sl=h.latestShortlistCount??la.diagnostics?.shortlistCount; const cv=h.claudeV109||{};
-  $('#brainIn').textContent = `📥 ${sl??'?'} aday • ${h.deepAnalyses??0} analiz • 15m hazır ${h.laneMain15Ready??0} • scalp hazır ${h.laneScalpReady??0} • ${wr} worker${cv.dtWouldQualify?` • kod-tetik ${cv.dtWouldQualify}`:''}`;
+  $('#brainIn').textContent = `📥 ${sl??'?'} aday • ${h.deepAnalyses??0} analiz • 15m hazır ${h.laneMain15Ready??0} • scalp hazır ${h.laneScalpReady??0} • ${wr} kanıt ajanı${cv.dtWouldQualify?` • kod-tetik ${cv.dtWouldQualify}`:''}`;
   // Akış kenarları
   const workerActive = !!(la.planWorkers?.busy||wr>0);
   const scanActive=(h.scanRuns||0)>0;
@@ -808,9 +887,9 @@ function renderOffice(s, vinfo){
   setEdge('risk','exec', intent>0?'active':'blocked');
   setEdge('exec','positions', orders>0?'active':'blocked');
   setEdge('positions','brain', st.positionManager?.lastReview?.symbol?'active':'');
-  setGate('gQual', pass1>0, `JEV PASS-1 ${pass1} • evidence ${h.sovereignEvidenceRequests??0}`);
-  setGate('gJev', qual>0, `JEV final onay ${qual} • ${h.jevVetoed??0} veto`);
-  setGate('gIntent', intent>0, `Hard safety geçti ${intent}`);
+  setGate('gQual', pass1>0, `JEV PASS-1 ${pass1} • kanıt ${h.sovereignEvidenceRequests??0}`);
+  setGate('gJev', qual>0, `JEV son karar onayı ${qual} • ${h.jevVetoed??0} veto`);
+  setGate('gIntent', intent>0, `Zorunlu güvenlik geçti ${intent}`);
   setGate('gLive', st.armed===true && orders>0, st.armed?`Emir ${orders}`:'LIVE KAPALI');
   // Yürüyen trader'lar: aktif rotada veri taşır; tıkalı rotada kapıda bekler.
   const lwr=la.planWorkers?.lastReview;
@@ -819,7 +898,7 @@ function renderOffice(s, vinfo){
   const tfNow=(/(?:VISUAL_TF(?:_FALLBACK)?|PIXEL_TF)=(\w+)/.exec(stage)||[])[1] || (/VISUAL_BATCH=([\w,]+)/.exec(stage)||[])[1];
   const W={
     'scanner-brain':[scanActive, top?`${shortSym(top.symbol)} ${top.side||''} • ${sl??''} aday`:`${sl??'?'} aday`],
-    'workers-brain':[workerActive, lwr?`${shortSym(lwr.symbol)} ${lwr.state==='REFRESH_REQUIRED'?'YENİLE':lwr.state}`:'worker notu'],
+    'workers-brain':[workerActive, lwr?`${shortSym(lwr.symbol)} ${trUi(lwr.state==='REFRESH_REQUIRED'?'YENİLE':lwr.state)}`:'kanıt ajanı notu'],
     'orfree-workers':[!!orf.last?.called, '2. görüş'],
     'brain-vision':[visBusy&&vinfo.phase==='VISUAL', `${shortSym(lastPlan?.symbol)||'coin'} • JEV istediği grafik`],
     'vision-brain':[visBusy, tfNow?`${tfNow} okundu`:(vinfo.phase==='CORE'?'çekirdek karar':'TF notları')],
@@ -830,7 +909,7 @@ function renderOffice(s, vinfo){
     'exec-positions':[orders>0, `emir ${orders}`]
   };
   const WAIT={
-    'brain-jev':`✕ 0 aday`, 'jev-risk':`✕ JEV onayı yok`, 'risk-exec':`✕ hard safety`, 'exec-positions':st.armed?`✕ emir yok`:`✕ LIVE kapalı`
+    'brain-jev':`✕ 0 aday`, 'jev-risk':`✕ JEV onayı yok`, 'risk-exec':`✕ zorunlu güvenlik`, 'exec-positions':st.armed?`✕ emir yok`:`✕ LIVE kapalı`
   };
   for(const [a,b,g] of ROUTES){
     const k=`${a}-${b}`; const [on,label]=W[k]||[false,''];
@@ -845,7 +924,7 @@ function renderOffice(s, vinfo){
   const rows=(la.analysisLifecycle?.rows||[]).slice(0,3);
   for(let i=0;i<3;i++){
     const r=rows[i];
-    const label = r ? `${shortSym(r.symbol)} ${r.planStatus==='WATCH'||r.state==='WATCH'?'WATCH':(r.planStatus||r.state||'')}${r.triggerTF&&r.triggerPrice!=null?' '+r.triggerTF+'>'+r.triggerPrice:''}` : (i===0?'tarama notu':i===1?'bağlam':'risk notu');
+    const label = r ? `${shortSym(r.symbol)} ${r.planStatus==='WATCH'||r.state==='WATCH'?'BEKLE':trUi(r.planStatus||r.state||'')}${r.triggerTF&&r.triggerPrice!=null?' '+r.triggerTF+'>'+r.triggerPrice:''}` : (i===0?'tarama notu':i===1?'bağlam':'risk notu');
     setWalker(`orb-${i}`, true, label);
   }
   // Konuşma balonu: o an en aktif masa
@@ -863,28 +942,28 @@ function renderV109(s){
   const c111=h.claudeV111||null;
   const cfg111=c111?.config||s.health?.data?.claudeV111Config||st.claudeV111Config||{};
   const cfg=cv?.config||s.health?.data?.claudeV109Config||st.claudeV109Config||{};
-  chip('#chipClaude', isV109?'claude':'warn', isV111?`${c112?'CLAUDE_V112':'CLAUDE_V111'} • kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • hızlı scalp ${cfg111.scalpFastLane||'SHADOW'} • runner ${cfg111.runnerMode||'SHADOW'}`:(isV109?`CLAUDE_V109 • DT ${cfg.deterministicTriggerMode||'SHADOW'}`:'CLAUDE_V109 bekleniyor'));
+  chip('#chipClaude', isV109?'claude':'warn', isV111?`${c112?'CLAUDE_V112':'CLAUDE_V111'} • kod-tetik ${trUi(cfg.deterministicTriggerMode||'SHADOW')} • hızlı scalp ${trUi(cfg111.scalpFastLane||'SHADOW')} • iz sürme ${trUi(cfg111.runnerMode||'SHADOW')}`:(isV109?`CLAUDE_V109 • DT ${trUi(cfg.deterministicTriggerMode||'SHADOW')}`:'CLAUDE_V109 bekleniyor'));
   const sovereign=st.jevSovereign?.enabled===true || s.health?.data?.jevSovereign?.enabled===true;
   const jevPolicyEl=$('#jevPolicy'); if(jevPolicyEl) jevPolicyEl.textContent = sovereign ? 'R2.5.3.2 • JEV PATRON • puan/veto kapısı yok' : (cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED' ? 'Claude rol-ağırlıklı' : 'legacy v108');
   const pct=v=>{const n=num(v); return n==null?'—':(n>0?'+':'')+n.toFixed(2)+'%';};
   const hrs=num(h.shadowEvidenceHours);
   $('#v109Kv').innerHTML = (isV109 ? [
     ['Sürüm', `${fv} • ${s.health?.data?.builtBy?'Claude':''}`],
-    ['Mod', sovereign ? 'R2.5.3.2 SOVEREIGN + R2.5.3.4 LIVE CORTEX • PASS-1 → evidence → PASS-2 FINAL → HARD SAFETY' : `kod-tetik ${cfg.deterministicTriggerMode||'SHADOW'} • legacy JEV • sonrası HARD SAFETY`],
+    ['Mod', sovereign ? 'R2.5.3.2 BAĞIMSIZ JEV + R2.5.3.4 CANLI CORTEX • PASS-1 → kanıt → PASS-2 SON KARAR → ZORUNLU GÜVENLİK' : `kod-tetik ${trUi(cfg.deterministicTriggerMode||'SHADOW')} • eski JEV • sonrası ZORUNLU GÜVENLİK`],
     ...(isV111 ? [
       ['Kod-tetik → Jev (v111)', `<b>${c111?.revalidated??0}</b> hızlı doğrulama / ${c111?.revalidationAttempts??0} deneme • Jev’e giden <b>${c111?.jevCalledAfterCode??0}</b> • Jev onayı ${c111?.jevApprovedAfterCode??0}`],
-      ['Momentum / radar attention', sovereign ? `${c112?.fastLane?.history?.filter?.(x=>x.kind==='JEV_ATTENTION')?.length??0} JEV attention • yön/TF filtresi stratejik kapı değil` : `${c111?.momentumScalpTriggers??0} legacy momentum tetiği`],
-      ['Runner (TP3 yerine)', `${cfg111.runnerMode||'SHADOW'} • açık ${c111?.runner?.open??0}${(c111?.runner?.rows||[]).slice(0,2).map(r=>` • ${r.symbol} ${r.phase} stop ${r.currentStop??'—'}${r.trailTf?' ('+r.trailTf+')':''}`).join('')}`],
+      ['Momentum / radar dikkati', sovereign ? `${c112?.fastLane?.history?.filter?.(x=>x.kind==='JEV_ATTENTION')?.length??0} JEV dikkati • yön/TF filtresi stratejik kapı değil` : `${c111?.momentumScalpTriggers??0} legacy momentum tetiği`],
+      ['İz süren pozisyon (TP3 yerine)', `${trUi(cfg111.runnerMode||'SHADOW')} • açık ${c111?.runner?.open??0}${(c111?.runner?.rows||[]).slice(0,2).map(r=>` • ${r.symbol} ${r.phase} stop ${r.currentStop??'—'}${r.trailTf?' ('+r.trailTf+')':''}`).join('')}`],
       ['Doğrulama red nedeni', (c111?.revalidationReasonCounts||[]).slice(0,3).map(x=>`${x.reason} ${x.count}`).join(' • ')||'—'],
       ...(c112 ? [
-        ['Hızlı scalp hattı (v112)', `${c112.fastLaneMode||'SHADOW'} • sinyal <b>${c112.fastLaneSignals??0}</b> • nitelikli ${c112.fastLaneQualified??0} • Jev ${c112.fastLaneJevCalled??0} (onay ${c112.fastLaneJevApproved??0})`],
+        ['Hızlı scalp hattı (v112)', `${trUi(c112.fastLaneMode||'SHADOW')} • sinyal <b>${c112.fastLaneSignals??0}</b> • nitelikli ${c112.fastLaneQualified??0} • Jev ${c112.fastLaneJevCalled??0} (onay ${c112.fastLaneJevApproved??0})`],
         ['Vision beklemeden doğrulama', `${c112.fastLaneRevalidationTriggers??0} tetik • ${c112.concurrentRevalidations??0} analiz`],
-        ['Son hızlı hat olayı', (()=>{const l=c112.fastLane?.lastResult||c112.fastLane?.lastSignal; return l?`${l.symbol||''} ${l.kind||''} ${l.execution||l.tf||''} ${l.planStatus||''}`:'—';})()],
+        ['Son hızlı hat olayı', (()=>{const l=c112.fastLane?.lastResult||c112.fastLane?.lastSignal; return l?`${l.symbol||''} ${trUi(l.kind||'')} ${trUi(l.execution||l.tf||'')} ${trUi(l.planStatus||'')}`:'—';})()],
         ['Pozisyon dolu → dinlen', (()=>{const r=c112.positionRest; if(!r) return '—'; const n=`${r.openPositions??'—'}/${r.maxOpenPositions??'—'}`; return r.active?`<b>DİNLENİYOR</b> • açık ${n} • ${r.skips??0} tur atlandı • yeni emir yok`:`${r.enabled===false?'kapalı':'hazır'} • açık ${n}`;})()]
       ] : []),
     ] : []),
     ['Kod-tetik “QUALIFIED olurdu”', `<b>${cv?.dtWouldQualify??0}</b> (60 dk) • uygulanan ${cv?.dtApplied??0}`],
-    ['Sayısal tetikli plan', `<b>${h.shadowPlans??0}</b> • tetik oto-seçim ${cv?.triggerAutoSelected??0} • WAIT onarımı ${cv?.numericWaitFallback??0}`],
+    ['Sayısal tetikli plan', `<b>${h.shadowPlans??0}</b> • tetik oto-seçim ${cv?.triggerAutoSelected??0} • BEKLE onarımı ${cv?.numericWaitFallback??0}`],
     ['Gölge tetik', `<b>${h.shadowTriggers??0}</b> • 15 dk ölçülen ${h.shadow15mMeasured??0} (${pct(h.shadowAvg15mPct)}) • 60 dk ${h.shadow60mMeasured??0} (${pct(h.shadowAvg60mPct)})`],
     ['Kanıt süresi', `${hrs==null?'0':hrs.toFixed(1)} / 24 saat ${h.shadowReady24h?'• ✓ karar için hazır':''}`],
     ['Kovalama ölçümü', `${cv?.chaseBlocked??0} uyarı • JEV onayından sonra veto değil`]
@@ -895,10 +974,10 @@ function renderV109(s){
   ]).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${String(v).replace(/<(?!\/?b>)/g,'&lt;')}</dd>`).join('');
   const bars = sovereign ? [
     ['PASS-1', h.sovereignPass1Calls??0, 'var(--series-7)'],
-    ['JEV FINAL', h.sovereignFinalCalls??0, 'var(--series-1)'],
-    ['LONG', h.sovereignLong??0, 'var(--good)'],
-    ['SHORT', h.sovereignShort??0, 'var(--warning)'],
-    ['WAIT', h.sovereignWait??0, 'var(--text-muted)']
+    ['JEV SON KARAR', h.sovereignFinalCalls??0, 'var(--series-1)'],
+    ['ALIŞ', h.sovereignLong??0, 'var(--good)'],
+    ['SATIŞ', h.sovereignShort??0, 'var(--warning)'],
+    ['BEKLE', h.sovereignWait??0, 'var(--text-muted)']
   ] : (isV109 ? [
     ['Legacy Jev veto', cv?.jevV108Veto??0, 'var(--critical)'],
     ['Legacy rol-ağırlıklı', cv?.jevRoleWeightedVeto??0, 'var(--series-7)']
@@ -906,7 +985,7 @@ function renderV109(s){
   const mx=Math.max(1,...bars.map(b=>+b[1]||0));
   $('#v109Bars').innerHTML = bars.map(([l,v,c])=>`<span>${esc(l)}</span><span class="tr"><i style="width:${(100*(+v||0)/mx).toFixed(0)}%;background:${c}"></i></span><span class="n">${v}</span>`).join('');
   $('#v109Note').innerHTML = isV111
-    ? `<span>JEV SOVEREIGN: radar yalnız attention üretir; PASS-1 hangi kanıtın toplanacağını seçer, worker yalnız isteneni getirir, PASS-2 LONG/SHORT/WAIT finaldir. 9TF/2-of-3/hard-15m stratejik kapısı yoktur.</span>`
+    ? `<span>JEV BAĞIMSIZ YÖNETİM: radar yalnız dikkat üretir; PASS-1 hangi kanıtın toplanacağını seçer, kanıt ajanı yalnız isteneni getirir, PASS-2 ALIŞ/SATIŞ/BEKLE son karardır. 9TF/2-of-3/zorunlu-15dk stratejik kapısı yoktur.</span>`
     : (isV109 ? `<span>Karar: 24 saat sonra “olurdu” planlarının 15/60 dk sonucu olumluysa config/claude-v109.json → BINDING.</span>` : '');
 }
 
@@ -964,6 +1043,15 @@ function mirrorFmt(v,d=3){
   if(Math.abs(n)>=1)return n.toFixed(d);
   return n.toFixed(Math.min(8,d+3));
 }
+function loadMirrorImage(img,url,seq){
+  if(!img)return Promise.resolve();
+  return new Promise((resolve,reject)=>{
+    img.style.opacity='.12';
+    img.onload=()=>{ if(seq===mirrorSeq)img.style.opacity='1'; resolve(); };
+    img.onerror=()=>reject(new Error('grafik PNG yüklenemedi'));
+    img.src=url;
+  });
+}
 async function renderMirror(s){
   const symbol=syncMirrorSymbol(s);
   if(!symbol)return;
@@ -975,18 +1063,27 @@ async function renderMirror(s){
   const seq=++mirrorSeq, stamp=Date.now();
   const mirrorBars=mirrorTf==='15m'?180:72;
   const clean=$('#mirrorClean'), annotated=$('#mirrorAnnotated');
-  const cleanUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'clean',bars:mirrorBars,_:stamp});
-  const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:mirrorBars,_:stamp});
-  if(clean)clean.src=cleanUrl;
-  if(annotated)annotated.src=annotatedUrl;
+  const parityLoading=$('#mirrorParity');
+  parityLoading.className='mirror-parity warn';
+  parityLoading.textContent='Yeni atomik snapshot yükleniyor…';
+  if(clean)clean.style.opacity='.12';
+  if(annotated)annotated.style.opacity='.12';
   $('#mirrorCleanLabel').textContent=`${symbol} • ${mirrorTf}`;
-  $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${mirrorTf} • FULL SMC + LIQ`;
+  $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${mirrorTf} • TAM SMC + LİKİDİTE`;
 
   try{
     const r=await fetch('/api/jev-mirror'+mirrorQuery({symbol,tf:mirrorTf,_:stamp}),{cache:'no-store'});
     const j=await r.json();
     if(seq!==mirrorSeq)return;
     if(!r.ok||!j?.ok)throw new Error(j?.error||'mirror unavailable');
+    const snapshotId=String(j.snapshotId||'');
+    const cleanUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'clean',bars:mirrorBars,snapshotId,_:stamp});
+    const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:mirrorBars,snapshotId,_:stamp});
+    await Promise.all([
+      loadMirrorImage(clean,cleanUrl,seq),
+      loadMirrorImage(annotated,annotatedUrl,seq)
+    ]);
+    if(seq!==mirrorSeq)return;
     const p=j.packet||{}, f=p?.coreFrames?.[mirrorTf]||{}, smc=f?.smcContext||{};
     const ob=f?.orderBlocks||{}, ms=p?.microstructure||{}, der=p?.derivatives||{}, liq=p?.observedLiquidations||{};
     const d=j.latestDecision||{}, p1=d.jevPass1||{}, p2=d.jevFinal||{}, pl=d.plan||{};
@@ -996,7 +1093,7 @@ async function renderMirror(s){
     const parityBad=(parity.checks||[]).filter(x=>x?.match===false).slice(0,3);
     const parityDetail=parityBad.map(x=>`${x.name}: JEV=${x.packet} / grafik=${x.chart}`).join(' • ');
     parityEl.textContent=parity.ok
-      ? `Paket ↔ grafik UYUMU OK • ${parity.compared||0} alan eşleşti`
+      ? `Paket ↔ grafik YAPISAL UYUM OK • ${parity.compared||0} alan eşleşti • trend/formasyon dahil`
       : (Number(parity.mismatches)>0
           ? `Paket ↔ grafik FARKI • ${parity.mismatches} uyuşmazlık / ${parity.compared||0} kontrol${parityDetail?' • '+parityDetail:''}`
           : 'Paket ↔ grafik doğrulaması için yeterli alan bekleniyor');
@@ -1010,37 +1107,37 @@ async function renderMirror(s){
     const ageSec=Number.isFinite(Number(d?.ageMs))?Math.round(Number(d.ageMs)/1000):null;
     const fmtRange=z=>z&&num(z.low)!==null&&num(z.high)!==null?`${mirrorFmt(z.low,4)}→${mirrorFmt(z.high,4)}`:'—';
     const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.broken?' kırık':''}`).join(' • ')||'yok';
-    const fmtFvg=list=>(list||[]).map((x,i)=>`#${i+1} ${x?.side||'?'} ${fmtRange(x)} CE50 ${mirrorFmt(x?.ce50,4)}`).join(' • ')||'yok';
-    const fmtLiq=list=>(list||[]).map((x,i)=>`#${i+1} ${x?.side||'?'} @${mirrorFmt(x?.price,4)} ≈${mirrorFmt(x?.observedQuote,0)} USDT`).join(' • ')||'yok';
-    const patterns=(f?.patterns||[]).slice(-6).map(x=>`${x?.type||x?.name||'PATTERN'}${x?.status?'('+x.status+')':''}`).join(' • ')||'yok';
+    const fmtFvg=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} ${fmtRange(x)} CE50 ${mirrorFmt(x?.ce50,4)}`).join(' • ')||'yok';
+    const fmtLiq=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} @${mirrorFmt(x?.price,4)} ≈${mirrorFmt(x?.observedQuote,0)} USDT`).join(' • ')||'yok';
+    const patterns=(f?.patterns||[]).slice(-6).map(x=>`${trUi(x?.type||x?.name||'FORMASYON')}${x?.status?' ('+trUi(x.status)+')':''}`).join(' • ')||'yok';
     const swing=f?.swingStructure||{};
     const rows=[
       ['Anlık fiyat', mirrorFmt(p.livePrice,4)],
-      ['Trend / yapı', `${f.trend||'—'} • swing ${swing.state||'—'} ${swing.highSequence||''}/${swing.lowSequence||''} • event ${swing.event||'—'} • BOS ${f.breakOfStructure||'—'}`],
+      ['Trend / yapı', `${trUi(f.trend||'—')} • swing ${trUi(swing.state||'—')} • ${trUi(swing.highSequence||'')}/${trUi(swing.lowSequence||'')} • olay ${trUi(swing.event||'—')} • BOS ${trUi(f.breakOfStructure||'—')}`],
       ['Momentum', `RSI ${mirrorFmt(f.rsi14,1)} • ATR ${mirrorFmt(f.atrPct,2)}% • EMA20 ${mirrorFmt(f.ema20,4)} • EMA50 ${mirrorFmt(f.ema50,4)}`],
-      ['Range', `${dr.zone||'—'} • low ${mirrorFmt(dr.low,4)} • EQ ${mirrorFmt(dr.equilibrium,4)} • high ${mirrorFmt(dr.high,4)} • pos ${mirrorFmt(dr.positionPct,1)}%`],
-      ['Likidite', `prior20 H/L ${mirrorFmt(f.prior20High,4)} / ${mirrorFmt(f.prior20Low,4)} • equal H/L ${mirrorFmt(f?.liquidity?.equalHigh?.price,4)} / ${mirrorFmt(f?.liquidity?.equalLow?.price,4)} • sweep ${f?.liquidity?.lastSweep||'—'}`],
-      ['Bullish OB', fmtOb(ob.bullish)],
-      ['Bearish OB', fmtOb(ob.bearish)],
+      ['Aralık', `${trUi(dr.zone||'—')} • alt ${mirrorFmt(dr.low,4)} • denge ${mirrorFmt(dr.equilibrium,4)} • üst ${mirrorFmt(dr.high,4)} • konum ${mirrorFmt(dr.positionPct,1)}%`],
+      ['Likidite', `önceki20 tepe/dip ${mirrorFmt(f.prior20High,4)} / ${mirrorFmt(f.prior20Low,4)} • eşit tepe/dip ${mirrorFmt(f?.liquidity?.equalHigh?.price,4)} / ${mirrorFmt(f?.liquidity?.equalLow?.price,4)} • süpürme ${trUi(f?.liquidity?.lastSweep||'—')}`],
+      ['Boğa OB', fmtOb(ob.bullish)],
+      ['Ayı OB', fmtOb(ob.bearish)],
       ['FVG', fmtFvg(f.recentFairValueGaps)],
-      ['OTE Long', fmtRange(ote?.longDiscountZone)],
-      ['OTE Short', fmtRange(ote?.shortPremiumZone)],
-      ['Fib retracement', `.236 ${mirrorFmt(fib['0.236'],4)} • .382 ${mirrorFmt(fib['0.382'],4)} • .5 ${mirrorFmt(fib['0.5'],4)} • .618 ${mirrorFmt(fib['0.618'],4)} • .705 ${mirrorFmt(fib['0.705'],4)} • .786 ${mirrorFmt(fib['0.786'],4)}`],
-      ['Fib extension', `1.272 ${mirrorFmt(fibExt['1.272'],4)} • 1.618 ${mirrorFmt(fibExt['1.618'],4)} • leg ${smc?.fibLevels?.leg||'—'}`],
+      ['OTE Alış', fmtRange(ote?.longDiscountZone)],
+      ['OTE Satış', fmtRange(ote?.shortPremiumZone)],
+      ['Fib geri çekilme', `.236 ${mirrorFmt(fib['0.236'],4)} • .382 ${mirrorFmt(fib['0.382'],4)} • .5 ${mirrorFmt(fib['0.5'],4)} • .618 ${mirrorFmt(fib['0.618'],4)} • .705 ${mirrorFmt(fib['0.705'],4)} • .786 ${mirrorFmt(fib['0.786'],4)}`],
+      ['Fib uzatma', `1.272 ${mirrorFmt(fibExt['1.272'],4)} • 1.618 ${mirrorFmt(fibExt['1.618'],4)} • bacak ${trUi(smc?.fibLevels?.leg||'—')}`],
       ['Oluşumlar', patterns],
-      ['Observed liquidation zones', fmtLiq(liq.zones)],
-      ['Liquidation akışı', `${liq.count??0} print • long ${mirrorFmt(liq.longLiquidatedQuote,0)} • short ${mirrorFmt(liq.shortLiquidatedQuote,0)} • velocity ${liq?.velocity?.state||liq?.velocity?.level||'—'} • cascade ${liq?.cascade?.state||liq?.cascade?.level||'—'}`],
-      ['Order flow', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • depth ${mirrorFmt(ms.depth20Imbalance,3)} • microprice ${mirrorFmt(ms.microprice,4)} • spread ${mirrorFmt(ms.spreadBps,2)} bps`],
-      ['Türevler', `OIΔ5m ${mirrorFmt(der.oiDelta5mPct,2)}% • funding ${mirrorFmt(der.fundingRate,6)} • taker ${mirrorFmt(der.takerBuySellRatio,3)} • top ${mirrorFmt(der.topTraderLongShortRatio,3)} • global ${mirrorFmt(der.globalLongShortRatio,3)}`],
-      ['PASS-1', d.ts?`${p1.laneFocus||'—'} • yön ${p1.directionFocus||'—'} • istek ${(p1.requestedEvidence||[]).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
-      ['PASS-2', d.ts?`${p2.action||pl.side||'WAIT'} • ${p2.setupFamily||pl.setupFamily||'—'} • timing ${p2.entryTiming||pl.entryTiming||'—'} • edge ${p2.edgeBasis||pl.edgeBasis||'—'}`:'henüz final kayıt yok'],
-      ['Son karar snapshot', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski kayıt / exact snapshot yok':mirrorFmt(recordedPx,4)}`:'—']
+      ['Gözlenen tasfiye bölgeleri', fmtLiq(liq.zones)],
+      ['Tasfiye akışı', `${liq.count??0} kayıt • ALIŞ ${mirrorFmt(liq.longLiquidatedQuote,0)} • SATIŞ ${mirrorFmt(liq.shortLiquidatedQuote,0)} • hız ${liq?.velocity?.state||liq?.velocity?.level||'—'} • zincirleme ${liq?.cascade?.state||liq?.cascade?.level||'—'}`],
+      ['Emir akışı', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • derinlik ${mirrorFmt(ms.depth20Imbalance,3)} • mikro fiyat ${mirrorFmt(ms.microprice,4)} • makas ${mirrorFmt(ms.spreadBps,2)} bps`],
+      ['Türevler', `OIΔ5dk ${mirrorFmt(der.oiDelta5mPct,2)}% • fonlama ${mirrorFmt(der.fundingRate,6)} • piyasa alıcı/satıcı ${mirrorFmt(der.takerBuySellRatio,3)} • üst trader ${mirrorFmt(der.topTraderLongShortRatio,3)} • genel ${mirrorFmt(der.globalLongShortRatio,3)}`],
+      ['PASS-1', d.ts?`${trUi(p1.laneFocus||'—')} • yön ${trUi(p1.directionFocus||'—')} • istek ${(p1.requestedEvidence||[]).map(trUi).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
+      ['PASS-2', d.ts?`${trUi(p2.action||pl.side||'WAIT')} • ${trUi(p2.setupFamily||pl.setupFamily||'—')} • giriş ${trUi(p2.entryTiming||pl.entryTiming||'—')} • avantaj ${trUi(p2.edgeBasis||pl.edgeBasis||'—')}`:'henüz son karar kaydı yok'],
+      ['Son karar görüntüsü', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski kayıt / kesin snapshot yok':mirrorFmt(recordedPx,4)}${ageSec!=null&&ageSec>120?' • ⚠ ESKİ KARAR — ŞİMDİKİ PİYASA İLE KARIŞTIRMA':''}`:'—']
     ];
     $('#mirrorKv').innerHTML=rows.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
     const visionText=String(d?.vision?.textExcerpt||'').trim();
     $('#mirrorVision').textContent=visionText
-      ? 'VISION EVIDENCE → '+visionText
-      : 'Vision metin aynası: yeni JEV kararı oluştuğunda worker’ın grafikten çıkardığı kısa kanıt burada görünür. Üstteki FULL ANNOTATED grafik aynı deterministik renderer katmanlarını taşır.';
+      ? 'VISION KANITI → '+visionText
+      : 'Vision metin aynası: yeni JEV kararı oluştuğunda kanıt ajanının grafikten çıkardığı kısa kanıt burada görünür. Üstteki TAM AÇIKLAMALI grafik aynı deterministik çizici katmanlarını taşır.';
   }catch(e){
     if(seq!==mirrorSeq)return;
     const parityEl=$('#mirrorParity');

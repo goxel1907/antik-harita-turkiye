@@ -1410,6 +1410,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       why:String(pl.why||'').slice(0,400),waitFor:String(pl.waitFor||'').slice(0,200),setup:pl.setup||null,
       setupFamily:pl.setupFamily||jd?.setupFamily||null,entryTiming:pl.entryTiming||jd?.entryTiming||null,edgeBasis:pl.edgeBasis||jd?.edgeBasis||null,
       contractVersion:pl.contractVersion||null,
+      strategyVersion:claudeV112.featureVersion||null,
+      releaseContract:'R2541_ATOMIC_TURKISH_SAFE',
+      mirrorContract:'R2541_ATOMIC_TURKISH_MIRROR',
       lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||pl.lane||null,
       originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
       source:fl?'FAST_LANE':'VISION_9TF',momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
@@ -1497,6 +1500,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         runnerPhase:rr&&rr.phase!=='CLOSED'?rr.phase:null,trailTf:rr?.lastDesired?.trail?.tf||null,
         openedBy:own?'BRAINHUB_AUTO':'EXTERNAL',openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():null,
         lane:row.tradeLaneName||row.entryContext?.lane||null,originTF:row.originTF||null,setup:row.setup||null,
+        strategyVersion:row.entryContext?.strategyVersion||null,
+        releaseContract:row.entryContext?.releaseContract||null,
+        mirrorContract:row.entryContext?.mirrorContract||null,
         entryReason:row.entryContext?.why||null
       };
     });
@@ -3756,6 +3762,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           why:String(pl.why||'').slice(0,400),waitFor:String(pl.waitFor||'').slice(0,200),setup:pl.setup||null,
           setupFamily:pl.setupFamily||jd?.setupFamily||null,entryTiming:pl.entryTiming||jd?.entryTiming||null,edgeBasis:pl.edgeBasis||jd?.edgeBasis||null,
           contractVersion:pl.contractVersion||null,
+          strategyVersion:claudeV112.featureVersion||null,
+          releaseContract:'R2541_ATOMIC_TURKISH_SAFE',
+          mirrorContract:'R2541_ATOMIC_TURKISH_MIRROR',
           lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||pl.lane||null,
           originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
           source:fl?'FAST_LANE':'VISION_9TF',
