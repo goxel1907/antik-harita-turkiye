@@ -1406,7 +1406,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const pl=plan||{}; const fl=pl.claudeFastLane||null;
     return {
       why:String(pl.why||'').slice(0,400),waitFor:String(pl.waitFor||'').slice(0,200),setup:pl.setup||null,
-      lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||null,
+      setupFamily:pl.setupFamily||jd?.setupFamily||null,entryTiming:pl.entryTiming||jd?.entryTiming||null,edgeBasis:pl.edgeBasis||jd?.edgeBasis||null,
+      contractVersion:pl.contractVersion||null,
+      lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||pl.lane||null,
       originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
       source:fl?'FAST_LANE':'VISION_9TF',momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
       extension:fl?.extension||null,riskGeometry:fl?.riskGeometry||null,
@@ -3750,7 +3752,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const fl=pl.claudeFastLane||null;
         executionLifecycle.entryContext={
           why:String(pl.why||'').slice(0,400),waitFor:String(pl.waitFor||'').slice(0,200),setup:pl.setup||null,
-          lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||null,
+          setupFamily:pl.setupFamily||jd?.setupFamily||null,entryTiming:pl.entryTiming||jd?.entryTiming||null,edgeBasis:pl.edgeBasis||jd?.edgeBasis||null,
+          contractVersion:pl.contractVersion||null,
+          lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||pl.lane||null,
           originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
           source:fl?'FAST_LANE':'VISION_9TF',
           momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
