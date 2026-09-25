@@ -41,11 +41,11 @@ test('R2541 Android build preserves PC-only fail-closed boundary',()=>{
   const cm=read('../codemagic.yaml');
   const patch=read('../futures15m_alarm/v95122_r2541_turkish_contract.py');
   assert.match(cm,/V122_ANDROID_R2541_CONTRACT_OK/);
-  assert.match(cm,/Futures15mAlarm-PRO-v9\.5\.115-R2541-HF3\.apk/);
+  assert.match(cm,/Futures15mAlarm-PRO-v9\.5\.115-R2541-HF4\.apk/);
   assert.match(patch,/ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY/);
   assert.match(patch,/post\(c, "\/live\/execute", intent, true\).*not in/s);
-  assert.match(patch,/versionName '9\.5\.115-r2541-hf3'/);
-  assert.match(patch,/versionCode 26092505/);
+  assert.match(patch,/versionName '9\.5\.115-r2541-hf4'/);
+  assert.match(patch,/versionCode 26092506/);
   assert.match(cm,/R2541_HF2_AUTO_PERSIST_AFTER_FIRST_MIGRATION/);
   assert.match(patch,/GERİ ÇEKİLME BEKLENİYOR/);
   assert.match(patch,/ŞİMDİ PİYASA GİRİŞİ/);
@@ -200,4 +200,17 @@ test('R2541 Android budget reason is translated at the status source',()=>{
   assert.match(src,/lastPcReasonsTr=/);
   assert.match(src,/JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU/);
   assert.match(src,/append\(lastPcReasonsTr\.trim\(\)\)/);
+});
+
+
+test('R2541 stable Android PC-link telemetry grace keeps fail-closed truth',()=>{
+  const truth=read('../futures15m_alarm/V95113PcTruth.java');
+  const patch=read('../futures15m_alarm/v95113_claude_live_truth.py');
+  const cm=read('../codemagic.yaml');
+  assert.match(truth,/FRESH_MS = 45000L/);
+  assert.match(truth,/MIN_FAILURES_BEFORE_UNHEALTHY = 3/);
+  assert.match(truth,/shouldMarkProbeUnhealthy/);
+  assert.match(patch,/v95113HardStale=V95113PcTruth\.shouldMarkProbeUnhealthy/);
+  assert.match(cm,/FRESH_MS = 45000L.*V95113PcTruth\.java/);
+  assert.match(cm,/MIN_FAILURES_BEFORE_UNHEALTHY = 3.*V95113PcTruth\.java/);
 });
