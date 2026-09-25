@@ -47,6 +47,13 @@ main=main.replace(
 if "R2539 PC-ONLY FAIL-CLOSED" in card:
     card=card.replace("R2539 PC-ONLY FAIL-CLOSED","R2541 PC-ONLY FAIL-CLOSED • TÜRKÇE DURUM",1)
 
+if "PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED" in client:
+    client=client.replace(
+        "PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED",
+        "PC R2541 ATOMİK AYNA • ANDROID PC-ONLY FAIL-CLOSED",
+        1
+    )
+
 # R2541 Android UI timing/setup dictionary: presentation-only, control-flow enumları değişmez.
 ui_anchor='        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU")'
 if ui_anchor not in card:
@@ -84,6 +91,7 @@ build=re.sub(r"versionName\s+[\"'][^\"']+[\"']","versionName '9.5.115-r2541'",bu
 
 MAIN.write_text(main,encoding="utf-8")
 CARD.write_text(card,encoding="utf-8")
+CLIENT.write_text(client,encoding="utf-8")
 BUILD.write_text(build,encoding="utf-8")
 
 checks={
@@ -96,6 +104,7 @@ checks={
     "version":"versionName '9.5.115-r2541'" in BUILD.read_text(encoding="utf-8") and "versionCode 26092502" in BUILD.read_text(encoding="utf-8"),
     "ui timing Turkish":"GERİ ÇEKİLME BEKLENİYOR" in CARD.read_text(encoding="utf-8") and "ŞİMDİ PİYASA GİRİŞİ" in CARD.read_text(encoding="utf-8") and "KIRILIM + GERİ TEST" in CARD.read_text(encoding="utf-8"),
     "ui direction Turkish":"OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)" in CARD.read_text(encoding="utf-8"),
+    "client release banner":"PC R2541 ATOMİK AYNA • ANDROID PC-ONLY FAIL-CLOSED" in CLIENT.read_text(encoding="utf-8"),
 }
 failed=[k for k,v in checks.items() if not v]
 if failed:
