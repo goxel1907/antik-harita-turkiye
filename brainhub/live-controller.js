@@ -1500,6 +1500,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         runnerPhase:rr&&rr.phase!=='CLOSED'?rr.phase:null,trailTf:rr?.lastDesired?.trail?.tf||null,
         openedBy:own?'BRAINHUB_AUTO':'EXTERNAL',openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():null,
         lane:row.tradeLaneName||row.entryContext?.lane||null,originTF:row.originTF||null,setup:row.setup||null,
+        strategyVersion:row.entryContext?.strategyVersion||null,
+        releaseContract:row.entryContext?.releaseContract||null,
+        mirrorContract:row.entryContext?.mirrorContract||null,
         entryReason:row.entryContext?.why||null
       };
     });
