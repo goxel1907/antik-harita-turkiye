@@ -6,7 +6,7 @@ Why: when the phone lost its Tailscale link to the PC, the app showed
 "PC LIVE: KAPALI" from the phone's LOCAL flag (v9576_auto_enabled) while the PC
 was still armed, and ACİL DURDUR failed silently. This patch:
   a) shows PC LIVE AÇIK/KAPALI only when the PC confirmed it via GET /live/status
-     within the last 90 s, otherwise "BİLİNMİYOR — PC'ye ulaşılamıyor" (red);
+     within the last 15 s, otherwise "BİLİNMİYOR — PC'ye ulaşılamıyor" (red);
      probes on every resume (plus the existing 1.5 s UI loop / 5 s throttle);
   b) ACİL DURDUR: configureLeaderAuto(false) + liveDisarm, then verifies
      armed==false (and leaderAuto.enabled==false) by GET /live/status,
@@ -170,7 +170,7 @@ main = rep(main, old_probe_fail, new_probe_fail, 'v9582 probe failure branch')
 old_head = '''        android.widget.TextView head=text("🤖 OTO İŞLEM DURUMU • SABİT",14f,android.graphics.Color.WHITE,true);
         box.addView(head,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));'''
 new_head = old_head + '''
-        // CLAUDE_V113_ANDROID_LIVE_TRUTH: PC LIVE line = PC-confirmed state (<=90 s) or BİLİNMİYOR (red).
+        // CLAUDE_V113_ANDROID_LIVE_TRUTH: PC LIVE line = PC-confirmed state (<=15 s) or BİLİNMİYOR (red).
         android.widget.TextView v95113Truth=text(V95113PcTruth.label(sp,now),13f,V95113PcTruth.labelColor(sp,now),true);
         v95113Truth.setPadding(dp(9),dp(6),dp(9),dp(4));
         box.addView(v95113Truth,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -315,7 +315,7 @@ helpers = r'''
     // ============================================================
     // CLAUDE_V113_ANDROID_LIVE_TRUTH (Claude, Anthropic • v9.5.113-CLAUDE)
     // PC LIVE state on Android = what the PC confirmed via GET /live/status in the
-    // last 90 s (V95113PcTruth). Stop / OTO-off intents are verified on the PC,
+    // last 15 s (V95113PcTruth). Stop / OTO-off intents are verified on the PC,
     // never assumed. PC positions are read-only (GET /live/positions).
     // No Binance order / cancel / close side effects here.
     // ============================================================
@@ -467,7 +467,7 @@ build = BUILD.read_text(encoding='utf-8')
 checks = {
     'marker in MainActivity': MARKER in main,
     'marker in V95113PcTruth': MARKER in truth,
-    'truth helper 90 s window': 'FRESH_MS = 90000L' in truth and 'PC LIVE: BİLİNMİYOR — PC\'ye ulaşılamıyor (son bağlantı ' in truth,
+    'truth helper 15 s window': 'FRESH_MS = 15000L' in truth and 'PC LIVE: BİLİNMİYOR — PC\'ye ulaşılamıyor (son bağlantı ' in truth,
     'no local-flag PC LIVE label': '"PC LIVE: "+(v9576On?' not in main and '"CANLI OTO: AÇIK"' not in main,
     'button uses PC truth': 'v95113OtoButton=v9576Auto' in main and 'v95113RefreshOtoButton();' in main,
     'probe records success+failure': 'V95113PcTruth.recordStatus(sp,st,' in main and 'V95113PcTruth.recordFailure(sp,e,' in main,
@@ -499,5 +499,5 @@ for name, good in checks.items():
 bad = [k for k, v in checks.items() if not v]
 if bad:
     fail('integration check failed: ' + ', '.join(bad))
-print('v9.5.113-CLAUDE OK: ' + MARKER + ' • PC LIVE shown only from PC-confirmed /live/status (<=90 s), '
+print('v9.5.113-CLAUDE OK: ' + MARKER + ' • PC LIVE shown only from PC-confirmed /live/status (<=15 s), '
       'ACİL DURDUR / OTO KAPAT verified on the PC, read-only PC positions; no order action added.')
