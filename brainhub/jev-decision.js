@@ -560,18 +560,36 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const reservation=reserve?reserveBudget():{ok:true,reservedUsd:0};
     if(!reservation.ok)return {ok:false,configured:true,required:true,reason:'JEV_DAILY_BUDGET_EXHAUSTED',budget:budgetStatus()};
     const started=clock();
+    const transientHttp=new Set([408,425,429,500,502,503,504]);
+    let attempts=0;
     try{
-      const r=await fetchJson(fetchImpl,cfg.decisionsUrl,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)},cfg.timeoutMs);
+      let r=null;
+      let lastError=null;
+      for(attempts=1;attempts<=2;attempts++){
+        try{
+          r=await fetchJson(fetchImpl,cfg.decisionsUrl,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)},cfg.timeoutMs);
+          if(r.ok||!transientHttp.has(Number(r.status))||attempts>=2)break;
+        }catch(e){
+          lastError=e;
+          if(attempts>=2)throw e;
+        }
+        // One short retry only. This is a decision API call, never an order submit.
+        await new Promise(resolve=>setTimeout(resolve,500));
+      }
+      if(!r){
+        if(lastError)throw lastError;
+        throw new Error('JEV_DECISION_NO_RESPONSE');
+      }
       if(!r.ok){
         if(reserve)settleBudget(reservation,cfg.reservePerCallUsd);
-        return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus()};
+        return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,attempts,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus()};
       }
       const cost=reserve?usageCost(r.data,cfg.reservePerCallUsd,body):0;
       if(reserve)settleBudget(reservation,cost);
-      return {ok:true,configured:true,required:true,data:r.data,durationMs:clock()-started,costUsd:cost,budget:budgetStatus()};
+      return {ok:true,configured:true,required:true,data:r.data,attempts,durationMs:clock()-started,costUsd:cost,budget:budgetStatus()};
     }catch(e){
       if(reserve)settleBudget(reservation,cfg.reservePerCallUsd);
-      return {ok:false,configured:true,required:true,reason:'JEV_REQUEST_ERROR',durationMs:clock()-started,detail:String(e?.message||e).slice(0,300),budget:budgetStatus()};
+      return {ok:false,configured:true,required:true,reason:'JEV_REQUEST_ERROR',attempts,durationMs:clock()-started,detail:String(e?.message||e).slice(0,300),budget:budgetStatus()};
     }
   }
 
