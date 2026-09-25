@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.115-r2541 + PC R2541 ATOMIC TÜRKÇE MIRROR + ANDROID PC-ONLY FAIL-CLOSED
+    name: Futures 15m Alarm PRO APK v9.5.115-r2541-hf1 + PC R2541 ATOMIC TÜRKÇE MIRROR + ANDROID PC-ONLY FAIL-CLOSED
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -162,13 +162,13 @@ workflows:
           # the installable/UI contract to the atomic-Turkish R2541 release.
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95122_r2541_turkish_contract.py"
           grep -q 'V95122_ANDROID_R2541_TURKISH_CONTRACT' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
-          grep -q 'v9.5.115-JEV-PC-ONLY-R2541' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
-          grep -q "versionName '9.5.115-r2541'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'v9.5.115-JEV-PC-ONLY-R2541-HF1' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "versionName '9.5.115-r2541-hf1'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           grep -q 'GERİ ÇEKİLME BEKLENİYOR' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
           grep -q 'ŞİMDİ PİYASA GİRİŞİ' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
           grep -q 'KIRILIM + GERİ TEST' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
           grep -q 'OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
-          grep -q 'versionCode 26092502' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26092503' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           grep -q 'ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
           if grep -q 'post(c, "/live/execute", intent, true)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
             echo 'R2541_ANDROID_LIVE_EXECUTE_POST_STILL_PRESENT'
@@ -245,8 +245,8 @@ workflows:
           grep -q 'LEADER_AUTO_9TF_JEV_APPROVED' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'requestedFamilyExposureQuote' "$CM_BUILD_DIR/brainhub/live-controller.js"
           grep -q 'preJevQualified' "$CM_BUILD_DIR/futures15m_alarm/AutoDecisionCard.java"
-          grep -q "versionName '9.5.115-r2541'" "$BUILD"
-          grep -q 'versionCode 26092502' "$BUILD"
+          grep -q "versionName '9.5.115-r2541-hf1'" "$BUILD"
+          grep -q 'versionCode 26092503' "$BUILD"
           grep -q "CLAUDE_V109_BUILD" "$CM_BUILD_DIR/brainhub/claude-v109.js"
           grep -q "9.5.110-VISION" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "'claude-v109.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
@@ -262,8 +262,8 @@ workflows:
           grep -q "SCALP_MOMENTUM" "$CM_BUILD_DIR/brainhub/trade-lanes.js"
           grep -q "640" "$CM_BUILD_DIR/brainhub/v110.js"
           grep -q "896" "$CM_BUILD_DIR/brainhub/v110.js"
-          grep -q "versionName '9.5.115-r2541'" "$BUILD"
-          grep -q 'versionCode 26092502' "$BUILD"
+          grep -q "versionName '9.5.115-r2541-hf1'" "$BUILD"
+          grep -q 'versionCode 26092503' "$BUILD"
           # CLAUDE_V113 (Claude, Anthropic): Android PC LIVE gercegi, dogrulanan ACIL DURDUR, salt-okunur PC pozisyonlari.
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$MAIN"
           grep -q 'V95121_ANDROID_PC_ONLY_FAIL_CLOSED_R2539' "$MAIN"
@@ -276,7 +276,7 @@ workflows:
           if grep -q 'post(c, "/live/execute", intent, true)' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"; then echo 'ANDROID_ORDER_POST_PRESENT'; exit 1; fi
           grep -q 'CLAUDE_V113_ANDROID_LIVE_TRUTH' "$APP/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java"
           grep -q 'v95113StopAndVerify("ANDROID_EMERGENCY_STOP"' "$MAIN"
-          grep -q 'v9.5.115-JEV-PC-ONLY-R2541' "$MAIN"
+          grep -q 'v9.5.115-JEV-PC-ONLY-R2541-HF1' "$MAIN"
           grep -q 'public static JSONObject livePositions' "$CM_BUILD_DIR/futures15m_alarm/BrainHubClient.java"
           grep -q 'public static JSONObject livePositions' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           echo 'CLAUDE_V113_ANDROID_LIVE_TRUTH_OK'
@@ -287,16 +287,16 @@ workflows:
           grep -q 'R2541 ANDROID GÜVENLİĞİ:' "$MAIN"
           grep -q 'R2541 PC-ONLY FAIL-CLOSED • TÜRKÇE DURUM' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
           grep -q 'JEV PATRON' "$MAIN"
-          grep -q 'R2.5.3.2 SOVEREIGN FLOW' "$MAIN"
+          grep -q 'R2.5.3.2 BAĞIMSIZ JEV AKIŞI' "$MAIN"
           grep -q 'JEV YÖNETİMİ' "$MAIN"
           grep -q 'JEV TEACHER' "$MAIN"
-          grep -q 'target/partial/BE/trail' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
-          grep -q 'R2.5.3.2 SOVEREIGN FLOW: FINAL AUTHORITY' "$MAIN"
+          grep -q 'hedef/kısmi/başabaş/iz sürme' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'R2.5.3.2 BAĞIMSIZ JEV AKIŞI: SON KARAR YETKİSİ' "$MAIN"
           grep -q 'scalp execution yalnız KAPANMIŞ 5m' "$MAIN"
-          grep -q 'worker EVIDENCE_ONLY' "$MAIN"
+          grep -q 'kanıt ajanı YALNIZCA KANIT' "$MAIN"
           grep -q 'JEV: NİHAİ STRATEJİK KARAR MERCİİ' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
-          grep -q 'R2.5.3.2 SOVEREIGN FLOW' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
-          grep -q 'hazır • FINAL AUTHORITY' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
+          grep -q 'R2.5.3.2 BAĞIMSIZ JEV AKIŞI' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"
+          grep -q 'hazır • SON KARAR YETKİSİ' "$APP/app/src/main/java/com/futuresalarm/app/BrainHubClient.java"
           if grep -q 'Jev yalnız işlem adayı planın ek güvenlik denetimidir' "$APP/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java"; then
             echo 'V95114_STALE_JEV_AUTHORITY_TEXT'
             exit 1
@@ -608,9 +608,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541-HF1.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541-HF1.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -621,5 +621,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.115-R2541.apk
+      - Futures15mAlarm-PRO-v9.5.115-R2541-HF1.apk
       - v9595-gradle.log
