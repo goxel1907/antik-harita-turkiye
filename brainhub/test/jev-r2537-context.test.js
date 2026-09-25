@@ -62,3 +62,18 @@ test('R2537 annotated Vision charts include deterministic OB, OTE and Fib overla
   assert.match(src,/ote\.shortPremiumZone/);
   assert.match(src,/fib\[key\]/);
 });
+
+
+test('R2538 explicit FVG field mirrors the real unified-frame liquidity.fairValueGaps source',()=>{
+  const frames=Object.fromEntries(['1m','3m','5m','15m','30m','1h','4h','1d'].map(tf=>{
+    const x=frame(tf);
+    const fvgs=x.recentFairValueGaps;
+    delete x.recentFairValueGaps;
+    x.liquidity={...(x.liquidity||{}),fairValueGaps:fvgs};
+    return [tf,x];
+  }));
+  const out=marketPacket({symbol:'ETHUSDT',livePrice:100,frames});
+  assert.equal(out.coreFrames['5m'].recentFairValueGaps.length,1);
+  assert.equal(out.coreFrames['15m'].recentFairValueGaps.length,1);
+  assert.equal(out.coreFrames['5m'].recentFairValueGaps[0].ce50,99.25);
+});
