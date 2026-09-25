@@ -974,10 +974,12 @@ async function renderMirror(s){
     const parity=j.parity||{};
     const parityEl=$('#mirrorParity');
     parityEl.className='mirror-parity '+(parity.ok?'good':(Number(parity.mismatches)>0?'bad':'warn'));
+    const parityBad=(parity.checks||[]).filter(x=>x?.match===false).slice(0,3);
+    const parityDetail=parityBad.map(x=>`${x.name}: JEV=${x.packet} / grafik=${x.chart}`).join(' • ');
     parityEl.textContent=parity.ok
       ? `Paket ↔ grafik UYUMU OK • ${parity.compared||0} alan eşleşti`
       : (Number(parity.mismatches)>0
-          ? `Paket ↔ grafik FARKI • ${parity.mismatches} uyuşmazlık / ${parity.compared||0} kontrol`
+          ? `Paket ↔ grafik FARKI • ${parity.mismatches} uyuşmazlık / ${parity.compared||0} kontrol${parityDetail?' • '+parityDetail:''}`
           : 'Paket ↔ grafik doğrulaması için yeterli alan bekleniyor');
 
     const fib=smc?.fibLevels?.retracement||{};
