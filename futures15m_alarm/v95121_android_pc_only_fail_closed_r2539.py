@@ -123,6 +123,19 @@ if "R2539_ANDROID_PC_ONLY_FAIL_CLOSED" not in client:
 if 'post(c, "/live/execute", intent, true)' in client:
     fail("Android BrainHubClient still posts /live/execute")
 
+# Disable every direct signed Android Binance mutation too. Read-only signed GETs
+# may remain for balance/account display, but POST/PUT/DELETE cannot reach Binance.
+hb=method_bounds(main,"    private String v9522Http(String method, String path, java.util.Map<String,String> params, boolean signed)")
+if not hb:
+    fail("MainActivity v9522Http signed transport missing")
+hsrc=main[hb[0]:hb[1]]
+brace=hsrc.find("{")
+if brace<0:
+    fail("v9522Http opening brace missing")
+mutation_guard='''\n        // R2539_ANDROID_SIGNED_MUTATION_DISABLED_PC_ONLY\n        if(signed && !"GET".equalsIgnoreCase(method))\n            throw new Exception("ANDROID SIGNED MUTATION DISABLED • PC BrainHub only");'''
+hsrc=hsrc[:brace+1]+mutation_guard+hsrc[brace+1:]
+main=main[:hb[0]]+hsrc+main[hb[1]:]
+
 # ------------------------------------------------------------------ fail-closed migration on first R2539 launch
 oncreate="super.onCreate(savedInstanceState);"
 if main.count(oncreate)!=1:
@@ -221,6 +234,7 @@ checks={
     "client order boundary":"ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in CLIENT.read_text(encoding="utf-8") and 'post(c, "/live/execute", intent, true)' not in CLIENT.read_text(encoding="utf-8"),
     "auto onSignal pc-only":"telefondan emir başlatılmaz" in AUTO.read_text(encoding="utf-8") and "runPc(app,s)" not in AUTO.read_text(encoding="utf-8")[AUTO.read_text(encoding="utf-8").find("public static void onSignal"):AUTO.read_text(encoding="utf-8").find("public static void onSignal")+1800],
     "legacy direct runner inert":"historical PHONE Binance executor permanently inert" in AUTO.read_text(encoding="utf-8") and "ANDROID DIRECT EXECUTOR DISABLED • PC ONLY" in AUTO.read_text(encoding="utf-8"),
+    "signed Android mutations blocked":"R2539_ANDROID_SIGNED_MUTATION_DISABLED_PC_ONLY" in MAIN.read_text(encoding="utf-8") and 'if(signed && !"GET".equalsIgnoreCase(method))' in MAIN.read_text(encoding="utf-8"),
     "truth 15s":"FRESH_MS = 15000L" in TRUTH.read_text(encoding="utf-8"),
     "card":"R2539 PC-ONLY FAIL-CLOSED" in CARD.read_text(encoding="utf-8"),
     "client label":"PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED" in CLIENT.read_text(encoding="utf-8"),
