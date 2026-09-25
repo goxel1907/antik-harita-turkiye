@@ -1,0 +1,56 @@
+name: R2541 validation
+
+on:
+  push:
+    branches:
+      - r2541-atomic-turkish-safe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout R2541
+        uses: actions/checkout@v4
+
+      - name: Node syntax - engine
+        run: node --check brainhub/engine.js
+
+      - name: Node syntax - market
+        run: node --check brainhub/market.js
+
+      - name: Node syntax - server
+        run: node --check brainhub/server.js
+
+      - name: Node syntax - Office server
+        run: node --check brainhub/office-dashboard/office-server.js
+
+      - name: R2541 contract tests
+        run: node --test brainhub/test/r2541-atomic-turkish-safe.test.js
+
+      - name: R2538 mirror regression
+        run: node --test brainhub/test/jev-live-mirror-r2538.test.js
+
+      - name: R2539 Android PC-only regression
+        run: node --test brainhub/test/android-pc-only-r2539.test.js
+
+      - name: Android R2541 patch compiles
+        run: python3 -m py_compile futures15m_alarm/v95122_r2541_turkish_contract.py
+
+      - name: Installer PowerShell parses
+        shell: pwsh
+        run: |
+          $src = Get-Content -LiteralPath 'brainhub/INSTALL-R2541-ATOMIC-TURKISH-SAFE.ps1' -Raw
+          [void][scriptblock]::Create($src)
+          Write-Host 'R2541_INSTALLER_PARSE_OK'
+
+      - name: Codemagic R2541 contract
+        run: |
+          grep -q 'V122_ANDROID_R2541_CONTRACT_OK' codemagic.yaml
+          grep -q 'Futures15mAlarm-PRO-v9.5.115-R2541.apk' codemagic.yaml
+          grep -q "versionName '9.5.115-r2541'" futures15m_alarm/v95122_r2541_turkish_contract.py
+          echo R2541_CODEMAGIC_CONTRACT_OK
