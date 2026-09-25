@@ -108,3 +108,12 @@ test('R2541 structural parity covers trend and pattern geometry',()=>{
   assert.match(server,/patternGeometryDigest/);
   assert.match(server,/R2541_PACKET_VS_CHART_SWING_TREND_PATTERN_PARITY/);
 });
+
+
+test('R2541 installer fails closed on structural parity',()=>{
+  const ps=read('INSTALL-R2541-ATOMIC-TURKISH-SAFE.ps1');
+  assert.match(ps,/R2541 structural packet\/chart parity failed/);
+  assert.match(ps,/R2541_PACKET_VS_CHART_SWING_TREND_PATTERN_PARITY/);
+  assert.match(ps,/R2541_STRUCTURAL_TREND_PATTERN_PARITY_OK/);
+  assert.match(ps,/mismatches -ne 0/);
+});
