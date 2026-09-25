@@ -175,6 +175,8 @@ test('R2541 HF3 hardens Android Binance time sync without restoring phone order 
   assert.match(patch,/recvWindow", "10000"/);
   assert.match(patch,/long midpoint=t0\+\(\(t1-t0\)\/2L\)/);
   assert.match(patch,/JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU/);
+  assert.match(patch,/budget_hits=re\.subn/);
+  assert.match(patch,/append\\\(lastPcReasons\\\.trim/);
   assert.match(cm,/v9522TimeSyncAt.*MainActivity\.java/);
   assert.match(cm,/JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU.*MainActivity\.java/);
   assert.match(patch,/ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY/);
