@@ -1277,6 +1277,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(!lesson?.ok)return lesson||null;
       const payload={
         side:record?.side||null,setup:record?.setup||null,originTF:record?.originTF||null,ownerTF:record?.ownerTF||null,
+        setupFamily:record?.entryContext?.setupFamily||null,entryTiming:record?.entryContext?.entryTiming||null,
+        edgeBasis:record?.entryContext?.edgeBasis||null,contractVersion:record?.entryContext?.contractVersion||null,
         outcomePct:record?.outcomePct??null,rMultiple:record?.rMultiple??null,
         decision:'SHADOW_LESSON',
         teacher:'JEV',application:'SHADOW_ONLY',selfModify:false,autoPromotion:false,
