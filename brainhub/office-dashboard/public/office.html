@@ -913,6 +913,9 @@ function mirrorCandidates(s){
     if(!/^[A-Z0-9]{1,28}USDT$/.test(z)||seen.has(z))return;
     seen.add(z);out.push(z);
   };
+  // Önce şu an GPU/Vision hattında okunan coin, sonra son JEV kararı.
+  add(s?.visionProgress?.data?.symbol);
+  add(s?.status?.data?.leaderAuto?.currentSymbol);
   add(s?.lastJev?.symbol);
   for(const p of s?.plans||[])add(p?.symbol);
   for(const p of s?.positions?.data?.open||[])add(p?.symbol);
