@@ -15,9 +15,11 @@ CARD=JAVA/"AutoDecisionCard.java"
 CLIENT=JAVA/"BrainHubClient.java"
 AUTO=JAVA/"AutoTradeEngine.java"
 TRUTH=JAVA/"V95113PcTruth.java"
+AGENT=JAVA/"TradeAgentActivity.java"
+LEARN=JAVA/"BrainLearning.java"
 BUILD=APP/"app/build.gradle"
 
-for p in (MAIN,CARD,CLIENT,AUTO,TRUTH,BUILD):
+for p in (MAIN,CARD,CLIENT,AUTO,TRUTH,AGENT,LEARN,BUILD):
     if not p.exists():
         raise SystemExit("R2541 missing required file: "+str(p))
 
@@ -26,6 +28,8 @@ card=CARD.read_text(encoding="utf-8")
 client=CLIENT.read_text(encoding="utf-8")
 auto=AUTO.read_text(encoding="utf-8")
 truth=TRUTH.read_text(encoding="utf-8")
+agent=AGENT.read_text(encoding="utf-8")
+learn=LEARN.read_text(encoding="utf-8")
 build=BUILD.read_text(encoding="utf-8")
 
 required=[
@@ -107,6 +111,27 @@ for old,new in visible_replacements.items():
     main=main.replace(old,new)
     card=card.replace(old,new)
     client=client.replace(old,new)
+    agent=agent.replace(old,new)
+    learn=learn.replace(old,new)
+
+# Öğrenim özeti BrainLearning.java tarafından dinamik üretilir.
+learn=learn.replace(
+    'return "LEARNING_V=1 CLOSED="+closed+" WINS="+w+" WINRATE="+',
+    'return "ÖĞRENME_SÜRÜMÜ=1 KAPANAN="+closed+" KAZANAN="+w+" KAZANMA_ORANI="+',
+    1
+)
+learn=learn.replace('+" AVG_SIGNAL_PCT="+','+" ORT_SİNYAL_YÜZDESİ="+',1)
+learn=learn.replace('+"\\nRECENT_TRADES="+','+"\\nSON_İŞLEMLER="+',1)
+learn=learn.replace('+"\\nRECENT_CHAT_TOPICS="+','+"\\nSON_SOHBET_KONULARI="+',1)
+learn=learn.replace('+"\\nRULE=Geçmiş performans bağlamdır; hard risk kurallarını otomatik gevşetmez.";',
+                    '+"\\nKURAL=Geçmiş performans bağlamdır; zorunlu risk kurallarını otomatik gevşetmez.";',1)
+
+# Ücretsiz ajan ayrı TradeAgentActivity.java dosyasındadır.
+agent=agent.replace("🧠 TRADE AJANI • FREE-FIRST","🧠 İŞLEM AJANI • ÖNCE ÜCRETSİZ")
+agent=agent.replace("FREE-ONLY mod","YALNIZCA ÜCRETSİZ mod")
+agent=agent.replace("FREE-ONLY • ","YALNIZCA ÜCRETSİZ • ")
+agent=agent.replace("FREE-ONLY kilidi açıktır","YALNIZCA ÜCRETSİZ kilidi açıktır")
+agent=agent.replace("FREE-ONLY hazır","YALNIZCA ÜCRETSİZ hazır")
 # R2541 Android UI timing/setup dictionary: presentation-only, control-flow enumları değişmez.
 ui_anchor='        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU")'
 if ui_anchor not in card:
@@ -145,6 +170,8 @@ build=re.sub(r"versionName\s+[\"'][^\"']+[\"']","versionName '9.5.115-r2541-hf2'
 MAIN.write_text(main,encoding="utf-8")
 CARD.write_text(card,encoding="utf-8")
 CLIENT.write_text(client,encoding="utf-8")
+AGENT.write_text(agent,encoding="utf-8")
+LEARN.write_text(learn,encoding="utf-8")
 BUILD.write_text(build,encoding="utf-8")
 
 checks={
@@ -159,8 +186,8 @@ checks={
     "ui direction Turkish":"OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)" in CARD.read_text(encoding="utf-8"),
     "client release banner":"PC R2541 ATOMİK AYNA • ANDROID PC-ONLY FAIL-CLOSED" in CLIENT.read_text(encoding="utf-8"),
     "main status Turkish":"BAĞIMSIZ JEV AKIŞI" in MAIN.read_text(encoding="utf-8") and "SON KARAR YETKİSİ" in MAIN.read_text(encoding="utf-8") and "YALNIZCA DİKKAT" in MAIN.read_text(encoding="utf-8"),
-    "learning Turkish":"ÖĞRENME_SÜRÜMÜ" in MAIN.read_text(encoding="utf-8") and "KAZANMA_ORANI" in MAIN.read_text(encoding="utf-8"),
-    "agent Turkish":"İŞLEM AJANI • ÖNCE ÜCRETSİZ" in MAIN.read_text(encoding="utf-8") and "YALNIZCA ÜCRETSİZ mod" in MAIN.read_text(encoding="utf-8"),
+    "learning Turkish":"ÖĞRENME_SÜRÜMÜ=1 KAPANAN=" in LEARN.read_text(encoding="utf-8") and "KAZANMA_ORANI" in LEARN.read_text(encoding="utf-8") and "SON_İŞLEMLER" in LEARN.read_text(encoding="utf-8"),
+    "agent Turkish":"İŞLEM AJANI • ÖNCE ÜCRETSİZ" in AGENT.read_text(encoding="utf-8") and "YALNIZCA ÜCRETSİZ mod" in AGENT.read_text(encoding="utf-8"),
 }
 failed=[k for k,v in checks.items() if not v]
 if failed:
