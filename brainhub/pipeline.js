@@ -1325,7 +1325,7 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,jevSeen,risk
       breakevenRule:plan.breakevenRule||null,trailRule:plan.trailRule||null,waitFor:plan.waitFor||null,jevSovereign:plan.jevSovereign===true
     }:null,
     jevPass1:pass1?{laneFocus:pass1.laneFocus,directionFocus:pass1.directionFocus,requestedEvidence:pass1.requestedEvidence||[],costUsd:pass1.costUsd??null}:null,
-    jevFinal:final?{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle,targetProfile:final.targetProfile,partialProfile:final.partialProfile,breakevenRule:final.breakevenRule,trailRule:final.trailRule,costUsd:final.costUsd??null}:null,
+    jevFinal:final?{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,waitReason:final.waitReason||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle,targetProfile:final.targetProfile,partialProfile:final.partialProfile,breakevenRule:final.breakevenRule,trailRule:final.trailRule,costUsd:final.costUsd??null}:null,
     vision:vision?{requestedFrames:vision.requestedFrames||[],attached:vision.attached??0,required:vision.required??0,source:vision.source||null,error:vision.error||null,textExcerpt:String(vision.text||'').slice(0,1600)}:null,
     jevSeen:jevSeen||null,
     riskGate:riskGate?{ok:riskGate.ok,reasons:riskGate.reasons||[]}:null,
@@ -1404,6 +1404,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     invalidationSource:chosen.invalidationSource||null,basis:chosen.basis||null,
     stopPrice:chosen.stopPrice,takeProfit1:chosen.takeProfit1,takeProfit2:chosen.takeProfit2,takeProfit3:chosen.takeProfit3,
     managementStyle:final.managementStyle,targetProfile:chosen.targetProfile,targetRatios:chosen.targetRatios,
+    waitReason:final?.waitReason||null,
     partialProfile:chosen.partialProfile,partialFractions:chosen.partialFractions,
     breakevenRule:chosen.breakevenRule,trailRule:chosen.trailRule,
     waitFor:entryNow?'NONE':(entryTiming||'WAIT_NEW_EVIDENCE'),formingContext:'CONTEXT_ONLY',
@@ -1416,7 +1417,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   }:{
     valid:true,status:'WATCH',side:null,originTF:null,ownerTF:null,lane:null,setup:'JEV_R2537_WAIT',
     setupFamily:setupFamily||'NONE_WAIT',edgeBasis:final?.edgeBasis||'NO_EDGE',entryTiming:entryTiming||'WAIT_NEW_EVIDENCE',
-    execPath:'WAIT',waitFor:entryTiming||'JEV will reconsider on a new radar event or materially changed evidence.',
+    execPath:'WAIT',waitFor:entryTiming||'JEV will reconsider on a new radar event or materially changed evidence.',waitReason:final?.waitReason||null,
     why:'JEV FINAL chose WAIT.',riskNote:'No order is authorized.',contractVersion:'R2.5.3.7_JEV_CONTEXT_COMPLETE',
     jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
   };
@@ -1441,7 +1442,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     out.journalWarning=String(e?.message||e).slice(0,160);
   }
   if(typeof store?.recordLearning==='function'){
-    try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:null,contractVersion:plan.contractVersion||null,setupFamily:plan.setupFamily||null,entryTiming:plan.entryTiming||null,edgeBasis:plan.edgeBasis||null,jevDecision:{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle},contextVersion:unified.version});}catch{}
+    try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:null,contractVersion:plan.contractVersion||null,setupFamily:plan.setupFamily||null,entryTiming:plan.entryTiming||null,waitReason:plan.waitReason||null,edgeBasis:plan.edgeBasis||null,jevDecision:{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,waitReason:final.waitReason||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle},contextVersion:unified.version});}catch{}
   }
   return out;
 }
