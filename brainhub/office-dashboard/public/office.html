@@ -891,6 +891,121 @@ function renderV109(s){
     : (isV109 ? `<span>Karar: 24 saat sonra “olurdu” planlarının 15/60 dk sonucu olumluysa config/claude-v109.json → BINDING.</span>` : '');
 }
 
+
+let mirrorTf='15m';
+let mirrorSymbol='';
+let mirrorSeq=0;
+try{
+  const savedTf=localStorage.getItem('jev-mirror-tf');
+  if(['5m','15m'].includes(savedTf))mirrorTf=savedTf;
+  mirrorSymbol=String(localStorage.getItem('jev-mirror-symbol')||'').toUpperCase();
+}catch{}
+
+function mirrorQuery(params={}){
+  const q=new URLSearchParams(location.search);
+  for(const [k,v] of Object.entries(params))q.set(k,String(v));
+  return '?'+q.toString();
+}
+function mirrorCandidates(s){
+  const out=[],seen=new Set();
+  const add=v=>{
+    const z=String(v||'').trim().toUpperCase();
+    if(!/^[A-Z0-9]{1,28}USDT$/.test(z)||seen.has(z))return;
+    seen.add(z);out.push(z);
+  };
+  add(s?.lastJev?.symbol);
+  for(const p of s?.plans||[])add(p?.symbol);
+  for(const p of s?.positions?.data?.open||[])add(p?.symbol);
+  for(const r of s?.status?.data?.leaderAuto?.analysisLifecycle?.rows||[])add(r?.symbol);
+  if(!out.length)add('BTCUSDT');
+  return out;
+}
+function syncMirrorSymbol(s){
+  const choices=mirrorCandidates(s);
+  if(!mirrorSymbol||!choices.includes(mirrorSymbol))mirrorSymbol=choices[0];
+  const sel=$('#mirrorSymbol');
+  if(sel){
+    const sig=choices.join('|');
+    if(sel.dataset.sig!==sig){
+      sel.innerHTML=choices.map(x=>`<option value="${esc(x)}">${esc(x.replace(/USDT$/,''))}/USDT</option>`).join('');
+      sel.dataset.sig=sig;
+    }
+    sel.value=mirrorSymbol;
+  }
+  document.querySelectorAll('[data-mirror-tf]').forEach(b=>b.classList.toggle('active',b.dataset.mirrorTf===mirrorTf));
+  return mirrorSymbol;
+}
+function mirrorFmt(v,d=3){
+  const n=num(v);
+  if(n===null)return '—';
+  if(Math.abs(n)>=1000)return n.toLocaleString('tr-TR',{maximumFractionDigits:2});
+  if(Math.abs(n)>=1)return n.toFixed(d);
+  return n.toFixed(Math.min(8,d+3));
+}
+async function renderMirror(s){
+  const symbol=syncMirrorSymbol(s);
+  if(!symbol)return;
+  if(s?.demo){
+    $('#mirrorParity').className='mirror-parity warn';
+    $('#mirrorParity').textContent='Demo modunda canlı JEV aynası devre dışı.';
+    return;
+  }
+  const seq=++mirrorSeq, stamp=Date.now();
+  const clean=$('#mirrorClean'), annotated=$('#mirrorAnnotated');
+  const cleanUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'clean',bars:128,_:stamp});
+  const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:128,_:stamp});
+  if(clean)clean.src=cleanUrl;
+  if(annotated)annotated.src=annotatedUrl;
+  $('#mirrorCleanLabel').textContent=`${symbol} • ${mirrorTf}`;
+  $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${mirrorTf}`;
+
+  try{
+    const r=await fetch('/api/jev-mirror'+mirrorQuery({symbol,tf:mirrorTf,_:stamp}),{cache:'no-store'});
+    const j=await r.json();
+    if(seq!==mirrorSeq)return;
+    if(!r.ok||!j?.ok)throw new Error(j?.error||'mirror unavailable');
+    const p=j.packet||{}, f=p?.coreFrames?.[mirrorTf]||{}, smc=f?.smcContext||{};
+    const ob=f?.orderBlocks||{}, ms=p?.microstructure||{}, der=p?.derivatives||{}, liq=p?.observedLiquidations||{};
+    const d=j.latestDecision||{}, p1=d.jevPass1||{}, p2=d.jevFinal||{}, pl=d.plan||{};
+    const parity=j.parity||{};
+    const parityEl=$('#mirrorParity');
+    parityEl.className='mirror-parity '+(parity.ok?'good':(Number(parity.mismatches)>0?'bad':'warn'));
+    parityEl.textContent=parity.ok
+      ? `Paket ↔ grafik UYUMU OK • ${parity.compared||0} alan eşleşti`
+      : (Number(parity.mismatches)>0
+          ? `Paket ↔ grafik FARKI • ${parity.mismatches} uyuşmazlık / ${parity.compared||0} kontrol`
+          : 'Paket ↔ grafik doğrulaması için yeterli alan bekleniyor');
+
+    const fib=smc?.fibLevels?.retracement||{};
+    const ote=smc?.oteReference||{};
+    const recorded=d?.jevSeen||null;
+    const recordedPx=recorded?.livePrice;
+    const ageSec=Number.isFinite(Number(d?.ageMs))?Math.round(Number(d.ageMs)/1000):null;
+    const rows=[
+      ['Anlık fiyat', mirrorFmt(p.livePrice,4)],
+      ['Yapı', `${f.trend||'—'} • BOS ${f.breakOfStructure||'—'} • RSI ${mirrorFmt(f.rsi14,1)} • ATR ${mirrorFmt(f.atrPct,2)}%`],
+      ['Likidite / SMC', `sweep ${f?.liquidity?.lastSweep||'—'} • FVG ${(f.recentFairValueGaps||[]).length} • OB B${(ob.bullish||[]).length}/S${(ob.bearish||[]).length}`],
+      ['OTE / Fib', `zone ${smc?.dealingRange?.zone||'—'} • EQ ${mirrorFmt(smc?.dealingRange?.equilibrium,4)} • Fib .618 ${mirrorFmt(fib['0.618'],4)} • OTE-L ${mirrorFmt(ote?.longDiscountZone?.low,4)}→${mirrorFmt(ote?.longDiscountZone?.high,4)}`],
+      ['Order flow', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • depth ${mirrorFmt(ms.depth20Imbalance,3)} • spread ${mirrorFmt(ms.spreadBps,2)} bps`],
+      ['Türevler', `OIΔ5m ${mirrorFmt(der.oiDelta5mPct,2)}% • funding ${mirrorFmt(der.fundingRate,6)} • taker ${mirrorFmt(der.takerBuySellRatio,3)}`],
+      ['Observed liquidation', `${liq.count??0} print • long ${mirrorFmt(liq.longLiquidatedQuote,0)} • short ${mirrorFmt(liq.shortLiquidatedQuote,0)} • zone ${(liq.zones||[]).length}`],
+      ['PASS-1', d.ts?`${p1.laneFocus||'—'} • yön ${p1.directionFocus||'—'} • istek ${(p1.requestedEvidence||[]).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
+      ['PASS-2', d.ts?`${p2.action||pl.side||'WAIT'} • ${p2.setupFamily||pl.setupFamily||'—'} • timing ${p2.entryTiming||pl.entryTiming||'—'} • edge ${p2.edgeBasis||pl.edgeBasis||'—'}`:'henüz final kayıt yok'],
+      ['Son karar snapshot', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski R2537 kaydı':mirrorFmt(recordedPx,4)}`:'—']
+    ];
+    $('#mirrorKv').innerHTML=rows.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+    const visionText=String(d?.vision?.textExcerpt||'').trim();
+    $('#mirrorVision').textContent=visionText
+      ? 'VISION EVIDENCE → '+visionText
+      : 'Vision metin aynası: yeni R2538 JEV kararı oluştuğunda worker’ın JEV’e verdiği kısa görsel kanıt burada görünür.';
+  }catch(e){
+    if(seq!==mirrorSeq)return;
+    const parityEl=$('#mirrorParity');
+    parityEl.className='mirror-parity bad';
+    parityEl.textContent='JEV canlı aynası okunamadı: '+String(e?.message||e).slice(0,140);
+  }
+}
+
 let last=null;
 async function tick(){
   try{
@@ -900,6 +1015,7 @@ async function tick(){
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
     renderKpis(s); renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); renderSources(s); renderOffice(s, vinfo); renderV109(s);
+    renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yalnız GET`;
   }catch(e){
     chip('#chipFresh','bad','bağlantı yok');
@@ -920,6 +1036,16 @@ $('#themeBtn').addEventListener('click',()=>{
   try{ localStorage.setItem('office-theme',next); }catch{}
 });
 try{ const t=localStorage.getItem('office-theme'); if(t) document.documentElement.setAttribute('data-theme',t); }catch{}
+$('#mirrorSymbol').addEventListener('change',e=>{
+  mirrorSymbol=String(e.target.value||'').toUpperCase();
+  try{localStorage.setItem('jev-mirror-symbol',mirrorSymbol);}catch{}
+  if(last)renderMirror(last);
+});
+document.querySelectorAll('[data-mirror-tf]').forEach(b=>b.addEventListener('click',()=>{
+  mirrorTf=b.dataset.mirrorTf;
+  try{localStorage.setItem('jev-mirror-tf',mirrorTf);}catch{}
+  if(last)renderMirror(last);
+}));
 buildOffice(); tick(); setInterval(tick, 5000);
 </script>
 </body>
