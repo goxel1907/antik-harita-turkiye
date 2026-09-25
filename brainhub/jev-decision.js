@@ -697,7 +697,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-2 is the final strategic decision. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. 5m is the scalp lane; 15m is the trade lane. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT.',
+        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -740,6 +740,20 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
             WAIT_SWEEP_RECLAIM:'Wait for the relevant liquidity sweep and reclaim/rejection.',
             WAIT_STRUCTURE_CLOSE:'Wait for a confirming closed-candle structure event.',
             WAIT_NEW_EVIDENCE:'Wait for materially changed evidence.'
+          }
+        },
+        wait_reason:{
+          type:'choice',
+          instructions:'Explain why entry is not MARKET_NOW. This is diagnostic discipline, not an extra veto. Choose NONE_MARKET_NOW only when a concrete plan is selected and current entry is justified. Any WAIT_* timing must have one specific reason rather than generic uncertainty.',
+          criteria:{
+            NONE_MARKET_NOW:'Current location and execution quality justify entry now.',
+            LOCATION_POOR:'Direction/setup may be valid but current price is a poor location or too extended.',
+            STRUCTURE_UNCONFIRMED:'A specific closed-candle structure event is still materially required.',
+            BREAKOUT_RETEST_REQUIRED:'Breakout acceptance/retest is materially required before entry.',
+            SWEEP_RECLAIM_REQUIRED:'A specific liquidity sweep/reclaim or rejection is materially required.',
+            EDGE_INSUFFICIENT:'Available evidence does not provide enough edge right now.',
+            DATA_QUALITY:'Material market/execution data is stale, missing, or unreliable.',
+            KNOWLEDGE_GAP:'A material concept is not understood well enough to act without verified research.'
           }
         },
         edge_basis:{
@@ -810,12 +824,17 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const selectedId=choiceValue(answers.trade_plan);
     const setupFamily=choiceValue(answers.setup_family);
     const entryTiming=choiceValue(answers.entry_timing);
+    const waitReasonRaw=choiceValue(answers.wait_reason);
     const edgeBasis=choiceValue(answers.edge_basis);
     const managementStyle=choiceValue(answers.management_style);
     const targetProfile=choiceValue(answers.target_profile);
     const partialProfile=choiceValue(answers.partial_profile);
     const breakevenRule=choiceValue(answers.breakeven_rule);
     const trailRule=choiceValue(answers.trail_rule);
+    const validWaitReasons=new Set(['NONE_MARKET_NOW','LOCATION_POOR','STRUCTURE_UNCONFIRMED','BREAKOUT_RETEST_REQUIRED','SWEEP_RECLAIM_REQUIRED','EDGE_INSUFFICIENT','DATA_QUALITY','KNOWLEDGE_GAP']);
+    const waitReason=validWaitReasons.has(waitReasonRaw)
+      ? waitReasonRaw
+      : (entryTiming==='MARKET_NOW'?'NONE_MARKET_NOW':'EDGE_INSUFFICIENT');
     const validTargetProfiles=new Set(['FAST_SCALP','BALANCED','RUNNER_EXTENDED','DEFENSIVE']);
     const validPartialProfiles=new Set(['THIRDS','HALF_QUARTER_RUNNER','RUNNER_HEAVY']);
     const validBreakevenRules=new Set(['AFTER_TP1','AFTER_1R_CLOSE','STRUCTURE_ONLY']);
@@ -830,7 +849,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     return {
       ok:true,configured:true,required:true,called:true,pass:2,finalAuthority:true,veto:false,
       action:selectedId==='WAIT'?'WAIT':selectedPlan.side,
-      selectedPlanId:selectedId,selectedPlan,setupFamily:setupFamily||null,entryTiming:entryTiming||null,edgeBasis:edgeBasis||null,
+      selectedPlanId:selectedId,selectedPlan,setupFamily:setupFamily||null,entryTiming:entryTiming||null,waitReason,edgeBasis:edgeBasis||null,
       managementStyle,targetProfile,partialProfile,breakevenRule,trailRule,evidenceTrimmed:boundedEvidence.evidenceTrimmed===true,
       model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };
