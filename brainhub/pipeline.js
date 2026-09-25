@@ -11,6 +11,7 @@ const claudeV112 = require('./claude-v112');
 const tradeLanes = require('./trade-lanes');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
+const { marketPacket, mirrorDigest } = require('./jev-market-packet');
 
 const FRAME_ORDER = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const FRAME_MS = {
@@ -1307,7 +1308,7 @@ async function buildSovereignEvidence({candidate,unified,pass1,committee}){
   }
   return evidence;
 }
-function sovereignJournalPayload({candidate,plan,pass1,final,vision,riskGate,executionReadiness}){
+function sovereignJournalPayload({candidate,plan,pass1,final,vision,jevSeen,riskGate,executionReadiness}){
   return {
     contract:'R2.5.3.2_JEV_SOVEREIGN_5M_15M',
     candidate:{symbol:candidate?.symbol||null,attentionSource:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[]},
@@ -1321,7 +1322,8 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,riskGate,exe
     }:null,
     jevPass1:pass1?{laneFocus:pass1.laneFocus,directionFocus:pass1.directionFocus,requestedEvidence:pass1.requestedEvidence||[],costUsd:pass1.costUsd??null}:null,
     jevFinal:final?{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle,targetProfile:final.targetProfile,partialProfile:final.partialProfile,breakevenRule:final.breakevenRule,trailRule:final.trailRule,costUsd:final.costUsd??null}:null,
-    vision:vision?{requestedFrames:vision.requestedFrames||[],attached:vision.attached??0,required:vision.required??0,source:vision.source||null,error:vision.error||null}:null,
+    vision:vision?{requestedFrames:vision.requestedFrames||[],attached:vision.attached??0,required:vision.required??0,source:vision.source||null,error:vision.error||null,textExcerpt:String(vision.text||'').slice(0,1600)}:null,
+    jevSeen:jevSeen||null,
     riskGate:riskGate?{ok:riskGate.ok,reasons:riskGate.reasons||[]}:null,
     executionReadiness:executionReadiness?{ok:executionReadiness.ok,reasons:executionReadiness.reasons||[]}:null
   };
@@ -1421,6 +1423,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   });
   const executionReadiness=combineExecutionReadiness(riskGate,dryRunExecutor);
   const visionMeta=evidence?.visual||null;
+  const jevSeen=mirrorDigest(marketPacket(unified));
   const out={
     ok:true,candidateFound:true,committeeCalled:Boolean(visionMeta),candidate,targetedExecution:selection.targeted,
     unifiedContext:unified,vision:visionMeta||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0},
@@ -1429,7 +1432,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true
   };
   try{
-    out.journalId=store.journal('PLAN',candidate.symbol,sovereignJournalPayload({candidate,plan,pass1,final,vision:visionMeta,riskGate,executionReadiness}));
+    out.journalId=store.journal('PLAN',candidate.symbol,sovereignJournalPayload({candidate,plan,pass1,final,vision:visionMeta,jevSeen,riskGate,executionReadiness}));
   }catch(e){
     out.journalWarning=String(e?.message||e).slice(0,160);
   }
