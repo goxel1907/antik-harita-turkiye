@@ -1940,11 +1940,14 @@ const server=http.createServer(async(req,res)=>{
       try{
         let chart,observedLiquidations=[],resolvedSnapshotId=snapshotId;
         const remembered=snapshotId?getMirrorSnapshot(snapshotId,symbol,tf):null;
+        if(snapshotId&&!remembered){
+          return send(res,409,{ok:false,error:'MIRROR_SNAPSHOT_EXPIRED_OR_UNKNOWN',snapshotId});
+        }
         if(remembered){
           chart=remembered.chart;
           observedLiquidations=remembered.observedLiquidations||[];
         }else{
-          // Tek başına grafik isteğinde de chart+overlay verisini aynı frame snapshot'ından üret.
+          // Yalnız snapshotId verilmemiş bağımsız grafik isteğinde yeni atomik snapshot üret.
           const atomic=await market.atomicMirrorContext(symbol,tf,bars);
           chart=atomic.chart;
           resolvedSnapshotId=atomic.snapshotId;
