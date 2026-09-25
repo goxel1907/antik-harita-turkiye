@@ -107,7 +107,22 @@ $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $hea
 $office = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/ping' -TimeoutSec 10
 $snapshot = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/snapshot' -TimeoutSec 20
 $knowledge = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/jev/knowledge' -Headers $headers -TimeoutSec 10
-$mirror = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/jev-live-mirror?symbol=BTCUSDT&tf=15m' -Headers $headers -TimeoutSec 20
+$mirror = $null
+$mirrorLastError = $null
+for ($i = 1; $i -le 4; $i++) {
+  try {
+    $candidateMirror = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/jev-live-mirror?symbol=BTCUSDT&tf=15m' -Headers $headers -TimeoutSec 20
+    if ($candidateMirror.ok -and [int]$candidateMirror.parity.compared -ge 3 -and [int]$candidateMirror.parity.mismatches -eq 0) {
+      $mirror = $candidateMirror
+      break
+    }
+    $mirrorLastError = "attempt=$i compared=$($candidateMirror.parity.compared) mismatches=$($candidateMirror.parity.mismatches)"
+  } catch {
+    $mirrorLastError = "attempt=$i $($_.Exception.Message)"
+  }
+  Start-Sleep -Seconds 2
+}
+if ($null -eq $mirror) { throw "R2538 mirror parity verification did not stabilize: $mirrorLastError" }
 
 if (-not $health.ok) { throw 'BrainHub health failed.' }
 if ([string]$health.jevSovereign.packageVersion -ne $ExpectedSovereign) { throw "Unexpected sovereign package: $($health.jevSovereign.packageVersion)" }
@@ -153,8 +168,6 @@ if ($live.armed -eq $true) { throw 'LIVE became armed during update.' }
 if (-not $office.ok -or [string]$office.officeVersion -ne $ExpectedOffice) { throw "Office version mismatch: $($office.officeVersion)" }
 if (-not $snapshot.health.ok -or -not $snapshot.status.ok) { throw 'Office snapshot health/status failed.' }
 if (-not $mirror.ok -or [string]$mirror.contract -ne 'R2538_JEV_LIVE_MIRROR') { throw 'R2538 JEV live mirror endpoint failed.' }
-if ([int]$mirror.parity.compared -lt 3) { throw 'R2538 mirror parity did not compare enough fields.' }
-if ([int]$mirror.parity.mismatches -ne 0) { throw "R2538 mirror parity mismatch count: $($mirror.parity.mismatches)" }
 $installedOfficeHtml = Join-Path $Root 'office-dashboard\public\office.html'
 if (-not (Test-Path -LiteralPath $installedOfficeHtml)) { throw 'Installed Office HTML missing.' }
 if ((Get-Content -LiteralPath $installedOfficeHtml -Raw) -notmatch 'JEV Canlı Görüş Aynası') { throw 'R2538 Office live mirror card missing.' }
