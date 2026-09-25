@@ -1014,6 +1014,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
         boolean lng=sp.getBoolean("v9576_auto_long",true),sht=sp.getBoolean("v9576_auto_short",true);
         String lastPcExecution=sp.getString("v9588_pc_auto_last_execution","");
         String lastPcReasons=sp.getString("v9592_pc_auto_last_reasons","");
+        String lastPcReasonsTr=lastPcReasons==null?"":lastPcReasons.replace("JEV_DAILY_BUDGET_EXHAUSTED","JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU");
         int blockedCount=sp.getInt("v9592_pc_auto_blocked_count",0);
         boolean pcBlocked="LEADER_AUTO_BLOCKED".equals(lastPcExecution)||"LEADER_AUTO_TICK_FAILED".equals(lastPcExecution)||"LEADER_AUTO_CONFIG_INVALID".equals(lastPcExecution);
         String state;
@@ -1022,7 +1023,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
         else if(!pcAutoConfigured||!pcAutoEnabled) state="🟡 OTO AÇIK • PC AUTO SENKRON BEKLİYOR";
         else if(!armed) state="🟠 OTO HAZIR • PC ARM KAPALI";
         else if(inflight) state="🔵 SİNYAL İŞLENİYOR • RİSK / LINEAGE / GRANT KONTROLÜ";
-        else if(pcBlocked) state=(blockedCount>=3?"🔴":"🟠")+" PC LEADER AUTO BLOCKED • "+(lastPcReasons==null||lastPcReasons.trim().isEmpty()?lastPcExecution:lastPcReasons);
+        else if(pcBlocked) state=(blockedCount>=3?"🔴":"🟠")+" PC LEADER AUTO BLOCKED • "+(lastPcReasonsTr.trim().isEmpty()?lastPcExecution:lastPcReasonsTr);
         else if("LEADER_AUTO_WAIT".equals(lastPcExecution)) state="🟢 PC LEADER AUTO TARIYOR • UYGUN/QUALIFIED FIRSAT BEKLİYOR";
         else state="🟢 PC LEADER AUTO TARIYOR • TAZE FIRSAT BEKLİYOR";
 
@@ -1047,7 +1048,7 @@ renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout 
             st.append("\nKarar mimarisi: 15m ana işlem hattı • 1m/3m/5m scalp momentum hattı (tek alt TF karar vermez; en az 2 alt TF + 15m karşı-veto kontrolü) • 30m+ yapı/likidite/formasyon/tükenme bağlamı.");
             String lex=lastPcExecution;
             if(lex!=null&&!lex.trim().isEmpty())st.append(" • son ").append(lex.trim());
-            if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\nNeden: ").append(lastPcReasons.trim());
+            if(!lastPcReasonsTr.trim().isEmpty())st.append("\nNeden: ").append(lastPcReasonsTr.trim());
             if(blockedCount>0)st.append(" • üst üste ").append(blockedCount).append(" tur");
             String tickAt=sp.getString("v9592_pc_auto_last_tick_at","");
             if(tickAt!=null&&!tickAt.trim().isEmpty())st.append("\nSon PC tick: ").append(tickAt.trim());
