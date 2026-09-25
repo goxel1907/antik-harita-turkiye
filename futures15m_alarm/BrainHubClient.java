@@ -196,16 +196,17 @@ public final class BrainHubClient {
         body.put("allowShort", allowShort);
         return post(c, "/live/leader-auto", body, true);
     }
+    // R2539_ANDROID_PC_ONLY_FAIL_CLOSED:
+    // Android can ARM/DISARM/configure/read telemetry, but it can never originate an order.
+    // The PC BrainHub scheduler is the sole entry executor.
     public static JSONObject liveExecute(Context c, JSONObject intent) throws Exception {
-        if (intent == null) throw new Exception("LIVE intent gerekli");
-        JSONObject health = check(c);
-        if (!"LIVE_ARMED_PER_ORDER_GRANT_REQUIRED".equals(health.optString("execution"))) {
-            JSONObject out = new JSONObject();
-            out.put("ok", false);out.put("orderPlaced", false);out.put("liveAllowed", false);out.put("execution", "LIVE_BLOCKED");
-            out.put("reasons", new JSONArray().put("PC_LIVE_NOT_ARMED"));
-            return out;
-        }
-        return post(c, "/live/execute", intent, true);
+        JSONObject out = new JSONObject();
+        out.put("ok", false);
+        out.put("orderPlaced", false);
+        out.put("liveAllowed", false);
+        out.put("execution", "ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY");
+        out.put("reasons", new JSONArray().put("ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY"));
+        return out;
     }
     public static JSONObject liveArm(Context c) throws Exception {
         check(c);
