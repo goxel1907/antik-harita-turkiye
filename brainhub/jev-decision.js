@@ -790,6 +790,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!out.ok)return {...out,called:true,pass:2,mode:'SOVEREIGN_CHOICE'};
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const selectedId=choiceValue(answers.trade_plan);
+    const setupFamily=choiceValue(answers.setup_family);
+    const entryTiming=choiceValue(answers.entry_timing);
+    const edgeBasis=choiceValue(answers.edge_basis);
     const managementStyle=choiceValue(answers.management_style);
     const targetProfile=choiceValue(answers.target_profile);
     const partialProfile=choiceValue(answers.partial_profile);
@@ -809,7 +812,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     return {
       ok:true,configured:true,required:true,called:true,pass:2,finalAuthority:true,veto:false,
       action:selectedId==='WAIT'?'WAIT':selectedPlan.side,
-      selectedPlanId:selectedId,selectedPlan,managementStyle,targetProfile,partialProfile,breakevenRule,trailRule,evidenceTrimmed:boundedEvidence.evidenceTrimmed===true,
+      selectedPlanId:selectedId,selectedPlan,setupFamily:setupFamily||null,entryTiming:entryTiming||null,edgeBasis:edgeBasis||null,
+      managementStyle,targetProfile,partialProfile,breakevenRule,trailRule,evidenceTrimmed:boundedEvidence.evidenceTrimmed===true,
       model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };
   }
