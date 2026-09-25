@@ -179,3 +179,15 @@ test('R2541 HF3 hardens Android Binance time sync without restoring phone order 
   assert.match(cm,/JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU.*MainActivity\.java/);
   assert.match(patch,/ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY/);
 });
+
+
+test('R2541 JEV paid decision hard cap is five dollars and legacy two-dollar config migrates',()=>{
+  const jev=read('jev-decision.js');
+  const manage=read('manage.ps1');
+  assert.match(jev,/dailyCapUsd:5\.00/);
+  assert.doesNotMatch(jev,/dailyCapUsd:2\.00/);
+  assert.match(manage,/NotePropertyName dailyCapUsd -NotePropertyValue 5\.00/);
+  assert.match(manage,/Abs\(\$daily - 2\.00\).*\$jev\.dailyCapUsd = 5\.00/s);
+  assert.match(manage,/dailyCapUsd = 5\.00/);
+  assert.match(manage,/hardUsd=5\.00/);
+});
