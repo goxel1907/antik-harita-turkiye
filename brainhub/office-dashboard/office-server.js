@@ -229,11 +229,11 @@ function summarizeJournal(items) {
       events.push({ ...base, desk: p.ok ? 'jev' : 'workers', title: `Tetik yeniden doğrulama ${it.symbol || ''} ${p.side || ''}: ${p.ok ? (p.applied ? 'QUALIFIED → Jev' : 'geçerdi (gölge)') : 'geçmedi'}`, detail: clip(p.ok ? `${p.triggerTF || ''} tetik ${finite(p.triggerPrice) ?? '?'} • ${p.info?.laneName || ''}` : (p.reasons || []).join(', '), 160) });
     } else if (it.kind === 'JEV_FINAL_AUTHORITY') {
       const ok=String(p.stage||'')==='HARD_SAFETY_READY'||String(p.stage||'')==='ORDER_PLACED';
-      const detail=(p.reasons||[]).length ? (p.reasons||[]).join(', ') : ((p.softWarnings||[]).length ? 'soft uyarı: '+(p.softWarnings||[]).join(', ') : 'JEV onayı sonrası yalnız hard safety');
-      events.push({ ...base, desk: ok?'exec':'risk', title:`JEV final ${it.symbol||''}: ${p.stage||'?'}`, detail:clip(detail,180) });
+      const detail=(p.reasons||[]).length ? (p.reasons||[]).join(', ') : ((p.softWarnings||[]).length ? 'soft uyarı: '+(p.softWarnings||[]).join(', ') : 'JEV onayı sonrası yalnız zorunlu güvenlik');
+      events.push({ ...base, desk: ok?'exec':'risk', title:`JEV son karar ${it.symbol||''}: ${p.stage||'?'}`, detail:clip(detail,180) });
       if(!ok && (p.reasons||[]).length && !lastRisk) lastRisk={symbol:it.symbol,ts:base.ts,reasons:(p.reasons||[]).slice(0,8)};
     } else if (it.kind === 'CLAUDE_V112_FAST_LANE_SIGNAL') {
-      events.push({ ...base, desk: 'workers', title: `Hızlı scalp ${it.symbol || ''} ${p.side || ''}: ${p.tf || ''} kırılım ${p.applied ? '→ Jev' : '(gölge kayıt)'}`, detail: clip(`seviye ${finite(p.level) ?? '?'} • canlı ${finite(p.livePrice) ?? '?'} • ${(p.momentum || []).join(',')}`, 160) });
+      events.push({ ...base, desk: 'workers', title: `Hızlı scalp ${it.symbol || ''} ${p.side || ''}: ${p.tf || ''} kırılım ${p.applied ? '→ JEV' : '(gölge kayıt)'}`, detail: clip(`seviye ${finite(p.level) ?? '?'} • canlı ${finite(p.livePrice) ?? '?'} • ${(p.momentum || []).join(',')}`, 160) });
     } else if (it.kind === 'VISION_BENCHMARK') {
       const sm = p.summary || {};
       events.push({ ...base, desk: 'vision', title: `Vision doğruluk testi: %${finite(sm.accuracyPct) ?? '?'} (${sm.matched ?? '?'}/${sm.cases ?? '?'})`, detail: clip(Object.entries(sm.byLabel || {}).map(([k, v]) => `${k} %${v.accuracyPct}`).join(' • '), 160) });
@@ -243,7 +243,7 @@ function summarizeJournal(items) {
     } else if (it.kind === 'CLAUDE_V112_POSITION_REST') {
       events.push({ ...base, desk: 'positions', title: p.stage === 'START' ? `Pozisyonlar dolu (${p.openPositions}/${p.maxOpenPositions}) — ajanlar dinleniyor` : `Yer açıldı (${p.openPositions}/${p.maxOpenPositions}) — ajanlar devam`, detail: '' });
     } else if (it.kind === 'CLAUDE_V111_RUNNER') {
-      events.push({ ...base, desk: 'positions', title: `Runner ${it.symbol || ''}: ${p.kind || ''}${p.to != null ? ' → stop ' + p.to : (p.target != null ? ' → ' + p.target : '')}`, detail: clip(`${p.mode || ''} • faz ${p.phase || ''}${p.trailTf ? ' • iz TF ' + p.trailTf : ''}${p.reason ? ' • ' + p.reason : ''}`, 160) });
+      events.push({ ...base, desk: 'positions', title: `İz süren pozisyon ${it.symbol || ''}: ${p.kind || ''}${p.to != null ? ' → stop ' + p.to : (p.target != null ? ' → ' + p.target : '')}`, detail: clip(`${p.mode || ''} • faz ${p.phase || ''}${p.trailTf ? ' • iz TF ' + p.trailTf : ''}${p.reason ? ' • ' + p.reason : ''}`, 160) });
     } else if (it.kind === 'PLAN_WORKER_REVIEW') {
       events.push({ ...base, desk: 'workers', title: `Worker ${p.symbol || it.symbol || ''}: ${p.state || '?'}`, detail: clip(p.reason || '', 160), state: p.state || null, workerSource: p.source || null });
     } else if (it.kind === 'PLAN_COMMITTEE_FALLBACK') {
@@ -317,7 +317,7 @@ function derive(snap) {
     if (st.armed === true && !pr?.active && Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, zorunlu güvenlik geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/zorunlu güvenlik: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve tek kullanımlık yürütme yetkisi engel olabilir.');
     if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Zorunlu güvenlik geçti, emir yok', 'Yürütme katmanı (LIVE yürütme yetkisi, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
     if (sovereign && deep >= 1 && pass1 === 0) add('serious','JEV_PASS1_MISSING','Radar/analiz JEV PASS-1’e ulaşmıyor',`${deep} değerlendirme var ama PASS-1 çağrısı yok. Scanner yalnız ATTENTION_ONLY olmalı ve stratejik kapı JEV’den önce çalışmamalı.`);
-    if (sovereign && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • evidence request ${evidenceRequests} • PASS-2/final 0. Evidence worker veya JEV final çağrısı kontrol edilmeli.`);
+    if (sovereign && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • kanıt isteği ${evidenceRequests} • PASS-2/son karar 0. Kanıt ajanı veya JEV son karar çağrısı kontrol edilmeli.`);
 
     if (!sovereign && Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
     if (!sovereign && Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);
