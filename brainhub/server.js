@@ -11,6 +11,7 @@ const {createJevClient}=require('./jev-decision');
 const {createOpenRouterFreeWorker}=require('./openrouter-free-worker');
 const {createKnowledgeResearch}=require('./knowledge-research');
 const {deterministicCoreLevelRepair}=require('./vision-contract-repair');
+const {marketPacket}=require('./jev-market-packet');
 const {isNonConcreteWait}=require('./wait-condition');
 const {syntheticVisionCases,syntheticVisionCasesV112,parseBenchmarkLabel,summarizeBenchmark,V112_LABELS}=require('./vision-benchmark');
 const claudeV109=require('./claude-v109');
@@ -942,6 +943,39 @@ function candidateForSymbol(scan,symbol){
   }
   return null;
 }
+function mirrorFinite(v){const n=Number(v);return Number.isFinite(n)?n:null;}
+function mirrorCloseEnough(a,b){
+  const x=mirrorFinite(a),y=mirrorFinite(b);
+  if(x===null||y===null)return null;
+  return Math.abs(x-y)<=Math.max(1e-9,Math.max(Math.abs(x),Math.abs(y))*1e-8);
+}
+function jevMirrorParity(packet,chart,tf){
+  const p=packet?.coreFrames?.[tf]||{};
+  const a=chart?.analysis||{};
+  const checks=[];
+  const add=(name,left,right,kind='exact')=>{
+    if(left===null||left===undefined||right===null||right===undefined)return;
+    const match=kind==='number'?mirrorCloseEnough(left,right):String(left)===String(right);
+    if(match===null)return;
+    checks.push({name,packet:left,chart:right,match});
+  };
+  add('close',p.close,a.close,'number');
+  add('trend',p.trend,a.trend);
+  add('BOS',p.breakOfStructure||'NONE',a.breakOfStructure||'NONE');
+  add('prior20High',p.prior20High,a.prior20High,'number');
+  add('prior20Low',p.prior20Low,a.prior20Low,'number');
+  add('equilibrium',p?.smcContext?.dealingRange?.equilibrium,a?.smcContext?.dealingRange?.equilibrium,'number');
+  add('fib0.618',p?.smcContext?.fibLevels?.retracement?.['0.618'],a?.smcContext?.fibLevels?.retracement?.['0.618'],'number');
+  add('bullishOBCount',Array.isArray(p?.orderBlocks?.bullish)?p.orderBlocks.bullish.length:0,Array.isArray(a?.orderBlocks?.bullish)?a.orderBlocks.bullish.length:0,'number');
+  add('bearishOBCount',Array.isArray(p?.orderBlocks?.bearish)?p.orderBlocks.bearish.length:0,Array.isArray(a?.orderBlocks?.bearish)?a.orderBlocks.bearish.length:0,'number');
+  add('fvgCount',Array.isArray(p?.recentFairValueGaps)?p.recentFairValueGaps.length:0,Array.isArray(a?.recentFairValueGaps)?a.recentFairValueGaps.length:0,'number');
+  const mismatches=checks.filter(x=>x.match===false);
+  return {
+    ok:checks.length>=3&&mismatches.length===0,
+    compared:checks.length,mismatches:mismatches.length,checks,
+    semantics:'R2538_PACKET_VS_ANNOTATED_CHART_DETERMINISTIC_PARITY'
+  };
+}
 async function runLocalVisionCommittee(body){
   return withLocalVisionSingleFlight(()=>runLocalVisionCommitteeUnlocked(body));
 }
@@ -1306,7 +1340,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',enabled:true,decisionOwner:'JEV',scannerAuthority:'ATTENTION_ONLY',workerAuthority:'EVIDENCE_ONLY',primaryLanes:['5m','15m'],passLimit:2,autonomousPlanWorkers:false,noScoreThresholds:true,noTwoOfThreeGate:true,noHard15mStrategicVeto:true,experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',externalPositions:'ADVISORY_ONLY'}},featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV112Base:claudeV112.baseBranch,claudeV111Marker:claudeV111.marker,claudeV111Base:claudeV111.baseBranch,claudeV111Config:claudeV111.readConfig(),v110FeatureVersion:v110.featureVersion,v110BuiltBy:v110.builtBy,v110Marker:v110.marker,v110Base:v110.base,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,baseBranch:claudeV109.baseBranch,changesDoc:claudeV109.changesDoc,claudeV109Config:claudeV109.readConfig(),execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_BATCH3_ACTIVE','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CORE_LEVEL_DETERMINISTIC_REPAIR','VISION_BOTH_SIDE_TRIGGER_CANDIDATES','JEV_VISION_EVIDENCE_ONLY_NO_PLAN_SCHEMA','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','JEV_CORTEX_LIVE_REASONING_ALWAYS_ON','JEV_EXPERIENCE_MEMORY_ALWAYS_ON','JEV_LIFETIME_MEMORY_AGGREGATE','JEV_FREE_MODEL_KNOWLEDGE_RESEARCH','JEV_VERIFIED_DYNAMIC_KNOWLEDGE','JEV_RESEARCH_RETRY_FAILOVER','JEV_CURATED_OSS_REFERENCE_REGISTRY','JEV_CONTEXT_COMPLETE_PACKET','JEV_SETUP_FAMILY_LEARNING','JEV_EXPLICIT_ENTRY_TIMING','VISION_OB_OTE_FIB_OVERLAYS','JEV_EXIT_NOW_REDUCE_ONLY_BINDING','JEV_PARTIAL_REDUCE_ONLY_BINDING','TARGETED_PRIORITY_UNIVERSE_24','BINANCE_TOP24_GAINER_DISCOVERY','ACCUMULATION_PROXY_DISCOVERY','ANDROID_ATTENTION_SYNC','PLAN_WORKER_ORCHESTRATION','PLAN_WORKER_9ROUTER_TEXT','PLAN_WORKER_9ROUTER_FREE_ONLY','OPENROUTER_FREE_WORKER_SECOND_OPINION','WORKER_VISION_AVOIDANCE_TELEMETRY','PLAN_WORKER_PARALLEL_TIMER','V108_WORKER_ESCALATION_LATCH','V108_CONCRETE_WATCH_CONTRACT','LOCAL_VISION_FREE_QUOTA_FAILOVER','V109_EXPLICIT_FREE_QUOTA_FAILOVER','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_SYNTHETIC_ACCURACY_BENCHMARK','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED',...claudeV109.features,...v110.features,...claudeV111.features,...claudeV112.features],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_SINGLE_TF:'FALLBACK_CAPABILITY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',enabled:true,decisionOwner:'JEV',scannerAuthority:'ATTENTION_ONLY',workerAuthority:'EVIDENCE_ONLY',primaryLanes:['5m','15m'],passLimit:2,autonomousPlanWorkers:false,noScoreThresholds:true,noTwoOfThreeGate:true,noHard15mStrategicVeto:true,experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.3.8',mode:'READ_ONLY_CLEAN_ANNOTATED_PACKET_PARITY'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',externalPositions:'ADVISORY_ONLY'}},featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV112Base:claudeV112.baseBranch,claudeV111Marker:claudeV111.marker,claudeV111Base:claudeV111.baseBranch,claudeV111Config:claudeV111.readConfig(),v110FeatureVersion:v110.featureVersion,v110BuiltBy:v110.builtBy,v110Marker:v110.marker,v110Base:v110.base,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,baseBranch:claudeV109.baseBranch,changesDoc:claudeV109.changesDoc,claudeV109Config:claudeV109.readConfig(),execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_BATCH3_ACTIVE','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CORE_LEVEL_DETERMINISTIC_REPAIR','VISION_BOTH_SIDE_TRIGGER_CANDIDATES','JEV_VISION_EVIDENCE_ONLY_NO_PLAN_SCHEMA','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','JEV_CORTEX_LIVE_REASONING_ALWAYS_ON','JEV_EXPERIENCE_MEMORY_ALWAYS_ON','JEV_LIFETIME_MEMORY_AGGREGATE','JEV_FREE_MODEL_KNOWLEDGE_RESEARCH','JEV_VERIFIED_DYNAMIC_KNOWLEDGE','JEV_RESEARCH_RETRY_FAILOVER','JEV_CURATED_OSS_REFERENCE_REGISTRY','JEV_CONTEXT_COMPLETE_PACKET','JEV_LIVE_MIRROR_READ_ONLY','JEV_MIRROR_PACKET_CHART_PARITY','JEV_SETUP_FAMILY_LEARNING','JEV_EXPLICIT_ENTRY_TIMING','VISION_OB_OTE_FIB_OVERLAYS','JEV_EXIT_NOW_REDUCE_ONLY_BINDING','JEV_PARTIAL_REDUCE_ONLY_BINDING','TARGETED_PRIORITY_UNIVERSE_24','BINANCE_TOP24_GAINER_DISCOVERY','ACCUMULATION_PROXY_DISCOVERY','ANDROID_ATTENTION_SYNC','PLAN_WORKER_ORCHESTRATION','PLAN_WORKER_9ROUTER_TEXT','PLAN_WORKER_9ROUTER_FREE_ONLY','OPENROUTER_FREE_WORKER_SECOND_OPINION','WORKER_VISION_AVOIDANCE_TELEMETRY','PLAN_WORKER_PARALLEL_TIMER','V108_WORKER_ESCALATION_LATCH','V108_CONCRETE_WATCH_CONTRACT','LOCAL_VISION_FREE_QUOTA_FAILOVER','V109_EXPLICIT_FREE_QUOTA_FAILOVER','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_SYNTHETIC_ACCURACY_BENCHMARK','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','LIVE_FAIL_CLOSED',...claudeV109.features,...v110.features,...claudeV111.features,...claudeV112.features],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_SINGLE_TF:'FALLBACK_CAPABILITY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
@@ -1335,7 +1369,7 @@ const server=http.createServer(async(req,res)=>{
       return send(res,out?.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/status'){
-      return send(res,200,{...live.status(),jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',enabled:true,decisionOwner:'JEV',primaryLanes:['5m','15m'],passLimit:2,workerMode:'JEV_DIRECTED_EVIDENCE_ONLY',experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',externalPositions:'ADVISORY_ONLY'}},featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV111Marker:claudeV111.marker,claudeV111Config:claudeV111.readConfig(),claudeRunner:live.runnerStatus(),claudeFastLane:live.fastLaneStatus(),v110FeatureVersion:v110.featureVersion,v110Marker:v110.marker,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,claudeV109Config:claudeV109.readConfig(),sizingAuthority:'USER_PANEL_EXACT',visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterFreeWorker:freeWorker.status(),knowledgeResearch:knowledgeResearch.status(),openRouterBilling:jev.billingSnapshot()});
+      return send(res,200,{...live.status(),jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',enabled:true,decisionOwner:'JEV',primaryLanes:['5m','15m'],passLimit:2,workerMode:'JEV_DIRECTED_EVIDENCE_ONLY',experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.3.8',mode:'READ_ONLY_CLEAN_ANNOTATED_PACKET_PARITY'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',externalPositions:'ADVISORY_ONLY'}},featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV111Marker:claudeV111.marker,claudeV111Config:claudeV111.readConfig(),claudeRunner:live.runnerStatus(),claudeFastLane:live.fastLaneStatus(),v110FeatureVersion:v110.featureVersion,v110Marker:v110.marker,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,claudeV109Config:claudeV109.readConfig(),sizingAuthority:'USER_PANEL_EXACT',visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterFreeWorker:freeWorker.status(),knowledgeResearch:knowledgeResearch.status(),openRouterBilling:jev.billingSnapshot()});
     }
     // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar (Binance) + kapanan işlemler (sonuç, R, çıkış, giriş nedeni). Salt-okunur.
     if(req.method==='GET'&&u.pathname==='/live/positions'){
@@ -1806,6 +1840,43 @@ const server=http.createServer(async(req,res)=>{
       const [sym,global,scan]=await Promise.all([market.symbolContext(symbol),market.globalContext(),scanner.scan()]);
       const unified=pipeline.buildUnifiedContext({symbol:sym,global,candidate:candidateForSymbol(scan,symbol)});
       return send(res,200,{ok:true,readOnly:true,symbol,generatedAt:unified.generatedAt,authority:unified.authority,visualPolicy:unified.visualPolicy,dataQuality:unified.dataQuality,marketMakerEvidence:unified.marketMakerEvidence,derivatives:unified.derivatives,liquidationContext:unified.liquidationContext,microstructure:unified.microstructure,frames:unified.frames,policy:unified.policy});
+    }
+    if(req.method==='GET'&&u.pathname==='/context/jev-live-mirror'){
+      const symbol=(u.searchParams.get('symbol')||'').toUpperCase();
+      const tf=(u.searchParams.get('tf')||'15m').toLowerCase();
+      if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
+      if(!['5m','15m'].includes(tf))return send(res,400,{ok:false,error:'tf must be 5m or 15m'});
+      try{
+        const [sym,global,chart]=await Promise.all([
+          market.symbolContext(symbol),
+          market.globalContext(),
+          market.chartContext(symbol,tf,128)
+        ]);
+        const unified=pipeline.buildUnifiedContext({
+          symbol:sym,global,
+          candidate:{symbol,side:null,deepScanReason:'OFFICE_READ_ONLY_JEV_MIRROR',targetSources:['OFFICE_READ_ONLY_JEV_MIRROR']}
+        });
+        const packet=marketPacket(unified);
+        const p1=store.latestJournal('PLAN',symbol);
+        const p2=store.latestJournal('PLAN_FAST',symbol);
+        const latest=!p1?p2:!p2?p1:(Number(p1.ts)>=Number(p2.ts)?p1:p2);
+        const jp=latest?.payload||null;
+        return send(res,200,{
+          ok:true,readOnly:true,contract:'R2538_JEV_LIVE_MIRROR',symbol,tf,
+          generatedAt:new Date().toISOString(),
+          packetSemantics:'CURRENT_RECONSTRUCTED_JEV_DIRECT_NUMERIC_PACKET',
+          visualSemantics:'CLEAN is market chart. ANNOTATED uses the same deterministic BrainHub renderer supplied to the Vision evidence worker. JEV itself consumes the numeric R2537 packet, not PNG pixels.',
+          packet,
+          parity:jevMirrorParity(packet,chart,tf),
+          latestDecision:latest?{
+            id:latest.id,ts:latest.ts,ageMs:Math.max(0,Date.now()-Number(latest.ts||0)),
+            plan:jp?.plan||null,jevPass1:jp?.jevPass1||null,jevFinal:jp?.jevFinal||null,
+            vision:jp?.vision||null,jevSeen:jp?.jevSeen||null
+          }:null
+        });
+      }catch(e){
+        return send(res,503,{ok:false,readOnly:true,error:'jev live mirror unavailable',detail:String(e?.message||e).slice(0,240)});
+      }
     }
     if(req.method==='GET'&&u.pathname==='/chart/data'){
       const symbol=(u.searchParams.get('symbol')||'').toUpperCase();
