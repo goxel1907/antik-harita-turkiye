@@ -583,7 +583,7 @@ function renderJev(s){
       ['Final', `LONG ${h.sovereignLong??0} • SHORT ${h.sovereignShort??0} • WAIT ${h.sovereignWait??0}`],
       ['Seçicilik', selectivity],
       ['Deneyim hafızası', `ölçülmüş ${le.measuredSampleCount??0} • JEV lesson ${le.jevLessonCount??0} • soft context`],
-      ['Kural', 'Puanlama/2-of-3/hard-15m stratejik kapı yok; kanıt önem sırasını JEV belirler.']
+      ['Kural', 'Puanlama/2-of-3/hard-15m stratejik kapı yok; JEV setup ailesi + edge kaynağı + giriş zamanlamasını ayrıca seçer. MARKET_NOW değilse emir yetkilenmez.']
     ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
     $('#jevList').innerHTML = [
       ['5m scalp','LONG / SHORT'],['15m trade','LONG / SHORT'],['Radar','ATTENTION_ONLY'],['Worker','JEV-directed EVIDENCE_ONLY'],['Sonrası','HARD SAFETY ONLY']
@@ -693,6 +693,7 @@ function renderPositions(s){
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
     ['Kural', pm.ruleTr || 'JEV SOVEREIGN: 5m LONG/SHORT scalp ve 15m LONG/SHORT trade kararını JEV verir; 1m/3m/30m+ yalnız JEV isterse ek kanıttır. Worker/scanner stratejik veto veya puan kapısı koymaz.'],
     ['JEV Cortex', cx.version?`${cx.version} • ${cx.mode||'—'} • PASS-1/PASS-2/pozisyon yönetiminde sürekli`:'Cortex bilgisi bekleniyor'],
+    ['JEV market context', js.marketContext?`${js.marketContext.version} • ${js.marketContext.mode||'—'} • timing ${js.marketContext.entryTiming||'—'} • learning ${js.marketContext.learningTaxonomy||'—'}`:'R2537 market context bekleniyor'],
     ['Dinamik araştırma', js.dynamicKnowledge?`${js.dynamicKnowledge.version} • ${js.dynamicKnowledge.mode||'—'} • 9Router + OpenRouter free retry/failover → JEV doğrulama • doğrulanmış ${st.knowledgeResearch?.verifiedCount??0} • OSS kaynak ${st.knowledgeResearch?.openSourceRepoCount??0}`:'araştırma telemetrisi bekleniyor'],
     ['Pozisyon yürütme', js.positionManagement?`EXIT_NOW ${js.positionManagement.exitNow||'—'} • partial ${js.positionManagement.partial||'—'}`:'pozisyon yürütme telemetrisi bekleniyor'],
     ['Son pozisyon yürütmesi', lr.execution?`${lr.execution} • emir ${lr.orderPlaced?'GÖNDERİLDİ':'YOK'}${lr.managementExecution?.reason?' • '+lr.managementExecution.reason:''}`:'henüz pozisyon yürütmesi yok'],
