@@ -158,6 +158,9 @@ checks={
     "ui timing Turkish":"GERİ ÇEKİLME BEKLENİYOR" in CARD.read_text(encoding="utf-8") and "ŞİMDİ PİYASA GİRİŞİ" in CARD.read_text(encoding="utf-8") and "KIRILIM + GERİ TEST" in CARD.read_text(encoding="utf-8"),
     "ui direction Turkish":"OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)" in CARD.read_text(encoding="utf-8"),
     "client release banner":"PC R2541 ATOMİK AYNA • ANDROID PC-ONLY FAIL-CLOSED" in CLIENT.read_text(encoding="utf-8"),
+    "main status Turkish":"BAĞIMSIZ JEV AKIŞI" in MAIN.read_text(encoding="utf-8") and "SON KARAR YETKİSİ" in MAIN.read_text(encoding="utf-8") and "YALNIZCA DİKKAT" in MAIN.read_text(encoding="utf-8"),
+    "learning Turkish":"ÖĞRENME_SÜRÜMÜ" in MAIN.read_text(encoding="utf-8") and "KAZANMA_ORANI" in MAIN.read_text(encoding="utf-8"),
+    "agent Turkish":"İŞLEM AJANI • ÖNCE ÜCRETSİZ" in MAIN.read_text(encoding="utf-8") and "YALNIZCA ÜCRETSİZ mod" in MAIN.read_text(encoding="utf-8"),
 }
 failed=[k for k,v in checks.items() if not v]
 if failed:
