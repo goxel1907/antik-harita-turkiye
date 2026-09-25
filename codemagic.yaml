@@ -138,6 +138,8 @@ workflows:
           grep -q 'R2539 PC-ONLY FAIL-CLOSED' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
           grep -q 'ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
           grep -q 'telefondan emir başlatılmaz' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoTradeEngine.java
+          grep -q 'historical PHONE Binance executor permanently inert' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoTradeEngine.java
+          grep -q 'ANDROID DIRECT EXECUTOR DISABLED • PC ONLY' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoTradeEngine.java
           grep -q 'FRESH_MS = 15000L' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
           grep -q "versionName '9.5.114-r2539'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           grep -q 'versionCode 26092501' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
