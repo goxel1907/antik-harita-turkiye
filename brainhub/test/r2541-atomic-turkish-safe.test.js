@@ -41,10 +41,12 @@ test('R2541 Android build preserves PC-only fail-closed boundary',()=>{
   const cm=read('../codemagic.yaml');
   const patch=read('../futures15m_alarm/v95122_r2541_turkish_contract.py');
   assert.match(cm,/V122_ANDROID_R2541_CONTRACT_OK/);
-  assert.match(cm,/Futures15mAlarm-PRO-v9\.5\.115-R2541\.apk/);
+  assert.match(cm,/Futures15mAlarm-PRO-v9\.5\.115-R2541-HF2\.apk/);
   assert.match(patch,/ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY/);
   assert.match(patch,/post\(c, "\/live\/execute", intent, true\).*not in/s);
-  assert.match(patch,/versionName '9\.5\.115-r2541'/);
+  assert.match(patch,/versionName '9\.5\.115-r2541-hf2'/);
+  assert.match(patch,/versionCode 26092504/);
+  assert.match(cm,/R2541_HF2_AUTO_PERSIST_AFTER_FIRST_MIGRATION/);
   assert.match(patch,/GERİ ÇEKİLME BEKLENİYOR/);
   assert.match(patch,/ŞİMDİ PİYASA GİRİŞİ/);
   assert.match(patch,/KIRILIM \+ GERİ TEST/);
