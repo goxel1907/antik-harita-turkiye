@@ -693,8 +693,49 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       questions:{
         trade_plan:{
           type:'choice',
-          instructions:'Choose the single best action now. Select one supplied executable plan only when its direction, lane, timing and risk geometry are justified by the evidence; otherwise choose WAIT. There is no numeric score threshold and no requirement that all evidence agree.',
+          instructions:'Choose the single best action now. Select one supplied executable plan only when direction, lane, timing, location and risk geometry are justified by the complete core market packet plus requested evidence; otherwise choose WAIT.',
           criteria
+        },
+        setup_family:{
+          type:'choice',
+          instructions:'Classify the actual setup family for measured learning. Do not use a generic lane label.',
+          criteria:{
+            TREND_PULLBACK:'Trend continuation after a controlled pullback.',
+            BREAKOUT_RETEST:'Breakout with acceptance/retest and remaining path.',
+            SWEEP_RECLAIM:'Liquidity sweep followed by reclaim/acceptance.',
+            FAILED_BREAKOUT:'Failed breakout/trap reversal.',
+            RANGE_FADE:'Range extreme rejection toward equilibrium/opposite boundary.',
+            MOMENTUM_CONTINUATION:'Immediate continuation with enough room and execution quality.',
+            MEAN_REVERSION:'Exhaustion/stretched location reverting toward a credible mean.',
+            SQUEEZE_CROWDING:'Squeeze/crowding setup supported by derivatives/liquidity.',
+            STRUCTURAL_REVERSAL:'Structure transition/reversal with coherent invalidation.',
+            NONE_WAIT:'No trade setup is strong enough now; use with WAIT.'
+          }
+        },
+        entry_timing:{
+          type:'choice',
+          instructions:'Decide whether this is actually an entry NOW. If direction may be right but location/timing is not, choose a WAIT_* timing.',
+          criteria:{
+            MARKET_NOW:'Current price is a justified entry location now.',
+            WAIT_PULLBACK:'Wait for a better pullback into structure/OB/FVG/OTE location.',
+            WAIT_BREAKOUT_RETEST:'Wait for breakout acceptance and/or retest.',
+            WAIT_SWEEP_RECLAIM:'Wait for the relevant liquidity sweep and reclaim/rejection.',
+            WAIT_STRUCTURE_CLOSE:'Wait for a confirming closed-candle structure event.',
+            WAIT_NEW_EVIDENCE:'Wait for materially changed evidence.'
+          }
+        },
+        edge_basis:{
+          type:'choice',
+          instructions:'Identify the primary evidence family carrying the edge. Diagnostic/learning context only.',
+          criteria:{
+            STRUCTURE_LOCATION:'Structure plus location/dealing range.',
+            LIQUIDITY_SMC:'Sweep/reclaim, FVG, OB, OTE/Fib or liquidity geometry.',
+            ORDER_FLOW_DEPTH:'Order-flow/CVD/depth/microstructure.',
+            DERIVATIVES_POSITIONING:'OI/funding/taker/positioning/liquidations.',
+            PATTERN_PRICE_ACTION:'Classical/candlestick pattern plus price action.',
+            COMBINATION:'Coherent combination; no single family dominates.',
+            NO_EDGE:'No robust edge.'
+          }
         },
         management_style:{
           type:'choice',
