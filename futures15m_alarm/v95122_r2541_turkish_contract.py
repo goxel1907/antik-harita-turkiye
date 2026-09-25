@@ -115,16 +115,20 @@ for old,new in visible_replacements.items():
     learn=learn.replace(old,new)
 
 # Öğrenim özeti BrainLearning.java tarafından dinamik üretilir.
-learn=learn.replace(
-    'return "LEARNING_V=1 CLOSED="+closed+" WINS="+w+" WINRATE="+',
-    'return "ÖĞRENME_SÜRÜMÜ=1 KAPANAN="+closed+" KAZANAN="+w+" KAZANMA_ORANI="+',
-    1
-)
-learn=learn.replace('+" AVG_SIGNAL_PCT="+','+" ORT_SİNYAL_YÜZDESİ="+',1)
-learn=learn.replace('+"\\nRECENT_TRADES="+','+"\\nSON_İŞLEMLER="+',1)
-learn=learn.replace('+"\\nRECENT_CHAT_TOPICS="+','+"\\nSON_SOHBET_KONULARI="+',1)
-learn=learn.replace('+"\\nRULE=Geçmiş performans bağlamdır; hard risk kurallarını otomatik gevşetmez.";',
-                    '+"\\nKURAL=Geçmiş performans bağlamdır; zorunlu risk kurallarını otomatik gevşetmez.";',1)
+# Parça bazlı dönüşüm sırası bağımsızdır; önceki genel çeviriler uygulanmış olsa da çalışır.
+learning_keys={
+    "LEARNING_V=":"ÖĞRENME_SÜRÜMÜ=",
+    "CLOSED=":"KAPANAN=",
+    "WINS=":"KAZANAN=",
+    "WINRATE=":"KAZANMA_ORANI=",
+    "AVG_SIGNAL_PCT=":"ORT_SİNYAL_YÜZDESİ=",
+    "RECENT_TRADES=":"SON_İŞLEMLER=",
+    "RECENT_CHAT_TOPICS=":"SON_SOHBET_KONULARI=",
+    "RULE=":"KURAL=",
+    "hard risk kurallarını":"zorunlu risk kurallarını",
+}
+for old,new in learning_keys.items():
+    learn=learn.replace(old,new)
 
 # Ücretsiz ajan ayrı TradeAgentActivity.java dosyasındadır.
 agent=agent.replace("🧠 TRADE AJANI • FREE-FIRST","🧠 İŞLEM AJANI • ÖNCE ÜCRETSİZ")
