@@ -57,10 +57,10 @@ test('office recognizes v9.5.111 and describes JEV as final strategic authority 
 });
 
 
-test('R2537 Office keeps JEV policy DOM refresh null-safe and exposes resilient research, memory and position execution telemetry', () => {
+test('R2538 Office keeps JEV policy DOM refresh null-safe and exposes live JEV mirror telemetry', () => {
   const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
   const serverSrc = fs.readFileSync(path.join(dir, 'office-server.js'), 'utf8');
-  assert.match(serverSrc, /2\.0\.5-JEV-CONTEXT-COMPLETE-R2537/);
+  assert.match(serverSrc, /2\.0\.6-JEV-LIVE-MIRROR-R2538/);
   assert.match(html, /const jevPolicyEl=\$\('#jevPolicy'\); if\(jevPolicyEl\)/);
   assert.equal(html.includes("$('#jevPolicy').textContent ="), false);
   assert.match(html, /JEV Cortex/);
@@ -75,4 +75,13 @@ test('R2537 Office keeps JEV policy DOM refresh null-safe and exposes resilient 
   assert.match(html, /lifetime özet/);
   assert.match(html, /sovereignSelectivityDiagnostic/);
   assert.match(html, /BLOK YOK/);
+  assert.match(serverSrc, /\/api\/jev-mirror/);
+  assert.match(serverSrc, /\/api\/chart/);
+  assert.match(serverSrc, /\/context\/jev-live-mirror/);
+  assert.match(html, /JEV Canlı Görüş Aynası/);
+  assert.match(html, /mirrorClean/);
+  assert.match(html, /mirrorAnnotated/);
+  assert.match(html, /Paket ↔ grafik/);
+  assert.match(html, /Vision metin aynası/);
+  assert.match(html, /JEV PNG pikselini doğrudan tüketmez/);
 });
