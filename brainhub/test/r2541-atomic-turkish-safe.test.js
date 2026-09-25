@@ -193,3 +193,11 @@ test('R2541 JEV paid decision hard cap is five dollars and legacy two-dollar con
   assert.match(manage,/dailyCapUsd = 5\.00/);
   assert.match(manage,/hardUsd=5\.00/);
 });
+
+
+test('R2541 Android budget reason is translated at the status source',()=>{
+  const src=read('../futures15m_alarm/v9579_pc_live_auto.py');
+  assert.match(src,/lastPcReasonsTr=/);
+  assert.match(src,/JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU/);
+  assert.match(src,/append\(lastPcReasonsTr\.trim\(\)\)/);
+});
