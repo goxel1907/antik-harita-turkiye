@@ -155,6 +155,20 @@ workflows:
           fi
           echo 'V121_ANDROID_R2539_CONTRACT_OK'
 
+          # V95122 / R2541: keep the R2539 PC-only fail-closed boundary and advance
+          # the installable/UI contract to the atomic-Turkish R2541 release.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95122_r2541_turkish_contract.py"
+          grep -q 'V95122_ANDROID_R2541_TURKISH_CONTRACT' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'v9.5.115-JEV-PC-ONLY-R2541' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "versionName '9.5.115-r2541'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26092502' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          if grep -q 'post(c, "/live/execute", intent, true)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2541_ANDROID_LIVE_EXECUTE_POST_STILL_PRESENT'
+            exit 1
+          fi
+          echo 'V122_ANDROID_R2541_CONTRACT_OK'
+
           APP=/tmp/futures15m-build/Futures15mAlarm
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
           BUILD="$APP/app/build.gradle"
@@ -586,9 +600,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2539.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.114-R2539.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -599,5 +613,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.114-R2539.apk
+      - Futures15mAlarm-PRO-v9.5.115-R2541.apk
       - v9595-gradle.log
