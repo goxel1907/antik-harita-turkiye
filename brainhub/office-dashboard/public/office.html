@@ -378,6 +378,10 @@ const UI_TR = {
   COMPLETE_CORE_5M15M_PLUS_CONTEXT:'5 DK + 15 DK TAM ÇEKİRDEK BAĞLAMI',
   JEV_EXPLICIT:'JEV AÇIK SEÇİMİ', BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED:'LIVE AÇIKKEN BAĞLAYICI — YALNIZCA AZALT',
   SHADOW_ONLY:'YALNIZCA GÖLGE',
+  LEADER_AUTO_WAIT:'OTO LİDER BEKLİYOR',
+  MARKET_SETUP_FAMILY_TIMING_EDGE:'PİYASA / SETUP AİLESİ / ZAMANLAMA / AVANTAJ',
+  EXIT_NOW:'HEMEN ÇIK', HOLD:'TUT', PROTECT:'KORU', PARTIAL:'KISMİ KÂR AL',
+  SOVEREIGN:'BAĞIMSIZ JEV', LIVE_CORTEX:'CANLI CORTEX',
   DAILY_LOSS_CAP_REACHED:'GÜNLÜK ZARAR TAVANI DOLDU',
   TRADE_RISK_CAP_EXCEEDED:'İŞLEM RİSK TAVANI AŞILDI',
   TRADE_NOTIONAL_CAP_EXCEEDED:'İŞLEM BÜYÜKLÜK TAVANI AŞILDI',
@@ -618,7 +622,7 @@ function renderKpis(s){
   ].join('');
   chip('#chipVer', s.health?.ok?'good':'bad', `PC ${s.health?.data?.featureVersion || st.featureVersion || '—'}`);
   chip('#chipLive', armed?'good':'bad', armed?`LIVE AÇIK${exp!=null?' • '+exp+' dk':''}`:'LIVE KAPALI');
-  chip('#chipAuto', la.enabled?'good':'bad', la.enabled?`OTO AKTİF • ${la.lastExecution||'—'}`:'OTO KAPALI');
+  chip('#chipAuto', la.enabled?'good':'bad', la.enabled?`OTO AKTİF • ${trUi(la.lastExecution||'—')}`:'OTO KAPALI');
   const age = s.generatedAt ? Math.round((Date.now()-Date.parse(s.generatedAt))/1000) : null;
   chip('#chipFresh', s.status?.ok?'good':'bad', s.status?.ok?`veri ${age!=null?age+' sn':''} önce`:'Brain Hub yok');
 }
@@ -821,11 +825,11 @@ function renderPositions(s){
   const cx=js.traderCortex||s.health?.data?.jevSovereign?.traderCortex||{};
   $('#posKv').innerHTML = [
     ['Son değerlendirme', lr.actionTr ? `${lr.symbol||''} ${lr.actionTr}` : 'açık pozisyon yok'],
-    ['Kural', pm.ruleTr || 'JEV SOVEREIGN: 5 dk ALIŞ/SATIŞ scalp ve 15 dk ALIŞ/SATIŞ ana işlem kararını JEV verir; 1 dk/3 dk/30 dk+ yalnız JEV isterse ek kanıttır. Kanıt ajanı/tarayıcı stratejik veto veya puan kapısı koymaz.'],
+    ['Kural', trUi(pm.ruleTr || 'JEV BAĞIMSIZ YÖNETİM: 5 dk ALIŞ/SATIŞ scalp ve 15 dk ALIŞ/SATIŞ ana işlem kararını JEV verir; 1 dk/3 dk/30 dk+ yalnız JEV isterse ek kanıttır. Kanıt ajanı/tarayıcı stratejik veto veya puan kapısı koymaz.')],
     ['JEV Cortex', cx.version?`${cx.version} • ${trUi(cx.mode||'—')} • PASS-1/PASS-2/pozisyon yönetiminde sürekli`:'Cortex bilgisi bekleniyor'],
     ['JEV piyasa bağlamı', js.marketContext?`${js.marketContext.version} • ${trUi(js.marketContext.mode||'—')} • giriş zamanlaması ${trUi(js.marketContext.entryTiming||'—')} • öğrenme ${trUi(js.marketContext.learningTaxonomy||'—')}`:'R2537 piyasa bağlamı bekleniyor'],
     ['Dinamik araştırma', js.dynamicKnowledge?`${js.dynamicKnowledge.version} • ${trUi(js.dynamicKnowledge.mode||'—')} • 9Router + OpenRouter ücretsiz yeniden deneme/yedek geçiş → JEV doğrulama • doğrulanmış ${st.knowledgeResearch?.verifiedCount??0} • OSS kaynak ${st.knowledgeResearch?.openSourceRepoCount??0}`:'araştırma telemetrisi bekleniyor'],
-    ['Pozisyon yürütme', js.positionManagement?`EXIT_NOW ${trUi(js.positionManagement.exitNow||'—')} • kısmi ${trUi(js.positionManagement.partial||'—')}`:'pozisyon yürütme telemetrisi bekleniyor'],
+    ['Pozisyon yürütme', js.positionManagement?`HEMEN ÇIK ${trUi(js.positionManagement.exitNow||'—')} • KISMİ KÂR AL ${trUi(js.positionManagement.partial||'—')}`:'pozisyon yürütme telemetrisi bekleniyor'],
     ['Son pozisyon yürütmesi', lr.execution?`${trUi(lr.execution)} • emir ${lr.orderPlaced?'GÖNDERİLDİ':'YOK'}${lr.managementExecution?.reason?' • '+trUi(lr.managementExecution.reason):''}`:'henüz pozisyon yürütmesi yok'],
     ['Deneyim hafızası', js.experienceMemory?`${trUi(js.experienceMemory)} • ömür boyu özet + son ayrıntılar sürekli`:'ölçülmüş geçmiş bekleniyor'],
     ['Öğrenme', samples?`${samples} ölçülmüş kapanış • ${stats.length} grup • JEV gölge dersi ${jevLessons}`:'sonucu ölçülmüş kapanmış OTO işlem yok (etkisiz)'],
@@ -945,7 +949,7 @@ function renderV109(s){
   const hrs=num(h.shadowEvidenceHours);
   $('#v109Kv').innerHTML = (isV109 ? [
     ['Sürüm', `${fv} • ${s.health?.data?.builtBy?'Claude':''}`],
-    ['Mod', sovereign ? 'R2.5.3.2 SOVEREIGN + R2.5.3.4 LIVE CORTEX • PASS-1 → kanıt → PASS-2 SON KARAR → ZORUNLU GÜVENLİK' : `kod-tetik ${trUi(cfg.deterministicTriggerMode||'SHADOW')} • eski JEV • sonrası ZORUNLU GÜVENLİK`],
+    ['Mod', sovereign ? 'R2.5.3.2 BAĞIMSIZ JEV + R2.5.3.4 CANLI CORTEX • PASS-1 → kanıt → PASS-2 SON KARAR → ZORUNLU GÜVENLİK' : `kod-tetik ${trUi(cfg.deterministicTriggerMode||'SHADOW')} • eski JEV • sonrası ZORUNLU GÜVENLİK`],
     ...(isV111 ? [
       ['Kod-tetik → Jev (v111)', `<b>${c111?.revalidated??0}</b> hızlı doğrulama / ${c111?.revalidationAttempts??0} deneme • Jev’e giden <b>${c111?.jevCalledAfterCode??0}</b> • Jev onayı ${c111?.jevApprovedAfterCode??0}`],
       ['Momentum / radar dikkati', sovereign ? `${c112?.fastLane?.history?.filter?.(x=>x.kind==='JEV_ATTENTION')?.length??0} JEV dikkati • yön/TF filtresi stratejik kapı değil` : `${c111?.momentumScalpTriggers??0} legacy momentum tetiği`],
@@ -981,7 +985,7 @@ function renderV109(s){
   const mx=Math.max(1,...bars.map(b=>+b[1]||0));
   $('#v109Bars').innerHTML = bars.map(([l,v,c])=>`<span>${esc(l)}</span><span class="tr"><i style="width:${(100*(+v||0)/mx).toFixed(0)}%;background:${c}"></i></span><span class="n">${v}</span>`).join('');
   $('#v109Note').innerHTML = isV111
-    ? `<span>JEV SOVEREIGN: radar yalnız dikkat üretir; PASS-1 hangi kanıtın toplanacağını seçer, kanıt ajanı yalnız isteneni getirir, PASS-2 ALIŞ/SATIŞ/BEKLE son karardır. 9TF/2-of-3/zorunlu-15dk stratejik kapısı yoktur.</span>`
+    ? `<span>JEV BAĞIMSIZ YÖNETİM: radar yalnız dikkat üretir; PASS-1 hangi kanıtın toplanacağını seçer, kanıt ajanı yalnız isteneni getirir, PASS-2 ALIŞ/SATIŞ/BEKLE son karardır. 9TF/2-of-3/zorunlu-15dk stratejik kapısı yoktur.</span>`
     : (isV109 ? `<span>Karar: 24 saat sonra “olurdu” planlarının 15/60 dk sonucu olumluysa config/claude-v109.json → BINDING.</span>` : '');
 }
 
