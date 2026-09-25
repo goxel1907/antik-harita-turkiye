@@ -157,6 +157,7 @@ workflows:
             exit 1
           fi
           echo 'V121_ANDROID_R2539_CONTRACT_OK'
+          grep -q 'R2541_HF2_AUTO_PERSIST_AFTER_FIRST_MIGRATION' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
 
           # V95122 / R2541: keep the R2539 PC-only fail-closed boundary and advance
           # the installable/UI contract to the atomic-Turkish R2541 release.
