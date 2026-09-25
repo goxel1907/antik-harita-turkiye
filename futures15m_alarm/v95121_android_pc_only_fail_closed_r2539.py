@@ -160,13 +160,19 @@ migration=r'''super.onCreate(savedInstanceState);
         try{
             android.content.SharedPreferences v95121sp=getSharedPreferences(MonitorService.PREFS,MODE_PRIVATE);
             boolean v95121first=!v95121sp.getBoolean("v95121_pc_only_migration_done",false);
-            v95121sp.edit()
-                .putString("v9576_executor_owner","PC")
-                .putBoolean("v9576_auto_enabled",false)
-                .putBoolean("v95121_pc_only_migration_done",true)
-                .apply();
-            if(v95121first&&BrainHubClient.configured(this)){
-                v95113StopAndVerify("R2539_FIRST_RUN_FAIL_CLOSED",null);
+            // Fail-closed sıfırlama yalnız gerçek ilk R2539 geçişinde yapılır.
+            // Sonraki uygulama açılışlarında kullanıcının/PC'nin AUTO seçimini koru.
+            if(v95121first){
+                v95121sp.edit()
+                    .putString("v9576_executor_owner","PC")
+                    .putBoolean("v9576_auto_enabled",false)
+                    .putBoolean("v95121_pc_only_migration_done",true)
+                    .apply();
+                if(BrainHubClient.configured(this)){
+                    v95113StopAndVerify("R2539_FIRST_RUN_FAIL_CLOSED",null);
+                }
+            }else{
+                v95121sp.edit().putString("v9576_executor_owner","PC").apply();
             }
         }catch(Throwable ignored){}'''
 main=main.replace(oncreate,migration,1)
