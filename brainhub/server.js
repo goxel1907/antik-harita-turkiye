@@ -998,11 +998,44 @@ function jevMirrorParity(packet,chart,tf){
   if(pBull.length&&aBull.length)addZone('latestBullishOB',pBull.at(-1),aBull.at(-1));
   if(pBear.length&&aBear.length)addZone('latestBearishOB',pBear.at(-1),aBear.at(-1));
   if(pFvg.length&&aFvg.length)addZone('latestFVG',pFvg.at(-1),aFvg.at(-1));
+
+  // R2541_STRUCTURAL_PARITY: packet ve çizici aynı swing/trend/formasyon geometrisini taşımalı.
+  add('swingState',p?.swingStructure?.state||'NONE',a?.swingStructure?.state||'NONE');
+  add('swingHighAt',p?.swingStructure?.lastConfirmedSwingHigh?.at,a?.swingStructure?.lastConfirmedSwingHigh?.at);
+  add('swingHighPrice',p?.swingStructure?.lastConfirmedSwingHigh?.price,a?.swingStructure?.lastConfirmedSwingHigh?.price,'number');
+  add('swingLowAt',p?.swingStructure?.lastConfirmedSwingLow?.at,a?.swingStructure?.lastConfirmedSwingLow?.at);
+  add('swingLowPrice',p?.swingStructure?.lastConfirmedSwingLow?.price,a?.swingStructure?.lastConfirmedSwingLow?.price,'number');
+
+  const addTrendParity=(name,left,right)=>{
+    if(!left&&!right)return;
+    add(name+'Kind',left?.kind||'NONE',right?.kind||'NONE');
+    add(name+'Active',String(left?.active===true),String(right?.active===true));
+    add(name+'FromAt',left?.from?.at,right?.from?.at);
+    add(name+'FromPrice',left?.from?.price,right?.from?.price,'number');
+    add(name+'ToAt',left?.to?.at,right?.to?.at);
+    add(name+'ToPrice',left?.to?.price,right?.to?.price,'number');
+    add(name+'ProjectedAt',left?.projected?.at,right?.projected?.at);
+    add(name+'ProjectedPrice',left?.projected?.price,right?.projected?.price,'number');
+  };
+  addTrendParity('upSupport',p?.swingStructure?.trendLines?.upSupport,a?.swingStructure?.trendLines?.upSupport);
+  addTrendParity('downResistance',p?.swingStructure?.trendLines?.downResistance,a?.swingStructure?.trendLines?.downResistance);
+
+  const patternDigest=list=>(Array.isArray(list)?list:[]).slice(-6).map(x=>({
+    type:x?.type||null,side:x?.side||null,status:x?.status||null,
+    lines:(Array.isArray(x?.geometry?.lines)?x.geometry.lines:[]).map(gl=>({
+      role:gl?.role||null,
+      from:{at:gl?.from?.at??null,price:mirrorFinite(gl?.from?.price)},
+      to:{at:gl?.to?.at??null,price:mirrorFinite(gl?.to?.price)}
+    }))
+  }));
+  add('patternGeometryDigest',JSON.stringify(patternDigest(p?.patterns)),JSON.stringify(patternDigest(a?.patterns)));
+
   const mismatches=checks.filter(x=>x.match===false);
   return {
     ok:checks.length>=3&&mismatches.length===0,
     compared:checks.length,mismatches:mismatches.length,checks,
-    semantics:'R2538_PACKET_VS_ANNOTATED_CHART_DETERMINISTIC_PARITY'
+    semantics:'R2538_PACKET_VS_ANNOTATED_CHART_DETERMINISTIC_PARITY',
+    structuralSemantics:'R2541_PACKET_VS_CHART_SWING_TREND_PATTERN_PARITY'
   };
 }
 async function runLocalVisionCommittee(body){
