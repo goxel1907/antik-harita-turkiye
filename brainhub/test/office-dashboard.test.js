@@ -41,7 +41,7 @@ test('office scrub removes secret-like fields', () => {
 });
 
 
-test('office recognizes v9.5.111 and describes JEV as final strategic authority with hard safety only after approval', () => {
+test('office recognizes v9.5.111 and describes JEV as final strategic authority with Turkish mandatory safety wording', () => {
   const snap = JSON.parse(fs.readFileSync(path.join(dir, 'demo-sim-v109.json'), 'utf8'));
   snap.health = snap.health || { ok:true, data:{} };
   snap.health.ok = true;
@@ -52,8 +52,8 @@ test('office recognizes v9.5.111 and describes JEV as final strategic authority 
   const blockers = office.derive(snap).blockers;
   assert.equal(blockers.some(x => x.code === 'VERSION_OLD'), false);
   const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
-  assert.match(html, /JEV FINAL AUTHORITY/);
-  assert.match(html, /JEV sonrası yalnız hard safety/);
+  assert.match(html, /JEV SON KARAR YETKİSİ/);
+  assert.match(html, /JEV sonrası yalnız zorunlu güvenlik/);
 });
 
 
@@ -66,13 +66,13 @@ test('R2541 Office keeps JEV policy DOM refresh null-safe and exposes full-width
   assert.match(html, /JEV Cortex/);
   assert.match(html, /Dinamik araştırma/);
   assert.match(html, /JEV market context/);
-  assert.match(html, /MARKET_NOW değilse emir yetkilenmez/);
-  assert.match(html, /retry\/failover/);
+  assert.match(html, /ŞİMDİ PİYASA GİRİŞİ değilse emir yetkilenmez/);
+  assert.match(html, /yeniden deneme\/yedek geçiş/);
   assert.match(html, /OSS kaynak/);
   assert.match(html, /Pozisyon yürütme/);
   assert.match(html, /Son pozisyon yürütmesi/);
   assert.match(html, /Deneyim hafızası/);
-  assert.match(html, /lifetime özet/);
+  assert.match(html, /ömür boyu özet/);
   assert.match(html, /sovereignSelectivityDiagnostic/);
   assert.match(html, /BLOK YOK/);
   assert.match(serverSrc, /\/api\/jev-mirror/);
@@ -87,7 +87,7 @@ test('R2541 Office keeps JEV policy DOM refresh null-safe and exposes full-width
   assert.match(html, /JEV Canlı Görüş Aynası — Tam Görünüm/);
   assert.match(html, /TAM AÇIKLAMALI/);
   assert.match(html, /Gözlenen tasfiye bölgeleri/);
-  assert.match(html, /Fib retracement/);
+  assert.match(html, /Fib (retracement|geri çekilme)/);
   assert.match(html, /Boğa OB/);
   assert.match(html, /Ayı OB/);
   assert.match(html, /Oluşumlar/);
