@@ -152,3 +152,16 @@ test('R2541 live Office funnel and mode labels stay Turkish',()=>{
   assert.ok(server.includes("label: 'JEV BEKLE'"));
   assert.ok(server.includes("label: 'Zorunlu güvenlik geçti'"));
 });
+
+
+test('R2541 Android learning and agent translations target their real source files',()=>{
+  const patch=read('../futures15m_alarm/v95122_r2541_turkish_contract.py');
+  const cm=read('../codemagic.yaml');
+  assert.match(patch,/AGENT=JAVA\/"TradeAgentActivity\.java"/);
+  assert.match(patch,/LEARN=JAVA\/"BrainLearning\.java"/);
+  assert.match(patch,/learning_keys=/);
+  assert.match(patch,/ÖĞRENME_SÜRÜMÜ=/);
+  assert.match(patch,/İŞLEM AJANI • ÖNCE ÜCRETSİZ/);
+  assert.match(cm,/ÖĞRENME_SÜRÜMÜ=1 KAPANAN=.*BrainLearning\.java/);
+  assert.match(cm,/İŞLEM AJANI • ÖNCE ÜCRETSİZ.*TradeAgentActivity\.java/);
+});
