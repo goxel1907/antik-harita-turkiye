@@ -68,3 +68,18 @@ test('R2541 confirmed pivot indices stay aligned to the full candle time axis',(
   assert.ok(tls.every(x=>candles[x.to.index]?.closeTime===x.to.at));
   assert.ok(tls.every(x=>x.projected.index===99));
 });
+
+
+test('R2541 daily loss cap remains binding and visible',()=>{
+  const risk=require('../risk-gate');
+  const blocked=risk.accountRiskCaps({
+    account:{available:true,equity:1000,dailyRealizedPnl:-30,openPositions:0},
+    intent:{riskQuote:5,notionalQuote:100,family:'ALL_USDT_PERP',familyExposureAfterQuote:100},
+    limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:50,maxDailyLossPct:2,maxOpenPositions:3,maxFamilyExposurePct:100}
+  });
+  assert.ok(blocked.reasons.includes('DAILY_LOSS_CAP_REACHED'));
+  const office=read('office-dashboard/public/office.html');
+  assert.ok(office.includes('Günlük zarar freni'));
+  assert.ok(office.includes('GÜNLÜK ZARAR TAVANI DOLDU'));
+  assert.ok(office.includes('Stop sonrası yeniden giriş'));
+});
