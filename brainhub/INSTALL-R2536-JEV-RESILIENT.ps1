@@ -79,10 +79,12 @@ $visionRepairModule = Join-Path $source 'vision-contract-repair.js'
 $visionRepairTest = Join-Path $source 'test\vision-contract-repair-r2536.test.js'
 $researchR2536Test = Join-Path $source 'test\knowledge-research-r2536.test.js'
 $ossDoc = Join-Path $source 'docs\JEV-OPEN-SOURCE-REFERENCE-R2536.md'
+$auditScript = Join-Path $source 'JEV-VISION-AUDIT.ps1'
 if (-not (Test-Path -LiteralPath $visionRepairModule)) { throw 'Downloaded vision-contract-repair.js is missing.' }
 if (-not (Test-Path -LiteralPath $visionRepairTest)) { throw 'Downloaded R2536 Vision repair regression test is missing.' }
 if (-not (Test-Path -LiteralPath $researchR2536Test)) { throw 'Downloaded R2536 research regression test is missing.' }
 if (-not (Test-Path -LiteralPath $ossDoc)) { throw 'Downloaded R2536 open-source reference document is missing.' }
+if (-not (Test-Path -LiteralPath $auditScript)) { throw 'Downloaded JEV-VISION-AUDIT.ps1 is missing.' }
 $managementTest = Join-Path $source 'test\jev-r2535-management.test.js'
 if (-not (Test-Path -LiteralPath $managementTest)) { throw 'Downloaded R2536 management/research regression test is missing.' }
 
@@ -153,6 +155,7 @@ Write-Host 'R2536_RESEARCH_RETRY_OK'
 Write-Host 'R2536_OSS_REFERENCE_OK'
 Write-Host 'R2536_VISION_SCHEMA_REPAIR_OK'
 Write-Host 'R2536_VISION_EVIDENCE_ONLY_OK'
+Write-Host 'R2536_VISION_AUDIT_TOOL_OK'
 Write-Host 'R2536_FREE_RESEARCH_OK'
 Write-Host 'R2536_EXIT_BINDING_OK'
 Write-Host 'R2536_PARTIAL_BINDING_OK'
