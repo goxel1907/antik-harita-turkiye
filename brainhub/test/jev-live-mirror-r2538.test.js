@@ -33,7 +33,7 @@ test('R2538 decision journal preserves exact JEV-seen digest and Vision evidence
   assert.match(pipeline,/textExcerpt:String\(vision\.text\|\|''\)\.slice\(0,1600\)/);
 });
 
-test('R2541 Office full mirror remains GET-only, Turkish and proxies only validated atomic chart/mirror inputs',()=>{
+test('R2541 Office mirror remains GET-only, Turkish and snapshot-bound',()=>{
   const server=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   assert.match(server,/2\.0\.8-JEV-ATOMIC-TR-R2541/);
@@ -41,10 +41,11 @@ test('R2541 Office full mirror remains GET-only, Turkish and proxies only valida
   assert.match(server,/\['5m','15m'\]\.includes\(tf\)/);
   assert.match(server,/\['clean','annotated'\]\.includes\(mode\)/);
   assert.match(html,/JEV Canlı Görüş Aynası/);
-  assert.match(html,/Piyasa \/ CLEAN/);
-  assert.match(html,/JEV \+ Vision \/ FULL ANNOTATED/);
+  assert.match(html,/Piyasa \/ TEMİZ/);
+  assert.match(html,/JEV \+ Vision \/ TAM AÇIKLAMALI/);
   assert.match(html,/renderMirror\(s\)/);
-  assert.match(html,/const mirrorBars=mirrorTf==='15m'\?180:72/);\n  assert.match(html,/snapshotId/);
+  assert.match(html,/const mirrorBars=mirrorTf==='15m'\?180:72/);
+  assert.match(html,/snapshotId/);
   assert.match(html,/mirror-wide/);
   assert.match(html,/Aralık ÜST\/ALT\/EQ/);
   assert.match(html,/Gözlenen tasfiye bölgeleri/);
