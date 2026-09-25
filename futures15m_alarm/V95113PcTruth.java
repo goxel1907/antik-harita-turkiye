@@ -12,7 +12,7 @@ import org.json.JSONObject;
 // state is BİLİNMİYOR. Read-only helper: no order, cancel or close side effects.
 public final class V95113PcTruth {
     public static final String MARKER = "CLAUDE_V113_ANDROID_LIVE_TRUTH";
-    public static final long FRESH_MS = 90000L;
+    public static final long FRESH_MS = 15000L;
 
     public static final int UNKNOWN = 0;
     public static final int ARMED = 1;
@@ -74,7 +74,7 @@ public final class V95113PcTruth {
         // a stale green "stopped" line is cleared once the PC reports LIVE on again.
         String stop = sp.getString(K_STOP_STATE, "");
         long stopTs = sp.getLong(K_STOP_TS, 0L);
-        if ("FAILED".equals(stop) && !armed && !leaderOn && now >= stopTs) {
+        if (("FAILED".equals(stop) || "PENDING".equals(stop)) && !armed && !leaderOn && now >= stopTs) {
             ed.putString(K_STOP_STATE, "CONFIRMED").putLong(K_STOP_TS, now)
               .putString(K_STOP_MSG, "PC LIVE KAPANDI • PC onayladı " + hhmmss(now));
         } else if ("CONFIRMED".equals(stop) && armed) {
@@ -175,6 +175,16 @@ public final class V95113PcTruth {
 
     public static boolean stopFailed(SharedPreferences sp) {
         return sp != null && "FAILED".equals(sp.getString(K_STOP_STATE, ""));
+    }
+
+    public static boolean stopNeedsRetry(SharedPreferences sp) {
+        if (sp == null) return false;
+        String state = sp.getString(K_STOP_STATE, "");
+        return "PENDING".equals(state) || "FAILED".equals(state);
+    }
+
+    public static boolean stopConfirmed(SharedPreferences sp) {
+        return sp != null && "CONFIRMED".equals(sp.getString(K_STOP_STATE, ""));
     }
 
     // ------------------------------------------------------------------ PC positions (read-only)
