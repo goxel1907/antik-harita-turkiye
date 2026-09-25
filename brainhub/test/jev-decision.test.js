@@ -73,6 +73,24 @@ test('Jev remote status and synthetic probe stay on pinned OpenRouter endpoints'
   fs.rmSync(root,{recursive:true,force:true});
 });
 
+test('Jev retries one transient Decisions HTTP failure without double-reserving budget',async()=>{
+  const root=rootWithConfig();
+  let calls=0;
+  const client=createJevClient({
+    root,apiKey:key,
+    fetchImpl:async()=>{
+      calls++;
+      if(calls===1)return response(503,{error:'temporary upstream busy'});
+      return response(200,{answers:completeAnswers(),usage:{cost:0.0001}});
+    }
+  });
+  const out=await client.judge({candidate:{symbol:'BTCUSDT'},plan:{status:'QUALIFIED'},unified:{frames:{}}});
+  assert.equal(out.ok,true);
+  assert.equal(calls,2);
+  assert.equal(out.budget.calls,1);
+  fs.rmSync(root,{recursive:true,force:true});
+});
+
 test('Jev active-position judge treats low-TF noise separately from owner and big-picture failure',async()=>{
   const root=rootWithConfig({});
   const answers={
