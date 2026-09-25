@@ -47,6 +47,25 @@ main=main.replace(
 if "R2539 PC-ONLY FAIL-CLOSED" in card:
     card=card.replace("R2539 PC-ONLY FAIL-CLOSED","R2541 PC-ONLY FAIL-CLOSED • TÜRKÇE DURUM",1)
 
+# R2541 Android UI timing/setup dictionary: presentation-only, control-flow enumları değişmez.
+ui_anchor='        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU")'
+if ui_anchor not in card:
+    raise SystemExit("R2541 AutoDecisionCard trText anchor missing")
+ui_lines='''        s=s.replace("WAIT_PULLBACK","GERİ ÇEKİLME BEKLENİYOR")
+             .replace("WAIT_STRUCTURE_CLOSE","YAPI KAPANIŞI BEKLENİYOR")
+             .replace("MARKET_NOW","ŞİMDİ PİYASA GİRİŞİ")
+             .replace("BREAKOUT_RETEST","KIRILIM + GERİ TEST")
+             .replace("MOMENTUM_CONTINUATION","MOMENTUM DEVAMI")
+             .replace("STRUCTURAL_REVERSAL","YAPISAL DÖNÜŞ")
+             .replace("EVIDENCE_ONLY","YALNIZCA KANIT TOPLAMA")
+             .replace("ATTENTION_ONLY","YALNIZCA DİKKAT")
+             .replace("HARD_SAFETY_READY","ZORUNLU GÜVENLİK HAZIR")
+             .replace("DAILY_LOSS_CAP_REACHED","GÜNLÜK ZARAR TAVANI DOLDU");
+'''
+card=card.replace(ui_anchor,ui_lines+ui_anchor,1)
+card=card.replace("OTO KARAR MERKEZİ • LONG (YÜKSELİŞ) / SHORT (DÜŞÜŞ)","OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)",1)
+# R2541 Android UI timing/setup dictionary
+
 # User-visible state words only in known UI literals; execution enums remain unchanged.
 ui_replacements={
     "WAIT_PULLBACK":"GERİ ÇEKİLME BEKLENİYOR",
@@ -75,6 +94,8 @@ checks={
     "direct runner inert":"historical PHONE Binance executor permanently inert" in AUTO.read_text(encoding="utf-8"),
     "truth 15s":"FRESH_MS = 15000L" in TRUTH.read_text(encoding="utf-8"),
     "version":"versionName '9.5.115-r2541'" in BUILD.read_text(encoding="utf-8") and "versionCode 26092502" in BUILD.read_text(encoding="utf-8"),
+    "ui timing Turkish":"GERİ ÇEKİLME BEKLENİYOR" in CARD.read_text(encoding="utf-8") and "ŞİMDİ PİYASA GİRİŞİ" in CARD.read_text(encoding="utf-8") and "KIRILIM + GERİ TEST" in CARD.read_text(encoding="utf-8"),
+    "ui direction Turkish":"OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)" in CARD.read_text(encoding="utf-8"),
 }
 failed=[k for k,v in checks.items() if not v]
 if failed:
