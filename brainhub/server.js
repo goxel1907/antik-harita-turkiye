@@ -1863,10 +1863,13 @@ const server=http.createServer(async(req,res)=>{
       if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
       if(!['5m','15m'].includes(tf))return send(res,400,{ok:false,error:'tf must be 5m or 15m'});
       try{
+        // frameSet() feeds JEV with 180 closed 15m candles and 72 on native non-15m frames.
+        // Use the same history window here so the mirror compares identical deterministic inputs.
+        const mirrorBars=tf==='15m'?180:72;
         const [sym,global,chart]=await Promise.all([
           market.symbolContext(symbol),
           market.globalContext(),
-          market.chartContext(symbol,tf,128)
+          market.chartContext(symbol,tf,mirrorBars)
         ]);
         const unified=pipeline.buildUnifiedContext({
           symbol:sym,global,
@@ -1881,7 +1884,8 @@ const server=http.createServer(async(req,res)=>{
           ok:true,readOnly:true,contract:'R2538_JEV_LIVE_MIRROR',symbol,tf,
           generatedAt:new Date().toISOString(),
           packetSemantics:'CURRENT_RECONSTRUCTED_JEV_DIRECT_NUMERIC_PACKET',
-          visualSemantics:'CLEAN is market chart. ANNOTATED uses the same deterministic BrainHub renderer supplied to the Vision evidence worker. JEV itself consumes the numeric R2537 packet, not PNG pixels.',
+          visualSemantics:'CLEAN and ANNOTATED use the same history window as the JEV R2537 frame packet (15m=180, 5m=72). ANNOTATED uses the deterministic BrainHub renderer supplied to the Vision evidence worker. JEV itself consumes the numeric packet, not PNG pixels.',
+          mirrorBars,
           packet,
           parity:jevMirrorParity(packet,chart,tf),
           latestDecision:latest?{
