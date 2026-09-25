@@ -249,6 +249,7 @@ checks={
     "marker":MARKER in MAIN.read_text(encoding="utf-8"),
     "identity":"v9.5.114-JEV-PC-ONLY-R2539" in MAIN.read_text(encoding="utf-8"),
     "first-run fail closed":"R2539_FIRST_RUN_FAIL_CLOSED" in MAIN.read_text(encoding="utf-8"),
+    "auto persists after first migration":"Sonraki uygulama açılışlarında kullanıcının/PC'nin AUTO seçimini koru." in MAIN.read_text(encoding="utf-8") and "if(v95121first){" in MAIN.read_text(encoding="utf-8"),
     "sticky stop retry":"R2539_RETRY_PENDING_STOP" in MAIN.read_text(encoding="utf-8") and "stopNeedsRetry" in MAIN.read_text(encoding="utf-8"),
     "no premature off toast":"KAPATILIYOR • PC LIVE + LEADER AUTO onayı bekleniyor" in MAIN.read_text(encoding="utf-8"),
     "client order boundary":"ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in CLIENT.read_text(encoding="utf-8") and 'post(c, "/live/execute", intent, true)' not in CLIENT.read_text(encoding="utf-8"),
