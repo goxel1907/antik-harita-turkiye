@@ -1313,13 +1313,14 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,riskGate,exe
     candidate:{symbol:candidate?.symbol||null,attentionSource:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[]},
     plan:plan?{
       valid:plan.valid,status:plan.status,side:plan.side||null,originTF:plan.originTF||null,ownerTF:plan.ownerTF||null,
-      lane:plan.lane||null,entryPrice:plan.entryPrice??null,invalidationPrice:plan.invalidationPrice??null,invalidationSource:plan.invalidationSource||null,stopPrice:plan.stopPrice??null,
+      lane:plan.lane||null,setupFamily:plan.setupFamily||null,edgeBasis:plan.edgeBasis||null,entryTiming:plan.entryTiming||null,contractVersion:plan.contractVersion||null,
+      entryPrice:plan.entryPrice??null,invalidationPrice:plan.invalidationPrice??null,invalidationSource:plan.invalidationSource||null,stopPrice:plan.stopPrice??null,
       takeProfit1:plan.takeProfit1??null,takeProfit2:plan.takeProfit2??null,takeProfit3:plan.takeProfit3??null,
       managementStyle:plan.managementStyle||null,targetProfile:plan.targetProfile||null,partialProfile:plan.partialProfile||null,
       breakevenRule:plan.breakevenRule||null,trailRule:plan.trailRule||null,waitFor:plan.waitFor||null,jevSovereign:plan.jevSovereign===true
     }:null,
     jevPass1:pass1?{laneFocus:pass1.laneFocus,directionFocus:pass1.directionFocus,requestedEvidence:pass1.requestedEvidence||[],costUsd:pass1.costUsd??null}:null,
-    jevFinal:final?{action:final.action,selectedPlanId:final.selectedPlanId,managementStyle:final.managementStyle,targetProfile:final.targetProfile,partialProfile:final.partialProfile,breakevenRule:final.breakevenRule,trailRule:final.trailRule,costUsd:final.costUsd??null}:null,
+    jevFinal:final?{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle,targetProfile:final.targetProfile,partialProfile:final.partialProfile,breakevenRule:final.breakevenRule,trailRule:final.trailRule,costUsd:final.costUsd??null}:null,
     vision:vision?{requestedFrames:vision.requestedFrames||[],attached:vision.attached??0,required:vision.required??0,source:vision.source||null,error:vision.error||null}:null,
     riskGate:riskGate?{ok:riskGate.ok,reasons:riskGate.reasons||[]}:null,
     executionReadiness:executionReadiness?{ok:executionReadiness.ok,reasons:executionReadiness.reasons||[]}:null
@@ -1433,7 +1434,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     out.journalWarning=String(e?.message||e).slice(0,160);
   }
   if(typeof store?.recordLearning==='function'){
-    try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:null,jevDecision:{action:final.action,selectedPlanId:final.selectedPlanId,managementStyle:final.managementStyle},contextVersion:unified.version});}catch{}
+    try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:null,contractVersion:plan.contractVersion||null,setupFamily:plan.setupFamily||null,entryTiming:plan.entryTiming||null,edgeBasis:plan.edgeBasis||null,jevDecision:{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle},contextVersion:unified.version});}catch{}
   }
   return out;
 }
