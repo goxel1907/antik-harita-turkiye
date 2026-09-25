@@ -30,7 +30,15 @@ function frame(tf){
     available:true,fresh:true,asOf:Date.now(),close:100,trend:'MIXED',rsi14:52,atrPct:1,
     breakOfStructure:null,prior20High:102,prior20Low:98,
     swingStructure:{lastConfirmedSwingLow:{price:99},lastConfirmedSwingHigh:{price:101}},
-    liquidity:{buySide:102,sellSide:98},patterns:[],candle:{closed:true},smcContext:{}
+    liquidity:{buySide:102,sellSide:98,lastSweep:'SELL_SIDE_RECLAIM'},patterns:[],candle:{closed:true},
+    recentFairValueGaps:[{side:'BULL',low:99.1,high:99.4,ce50:99.25}],
+    orderBlocks:{bullish:[{side:'BULL',low:98.8,high:99.2,broken:false}],bearish:[{side:'BEAR',low:100.8,high:101.2,broken:false}]},
+    smcContext:{
+      available:true,
+      dealingRange:{low:98,high:102,equilibrium:100,positionPct:50,zone:'EQUILIBRIUM'},
+      oteReference:{longDiscountZone:{low:98.84,high:99.52},shortPremiumZone:{low:100.48,high:101.16}},
+      fibLevels:{leg:'UP_LEG_LOW_TO_HIGH',retracement:{'0.618':99.528},extension:{'1.272':103.088}}
+    }
   };
 }
 function unified(){
@@ -67,7 +75,13 @@ test('JEV sovereign PASS-1 directly chooses evidence requests without score thre
       assert.match(body.state.professionalTraderCortex.reference,/Classical chart formations/i);
       assert.equal(body.state.experienceMemory.alwaysOn,true);
       assert.equal(body.state.experienceMemory.measuredSampleCount,1);
+      assert.equal(body.state.coreMarketPacket.contract,'R2537_JEV_CONTEXT_COMPLETE_READ_ONLY');
+      assert.ok(body.state.coreMarketPacket.coreFrames['15m'].smcContext.fibLevels);
+      assert.equal(body.state.coreMarketPacket.coreFrames['15m'].orderBlocks.bearish.length,1);
       assert.equal(body.state.experienceMemory.jevLessonCount,1);
+      assert.equal(body.state.coreMarketPacket.contract,'R2537_JEV_CONTEXT_COMPLETE_READ_ONLY');
+      assert.equal(body.state.coreMarketPacket.coreFrames['5m'].smcContext.fibLevels.retracement['0.618'],99.528);
+      assert.equal(body.state.coreMarketPacket.coreFrames['5m'].orderBlocks.bullish.length,1);
       const answers={};
       for(const [id,q] of Object.entries(body.questions)){
         assert.equal(q.type,'choice');
@@ -111,6 +125,9 @@ test('JEV sovereign PASS-2 selects a concrete LONG/SHORT 5m or 15m plan by choic
       assert.ok(body.questions.trade_plan.criteria.LONG_5M_SCALP);
       return response({answers:{
         trade_plan:{type:'choice',choice:'LONG_5M_SCALP'},
+        setup_family:{type:'choice',choice:'SWEEP_RECLAIM'},
+        entry_timing:{type:'choice',choice:'MARKET_NOW'},
+        edge_basis:{type:'choice',choice:'LIQUIDITY_SMC'},
         management_style:{type:'choice',choice:'TP1_BE_TRAIL'},
         target_profile:{type:'choice',choice:'RUNNER_EXTENDED'},
         partial_profile:{type:'choice',choice:'RUNNER_HEAVY'},
@@ -124,6 +141,9 @@ test('JEV sovereign PASS-2 selects a concrete LONG/SHORT 5m or 15m plan by choic
   assert.equal(out.finalAuthority,true);
   assert.equal(out.selectedPlan.side,'LONG');
   assert.equal(out.selectedPlan.originTF,'5m');
+  assert.equal(out.setupFamily,'SWEEP_RECLAIM');
+  assert.equal(out.entryTiming,'MARKET_NOW');
+  assert.equal(out.edgeBasis,'LIQUIDITY_SMC');
   assert.equal(out.managementStyle,'TP1_BE_TRAIL');
   assert.equal(out.targetProfile,'RUNNER_EXTENDED');
   assert.equal(out.partialProfile,'RUNNER_HEAVY');
