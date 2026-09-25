@@ -136,6 +136,8 @@ function openStore(root) {
       const p=safeLearningPayload(row.payload), ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
       return {
         ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
+        setupFamily:ec.setupFamily||p.setupFamily||null,entryTiming:ec.entryTiming||p.entryTiming||null,
+        edgeBasis:ec.edgeBasis||p.edgeBasis||null,contractVersion:ec.contractVersion||p.contractVersion||null,
         outcomePct:row.outcomePct,rMultiple:p.rMultiple??null,netPnl:p.netPnl??null,exitType:p.exitType||null,
         lane:p.tradeLane||ec.lane||null,holdMinutes:p.holdMinutes??null,
         marketSignature:ec.marketSignature||null
@@ -145,6 +147,7 @@ function openStore(root) {
       const p=safeLearningPayload(row.payload);
       return {
         ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
+        setupFamily:p.setupFamily||null,entryTiming:p.entryTiming||null,edgeBasis:p.edgeBasis||null,contractVersion:p.contractVersion||null,
         lessonFocus:p.lessonFocus||null,evidenceFocus:p.evidenceFocus||null,lessonAction:p.lessonAction||null,scope:p.scope||null,
         marketSignature:p.marketSignature||null
       };
@@ -160,7 +163,7 @@ function openStore(root) {
       recentMeasuredDetailCount:measuredOutcomes.length,
       jevLessonCount:jevLessons.length,
       changesAppliedToHardRisk:false,
-      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez.'
+      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2537+ kayıtları setupFamily/entryTiming/edgeBasis/contractVersion ile ayrıştırılır; eski generic lane kayıtları karşılaştırılabilir setup kanıtı sayılmamalıdır. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez.'
     };
   }
   function lease(action, resource, owner, token, ttlMs = 30000) {
