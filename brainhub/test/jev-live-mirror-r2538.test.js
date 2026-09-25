@@ -14,6 +14,13 @@ test('R2538 BrainHub exposes read-only JEV live mirror with deterministic packet
   assert.match(server,/R2538_PACKET_VS_ANNOTATED_CHART_DETERMINISTIC_PARITY/);
   assert.match(server,/JEV_LIVE_MIRROR_READ_ONLY/);
   assert.match(server,/JEV_MIRROR_PACKET_CHART_PARITY/);
+  assert.match(server,/const mirrorBars=tf==='15m'\?180:72/);
+  assert.match(server,/bullishOBBoundedCount/);
+  assert.match(server,/bearishOBBoundedCount/);
+  assert.match(server,/fvgBoundedCount/);
+  assert.match(server,/latestBullishOB/);
+  assert.match(server,/latestBearishOB/);
+  assert.match(server,/latestFVG/);
 });
 
 test('R2538 decision journal preserves exact JEV-seen digest and Vision evidence excerpt',()=>{
@@ -34,4 +41,5 @@ test('R2538 Office mirror remains GET-only and proxies only validated chart/mirr
   assert.match(html,/Piyasa \/ CLEAN/);
   assert.match(html,/JEV kanıt aynası \/ ANNOTATED/);
   assert.match(html,/renderMirror\(s\)/);
+  assert.match(html,/const mirrorBars=mirrorTf==='15m'\?180:72/);
 });
