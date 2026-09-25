@@ -954,9 +954,10 @@ async function renderMirror(s){
     return;
   }
   const seq=++mirrorSeq, stamp=Date.now();
+  const mirrorBars=mirrorTf==='15m'?180:72;
   const clean=$('#mirrorClean'), annotated=$('#mirrorAnnotated');
-  const cleanUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'clean',bars:128,_:stamp});
-  const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:128,_:stamp});
+  const cleanUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'clean',bars:mirrorBars,_:stamp});
+  const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:mirrorBars,_:stamp});
   if(clean)clean.src=cleanUrl;
   if(annotated)annotated.src=annotatedUrl;
   $('#mirrorCleanLabel').textContent=`${symbol} • ${mirrorTf}`;
