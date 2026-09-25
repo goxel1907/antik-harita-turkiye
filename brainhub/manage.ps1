@@ -515,12 +515,12 @@ function Migrate-JevBudgetPolicy([string]$BrainRoot) {
     }
 
     if ($null -eq $dailyProp) {
-        $jev | Add-Member -NotePropertyName dailyCapUsd -NotePropertyValue 2.00 -Force
+        $jev | Add-Member -NotePropertyName dailyCapUsd -NotePropertyValue 5.00 -Force
         $changed = $true
     } else {
         $daily = [double](Get-PropValue $jev 'dailyCapUsd' 0.25)
-        if ([Math]::Abs($daily - 0.25) -lt 0.0000001) {
-            $jev.dailyCapUsd = 2.00
+        if ([Math]::Abs($daily - 0.25) -lt 0.0000001 -or [Math]::Abs($daily - 2.00) -lt 0.0000001) {
+            $jev.dailyCapUsd = 5.00
             $changed = $true
         }
     }
@@ -538,7 +538,7 @@ function Migrate-JevBudgetPolicy([string]$BrainRoot) {
 
     if ($changed) {
         $jev | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jevPath -Encoding UTF8
-        Write-Host 'JEV_BUDGET_POLICY_MIGRATED softUsd=0.25 hardUsd=2.00 reserveUsd=0.002'
+        Write-Host 'JEV_BUDGET_POLICY_MIGRATED softUsd=0.25 hardUsd=5.00 reserveUsd=0.002'
     }
 }
 
@@ -581,7 +581,7 @@ if ($Action -eq 'OpenRouterSetup') {
         billingCacheMs = 300000
         mode = 'SOVEREIGN_DIRECTOR_5M15M'
         softBudgetUsd = 0.25
-        dailyCapUsd = 2.00
+        dailyCapUsd = 5.00
         timeoutMs = 30000
         maxPayloadChars = 48000
         reservePerCallUsd = 0.002
@@ -608,7 +608,7 @@ if ($Action -eq 'OpenRouterSetup') {
     } catch {
         Write-Warning 'OpenRouter key DPAPI ile guvenli kaydedildi ancak Jev alpha probe su anda tamamlanamadi. JEV-PROBE.ps1 ile tekrar denenebilir.'
     }
-    Write-Host ("BRAINHUB_OPENROUTER_SETUP_OK model=typesafe/jev-1.13 mode=SOVEREIGN_DIRECTOR_5M15M softBudgetUsd=0.25 dailyCapUsd=2.00 probe={0}" -f $probeOk) -ForegroundColor Green
+    Write-Host ("BRAINHUB_OPENROUTER_SETUP_OK model=typesafe/jev-1.13 mode=SOVEREIGN_DIRECTOR_5M15M softBudgetUsd=0.25 dailyCapUsd=5.00 probe={0}" -f $probeOk) -ForegroundColor Green
     exit 0
 }
 if ($Action -eq 'OpenRouterCreditSetup') {
