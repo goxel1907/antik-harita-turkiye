@@ -365,6 +365,14 @@ const UI_TR = {
   INVERSE_HEAD_AND_SHOULDERS:'TERS OMUZ BAŞ OMUZ', RANGE:'YATAY ARALIK',
   LONG_15M_TRADE:'15 DK ALIŞ ANA İŞLEM', SHORT_15M_TRADE:'15 DK SATIŞ ANA İŞLEM',
   LONG_5M_SCALP:'5 DK ALIŞ SCALP', SHORT_5M_SCALP:'5 DK SATIŞ SCALP',
+  '15M_TRADE':'15 DK ANA İŞLEM', '5M_SCALP':'5 DK SCALP',
+  IDLE:'BOŞTA', DONE:'TAMAM', ERROR:'HATA', NOT_CALLED:'ÇAĞRILMADI',
+  BEARISH_ENGULFING:'AYI YUTAN FORMASYONU', BULLISH_ENGULFING:'BOĞA YUTAN FORMASYONU',
+  SHOOTING_STAR_REJECTION:'KAYAN YILDIZ REDDİ', HAMMER_REJECTION:'ÇEKİÇ REDDİ',
+  VOLATILITY_COMPRESSION:'VOLATİLİTE SIKIŞMASI', STRUCTURE_LOCATION:'YAPI KONUMU',
+  ORDER_FLOW_CVD:'EMİR AKIŞI / CVD', DERIVATIVES:'TÜREVLER',
+  NO_NEW_WAIT:'YENİ BEKLEME YOK', COMBINATION:'BİRLEŞİK KANIT',
+  SWING_LOW:'SWING DİBİ', SWING_HIGH:'SWING TEPESİ',
   FRESH_SCANNER_SELECTION:'YENİ TARAYICI SEÇİMİ', LEADER_AUTO_BLOCKED:'OTO YÜRÜTME ENGELLENDİ',
   LIVE_REASONING_REFERENCE_READ_ONLY:'CANLI AKIL YÜRÜTME REFERANSI — SALT OKUNUR',
   COMPLETE_CORE_5M15M_PLUS_CONTEXT:'5 DK + 15 DK TAM ÇEKİRDEK BAĞLAMI',
@@ -668,7 +676,7 @@ function renderVision(s){
   const ps = s.ollama?.data?.models||[]; const gpu = ps[0];
   $('#visHint').textContent = va.summaryTr ? va.summaryTr.slice(0,70) : '';
   $('#visKv').innerHTML = [
-    ['Aşama', vp.stage||'IDLE'],
+    ['Aşama', trUi(vp.stage||'IDLE')],
     ['Model', vp.model || (va.models?.[0]?.model) || '—'],
     ['Aşama süresi', vp.lastStageDurationMs?Math.round(vp.lastStageDurationMs/1000)+' sn':'—'],
     ['Kuyruk', `${vp.queueDepth??0} • pipeline ${vp.pipelineActive??0}`],
@@ -849,7 +857,7 @@ function renderOffice(s, vinfo){
   const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h=la.health||{}; const d=s.derived?.desks||{};
   const visBusy = !['IDLE','DONE','ERROR'].includes(vinfo.phase);
   setDesk('scanner', (h.scanRuns||0)>0?'busy':'', d.scanner?.text);
-  setDesk('vision', vinfo.phase==='ERROR'?'blocked':(visBusy?'busy':''), (s.visionProgress?.data?.stage || 'IDLE'));
+  setDesk('vision', vinfo.phase==='ERROR'?'blocked':(visBusy?'busy':''), (trUi(s.visionProgress?.data?.stage || 'IDLE')));
   const wr=+h.workerReviews||0, wref=+h.workerRefreshes||0;
   setDesk('workers', wr>=10&&wref/wr>=.8?'warn':(la.planWorkers?.busy?'busy':(wr?'ok':'')), d.workers?.text);
   const orf=st.openRouterFreeWorker||{}; setDesk('orfree', orf.last?.called?(orf.last.ok?'ok':'blocked'):'', orf.last?.called?(orf.last.ok?'son çağrı OK':'son çağrı başarısız'):'çağrılmadı');
@@ -1110,13 +1118,13 @@ async function renderMirror(s){
       ['FVG', fmtFvg(f.recentFairValueGaps)],
       ['OTE Alış', fmtRange(ote?.longDiscountZone)],
       ['OTE Satış', fmtRange(ote?.shortPremiumZone)],
-      ['Fib retracement', `.236 ${mirrorFmt(fib['0.236'],4)} • .382 ${mirrorFmt(fib['0.382'],4)} • .5 ${mirrorFmt(fib['0.5'],4)} • .618 ${mirrorFmt(fib['0.618'],4)} • .705 ${mirrorFmt(fib['0.705'],4)} • .786 ${mirrorFmt(fib['0.786'],4)}`],
-      ['Fib extension', `1.272 ${mirrorFmt(fibExt['1.272'],4)} • 1.618 ${mirrorFmt(fibExt['1.618'],4)} • leg ${smc?.fibLevels?.leg||'—'}`],
+      ['Fib geri çekilme', `.236 ${mirrorFmt(fib['0.236'],4)} • .382 ${mirrorFmt(fib['0.382'],4)} • .5 ${mirrorFmt(fib['0.5'],4)} • .618 ${mirrorFmt(fib['0.618'],4)} • .705 ${mirrorFmt(fib['0.705'],4)} • .786 ${mirrorFmt(fib['0.786'],4)}`],
+      ['Fib uzatma', `1.272 ${mirrorFmt(fibExt['1.272'],4)} • 1.618 ${mirrorFmt(fibExt['1.618'],4)} • bacak ${trUi(smc?.fibLevels?.leg||'—')}`],
       ['Oluşumlar', patterns],
       ['Gözlenen tasfiye bölgeleri', fmtLiq(liq.zones)],
       ['Tasfiye akışı', `${liq.count??0} kayıt • ALIŞ ${mirrorFmt(liq.longLiquidatedQuote,0)} • SATIŞ ${mirrorFmt(liq.shortLiquidatedQuote,0)} • hız ${liq?.velocity?.state||liq?.velocity?.level||'—'} • zincirleme ${liq?.cascade?.state||liq?.cascade?.level||'—'}`],
-      ['Emir akışı', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • depth ${mirrorFmt(ms.depth20Imbalance,3)} • microprice ${mirrorFmt(ms.microprice,4)} • spread ${mirrorFmt(ms.spreadBps,2)} bps`],
-      ['Türevler', `OIΔ5m ${mirrorFmt(der.oiDelta5mPct,2)}% • fonlama ${mirrorFmt(der.fundingRate,6)} • taker ${mirrorFmt(der.takerBuySellRatio,3)} • top ${mirrorFmt(der.topTraderLongShortRatio,3)} • global ${mirrorFmt(der.globalLongShortRatio,3)}`],
+      ['Emir akışı', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • derinlik ${mirrorFmt(ms.depth20Imbalance,3)} • mikro fiyat ${mirrorFmt(ms.microprice,4)} • makas ${mirrorFmt(ms.spreadBps,2)} bps`],
+      ['Türevler', `OIΔ5dk ${mirrorFmt(der.oiDelta5mPct,2)}% • fonlama ${mirrorFmt(der.fundingRate,6)} • piyasa alıcı/satıcı ${mirrorFmt(der.takerBuySellRatio,3)} • üst trader ${mirrorFmt(der.topTraderLongShortRatio,3)} • genel ${mirrorFmt(der.globalLongShortRatio,3)}`],
       ['PASS-1', d.ts?`${trUi(p1.laneFocus||'—')} • yön ${trUi(p1.directionFocus||'—')} • istek ${(p1.requestedEvidence||[]).map(trUi).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
       ['PASS-2', d.ts?`${trUi(p2.action||pl.side||'WAIT')} • ${trUi(p2.setupFamily||pl.setupFamily||'—')} • giriş ${trUi(p2.entryTiming||pl.entryTiming||'—')} • avantaj ${trUi(p2.edgeBasis||pl.edgeBasis||'—')}`:'henüz son karar kaydı yok'],
       ['Son karar görüntüsü', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski kayıt / kesin snapshot yok':mirrorFmt(recordedPx,4)}${ageSec!=null&&ageSec>120?' • ⚠ ESKİ KARAR — ŞİMDİKİ PİYASA İLE KARIŞTIRMA':''}`:'—']
