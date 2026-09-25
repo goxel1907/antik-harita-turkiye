@@ -326,7 +326,7 @@ workflows:
           grep -q "CLAUDE_V111_BUILD" "$CM_BUILD_DIR/brainhub/claude-v111.js"
           grep -q "CLAUDE_V111_TRIGGER_REVALIDATION" "$CM_BUILD_DIR/brainhub/claude-v111.js"
           grep -q "CLAUDE_V111_JEV_FINAL_AUTHORITY" "$CM_BUILD_DIR/brainhub/claude-v111.js"
-          grep -q "JEV FINAL AUTHORITY" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
+          grep -q "JEV SON KARAR YETKİSİ" "$CM_BUILD_DIR/brainhub/office-dashboard/public/office.html"
           grep -q "claudeV111.laneAwareTrigger" "$CM_BUILD_DIR/brainhub/pipeline.js"
           grep -q "'claude-v111.js'" "$CM_BUILD_DIR/brainhub/manage.ps1"
           echo 'CLAUDE_V111_PC_OK'
