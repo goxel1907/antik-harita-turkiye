@@ -481,7 +481,14 @@ function structure(c, frame = null) {
     if (b.high < a.low) gaps.push({ side:'BEAR', low:b.high, high:a.low, at:b.closeTime });
   }
   const window = c.slice(-40);
-  const pv = pivots(window);
+  // R2541_PIVOT_ABSOLUTE_INDEX: pivots() window-relative indeks üretir.
+  // Renderer/time-axis ve trend projection için bunları tekrar tam candle dizisi indeksine taşı.
+  const pivotOffset = c.length - window.length;
+  const rawPv = pivots(window);
+  const pv = {
+    highs: rawPv.highs.map(x => ({ ...x, index:x.index + pivotOffset })),
+    lows: rawPv.lows.map(x => ({ ...x, index:x.index + pivotOffset }))
+  };
   const tolerance = Math.max((a14 || 0) * 0.15, last.close * 0.0005);
   const eqHigh = equalLevel(pv.highs, tolerance);
   const eqLow = equalLevel(pv.lows, tolerance);
