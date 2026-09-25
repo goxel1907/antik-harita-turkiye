@@ -93,4 +93,35 @@ function marketPacket(u){
   };
 }
 
-module.exports={framePacket,marketPacket};
+
+function mirrorFrameDigest(f){
+  if(!f||f.available===false)return f||{available:false};
+  return {
+    available:true,fresh:f.fresh===true,asOf:f.asOf||null,close:f.close??null,
+    trend:f.trend||null,breakOfStructure:f.breakOfStructure||null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,
+    prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,candle:f.candle||null,
+    patterns:arr(f.patterns).slice(-6),swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,
+    recentFairValueGaps:arr(f.recentFairValueGaps).slice(-3),
+    orderBlocks:{bullish:arr(f?.orderBlocks?.bullish).slice(-2),bearish:arr(f?.orderBlocks?.bearish).slice(-2)},
+    smcContext:f.smcContext||null
+  };
+}
+function mirrorDigest(packet){
+  const p=packet&&typeof packet==='object'?packet:{};
+  return {
+    contract:p.contract||null,symbol:p.symbol||null,livePrice:p.livePrice??null,
+    coreFrames:{
+      '5m':mirrorFrameDigest(p?.coreFrames?.['5m']),
+      '15m':mirrorFrameDigest(p?.coreFrames?.['15m'])
+    },
+    timingFrames:{
+      '1m':mirrorFrameDigest(p?.timingFrames?.['1m']),
+      '3m':mirrorFrameDigest(p?.timingFrames?.['3m'])
+    },
+    higherContext:Object.fromEntries(['30m','1h','4h','1d'].map(tf=>[tf,mirrorFrameDigest(p?.higherContext?.[tf])])),
+    microstructure:p.microstructure||null,derivatives:p.derivatives||null,
+    observedLiquidations:p.observedLiquidations||null,dataQuality:p.dataQuality||null
+  };
+}
+
+module.exports={framePacket,marketPacket,mirrorDigest};
