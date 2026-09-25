@@ -137,3 +137,16 @@ test('R2541 Office fully translates historical JEV entry reasons and event block
   assert.match(office,/LEADER_AUTO_BLOCKED:'OTO YÜRÜTME ENGELLENDİ'/);
   assert.match(office,/akış sembol kapasitesi dolu/);
 });
+
+
+test('R2541 live Office funnel and mode labels stay Turkish',()=>{
+  const office=read('office-dashboard/public/office.html');
+  const server=read('office-dashboard/office-server.js');
+  for(const s of ['LEADER_AUTO_WAIT:\'OTO LİDER BEKLİYOR\'','MARKET_SETUP_FAMILY_TIMING_EDGE:\'PİYASA / SETUP AİLESİ / ZAMANLAMA / AVANTAJ\'','BEARISH_ENGULFING:\'AYI YUTAN FORMASYONU\'']){
+    assert.ok(office.includes(s),s);
+  }
+  assert.ok(server.includes("label: 'JEV PASS-2 • SON KARAR'"));
+  assert.ok(server.includes("label: 'ALIŞ + SATIŞ son karar'"));
+  assert.ok(server.includes("label: 'JEV BEKLE'"));
+  assert.ok(server.includes("label: 'Zorunlu güvenlik geçti'"));
+});
