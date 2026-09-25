@@ -42,7 +42,7 @@ bad=[name for name,ok in required if not ok]
 if bad:
     raise SystemExit("R2541 safety prerequisite missing: "+", ".join(bad))
 
-main=main.replace("v9.5.114-JEV-PC-ONLY-R2539","v9.5.115-JEV-PC-ONLY-R2541-HF2",1)
+main=main.replace("v9.5.114-JEV-PC-ONLY-R2539","v9.5.115-JEV-PC-ONLY-R2541-HF3",1)
 main=main.replace(
     "R2539 ANDROID SAFETY:",
     "R2541 ANDROID GÜVENLİĞİ: PC tek emir yürütücüsü • telefon kontrol + telemetri • LIVE durumu PC teyitli • durum eski/ulaşılamazsa BİLİNMİYOR •",
@@ -58,7 +58,7 @@ if "PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED" in client:
         1
     )
 
-# R2541-HF2 Android ana ekran Türkçe görünür metin onarımı.
+# R2541-HF3 Android ana ekran Türkçe görünür metin onarımı.
 # Yalnız görünür Java string/UI kopyasını değiştirir; emir enumları ve kontrol akışı değişmez.
 visible_replacements={
     'JEV R2534 FULL CORTEX + R2.5.3.2 SOVEREIGN FLOW:':'JEV R2534 TAM CORTEX + R2.5.3.2 BAĞIMSIZ JEV AKIŞI:',
@@ -114,6 +114,56 @@ for old,new in visible_replacements.items():
     agent=agent.replace(old,new)
     learn=learn.replace(old,new)
 
+# R2541_HF3_BINANCE_TIME_SYNC
+# Android hesabı read-only senkronunda telefon saati/ağ gecikmesi recvWindow dışına çıkmasın.
+# Emir başlatma sınırı değişmez; yalnız legacy signed account read timestamp üretimi sağlamlaştırılır.
+if 'private volatile long v9522TimeOffset = 0L;' in main and 'v9522TimeSyncAt' not in main:
+    main=main.replace(
+        'private volatile long v9522TimeOffset = 0L;',
+        'private volatile long v9522TimeOffset = 0L;\n    private volatile long v9522TimeSyncAt = 0L;',
+        1
+    )
+
+signed_old='''        if (signed) {
+            String[] cr = v9522Credentials(); apiKey = cr[0]; secret = cr[1];
+            p.put("recvWindow", "5000");
+            p.put("timestamp", Long.toString(System.currentTimeMillis() + v9522TimeOffset));
+        }'''
+signed_new='''        if (signed) {
+            long v2541Now=System.currentTimeMillis();
+            if(v9522TimeSyncAt<=0L || v2541Now-v9522TimeSyncAt>30000L){
+                try{ v9522SyncTime(); }catch(Throwable ignored){}
+            }
+            String[] cr = v9522Credentials(); apiKey = cr[0]; secret = cr[1];
+            p.put("recvWindow", "10000");
+            p.put("timestamp", Long.toString(System.currentTimeMillis() + v9522TimeOffset));
+        }'''
+if signed_old in main:
+    main=main.replace(signed_old,signed_new,1)
+
+sync_old='''    private void v9522SyncTime() throws Exception {
+        String b = v9522Http("GET", "/fapi/v1/time", null, false);
+        long server = new org.json.JSONObject(b).getLong("serverTime");
+        v9522TimeOffset = server - System.currentTimeMillis();
+    }'''
+sync_new='''    private void v9522SyncTime() throws Exception {
+        long t0=System.currentTimeMillis();
+        String b = v9522Http("GET", "/fapi/v1/time", null, false);
+        long t1=System.currentTimeMillis();
+        long server = new org.json.JSONObject(b).getLong("serverTime");
+        long midpoint=t0+((t1-t0)/2L);
+        v9522TimeOffset = server - midpoint;
+        v9522TimeSyncAt = t1;
+    }'''
+if sync_old in main:
+    main=main.replace(sync_old,sync_new,1)
+
+# PC'den gelen bütçe kilidi kullanıcıya ham enum yerine anlaşılır Türkçe görünsün.
+main=main.replace(
+    'if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\\nNeden: ").append(lastPcReasons.trim());',
+    'if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\\nNeden: ").append(lastPcReasons.trim().replace("JEV_DAILY_BUDGET_EXHAUSTED","JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU"));'
+)
+
 # Öğrenim özeti BrainLearning.java tarafından dinamik üretilir.
 # Parça bazlı dönüşüm sırası bağımsızdır; önceki genel çeviriler uygulanmış olsa da çalışır.
 learning_keys={
@@ -168,8 +218,8 @@ ui_replacements={
 main += "\n// "+MARKER+"\n// UI_TR_R2541 "+repr(ui_replacements)+"\n"
 card += "\n// "+MARKER+"\n"
 
-build=re.sub(r"versionCode\s+\d+","versionCode 26092504",build,count=1)
-build=re.sub(r"versionName\s+[\"'][^\"']+[\"']","versionName '9.5.115-r2541-hf2'",build,count=1)
+build=re.sub(r"versionCode\s+\d+","versionCode 26092505",build,count=1)
+build=re.sub(r"versionName\s+[\"'][^\"']+[\"']","versionName '9.5.115-r2541-hf3'",build,count=1)
 
 MAIN.write_text(main,encoding="utf-8")
 CARD.write_text(card,encoding="utf-8")
@@ -180,18 +230,20 @@ BUILD.write_text(build,encoding="utf-8")
 
 checks={
     "marker":MARKER in MAIN.read_text(encoding="utf-8"),
-    "identity":"v9.5.115-JEV-PC-ONLY-R2541-HF2" in MAIN.read_text(encoding="utf-8"),
+    "identity":"v9.5.115-JEV-PC-ONLY-R2541-HF3" in MAIN.read_text(encoding="utf-8"),
     "client blocked":"ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in CLIENT.read_text(encoding="utf-8"),
     "no live execute post":'post(c, "/live/execute", intent, true)' not in CLIENT.read_text(encoding="utf-8"),
     "direct runner inert":"historical PHONE Binance executor permanently inert" in AUTO.read_text(encoding="utf-8"),
     "truth 15s":"FRESH_MS = 15000L" in TRUTH.read_text(encoding="utf-8"),
-    "version":"versionName '9.5.115-r2541-hf2'" in BUILD.read_text(encoding="utf-8") and "versionCode 26092504" in BUILD.read_text(encoding="utf-8"),
+    "version":"versionName '9.5.115-r2541-hf3'" in BUILD.read_text(encoding="utf-8") and "versionCode 26092505" in BUILD.read_text(encoding="utf-8"),
     "ui timing Turkish":"GERİ ÇEKİLME BEKLENİYOR" in CARD.read_text(encoding="utf-8") and "ŞİMDİ PİYASA GİRİŞİ" in CARD.read_text(encoding="utf-8") and "KIRILIM + GERİ TEST" in CARD.read_text(encoding="utf-8"),
     "ui direction Turkish":"OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)" in CARD.read_text(encoding="utf-8"),
     "client release banner":"PC R2541 ATOMİK AYNA • ANDROID PC-ONLY FAIL-CLOSED" in CLIENT.read_text(encoding="utf-8"),
     "main status Turkish":"BAĞIMSIZ JEV AKIŞI" in MAIN.read_text(encoding="utf-8") and "SON KARAR YETKİSİ" in MAIN.read_text(encoding="utf-8") and "YALNIZCA DİKKAT" in MAIN.read_text(encoding="utf-8"),
     "learning Turkish":"ÖĞRENME_SÜRÜMÜ=1 KAPANAN=" in LEARN.read_text(encoding="utf-8") and "KAZANMA_ORANI" in LEARN.read_text(encoding="utf-8") and "SON_İŞLEMLER" in LEARN.read_text(encoding="utf-8"),
     "agent Turkish":"İŞLEM AJANI • ÖNCE ÜCRETSİZ" in AGENT.read_text(encoding="utf-8") and "YALNIZCA ÜCRETSİZ mod" in AGENT.read_text(encoding="utf-8"),
+    "binance time sync hardening":"v9522TimeSyncAt" in MAIN.read_text(encoding="utf-8") and 'p.put("recvWindow", "10000")' in MAIN.read_text(encoding="utf-8") and "long midpoint=t0+((t1-t0)/2L);" in MAIN.read_text(encoding="utf-8"),
+    "budget reason Turkish":"JEV GÜNLÜK ÜCRETLİ KARAR BÜTÇESİ DOLDU" in MAIN.read_text(encoding="utf-8"),
 }
 failed=[k for k,v in checks.items() if not v]
 if failed:
