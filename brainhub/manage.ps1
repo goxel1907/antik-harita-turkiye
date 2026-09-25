@@ -960,7 +960,7 @@ if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); T
 $sourceDir = Get-Source $Source
 # CLAUDE_V109_UPDATER_FILESET: ChatGPT v9.5.109 wait-condition.js ve vision-benchmark.js eklemis ama bu listeye
 # koymamisti -> PC'de server.js MODULE_NOT_FOUND ile acilmaz, guncelleme geri alinirdi.
-$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','market-maker-evidence.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','knowledge-research.js','vision-contract-repair.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js','claude-v112.js')
+$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','market-maker-evidence.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','jev-market-packet.js','knowledge-research.js','vision-contract-repair.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js','claude-v112.js')
 $cortexDoc = Join-Path $sourceDir 'docs\JEV-PRO-TRADER-CORTEX-R2534.md'
 $ossReferenceDoc = Join-Path $sourceDir 'docs\JEV-OPEN-SOURCE-REFERENCE-R2536.md'
 if (-not (Test-Path -LiteralPath $cortexDoc)) { throw 'Eksik dosya: docs\JEV-PRO-TRADER-CORTEX-R2534.md' }
