@@ -598,15 +598,16 @@ async function frameSet(symbol, base = FUTURES, path = '/fapi/v1/klines') {
     }
   }
   await Promise.all(Array.from({ length: 4 }, worker));
-  const out = { frames: analyzeFrames(result), errors, asOf: Date.now() };
-  frameCache.set(cacheKey, { at: Date.now(), result: out });
+  const snapshotNow=Date.now();
+  const out = { frames: analyzeFrames(result,snapshotNow), rawFrames:result, errors, asOf:snapshotNow };
+  frameCache.set(cacheKey, { at: snapshotNow, result: out });
   return out;
 }
-async function symbolContext(symbol) {
+async function symbolContext(symbol, options = {}) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
   marketStream.ensureSymbol(symbol);
   const [frames, depthResult, tradeResult, derivativesResult] = await Promise.allSettled([
-    frameSet(symbol),
+    options?.frameSnapshot ? Promise.resolve(options.frameSnapshot) : frameSet(symbol),
     getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=20`, 9000),
     getJson(FUTURES, `/fapi/v1/aggTrades?symbol=${symbol}&limit=100`, 9000),
     derivativesContext(symbol)
@@ -714,6 +715,67 @@ function aggregate45mChart(candles15m, now = Date.now()) {
   return out;
 }
 
+
+function chartContextFromFrameSnapshot(symbol, frame, requestedBars, snapshot) {
+  if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
+  frame = String(frame || '').toLowerCase();
+  if (!FRAMES.includes(frame)) throw new Error('invalid timeframe');
+  if (!snapshot || !snapshot.rawFrames || !snapshot.frames) throw new Error('frame snapshot required');
+  const bars = Math.max(64, Math.min(256, Number(requestedBars) || 128));
+  const now = Number(snapshot.asOf) || Date.now();
+  const sourceFrame = frame === '45m' ? '15m' : frame;
+  const raw = snapshot.rawFrames[sourceFrame];
+  if (!Array.isArray(raw)) throw new Error('frame snapshot raw candles unavailable');
+  let chartCandles = parseChartKlines(raw, now);
+  let closedCandles = parseKlines(raw, now);
+  if (frame === '45m') {
+    chartCandles = aggregate45mChart(chartCandles, now);
+    closedCandles = aggregate45m(closedCandles, now);
+  }
+  chartCandles = chartCandles.slice(-bars);
+  closedCandles = closedCandles.slice(-bars);
+  if (closedCandles.length < 52) throw new Error('insufficient closed candles for chart analysis');
+  if (chartCandles.length < 2) throw new Error('insufficient candles for chart');
+  // R2541_ATOMIC_PACKET_CHART: analysis is the exact frame object that fed symbolContext/JEV.
+  // Do not recompute it from a second REST request or a later candle boundary.
+  const analysis = snapshot.frames[frame] || structure(closedCandles, frame);
+  const forming = chartCandles.filter(x => x.forming === true);
+  return {
+    ok:true,symbol,frame,
+    bars:chartCandles.length,closedBars:closedCandles.length,formingBars:forming.length,requestedBars:bars,
+    generatedAt:new Date(now).toISOString(),snapshotAsOf:now,
+    synthetic:frame === '45m',
+    source:frame === '45m'
+      ? 'ATOMIC FRAME SNAPSHOT • Binance 15m candles; closed 45m analysis plus current partial 45m visual context'
+      : `ATOMIC FRAME SNAPSHOT • Binance USDT-M ${frame}; exact JEV closed-candle analysis plus forming visual context`,
+    candles:chartCandles.map(x => ({
+      openTime:x.openTime, closeTime:x.closeTime, open:x.open, high:x.high, low:x.low, close:x.close,
+      volume:x.volume, quoteVolume:x.quoteVolume, takerBuyQuote:x.takerBuyQuote,
+      forming:x.forming === true,
+      ...(frame === '45m' ? { componentCount:Number(x.componentCount || 3) } : {})
+    })),
+    analysis,
+    imageContract:{
+      clean:'candles + volume only; current forming candle included and explicitly marked in data',
+      annotated:'R2541 atomic snapshot: candles + volume + EMA20/EMA50 + confirmed-swing trend lines + dealing range + liquidity + FVG/CE50 + OB + OTE + Fib + pattern geometry + swing/BOS/CHoCH + observed liquidations',
+      formingCandlesIncluded:true,formingCandleMayConfirmSignal:false,structuralAnalysisUsesClosedCandlesOnly:true,futureLeakageAllowed:false,
+      atomicPacketChart:true
+    }
+  };
+}
+
+async function atomicMirrorContext(symbol, frame, requestedBars = 128) {
+  if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
+  const snapshot=await frameSet(symbol);
+  const [sym,chart]=await Promise.all([
+    symbolContext(symbol,{frameSnapshot:snapshot}),
+    Promise.resolve(chartContextFromFrameSnapshot(symbol,frame,requestedBars,snapshot))
+  ]);
+  const analysisAsOf=Number(chart?.analysis?.asOf)||0;
+  const snapshotId=`${symbol}:${String(frame).toLowerCase()}:${Number(snapshot.asOf)||0}:${analysisAsOf}`;
+  return {symbolContext:sym,chart,snapshotId,snapshotAsOf:Number(snapshot.asOf)||null};
+}
+
 async function chartContext(symbol, frame, requestedBars = 128) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
   frame = String(frame || '').toLowerCase();
@@ -760,7 +822,7 @@ async function chartContext(symbol, frame, requestedBars = 128) {
     analysis,
     imageContract:{
       clean:'candles + volume only; current forming candle included and explicitly marked in data',
-      annotated:'candles + volume + EMA20/EMA50 + trend guide + dealing range/premium-discount + prior/equal liquidity + FVG/CE50 + OB + OTE + Fib + swing/BOS/CHoCH reference levels; optional observed force-order liquidation levels; confirmed structural overlays come only from closed candles',
+      annotated:'candles + volume + EMA20/EMA50 + confirmed swing trend lines + dealing range/extension classification + prior/equal liquidity + FVG/CE50 + OB + OTE + Fib + swing/BOS/CHoCH reference levels; optional observed force-order liquidation levels; confirmed structural overlays come only from closed candles',
       formingCandlesIncluded:true,
       formingCandleMayConfirmSignal:false,
       structuralAnalysisUsesClosedCandlesOnly:true,
@@ -812,7 +874,7 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
   const candles = Array.isArray(chart?.candles) ? chart.candles : [];
   if (candles.length < 2) throw new Error('chart candles required');
   const width = 1280, height = 720;
-  const left = 24, right = width - 24, top = 22, priceBottom = 555, volumeTop = 585, bottom = 700;
+  const left = 24, right = width - 190, top = 22, priceBottom = 555, volumeTop = 585, bottom = 700;
   const pixels = Buffer.alloc(width * height * 4);
   const bg=[13,17,23,255], grid=[42,49,62,255], wick=[174,183,196,255];
   const bull=[46,204,113,255], bear=[231,76,60,255], volume=[76,106,146,255];
@@ -844,6 +906,28 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     let err=dx+dy;
     while(true){px(x0,y0,c);if(x0===x1&&y0===y1)break;const e2=2*err;if(e2>=dy){err+=dy;x0+=sx;}if(e2<=dx){err+=dx;y0+=sy;}}
   }
+  const FONT3X5={
+    'A':'010101111101101','B':'110101110101110','C':'011100100100011','D':'110101101101110','E':'111100110100111','F':'111100110100100',
+    'G':'011100101101011','H':'101101111101101','I':'111010010010111','J':'001001001101010','K':'101101110101101','L':'100100100100111',
+    'M':'101111111101101','N':'101111111111101','O':'010101101101010','P':'110101110100100','Q':'010101101111011','R':'110101110101101',
+    'S':'011100010001110','T':'111010010010010','U':'101101101101111','V':'101101101101010','W':'101101111111101','X':'101101010101101',
+    'Y':'101101010010010','Z':'111001010100111',
+    '0':'111101101101111','1':'010110010010111','2':'110001111100111','3':'110001111001110','4':'101101111001001','5':'111100110001110','6':'011100111101010','7':'111001010010010','8':'010101010101010','9':'010101111001110',
+    '-':'000000111000000','.':'000000000000010','/':'001001010100100',':':'000010000010000','%':'101001010100101','+':'000010111010000','(':'010100100100010',')':'010001001001010',' ':'000000000000000'
+  };
+  function asciiLabel(v){return String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9 .\-\/:+()%]/g,' ');}
+  function textWidth(text,scale=2){return asciiLabel(text).length*4*scale;}
+  function drawText(x,y,text,c,scale=2){
+    let ox=Math.round(x);const t=asciiLabel(text);
+    for(const ch of t){
+      const bits=FONT3X5[ch]||FONT3X5[' '];
+      for(let i=0;i<15;i++)if(bits[i]==='1'){
+        const gx=i%3,gy=Math.floor(i/3);
+        fillRect(ox+gx*scale,y+gy*scale,ox+gx*scale+scale-1,y+gy*scale+scale-1,c);
+      }
+      ox+=4*scale;
+    }
+  }
   fillRect(0,0,width-1,height-1,bg);
   const rawMin=Math.min(...candles.map(x=>Number(x.low))), rawMax=Math.max(...candles.map(x=>Number(x.high)));
   const span=Math.max(1e-12,rawMax-rawMin), pad=span*0.06;
@@ -874,11 +958,27 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       for(let i=0;i<closes.length;i++){if(i===0)v=closes[0];else v=a*closes[i]+(1-a)*v;out.push(v);}return out;
     }
     function path(values,c){for(let i=1;i<values.length;i++)line(xAt(i-1),yPrice(values[i-1]),xAt(i),yPrice(values[i]),c);}
+    function xForAt(at){
+      const t=Number(at);if(!Number.isFinite(t))return null;
+      let best=-1,dist=Infinity;
+      for(let i=0;i<candles.length;i++){const d=Math.abs(Number(candles[i].closeTime)-t);if(d<dist){dist=d;best=i;}}
+      return best>=0?xAt(best):null;
+    }
+    const levelLabels=[];
+    const fmtP=p=>{const n=Number(p);if(!Number.isFinite(n))return '';const d=Math.abs(n)>=100?2:Math.abs(n)>=1?4:6;return n.toFixed(d).replace(/0+$/,'').replace(/\.$/,'');};
+    const addLevel=(price,text,col)=>{const p=Number(price);if(Number.isFinite(p)&&p>=pmin&&p<=pmax)levelLabels.push({price:p,y:yPrice(p),text:`${text} ${fmtP(p)}`,col});};
+    const addZoneLabel=(z,text,col)=>{const lo=Number(z?.low),hi=Number(z?.high);if(Number.isFinite(lo)&&Number.isFinite(hi))addLevel((lo+hi)/2,text,col);};
+    const renderLabels=()=>{
+      const rows=levelLabels.sort((a,b)=>a.y-b.y);let lastY=-999;
+      for(const r of rows){let y=Math.max(top,Math.min(priceBottom-11,Math.round(r.y)-5));if(y-lastY<11)y=lastY+11;if(y>priceBottom-11)continue;lastY=y;
+        const w=Math.min(176,textWidth(r.text,2)+8);fillRect(right+4,y-2,right+4+w,y+10,[20,25,32,255]);drawText(right+8,y,r.text,r.col,2);
+      }
+    };
     path(emaSeries(20),[255,193,7,255]);
     path(emaSeries(50),[156,92,204,255]);
     const a=chart.analysis||{};
 
-    // R2540 FULL MIRROR: range + premium/discount + regression trend guide.
+    // R2541: dealing range bands/levels. Outside-range state is supplied by engine.js.
     const dr=a?.smcContext?.dealingRange||{};
     const drLow=Number(dr.low),drHigh=Number(dr.high),drEq=Number(dr.equilibrium);
     if(Number.isFinite(drLow)&&Number.isFinite(drHigh)&&drHigh>drLow){
@@ -886,86 +986,77 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
         blendRect(left,yPrice(drHigh),right,yPrice(drEq),[255,87,34],0.035);
         blendRect(left,yPrice(drEq),right,yPrice(drLow),[33,150,243],0.035);
       }
-      line(left,yPrice(drHigh),right,yPrice(drHigh),[255,112,67,255]);
-      line(left,yPrice(drLow),right,yPrice(drLow),[66,165,245,255]);
+      line(left,yPrice(drHigh),right,yPrice(drHigh),[255,112,67,255]);addLevel(drHigh,'ARALIK UST',[255,112,67,255]);
+      line(left,yPrice(drLow),right,yPrice(drLow),[66,165,245,255]);addLevel(drLow,'ARALIK ALT',[66,165,245,255]);
+      if(Number.isFinite(drEq)){line(left,yPrice(drEq),right,yPrice(drEq),[158,158,158,255]);addLevel(drEq,'ARALIK EQ',[200,200,200,255]);}
     }
-    const trendRows=candles.map((x,i)=>({i,close:Number(x.close),forming:x.forming===true}))
-      .filter(x=>Number.isFinite(x.close)&&!x.forming).slice(-30);
-    if(trendRows.length>=8){
-      const n=trendRows.length;
-      const mx=trendRows.reduce((s,x)=>s+x.i,0)/n;
-      const my=trendRows.reduce((s,x)=>s+x.close,0)/n;
-      let num=0,den=0;
-      for(const x of trendRows){num+=(x.i-mx)*(x.close-my);den+=(x.i-mx)*(x.i-mx);}
-      if(den>0){
-        const slope=num/den, intercept=my-slope*mx;
-        const first=trendRows[0], last=trendRows.at(-1);
-        const col=a.trend==='UP'?[0,230,118,255]:a.trend==='DOWN'?[255,82,82,255]:[189,189,189,255];
-        line(xAt(first.i),yPrice(slope*first.i+intercept),xAt(last.i),yPrice(slope*last.i+intercept),col);
-      }
-    }
+
+    // R2541_CONFIRMED_SWING_TRENDLINES: no close-regression pseudo trend line.
+    const trendLines=a?.swingStructure?.trendLines||{};
+    const drawTrend=(tl,col,label)=>{
+      if(!tl||tl.active!==true)return;
+      const x0=xForAt(tl?.from?.at),x1=xForAt(tl?.projected?.at||tl?.to?.at);
+      const y0=Number(tl?.from?.price),y1=Number(tl?.projected?.price??tl?.to?.price);
+      if(x0===null||x1===null||!Number.isFinite(y0)||!Number.isFinite(y1))return;
+      line(x0,yPrice(y0),x1,yPrice(y1),col);line(x0,yPrice(y0)+1,x1,yPrice(y1)+1,col);
+      const ty=Math.max(top,Math.min(priceBottom-12,Math.round(yPrice(y1))-11));drawText(Math.min(right-120,x1+6),ty,label,col,2);
+    };
+    drawTrend(trendLines.upSupport,[0,230,118,255],'TREND HL');
+    drawTrend(trendLines.downResistance,[255,82,82,255],'TREND LH');
+
     const levels=[
-      [a.prior20High,[0,188,212,255]],
-      [a.prior20Low,[255,152,0,255]],
-      [a.liquidity?.equalHigh?.price,[232,232,232,255]],
-      [a.liquidity?.equalLow?.price,[232,232,232,255]]
+      [a.prior20High,'ONCEKI20 H',[0,188,212,255]],
+      [a.prior20Low,'ONCEKI20 L',[255,152,0,255]],
+      [a.liquidity?.equalHigh?.price,'ESIT H',[232,232,232,255]],
+      [a.liquidity?.equalLow?.price,'ESIT L',[232,232,232,255]]
     ];
-    for(const [price,col] of levels){if(Number.isFinite(Number(price)))line(left,yPrice(price),right,yPrice(price),col);}
+    for(const [price,name,col] of levels){if(Number.isFinite(Number(price))){line(left,yPrice(price),right,yPrice(price),col);addLevel(price,name,col);}}
     for(const g of Array.isArray(a.recentFairValueGaps)?a.recentFairValueGaps:[]){
-      const low=Number(g.low),high=Number(g.high),ce=Number(g.ce50);
+      const low=Number(g.low),high=Number(g.high),ce=Number(g.ce50),col=g.side==='BULL'?[76,255,145,255]:[255,112,96,255];
       if(Number.isFinite(low)&&Number.isFinite(high)){
         blendRect(left,yPrice(high),right,yPrice(low),g.side==='BULL'?[46,204,113]:[231,76,60],0.10);
-        if(Number.isFinite(ce))line(left,yPrice(ce),right,yPrice(ce),g.side==='BULL'?[76,255,145,255]:[255,112,96,255]);
+        if(Number.isFinite(ce)){line(left,yPrice(ce),right,yPrice(ce),col);addLevel(ce,`FVG ${g.side==='BULL'?'BOGA':'AYI'} CE50`,col);}
       }
     }
-    // R2537: make the same deterministic SMC location data visible to the Vision worker.
     for(const ob of Array.isArray(a?.orderBlocks?.bullish)?a.orderBlocks.bullish:[]){
-      const low=Number(ob.low),high=Number(ob.high);
-      if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high))blendRect(left,yPrice(high),right,yPrice(low),[0,150,136],0.12);
+      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(left,yPrice(high),right,yPrice(low),[0,150,136],0.12);addZoneLabel(ob,'BOGA OB',[64,224,208,255]);}
     }
     for(const ob of Array.isArray(a?.orderBlocks?.bearish)?a.orderBlocks.bearish:[]){
-      const low=Number(ob.low),high=Number(ob.high);
-      if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high))blendRect(left,yPrice(high),right,yPrice(low),[244,67,54],0.12);
+      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(left,yPrice(high),right,yPrice(low),[244,67,54],0.12);addZoneLabel(ob,'AYI OB',[255,110,100,255]);}
     }
     const ote=a?.smcContext?.oteReference||{};
-    const drawZone=(z,col,alpha)=>{
-      const low=Number(z?.low),high=Number(z?.high);
-      if(Number.isFinite(low)&&Number.isFinite(high))blendRect(left,yPrice(high),right,yPrice(low),col,alpha);
-    };
-    drawZone(ote.longDiscountZone,[33,150,243],0.07);
-    drawZone(ote.shortPremiumZone,[255,87,34],0.07);
+    const drawZone=(z,col,alpha,label)=>{const low=Number(z?.low),high=Number(z?.high);if(Number.isFinite(low)&&Number.isFinite(high)){blendRect(left,yPrice(high),right,yPrice(low),col,alpha);addZoneLabel(z,label,[220,220,220,255]);}};
+    drawZone(ote.longDiscountZone,[33,150,243],0.07,'OTE ALIS');
+    drawZone(ote.shortPremiumZone,[255,87,34],0.07,'OTE SATIS');
     const fib=a?.smcContext?.fibLevels?.retracement||{};
-    const fibCols={
-      '0.382':[126,87,194,255],'0.5':[255,235,59,255],'0.618':[0,188,212,255],
-      '0.705':[205,220,57,255],'0.786':[255,152,0,255]
-    };
-    for(const key of Object.keys(fibCols)){
-      const price=Number(fib[key]);
-      if(Number.isFinite(price))line(left,yPrice(price),right,yPrice(price),fibCols[key]);
-    }
-    const eq=Number(a?.smcContext?.dealingRange?.equilibrium);
-    if(Number.isFinite(eq))line(left,yPrice(eq),right,yPrice(eq),[158,158,158,255]);
+    const fibCols={'0.382':[126,87,194,255],'0.5':[255,235,59,255],'0.618':[0,188,212,255],'0.705':[205,220,57,255],'0.786':[255,152,0,255]};
+    for(const key of Object.keys(fibCols)){const price=Number(fib[key]);if(Number.isFinite(price)){line(left,yPrice(price),right,yPrice(price),fibCols[key]);addLevel(price,`FIB ${key}`,fibCols[key]);}}
 
     // Swing/BOS/CHoCH reference levels.
     const swingHi=Number(a?.swingStructure?.lastConfirmedSwingHigh?.price);
     const swingLo=Number(a?.swingStructure?.lastConfirmedSwingLow?.price);
-    if(Number.isFinite(swingHi))line(left,yPrice(swingHi),right,yPrice(swingHi),
-      ['BOS_UP','CHOCH_UP'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255]);
-    if(Number.isFinite(swingLo))line(left,yPrice(swingLo),right,yPrice(swingLo),
-      ['BOS_DOWN','CHOCH_DOWN'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255]);
+    if(Number.isFinite(swingHi)){const c=['BOS_UP','CHOCH_UP'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255];line(left,yPrice(swingHi),right,yPrice(swingHi),c);addLevel(swingHi,a?.swingStructure?.event==='CHOCH_UP'?'CHOCH H':'SWING H',c);}
+    if(Number.isFinite(swingLo)){const c=['BOS_DOWN','CHOCH_DOWN'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255];line(left,yPrice(swingLo),right,yPrice(swingLo),c);addLevel(swingLo,a?.swingStructure?.event==='CHOCH_DOWN'?'CHOCH L':'SWING L',c);}
+
+    // R2541_PATTERN_GEOMETRY: only engine-produced confirmed-pivot coordinates are drawn.
+    const patternName={ASCENDING_TRIANGLE:'YUKSELEN UCGEN',DESCENDING_TRIANGLE:'ALCALAN UCGEN',SYMMETRICAL_TRIANGLE:'SIMETRIK UCGEN',RISING_WEDGE:'YUKSELEN KAMA',FALLING_WEDGE:'ALCALAN KAMA',RISING_CHANNEL:'YUKSELEN KANAL',FALLING_CHANNEL:'ALCALAN KANAL',RANGE:'YATAY ARALIK'};
+    let patternLabelOffset=0;
+    for(const pat of (Array.isArray(a?.patterns)?a.patterns:[]).filter(x=>Array.isArray(x?.geometry?.lines)&&x.geometry.lines.length).slice(-3)){
+      const col=String(pat.side||'').toUpperCase()==='LONG'?[74,222,128,255]:String(pat.side||'').toUpperCase()==='SHORT'?[255,99,99,255]:[180,180,220,255];
+      for(const gl of pat.geometry.lines){const x0=xForAt(gl?.from?.at),x1=xForAt(gl?.to?.at);const p0=Number(gl?.from?.price),p1=Number(gl?.to?.price);if(x0!==null&&x1!==null&&Number.isFinite(p0)&&Number.isFinite(p1))line(x0,yPrice(p0),x1,yPrice(p1),col);}
+      const text=patternName[pat.type]||pat.type;if(text){drawText(left+8,top+6+patternLabelOffset,text,col,2);patternLabelOffset+=12;}
+    }
 
     // Observed Binance force-order liquidation clusters (historical prints only, not a future heatmap).
     for(const z of Array.isArray(options?.observedLiquidations)?options.observedLiquidations:[]){
-      const price=Number(z?.price);
-      if(!Number.isFinite(price)||price<pmin||price>pmax)continue;
-      const side=String(z?.side||'').toUpperCase();
-      const col=side.includes('LONG')?[255,82,82,255]:side.includes('SHORT')?[0,230,118,255]:[255,255,255,255];
-      line(left,yPrice(price),right,yPrice(price),col);
-      line(left,yPrice(price)+1,right,yPrice(price)+1,col);
+      const price=Number(z?.price);if(!Number.isFinite(price)||price<pmin||price>pmax)continue;
+      const side=String(z?.side||'').toUpperCase();const col=side.includes('LONG')?[255,82,82,255]:side.includes('SHORT')?[0,230,118,255]:[255,255,255,255];
+      line(left,yPrice(price),right,yPrice(price),col);line(left,yPrice(price)+1,right,yPrice(price)+1,col);addLevel(price,side.includes('LONG')?'LIKID LONG':'LIKID SHORT',col);
     }
 
     const lastPx=Number(candles.at(-1)?.close);
-    if(Number.isFinite(lastPx))line(left,yPrice(lastPx),right,yPrice(lastPx),[255,255,255,255]);
+    if(Number.isFinite(lastPx)){line(left,yPrice(lastPx),right,yPrice(lastPx),[255,255,255,255]);addLevel(lastPx,'FIYAT',[255,255,255,255]);}
+    renderLabels();
   }
   line(left,volumeTop-8,right,volumeTop-8,grid);
 
@@ -1051,4 +1142,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { globalContext, symbolContext, derivativesContext, chartContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };
+module.exports = { globalContext, symbolContext, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };
