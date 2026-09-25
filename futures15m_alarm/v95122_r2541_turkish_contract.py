@@ -54,6 +54,59 @@ if "PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED" in client:
         1
     )
 
+# R2541-HF1 Android ana ekran Türkçe görünür metin onarımı.
+# Yalnız görünür Java string/UI kopyasını değiştirir; emir enumları ve kontrol akışı değişmez.
+visible_replacements={
+    'JEV R2534 FULL CORTEX + R2.5.3.2 SOVEREIGN FLOW:':'JEV R2534 TAM CORTEX + R2.5.3.2 BAĞIMSIZ JEV AKIŞI:',
+    'FINAL AUTHORITY':'SON KARAR YETKİSİ',
+    'scanner ATTENTION_ONLY':'tarayıcı YALNIZCA DİKKAT',
+    'worker EVIDENCE_ONLY':'kanıt ajanı YALNIZCA KANIT',
+    'workerlar yalnız EVIDENCE_ONLY':'kanıt ajanları yalnız YALNIZCA KANIT',
+    'learning SHADOW':'öğrenme GÖLGE',
+    'self-modify/auto-promotion':'kendi kendini değiştirme/otomatik terfi',
+    'Phase-3 observer: READ_ONLY':'Aşama-3 gözlemci: SALT OKUNUR',
+    'Phase-3 observer READ_ONLY':'Aşama-3 gözlemci SALT OKUNUR',
+    'decision authority NONE':'karar yetkisi YOK',
+    'evidence dispatch':'kanıt isteği',
+    'R2.5.3.2 SOVEREIGN FLOW:':'R2.5.3.2 BAĞIMSIZ JEV AKIŞI:',
+    '5m LONG/SHORT scalp':'5 dk ALIŞ/SATIŞ scalp',
+    '15m LONG/SHORT trade':'15 dk ALIŞ/SATIŞ ana işlem',
+    'LONG/SHORT/WAIT':'ALIŞ/SATIŞ/BEKLE',
+    'hard-15m':'zorunlu-15dk',
+    'identity/freshness/range/nonblank':'kimlik/tazelik/aralık/boş-değil',
+    'numeric conflict → Binance/BrainHub wins.':'sayısal çelişkide Binance/BrainHub verisi geçerlidir.',
+    'target/partial/BE/trail':'hedef/kısmi/başabaş/iz sürme',
+    'SHADOW teacher lesson':'GÖLGE öğretmen dersi',
+    'Self-modify / auto-promotion yok.':'Kendi kendini değiştirme / otomatik terfi yok.',
+    'R2532 ACTIVE:':'R2532 AKTİF:',
+    'evidence request':'kanıt isteği',
+    'hard safety only':'yalnız zorunlu güvenlik',
+    'PC R2538 karar/uygulama beynidir':'PC BrainHub karar/yürütme merkezidir',
+    'Android CONTROL/TELEMETRY only':'Android yalnız KONTROL/TELEMETRİ',
+    'PC BrainHub R2538 JEV Live Mirror + R2537 complete context kullanır':'PC BrainHub R2541 atomik ayna + tam bağlam kullanır',
+    'LIVE KAPAT yalnız PC armed=false + leaderAuto=false onayıyla tamamlanmış sayılır':'LIVE KAPAT yalnız PC LIVE kapalı + OTO lider kapalı onayıyla tamamlanmış sayılır',
+    'stale bağlantı':'eski/ulaşılamayan bağlantı',
+    ' • LONG SHORT':' • ALIŞ (LONG) SATIŞ (SHORT)',
+    'LONG otomatik işlemlere izin ver':'ALIŞ (LONG) otomatik işlemlere izin ver',
+    'SHORT otomatik işlemlere izin ver':'SATIŞ (SHORT) otomatik işlemlere izin ver',
+    'ÖĞRENİM: LEARNING_V=':'ÖĞRENİM: ÖĞRENME_SÜRÜMÜ=',
+    ' CLOSED=':' KAPANAN=',
+    ' WINS=':' KAZANAN=',
+    ' WINRATE=':' KAZANMA_ORANI=',
+    ' AVG_SIGNAL_PCT=':' ORT_SİNYAL_YÜZDESİ=',
+    ' RECENT_TRADES=':' SON_İŞLEMLER=',
+    ' RECENT_CHAT_TOPICS=':' SON_SOHBET_KONULARI=',
+    ' RULE=':' KURAL=',
+    'hard risk kurallarını':'zorunlu risk kurallarını',
+    'TRADE AJANI • FREE-FIRST':'İŞLEM AJANI • ÖNCE ÜCRETSİZ',
+    'FREE-ONLY mod':'YALNIZCA ÜCRETSİZ mod',
+    '15m long/short senaryosu nedir?':'15 dk alış/satış senaryosu nedir?',
+    'trade fikri ver':'işlem fikri ver',
+}
+for old,new in visible_replacements.items():
+    main=main.replace(old,new)
+    card=card.replace(old,new)
+    client=client.replace(old,new)
 # R2541 Android UI timing/setup dictionary: presentation-only, control-flow enumları değişmez.
 ui_anchor='        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU")'
 if ui_anchor not in card:
