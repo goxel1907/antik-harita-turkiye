@@ -11,7 +11,7 @@ const DEFAULTS={
   billingCacheMs:300000,
   mode:'SOVEREIGN_DIRECTOR_5M15M',
   softBudgetUsd:0.25,
-  dailyCapUsd:2.00,
+  dailyCapUsd:5.00,
   timeoutMs:30000,
   maxPayloadChars:48000,
   reservePerCallUsd:0.002
