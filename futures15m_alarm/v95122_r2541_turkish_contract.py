@@ -36,7 +36,7 @@ required=[
     ("R2539 identity","v9.5.114-JEV-PC-ONLY-R2539" in main),
     ("PC-only client","ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in client),
     ("direct runner inert","historical PHONE Binance executor permanently inert" in auto),
-    ("15s truth","FRESH_MS = 15000L" in truth),
+    ("stable PC truth","FRESH_MS = 45000L" in truth and "MIN_FAILURES_BEFORE_UNHEALTHY = 3" in truth and "shouldMarkProbeUnhealthy" in truth),
 ]
 bad=[name for name,ok in required if not ok]
 if bad:
