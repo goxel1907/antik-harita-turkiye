@@ -966,9 +966,25 @@ function jevMirrorParity(packet,chart,tf){
   add('prior20Low',p.prior20Low,a.prior20Low,'number');
   add('equilibrium',p?.smcContext?.dealingRange?.equilibrium,a?.smcContext?.dealingRange?.equilibrium,'number');
   add('fib0.618',p?.smcContext?.fibLevels?.retracement?.['0.618'],a?.smcContext?.fibLevels?.retracement?.['0.618'],'number');
-  add('bullishOBCount',Array.isArray(p?.orderBlocks?.bullish)?p.orderBlocks.bullish.length:0,Array.isArray(a?.orderBlocks?.bullish)?a.orderBlocks.bullish.length:0,'number');
-  add('bearishOBCount',Array.isArray(p?.orderBlocks?.bearish)?p.orderBlocks.bearish.length:0,Array.isArray(a?.orderBlocks?.bearish)?a.orderBlocks.bearish.length:0,'number');
-  add('fvgCount',Array.isArray(p?.recentFairValueGaps)?p.recentFairValueGaps.length:0,Array.isArray(a?.recentFairValueGaps)?a.recentFairValueGaps.length:0,'number');
+  // JEV packet intentionally bounds zone arrays (last 2 OB each side, last 3 FVG)
+  // while the annotated Vision chart may draw the full closed-candle arrays.
+  // Parity must compare the exact bounded packet contract, not raw full-array counts.
+  const pBull=Array.isArray(p?.orderBlocks?.bullish)?p.orderBlocks.bullish:[];
+  const pBear=Array.isArray(p?.orderBlocks?.bearish)?p.orderBlocks.bearish:[];
+  const pFvg=Array.isArray(p?.recentFairValueGaps)?p.recentFairValueGaps:[];
+  const aBull=(Array.isArray(a?.orderBlocks?.bullish)?a.orderBlocks.bullish:[]).slice(-2);
+  const aBear=(Array.isArray(a?.orderBlocks?.bearish)?a.orderBlocks.bearish:[]).slice(-2);
+  const aFvg=(Array.isArray(a?.recentFairValueGaps)?a.recentFairValueGaps:[]).slice(-3);
+  add('bullishOBBoundedCount',pBull.length,aBull.length,'number');
+  add('bearishOBBoundedCount',pBear.length,aBear.length,'number');
+  add('fvgBoundedCount',pFvg.length,aFvg.length,'number');
+  const addZone=(name,left,right)=>{
+    add(name+'Low',left?.low,right?.low,'number');
+    add(name+'High',left?.high,right?.high,'number');
+  };
+  if(pBull.length&&aBull.length)addZone('latestBullishOB',pBull.at(-1),aBull.at(-1));
+  if(pBear.length&&aBear.length)addZone('latestBearishOB',pBear.at(-1),aBear.at(-1));
+  if(pFvg.length&&aFvg.length)addZone('latestFVG',pFvg.at(-1),aFvg.at(-1));
   const mismatches=checks.filter(x=>x.match===false);
   return {
     ok:checks.length>=3&&mismatches.length===0,
