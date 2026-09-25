@@ -42,7 +42,7 @@ bad=[name for name,ok in required if not ok]
 if bad:
     raise SystemExit("R2541 safety prerequisite missing: "+", ".join(bad))
 
-main=main.replace("v9.5.114-JEV-PC-ONLY-R2539","v9.5.115-JEV-PC-ONLY-R2541-HF3",1)
+main=main.replace("v9.5.114-JEV-PC-ONLY-R2539","v9.5.115-JEV-PC-ONLY-R2541-HF4",1)
 main=main.replace(
     "R2539 ANDROID SAFETY:",
     "R2541 ANDROID GÜVENLİĞİ: PC tek emir yürütücüsü • telefon kontrol + telemetri • LIVE durumu PC teyitli • durum eski/ulaşılamazsa BİLİNMİYOR •",
@@ -58,7 +58,7 @@ if "PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED" in client:
         1
     )
 
-# R2541-HF3 Android ana ekran Türkçe görünür metin onarımı.
+# R2541-HF4 Android ana ekran Türkçe görünür metin onarımı.
 # Yalnız görünür Java string/UI kopyasını değiştirir; emir enumları ve kontrol akışı değişmez.
 visible_replacements={
     'JEV R2534 FULL CORTEX + R2.5.3.2 SOVEREIGN FLOW:':'JEV R2534 TAM CORTEX + R2.5.3.2 BAĞIMSIZ JEV AKIŞI:',
@@ -224,8 +224,8 @@ ui_replacements={
 main += "\n// "+MARKER+"\n// UI_TR_R2541 "+repr(ui_replacements)+"\n"
 card += "\n// "+MARKER+"\n"
 
-build=re.sub(r"versionCode\s+\d+","versionCode 26092505",build,count=1)
-build=re.sub(r"versionName\s+[\"'][^\"']+[\"']","versionName '9.5.115-r2541-hf3'",build,count=1)
+build=re.sub(r"versionCode\s+\d+","versionCode 26092506",build,count=1)
+build=re.sub(r"versionName\s+[\"'][^\"']+[\"']","versionName '9.5.115-r2541-hf4'",build,count=1)
 
 MAIN.write_text(main,encoding="utf-8")
 CARD.write_text(card,encoding="utf-8")
@@ -236,12 +236,12 @@ BUILD.write_text(build,encoding="utf-8")
 
 checks={
     "marker":MARKER in MAIN.read_text(encoding="utf-8"),
-    "identity":"v9.5.115-JEV-PC-ONLY-R2541-HF3" in MAIN.read_text(encoding="utf-8"),
+    "identity":"v9.5.115-JEV-PC-ONLY-R2541-HF4" in MAIN.read_text(encoding="utf-8"),
     "client blocked":"ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in CLIENT.read_text(encoding="utf-8"),
     "no live execute post":'post(c, "/live/execute", intent, true)' not in CLIENT.read_text(encoding="utf-8"),
     "direct runner inert":"historical PHONE Binance executor permanently inert" in AUTO.read_text(encoding="utf-8"),
-    "truth 15s":"FRESH_MS = 15000L" in TRUTH.read_text(encoding="utf-8"),
-    "version":"versionName '9.5.115-r2541-hf3'" in BUILD.read_text(encoding="utf-8") and "versionCode 26092505" in BUILD.read_text(encoding="utf-8"),
+    "truth stable grace":"FRESH_MS = 45000L" in TRUTH.read_text(encoding="utf-8") and "MIN_FAILURES_BEFORE_UNHEALTHY = 3" in TRUTH.read_text(encoding="utf-8") and "shouldMarkProbeUnhealthy" in TRUTH.read_text(encoding="utf-8"),
+    "version":"versionName '9.5.115-r2541-hf4'" in BUILD.read_text(encoding="utf-8") and "versionCode 26092506" in BUILD.read_text(encoding="utf-8"),
     "ui timing Turkish":"GERİ ÇEKİLME BEKLENİYOR" in CARD.read_text(encoding="utf-8") and "ŞİMDİ PİYASA GİRİŞİ" in CARD.read_text(encoding="utf-8") and "KIRILIM + GERİ TEST" in CARD.read_text(encoding="utf-8"),
     "ui direction Turkish":"OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)" in CARD.read_text(encoding="utf-8"),
     "client release banner":"PC R2541 ATOMİK AYNA • ANDROID PC-ONLY FAIL-CLOSED" in CLIENT.read_text(encoding="utf-8"),
