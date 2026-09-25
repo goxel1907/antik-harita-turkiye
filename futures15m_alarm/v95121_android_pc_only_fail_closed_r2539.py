@@ -250,7 +250,7 @@ checks={
     "legacy direct runner inert":"historical PHONE Binance executor permanently inert" in AUTO.read_text(encoding="utf-8") and "ANDROID DIRECT EXECUTOR DISABLED • PC ONLY" in AUTO.read_text(encoding="utf-8"),
     "phone PC bridge inert":"phone-side PC bridge executor permanently inert" in AUTO.read_text(encoding="utf-8") and "ANDROID runPc DISABLED • PC scheduler owns execution" in AUTO.read_text(encoding="utf-8"),
     "signed Android mutations blocked":"R2539_ANDROID_SIGNED_MUTATION_DISABLED_PC_ONLY" in MAIN.read_text(encoding="utf-8") and 'if(signed && !"GET".equalsIgnoreCase(method))' in MAIN.read_text(encoding="utf-8"),
-    "truth 15s":"FRESH_MS = 15000L" in TRUTH.read_text(encoding="utf-8"),
+    "truth stable 45s/3fail":"FRESH_MS = 45000L" in TRUTH.read_text(encoding="utf-8") and "MIN_FAILURES_BEFORE_UNHEALTHY = 3" in TRUTH.read_text(encoding="utf-8") and "shouldMarkProbeUnhealthy" in TRUTH.read_text(encoding="utf-8"),
     "card":"R2539 PC-ONLY FAIL-CLOSED" in CARD.read_text(encoding="utf-8"),
     "client label":"PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED" in CLIENT.read_text(encoding="utf-8"),
     "build":"versionCode 26092501" in BUILD.read_text(encoding="utf-8") and "versionName '9.5.114-r2539'" in BUILD.read_text(encoding="utf-8"),
