@@ -99,6 +99,19 @@ new_on=r'''    // V95121_ANDROID_PC_ONLY_FAIL_CLOSED_R2539
     }'''
 auto=auto[:b[0]]+new_on+auto[b[1]:]
 
+# Remove the historical direct-Binance PHONE runner body as a second independent barrier.
+rb=method_bounds(auto,"    private static void run(Context c,String s)")
+if not rb: fail("legacy AutoTradeEngine.run method missing")
+new_run=r'''    // R2539: historical PHONE Binance executor permanently inert.
+    private static void run(Context c,String s){
+        if(c==null)return;
+        try{
+            c.getApplicationContext().getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE)
+                .edit().putString("v9576_auto_last_status","ANDROID DIRECT EXECUTOR DISABLED • PC ONLY").apply();
+        }catch(Throwable ignored){}
+    }'''
+auto=auto[:rb[0]]+new_run+auto[rb[1]:]
+
 if "runPc(app,s)" in auto[auto.find("public static void onSignal"):auto.find("public static void onSignal")+1800]:
     fail("onSignal still reaches runPc")
 if "IO.execute(()->run(app,s))" in auto:
@@ -207,6 +220,7 @@ checks={
     "no premature off toast":"KAPATILIYOR • PC LIVE + LEADER AUTO onayı bekleniyor" in MAIN.read_text(encoding="utf-8"),
     "client order boundary":"ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in CLIENT.read_text(encoding="utf-8") and 'post(c, "/live/execute", intent, true)' not in CLIENT.read_text(encoding="utf-8"),
     "auto onSignal pc-only":"telefondan emir başlatılmaz" in AUTO.read_text(encoding="utf-8") and "runPc(app,s)" not in AUTO.read_text(encoding="utf-8")[AUTO.read_text(encoding="utf-8").find("public static void onSignal"):AUTO.read_text(encoding="utf-8").find("public static void onSignal")+1800],
+    "legacy direct runner inert":"historical PHONE Binance executor permanently inert" in AUTO.read_text(encoding="utf-8") and "ANDROID DIRECT EXECUTOR DISABLED • PC ONLY" in AUTO.read_text(encoding="utf-8"),
     "truth 15s":"FRESH_MS = 15000L" in TRUTH.read_text(encoding="utf-8"),
     "card":"R2539 PC-ONLY FAIL-CLOSED" in CARD.read_text(encoding="utf-8"),
     "client label":"PC R2538 LIVE MIRROR • ANDROID PC-ONLY FAIL-CLOSED" in CLIENT.read_text(encoding="utf-8"),
