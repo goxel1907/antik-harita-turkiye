@@ -228,6 +228,10 @@ if ($live.armed -eq $true) { throw 'LIVE changed state during R2539 remote-execu
 if (-not $office.ok -or [string]$office.officeVersion -ne $ExpectedOffice) { throw "Office version mismatch: $($office.officeVersion)" }
 if (-not $snapshot.health.ok -or -not $snapshot.status.ok) { throw 'Office snapshot health/status failed.' }
 if (-not $mirror.ok -or [string]$mirror.contract -ne 'R2541_ATOMIC_TURKISH_MIRROR') { throw 'R2541 JEV live mirror endpoint failed.' }
+if (-not $mirror.parity -or -not [bool]$mirror.parity.ok) { throw 'R2541 packet/chart parity is not OK.' }
+if ([int]$mirror.parity.mismatches -ne 0) { throw ("R2541 structural packet/chart parity failed. mismatches={0}" -f $mirror.parity.mismatches) }
+if ([string]$mirror.parity.structuralSemantics -ne 'R2541_PACKET_VS_CHART_SWING_TREND_PATTERN_PARITY') { throw 'R2541 structural parity contract missing.' }
+if ([int]$mirror.parity.compared -lt 10) { throw ("R2541 parity compared too few fields: {0}" -f $mirror.parity.compared) }
 $installedOfficeHtml = Join-Path $Root 'office-dashboard\public\office.html'
 if (-not (Test-Path -LiteralPath $installedOfficeHtml)) { throw 'Installed Office HTML missing.' }
 $installedOfficeSource = Get-Content -LiteralPath $installedOfficeHtml -Raw
@@ -257,11 +261,8 @@ Write-Host 'R2541_VISION_AUDIT_TOOL_OK'
 Write-Host 'R2541_CONTEXT_COMPLETE_OK'
 Write-Host 'R2541_JEV_LIVE_MIRROR_OK'
 Write-Host 'R2541_REMOTE_EXECUTE_BLOCK_OK'
-if ([int]$mirror.parity.mismatches -eq 0) {
-  Write-Host 'R2541_PACKET_CHART_PARITY_OK'
-} else {
-  Write-Host ("R2541_PACKET_CHART_PARITY_VISIBLE mismatches={0}" -f $mirror.parity.mismatches)
-}
+Write-Host ("R2541_PACKET_CHART_PARITY_OK compared={0} mismatches=0" -f $mirror.parity.compared)
+Write-Host 'R2541_STRUCTURAL_TREND_PATTERN_PARITY_OK'
 Write-Host 'R2541_OFFICE_MIRROR_CARD_OK'
 Write-Host 'R2541_FULL_OVERLAY_GRAPH_OK'
 Write-Host 'R2541_LIQUIDATION_OVERLAY_OK'
