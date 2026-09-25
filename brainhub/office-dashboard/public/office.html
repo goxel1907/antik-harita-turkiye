@@ -980,7 +980,7 @@ async function renderMirror(s){
   if(clean)clean.src=cleanUrl;
   if(annotated)annotated.src=annotatedUrl;
   $('#mirrorCleanLabel').textContent=`${symbol} • ${mirrorTf}`;
-  $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${mirrorTf}`;
+  $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${mirrorTf} • FULL SMC + LIQ`;
 
   try{
     const r=await fetch('/api/jev-mirror'+mirrorQuery({symbol,tf:mirrorTf,_:stamp}),{cache:'no-store'});
@@ -1002,27 +1002,45 @@ async function renderMirror(s){
           : 'Paket ↔ grafik doğrulaması için yeterli alan bekleniyor');
 
     const fib=smc?.fibLevels?.retracement||{};
+    const fibExt=smc?.fibLevels?.extension||{};
     const ote=smc?.oteReference||{};
+    const dr=smc?.dealingRange||{};
     const recorded=d?.jevSeen||null;
     const recordedPx=recorded?.livePrice;
     const ageSec=Number.isFinite(Number(d?.ageMs))?Math.round(Number(d.ageMs)/1000):null;
+    const fmtRange=z=>z&&num(z.low)!==null&&num(z.high)!==null?`${mirrorFmt(z.low,4)}→${mirrorFmt(z.high,4)}`:'—';
+    const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.broken?' kırık':''}`).join(' • ')||'yok';
+    const fmtFvg=list=>(list||[]).map((x,i)=>`#${i+1} ${x?.side||'?'} ${fmtRange(x)} CE50 ${mirrorFmt(x?.ce50,4)}`).join(' • ')||'yok';
+    const fmtLiq=list=>(list||[]).map((x,i)=>`#${i+1} ${x?.side||'?'} @${mirrorFmt(x?.price,4)} ≈${mirrorFmt(x?.observedQuote,0)} USDT`).join(' • ')||'yok';
+    const patterns=(f?.patterns||[]).slice(-6).map(x=>`${x?.type||x?.name||'PATTERN'}${x?.status?'('+x.status+')':''}`).join(' • ')||'yok';
+    const swing=f?.swingStructure||{};
     const rows=[
       ['Anlık fiyat', mirrorFmt(p.livePrice,4)],
-      ['Yapı', `${f.trend||'—'} • BOS ${f.breakOfStructure||'—'} • RSI ${mirrorFmt(f.rsi14,1)} • ATR ${mirrorFmt(f.atrPct,2)}%`],
-      ['Likidite / SMC', `sweep ${f?.liquidity?.lastSweep||'—'} • FVG ${(f.recentFairValueGaps||[]).length} • OB B${(ob.bullish||[]).length}/S${(ob.bearish||[]).length}`],
-      ['OTE / Fib', `zone ${smc?.dealingRange?.zone||'—'} • EQ ${mirrorFmt(smc?.dealingRange?.equilibrium,4)} • Fib .618 ${mirrorFmt(fib['0.618'],4)} • OTE-L ${mirrorFmt(ote?.longDiscountZone?.low,4)}→${mirrorFmt(ote?.longDiscountZone?.high,4)}`],
-      ['Order flow', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • depth ${mirrorFmt(ms.depth20Imbalance,3)} • spread ${mirrorFmt(ms.spreadBps,2)} bps`],
-      ['Türevler', `OIΔ5m ${mirrorFmt(der.oiDelta5mPct,2)}% • funding ${mirrorFmt(der.fundingRate,6)} • taker ${mirrorFmt(der.takerBuySellRatio,3)}`],
-      ['Observed liquidation', `${liq.count??0} print • long ${mirrorFmt(liq.longLiquidatedQuote,0)} • short ${mirrorFmt(liq.shortLiquidatedQuote,0)} • zone ${(liq.zones||[]).length}`],
+      ['Trend / yapı', `${f.trend||'—'} • swing ${swing.state||'—'} ${swing.highSequence||''}/${swing.lowSequence||''} • event ${swing.event||'—'} • BOS ${f.breakOfStructure||'—'}`],
+      ['Momentum', `RSI ${mirrorFmt(f.rsi14,1)} • ATR ${mirrorFmt(f.atrPct,2)}% • EMA20 ${mirrorFmt(f.ema20,4)} • EMA50 ${mirrorFmt(f.ema50,4)}`],
+      ['Range', `${dr.zone||'—'} • low ${mirrorFmt(dr.low,4)} • EQ ${mirrorFmt(dr.equilibrium,4)} • high ${mirrorFmt(dr.high,4)} • pos ${mirrorFmt(dr.positionPct,1)}%`],
+      ['Likidite', `prior20 H/L ${mirrorFmt(f.prior20High,4)} / ${mirrorFmt(f.prior20Low,4)} • equal H/L ${mirrorFmt(f?.liquidity?.equalHigh?.price,4)} / ${mirrorFmt(f?.liquidity?.equalLow?.price,4)} • sweep ${f?.liquidity?.lastSweep||'—'}`],
+      ['Bullish OB', fmtOb(ob.bullish)],
+      ['Bearish OB', fmtOb(ob.bearish)],
+      ['FVG', fmtFvg(f.recentFairValueGaps)],
+      ['OTE Long', fmtRange(ote?.longDiscountZone)],
+      ['OTE Short', fmtRange(ote?.shortPremiumZone)],
+      ['Fib retracement', `.236 ${mirrorFmt(fib['0.236'],4)} • .382 ${mirrorFmt(fib['0.382'],4)} • .5 ${mirrorFmt(fib['0.5'],4)} • .618 ${mirrorFmt(fib['0.618'],4)} • .705 ${mirrorFmt(fib['0.705'],4)} • .786 ${mirrorFmt(fib['0.786'],4)}`],
+      ['Fib extension', `1.272 ${mirrorFmt(fibExt['1.272'],4)} • 1.618 ${mirrorFmt(fibExt['1.618'],4)} • leg ${smc?.fibLevels?.leg||'—'}`],
+      ['Oluşumlar', patterns],
+      ['Observed liquidation zones', fmtLiq(liq.zones)],
+      ['Liquidation akışı', `${liq.count??0} print • long ${mirrorFmt(liq.longLiquidatedQuote,0)} • short ${mirrorFmt(liq.shortLiquidatedQuote,0)} • velocity ${liq?.velocity?.state||liq?.velocity?.level||'—'} • cascade ${liq?.cascade?.state||liq?.cascade?.level||'—'}`],
+      ['Order flow', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • depth ${mirrorFmt(ms.depth20Imbalance,3)} • microprice ${mirrorFmt(ms.microprice,4)} • spread ${mirrorFmt(ms.spreadBps,2)} bps`],
+      ['Türevler', `OIΔ5m ${mirrorFmt(der.oiDelta5mPct,2)}% • funding ${mirrorFmt(der.fundingRate,6)} • taker ${mirrorFmt(der.takerBuySellRatio,3)} • top ${mirrorFmt(der.topTraderLongShortRatio,3)} • global ${mirrorFmt(der.globalLongShortRatio,3)}`],
       ['PASS-1', d.ts?`${p1.laneFocus||'—'} • yön ${p1.directionFocus||'—'} • istek ${(p1.requestedEvidence||[]).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
       ['PASS-2', d.ts?`${p2.action||pl.side||'WAIT'} • ${p2.setupFamily||pl.setupFamily||'—'} • timing ${p2.entryTiming||pl.entryTiming||'—'} • edge ${p2.edgeBasis||pl.edgeBasis||'—'}`:'henüz final kayıt yok'],
-      ['Son karar snapshot', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski R2537 kaydı':mirrorFmt(recordedPx,4)}`:'—']
+      ['Son karar snapshot', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski kayıt / exact snapshot yok':mirrorFmt(recordedPx,4)}`:'—']
     ];
     $('#mirrorKv').innerHTML=rows.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
     const visionText=String(d?.vision?.textExcerpt||'').trim();
     $('#mirrorVision').textContent=visionText
       ? 'VISION EVIDENCE → '+visionText
-      : 'Vision metin aynası: yeni R2538 JEV kararı oluştuğunda worker’ın JEV’e verdiği kısa görsel kanıt burada görünür.';
+      : 'Vision metin aynası: yeni JEV kararı oluştuğunda worker’ın grafikten çıkardığı kısa kanıt burada görünür. Üstteki FULL ANNOTATED grafik aynı deterministik renderer katmanlarını taşır.';
   }catch(e){
     if(seq!==mirrorSeq)return;
     const parityEl=$('#mirrorParity');
