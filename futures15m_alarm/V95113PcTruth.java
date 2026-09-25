@@ -7,7 +7,7 @@ import org.json.JSONObject;
 
 // CLAUDE_V113_ANDROID_LIVE_TRUTH
 // The phone shows PC LIVE as AÇIK/KAPALI only when the PC itself confirmed it via
-// GET /live/status within the last 90 s. A local SharedPreferences flag (for example
+// GET /live/status within the last 15 s. A local SharedPreferences flag (for example
 // v9576_auto_enabled) never implies "PC LIVE: KAPALI". If the PC cannot be reached the
 // state is BİLİNMİYOR. Read-only helper: no order, cancel or close side effects.
 public final class V95113PcTruth {
