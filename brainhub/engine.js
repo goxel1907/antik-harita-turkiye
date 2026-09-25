@@ -124,8 +124,8 @@ function linearFit(points) {
   const slope = num / den;
   return { slope, intercept:my - slope * mx, at:x => slope * x + (my - slope * mx) };
 }
-function swingStructure(pv, tolerance, lastClose) {
-  const h = pv.highs.slice(-3), l = pv.lows.slice(-3);
+function swingStructure(pv, tolerance, lastClose, lastIndex = null, lastAt = null) {
+  const h = pv.highs.slice(-6), l = pv.lows.slice(-6);
   const cmp = (a, b) => a > b + tolerance ? 1 : a < b - tolerance ? -1 : 0;
   const highSeq = h.length >= 2 ? cmp(h.at(-1).price, h.at(-2).price) : null;
   const lowSeq = l.length >= 2 ? cmp(l.at(-1).price, l.at(-2).price) : null;
@@ -136,12 +136,43 @@ function swingStructure(pv, tolerance, lastClose) {
   let event = null;
   if (lastHigh && lastClose > lastHigh.price + tolerance * 0.15) event = state === 'BEARISH' ? 'CHOCH_UP' : 'BOS_UP';
   if (lastLow && lastClose < lastLow.price - tolerance * 0.15) event = state === 'BULLISH' ? 'CHOCH_DOWN' : 'BOS_DOWN';
+
+  // R2541_CONFIRMED_SWING_TRENDLINES: trend çizgisi yalnız teyitli kapalı-mum pivotlarından gelir.
+  // Yükseliş desteği = son iki teyitli higher-low; düşüş direnci = son iki teyitli lower-high.
+  // Son kapanış çizgiyi yapısal toleransın ötesinde kırdıysa çizgi artık aktif değildir.
+  const endIndex=Number.isInteger(lastIndex)?lastIndex:Math.max(
+    lastHigh?.index??0,lastLow?.index??0,h.at(-1)?.index??0,l.at(-1)?.index??0
+  );
+  const makeTrendLine=(a,b,kind)=>{
+    if(!a||!b||!(b.index>a.index))return null;
+    const slope=(b.price-a.price)/(b.index-a.index);
+    const projected=b.price+slope*Math.max(0,endIndex-b.index);
+    const active=kind==='UP_SUPPORT'
+      ? lastClose>=projected-tolerance*0.15
+      : lastClose<=projected+tolerance*0.15;
+    return {
+      kind,active,
+      source:'CONFIRMED_PIVOTS_CLOSED_CANDLES',
+      from:{index:a.index,price:round(a.price),at:a.at},
+      to:{index:b.index,price:round(b.price),at:b.at},
+      projected:{index:endIndex,price:round(projected),at:lastAt||null},
+      invalidatedByClose:active?null:round(lastClose)
+    };
+  };
+  const lowA=l.at(-2),lowB=l.at(-1),highA=h.at(-2),highB=h.at(-1);
+  const upSupport=lowA&&lowB&&lowB.price>lowA.price+tolerance ? makeTrendLine(lowA,lowB,'UP_SUPPORT') : null;
+  const downResistance=highA&&highB&&highB.price<highA.price-tolerance ? makeTrendLine(highA,highB,'DOWN_RESISTANCE') : null;
   return {
     state,
     highSequence:highSeq === 1 ? 'HH' : highSeq === -1 ? 'LH' : highSeq === 0 ? 'EH' : 'UNKNOWN',
     lowSequence:lowSeq === 1 ? 'HL' : lowSeq === -1 ? 'LL' : lowSeq === 0 ? 'EL' : 'UNKNOWN',
-    lastConfirmedSwingHigh:lastHigh ? { price:round(lastHigh.price), at:lastHigh.at } : null,
-    lastConfirmedSwingLow:lastLow ? { price:round(lastLow.price), at:lastLow.at } : null,
+    lastConfirmedSwingHigh:lastHigh ? { index:lastHigh.index, price:round(lastHigh.price), at:lastHigh.at } : null,
+    lastConfirmedSwingLow:lastLow ? { index:lastLow.index, price:round(lastLow.price), at:lastLow.at } : null,
+    confirmedPivots:{
+      highs:h.map(x=>({index:x.index,price:round(x.price),at:x.at})),
+      lows:l.map(x=>({index:x.index,price:round(x.price),at:x.at}))
+    },
+    trendLines:{upSupport,downResistance},
     event
   };
 }
@@ -158,7 +189,8 @@ function smcContext(swings, lastClose, gaps = []) {
   const range=high-low;
   const equilibrium=(high+low)/2;
   const position=(lastClose-low)/range;
-  const zone=position < 0.45 ? 'DISCOUNT' : position > 0.55 ? 'PREMIUM' : 'EQUILIBRIUM';
+  const bandZone=position < 0.45 ? 'DISCOUNT' : position > 0.55 ? 'PREMIUM' : 'EQUILIBRIUM';
+  const zone=position < 0 ? 'BELOW_RANGE_EXTENSION' : position > 1 ? 'ABOVE_RANGE_EXTENSION' : bandZone;
   const longOteLow=low+range*0.21;
   const longOteHigh=low+range*0.38;
   const shortOteLow=low+range*0.62;
@@ -194,7 +226,9 @@ function smcContext(swings, lastClose, gaps = []) {
       high:round(high),
       equilibrium:round(equilibrium),
       positionPct:round(position*100,2),
-      zone
+      zone,
+      bandZone,
+      insideRange:position>=0&&position<=1
     },
     oteReference:{
       longDiscountZone:{ low:round(longOteLow), high:round(longOteHigh) },
@@ -214,48 +248,68 @@ function geometryPatterns(c, pv, a14, tolerance) {
   const highs = pv.highs.slice(-4), lows = pv.lows.slice(-4);
   const hf = linearFit(highs), lf = linearFit(lows);
   const slopeTol = Math.max((a14 || 0) * 0.025, last.close * 0.00003);
+  const point=(index,price)=>({index,price:round(price),at:c[index]?.closeTime||null});
+  const lineFromFit=(fit,start,end,role)=>({role,from:point(start,fit.at(start)),to:point(end,fit.at(end))});
+  const fitGeometry=(start,end)=>({
+    source:'CONFIRMED_PIVOT_GEOMETRY_CLOSED_CANDLES',
+    lines:[lineFromFit(hf,start,end,'UPPER'),lineFromFit(lf,start,end,'LOWER')],
+    pivots:[
+      ...highs.map(x=>({role:'HIGH',index:x.index,price:round(x.price),at:x.at})),
+      ...lows.map(x=>({role:'LOW',index:x.index,price:round(x.price),at:x.at}))
+    ]
+  });
   if (hf && lf) {
     const start = Math.max(Math.min(...highs.map(x => x.index)), Math.min(...lows.map(x => x.index)));
-    const end = Math.min(Math.max(...highs.map(x => x.index)), Math.max(...lows.map(x => x.index)));
+    const fitEnd = Math.min(Math.max(...highs.map(x => x.index)), Math.max(...lows.map(x => x.index)));
+    const drawEnd = c.length - 1;
     const spreadStart = hf.at(start) - lf.at(start);
-    const spreadEnd = hf.at(end) - lf.at(end);
+    const spreadEnd = hf.at(fitEnd) - lf.at(fitEnd);
     const converging = spreadStart > 0 && spreadEnd > 0 && spreadEnd <= spreadStart * 0.82;
     const highFlat = Math.abs(hf.slope) <= slopeTol;
     const lowFlat = Math.abs(lf.slope) <= slopeTol;
-    if (highFlat && lf.slope > slopeTol && converging) out.push({ type:'ASCENDING_TRIANGLE', side:'LONG', status:'FORMING', at:last.closeTime });
-    if (lowFlat && hf.slope < -slopeTol && converging) out.push({ type:'DESCENDING_TRIANGLE', side:'SHORT', status:'FORMING', at:last.closeTime });
-    if (hf.slope < -slopeTol && lf.slope > slopeTol && converging) out.push({ type:'SYMMETRICAL_TRIANGLE', side:'NEUTRAL', status:'FORMING', at:last.closeTime });
-    if (hf.slope > slopeTol && lf.slope > slopeTol && converging) out.push({ type:'RISING_WEDGE', side:'SHORT', status:'FORMING', at:last.closeTime });
-    if (hf.slope < -slopeTol && lf.slope < -slopeTol && converging) out.push({ type:'FALLING_WEDGE', side:'LONG', status:'FORMING', at:last.closeTime });
+    const push=(type,side)=>out.push({type,side,status:'FORMING',at:last.closeTime,geometry:fitGeometry(start,drawEnd)});
+    if (highFlat && lf.slope > slopeTol && converging) push('ASCENDING_TRIANGLE','LONG');
+    if (lowFlat && hf.slope < -slopeTol && converging) push('DESCENDING_TRIANGLE','SHORT');
+    if (hf.slope < -slopeTol && lf.slope > slopeTol && converging) push('SYMMETRICAL_TRIANGLE','NEUTRAL');
+    if (hf.slope > slopeTol && lf.slope > slopeTol && converging) push('RISING_WEDGE','SHORT');
+    if (hf.slope < -slopeTol && lf.slope < -slopeTol && converging) push('FALLING_WEDGE','LONG');
     const parallel = Math.abs(hf.slope - lf.slope) <= slopeTol * 1.5 && !converging;
-    if (parallel && hf.slope > slopeTol) out.push({ type:'RISING_CHANNEL', side:'LONG', status:'FORMING', at:last.closeTime });
-    if (parallel && hf.slope < -slopeTol) out.push({ type:'FALLING_CHANNEL', side:'SHORT', status:'FORMING', at:last.closeTime });
-    if (highFlat && lowFlat) out.push({ type:'RANGE', side:'NEUTRAL', status:'FORMING', at:last.closeTime });
+    if (parallel && hf.slope > slopeTol) push('RISING_CHANNEL','LONG');
+    if (parallel && hf.slope < -slopeTol) push('FALLING_CHANNEL','SHORT');
+    if (highFlat && lowFlat) push('RANGE','NEUTRAL');
   }
   const eqHigh = equalLevel(pv.highs, tolerance), eqLow = equalLevel(pv.lows, tolerance);
   if (eqHigh && pv.lows.length) {
-    const neck = pv.lows.at(-1).price;
-    out.push({ type:'DOUBLE_TOP', side:'SHORT', status:last.close < neck ? 'CONFIRMED' : 'FORMING', neckline:round(neck), at:last.closeTime });
+    const a=pv.highs.at(-2),b=pv.highs.at(-1),neckPv=pv.lows.at(-1),neck=neckPv.price;
+    out.push({ type:'DOUBLE_TOP', side:'SHORT', status:last.close < neck ? 'CONFIRMED' : 'FORMING', neckline:round(neck), at:last.closeTime,
+      geometry:{source:'CONFIRMED_PIVOT_GEOMETRY_CLOSED_CANDLES',pivots:[a,b,neckPv].filter(Boolean).map((x,i)=>({role:i<2?'TOP':'NECK',index:x.index,price:round(x.price),at:x.at})),lines:[]}
+    });
   }
   if (eqLow && pv.highs.length) {
-    const neck = pv.highs.at(-1).price;
-    out.push({ type:'DOUBLE_BOTTOM', side:'LONG', status:last.close > neck ? 'CONFIRMED' : 'FORMING', neckline:round(neck), at:last.closeTime });
+    const a=pv.lows.at(-2),b=pv.lows.at(-1),neckPv=pv.highs.at(-1),neck=neckPv.price;
+    out.push({ type:'DOUBLE_BOTTOM', side:'LONG', status:last.close > neck ? 'CONFIRMED' : 'FORMING', neckline:round(neck), at:last.closeTime,
+      geometry:{source:'CONFIRMED_PIVOT_GEOMETRY_CLOSED_CANDLES',pivots:[a,b,neckPv].filter(Boolean).map((x,i)=>({role:i<2?'BOTTOM':'NECK',index:x.index,price:round(x.price),at:x.at})),lines:[]}
+    });
   }
   const h3 = pv.highs.slice(-3), l3 = pv.lows.slice(-3);
   if (h3.length === 3 && l3.length >= 2) {
     const [a,b,d] = h3;
     const shoulders = Math.abs(a.price - d.price) <= tolerance * 1.8;
     if (shoulders && b.price > Math.max(a.price, d.price) + tolerance) {
-      const neck = (l3.at(-1).price + l3.at(-2).price) / 2;
-      out.push({ type:'HEAD_AND_SHOULDERS', side:'SHORT', status:last.close < neck ? 'CONFIRMED' : 'FORMING', neckline:round(neck), at:last.closeTime });
+      const neckA=l3.at(-2),neckB=l3.at(-1),neck = (neckB.price + neckA.price) / 2;
+      out.push({ type:'HEAD_AND_SHOULDERS', side:'SHORT', status:last.close < neck ? 'CONFIRMED' : 'FORMING', neckline:round(neck), at:last.closeTime,
+        geometry:{source:'CONFIRMED_PIVOT_GEOMETRY_CLOSED_CANDLES',pivots:[a,b,d,neckA,neckB].map((x,i)=>({role:i<3?'TOP':'NECK',index:x.index,price:round(x.price),at:x.at})),lines:[]}
+      });
     }
   }
   if (l3.length === 3 && h3.length >= 2) {
     const [a,b,d] = l3;
     const shoulders = Math.abs(a.price - d.price) <= tolerance * 1.8;
     if (shoulders && b.price < Math.min(a.price, d.price) - tolerance) {
-      const neck = (h3.at(-1).price + h3.at(-2).price) / 2;
-      out.push({ type:'INVERSE_HEAD_AND_SHOULDERS', side:'LONG', status:last.close > neck ? 'CONFIRMED' : 'FORMING', neckline:round(neck), at:last.closeTime });
+      const neckA=h3.at(-2),neckB=h3.at(-1),neck = (neckB.price + neckA.price) / 2;
+      out.push({ type:'INVERSE_HEAD_AND_SHOULDERS', side:'LONG', status:last.close > neck ? 'CONFIRMED' : 'FORMING', neckline:round(neck), at:last.closeTime,
+        geometry:{source:'CONFIRMED_PIVOT_GEOMETRY_CLOSED_CANDLES',pivots:[a,b,d,neckA,neckB].map((x,i)=>({role:i<3?'BOTTOM':'NECK',index:x.index,price:round(x.price),at:x.at})),lines:[]}
+      });
     }
   }
   return out;
@@ -434,7 +488,7 @@ function structure(c, frame = null) {
   let lastSweep = null;
   if (eqLow && last.low < eqLow.price && last.close > eqLow.price) lastSweep = 'SELL_SIDE_RECLAIM';
   if (eqHigh && last.high > eqHigh.price && last.close < eqHigh.price) lastSweep = 'BUY_SIDE_REJECT';
-  const swings = swingStructure(pv, tolerance, last.close);
+  const swings = swingStructure(pv, tolerance, last.close, c.length-1, last.closeTime);
   const patterns = detectPatterns(c, a14, high, low, pv, tolerance);
   const base = {
     available:true, frame, asOf:last.closeTime, closedCandles:c.length,
