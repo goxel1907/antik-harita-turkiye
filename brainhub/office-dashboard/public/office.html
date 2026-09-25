@@ -565,11 +565,11 @@ function renderKpis(s){
   const avail = num(acc.availableBalance ?? acc.account?.availableBalance);
   $('#kpis').innerHTML = [
     kpi('LIVE', armed?'AÇIK':'KAPALI', armed?(exp!=null?`kalan ${exp} dk`:'süre bilinmiyor'):'emir gönderilmez', armed?'good':'critical'),
-    kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`max ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'LONG':'',la.allowShort?'SHORT':''].filter(Boolean).join(' ')}`:'Leader AUTO etkin değil', la.enabled?null:'critical'),
+    kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`en fazla ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'ALIŞ (LONG)':'',la.allowShort?'SATIŞ (SHORT)':''].filter(Boolean).join(' ')}`:'Otomatik lider etkin değil', la.enabled?null:'critical'),
     kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
     kpi('JEV değerlendirme (60 dk)', `${h.deepAnalyses??0} / ${h.uniqueAnalyzedSymbols??0} coin`, `PASS-1 ${h.sovereignPass1Calls??0} • final ${h.sovereignFinalCalls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0}`),
-    kpi('JEV final karar', `${(h.sovereignLong??0)+(h.sovereignShort??0)} işlem / ${h.sovereignWait??0} WAIT`, `LONG ${h.sovereignLong??0} • SHORT ${h.sovereignShort??0} • hard safety sonrası emir ${h.ordersPlaced??0}`, ((h.sovereignLong||0)+(h.sovereignShort||0))>0?'good':'info'),
-    kpi('Açılan emir', `${h.ordersPlaced??0}`, `hard safety ${h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null)
+    kpi('JEV son karar', `${(h.sovereignLong??0)+(h.sovereignShort??0)} işlem / ${h.sovereignWait??0} BEKLE`, `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • zorunlu güvenlik sonrası emir ${h.ordersPlaced??0}`, ((h.sovereignLong||0)+(h.sovereignShort||0))>0?'good':'info'),
+    kpi('Açılan emir', `${h.ordersPlaced??0}`, `zorunlu güvenlik ${h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null)
   ].join('');
   chip('#chipVer', s.health?.ok?'good':'bad', `PC ${s.health?.data?.featureVersion || st.featureVersion || '—'}`);
   chip('#chipLive', armed?'good':'bad', armed?`LIVE AÇIK${exp!=null?' • '+exp+' dk':''}`:'LIVE KAPALI');
@@ -587,10 +587,10 @@ function renderLanes(s){
   const pass1=+(h.sovereignPass1Calls??0), binding=+(h.sovereignFinalCalls??h.jevCalled??0);
   const card=(tone,title,value,sub,mini=[])=>`<div class="lane-card ${tone}"><div class="t">${esc(title)}</div><div class="v">${esc(value)}</div><div class="s">${esc(sub)}</div><div class="mini">${mini.map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`;
   $('#laneStrip').innerHTML=[
-    card('info','15m LONG / SHORT TRADE',`${h.sovereignLong??0} LONG • ${h.sovereignShort??0} SHORT`,'15m ana trade lane’idir; 30m+ zorunlu oy değildir, JEV isterse ek kanıttır.',['15M_TRADE','JEV decides']),
-    card('info','5m LONG / SHORT SCALP',`${binding} final karar`,'5m scalp lane’idir. 1m/3m teyit zorunlu değildir; JEV isterse timing kanıtı olarak çağırır.',['5M_SCALP','no 2/3 gate']),
-    card(pass1?'good':'info','JEV KANIT YÖNETİMİ',`PASS-1 ${pass1} • istek ${h.sovereignEvidenceRequests??0}`,'Radar yalnız dikkat çeker. Hangi grafik/veri/worker kanıtının gerekli olduğunu JEV belirler.',['ATTENTION_ONLY','EVIDENCE_ONLY']),
-    card(binding?'good':'warn','JEV FINAL AUTHORITY',`${binding} final • WAIT ${h.sovereignWait??0}`,'JEV önem sırasını kendi belirler; bütün şartların hizalanmasını beklemek zorunda değildir. Sonrasında yalnız mekanik hard safety vardır.',['LONG/SHORT/WAIT'])
+    card('info','15 dk ALIŞ / SATIŞ ANA İŞLEM',`${h.sovereignLong??0} ALIŞ • ${h.sovereignShort??0} SATIŞ`,'15 dk ana işlem hattıdır; 30 dk+ zorunlu oy değildir, JEV isterse ek kanıttır.',['15 DK ANA İŞLEM','KARARI JEV VERİR']),
+    card('info','5 dk ALIŞ / SATIŞ SCALP',`${binding} son karar`,'5 dk scalp hattıdır. 1 dk/3 dk teyit zorunlu değildir; JEV isterse giriş zamanlaması kanıtı olarak çağırır.',['5 DK SCALP','2/3 KAPISI YOK']),
+    card(pass1?'good':'info','JEV KANIT YÖNETİMİ',`PASS-1 ${pass1} • istek ${h.sovereignEvidenceRequests??0}`,'Radar yalnız dikkat çeker. Hangi grafik/veri/kanıt ajanı bilgisinin gerekli olduğunu JEV belirler.',['YALNIZCA DİKKAT','YALNIZCA KANIT']),
+    card(binding?'good':'warn','JEV SON KARAR YETKİSİ',`${binding} son karar • BEKLE ${h.sovereignWait??0}`,'JEV önem sırasını kendi belirler; bütün şartların hizalanmasını beklemek zorunda değildir. Sonrasında yalnız mekanik zorunlu güvenlik vardır.',['ALIŞ/SATIŞ/BEKLE'])
   ].join('');
 }
 
@@ -649,18 +649,18 @@ function renderJev(s){
     const le=st.learning||{};
     const sel=h.sovereignSelectivityDiagnostic||{};
     const selectivity=sel.code==='NO_WAIT_OBSERVED_INFO_ONLY'
-      ? `bilgi: son ${h.sovereignFinalTotal??0} finalde WAIT yok • BLOK YOK`
-      : `WAIT oranı ${h.sovereignWaitRatePct==null?'—':h.sovereignWaitRatePct+'%'} • BLOK YOK`;
+      ? `bilgi: son ${h.sovereignFinalTotal??0} son kararda BEKLE yok • BLOK YOK`
+      : `BEKLE oranı ${h.sovereignWaitRatePct==null?'—':h.sovereignWaitRatePct+'%'} • BLOK YOK`;
     $('#jevKv').innerHTML = [
       ['Durum', j.configured?`hazır • ${j.model||''} • JEV PATRON`:'yapılandırılmamış'],
-      ['Akış', `PASS-1 ${h.sovereignPass1Calls??0} • evidence request ${h.sovereignEvidenceRequests??0} • PASS-2 ${h.sovereignFinalCalls??0}`],
-      ['Final', `LONG ${h.sovereignLong??0} • SHORT ${h.sovereignShort??0} • WAIT ${h.sovereignWait??0}`],
+      ['Akış', `PASS-1 ${h.sovereignPass1Calls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0} • PASS-2 ${h.sovereignFinalCalls??0}`],
+      ['Son karar', `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • BEKLE ${h.sovereignWait??0}`],
       ['Seçicilik', selectivity],
-      ['Deneyim hafızası', `ölçülmüş ${le.measuredSampleCount??0} • JEV lesson ${le.jevLessonCount??0} • soft context`],
-      ['Kural', 'Puanlama/2-of-3/hard-15m stratejik kapı yok; JEV setup ailesi + edge kaynağı + giriş zamanlamasını ayrıca seçer. MARKET_NOW değilse emir yetkilenmez.']
+      ['Deneyim hafızası', `ölçülmüş ${le.measuredSampleCount??0} • JEV dersi ${le.jevLessonCount??0} • yumuşak bağlam`],
+      ['Kural', 'Puanlama/2-of-3/zorunlu-15dk stratejik kapı yok; JEV setup ailesi + avantaj kaynağı + giriş zamanlamasını ayrıca seçer. ŞİMDİ PİYASA GİRİŞİ değilse emir yetkilenmez.']
     ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
     $('#jevList').innerHTML = [
-      ['5m scalp','LONG / SHORT'],['15m trade','LONG / SHORT'],['Radar','ATTENTION_ONLY'],['Worker','JEV-directed EVIDENCE_ONLY'],['Sonrası','HARD SAFETY ONLY']
+      ['5 dk scalp','ALIŞ / SATIŞ'],['15 dk ana işlem','ALIŞ / SATIŞ'],['Radar','YALNIZCA DİKKAT'],['Kanıt ajanı','JEV yönlendirmeli YALNIZCA KANIT'],['Sonrası','YALNIZCA ZORUNLU GÜVENLİK']
     ].map(([a,b])=>`<div class="jq"><span class="t">${esc(a)}</span><span class="p" style="width:auto">${esc(b)}</span></div>`).join('');
     return;
   }
