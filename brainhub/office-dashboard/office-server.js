@@ -314,8 +314,8 @@ function derive(snap) {
     const pr = h.claudeV112?.positionRest || null;
     if (pr?.active) add('ok', 'POSITION_REST', `Pozisyonlar dolu (${pr.openPositions}/${pr.maxOpenPositions}) — ajanlar dinleniyor`, `Yeni giriş analizi (Vision, hızlı hat/Jev, plan worker) ${pr.since ? new Date(pr.since).toLocaleTimeString('tr-TR') + "'den beri " : ''}durdu; Binance'e yeni emir gitmez. Açık pozisyonlar runner ve pozisyon yöneticisiyle yönetiliyor; yer açılınca kendiliğinden devam eder.`);
     // CLAUDE_V112: LIVE kapalıyken Jev onayı hard safety'ye hiç gitmez; bu uyarı yalnız LIVE açıkken anlamlı.
-    if (st.armed === true && !pr?.active && Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, hard safety geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/hard safety: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve one-shot grant engel olabilir.');
-    if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Hard safety geçti, emir yok', 'Yürütme/transport katmanı (LIVE grant, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
+    if (st.armed === true && !pr?.active && Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, zorunlu güvenlik geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/zorunlu güvenlik: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve tek kullanımlık yürütme yetkisi engel olabilir.');
+    if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Zorunlu güvenlik geçti, emir yok', 'Yürütme katmanı (LIVE yürütme yetkisi, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
     if (sovereign && deep >= 1 && pass1 === 0) add('serious','JEV_PASS1_MISSING','Radar/analiz JEV PASS-1’e ulaşmıyor',`${deep} değerlendirme var ama PASS-1 çağrısı yok. Scanner yalnız ATTENTION_ONLY olmalı ve stratejik kapı JEV’den önce çalışmamalı.`);
     if (sovereign && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • evidence request ${evidenceRequests} • PASS-2/final 0. Evidence worker veya JEV final çağrısı kontrol edilmeli.`);
 
@@ -329,14 +329,14 @@ function derive(snap) {
   const funnel = sovereign ? [
     { key: 'universe', label: 'Binance evreni', value: finite(h.latestLightweightUniverseCount) ?? finite(h.latestUniverseCount) },
     { key: 'target', label: 'Radar hedef evreni', value: finite(la.diagnostics?.universeCount) },
-    { key: 'shortlist', label: 'Radar attention listesi', value: finite(h.latestShortlistCount) },
+    { key: 'shortlist', label: 'Radar dikkat listesi', value: finite(h.latestShortlistCount) },
     { key: 'deep', label: 'JEV değerlendirme', value: deep },
     { key: 'pass1', label: 'JEV PASS-1 • kanıt seçimi', value: pass1 },
     { key: 'evidence', label: 'JEV kanıt istekleri', value: evidenceRequests },
-    { key: 'final', label: 'JEV PASS-2 • FINAL', value: finalCalls },
-    { key: 'action', label: 'LONG + SHORT final', value: Number(h.sovereignLong||0)+Number(h.sovereignShort||0) },
-    { key: 'wait', label: 'JEV WAIT', value: Number(h.sovereignWait||0) },
-    { key: 'intent', label: 'Hard safety geçti', value: hardSafetyReady },
+    { key: 'final', label: 'JEV PASS-2 • SON KARAR', value: finalCalls },
+    { key: 'action', label: 'ALIŞ + SATIŞ son karar', value: Number(h.sovereignLong||0)+Number(h.sovereignShort||0) },
+    { key: 'wait', label: 'JEV BEKLE', value: Number(h.sovereignWait||0) },
+    { key: 'intent', label: 'Zorunlu güvenlik geçti', value: hardSafetyReady },
     { key: 'orders', label: 'Açılan emir', value: finite(h.ordersPlaced) ?? 0 }
   ] : [
     { key: 'universe', label: 'Binance evreni', value: finite(h.latestLightweightUniverseCount) ?? finite(h.latestUniverseCount) },
@@ -344,10 +344,10 @@ function derive(snap) {
     { key: 'shortlist', label: 'Derin kısa liste', value: finite(h.latestShortlistCount) },
     { key: 'eligible', label: 'Ön filtre uygun', value: finite(h.latestEligibleCount) },
     { key: 'deep', label: 'Derin 9TF analiz', value: deep },
-    { key: 'preJev', label: 'QUALIFIED (Jev öncesi)', value: finite(h.preJevQualified) ?? 0 },
+    { key: 'preJev', label: 'İŞLEM ADAYI (JEV öncesi)', value: finite(h.preJevQualified) ?? 0 },
     { key: 'jev', label: 'Jev çağrısı', value: finite(h.jevCalled) ?? 0 },
-    { key: 'qualified', label: 'JEV ONAYI • final stratejik', value: finite(h.qualified) ?? 0 },
-    { key: 'intent', label: 'Hard safety geçti', value: hardSafetyReady },
+    { key: 'qualified', label: 'JEV ONAYI • son stratejik karar', value: finite(h.qualified) ?? 0 },
+    { key: 'intent', label: 'Zorunlu güvenlik geçti', value: hardSafetyReady },
     { key: 'orders', label: 'Açılan emir', value: finite(h.ordersPlaced) ?? 0 }
   ];
   const vp = snap.visionProgress?.data || st.visionProgress || {};
@@ -356,7 +356,7 @@ function derive(snap) {
     scanner: { busy: Number(h.scanRuns || 0) > 0, text: `Evren ${funnel[0].value ?? '?'} → hedef ${funnel[1].value ?? '?'} → uygun ${funnel[3].value ?? '?'}` },
     vision: { busy: !/^(IDLE|DETAIL_RUN_COMPLETE|PIXEL_RUN_COMPLETE|DETAIL_RUN_ERROR|PIXEL_RUN_ERROR)$/.test(stage), stage, text: stage },
     workers: { busy: la.planWorkers?.busy === true, text: sovereign ? `JEV talep ettiği kanıt • istek ${evidenceRequests}` : `inceleme ${wr} • bekle ${h.workerWaits ?? 0} • tetik ${h.workerTriggers ?? 0} • yenile ${wref}` },
-    jev: { busy: false, text: sovereign ? `PASS-1 ${pass1} • FINAL ${finalCalls} • L ${h.sovereignLong??0} / S ${h.sovereignShort??0} / WAIT ${h.sovereignWait??0}` : `bağlayıcı ${h.jevCalled ?? 0} • gölge ${h.jevShadowCalled ?? 0} • bugün ${Number(st.jev?.budget?.spentUsd || 0).toFixed(4)}` },
+    jev: { busy: false, text: sovereign ? `PASS-1 ${pass1} • SON KARAR ${finalCalls} • ALIŞ ${h.sovereignLong??0} / SATIŞ ${h.sovereignShort??0} / BEKLE ${h.sovereignWait??0}` : `bağlayıcı ${h.jevCalled ?? 0} • gölge ${h.jevShadowCalled ?? 0} • bugün ${Number(st.jev?.budget?.spentUsd || 0).toFixed(4)}` },
     exec: { busy: la.busy === true, text: String(la.lastExecution || '—') },
     positions: { busy: st.positionManager?.busy === true, text: String(st.positionManager?.lastReview?.actionTr || '—') }
   };
