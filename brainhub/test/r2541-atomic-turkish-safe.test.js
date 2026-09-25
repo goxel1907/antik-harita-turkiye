@@ -44,3 +44,27 @@ test('R2541 Android build preserves PC-only fail-closed boundary',()=>{
   assert.match(patch,/post\(c, "\/live\/execute", intent, true\).*not in/s);
   assert.match(patch,/versionName '9\.5\.115-r2541'/);
 });
+
+
+test('R2541 confirmed pivot indices stay aligned to the full candle time axis',()=>{
+  const engine=require('../engine');
+  const candles=[];
+  for(let i=0;i<100;i++){
+    const base=100+i*0.03+Math.sin(i/2.2)*2.2;
+    const open=base-Math.sin(i)*0.15, close=base+Math.cos(i)*0.12;
+    candles.push({
+      openTime:i*300000,closeTime:(i+1)*300000-1,
+      open,high:Math.max(open,close)+0.7,low:Math.min(open,close)-0.7,close,
+      volume:1000+i,quoteVolume:100000+i,takerBuyQuote:50000+i
+    });
+  }
+  const s=engine.structure(candles,'5m');
+  const piv=[...(s.swingStructure?.confirmedPivots?.highs||[]),...(s.swingStructure?.confirmedPivots?.lows||[])];
+  assert.ok(piv.length>=2);
+  assert.ok(piv.every(p=>p.index>=60&&p.index<100));
+  assert.ok(piv.every(p=>candles[p.index]?.closeTime===p.at));
+  const tls=[s.swingStructure?.trendLines?.upSupport,s.swingStructure?.trendLines?.downResistance].filter(Boolean);
+  assert.ok(tls.every(x=>candles[x.from.index]?.closeTime===x.from.at));
+  assert.ok(tls.every(x=>candles[x.to.index]?.closeTime===x.to.at));
+  assert.ok(tls.every(x=>x.projected.index===99));
+});
