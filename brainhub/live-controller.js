@@ -2410,7 +2410,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const blocked = execution === 'LEADER_AUTO_BLOCKED' || execution === 'LEADER_AUTO_TICK_FAILED' || execution === 'LEADER_AUTO_CONFIG_INVALID';
     if (blocked) leaderAutoConsecutiveBlocked += 1;
     else leaderAutoConsecutiveBlocked = 0;
-    if (!blocked && execution !== 'LEADER_AUTO_BUSY' && execution !== 'LEADER_AUTO_DISABLED' && execution !== 'LEADER_AUTO_WAIT_ARM') {
+    if (!blocked && execution !== 'LEADER_AUTO_BUSY' && execution !== 'LEADER_AUTO_DISABLED' && execution !== 'LEADER_AUTO_WAIT_ARM' && execution !== 'LEADER_AUTO_JEV_BUDGET_WAIT') {
       leaderAutoLastHealthyAt = nowIso;
     }
     return result;
@@ -2461,6 +2461,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const cfg = readLeaderAutoConfig();
     if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
     if (!cfg.config.enabled) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });
+    const jevBudget=typeof pipeline?.jevBudgetStatus==='function'?pipeline.jevBudgetStatus():null;
+    if(jevBudget?.canReserveNextCall===false){
+      return recordLeaderAutoResult({
+        ok:true,skipped:true,execution:'LEADER_AUTO_JEV_BUDGET_WAIT',orderPlaced:false,liveAllowed:false,
+        reasons:['JEV_DAILY_BUDGET_EXHAUSTED'],
+        jevBudget:{remainingUsd:jevBudget.remainingUsd,reservePerCallUsd:jevBudget.reservePerCallUsd,dailyCapUsd:jevBudget.dailyCapUsd,nextResetAt:jevBudget.nextResetAt}
+      });
+    }
     try{await shadowOutcomeTick();}catch{}
     if (await positionSlotsFull(cfg.config.maxOpenPositions)) {
       return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_REST_POSITIONS_FULL', orderPlaced:false, liveAllowed:false,
