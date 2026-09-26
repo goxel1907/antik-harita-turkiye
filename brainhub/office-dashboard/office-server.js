@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.0.8-JEV-ATOMIC-TR-R2541';
+const OFFICE_VERSION = '2.1.0-JEV-TRADER-OFFICE-R2542';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -197,6 +197,10 @@ function summarizeJournal(items) {
         side: plan.side || null,
         originTF: plan.originTF || null,
         ownerTF: plan.ownerTF || null,
+        lane:(plan.tradeLane&&typeof plan.tradeLane==='object'?plan.tradeLane.name:plan.tradeLane)||plan.lane||null,
+        setupFamily:plan.setupFamily||jd?.setupFamily||null,
+        entryTiming:plan.entryTiming||jd?.entryTiming||null,
+        waitReason:plan.waitReason||jd?.waitReason||null,
         confidence: finite(plan.confidence),
         waitFor: clip(plan.waitFor, 200),
         fakeWait: String(plan.status || '').toUpperCase() === 'WATCH' && waitIsFake(plan.waitFor),
@@ -208,7 +212,7 @@ function summarizeJournal(items) {
         claudeDt: plan.claudeDeterministicTrigger ? { wouldQualify: plan.claudeDeterministicTrigger.wouldQualify === true, applied: plan.claudeDeterministicTrigger.applied === true, tf: plan.claudeDeterministicTrigger.tf || null, lane: plan.claudeDeterministicTrigger.laneName || null } : null,
         claudeRevalidated: plan.claudeTriggerRevalidation ? plan.claudeTriggerRevalidation.ok === true : null,
         riskReasons: (p.riskGate?.reasons || []).slice(0, 8),
-        jev: jd ? { called: jd.called === true, veto: jd.veto === true, reasons: (jd.vetoReasons || []).slice(0, 8), reason: jd.reason || null, probabilities: jd.probabilities || null, timeframeConflicts: jd.timeframeConflicts || null, costUsd: finite(jd.costUsd), roleWeightedVeto: jd.claudeRoleWeighted ? jd.claudeRoleWeighted.veto === true : null } : null
+        jev: jd ? { called: jd.called === true, action:jd.action||null, entryTiming:jd.entryTiming||null, waitReason:jd.waitReason||null, veto: jd.veto === true, reasons: (jd.vetoReasons || []).slice(0, 8), reason: jd.reason || null, probabilities: jd.probabilities || null, timeframeConflicts: jd.timeframeConflicts || null, costUsd: finite(jd.costUsd), roleWeightedVeto: jd.claudeRoleWeighted ? jd.claudeRoleWeighted.veto === true : null } : null
       };
       plans.push(row);
       if (row.jev && row.jev.called && !lastJev) lastJev = { ...row.jev, symbol: row.symbol, ts: row.ts, side: row.side };
