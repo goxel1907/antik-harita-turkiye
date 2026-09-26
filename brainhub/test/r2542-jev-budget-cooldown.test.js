@@ -61,13 +61,9 @@ test('R2542 blocks before network when next call cannot be reserved and UTC rese
   assert.equal(after.hardLimitReached,false);
 });
 
-test('R2542 Leader Auto pauses before PASS-1 while JEV reserve is exhausted',()=>{
-  const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+test('R2542 scanner remains active when JEV budget cannot reserve another call',()=>{
   const live=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
-  assert.match(server,/jevBudgetStatus:jev\.budgetStatus/);
-  assert.match(live,/jevBudget\?\.canReserveNextCall===false/);
-  assert.match(live,/LEADER_AUTO_JEV_BUDGET_WAIT/);
-  assert.match(live,/JEV_DAILY_BUDGET_EXHAUSTED/);
+  assert.equal(live.includes('LEADER_AUTO_JEV_BUDGET_WAIT'),false);
 });
 
 console.log('R2542_JEV_BUDGET_COOLDOWN_OK');
