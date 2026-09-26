@@ -80,3 +80,7 @@ CI markers after the Node regression suite:
 
 Android source and APK version are unchanged. Existing PC-only, 45-second
 freshness and three-failure fail-closed contracts continue to be tested.
+
+## Office budget truth - 26/27 September 2026
+
+Office now reads the operational /jev/budget result, shows the exact reservation blocker and UTC reset, and suppresses misleading PASS-1/final pipeline warnings only while that current budget blocks calls. A reset budget supersedes historical refusal counters. Raw /live/status scanner health is preserved; durable decision telemetry reconciles the funnel without overwriting the cached runtime response. Scanner, strategy, execution, Android and budget limits are unchanged by this Office-only delta. Regression coverage includes missing budget endpoint fallback and current reset vs historical errors.
