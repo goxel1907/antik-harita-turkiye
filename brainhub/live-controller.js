@@ -419,6 +419,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           }
           return {
             desk,analyses:xs.length,finalCalls:finals.length,
+            ordersPlaced:executionStages.filter(x=>x.stage==='ORDER_PLACED'&&laneOf(x)===desk).length,
             long:finals.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='LONG').length,
             short:finals.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='SHORT').length,
             wait:finals.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='WAIT').length,
@@ -3802,6 +3803,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     leaderHealthEvent('EXECUTION_STAGE',{
       stage:result?.orderPlaced===true?'ORDER_PLACED':'EXECUTION_RESULT',
       symbol:intent.symbol,
+      tradeLaneName:String(advisory?.plan?.lane || advisory?.plan?.tradeLane?.name || ''),
       orderPlaced:result?.orderPlaced===true,
       reason:Array.isArray(result?.reasons)&&result.reasons.length?String(result.reasons[0]):null
     });
