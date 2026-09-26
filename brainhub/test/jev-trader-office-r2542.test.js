@@ -30,3 +30,21 @@ test('R2542 persists and measures actual entry timing waits',()=>{
   assert.match(live,/sovereignEntryTimingCounts/);
   assert.match(live,/sovereignWaitReasonCounts/);
 });
+
+
+test('R2542 tags new live trades and separates desk decision/result telemetry',()=>{
+  const live=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+  const officeServer=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');
+  const office=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  assert.match(live,/releaseContract:'R2542_JEV_TRADER_OFFICE'/);
+  assert.match(live,/mirrorContract:'R2542_JEV_TRADER_OFFICE_MIRROR'/);
+  assert.match(live,/sovereignDeskStats/);
+  assert.match(live,/ordersPlaced:executionStages/);
+  assert.match(live,/deskSummary:deskSummary/);
+  assert.match(server,/releaseVersion:'R2542-JEV-TRADER-OFFICE'/);
+  assert.match(server,/R2542_DESK_PERFORMANCE_TELEMETRY/);
+  assert.match(officeServer,/2\.1\.0-JEV-TRADER-OFFICE-R2542/);
+  assert.match(office,/id="deskPerf"/);
+  assert.match(office,/karar → zamanlama → emir → sonuç/);
+});
