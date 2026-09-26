@@ -311,6 +311,10 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <div style="overflow:auto"><table id="openPos"></table></div>
       <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + fonlama)</span></h2>
       <div style="overflow:auto"><table id="closedPos"></table></div>
+      <h2 style="margin-top:16px">R2542 Trader Office • 5M Scalper / 15M Trader performansı
+        <span class="hint" id="deskPerfHint">karar → zamanlama → emir → sonuç</span>
+      </h2>
+      <div style="overflow:auto"><table id="deskPerf"></table></div>
     </div>
   </section>
 
@@ -345,6 +349,9 @@ const UI_TR = {
   LONG:'ALIŞ (LONG)', SHORT:'SATIŞ (SHORT)', WAIT:'BEKLE', WATCH:'İZLE / BEKLE',
   DETECTED:'TESPİT EDİLDİ', QUALIFIED:'İŞLEM ADAYI', REVIEW_REQUIRED:'YENİDEN İNCELE', REJECT:'RED',
   WAIT_PULLBACK:'GERİ ÇEKİLME BEKLENİYOR', WAIT_STRUCTURE_CLOSE:'YAPI KAPANIŞI BEKLENİYOR',
+  WAIT_BREAKOUT_RETEST:'KIRILIM + GERİ TEST BEKLENİYOR', WAIT_SWEEP_RECLAIM:'SÜPÜRME + GERİ ALIM BEKLENİYOR',
+  LOCATION_POOR:'KONUM ZAYIF', STRUCTURE_UNCONFIRMED:'YAPI TEYİTSİZ', BREAKOUT_RETEST_REQUIRED:'KIRILIM + GERİ TEST GEREKLİ',
+  SWEEP_RECLAIM_REQUIRED:'SÜPÜRME + GERİ ALIM GEREKLİ', EDGE_INSUFFICIENT:'AVANTAJ YETERSİZ', DATA_QUALITY:'VERİ KALİTESİ', KNOWLEDGE_GAP:'BİLGİ BOŞLUĞU', NONE_MARKET_NOW:'ŞİMDİ GİRİŞ UYGUN',
   MARKET_NOW:'ŞİMDİ PİYASA GİRİŞİ', BREAKOUT_RETEST:'KIRILIM + GERİ TEST',
   MOMENTUM_CONTINUATION:'MOMENTUM DEVAMI', STRUCTURAL_REVERSAL:'YAPISAL DÖNÜŞ',
   EVIDENCE_ONLY:'YALNIZCA KANIT TOPLAMA', ATTENTION_ONLY:'YALNIZCA DİKKAT',
@@ -790,7 +797,7 @@ function renderLedger(s){
   const num=(v,p=4)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toFixed(p).replace(/\.?0+$/,'');
   const sgn=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':`<span style="color:${Number(v)>=0?'var(--good)':'var(--critical)'}">${Number(v)>=0?'+':''}${Number(v).toFixed(2)}</span>`;
   const side=x=>`<span class="pill ${esc(x||'')}">${esc(trUi(x||''))}</span>`;
-  if(!d){ $('#openPos').innerHTML=`<tr><td class="muted">${s.positions?.disabled?'Hesap verisi kapalı (OFFICE_ACCOUNT=0).':'Pozisyon defteri alınamadı'+(s.positions?.error?' ('+esc(s.positions.error)+')':'')+' — Brain Hub v9.5.113 gerekir.'}</td></tr>`; $('#closedPos').innerHTML=''; return; }
+  if(!d){ $('#openPos').innerHTML=`<tr><td class="muted">${s.positions?.disabled?'Hesap verisi kapalı (OFFICE_ACCOUNT=0).':'Pozisyon defteri alınamadı'+(s.positions?.error?' ('+esc(s.positions.error)+')':'')+' — Brain Hub v9.5.113 gerekir.'}</td></tr>`; $('#closedPos').innerHTML=''; if($('#deskPerf'))$('#deskPerf').innerHTML='<tr><td class="muted">Masa performansı için pozisyon defteri bekleniyor.</td></tr>'; return; }
   const open=d.open||[];
   $('#posHint').textContent=`${open.length} açık • açık PnL ${Number(d.openUnrealizedPnl||0).toFixed(2)} USDT • defter ${d.asOf?fmtTime(Date.parse(d.asOf)):'—'}${d.ledgerOk===false?' • OKUNAMIYOR: '+(d.ledgerError||''):''}`;
   $('#openPos').innerHTML = open.length ? `<tr><th>Sembol</th><th>Yön</th><th>Açan</th><th>Sürüm</th><th>Giriş</th><th>Anlık</th><th>PnL USDT</th><th>R</th><th>Stop</th><th>TP1</th><th>İz süren</th><th>Açılış</th><th>Hat/TF</th><th>Giriş nedeni</th></tr>`+
@@ -811,6 +818,31 @@ function renderLedger(s){
   $('#closedPos').innerHTML = cl.length ? `<tr><th>Kapanış</th><th>Sembol</th><th>Yön</th><th>Sürüm</th><th>Net PnL</th><th>R</th><th>Çıkış</th><th>Süre</th><th>Hat/TF</th><th>Uzama (1s)</th><th>Stop %</th><th>JEV</th><th>Giriş nedeni</th></tr>`+
     cl.slice(0,40).map(c=>{const ec=c.entryContext||{}; return `<tr><td>${c.closedAt?fmtTime(Date.parse(c.closedAt)):fmtTime(Date.parse(c.ts))}</td><td><b>${esc(c.symbol||'')}</b></td><td>${side(c.side)}</td><td>${esc(versionKey(c))}</td><td>${sgn(c.netPnl)}</td><td>${c.rMultiple==null?'—':Number(c.rMultiple).toFixed(2)}</td><td>${esc(EXIT_TR[c.exitType]||c.exitType||'—')}</td><td>${N(c.holdMinutes)} dk</td><td>${esc([c.tradeLane,c.originTF].filter(Boolean).join(' • ')||'—')}</td><td>${ec.extension?.return1hDirPct!=null?(Number(ec.extension.return1hDirPct)>0?'+':'')+N(ec.extension.return1hDirPct)+'%':'—'}</td><td>${ec.riskGeometry?.stopPct!=null?N(ec.riskGeometry.stopPct)+'%':'—'}</td><td>${ec.jev?(ec.jev.veto?'veto':'onay'):'—'}</td><td style="max-width:360px">${esc(trUi(String(ec.why||'')).slice(0,160))}</td></tr>`;}).join('')
     : '<tr><td class="muted">Henüz sonucu ölçülmüş kapanan işlem yok.</td></tr>';
+  const decisionDesks=(s.status?.data?.leaderAuto?.health?.sovereignDeskStats||[]);
+  const resultDesks=(d.deskSummary||[]);
+  const decisionMap=new Map(decisionDesks.map(x=>[String(x.desk||''),x]));
+  const resultMap=new Map(resultDesks.map(x=>[String(x.desk||''),x]));
+  const deskRows=['5M_SCALP','15M_TRADE'].map(desk=>{
+    const q=decisionMap.get(desk)||{}, r=resultMap.get(desk)||{};
+    const topWait=(Array.isArray(q.waitReasonCounts)?q.waitReasonCounts:[])
+      .filter(x=>String(x.waitReason||'')!=='NONE_MARKET_NOW')
+      .sort((a,b)=>Number(b.count||0)-Number(a.count||0))[0]||null;
+    return {
+      desk,finalCalls:Number(q.finalCalls||0),marketNow:Number(q.marketNow||0),timingWait:Number(q.timingWait||0),
+      timingWaitRatePct:q.timingWaitRatePct==null?null:Number(q.timingWaitRatePct),ordersPlaced:Number(q.ordersPlaced||0),
+      topWait:topWait?String(topWait.waitReason||''):'—',topWaitCount:topWait?Number(topWait.count||0):0,
+      open:Number(r.open||0),closed:Number(r.closed||0),wins:Number(r.wins||0),losses:Number(r.losses||0),
+      winRatePct:r.winRatePct==null?null:Number(r.winRatePct),netPnl:Number(r.netPnl||0),
+      netR:r.netR==null?null:Number(r.netR),avgR:r.avgR==null?null:Number(r.avgR)
+    };
+  });
+  if($('#deskPerfHint')){
+    const totalFinal=deskRows.reduce((a,x)=>a+x.finalCalls,0), totalOrders=deskRows.reduce((a,x)=>a+x.ordersPlaced,0);
+    $('#deskPerfHint').textContent=`son 60 dk JEV son karar ${totalFinal} • gönderilen emir ${totalOrders} • sonuçlar sürüm/masa bazında ayrıdır`;
+  }
+  if($('#deskPerf')) $('#deskPerf').innerHTML=
+    `<tr><th>Masa</th><th>JEV son karar</th><th>MARKET_NOW</th><th>WAIT zamanlama</th><th>WAIT %</th><th>En sık WAIT nedeni</th><th>Emir</th><th>Açık</th><th>Kapanan</th><th>K/Z</th><th>Winrate</th><th>Net PnL</th><th>Net R</th><th>Ort R</th></tr>`+
+    deskRows.map(x=>`<tr><td><b>${esc(trUi(x.desk))}</b></td><td>${x.finalCalls}</td><td>${x.marketNow}</td><td>${x.timingWait}</td><td>${x.timingWaitRatePct==null?'—':'%'+x.timingWaitRatePct.toFixed(1)}</td><td>${esc(trUi(x.topWait))}${x.topWaitCount?' ×'+x.topWaitCount:''}</td><td>${x.ordersPlaced}</td><td>${x.open}</td><td>${x.closed}</td><td>${x.wins}/${x.losses}</td><td>${x.winRatePct==null?'—':'%'+x.winRatePct.toFixed(1)}</td><td>${sgn(x.netPnl)}</td><td>${x.netR==null?'—':x.netR.toFixed(2)+'R'}</td><td>${x.avgR==null?'—':x.avgR.toFixed(2)+'R'}</td></tr>`).join('');
 }
 
 function renderPositions(s){
