@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.115-r2541-hf4 + PC R2542 JEV TRADER OFFICE + ANDROID PC-ONLY FAIL-CLOSED
+    name: Futures 15m Alarm PRO APK v9.5.116-r2542-ui1 + PC R2542 JEV TRADER OFFICE + PROFESSIONAL PC-ONLY UI
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -428,6 +428,27 @@ workflows:
           grep -q "FL_EXTENDED_CHASE_1H" "$CM_BUILD_DIR/brainhub/claude-v112.js"
           grep -q "9.5.113-CLAUDE-VISION" "$CM_BUILD_DIR/brainhub/claude-v112.js"
           grep -q "CLAUDE_V112_POSITION_SLOTS_REST" "$CM_BUILD_DIR/brainhub/live-controller.js"
+          # V95123 / R2542: professional mobile control surface.
+          # Runs after the established R2541-HF4 safety contract. It changes UI/presentation only.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95123_r2542_professional_mobile_ui.py"
+          grep -q 'V95123_PRO_UI_R2542' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'V95123_PRO_UI_R2542' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
+          grep -q 'openRouterCredit.setVisibility(android.view.View.GONE);' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'detail.setVisibility(android.view.View.GONE);' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'life.setVisibility(android.view.View.GONE);' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'İŞLEM MERKEZİ • PC BRAINHUB' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
+          grep -q 'boolean fresh=V95113PcTruth.fresh(sp,now);' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
+          grep -q "versionName '9.5.116-r2542-ui1'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26092701' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'FRESH_MS = 45000L' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q 'MIN_FAILURES_BEFORE_UNHEALTHY = 3' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q 'shouldMarkProbeUnhealthy' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q 'ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          if grep -q 'post(c, "/live/execute", intent, true)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2542_UI_ANDROID_LIVE_EXECUTE_POST_PRESENT'
+            exit 1
+          fi
+          echo 'V95123_PRO_UI_R2542_OK'
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
@@ -601,7 +622,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.115-r2541 PC-only fail-closed signed APK
+      - name: Build installable v9.5.116-r2542-ui1 PC-only fail-closed signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -647,9 +668,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541-HF4.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.116-R2542-UI1.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541-HF4.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.116-R2542-UI1.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -660,5 +681,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.115-R2541-HF4.apk
+      - Futures15mAlarm-PRO-v9.5.116-R2542-UI1.apk
       - v9595-gradle.log
