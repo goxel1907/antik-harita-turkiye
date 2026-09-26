@@ -251,10 +251,10 @@ if ([int]$mirror.parity.compared -lt 10) { throw ("R2541 parity compared too few
 $installedOfficeHtml = Join-Path $Root 'office-dashboard\public\office.html'
 if (-not (Test-Path -LiteralPath $installedOfficeHtml)) { throw 'Installed Office HTML missing.' }
 $installedOfficeSource = Get-Content -LiteralPath $installedOfficeHtml -Raw -Encoding UTF8
-if ($installedOfficeSource -notmatch 'JEV Canlı Görüş Aynası — Tam Görünüm') { throw 'R2541 Office full mirror card missing.' }
-if ($installedOfficeSource -notmatch 'Gözlenen tasfiye bölgeleri') { throw 'R2541 liquidation-zone telemetry missing.' }
-if ($installedOfficeSource -notmatch 'TAM AÇIKLAMALI') { throw 'R2541 full annotated graph missing.' }
-if ($installedOfficeSource -notmatch 'R2542 Trader Office • 5M Scalper / 15M Trader performansı') { throw 'R2542 desk performance table missing.' }
+if ($installedOfficeSource -notmatch 'JEV Canl\u0131 G\u00f6r\u00fc\u015f Aynas\u0131 \u2014 Tam G\u00f6r\u00fcn\u00fcm') { throw 'R2541 Office full mirror card missing.' }
+if ($installedOfficeSource -notmatch 'G\u00f6zlenen tasfiye b\u00f6lgeleri') { throw 'R2541 liquidation-zone telemetry missing.' }
+if ($installedOfficeSource -notmatch 'TAM A\u00c7IKLAMALI') { throw 'R2541 full annotated graph missing.' }
+if ($installedOfficeSource -notmatch 'R2542 Trader Office \u2022 5M Scalper / 15M Trader performans\u0131') { throw 'R2542 desk performance table missing.' }
 if ($installedOfficeSource -notmatch 'sovereignDeskStats') { throw 'R2542 decision desk telemetry render missing.' }
 if (-not $knowledge.ok) { throw 'JEV knowledge research endpoint failed.' }
 if ([int]$knowledge.openSourceRepoCount -lt 8) { throw "Curated OSS registry too small: $($knowledge.openSourceRepoCount)" }
