@@ -7,12 +7,13 @@ import org.json.JSONObject;
 
 // CLAUDE_V113_ANDROID_LIVE_TRUTH
 // The phone shows PC LIVE as AÇIK/KAPALI only when the PC itself confirmed it via
-// GET /live/status within the last 15 s. A local SharedPreferences flag (for example
+// GET /live/status within the last 45 s. A local SharedPreferences flag (for example
 // v9576_auto_enabled) never implies "PC LIVE: KAPALI". If the PC cannot be reached the
 // state is BİLİNMİYOR. Read-only helper: no order, cancel or close side effects.
 public final class V95113PcTruth {
     public static final String MARKER = "CLAUDE_V113_ANDROID_LIVE_TRUTH";
-    public static final long FRESH_MS = 15000L;
+    public static final long FRESH_MS = 45000L;
+    public static final int MIN_FAILURES_BEFORE_UNHEALTHY = 3;
 
     public static final int UNKNOWN = 0;
     public static final int ARMED = 1;
@@ -101,6 +102,19 @@ public final class V95113PcTruth {
     }
 
     public static long lastContact(SharedPreferences sp) { return sp == null ? 0L : sp.getLong(K_OK_TS, 0L); }
+
+    public static int failureCount(SharedPreferences sp) {
+        return sp == null ? 0 : Math.max(0, sp.getInt(K_FAIL_COUNT, 0));
+    }
+
+    // Telemetry grace only: never turns LIVE on/off and never authorizes an order.
+    // A single VPN/Wi-Fi jitter must not look like a PC disconnect. We only call
+    // the link unhealthy after 3 consecutive failures AND 45 s without success.
+    public static boolean shouldMarkProbeUnhealthy(SharedPreferences sp, long now) {
+        long ts = lastContact(sp);
+        boolean stale = ts <= 0L || now < ts || now - ts > FRESH_MS;
+        return failureCount(sp) >= MIN_FAILURES_BEFORE_UNHEALTHY && stale;
+    }
 
     public static boolean fresh(SharedPreferences sp, long now) {
         long ts = lastContact(sp);
