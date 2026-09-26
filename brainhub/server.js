@@ -1370,6 +1370,7 @@ let decisionPipelineLastFinishedAt=0;
 const decisionPipeline={
   ...pipeline,
   sovereignFlow:true,
+  jevBudgetStatus:jev.budgetStatus,
   isBusy:()=>decisionPipelineActive>0,
   activeRuns:()=>decisionPipelineActive,
   run:async(args)=>{
