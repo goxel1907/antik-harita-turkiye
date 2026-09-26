@@ -286,6 +286,9 @@ function derive(snap) {
   const pass1 = Number(h.sovereignPass1Calls || 0);
   const finalCalls = Number(h.sovereignFinalCalls || 0);
   const evidenceRequests = Number(h.sovereignEvidenceRequests || 0);
+  // Operational budget truth wins over historical failure counters (including after UTC rollover).
+  const budget = snap.jevBudget?.ok === true ? snap.jevBudget.data : st.jev?.budget;
+  const budgetBlocked = budget?.budgetCallBlocked === true || budget?.canReserveNextCall === false;
   const blockers = [];
   const add = (level, code, title, detail) => blockers.push({ level, code, title, detail });
 
@@ -293,6 +296,8 @@ function derive(snap) {
   if (st && snap.status?.ok) {
     if (la.enabled !== true) add('critical', 'AUTO_DISABLED', 'OTO işlem kapalı', 'Leader AUTO etkin değil; hiçbir aday yürütmeye gitmez.');
     if (st.armed !== true) add('critical', 'LIVE_DISARMED', 'LIVE kapalı (analiz modu)', 'Plan QUALIFIED olsa bile emir gönderilmez. PC yeniden başlarsa LIVE otomatik kapanır.');
+    if (budgetBlocked) add('serious', 'JEV_DAILY_BUDGET_EXHAUSTED', 'JEV günlük çağrı bütçesi tükendi - UTC reset bekleniyor',
+      `Kalan ${Number(budget.remainingUsd).toFixed(6)} USD • çağrı rezervi ${Number(budget.reservePerCallUsd).toFixed(6)} USD • günlük sınır ${budget.dailyCapUsd} USD • sıfırlanma ${budget.nextResetAt || 'bilinmiyor'}. Tarama devam eder; yeni JEV ağ çağrısı yapılmaz.`);
     const fv = String(snap.health?.data?.featureVersion || st.featureVersion || '');
     const v109 = /9\.5\.(109-CLAUDE|11\d)/.test(fv); // CLAUDE_V112: 9.5.110+ (9.5.112-CLAUDE dahil)
     const cv = h.claudeV109 || {};
@@ -321,8 +326,8 @@ function derive(snap) {
     // CLAUDE_V112: LIVE kapalıyken Jev onayı hard safety'ye hiç gitmez; bu uyarı yalnız LIVE açıkken anlamlı.
     if (st.armed === true && !pr?.active && Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, zorunlu güvenlik geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/zorunlu güvenlik: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve tek kullanımlık yürütme yetkisi engel olabilir.');
     if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Zorunlu güvenlik geçti, emir yok', 'Yürütme katmanı (LIVE yürütme yetkisi, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
-    if (sovereign && deep >= 1 && pass1 === 0) add('serious','JEV_PASS1_MISSING','Radar/analiz JEV PASS-1’e ulaşmıyor',`${deep} değerlendirme var ama PASS-1 çağrısı yok. Scanner yalnız ATTENTION_ONLY olmalı ve stratejik kapı JEV’den önce çalışmamalı.`);
-    if (sovereign && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • kanıt isteği ${evidenceRequests} • PASS-2/son karar 0. Kanıt ajanı veya JEV son karar çağrısı kontrol edilmeli.`);
+    if (sovereign && !budgetBlocked && deep >= 1 && pass1 === 0) add('serious','JEV_PASS1_MISSING','Radar/analiz JEV PASS-1’e ulaşmıyor',`${deep} değerlendirme var ama PASS-1 çağrısı yok. Scanner yalnız ATTENTION_ONLY olmalı ve stratejik kapı JEV’den önce çalışmamalı.`);
+    if (sovereign && !budgetBlocked && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • kanıt isteği ${evidenceRequests} • PASS-2/son karar 0. Kanıt ajanı veya JEV son karar çağrısı kontrol edilmeli.`);
 
     if (!sovereign && Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
     if (!sovereign && Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);
@@ -355,17 +360,30 @@ function derive(snap) {
     { key: 'intent', label: 'Zorunlu güvenlik geçti', value: hardSafetyReady },
     { key: 'orders', label: 'Açılan emir', value: finite(h.ordersPlaced) ?? 0 }
   ];
+  // Keep /live/status intact. Durable decision events reconcile the funnel only;
+  // they must never replace scanner health or fabricate historical runtime calls.
+  const pf = snap.positions?.data?.performance?.funnel;
+  if (sovereign && pf) {
+    const counts = { deep: pf.analyses, pass1: pf.pass1, final: pf.pass2,
+      action: Number(pf.long || 0) + Number(pf.short || 0), wait: pf.wait,
+      intent: pf.safetyPassed, orders: pf.orders };
+    for (const item of funnel) if (counts[item.key] != null) item.value = counts[item.key];
+  }
   const vp = snap.visionProgress?.data || st.visionProgress || {};
   const stage = String(vp.stage || 'IDLE');
   const desks = {
-    scanner: { busy: Number(h.scanRuns || 0) > 0, text: `Evren ${funnel[0].value ?? '?'} → hedef ${funnel[1].value ?? '?'} → uygun ${funnel[3].value ?? '?'}` },
+    scanner: { busy: Number(h.scanRuns || 0) > 0, text: `Tarama ${h.scanRuns ?? 0} • tur sonucu ${h.tickResults ?? 0} • analiz ${deep} / ${unique} coin` },
     vision: { busy: !/^(IDLE|DETAIL_RUN_COMPLETE|PIXEL_RUN_COMPLETE|DETAIL_RUN_ERROR|PIXEL_RUN_ERROR)$/.test(stage), stage, text: stage },
     workers: { busy: la.planWorkers?.busy === true, text: sovereign ? `JEV talep ettiği kanıt • istek ${evidenceRequests}` : `inceleme ${wr} • bekle ${h.workerWaits ?? 0} • tetik ${h.workerTriggers ?? 0} • yenile ${wref}` },
     jev: { busy: false, text: sovereign ? `PASS-1 ${pass1} • SON KARAR ${finalCalls} • ALIŞ ${h.sovereignLong??0} / SATIŞ ${h.sovereignShort??0} / BEKLE ${h.sovereignWait??0}` : `bağlayıcı ${h.jevCalled ?? 0} • gölge ${h.jevShadowCalled ?? 0} • bugün ${Number(st.jev?.budget?.spentUsd || 0).toFixed(4)}` },
     exec: { busy: la.busy === true, text: String(la.lastExecution || '—') },
     positions: { busy: st.positionManager?.busy === true, text: String(st.positionManager?.lastReview?.actionTr || '—') }
   };
-  return { blockers, funnel, desks, stage };
+  return { blockers, funnel, desks, stage, budget: budget || null, budgetBlocked,
+    scanner: { scanRuns: h.scanRuns ?? null, tickResults: h.tickResults ?? null,
+      deepAnalyses: h.deepAnalyses ?? null, uniqueAnalyzedSymbols: h.uniqueAnalyzedSymbols ?? null,
+      latestLightweightUniverseCount: h.latestLightweightUniverseCount ?? null,
+      latestShortlistCount: h.latestShortlistCount ?? null, topReasons: h.topReasons ?? [] } };
 }
 
 let DEMO_SCENARIO = 'base';
@@ -388,14 +406,15 @@ async function buildSnapshot() {
       return snap;
     }
   }
-  const [health, status, visionProgress, journal, models, ollama, account] = await Promise.all([
+  const [health, status, visionProgress, journal, models, ollama, account, jevBudget] = await Promise.all([
     cached('health', 15000, () => brainGet('/health')),
     cached('status', 4000, () => brainGet('/live/status')),
     cached('vision', 2500, () => brainGet('/vision/progress')),
     cached('journal', 15000, () => brainGet('/journal', 'limit=80')),
     cached('models', 20000, () => brainGet('/models/healthy')),
     cached('ollama', 10000, () => getJson(OLLAMA_URL + '/api/ps', { timeoutMs: 3000 })),
-    ACCOUNT_ENABLED ? cached('account', 30000, () => brainGet('/live/account')) : Promise.resolve(null)
+    ACCOUNT_ENABLED ? cached('account', 30000, () => brainGet('/live/account')) : Promise.resolve(null),
+    cached('jevBudget', 4000, () => brainGet('/jev/budget'))
   ]);
   // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, salt-okunur).
   const positions = ACCOUNT_ENABLED ? await cached('positions', 10000, () => brainGet('/live/positions', 'limit=40')) : null;
@@ -403,12 +422,6 @@ async function buildSnapshot() {
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
   const backups = await cached('backups', 60000, async () => listBackups());
   const jevUsage = await cached('jevUsage', 15000, async () => readJsonFile(path.join(BRAIN_ROOT, 'data', 'jev-usage.json')));
-  const pf=positions?.data?.performance?.funnel;
-  if(pf&&status?.data?.leaderAuto?.health){
-    const h=status.data.leaderAuto.health;
-    Object.assign(h,{deepAnalyses:pf.analyses,uniqueAnalyzedSymbols:pf.uniqueCoverage,sovereignPass1Calls:pf.pass1,sovereignFinalCalls:pf.pass2,sovereignLong:pf.long,sovereignShort:pf.short,sovereignWait:pf.wait,sovereignMarketNow:pf.marketNow,qualified:pf.approved,ordersPlaced:pf.orders,intentReady:pf.safetyPassed});
-    h.claudeV111={...h.claudeV111,finalAuthorityHardSafetyReady:pf.safetyPassed,finalAuthorityApproved:pf.approved};
-  }
   const journalSummary = summarizeJournal(journal?.data?.items || []);
   const logEvents = parseLog(logTail?.lines || []);
   const events = [...journalSummary.events, ...logEvents]
@@ -430,6 +443,7 @@ async function buildSnapshot() {
     router,
     backups,
     jevUsage: scrub(jevUsage),
+    jevBudget: { ok: jevBudget?.ok === true, data: scrub(jevBudget?.data), error: jevBudget?.error || null },
     plans: journalSummary.plans.slice(0, 40),
     lastJev: journalSummary.lastJev,
     lastRisk: journalSummary.lastRisk,

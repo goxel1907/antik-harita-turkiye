@@ -619,8 +619,12 @@ function renderKpis(s){
   const maxDailyLossPct=num(policy?.limits?.maxDailyLossPct);
   const cfg111=s.health?.data?.claudeV111Config||{};
   const stopCooldown=num(cfg111.fastLaneVetoCooldownMin);
+  const budget=s.derived?.budget||st.jev?.budget||{};
+  const budgetBlocked=s.derived?.budgetBlocked===true;
   $('#kpis').innerHTML = [
     kpi('LIVE', armed?'AÇIK':'KAPALI', armed?(exp!=null?`kalan ${exp} dk`:'süre bilinmiyor'):'emir gönderilmez', armed?'good':'critical'),
+    kpi('JEV çağrı bütçesi', budgetBlocked?'UTC RESET BEKLİYOR':'ÇAĞRI İZNİ '+(budget.canReserveNextCall===true?'VAR':'BİLİNMİYOR'), `kalan ${num(budget.remainingUsd)?.toFixed(6)??'—'} / rezerv ${budget.reservePerCallUsd??'—'} USD • sınır ${budget.dailyCapUsd??'—'} USD • reset ${budget.nextResetAt??'—'}`, budgetBlocked?'warn':null),
+    kpi('Tarayıcı (60 dk)', `${h.scanRuns??0} tarama / ${h.tickResults??0} tur`, `${h.deepAnalyses??0} analiz • ${h.uniqueAnalyzedSymbols??0} coin • evren ${h.latestLightweightUniverseCount??'—'} / kısa liste ${h.latestShortlistCount??'—'}`),
     kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`en fazla ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'ALIŞ (LONG)':'',la.allowShort?'SATIŞ (SHORT)':''].filter(Boolean).join(' ')}`:'Otomatik lider etkin değil', la.enabled?null:'critical'),
     kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
     kpi('JEV değerlendirme (60 dk)', `${h.deepAnalyses??0} / ${h.uniqueAnalyzedSymbols??0} coin`, `PASS-1 ${h.sovereignPass1Calls??0} • son karar ${h.sovereignFinalCalls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0}`),
@@ -703,7 +707,7 @@ function renderVision(s){
 }
 
 function renderJev(s){
-  const st=s.status?.data||{}; const j=st.jev||{}; const b=j.budget||{}; const lj=s.lastJev;
+  const st=s.status?.data||{}; const j=st.jev||{}; const b=s.derived?.budget||j.budget||{}; const lj=s.lastJev;
   const h=st.leaderAuto?.health||{}; const sovereign=st.jevSovereign?.enabled===true || s.health?.data?.jevSovereign?.enabled===true;
   if(sovereign){
     const le=st.learning||{};
@@ -712,7 +716,7 @@ function renderJev(s){
       ? `bilgi: son ${h.sovereignFinalTotal??0} son kararda BEKLE yok • BLOK YOK`
       : `BEKLE oranı ${h.sovereignWaitRatePct==null?'—':h.sovereignWaitRatePct+'%'} • BLOK YOK`;
     $('#jevKv').innerHTML = [
-      ['Durum', j.configured?`hazır • ${j.model||''} • JEV PATRON`:'yapılandırılmamış'],
+      ['Durum', s.derived?.budgetBlocked?'JEV günlük çağrı bütçesi tükendi - UTC reset bekleniyor':j.configured?`hazır • ${j.model||''} • JEV PATRON`:'yapılandırılmamış'],
       ['Akış', `PASS-1 ${h.sovereignPass1Calls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0} • PASS-2 ${h.sovereignFinalCalls??0}`],
       ['Son karar', `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • BEKLE ${h.sovereignWait??0}`],
       ['Seçicilik', selectivity],
