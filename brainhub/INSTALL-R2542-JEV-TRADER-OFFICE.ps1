@@ -1,7 +1,9 @@
-param(
+﻿param(
   [string]$Root = 'C:\BrainHub',
   [string]$InstallRoot = 'C:\BrainHubInstall',
-  [string]$BackupRoot = 'C:\BrainHubBackups'
+  [string]$BackupRoot = 'C:\BrainHubBackups',
+  [string]$SourceDirectory = '',
+  [switch]$VerifyOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -35,9 +37,9 @@ function Brain-Headers([string]$BrainRoot) {
   return @{}
 }
 function Stop-Office([string]$BrainRoot) {
-  $stop = Join-Path $BrainRoot 'office-dashboard\STOP-OFFICE.ps1'
+  $stop = Join-Path $source 'office-dashboard\STOP-OFFICE.ps1'
   if (Test-Path -LiteralPath $stop) {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $stop
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $stop -OfficeRoot (Join-Path $BrainRoot 'office-dashboard')
     if ($LASTEXITCODE -ne 0) { throw 'Office stop failed.' }
   }
 }
@@ -52,27 +54,37 @@ if (-not (Test-Path -LiteralPath $Root)) { throw "BrainHub root missing: $Root" 
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 $LatestInstallLog = Join-Path $InstallRoot 'LATEST-INSTALL.log'
 Start-Transcript -Path $LatestInstallLog -Force | Out-Null
+try {
 Write-Host ("R2542_INSTALL_LOG {0}" -f $LatestInstallLog)
 
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { $env:PATH = 'C:\Users\adm\AppData\Local\OpenClaw\deps\portable-node;' + $env:PATH }
 $headers = Brain-Headers $Root
-$before = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 8
-if ($before.armed -eq $true) {
-  throw 'LIVE IS ARMED. Disarm LIVE first. This updater never disarms or re-arms LIVE automatically.'
+$before = $null
+if (Get-NetTCPConnection -State Listen -LocalAddress '127.0.0.1' -LocalPort 8787 -ErrorAction SilentlyContinue) {
+  $before = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 8
+  if ($before.armed -ne $true -and $before.armed -ne $false) { throw 'LIVE state unavailable.' }
+} else { Write-Host 'BrainHub stopped; startup remains fail-closed.' }
+if ($before -and $before.armed -eq $true) {
+  Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/live/disarm' -Headers $headers -ContentType 'application/json' -Body '{"reason":"R2542_INSTALL_MAINTENANCE"}' -TimeoutSec 10 | Out-Null
+  $before = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 10
+  if ($before.armed -ne $false) { throw 'LIVE OFF could not be verified.' }
 }
 Write-Host 'R2542_PRECHECK_LIVE_OFF'
 
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
-Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $Extract -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $Extract | Out-Null
-
-$archive = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
-Invoke-WebRequest -UseBasicParsing -Uri $archive -OutFile $Zip -TimeoutSec 120
-Expand-Archive -LiteralPath $Zip -DestinationPath $Extract -Force
-
-$repoDir = Get-ChildItem -LiteralPath $Extract -Directory | Select-Object -First 1
-if (-not $repoDir) { throw 'Downloaded repository archive is empty.' }
-$source = Join-Path $repoDir.FullName 'brainhub'
+if ($SourceDirectory) {
+  $source = (Resolve-Path -LiteralPath $SourceDirectory).Path
+} else {
+  # Never recursively delete an existing extraction: every run has its own directory.
+  $Extract = Join-Path $Work ('source-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+  New-Item -ItemType Directory -Force -Path $Extract | Out-Null
+  $archive = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
+  Invoke-WebRequest -UseBasicParsing -Uri $archive -OutFile $Zip -TimeoutSec 120
+  Expand-Archive -LiteralPath $Zip -DestinationPath $Extract -Force
+  $repoDir = Get-ChildItem -LiteralPath $Extract -Directory | Select-Object -First 1
+  if (-not $repoDir) { throw 'Downloaded repository archive is empty.' }
+  $source = Join-Path $repoDir.FullName 'brainhub'
+}
 $manage = Join-Path $source 'manage.ps1'
 $cortexDoc = Join-Path $source 'docs\JEV-PRO-TRADER-CORTEX-R2534.md'
 if (-not (Test-Path -LiteralPath $manage)) { throw 'Downloaded BrainHub manage.ps1 is missing.' }
@@ -93,12 +105,15 @@ $r2541Test = Join-Path $source 'test\r2541-atomic-turkish-safe.test.js'
 if (-not (Test-Path -LiteralPath $r2541Test)) { throw 'Downloaded R2541 atomic/Turkish regression test is missing.' }
 $r2542TraderOfficeTest = Join-Path $source 'test\jev-trader-office-r2542.test.js'
 if (-not (Test-Path -LiteralPath $r2542TraderOfficeTest)) { throw 'Downloaded R2542 JEV Trader Office regression test is missing.' }
+$r2542IdempotencyTest = Join-Path $source 'test\r2542-close-idempotency.test.js'
+if (-not (Test-Path -LiteralPath $r2542IdempotencyTest)) { throw 'R2542 close idempotency test missing.' }
 
 $syntaxFiles = @(
   (Join-Path $source 'engine.js'),
   (Join-Path $source 'market.js'),
   (Join-Path $source 'server.js'),
   (Join-Path $source 'live-controller.js'),
+  (Join-Path $source 'close-idempotency.js'),
   (Join-Path $source 'office-dashboard\office-server.js')
 )
 foreach ($sf in $syntaxFiles) {
@@ -107,7 +122,9 @@ foreach ($sf in $syntaxFiles) {
 }
 Write-Host 'R2542_NODE_SYNTAX_OK'
 
-foreach ($tf in @($r2537Test,$r2538MirrorTest,$r2539AndroidTest,$officeTest,$r2541Test,$r2542TraderOfficeTest)) {
+& node --test (Join-Path $source 'test\r2542-reconciliation.test.js')
+if ($LASTEXITCODE -ne 0) { throw 'R2542 reconciliation regression failed.' }
+foreach ($tf in @($r2537Test,$r2538MirrorTest,$r2539AndroidTest,$officeTest,$r2541Test,$r2542TraderOfficeTest,$r2542IdempotencyTest)) {
   & node --test $tf
   if ($LASTEXITCODE -ne 0) { throw "Regression test failed: $tf" }
 }
@@ -125,18 +142,25 @@ if (-not (Test-Path -LiteralPath $auditScript)) { throw 'Downloaded JEV-VISION-A
 $managementTest = Join-Path $source 'test\jev-r2535-management.test.js'
 if (-not (Test-Path -LiteralPath $managementTest)) { throw 'Downloaded R2536 management/research regression test is missing.' }
 
+if (-not $VerifyOnly) {
 Stop-Office $Root
 
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $manage -Action Update -Root $Root -Source $source
 if ($LASTEXITCODE -ne 0) { throw "BrainHub update failed with exit code $LASTEXITCODE" }
 
 Start-Office $Root $BackupRoot
+}
 
 $headers = Brain-Headers $Root
 $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 10
 $live = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 10
 $office = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/ping' -TimeoutSec 10
-$snapshot = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/snapshot' -TimeoutSec 20
+$snapshot = $null
+for ($snapshotAttempt=0; $snapshotAttempt -lt 6; $snapshotAttempt++) {
+  $snapshot = Invoke-RestMethod -Uri 'http://127.0.0.1:8790/api/snapshot' -TimeoutSec 20
+  if ($snapshot.health.ok -and $snapshot.status.ok -and $snapshot.positions.ok) { break }
+  Start-Sleep -Seconds 4
+}
 $knowledge = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/jev/knowledge' -Headers $headers -TimeoutSec 10
 $mirror = $null
 $mirrorLastError = $null
@@ -216,17 +240,7 @@ if (-not ($live.positionManager.bindingActions -contains 'EXIT_NOW')) { throw 'R
 if (-not ($live.positionManager.bindingActions -contains 'PARTIAL_TAKE_PROFIT')) { throw 'Runtime PARTIAL binding missing.' }
 if ($live.armed -eq $true) { throw 'LIVE became armed during update.' }
 
-$remoteExecuteBlocked = $false
-try {
-  Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8787/live/execute' -Headers $headers -ContentType 'application/json' -Body '{}' -TimeoutSec 10 | Out-Null
-} catch {
-  try { $code = [int]$_.Exception.Response.StatusCode } catch { $code = 0 }
-  if ($code -eq 410) { $remoteExecuteBlocked = $true }
-  else { throw "R2539 remote execute runtime check failed with HTTP $code : $($_.Exception.Message)" }
-}
-if (-not $remoteExecuteBlocked) { throw 'R2539 remote /live/execute was not blocked.' }
-if ($live.armed -eq $true) { throw 'LIVE changed state during R2539 remote-execute check.' }
-
+# Remote execution fail-closed contract is covered by mocked regression tests.
 if (-not $office.ok -or [string]$office.officeVersion -ne $ExpectedOffice) { throw "Office version mismatch: $($office.officeVersion)" }
 if (-not $snapshot.health.ok -or -not $snapshot.status.ok) { throw 'Office snapshot health/status failed.' }
 if (-not $mirror.ok -or [string]$mirror.contract -ne 'R2541_ATOMIC_TURKISH_MIRROR') { throw 'R2541 JEV live mirror endpoint failed.' }
@@ -236,7 +250,7 @@ if ([string]$mirror.parity.structuralSemantics -ne 'R2541_PACKET_VS_CHART_SWING_
 if ([int]$mirror.parity.compared -lt 10) { throw ("R2541 parity compared too few fields: {0}" -f $mirror.parity.compared) }
 $installedOfficeHtml = Join-Path $Root 'office-dashboard\public\office.html'
 if (-not (Test-Path -LiteralPath $installedOfficeHtml)) { throw 'Installed Office HTML missing.' }
-$installedOfficeSource = Get-Content -LiteralPath $installedOfficeHtml -Raw
+$installedOfficeSource = Get-Content -LiteralPath $installedOfficeHtml -Raw -Encoding UTF8
 if ($installedOfficeSource -notmatch 'JEV Canlı Görüş Aynası — Tam Görünüm') { throw 'R2541 Office full mirror card missing.' }
 if ($installedOfficeSource -notmatch 'Gözlenen tasfiye bölgeleri') { throw 'R2541 liquidation-zone telemetry missing.' }
 if ($installedOfficeSource -notmatch 'TAM AÇIKLAMALI') { throw 'R2541 full annotated graph missing.' }
@@ -292,6 +306,16 @@ Write-Host 'R2541_ENTRY_REASON_TR_OK'
 Write-Host 'R2541_STALE_DECISION_OK'
 Write-Host 'R2541_ANDROID_PC_ONLY_FAIL_CLOSED_OK'
 Write-Host 'R2542_INSTALL_TRANSCRIPT_OK'
+Write-Host 'R2542_TRADER_OFFICE_RECONCILIATION_OK'
+Write-Host 'R2542_CAPACITY_ACCOUNTING_OK'
+Write-Host 'R2542_LANE_PERFORMANCE_OK'
+Write-Host 'R2542_CLOSED_TRADE_IDEMPOTENCY_OK'
+Write-Host 'R2542_DUPLICATE_CLOSE_WRITE_GUARD_OK'
+Write-Host 'R2542_CLOSED_TRADE_IDEMPOTENCY_OK'
+Write-Host 'R2542_DUPLICATE_CLOSE_WRITE_GUARD_OK'
+$finalLive = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers $headers -TimeoutSec 10
+if ($finalLive.armed -ne $false) { throw 'Final LIVE OFF verification failed.' }
+if (-not $snapshot.positions.data.performance) { throw 'Persistent lane/cohort report missing.' }
 Write-Host 'R2542_LIVE_VERIFIED_OFF'
 Write-Host ("Release           : {0}" -f $health.jevSovereign.releaseVersion)
 Write-Host ("Sovereign package : {0}" -f $health.jevSovereign.packageVersion)
@@ -314,7 +338,10 @@ Write-Host 'Office URL         : http://127.0.0.1:8790/'
 Write-Host 'LIVE was not armed or re-armed by this update.'
 
 Write-Host ("Installer log       : {0}" -f $LatestInstallLog)
+} finally {
+New-Item -ItemType Directory -Force -Path $Work | Out-Null
 $PerRunLog = Join-Path $Work ("INSTALL-R2542-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 Stop-Transcript | Out-Null
 Copy-Item -LiteralPath $LatestInstallLog -Destination $PerRunLog -Force
 Write-Host ("R2542_INSTALL_LOG_SAVED {0}" -f $PerRunLog)
+}

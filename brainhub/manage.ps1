@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','VisionBenchmark','OpenRouterSetup','OpenRouterCreditSetup','OpenRouterStatus','JevProbe','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
     [string]$Root = 'C:\BrainHub',
     [string]$Source = '',
@@ -95,15 +95,29 @@ function Brain-Pid([string]$BrainRoot) {
     $expected = Join-Path $BrainRoot 'server\server.js'
     $brainProcesses = @(Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($expected) })
     if ($brainProcesses.Count -gt 1) { throw 'Birden fazla BrainHub server.js process bulundu; dokunulmadi.' }
-    if ($brainProcesses.Count -eq 0) { return $null }
-    return [int]$brainProcesses[0].ProcessId
+    if ($brainProcesses.Count -eq 1) { return [int]$brainProcesses[0].ProcessId }
+    # Windows can hide CommandLine for an otherwise stoppable process. Match only the
+    # loopback listener, never the Tailscale proxy on its separate address.
+    $listeners = @(Get-NetTCPConnection -State Listen -LocalAddress '127.0.0.1' -LocalPort 8787 -ErrorAction SilentlyContinue)
+    if ($listeners.Count -eq 0) { return $null }
+    $ids = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+    if ($ids.Count -ne 1) { throw '8787 loopback listener belirsiz; dokunulmadi.' }
+    $owner = Get-Process -Id $ids[0] -ErrorAction Stop
+    $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers (Auth-Headers $BrainRoot) -TimeoutSec 5
+    if ($owner.ProcessName -ne 'node' -or -not $health.ok -or $health.version -ne 'brainhub-pro-1') {
+        throw '8787 sahibi BrainHub olarak dogrulanamadi; dokunulmadi.'
+    }
+    return [int]$ids[0]
 }
 function Stop-Brain([string]$BrainRoot) {
     $id = Brain-Pid $BrainRoot
     if ($id) {
         Stop-Process -Id $id -Force
         for ($i=0; $i -lt 30; $i++) {
-            if (-not (Brain-Pid $BrainRoot)) { return }
+            if (-not (Get-Process -Id $id -ErrorAction SilentlyContinue)) {
+                if (Get-NetTCPConnection -State Listen -LocalAddress '127.0.0.1' -LocalPort 8787 -ErrorAction SilentlyContinue) { throw '8787 portu halen kullanimda; dosyalar degistirilmedi.' }
+                return
+            }
             Start-Sleep -Milliseconds 300
         }
         throw 'BrainHub 8787 portunu birakmadi.'
@@ -960,7 +974,7 @@ if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); T
 $sourceDir = Get-Source $Source
 # CLAUDE_V109_UPDATER_FILESET: ChatGPT v9.5.109 wait-condition.js ve vision-benchmark.js eklemis ama bu listeye
 # koymamisti -> PC'de server.js MODULE_NOT_FOUND ile acilmaz, guncelleme geri alinirdi.
-$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','market-maker-evidence.js','pipeline.js','store.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','jev-market-packet.js','knowledge-research.js','vision-contract-repair.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js','claude-v112.js')
+$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','engine.js','market.js','market-maker-evidence.js','pipeline.js','store.js','office-performance.js','capacity-accounting.js','close-idempotency.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','jev-market-packet.js','knowledge-research.js','vision-contract-repair.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js','claude-v112.js')
 $cortexDoc = Join-Path $sourceDir 'docs\JEV-PRO-TRADER-CORTEX-R2534.md'
 $ossReferenceDoc = Join-Path $sourceDir 'docs\JEV-OPEN-SOURCE-REFERENCE-R2536.md'
 if (-not (Test-Path -LiteralPath $cortexDoc)) { throw 'Eksik dosya: docs\JEV-PRO-TRADER-CORTEX-R2534.md' }
@@ -1015,7 +1029,8 @@ try {
 } catch {
     Write-Warning "Update dogrulanamadi: $($_.Exception.Message). Geri alma deneniyor."
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','docs','office-dashboard','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
+    # Source rollback preserves the runtime ledger, reservations and user settings.
+    foreach ($name in @('server','docs','office-dashboard','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
         $p = Join-Path $backup $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }
