@@ -468,6 +468,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   function budgetStatus(){
     const u=readUsage();
     const remainingUsd=Math.max(0,cfg.dailyCapUsd-u.spentUsd);
+    const canReserveNextCall=u.spentUsd+cfg.reservePerCallUsd<=cfg.dailyCapUsd+1e-12;
+    const nextResetAt=new Date((Math.floor(clock()/86400000)+1)*86400000).toISOString();
     return {
       ...u,
       softBudgetUsd:cfg.softBudgetUsd,
@@ -475,7 +477,10 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       remainingUsd,
       reservePerCallUsd:cfg.reservePerCallUsd,
       softLimitReached:cfg.softBudgetUsd>0&&u.spentUsd>=cfg.softBudgetUsd,
-      hardLimitReached:remainingUsd<=0
+      canReserveNextCall,
+      budgetCallBlocked:!canReserveNextCall,
+      nextResetAt,
+      hardLimitReached:!canReserveNextCall
     };
   }
   function reserveBudget(){
@@ -558,7 +563,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   async function decisions(body,{reserve=true}={}){
     if(!configured)return {ok:false,configured:false,required:false,reason:'OPENROUTER_NOT_CONFIGURED'};
     const reservation=reserve?reserveBudget():{ok:true,reservedUsd:0};
-    if(!reservation.ok)return {ok:false,configured:true,required:true,reason:'JEV_DAILY_BUDGET_EXHAUSTED',budget:budgetStatus()};
+    if(!reservation.ok)return {ok:false,configured:true,required:true,called:false,attempted:false,reason:'JEV_DAILY_BUDGET_EXHAUSTED',budget:budgetStatus()};
     const started=clock();
     const transientHttp=new Set([408,425,429,500,502,503,504]);
     let attempts=0;
@@ -653,7 +658,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       questions
     };
     const out=await decisions(body,{reserve:true});
-    if(!out.ok)return {...out,called:true,pass:1,mode:'SOVEREIGN_CHOICE'};
+    if(!out.ok){const budgetBlocked=out.reason==='JEV_DAILY_BUDGET_EXHAUSTED';return {...out,called:!budgetBlocked,attempted:!budgetBlocked,pass:1,mode:'SOVEREIGN_CHOICE'};}
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const laneFocus=choiceValue(answers.lane_focus);
     const directionFocus=choiceValue(answers.direction_focus);
@@ -819,7 +824,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
     };
     const out=await decisions(body,{reserve:true});
-    if(!out.ok)return {...out,called:true,pass:2,mode:'SOVEREIGN_CHOICE'};
+    if(!out.ok){const budgetBlocked=out.reason==='JEV_DAILY_BUDGET_EXHAUSTED';return {...out,called:!budgetBlocked,attempted:!budgetBlocked,pass:2,mode:'SOVEREIGN_CHOICE'};}
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const selectedId=choiceValue(answers.trade_plan);
     const setupFamily=choiceValue(answers.setup_family);
