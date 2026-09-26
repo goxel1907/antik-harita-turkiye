@@ -45,6 +45,8 @@ workflows:
           node --test brainhub/test/r2542-close-idempotency.test.js
           echo R2542_CLOSED_TRADE_IDEMPOTENCY_OK
           echo R2542_DUPLICATE_CLOSE_WRITE_GUARD_OK
+          node --test brainhub/test/r2542-jev-budget-cooldown.test.js
+          echo R2542_JEV_BUDGET_COOLDOWN_OK
       - name: Prepare Futures Alarm v9.5.115-r2541 JEV PC-only fail-closed Turkish source
         script: |
           set -euo pipefail
