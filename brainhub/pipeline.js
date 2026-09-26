@@ -1314,9 +1314,11 @@ async function buildSovereignEvidence({candidate,unified,pass1,committee}){
 }
 function sovereignJournalPayload({candidate,plan,pass1,final,vision,jevSeen,riskGate,executionReadiness}){
   return {
+    releaseContract:'R2542_JEV_TRADER_OFFICE',
     contract:'R2.5.3.2_JEV_SOVEREIGN_5M_15M',
     candidate:{symbol:candidate?.symbol||null,attentionSource:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[]},
     plan:plan?{
+      releaseContract:'R2542_JEV_TRADER_OFFICE',
       valid:plan.valid,status:plan.status,side:plan.side||null,originTF:plan.originTF||null,ownerTF:plan.ownerTF||null,
       lane:plan.lane||null,setupFamily:plan.setupFamily||null,edgeBasis:plan.edgeBasis||null,entryTiming:plan.entryTiming||null,contractVersion:plan.contractVersion||null,
       entryPrice:plan.entryPrice??null,invalidationPrice:plan.invalidationPrice??null,invalidationSource:plan.invalidationSource||null,stopPrice:plan.stopPrice??null,
@@ -1332,6 +1334,7 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,jevSeen,risk
     executionReadiness:executionReadiness?{ok:executionReadiness.ok,reasons:executionReadiness.reasons||[]}:null
   };
 }
+const sovereignEvidenceCache=new Map();
 async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=null,killSwitch=null,executionClaim=null,executionIntent=null,decisionPass1,decisionFinal,knowledgeResearch=null}){
   const selection=resolveAttentionCandidate(scan,executionIntent);
   const candidate=selection.candidate;
@@ -1343,6 +1346,13 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   }
   if(!unified?.dataQuality?.advisoryUsable||finite(unified?.livePrice)===null){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:'SOVEREIGN_BASE_CONTEXT_UNUSABLE',execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
+  }
+  const evidenceKey=JSON.stringify({frames:unified.frames,price:unified.livePrice,flow:unified.marketMakerEvidence,derivatives:unified.derivatives},(key,value)=>['ageMs','generatedAt','durationMs','receivedAt'].includes(key)?undefined:value);
+  const previousEvidence=sovereignEvidenceCache.get(candidate.symbol);
+  const materialChangeReason=!previousEvidence?'FIRST_OBSERVATION':previousEvidence.key!==evidenceKey?'EVIDENCE_CHANGED':'RECHECK_INTERVAL';
+  if(previousEvidence?.wait&&previousEvidence.key===evidenceKey&&Date.now()-previousEvidence.at<60000){
+    try{store.journal('R2542_OFFICE_EVENT',candidate.symbol,{kind:'DEDUPE',releaseContract:'R2542_JEV_TRADER_OFFICE',reason:'UNCHANGED_EVIDENCE',tradeLaneName:previousEvidence.lane});}catch{}
+    return {ok:true,candidateFound:true,analysisSkipped:true,reason:'UNCHANGED_EVIDENCE',materialChangeReason:'UNCHANGED_EVIDENCE',jevSovereign:true,execution:'ADVISORY_ONLY',orderPlaced:false};
   }
   const pass1=await decisionPass1({candidate,unified});
   if(!pass1?.ok){
@@ -1385,6 +1395,8 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   }
   const planOptions=buildSovereignPlanOptions(unified);
   const final=await decisionFinal({candidate,unified,evidence,planOptions});
+  if(final?.ok){sovereignEvidenceCache.set(candidate.symbol,{key:evidenceKey,at:Date.now(),wait:final.action==='WAIT',lane:pass1.laneFocus});if(sovereignEvidenceCache.size>600)sovereignEvidenceCache.delete(sovereignEvidenceCache.keys().next().value);}
+  if(final)final.materialChangeReason=materialChangeReason;
   if(!final?.ok){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:final?.reason||'JEV_SOVEREIGN_FINAL_UNAVAILABLE',jevPass1:pass1,jevDecision:final||null,evidence,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
   }

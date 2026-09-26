@@ -307,6 +307,8 @@ class StreamingMarket {
     this.subscribed = new Set();
     this.subscriptionId = 1;
     this.maxSymbols = 80;
+    this.evictions = 0;
+    this.protectedSymbols = new Set();
     this.tradeWindowMs = 120000;
     this.liquidationWindowMs = 15 * 60 * 1000;
     this.staleMs = 15000;
@@ -315,16 +317,25 @@ class StreamingMarket {
     symbol = String(symbol || '').toUpperCase();
     if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
     if (!this.states.has(symbol)) {
-      if (this.states.size >= this.maxSymbols) throw new Error('stream symbol capacity reached');
+      if (this.states.size >= this.maxSymbols) {
+        const victim = [...this.states.values()].filter(x=>!this.protectedSymbols.has(x.symbol))
+          .sort((a,b)=>(a.lastRequestedAt||0)-(b.lastRequestedAt||0)||a.symbol.localeCompare(b.symbol))[0];
+        if (!victim) return null; // optional stream unavailable; REST evidence still runs
+        const ws=this.ws, s=victim.symbol.toLowerCase();
+        if(ws?.readyState===1)try{ws.send(JSON.stringify({method:'UNSUBSCRIBE',params:[`${s}@aggTrade`,`${s}@bookTicker`,`${s}@depth20@100ms`,`${s}@forceOrder`],id:this.subscriptionId++}));}catch{}
+        this.states.delete(victim.symbol); this.subscribed.delete(victim.symbol); this.evictions++;
+      }
       this.states.set(symbol, {
         symbol, lastEventAt:0, book:null, depth:null, depthAt:0,
         depthHistory:[], lastDepthHistoryAt:0,
         trades:[], tradeAt:0, liquidations:[], liquidationAt:0
       });
     }
+    this.states.get(symbol).lastRequestedAt=this.now();
+    const added=!this.subscribed.has(symbol);
     this.subscribed.add(symbol);
     this.connect();
-    this.subscribeSymbols([symbol]);
+    if(added)this.subscribeSymbols([symbol]);
     return this.states.get(symbol);
   }
   connect() {
@@ -394,7 +405,8 @@ class StreamingMarket {
     const eventType = String(data.e || '');
     const symbol = String(data.s || data.o?.s || '').toUpperCase();
     if (!validSymbol(symbol)) return false;
-    const state = this.states.get(symbol) || this.ensureSymbol(symbol);
+    const state = this.states.get(symbol);
+    if (!state) return false; // late packets must not resurrect an evicted subscription
     const now = this.now();
     const eventAt = finite(data.E) ?? finite(data.T) ?? finite(data.o?.T) ?? now;
     state.lastEventAt = Math.max(state.lastEventAt, eventAt || now);
@@ -509,6 +521,7 @@ class StreamingMarket {
       websocketAvailable:Boolean(this.WebSocketImpl),
       connected:Boolean(this.ws && this.ws.readyState === 1),
       subscribedSymbols:this.subscribed.size,
+      maxSymbols:this.maxSymbols, evictions:this.evictions, capacityKind:'PUBLIC_MARKET_DATA_CACHE',
       freshSymbols:fresh,
       warmingOrStaleSymbols:warming,
       endpoint:FUTURES_WS,

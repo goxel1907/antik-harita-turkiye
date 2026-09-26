@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
+const { reconcileCloses } = require('./office-performance');
 
 function openStore(root) {
   const dir = path.join(root, 'data');
@@ -40,12 +41,14 @@ function openStore(root) {
   // CLAUDE_V111_TRIGGER_REVALIDATION: sembolün son 9TF planı (Vision'sız yeniden doğrulama için).
   const latestByKind = db.prepare('SELECT id,ts,kind,symbol,payload FROM journal WHERE kind=? AND symbol=? ORDER BY ts DESC LIMIT 1');
   const learnInsert=db.prepare('INSERT INTO learning_events(id,ts,kind,symbol,side,setup,origin_tf,owner_tf,decision,confidence,outcome_pct,payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
-  const learnRecent=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct FROM learning_events WHERE (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
-  const learnByKind=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct,payload FROM learning_events WHERE kind=? AND (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
+  // Read-time reconciliation only: raw learning history remains unchanged.
+  db.exec('CREATE TEMP TABLE excluded_learning_close_ids(id TEXT PRIMARY KEY); CREATE TEMP VIEW canonical_learning_events AS SELECT * FROM learning_events WHERE id NOT IN (SELECT id FROM excluded_learning_close_ids)');
+  const learnRecent=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct FROM canonical_learning_events WHERE (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
+  const learnByKind=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct,payload FROM canonical_learning_events WHERE kind=? AND (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
   // Only measured POSITION_CLOSED rows count as PnL samples. JEV_LESSON may carry the same
   // outcomePct for context, but must never double-count the underlying trade in win/loss stats.
-  const learnStats=db.prepare("SELECT side,setup,origin_tf AS originTF,owner_tf AS ownerTF,COUNT(*) AS samples,AVG(outcome_pct) AS avgOutcomePct,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins FROM learning_events WHERE kind='POSITION_CLOSED' AND outcome_pct IS NOT NULL GROUP BY side,setup,origin_tf,owner_tf ORDER BY samples DESC LIMIT 20");
-  const learnLifetime=db.prepare("SELECT COUNT(*) AS samples,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins,SUM(CASE WHEN outcome_pct<0 THEN 1 ELSE 0 END) AS losses,SUM(CASE WHEN outcome_pct=0 THEN 1 ELSE 0 END) AS flats,AVG(outcome_pct) AS avgOutcomePct FROM learning_events WHERE kind='POSITION_CLOSED' AND outcome_pct IS NOT NULL");
+  const learnStats=db.prepare("SELECT side,setup,origin_tf AS originTF,owner_tf AS ownerTF,COUNT(*) AS samples,AVG(outcome_pct) AS avgOutcomePct,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins FROM canonical_learning_events WHERE kind='POSITION_CLOSED' AND outcome_pct IS NOT NULL GROUP BY side,setup,origin_tf,owner_tf ORDER BY samples DESC LIMIT 20");
+  const learnLifetime=db.prepare("SELECT COUNT(*) AS samples,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins,SUM(CASE WHEN outcome_pct<0 THEN 1 ELSE 0 END) AS losses,SUM(CASE WHEN outcome_pct=0 THEN 1 ELSE 0 END) AS flats,AVG(outcome_pct) AS avgOutcomePct FROM canonical_learning_events WHERE kind='POSITION_CLOSED' AND outcome_pct IS NOT NULL");
   const leaseGet = db.prepare('SELECT owner,token_hash,expires_at FROM leases WHERE resource=?');
   const leaseSet = db.prepare('INSERT INTO leases(resource,owner,token_hash,expires_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,token_hash=excluded.token_hash,expires_at=excluded.expires_at,updated_at=excluded.updated_at');
   const leaseDelete = db.prepare('DELETE FROM leases WHERE resource=? AND token_hash=?');
@@ -81,6 +84,9 @@ function openStore(root) {
       try { payload = JSON.parse(row.payload); } catch { payload = null; }
       return { id:row.id, ts:row.ts, kind:row.kind, symbol:row.symbol, payload };
     }).filter(x => x.payload);
+  }
+  function officeRecords() {
+    return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT') ORDER BY ts DESC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
   }
   function getJournal(limit = 50) {
     return list.all(Math.max(1, Math.min(200, Number(limit) || 50))).map(x => ({ ...x, payload: JSON.parse(x.payload) }));
@@ -122,6 +128,11 @@ function openStore(root) {
     }catch{return {};}
   }
   function learningContext({symbol=null}={}){
+    const closes=db.prepare("SELECT id,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED'").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,symbol:x.symbol}));
+    const excluded=reconcileCloses(closes).excluded;
+    db.exec('DELETE FROM excluded_learning_close_ids');
+    const exclude=db.prepare('INSERT OR IGNORE INTO excluded_learning_close_ids(id) VALUES(?)');
+    for(const x of excluded)exclude.run(x.id);
     const key=symbol&&/^[A-Z0-9]{2,28}$/.test(symbol)?symbol:null;
     const recent=learnRecent.all(key,key,20);
     const stats=learnStats.all().map(x=>({...x,winRate:x.samples?Number((100*Number(x.wins||0)/x.samples).toFixed(1)):null,avgOutcomePct:x.avgOutcomePct==null?null:Number(Number(x.avgOutcomePct).toFixed(4))}));
@@ -154,6 +165,7 @@ function openStore(root) {
     });
     return {
       source:'BrainHub ölçülebilir işlem/karar geçmişi',
+      excludedDuplicateCloses:excluded.length,
       recent,
       lifetime,
       stats,
@@ -246,6 +258,6 @@ function openStore(root) {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 
-  return { db, journal, getJournal, latestJournal, recentJournal, label, learning, recordLearning, learningContext, lease, claim, releaseClaim };
+  return { db, officeRecords, journal, getJournal, latestJournal, recentJournal, label, learning, recordLearning, learningContext, lease, claim, releaseClaim };
 }
 module.exports = { openStore };

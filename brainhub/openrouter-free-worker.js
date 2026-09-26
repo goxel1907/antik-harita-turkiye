@@ -11,6 +11,8 @@ function createOpenRouterFreeWorker({
 }={}){
   const key=String(apiKey||'').trim();
   const configured=key.startsWith('sk-or-v1-')&&typeof fetchImpl==='function';
+  let failures=0,cooldownUntil=0,busy=false;
+  model='openrouter/free'; // Never permit a paid-model override.
   let last={called:false,ok:false,at:null,model,reason:configured?'NOT_CALLED':'OPENROUTER_NOT_CONFIGURED'};
 
   async function review({system='',prompt=''}={}){
@@ -18,6 +20,8 @@ function createOpenRouterFreeWorker({
       last={called:false,ok:false,at:new Date(clock()).toISOString(),model,reason:'OPENROUTER_NOT_CONFIGURED'};
       return last;
     }
+    if(busy||clock()<cooldownUntil)return {called:false,ok:false,optional:true,blocksJev:false,freeOnly:true,model,reason:busy?'OPTIONAL_WORKER_BUSY':'OPTIONAL_WORKER_COOLDOWN',cooldownUntil};
+    busy=true;
     const body={
       model,
       messages:[
@@ -42,18 +46,25 @@ function createOpenRouterFreeWorker({
       const raw=await r.text();
       let j={};try{j=raw?JSON.parse(raw):{};}catch{}
       const text=String(j?.choices?.[0]?.message?.content||j?.output_text||'').trim();
-      if(!r.ok||!text)throw new Error('HTTP '+r.status+' '+clip(raw,300));
+      if(!r.ok||!text){
+        const reset=Number(j?.error?.metadata?.headers?.['X-RateLimit-Reset']);
+        const retry=Number(r.headers?.get?.('retry-after'));
+        if(r.status===429)cooldownUntil=Math.max(cooldownUntil,Number.isFinite(reset)?Math.min(reset,clock()+86400000):0,retry>0?clock()+Math.min(retry,86400)*1000:0);
+        throw new Error('HTTP '+r.status+' '+clip(raw,300));
+      }
+      failures=0;cooldownUntil=0;
       const routedModel=String(j?.model||model);
       last={called:true,ok:true,at:new Date(clock()).toISOString(),model:routedModel,text:clip(text,1600),freeOnly:true};
       return last;
     }catch(e){
-      last={called:true,ok:false,at:new Date(clock()).toISOString(),model,reason:'OPENROUTER_FREE_WORKER_UNAVAILABLE',detail:clip(e?.message||e,300),freeOnly:true};
+      failures++;cooldownUntil=Math.max(cooldownUntil,clock()+Math.min(1800000,30000*2**Math.min(failures-1,6)));
+      last={called:true,ok:false,at:new Date(clock()).toISOString(),model,reason:'OPENROUTER_FREE_WORKER_UNAVAILABLE',optional:true,blocksJev:false,cooldownUntil,detail:clip(e?.message||e,300),freeOnly:true};
       return last;
-    }
+    }finally{busy=false;}
   }
 
   function status(){
-    return {configured,model,freeOnly:true,last:{...last}};
+    return {configured,model,freeOnly:true,optional:true,blocksJev:false,failures,cooldownUntil,busy,last:{...last}};
   }
 
   return {review,status};

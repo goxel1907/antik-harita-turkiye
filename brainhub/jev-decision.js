@@ -823,7 +823,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const selectedId=choiceValue(answers.trade_plan);
     const setupFamily=choiceValue(answers.setup_family);
-    const entryTiming=choiceValue(answers.entry_timing);
+    const rawEntryTiming=choiceValue(answers.entry_timing);
+    const entryTiming=selectedId==='WAIT'&&rawEntryTiming==='MARKET_NOW'?'WAIT_UNSPECIFIED':rawEntryTiming;
     const waitReasonRaw=choiceValue(answers.wait_reason);
     const edgeBasis=choiceValue(answers.edge_basis);
     const managementStyle=choiceValue(answers.management_style);
@@ -832,9 +833,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const breakevenRule=choiceValue(answers.breakeven_rule);
     const trailRule=choiceValue(answers.trail_rule);
     const validWaitReasons=new Set(['NONE_MARKET_NOW','LOCATION_POOR','STRUCTURE_UNCONFIRMED','BREAKOUT_RETEST_REQUIRED','SWEEP_RECLAIM_REQUIRED','EDGE_INSUFFICIENT','DATA_QUALITY','KNOWLEDGE_GAP']);
-    const waitReason=validWaitReasons.has(waitReasonRaw)
-      ? waitReasonRaw
-      : (entryTiming==='MARKET_NOW'?'NONE_MARKET_NOW':'EDGE_INSUFFICIENT');
+    const waitReason=entryTiming==='MARKET_NOW'?'NONE_MARKET_NOW':
+      (validWaitReasons.has(waitReasonRaw)&&waitReasonRaw!=='NONE_MARKET_NOW'?waitReasonRaw:'UNSPECIFIED');
     const validTargetProfiles=new Set(['FAST_SCALP','BALANCED','RUNNER_EXTENDED','DEFENSIVE']);
     const validPartialProfiles=new Set(['THIRDS','HALF_QUARTER_RUNNER','RUNNER_HEAVY']);
     const validBreakevenRules=new Set(['AFTER_TP1','AFTER_1R_CLOSE','STRUCTURE_ONLY']);
