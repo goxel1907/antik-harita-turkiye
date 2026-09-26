@@ -188,7 +188,7 @@ function summarizeJournal(items) {
     const base = { ts: Number(it.ts) || null, kind: it.kind, symbol: it.symbol || null, source: 'journal' };
     if ((it.kind === 'PLAN' || it.kind === 'PLAN_FAST')) {
       const plan = p.plan || {};
-      const jd = plan.jevDecision || null;
+      const jd = p.jevFinal || plan.jevDecision || null;
       const row = {
         ...base,
         desk: 'brain',
@@ -201,6 +201,7 @@ function summarizeJournal(items) {
         setupFamily:plan.setupFamily||jd?.setupFamily||null,
         entryTiming:plan.entryTiming||jd?.entryTiming||null,
         waitReason:plan.waitReason||jd?.waitReason||null,
+        releaseContract:p.releaseContract||plan.releaseContract||null,
         confidence: finite(plan.confidence),
         waitFor: clip(plan.waitFor, 200),
         fakeWait: String(plan.status || '').toUpperCase() === 'WATCH' && waitIsFake(plan.waitFor),
@@ -402,6 +403,12 @@ async function buildSnapshot() {
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
   const backups = await cached('backups', 60000, async () => listBackups());
   const jevUsage = await cached('jevUsage', 15000, async () => readJsonFile(path.join(BRAIN_ROOT, 'data', 'jev-usage.json')));
+  const pf=positions?.data?.performance?.funnel;
+  if(pf&&status?.data?.leaderAuto?.health){
+    const h=status.data.leaderAuto.health;
+    Object.assign(h,{deepAnalyses:pf.analyses,uniqueAnalyzedSymbols:pf.uniqueCoverage,sovereignPass1Calls:pf.pass1,sovereignFinalCalls:pf.pass2,sovereignLong:pf.long,sovereignShort:pf.short,sovereignWait:pf.wait,sovereignMarketNow:pf.marketNow,qualified:pf.approved,ordersPlaced:pf.orders,intentReady:pf.safetyPassed});
+    h.claudeV111={...h.claudeV111,finalAuthorityHardSafetyReady:pf.safetyPassed,finalAuthorityApproved:pf.approved};
+  }
   const journalSummary = summarizeJournal(journal?.data?.items || []);
   const logEvents = parseLog(logTail?.lines || []);
   const events = [...journalSummary.events, ...logEvents]

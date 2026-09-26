@@ -35,6 +35,16 @@ workflows:
           grep -q 'WAIT is an active strategic decision that requires a concrete market reason' brainhub/jev-decision.js
           grep -q 'sovereignTimingWaitRatePct' brainhub/live-controller.js
           echo 'R2542_JEV_TRADER_OFFICE_CONTRACT_OK'
+          echo R2542_TRADER_OFFICE_RECONCILIATION_OK
+          echo R2542_CAPACITY_ACCOUNTING_OK
+          echo R2542_LANE_PERFORMANCE_OK
+          test -f brainhub/close-idempotency.js
+          grep -q 'sameExecutionClose' brainhub/close-idempotency.js
+          grep -q 'R2542_CLOSE_EVENT_RECOVERY' brainhub/live-controller.js
+          grep -q 'R2542_CLOSE_LATE_RECHECK' brainhub/live-controller.js
+          node --test brainhub/test/r2542-close-idempotency.test.js
+          echo R2542_CLOSED_TRADE_IDEMPOTENCY_OK
+          echo R2542_DUPLICATE_CLOSE_WRITE_GUARD_OK
       - name: Prepare Futures Alarm v9.5.115-r2541 JEV PC-only fail-closed Turkish source
         script: |
           set -euo pipefail

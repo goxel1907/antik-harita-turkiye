@@ -40,13 +40,10 @@ function Read-Dpapi([string]$Path) {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
 function Office-Running {
-    if (-not (Test-Path -LiteralPath $pidFile)) { return $null }
-    $officePid = [int](Get-Content -LiteralPath $pidFile -Raw)
-    $p = Get-CimInstance Win32_Process -Filter "ProcessId = $officePid" -ErrorAction SilentlyContinue
-    if ($p -and $p.CommandLine -and $p.CommandLine.Contains((Join-Path $here 'office-server.js'))) { return $officePid }
-    return $null
+    return Find-OfficeProcess $here $Port
 }
 
+. (Join-Path $here 'office-process.ps1')
 $running = Office-Running
 $key = ''
 $keyFile = Join-Path $here 'office-key.txt'

@@ -215,6 +215,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   </header>
 
   <section class="kpis" id="kpis"></section>
+  <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
   <section class="lane-strip" id="laneStrip"></section>
 
   <section class="grid-main">
@@ -380,6 +381,7 @@ const UI_TR = {
   ORDER_FLOW_CVD:'EMİR AKIŞI / CVD', DERIVATIVES:'TÜREVLER',
   NO_NEW_WAIT:'YENİ BEKLEME YOK', COMBINATION:'BİRLEŞİK KANIT',
   SWING_LOW:'SWING DİBİ', SWING_HIGH:'SWING TEPESİ',
+  WAIT_UNSPECIFIED:'Bekleme koşulu belirtilmemiş', UNSPECIFIED:'Belirtilmemiş', NONE_MARKET_NOW:'Bekleme yok', FIRST_OBSERVATION:'İlk inceleme', EVIDENCE_CHANGED:'Kanıt değişti', RECHECK_INTERVAL:'Yeniden kontrol zamanı', UNCHANGED_EVIDENCE:'Kanıt değişmedi', SYMBOL_ORDER_PENDING:'Bu coinde sonuç bekleyen emir var', OPEN_POSITION_CAP_REACHED:'Açık ve bekleyen pozisyon sınırı dolu', OPTIONAL_WORKER_COOLDOWN:'Opsiyonel kanıt ajanı soğumada',
   FRESH_SCANNER_SELECTION:'YENİ TARAYICI SEÇİMİ', LEADER_AUTO_BLOCKED:'OTO YÜRÜTME ENGELLENDİ',
   LIVE_REASONING_REFERENCE_READ_ONLY:'CANLI AKIL YÜRÜTME REFERANSI — SALT OKUNUR',
   COMPLETE_CORE_5M15M_PLUS_CONTEXT:'5 DK + 15 DK TAM ÇEKİRDEK BAĞLAMI',
@@ -629,7 +631,9 @@ function renderKpis(s){
   ].join('');
   chip('#chipVer', s.health?.ok?'good':'bad', `PC ${s.health?.data?.featureVersion || st.featureVersion || '—'}`);
   chip('#chipLive', armed?'good':'bad', armed?`LIVE AÇIK${exp!=null?' • '+exp+' dk':''}`:'LIVE KAPALI');
-  chip('#chipAuto', la.enabled?'good':'bad', la.enabled?`OTO AKTİF • ${trUi(la.lastExecution||'—')}`:'OTO KAPALI');
+  const cap=la.capacity||{};
+  const block=la.activeBlocker;
+  chip('#chipAuto', block?'bad':la.enabled?'good':'bad', (la.enabled?'OTO AKTİF':'OTO KAPALI')+(block?' • OTO YÜRÜTME ENGELLENDİ: '+block.reasons.map(trUi).join(', '):'')+` • açık ${cap.known?cap.open:'?'} / bekleyen ${cap.pending??'?'} / sınır ${cap.max??'?'}`);
   const age = s.generatedAt ? Math.round((Date.now()-Date.parse(s.generatedAt))/1000) : null;
   chip('#chipFresh', s.status?.ok?'good':'bad', s.status?.ok?`veri ${age!=null?age+' sn':''} önce`:'Brain Hub yok');
 }
@@ -750,6 +754,7 @@ function renderWorkers(s){
     ['Son inceleme', lr?`${lr.symbol} ${lr.side||''} → ${lr.state} (${lr.source||'—'})`:'—'],
     ['İşlem hattı', lr?`${lr.tradeLaneName||'—'} • ${lr.momentumStage||'—'} • alt TF uyum ${lr.scalpAlignedCount??0}`:'—'],
     ['Gerekçe', lr?.reason||'—'],
+    ['Kanıt ajanı durumu', (cool>0||orf.last?.ok===false)?'Opsiyonel kanıt ajanı bozuldu / soğumada; JEV final kararını engellemez. Ücretli yedek kapalı.':'Opsiyonel kanıt; JEV final kararından bağımsız'],
     ['9Router modelleri', models.length?`${healthy} sağlıklı • ${cool} soğumada • ${models.length-healthy-cool} denenmedi`:'okunamadı'],
     ['OpenRouter free', orf.configured?`${orf.model||'openrouter/free'} • son: ${orf.last?.ok?'OK':(orf.last?.reason||'çağrılmadı')}`:'yapılandırılmamış'],
     ['9Router panel', s.router?.ok?`erişilebilir${num(s.router.ms)!=null?' ('+s.router.ms+' ms)':''}`:'erişilemedi']
@@ -766,7 +771,7 @@ function renderSetups(s){
     return `<tr><td><b>${esc(r.symbol)}</b></td><td><span class="pill ${esc(r.side)}">${esc(trUi(r.side||'—'))}</span></td><td><span class="pill">${esc(lane)}</span></td><td>${esc(trUi(r.momentumStage||'—'))} ${r.scalpAlignedCount!=null?'('+r.scalpAlignedCount+'/3)':''}</td><td>${esc(trUi(r.state||'—'))}</td>
       <td><span style="color:${STATUS_COLOR[plan]||'var(--text-secondary)'}">●</span> ${esc(STATUS_TR[plan]||plan||'—')}</td>
       <td>${esc(r.originTF||'—')}→${esc(r.ownerTF||'—')}</td><td class="trig">${r.triggerTF&&r.triggerPrice!=null?esc(r.triggerTF+' '+(String(r.side).toUpperCase()==='SHORT'?'<':'>')+' '+r.triggerPrice)+(r.shadowTriggeredAt?' ✓':''):'—'}</td><td>${esc(trUi(r.workerState||'—'))}</td>
-      <td class="wait">${fake?'<span class="flag">⚠ KOŞUL YOK</span>':''}${esc(trUi(String(r.waitFor||'—')).slice(0,150))}</td><td>${fmtTime(r.lastAnalyzedAt)}</td></tr>`;
+      <td class="wait">${fake?'<span class="flag">⚠ KOŞUL YOK</span>':''}${esc((r.releaseContract==='R2542_JEV_TRADER_OFFICE'?trUi(r.waitReason||r.waitFor||'UNSPECIFIED'):'ESKİ / LEGACY • '+trUi(r.waitFor||'—')).slice(0,180))}</td><td>${fmtTime(r.lastAnalyzedAt)}</td></tr>`;
   }).join('') : `<tr><td colspan="11" class="muted">Takip edilen setup yok.</td></tr>`);
 }
 
@@ -843,6 +848,25 @@ function renderLedger(s){
   if($('#deskPerf')) $('#deskPerf').innerHTML=
     `<tr><th>Masa</th><th>JEV son karar</th><th>MARKET_NOW</th><th>WAIT zamanlama</th><th>WAIT %</th><th>En sık WAIT nedeni</th><th>Emir</th><th>Açık</th><th>Kapanan</th><th>K/Z</th><th>Winrate</th><th>Net PnL</th><th>Net R</th><th>Ort R</th></tr>`+
     deskRows.map(x=>`<tr><td><b>${esc(trUi(x.desk))}</b></td><td>${x.finalCalls}</td><td>${x.marketNow}</td><td>${x.timingWait}</td><td>${x.timingWaitRatePct==null?'—':'%'+x.timingWaitRatePct.toFixed(1)}</td><td>${esc(trUi(x.topWait))}${x.topWaitCount?' ×'+x.topWaitCount:''}</td><td>${x.ordersPlaced}</td><td>${x.open}</td><td>${x.closed}</td><td>${x.wins}/${x.losses}</td><td>${x.winRatePct==null?'—':'%'+x.winRatePct.toFixed(1)}</td><td>${sgn(x.netPnl)}</td><td>${x.netR==null?'—':x.netR.toFixed(2)+'R'}</td><td>${x.avgR==null?'—':x.avgR.toFixed(2)+'R'}</td></tr>`).join('');
+  const perf=d.performance;
+  if(perf){
+    const f=perf.funnel;
+    const n=v=>v==null?'—':Number(v).toFixed(2);
+    $('#deskCards').innerHTML=perf.desks.filter(x=>['5M_SCALP','15M_TRADE'].includes(x.desk)).map(desk=>{
+      const r=desk.recent;
+      const rows=[...desk.cohorts].sort((a,b)=>(a.version==='R2542_JEV_TRADER_OFFICE'?-2:a.version==='R2541_ATOMIC_TURKISH_SAFE'?-1:0)-(b.version==='R2542_JEV_TRADER_OFFICE'?-2:b.version==='R2541_ATOMIC_TURKISH_SAFE'?-1:0));
+      return `<div class="card"><h2>${desk.desk==='5M_SCALP'?'5M SCALPER MASASI':'15M TRADER MASASI'}</h2><p class="hint">Son 60 dk • analiz ${r.analyses} • onay ${r.approved} → güvenlik ${r.safetyPassed} → emir ${r.orders}<br>Açık PnL ${n(r.openPnl)} USDT • benzersiz coin ${r.uniqueCoverage} • tekrar %${n(r.reanalysisRatePct)}</p><div style="overflow:auto"><table><tr><th>Sürüm</th><th>Kapanış K/Z</th><th>Net USDT</th><th>Ort R</th></tr>${rows.map(x=>`<tr><td>${esc(x.version==='LEGACY'?'Eski / etiketsiz':x.version.split('_')[0])}</td><td>${x.closed} (${x.wins}/${x.losses})</td><td>${n(x.netPnl)}</td><td>${n(x.avgR)}</td></tr>`).join('')}</table></div><p class="hint">Ayrıntılı zamanlama, nedenler ve dönüşüm oranları aşağıdaki masa tablosunda.</p></div>`;
+    }).join('');
+    const dist=o=>Object.entries(o||{}).map(([k,v])=>`${trUi(k)}: ${v}`).join(' • ')||'—';
+    $('#deskPerfHint').textContent=`Tüm defter • son 60 dk benzersiz coin ${f.uniqueCoverage} • tekrar analiz %${n(f.reanalysisRatePct)} • aynı kanıtla atlanan ${f.dedupeSkipped}. ${perf.historyNote}`;
+    $('#closedHint').textContent=`Tüm ölçülen defter: ${perf.total.closed} kapanış • net ${n(perf.total.netPnl)} USDT. ${perf.reconciliation?.excluded?.length||0} yinelenen kayıt hesap dışı (ham kayıtlar korunur). Aşağıdaki liste son ${cl.length} kayıt; masa sonuçları tüm kayıtlardır.`;
+    $('#deskPerf').innerHTML=perf.desks.filter(x=>x.desk!=='UNSPECIFIED'||x.recent.analyses||x.cohorts.some(c=>c.closed)).map(desk=>{
+      const title=desk.desk==='5M_SCALP'?'5M SCALPER MASASI':desk.desk==='15M_TRADE'?'15M TRADER MASASI':'MASASI BELİRSİZ KAYITLAR';
+      return `<tbody><tr><th colspan="12">${title}</th></tr><tr><th>Dönem / sürüm</th><th>Analiz / P1 / P2</th><th>Al / Sat / Bekle</th><th>Şimdi giriş</th><th>Onay / güvenlik / emir</th><th>Kapanış K/Z/N</th><th>Kazanma %</th><th>Net USDT</th><th>Ort / medyan R</th><th>R örneği</th><th>Açık PnL</th><th>Dönüşüm %</th></tr>`+
+      [desk.recent,...desk.cohorts].map(x=>`<tr><td>${esc(x.name==='LEGACY'?'ESKİ / ETİKETSİZ':x.name)}</td><td>${x.telemetryAvailable?`${x.analyses} / ${x.pass1} / ${x.pass2}`:'Kayıt yok'}</td><td>${x.telemetryAvailable?`${x.long} / ${x.short} / ${x.wait}`:'—'}</td><td>${x.telemetryAvailable?x.marketNow:'—'}</td><td>${x.telemetryAvailable?`${x.approved} / ${x.safetyPassed} / ${x.orders}`:'—'}</td><td>${x.closed} (${x.wins}/${x.losses}/${x.flats})</td><td>${n(x.winRatePct)}</td><td>${n(x.netPnl)}</td><td>${n(x.avgR)} / ${n(x.medianR)}</td><td>${x.rSamples}</td><td>${n(x.openPnl)}</td><td title="Karar → güvenlik / güvenlik → emir / karar → emir">${n(x.decisionToSafetyPct)} / ${n(x.safetyToOrderPct)} / ${n(x.decisionToOrderPct)}</td></tr><tr><td colspan="12"><details><summary>Zamanlama, bekleme ve yürütme nedenleri</summary><p>Giriş zamanlaması: ${esc(dist(x.timing))}</p><p>Bekleme nedeni: ${esc(dist(x.waitReasons))}</p><p>Yürütme engelleri: ${esc(dist(x.blockedReasons))}</p><p>Kanıt değişimi: ${esc(dist(x.materialChanges))} • benzersiz coin ${x.uniqueCoverage} • tekrar %${n(x.reanalysisRatePct)}</p></details></td></tr>`).join('')+'</tbody>';
+    }).join('');
+  }
+
 }
 
 function renderPositions(s){
@@ -899,7 +923,7 @@ function renderOffice(s, vinfo){
   const orf=st.openRouterFreeWorker||{}; setDesk('orfree', orf.last?.called?(orf.last.ok?'ok':'blocked'):'', orf.last?.called?(orf.last.ok?'son çağrı OK':'son çağrı başarısız'):'çağrılmadı');
   const jevCalled=+h.jevCalled||0, jevShadow=+h.jevShadowCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):(jevShadow?'busy':''), d.jev?.text);
   const lr = s.lastRisk; setDesk('risk', lr?'warn':'ok', lr?`${lr.symbol}: ZORUNLU • ${trUi(lr.reasons[0])}`:'JEV sonrası yalnız zorunlu güvenlik');
-  setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${la.lastExecution||'—'}`:'LIVE KAPALI');
+  setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${la.activeBlocker?la.activeBlocker.reasons.map(trUi).join(', '):'aktif engel yok'}`:'LIVE KAPALI');
   setDesk('positions', st.positionManager?.busy?'busy':'', st.positionManager?.lastReview?.actionTr || 'açık pozisyon yok');
   const lastPlan=(s.plans||[])[0];
   $('#brainTxt').textContent = lastPlan ? `${lastPlan.symbol} ${lastPlan.side||''} → ${STATUS_TR[lastPlan.status]||lastPlan.status}` : 'plan bekleniyor';
@@ -988,7 +1012,7 @@ function renderV109(s){
       ['İz süren pozisyon (TP3 yerine)', `${trUi(cfg111.runnerMode||'SHADOW')} • açık ${c111?.runner?.open??0}${(c111?.runner?.rows||[]).slice(0,2).map(r=>` • ${r.symbol} ${r.phase} stop ${r.currentStop??'—'}${r.trailTf?' ('+r.trailTf+')':''}`).join('')}`],
       ['Doğrulama red nedeni', (c111?.revalidationReasonCounts||[]).slice(0,3).map(x=>`${x.reason} ${x.count}`).join(' • ')||'—'],
       ...(c112 ? [
-        ['Hızlı scalp hattı (v112)', `${trUi(c112.fastLaneMode||'SHADOW')} • sinyal <b>${c112.fastLaneSignals??0}</b> • nitelikli ${c112.fastLaneQualified??0} • Jev ${c112.fastLaneJevCalled??0} (onay ${c112.fastLaneJevApproved??0})`],
+        ['Eski/hızlı hat telemetrisi (v112)', `${trUi(c112.fastLaneMode||'SHADOW')} • sinyal <b>${c112.fastLaneSignals??0}</b> • nitelikli ${c112.fastLaneQualified??0} • Jev ${c112.fastLaneJevCalled??0} (onay ${c112.fastLaneJevApproved??0})`],
         ['Vision beklemeden doğrulama', `${c112.fastLaneRevalidationTriggers??0} tetik • ${c112.concurrentRevalidations??0} analiz`],
         ['Son hızlı hat olayı', (()=>{const l=c112.fastLane?.lastResult||c112.fastLane?.lastSignal; return l?`${l.symbol||''} ${trUi(l.kind||'')} ${trUi(l.execution||l.tf||'')} ${trUi(l.planStatus||'')}`:'—';})()],
         ['Pozisyon dolu → dinlen', (()=>{const r=c112.positionRest; if(!r) return '—'; const n=`${r.openPositions??'—'}/${r.maxOpenPositions??'—'}`; return r.active?`<b>DİNLENİYOR</b> • açık ${n} • ${r.skips??0} tur atlandı • yeni emir yok`:`${r.enabled===false?'kapalı':'hazır'} • açık ${n}`;})()]
