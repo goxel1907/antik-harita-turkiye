@@ -398,6 +398,37 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         for(const x of sovereignAnalyses){const k=String(x.jevWaitReason||'UNSPECIFIED').toUpperCase();m.set(k,(m.get(k)||0)+1);}
         return [...m.entries()].sort((a,b)=>b[1]-a[1]).map(([waitReason,count])=>({waitReason,count}));
       })(),
+      sovereignDeskStats:(()=>{
+        const laneOf=x=>{
+          const raw=String(x?.tradeLaneName||'').toUpperCase();
+          if(raw==='5M_SCALP'||raw==='SCALP_MOMENTUM')return '5M_SCALP';
+          if(raw==='15M_TRADE'||raw==='MAIN_15M')return '15M_TRADE';
+          return 'UNSPECIFIED';
+        };
+        return ['5M_SCALP','15M_TRADE'].map(desk=>{
+          const xs=sovereignAnalyses.filter(x=>laneOf(x)===desk);
+          const finals=xs.filter(x=>x.jevCalled===true);
+          const marketNow=finals.filter(x=>String(x.jevEntryTiming||'').toUpperCase()==='MARKET_NOW').length;
+          const timingWait=finals.filter(x=>String(x.jevEntryTiming||'').toUpperCase().startsWith('WAIT_')).length;
+          const timing=new Map(), reasons=new Map();
+          for(const x of finals){
+            const t=String(x.jevEntryTiming||'UNSPECIFIED').toUpperCase();
+            const w=String(x.jevWaitReason||'UNSPECIFIED').toUpperCase();
+            timing.set(t,(timing.get(t)||0)+1);
+            reasons.set(w,(reasons.get(w)||0)+1);
+          }
+          return {
+            desk,analyses:xs.length,finalCalls:finals.length,
+            long:finals.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='LONG').length,
+            short:finals.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='SHORT').length,
+            wait:finals.filter(x=>String(x.jevFinalAction||'').toUpperCase()==='WAIT').length,
+            marketNow,timingWait,
+            timingWaitRatePct:finals.length?Number((100*timingWait/finals.length).toFixed(1)):null,
+            entryTimingCounts:[...timing.entries()].sort((a,b)=>b[1]-a[1]).map(([entryTiming,count])=>({entryTiming,count})),
+            waitReasonCounts:[...reasons.entries()].sort((a,b)=>b[1]-a[1]).map(([waitReason,count])=>({waitReason,count}))
+          };
+        });
+      })(),
       sovereignEvidenceRequests:sovereignAnalyses.reduce((sum,x)=>sum+Math.max(0,Number(x.jevRequestedEvidenceCount)||0),0),
       sovereignFinalTotal:sovereignAnalyses.filter(x=>x.jevCalled===true).length,
       sovereignWaitRatePct:(()=>{
@@ -1428,8 +1459,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       setupFamily:pl.setupFamily||jd?.setupFamily||null,entryTiming:pl.entryTiming||jd?.entryTiming||null,edgeBasis:pl.edgeBasis||jd?.edgeBasis||null,
       contractVersion:pl.contractVersion||null,
       strategyVersion:claudeV112.featureVersion||null,
-      releaseContract:'R2541_ATOMIC_TURKISH_SAFE',
-      mirrorContract:'R2541_ATOMIC_TURKISH_MIRROR',
+      releaseContract:'R2542_JEV_TRADER_OFFICE',
+      mirrorContract:'R2542_JEV_TRADER_OFFICE_MIRROR',
       lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||pl.lane||null,
       originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
       source:fl?'FAST_LANE':'VISION_9TF',momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
@@ -1532,12 +1563,34 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const wins=measured.filter(x=>Number(x.netPnl)>0).length;
     const net=measured.reduce((a,x)=>a+Number(x.netPnl),0);
     const rs=measured.filter(x=>Number.isFinite(Number(x.rMultiple))).map(x=>Number(x.rMultiple));
+    const laneOf=row=>{
+      const raw=String(row?.entryContext?.lane||row?.tradeLane||'').toUpperCase();
+      if(raw==='5M_SCALP'||raw==='SCALP_MOMENTUM')return '5M_SCALP';
+      if(raw==='15M_TRADE'||raw==='MAIN_15M')return '15M_TRADE';
+      const tf=String(row?.originTF||row?.entryContext?.originTF||'').toLowerCase();
+      return tf==='5m'?'5M_SCALP':tf==='15m'?'15M_TRADE':'UNSPECIFIED';
+    };
+    const deskSummary=['5M_SCALP','15M_TRADE'].map(desk=>{
+      const xs=measured.filter(x=>laneOf(x)===desk);
+      const winsDesk=xs.filter(x=>Number(x.netPnl)>0).length;
+      const netDesk=xs.reduce((a,x)=>a+Number(x.netPnl),0);
+      const rsDesk=xs.filter(x=>Number.isFinite(Number(x.rMultiple))).map(x=>Number(x.rMultiple));
+      const openDesk=open.filter(x=>laneOf(x)===desk&&x.openedBy==='BRAINHUB_AUTO').length;
+      return {
+        desk,open:openDesk,closed:xs.length,wins:winsDesk,losses:xs.length-winsDesk,
+        winRatePct:xs.length?Number((100*winsDesk/xs.length).toFixed(1)):null,
+        netPnl:Number(netDesk.toFixed(4)),
+        netR:rsDesk.length?Number(rsDesk.reduce((a,b)=>a+b,0).toFixed(2)):null,
+        avgR:rsDesk.length?Number((rsDesk.reduce((a,b)=>a+b,0)/rsDesk.length).toFixed(2)):null
+      };
+    });
     return {
       ok:true,asOf:ledgerState.at,ledgerOk:ledgerState.ok,ledgerError:ledgerState.error,
       open,openCount:open.length,openUnrealizedPnl:Number(open.reduce((a,x)=>a+(Number(x.unrealizedPnl)||0),0).toFixed(4)),
       closed:rows,
       summary:{closed:measured.length,wins,losses:measured.length-wins,winRatePct:measured.length?Number((100*wins/measured.length).toFixed(1)):null,
         netPnl:Number(net.toFixed(4)),avgR:rs.length?Number((rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(2)):null},
+      deskSummary:deskSummary,
       execution:'READ_ONLY'
     };
   }
@@ -3783,8 +3836,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           setupFamily:pl.setupFamily||jd?.setupFamily||null,entryTiming:pl.entryTiming||jd?.entryTiming||null,edgeBasis:pl.edgeBasis||jd?.edgeBasis||null,
           contractVersion:pl.contractVersion||null,
           strategyVersion:claudeV112.featureVersion||null,
-          releaseContract:'R2541_ATOMIC_TURKISH_SAFE',
-          mirrorContract:'R2541_ATOMIC_TURKISH_MIRROR',
+          releaseContract:'R2542_JEV_TRADER_OFFICE',
+          mirrorContract:'R2542_JEV_TRADER_OFFICE_MIRROR',
           lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||pl.lane||null,
           originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
           source:fl?'FAST_LANE':'VISION_9TF',
