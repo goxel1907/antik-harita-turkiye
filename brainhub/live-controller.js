@@ -1,6 +1,10 @@
 'use strict';
 
 const fs = require('node:fs');
+const { performanceReport, laneOf, sameEntry, reconcileCloses } = require('./office-performance');
+const { sameExecutionClose } = require('./close-idempotency');
+const { marketStream } = require('./market');
+const { capacity } = require('./capacity-accounting');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
@@ -298,6 +302,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const leaseToken = crypto.randomBytes(32).toString('base64url');
   let armState = { armed:false, armedAt:null, expiresAt:null };
   let armGeneration = 0;
+  const pendingFile=path.join(root,'data','r2542-pending-orders.json');
+  let pendingOrders=[];
+  try{if(fs.existsSync(pendingFile)){pendingOrders=JSON.parse(fs.readFileSync(pendingFile,'utf8'));if(!Array.isArray(pendingOrders)||pendingOrders.some(x=>!x||!x.symbol))throw new Error('invalid reservations');}}catch{pendingOrders=[{symbol:'UNKNOWN',state:'UNKNOWN',unavailable:true}];}
+  function savePending(){fs.mkdirSync(path.dirname(pendingFile),{recursive:true});fs.writeFileSync(pendingFile+'.tmp',JSON.stringify(pendingOrders));fs.renameSync(pendingFile+'.tmp',pendingFile);}
+  async function reconcilePending(active,creds,snapshotAt){
+    const open=new Set(active.map(x=>x.symbol));
+    const remove=new Set();
+    // Snapshot identities: an awaited exchange query must never erase a newly submitted reservation.
+    for(const row of [...pendingOrders]){
+      if(open.has(row.symbol)){remove.add(row);continue;}
+      if(row.state==='RESERVED'&&row.expiresAt<=clock()){remove.add(row);continue;}
+      if(row.clientOrderId){
+        try{
+          const result=await transport._fetchJson('GET','/fapi/v1/order',{params:{symbol:row.symbol,origClientOrderId:row.clientOrderId},credentials:creds,signed:true});
+          if(['CANCELED','REJECTED','EXPIRED','EXPIRED_IN_MATCH'].includes(result.status)){remove.add(row);continue;}
+          if(result.status==='FILLED'&&Number(result.updateTime)>0&&snapshotAt>Number(result.updateTime)+2000){remove.add(row);continue;}
+        }catch{} // Unknown exchange state continues occupying its slot; never expire a sent order blindly.
+      }
+    }
+    if(remove.size){pendingOrders=pendingOrders.filter(row=>!remove.has(row));savePending();}
+  }
   let executionBusy = false;
   // CLAUDE_V112_EXECUTION_LOCK_ONLY_AT_ORDER: Leader AUTO analiz akışı (Vision ~8 dk) artık emir kilidini
   // tutmaz; kendi bayrağını tutar. Emir anı (executeExclusive) yine tek kilitte (executionBusy).
@@ -334,9 +359,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return ts;
   }
 
+  const officeDecisionContext=new Map();
   function leaderHealthEvent(kind, data = {}) {
     const at = trimLeaderAutoHealth();
-    leaderAutoHealthEvents.push({ at, kind:String(kind || 'EVENT'), ...(data || {}) });
+    const symbol=String(data.symbol||'');
+    if(kind==='ANALYSIS')officeDecisionContext.set(symbol,{decisionId:crypto.randomUUID(),tradeLaneName:laneOf(data)});
+    const event={...(officeDecisionContext.get(symbol)||{}),at,kind:String(kind||'EVENT'),...data,releaseContract:'R2542_JEV_TRADER_OFFICE'};
+    if(['ANALYSIS','JEV_FINAL_AUTHORITY','EXECUTION_STAGE','TICK_RESULT','DEDUPE'].includes(kind)){
+      try{store.journal('R2542_OFFICE_EVENT',symbol||null,event);}catch{}
+    }
+    leaderAutoHealthEvents.push(event);
     if (leaderAutoHealthEvents.length > 720) leaderAutoHealthEvents = leaderAutoHealthEvents.slice(-720);
   }
 
@@ -626,11 +658,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // or stale candidate is selected before repeating a recently analyzed one.
     // This avoids repeatedly spending 9TF Vision time on the same symbol while
     // keeping scanner ordering authoritative.
-    index=candidates.findIndex(c=>{
+    const coverageOrder=candidates.map((_,i)=>(leaderAutoCandidateCursor+i)%candidates.length);
+    index=coverageOrder.find(i=>{
+      const c=candidates[i];
       const row=leaderAnalysisState.bySymbol?.[String(c?.symbol || '').toUpperCase()];
       const last=Math.max(Number(row?.lastAnalyzedAt || 0),Number(row?.lastWorkerCheckAt || 0));
       return !last || now-last >= LEADER_AUTO_REANALYSIS_COOLDOWN_MS;
     });
+    if(index===undefined)index=-1;
     let reason='COVERAGE_STALE_OR_NEW';
     if (index < 0) {
       index=leaderAutoCandidateCursor % candidates.length;
@@ -869,6 +904,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       hard15mVeto:plan?.jevSovereign===true?false:plan?.tradeLane?.hard15mVeto===true,
       setup:String(plan.setup || old?.setup || ''),
       waitFor:String(plan.waitFor || old?.waitFor || ''),
+      waitReason:plan.waitReason||plan.jevDecision?.waitReason||null,
+      releaseContract:plan.releaseContract||old?.releaseContract||null,
       triggerLevelId:String(plan.triggerSpec?.triggerLevelId || plan.triggerLevelId || old?.triggerLevelId || ''),
       triggerTF:String(plan.triggerSpec?.tf || plan.triggerTF || old?.triggerTF || ''),
       triggerPrice:finite(plan.triggerSpec?.triggerPrice ?? old?.triggerPrice),
@@ -1228,6 +1265,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           executionIntent:{ symbol:tracked.symbol, side:tracked.side, analysisTracking:true }
         });
       }finally{leaderVisionSymbol=null;}
+      if(advisory?.analysisSkipped)return {ok:true,orderPlaced:false,liveAllowed:false,execution:'LEADER_AUTO_WAIT',symbol:tracked.symbol,reasons:['UNCHANGED_EVIDENCE']};
+      if(advisory?.plan)advisory.plan.releaseContract='R2542_JEV_TRADER_OFFICE';
       const planStatus=String(advisory?.plan?.status || '').toUpperCase();
       if (advisory?.candidateFound && advisory?.unifiedContext && advisory?.plan) {
         const before=String(tracked.state || '');
@@ -1343,6 +1382,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
   }
 
+  function appendClosedOnce(symbol,record){
+    const rows=typeof store.officeRecords==='function'?store.officeRecords().filter(x=>x.kind==='POSITION_CLOSED'):store.recentJournal?.('POSITION_CLOSED',{limit:500,sinceTs:0})||[];
+    if(rows.some(x=>sameExecutionClose({...x.payload,symbol:x.symbol},{...record,symbol},{eventId:record.eventId,sameEntry})))return false;
+    // No await between the final check and synchronous SQLite append.
+    store.journal('POSITION_CLOSED',symbol,record);
+    return true;
+  }
   async function finalizeClosedActiveRows(openPositions, { snapshotStartedAt = clock() } = {}) {
     const openSet=new Set((openPositions||[]).map(x=>x.symbol));
     const creds=currentCredentials();
@@ -1388,6 +1434,45 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       leaderAnalysisState.bySymbol[symbol]=row;
       writeLeaderAnalysisState();
       journalLeaderLifecycle(symbol,prev,'CLOSED',row,'BINANCE_POSITION_CLOSED');
+      // R2542_CLOSE_EVENT_RECOVERY:
+      // Restart/legacy lifecycle satirinda eventId kaybolduysa ayni LIVE_EXECUTION
+      // kaydindan geri kazan. Bu backfill ile normal ledger'in ayni business
+      // identity kullanmasini saglar.
+      let closeEventId=String(row.eventId||'').trim()||null;
+      if(!closeEventId&&typeof store?.recentJournal==='function'){
+        try{
+          const referenceAt=Number(entryAt||activeAt||0);
+          const executionRows=store.recentJournal('LIVE_EXECUTION',{
+            limit:500,
+            sinceTs:Math.max(0,referenceAt-5*60000)
+          }).filter(x=>{
+            if(!x||x.symbol!==symbol||x.payload?.result?.orderPlaced!==true)return false;
+            const p=x.payload||{}, r=p.result||{};
+            const executionSide=String(r.side||p.plan?.side||'').toUpperCase();
+            return executionSide===String(row.side||'').toUpperCase()&&sameExecutionClose(
+              {symbol,side:row.side,openedAt:new Date(referenceAt).toISOString(),entryPrice:entry,quantity:qty},
+              {symbol,side:executionSide,openedAt:new Date(x.ts).toISOString(),entryPrice:finite(p.riskGate?.structuralStop?.entryPrice)??finite(r.livePrice),quantity:finite(r.executedQty)}
+            );
+          }).sort((a,b)=>
+            Math.abs(Number(a.ts||0)-referenceAt)-
+            Math.abs(Number(b.ts||0)-referenceAt)
+          );
+
+          const best=executionRows[0];
+
+          if(best&&Math.abs(Number(best.ts||0)-referenceAt)<=5*60000){
+            const bp=best.payload||{}, br=bp.result||{};
+            closeEventId=String(
+              bp.eventId||
+              br.authorization?.clientOrderId||
+              best.id||
+              ''
+            ).trim()||null;
+
+            if(closeEventId)row.eventId=closeEventId;
+          }
+        }catch{}
+      }
       const record={
         side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,tradeLane:row.tradeLaneName||row.entryContext?.lane||null,
         entryPrice:entry,stopPrice:stop,takeProfit1:finite(row.takeProfit1),quantity:qty,notional:base,riskQuote,
@@ -1395,10 +1480,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         openedAt:activeAt>0?new Date(activeAt).toISOString():null,closedAt:new Date(closedAt).toISOString(),holdMinutes,
         runner:runner?{phase:runner.phase,tpPlaced:runner.tpPlaced,stopMoves:Math.max(Number(runner.stopMoveCount||0),(runner.events||[]).filter(e=>e?.kind==='STOP_MOVED').length)}:null,
         entryContext:row.entryContext||null,
-        eventId:row.eventId||null,
+        eventId:closeEventId,closeBusinessKey:closeEventId?('EVENT:'+closeEventId):null,
         incomeAvailable:inc!==null
       };
-      try{store.journal('POSITION_CLOSED',symbol,record);}catch{}
+      writeLeaderAnalysisState();
+      if(!appendClosedOnce(symbol,record))continue;
       try{store.recordLearning?.('POSITION_CLOSED',symbol,{...record,decision:'CLOSED_'+exitType});}catch{}
       await recordJevShadowLesson(symbol,record);
       // Stop olan coine hızlı hat hemen geri girmesin (intikam işlemi yok): veto soğuması kadar.
@@ -1422,7 +1508,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const open=await exchangeOpenPositions();
       const at=new Date(clock()).toISOString();
       if(!open.ok){ledgerState={...ledgerState,at,ok:false,error:open.reason};return {ok:false,reason:open.reason};}
+      await reconcilePending(open.positions,currentCredentials(),open.snapshotStartedAt);
       const finalized=await finalizeClosedActiveRows(open.positions,{snapshotStartedAt:open.snapshotStartedAt});
+      marketStream.protectedSymbols=new Set(open.positions.map(x=>x.symbol));
       ledgerState={at,ok:true,error:null,open:open.positions,source:open.source||null,lastFinalized:finalized.length?finalized:ledgerState.lastFinalized};
       return {ok:true,open:open.positions.length,finalized:finalized.length};
     }catch(e){
@@ -1460,8 +1548,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       setupFamily:pl.setupFamily||jd?.setupFamily||null,entryTiming:pl.entryTiming||jd?.entryTiming||null,edgeBasis:pl.edgeBasis||jd?.edgeBasis||null,
       contractVersion:pl.contractVersion||null,
       strategyVersion:claudeV112.featureVersion||null,
-      releaseContract:'R2542_JEV_TRADER_OFFICE',
-      mirrorContract:'R2542_JEV_TRADER_OFFICE_MIRROR',
+      releaseContract:plan?.releaseContract||null,
+      mirrorContract:plan?.mirrorContract||null,
       lane:(pl.tradeLane&&typeof pl.tradeLane==='object'?pl.tradeLane.name:pl.tradeLane)||pl.lane||null,
       originTF:pl.originTF||null,ownerTF:pl.ownerTF||null,supportTFs:Array.isArray(pl.supportTFs)?pl.supportTFs.slice(0,9):[],
       source:fl?'FAST_LANE':'VISION_9TF',momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
@@ -1487,12 +1575,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const openSet=new Set(open.positions.map(p=>p.symbol));
       const execs=store.recentJournal('LIVE_EXECUTION',{limit,sinceTs})
         .filter(x=>x.payload?.result?.orderPlaced===true&&x.symbol).sort((a,b)=>a.ts-b.ts);
-      const closedIds=new Set(store.recentJournal('POSITION_CLOSED',{limit:500,sinceTs}).map(x=>x.payload?.eventId).filter(Boolean));
+      const closedRecords=(typeof store.officeRecords==='function'?store.officeRecords().filter(x=>x.kind==='POSITION_CLOSED'):store.recentJournal('POSITION_CLOSED',{limit:500,sinceTs})).map(x=>({...x.payload,symbol:x.symbol}));
+      const closedIds=new Set(closedRecords.map(x=>x.eventId).filter(Boolean));
       const runnerRows=store.recentJournal('CLAUDE_V111_RUNNER',{limit:500,sinceTs});
       for(let i=0;i<execs.length;i++){
         const e=execs[i], p=e.payload||{}, r=p.result||{}, sym=e.symbol;
         const eventId=String(p.eventId||r.authorization?.clientOrderId||e.id);
         if(done[eventId]||closedIds.has(eventId))continue;
+        const entryIdentity={symbol:sym,side:String(r.side||p.plan?.side||'').toUpperCase(),openedAt:new Date(e.ts).toISOString(),quantity:finite(r.executedQty),entryPrice:finite(p.riskGate?.structuralStop?.entryPrice)??finite(r.livePrice)};
+        if(closedRecords.some(x=>sameExecutionClose(x,entryIdentity,{eventId,sameEntry}))){done[eventId]='EXISTING_LEDGER_ENTRY';continue;}
         const next=execs.slice(i+1).find(x=>x.symbol===sym);
         if(!next&&openSet.has(sym))continue; // hâlâ açık: defter kapanışta yazar
         const endTs=next?next.ts-1000:clock();
@@ -1517,9 +1608,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           openedAt:new Date(e.ts).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-e.ts)/60000),
           runner:ev.length?{events:ev.length}:null,
           entryContext:entryContextFromPlan(p.plan,p.plan?.jevDecision,p.sizing),
-          eventId,backfilled:true,incomeAvailable:true
+          eventId,closeBusinessKey:'EVENT:'+eventId,backfilled:true,incomeAvailable:true
         };
-        try{store.journal('POSITION_CLOSED',sym,record);}catch{}
+        // R2542_CLOSE_LATE_RECHECK:
+        // positionIncome beklerken normal ledger kapanisi yazmis olabilir.
+        // Yazmadan hemen once store'u yeniden oku; stale snapshot ile ikinci
+        // POSITION_CLOSED append edilmesini engelle.
+        const latestClosedRecords=(
+          typeof store.officeRecords==='function'
+            ? store.officeRecords().filter(x=>x.kind==='POSITION_CLOSED')
+            : store.recentJournal('POSITION_CLOSED',{limit:500,sinceTs})
+        ).map(x=>({...x.payload,symbol:x.symbol}));
+
+        if(latestClosedRecords.some(
+          x=>sameExecutionClose(x,entryIdentity,{eventId,sameEntry})
+        )){
+          done[eventId]='EXISTING_LEDGER_ENTRY_LATE';
+          continue;
+        }
+        if(!appendClosedOnce(sym,record)){done[eventId]='EXISTING_LEDGER_ENTRY_AT_APPEND';continue;}
         try{store.recordLearning?.('POSITION_CLOSED',sym,{...record,decision:'CLOSED_'+exitType});}catch{}
         await recordJevShadowLesson(sym,record);
         done[eventId]=new Date(clock()).toISOString();
@@ -1557,13 +1664,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     });
     let closed=[];
     try{closed=typeof store?.recentJournal==='function'?store.recentJournal('POSITION_CLOSED',{limit:closedLimit}):[];}catch{closed=[];}
-    const rows=closed.map(x=>({symbol:x.symbol,ts:new Date(x.ts).toISOString(),...x.payload}))
+    const allOfficeRecords=typeof store.officeRecords==='function'?store.officeRecords():closed;
+    const rows=reconcileCloses(allOfficeRecords.filter(x=>x.kind==='POSITION_CLOSED').map(x=>({symbol:x.symbol,id:x.id,ts:new Date(x.ts).toISOString(),...x.payload}))).trades
       .filter(x=>x.incomeAvailable!==undefined||Number.isFinite(Number(x.netPnl)))
-      .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts));
+      .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts)).slice(0,closedLimit);
     const measured=rows.filter(x=>Number.isFinite(Number(x.netPnl)));
     const wins=measured.filter(x=>Number(x.netPnl)>0).length;
     const net=measured.reduce((a,x)=>a+Number(x.netPnl),0);
-    const rs=measured.filter(x=>Number.isFinite(Number(x.rMultiple))).map(x=>Number(x.rMultiple));
+    const rs=measured.filter(x=>finite(x.rMultiple)!==null).map(x=>Number(x.rMultiple));
     const laneOf=row=>{
       const raw=String(row?.entryContext?.lane||row?.tradeLane||'').toUpperCase();
       if(raw==='5M_SCALP'||raw==='SCALP_MOMENTUM')return '5M_SCALP';
@@ -1575,7 +1683,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const xs=measured.filter(x=>laneOf(x)===desk);
       const winsDesk=xs.filter(x=>Number(x.netPnl)>0).length;
       const netDesk=xs.reduce((a,x)=>a+Number(x.netPnl),0);
-      const rsDesk=xs.filter(x=>Number.isFinite(Number(x.rMultiple))).map(x=>Number(x.rMultiple));
+      const rsDesk=xs.filter(x=>finite(x.rMultiple)!==null).map(x=>Number(x.rMultiple));
       const openDesk=open.filter(x=>laneOf(x)===desk&&x.openedBy==='BRAINHUB_AUTO').length;
       return {
         desk,open:openDesk,closed:xs.length,wins:winsDesk,losses:xs.length-winsDesk,
@@ -1592,6 +1700,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       summary:{closed:measured.length,wins,losses:measured.length-wins,winRatePct:measured.length?Number((100*wins/measured.length).toFixed(1)):null,
         netPnl:Number(net.toFixed(4)),avgR:rs.length?Number((rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(2)):null},
       deskSummary:deskSummary,
+      performance:performanceReport(allOfficeRecords,open,clock()),
       execution:'READ_ONLY'
     };
   }
@@ -2005,7 +2114,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // 90 sn'den eskiyse dinlenilmez (analiz sürer; emirde risk kapısı yine korur).
     const ledgerAge=ledgerState.at?clock()-Date.parse(ledgerState.at):Infinity;
     if(!ledgerState.ok||!(ledgerAge>=0&&ledgerAge<=90000)){endRest('LEDGER_STALE');return false;}
-    const open=(ledgerState.open||[]).length;
+    const slots=capacity({open:ledgerState.open||[],pending:pendingOrders,max,now:clock()});
+    const open=slots.used;
     const at=new Date(clock()).toISOString();
     const full=open>=max;
     if(full&&!slotRest.active){
@@ -2243,6 +2353,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // LEADER_STATUS_STALE_SUPPRESSION: Android may re-enable Leader AUTO immediately
     // after a PC restart. Do not present the pre-sync DISABLED tick as the current state.
     const suppressStaleDisabled=c.enabled === true && lastExecutionRaw === 'LEADER_AUTO_DISABLED';
+    const activeBlock=armedNow()&&c.enabled&&lastExecutionRaw==='LEADER_AUTO_BLOCKED'&&clock()-Date.parse(leaderAutoLastTickAt||'')<60000&&(lastLeaderAutoResult?.reasons||[]).length>0;
     return {
       ok:cfg.ok,
       configured:Boolean(c.marginQuote && c.leverage && c.maxOpenPositions),
@@ -2252,12 +2363,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       maxOpenPositions:c.maxOpenPositions,
       effectiveLeverage:effective?.leverage ?? c.leverage ?? null,
       effectiveMaxOpenPositions:effective?.maxOpenPositions ?? c.maxOpenPositions ?? null,
+      capacity:{...capacity({open:ledgerState.open||[],pending:pendingOrders,max:c.maxOpenPositions||2,now:clock()}),known:ledgerState.ok&&clock()-Date.parse(ledgerState.at)<=90000},
       sizingAuthority:effective?.sizingAuthority || 'USER_PANEL_EXACT',
       sizingAdjustments:[],
       allowLong:c.allowLong === true,
       allowShort:c.allowShort === true,
       intervalSec:30,
       busy:leaderAutoBusy,
+      activeBlocker:activeBlock?{reasons:lastLeaderAutoResult.reasons,at:leaderAutoLastTickAt}:null,
       lastExecution:suppressStaleDisabled ? null : (lastExecutionRaw || null),
       lastSymbol:lastLeaderAutoResult?.symbol || lastLeaderAutoResult?.leaderIntent?.symbol || null,
       lastOrderPlaced:lastLeaderAutoResult?.orderPlaced === true,
@@ -2843,6 +2956,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   async function accountRiskFor(order, policy, creds) {
     await transport._syncServerTime();
+    const snapshotAt=clock();
     const account = await transport._fetchJson('GET', '/fapi/v3/account', { credentials:creds, signed:true });
     const income = await transport._fetchJson('GET', '/fapi/v1/income', {
       params:{ incomeType:'REALIZED_PNL', startTime:utcDayStart(clock()), limit:1000 },
@@ -2851,11 +2965,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     });
     if (!Array.isArray(income)) throw new Error('BINANCE_DAILY_INCOME_UNAVAILABLE');
     if (income.length >= 1000) throw new Error('BINANCE_DAILY_INCOME_WINDOW_INCOMPLETE');
+    if (!Array.isArray(account?.positions)) throw new Error('BINANCE_POSITIONS_FIELD_MISSING');
 
     const equity = finite(account?.totalMarginBalance);
     const availableBalance = finite(account?.availableBalance);
     const positions = Array.isArray(account?.positions) ? account.positions : [];
     const active = positions.filter(x => Math.abs(finite(x?.positionAmt) || 0) > 0);
+    await reconcilePending(active,creds,snapshotAt);
+    const slots=capacity({open:active,pending:pendingOrders,max:policy.limits.maxOpenPositions,symbol:order?.symbol,now:clock()});
+    if(['SYMBOL_POSITION_ALREADY_OPEN','SYMBOL_ORDER_PENDING','PENDING_STATE_UNAVAILABLE'].includes(slots.reason))throw new Error(slots.reason);
     const currentExposure = active.reduce((sum, x) => {
       const direct = finite(x?.notional);
       if (direct !== null) return sum + Math.abs(direct);
@@ -2873,7 +2991,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         equity,
         availableBalance,
         dailyRealizedPnl,
-        openPositions:active.length
+        openPositions:slots.used,
+        capacity:slots
       },
       intent:{
         riskQuote,
@@ -3412,6 +3531,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         }
       });
       const analysisEndedAt=Number.isFinite(clock()) ? clock() : Date.now();
+      if(advisory?.plan)advisory.plan.releaseContract='R2542_JEV_TRADER_OFFICE';
       const planStatus=String(advisory?.plan?.status || advisory?.status || 'REVIEW_REQUIRED').toUpperCase();
       const preJevStatus=String(advisory?.preJevPlan?.status || advisory?.plan?.previousStatus || planStatus).toUpperCase();
       const planReason=String(advisory?.plan?.reason || advisory?.reason || '');
@@ -3427,6 +3547,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         scalpReady:advisory?.plan?.tradeLane?.scalpReady===true || advisory?.preJevPlan?.tradeLane?.scalpReady===true,
         main15Ready:advisory?.plan?.tradeLane?.main15Ready===true || advisory?.preJevPlan?.tradeLane?.main15Ready===true,
         jevSovereign:advisory?.jevSovereign===true,
+        analysisSkipped:advisory?.analysisSkipped===true,
+        materialChangeReason:advisory?.jevDecision?.materialChangeReason||advisory?.materialChangeReason||null,
         jevPass1Called:advisory?.jevPass1?.called===true,
         jevLaneFocus:advisory?.jevPass1?.laneFocus||null,
         jevDirectionFocus:advisory?.jevPass1?.directionFocus||null,
@@ -3487,6 +3609,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       };
     }
 
+    if(advisory?.analysisSkipped)return {ok:true,orderPlaced:false,liveAllowed:false,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,reasons:['UNCHANGED_EVIDENCE']};
     if (fastMode && (!advisory?.plan || String(advisory.plan.status || '').toUpperCase() !== 'QUALIFIED')) {
       // Hızlı hat: nitelikli değilse (sinyal kayboldu / Jev veto / hat kuralı) takip planı yazılmaz;
       // ana döngü coini normal 9TF akışıyla ele alır.
@@ -4144,7 +4267,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       };
     }
 
-    const result = await transport.submit({
+    const reservation={symbol:String(order.symbol).toUpperCase(),clientOrderId:order.clientOrderId,state:'SUBMITTING',at:clock()};
+    pendingOrders.push(reservation); savePending();
+    let result;
+    try { result = await transport.submit({
       grantId:grant.grant.grantId,
       order,
       credentials:creds,
@@ -4158,9 +4284,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
     });
 
+    }catch(error){reservation.state='UNKNOWN';savePending();throw error;}
     const uncertainSubmit = result?.manualReviewRequired === true ||
       result?.execution === 'LIVE_ENTRY_REVIEW_REQUIRED' ||
       result?.execution === 'LIVE_STOP_FAILED_MANUAL_INTERVENTION_REQUIRED';
+    if(result?.orderPlaced===true||uncertainSubmit){reservation.state=result?.orderPlaced===true?'SUBMITTED':'UNKNOWN';}
+    else pendingOrders=pendingOrders.filter(x=>x!==reservation);
+    savePending();
     let claimRelease = null;
     if (result?.orderPlaced !== true && !uncertainSubmit) claimRelease = releaseClaim();
 

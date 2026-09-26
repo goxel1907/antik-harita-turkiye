@@ -204,7 +204,7 @@ async function callModel(model,messages,timeoutMs=12000,requestOptions={}){
 }
 function recentFailure(map,model){
   const s=map.get(model);
-  return !!(s&&s.ok===false&&(Date.now()-s.at)<TTL);
+  return !!(s&&s.ok===false&&Date.now()<(s.cooldownUntil||s.at+TTL));
 }
 function blocked(model){ return recentFailure(state,model); }
 function visionBlocked(model){ return recentFailure(visionState,model); }
@@ -416,7 +416,8 @@ async function ask(prompt,system,preferred,role='DEFAULT'){
       return {...out,role,attempts:errors.length+1};
     }catch(e){
       const msg=String(e.message||e);
-      state.set(m,{ok:false,at:Date.now(),error:msg.slice(0,240)});
+      const failures=(state.get(m)?.failures||0)+1;
+      state.set(m,{ok:false,at:Date.now(),failures,cooldownUntil:Date.now()+Math.min(1800000,TTL*2**Math.min(failures-1,5)),optional:true,blocksJev:false,error:msg.slice(0,240)});
       errors.push({model:m,error:msg.slice(0,240)});
       log('ASK FAIL role='+role+' model='+m+' '+msg.slice(0,180));
     }
@@ -1480,7 +1481,8 @@ const server=http.createServer(async(req,res)=>{
       const local=localVisionConfig();
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[]),...(local.enabled?local.models:[])].map(model=>({
         model,
-        status:state.has(model)?(state.get(model).ok?'healthy':'cooldown'):'untested',
+        status:state.has(model)?(state.get(model).ok?'healthy':blocked(model)?'cooldown':'untested'):'untested',
+        cooldownUntil:state.get(model)?.cooldownUntil||null,optionalEvidence:true,blocksJev:false,
         last:state.get(model)?.at||null,
         error:state.get(model)?.error||null,
         visionStatus:visionState.has(model)?(visionState.get(model).ok?'healthy':'cooldown'):'untested',
