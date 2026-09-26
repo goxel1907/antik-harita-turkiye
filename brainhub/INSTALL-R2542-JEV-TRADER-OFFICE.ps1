@@ -11,7 +11,7 @@ $Repo = 'goxel1907/antik-harita-turkiye'
 $ExpectedSovereign = '9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M'
 $ExpectedCortex = 'R2.5.3.4'
 $ExpectedCortexMode = 'LIVE_REASONING_REFERENCE_READ_ONLY'
-$ExpectedOffice = '2.0.8-JEV-ATOMIC-TR-R2541'
+$ExpectedOffice = '2.1.0-JEV-TRADER-OFFICE-R2542'
 $ExpectedExperience = 'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS'
 $ExpectedKnowledgeVersion = 'R2.5.3.6'
 $ExpectedKnowledgeMode = 'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'
@@ -194,7 +194,7 @@ if (-not ($health.features -contains 'R2541_CONFIRMED_SWING_TRENDLINES')) { thro
 if (-not ($health.features -contains 'R2541_PATTERN_GEOMETRY')) { throw 'R2541 pattern-geometry marker missing.' }
 if (-not ($health.features -contains 'R2541_TURKISH_OFFICE_UI')) { throw 'R2541 Turkish Office marker missing.' }
 if (-not ($health.features -contains 'ANDROID_REMOTE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY')) { throw 'R2539 PC remote-execute block marker missing.' }
-if ([string]$health.jevSovereign.releaseVersion -ne 'R2541-ATOMIC-TURKISH-SAFE') { throw 'R2541 release identity missing.' }
+if ([string]$health.jevSovereign.releaseVersion -ne 'R2542-JEV-TRADER-OFFICE') { throw 'R2542 release identity missing.' }
 if ([string]$health.jevSovereign.liveMirror.version -ne 'R2.5.4.1') { throw 'R2541 live mirror metadata missing.' }
 if (-not ($health.features -contains 'JEV_SETUP_FAMILY_LEARNING')) { throw 'R2537 setup-family learning marker missing.' }
 if (-not ($health.features -contains 'JEV_EXPLICIT_ENTRY_TIMING')) { throw 'R2537 entry-timing marker missing.' }
@@ -240,6 +240,8 @@ $installedOfficeSource = Get-Content -LiteralPath $installedOfficeHtml -Raw
 if ($installedOfficeSource -notmatch 'JEV Canlı Görüş Aynası — Tam Görünüm') { throw 'R2541 Office full mirror card missing.' }
 if ($installedOfficeSource -notmatch 'Gözlenen tasfiye bölgeleri') { throw 'R2541 liquidation-zone telemetry missing.' }
 if ($installedOfficeSource -notmatch 'TAM AÇIKLAMALI') { throw 'R2541 full annotated graph missing.' }
+if ($installedOfficeSource -notmatch 'R2542 Trader Office • 5M Scalper / 15M Trader performansı') { throw 'R2542 desk performance table missing.' }
+if ($installedOfficeSource -notmatch 'sovereignDeskStats') { throw 'R2542 decision desk telemetry render missing.' }
 if (-not $knowledge.ok) { throw 'JEV knowledge research endpoint failed.' }
 if ([int]$knowledge.openSourceRepoCount -lt 8) { throw "Curated OSS registry too small: $($knowledge.openSourceRepoCount)" }
 if ([int]$knowledge.retryPolicy.channelAttempts -lt 2) { throw 'Research retry policy is not active.' }
@@ -254,6 +256,8 @@ Write-Host 'R2542_JEV_TRADER_OFFICE_OK'
 Write-Host 'R2542_5M_SCALPER_DESK_OK'
 Write-Host 'R2542_15M_TRADER_DESK_OK'
 Write-Host 'R2542_MARKET_NOW_WAIT_TELEMETRY_OK'
+Write-Host 'R2542_DESK_PERFORMANCE_OK'
+Write-Host 'R2542_TRADE_RELEASE_TAG_OK'
 Write-Host 'R2542_OFFICE_UPDATE_OK'
 Write-Host 'R2541_CORTEX_RUNTIME_LOADED_OK'
 Write-Host 'R2541_MEMORY_LIFETIME_OK'
