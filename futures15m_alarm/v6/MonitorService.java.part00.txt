@@ -1,0 +1,192 @@
+package com.futuresalarm.app;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.IBinder;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+import java.util.TimeZone;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class MonitorService extends Service {
+    public static final String PREFS = "futures_alarm_prefs";
+    public static final String KEY_ENABLED = "monitoring_enabled";
+    public static final String KEY_AUTO_MODE = "auto_high_accuracy_v6";
+    public static final String KEY_LAST_SIGNAL_SYMBOL = "last_signal_symbol";
+    public static final String KEY_LAST_SIGNAL_DIRECTION = "last_signal_direction";
+    public static final String KEY_LAST_SIGNAL_DETAIL = "last_signal_detail";
+
+    public static final String CHANNEL_SERVICE = "monitor_service_v6";
+    public static final String CHANNEL_APPROACH = "trade_approach_v6";
+    public static final String CHANNEL_ALERTS = "trade_alerts_urgent_v6";
+    private static final int SERVICE_NOTIFICATION_ID = 16001;
+    private static final long POLL_SECONDS = 15L;
+    private static final AtomicInteger ALERT_IDS = new AtomicInteger(26000);
+
+    private static final String[] API_BASES = new String[] {
+            "https://fapi.binance.com",
+            "https://fapi1.binance.com",
+            "https://fapi2.binance.com",
+            "https://fapi3.binance.com"
+    };
+
+    private ScheduledExecutorService scheduler;
+    private SharedPreferences prefs;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (!prefs.contains(KEY_AUTO_MODE)) prefs.edit().putBoolean(KEY_AUTO_MODE, true).apply();
+        ensureChannels(this);
+        startForeground(SERVICE_NOTIFICATION_ID, buildServiceNotification("Başlatılıyor…"));
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleWithFixedDelay(this::pollSafely, 0, POLL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        prefs.edit().putBoolean(KEY_ENABLED, true).apply();
+        return START_STICKY;
+    }
+
+    @Override public void onDestroy() {
+        if (scheduler != null) scheduler.shutdownNow();
+        super.onDestroy();
+    }
+    @Override public IBinder onBind(Intent intent) { return null; }
+
+    private void pollSafely() {
+        if (!prefs.getBoolean(KEY_ENABLED, true)) { stopSelf(); return; }
+        boolean auto = prefs.getBoolean(KEY_AUTO_MODE, true);
+        List<TradePlan> symbols = PlanStore.load(this);
+        int ok = 0;
+        for (TradePlan manual : symbols) {
+            try {
+                CandleSet set = fetchMini(manual.symbol);
+                if (set == null || set.completed == null) continue;
+                AutoSnapshot snap = null;
+                if (auto) {
+                    long lastAnalyzed = prefs.getLong("auto_last_close_" + manual.symbol, -1L);
+                    if (lastAnalyzed != set.completed.openTime) {
+                        snap = runDeepAnalysis(manual, set.completed);
+                        if (snap != null) {
+                            AutoStore.put(this, snap);
+                            prefs.edit().putLong("auto_last_close_" + manual.symbol, set.completed.openTime).apply();
+                            evaluateAutoClosed(snap, set.completed);
+                        }
+                    } else {
+                        snap = AutoStore.get(this, manual.symbol);
+                    }
+                    if (snap != null) evaluateAutoLive(snap, set);
+                    else evaluateManual(manual, set);
+                } else {
+                    evaluateManual(manual, set);
+                }
+                ok++;
+            } catch (Throwable ignored) {}
+        }
+        int total = symbols.size();
+        String mode = auto ? "AUTO HIGH ACCURACY" : "MANUEL";
+        updateServiceNotification(ok == total
+                ? total + " coin • " + mode + " • 15m kapanış analizi"
+                : ok + "/" + total + " coin erişildi • " + mode);
+    }
+
+    /** Deep analysis only once for each newly completed 15m candle. */
+    private AutoSnapshot runDeepAnalysis(TradePlan manual, Candle completed) {
+        try {
+            List<MarketAnalyzer.Bar> m15 = fetchBars(manual.symbol, "15m", 220);
+            List<MarketAnalyzer.Bar> h1 = fetchBars(manual.symbol, "1h", 140);
+            List<MarketAnalyzer.Bar> h4 = fetchBars(manual.symbol, "4h", 140);
+            List<MarketAnalyzer.Bar> d1 = fetchBars(manual.symbol, "1d", 100);
+            MarketAnalyzer.Metrics metrics = fetchMetrics(manual.symbol);
+            return MarketAnalyzer.analyze(manual.symbol, m15, h1, h4, d1, metrics,
+                    manual.decimals, manual.earlyWarnPercent);
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private CandleSet fetchMini(String symbol) throws Exception {
+        JSONArray rows = getArray("/fapi/v1/klines?symbol=" + symbol + "&interval=15m&limit=3");
+        if (rows.length() < 2) throw new Exception("Kline eksik");
+        long now = System.currentTimeMillis();
+        Candle last = mini(rows.getJSONArray(rows.length() - 1));
+        Candle current, completed;
+        if (last.closeTime >= now) { current = last; completed = mini(rows.getJSONArray(rows.length() - 2)); }
+        else { current = null; completed = last; }
+        return new CandleSet(current, completed);
+    }
+
+    private List<MarketAnalyzer.Bar> fetchBars(String symbol, String interval, int limit) throws Exception {
+        JSONArray rows = getArray("/fapi/v1/klines?symbol=" + symbol + "&interval=" + interval + "&limit=" + limit);
+        ArrayList<MarketAnalyzer.Bar> out = new ArrayList<>();
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < rows.length(); i++) {
+            JSONArray r = rows.getJSONArray(i);
+            MarketAnalyzer.Bar b = new MarketAnalyzer.Bar();
+            b.openTime = r.getLong(0);
+            b.open = num(r, 1); b.high = num(r, 2); b.low = num(r, 3); b.close = num(r, 4);
+            b.volume = num(r, 5); b.closeTime = r.getLong(6);
+            b.quoteVolume = num(r, 7); b.trades = r.optInt(8, 0);
+            b.takerBuyVolume = num(r, 9); b.takerBuyQuote = num(r, 10);
+            if (b.closeTime < now) out.add(b); // completed bars only
+        }
+        return out;
+    }
+
+    private MarketAnalyzer.Metrics fetchMetrics(String symbol) {
+        MarketAnalyzer.Metrics m = new MarketAnalyzer.Metrics();
+        try {
+            JSONArray a = getArray("/futures/data/openInterestHist?symbol=" + symbol + "&period=15m&limit=6");
+            if (a.length() >= 2) {
+                double first = Double.parseDouble(a.getJSONObject(0).optString("sumOpenInterest", "0"));
+                double last = Double.parseDouble(a.getJSONObject(a.length()-1).optString("sumOpenInterest", "0"));
+                if (first > 0) m.oiChangePct = (last - first) / first * 100.0;
+            }
+        } catch (Throwable ignored) {}
+        try {
+            JSONArray a = getArray("/futures/data/takerlongshortRatio?symbol=" + symbol + "&period=15m&limit=4");
+            m.takerBuySellRatio = averageField(a, "buySellRatio", 3);
+        } catch (Throwable ignored) {}
+        try {
+            JSONArray a = getArray("/futures/data/globalLongShortAccountRatio?symbol=" + symbol + "&period=15m&limit=3");
+            if (a.length() > 0) m.globalLongShortRatio = Double.parseDouble(a.getJSONObject(a.length()-1).optString("longShortRatio", "NaN"));
+        } catch (Throwable ignored) {}
+        try {
+            JSONArray a = getArray("/futures/data/topLongShortPositionRatio?symbol=" + symbol + "&period=15m&limit=3");
+            if (a.length() > 0) m.topPositionLongShortRatio = Double.parseDouble(a.getJSONObject(a.length()-1).optString("longShortRatio", "NaN"));
+        } catch (Throwable ignored) {}
+        try {
+            JSONObject o = getObject("/fapi/v1/premiumIndex?symbol=" + symbol);
+            m.fundingRate = Double.parseDouble(o.optString("lastFundingRate", "NaN"));
+        } catch (Throwable ignored) {}
+        return m;
+    }
+

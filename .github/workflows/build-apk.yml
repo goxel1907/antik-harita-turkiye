@@ -1,0 +1,61 @@
+name: Android APK Build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build source-backed history corpus
+        run: |
+          python tools/build_history_dataset.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('app/src/main/assets/data/history-corpus.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          n=len(d.get('records',[]))
+          print(f'Historical corpus records: {n}')
+          if n < 500:
+              raise SystemExit('Historical corpus is unexpectedly small; refusing demo/empty APK')
+          ui=Path('app/src/main/assets/index-v16.html')
+          if not ui.exists() or ui.stat().st_size < 15000:
+              raise SystemExit('v16 atlas interface is missing or unexpectedly small')
+          PY
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: antik-harita-turkiye-v16-atlas-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30

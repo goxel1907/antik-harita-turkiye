@@ -1,0 +1,161 @@
+                    if (a.length < 8) throw new IllegalArgumentException();
+                    String sym = a[0].trim().toUpperCase(Locale.US).replace("/", "");
+                    if (!sym.endsWith("USDT")) sym += "USDT";
+                    double pl = Double.parseDouble(a[1].trim());
+                    double ph = Double.parseDouble(a[2].trim());
+                    double rl = Double.parseDouble(a[3].trim());
+                    double rh = Double.parseDouble(a[4].trim());
+                    double bo = Double.parseDouble(a[5].trim());
+                    double bd = Double.parseDouble(a[6].trim());
+                    int dec = Math.max(0, Math.min(8, Integer.parseInt(a[7].trim())));
+                    double pre = a.length >= 9 ? Double.parseDouble(a[8].trim()) : 0.60;
+                    pre = Math.max(0.05, Math.min(5.0, pre));
+                    if (sym.length() < 5 || pl >= ph || rl >= rh || bo <= 0 || bd <= 0)
+                        throw new IllegalArgumentException();
+                    String lpDetail = "", lbDetail = "", srDetail = "", sbDetail = "";
+                    if (a.length >= 13) {
+                        lpDetail = detailLp(a[9], dec);
+                        lbDetail = detailLb(a[10], dec);
+                        srDetail = detailSr(a[11], dec);
+                        sbDetail = detailSb(a[12], dec);
+                    }
+                    PlanStore.upsert(this, new TradePlan(sym, pl, ph, rl, rh, bo, bd, dec, pre,
+                            lpDetail, lbDetail, srDetail, sbDetail));
+                    success++;
+                } catch (Exception e) {
+                    failed++;
+                    if (failedLines.length() < 220) {
+                        if (failedLines.length() > 0) failedLines.append("\n");
+                        failedLines.append(code);
+                    }
+                }
+            }
+
+            if (success > 0) {
+                dialog.dismiss();
+                setContentView(buildUi());
+                refreshStatus();
+                String msg = success + " plan eklendi/güncellendi";
+                if (failed > 0) msg += " • " + failed + " satır hatalı";
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+                if (failed > 0) {
+                    new AlertDialog.Builder(this)
+                            .setTitle("Bazı satırlar alınamadı")
+                            .setMessage("Başarılı: " + success + "\nHatalı: " + failed + "\n\nKontrol et:\n" + failedLines)
+                            .setPositiveButton("Tamam", null)
+                            .show();
+                }
+            } else {
+                Toast.makeText(this, "Hiçbir plan kodu okunamadı. Kodları alt alta ve aynen yapıştır.", Toast.LENGTH_LONG).show();
+            }
+        }));
+        dialog.show();
+    }
+
+    private void openPlanDialog(TradePlan existing) {
+        ScrollView sv = new ScrollView(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(8), dp(18), dp(8));
+        sv.addView(box);
+
+        EditText symbol = field("Coin (örn. BTCUSDT)", existing == null ? "" : existing.symbol, false);
+        EditText pullLow = field("LONG pullback alt", existing == null ? "" : raw(existing.pullbackLow), true);
+        EditText pullHigh = field("LONG pullback üst", existing == null ? "" : raw(existing.pullbackHigh), true);
+        EditText resLow = field("SHORT direnç alt", existing == null ? "" : raw(existing.resistanceLow), true);
+        EditText resHigh = field("SHORT direnç üst", existing == null ? "" : raw(existing.resistanceHigh), true);
+        EditText breakout = field("LONG breakout 15m kapanış >", existing == null ? "" : raw(existing.breakoutClose), true);
+        EditText breakdown = field("SHORT breakdown 15m kapanış <", existing == null ? "" : raw(existing.breakdownClose), true);
+        EditText decimals = field("Ondalık basamak (örn. 4)", existing == null ? "4" : String.valueOf(existing.decimals), true);
+        EditText prewarn = field("Ön uyarı mesafesi % (örn. 0.60)", existing == null ? "0.60" : raw(existing.earlyWarnPercent), true);
+        box.addView(symbol); box.addView(pullLow); box.addView(pullHigh); box.addView(resLow); box.addView(resHigh);
+        box.addView(breakout); box.addView(breakdown); box.addView(decimals); box.addView(prewarn);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(existing == null ? "Yeni coin ekle" : existing.symbol + " seviyelerini düzenle")
+                .setView(sv)
+                .setNegativeButton("İptal", null)
+                .setPositiveButton("Kaydet", null)
+                .create();
+        dialog.setOnShowListener(x -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            try {
+                String sym = symbol.getText().toString().trim().toUpperCase(Locale.US).replace("/", "");
+                if (!sym.endsWith("USDT")) sym += "USDT";
+                double pl = number(pullLow), ph = number(pullHigh), rl = number(resLow), rh = number(resHigh);
+                double bo = number(breakout), bd = number(breakdown);
+                int dec = Math.max(0, Math.min(8, Integer.parseInt(decimals.getText().toString().trim())));
+                double pre = Math.max(0.05, Math.min(5.0, number(prewarn)));
+                if (sym.length() < 5 || pl >= ph || rl >= rh || bo <= 0 || bd <= 0)
+                    throw new IllegalArgumentException("Seviyeleri kontrol et");
+                String lpDetail = existing == null ? "" : existing.longPullDetail;
+                String lbDetail = existing == null ? "" : existing.longBreakDetail;
+                String srDetail = existing == null ? "" : existing.shortResDetail;
+                String sbDetail = existing == null ? "" : existing.shortBreakDetail;
+                PlanStore.upsert(this, new TradePlan(sym, pl, ph, rl, rh, bo, bd, dec, pre,
+                        lpDetail, lbDetail, srDetail, sbDetail));
+                dialog.dismiss();
+                setContentView(buildUi());
+                refreshStatus();
+                Toast.makeText(this, sym + " takibe eklendi/güncellendi", Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "Hatalı veya eksik değer. Lütfen seviyeleri kontrol et.", Toast.LENGTH_LONG).show();
+            }
+        }));
+        dialog.show();
+    }
+
+    private String detailLp(String raw, int dec) {
+        double[] x = csv(raw, 4);
+        return "STOP: " + fmt(x[0], dec) + "  •  TP1: " + fmt(x[1], dec) +
+                "  •  TP2: " + fmt(x[2], dec) + "  •  TP3: " + fmt(x[3], dec);
+    }
+
+    private String detailLb(String raw, int dec) {
+        double[] x = csv(raw, 6);
+        return "Giriş: " + range(x[0], x[1], dec) + "  •  STOP: " + fmt(x[2], dec) +
+                "\nTP1: " + fmt(x[3], dec) + "  •  TP2: " + fmt(x[4], dec) + "  •  TP3: " + fmt(x[5], dec);
+    }
+
+    private String detailSr(String raw, int dec) {
+        double[] x = csv(raw, 4);
+        return "STOP: " + fmt(x[0], dec) + "  •  TP1: " + fmt(x[1], dec) +
+                "  •  TP2: " + fmt(x[2], dec) + "  •  TP3: " + fmt(x[3], dec);
+    }
+
+    private String detailSb(String raw, int dec) {
+        double[] x = csv(raw, 6);
+        return "Giriş: " + range(x[0], x[1], dec) + "  •  STOP: " + fmt(x[2], dec) +
+                "\nTP1: " + fmt(x[3], dec) + "  •  TP2: " + fmt(x[4], dec) + "  •  TP3: " + fmt(x[5], dec);
+    }
+
+    private double[] csv(String raw, int n) {
+        String[] p = raw.trim().split(";");
+        if (p.length != n) throw new IllegalArgumentException("Detay alanı hatalı");
+        double[] out = new double[n];
+        for (int i = 0; i < n; i++) out[i] = Double.parseDouble(p[i].trim());
+        return out;
+    }
+
+    private void openBinanceFutures(String symbol) {
+        Uri url = Uri.parse("https://www.binance.com/en/futures/" + symbol);
+        Intent app = new Intent(Intent.ACTION_VIEW, url);
+        app.setPackage("com.binance.dev");
+        try {
+            startActivity(app);
+        } catch (Exception noApp) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, url));
+            } catch (Exception e) {
+                Toast.makeText(this, "Binance Futures açılamadı.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void copyPlan(TradePlan p) {
+        String text = p.symbol + " 15m PLAN\n" +
+                "LONG PULLBACK | Giriş " + range(p.pullbackLow, p.pullbackHigh, p.decimals) + " | " +
+                safeDetail(p.longPullDetail) + "\n" +
+                "LONG BREAKOUT | 15m > " + fmt(p.breakoutClose, p.decimals) + " | " +
+                safeDetail(p.longBreakDetail) + "\n" +
+                "SHORT DİRENÇ | Giriş " + range(p.resistanceLow, p.resistanceHigh, p.decimals) + " | " +
+                safeDetail(p.shortResDetail) + "\n" +

@@ -1,0 +1,1039 @@
+{
+ "officeVersion": "1.1.0-CLAUDE-V109",
+ "demo": true,
+ "demoBaseTs": 1789971880000,
+ "generatedAt": "2026-09-21T06:24:40Z",
+ "config": {
+  "brainUrl": "http://127.0.0.1:8787",
+  "brainRoot": "C:\\BrainHub",
+  "backupRoot": "C:\\BrainHubBackups",
+  "tokenConfigured": true,
+  "accountEnabled": true
+ },
+ "health": {
+  "ok": true,
+  "status": 200,
+  "ms": 14,
+  "data": {
+   "featureVersion": "9.5.107-VISION"
+  }
+ },
+ "status": {
+  "ok": true,
+  "status": 200,
+  "ms": 31,
+  "data": {
+   "ok": true,
+   "featureVersion": "9.5.107-VISION",
+   "armed": true,
+   "armedAt": "2026-09-21T00:34:40Z",
+   "expiresAt": "2026-09-22T00:34:40Z",
+   "liveAllowed": false,
+   "execution": "LIVE_ARMED_PER_ORDER_GRANT_REQUIRED",
+   "lastDisarmReason": "STARTUP_FAIL_CLOSED",
+   "sizingAuthority": "USER_PANEL_EXACT",
+   "leaderAuto": {
+    "ok": true,
+    "configured": true,
+    "enabled": true,
+    "marginQuote": 25,
+    "leverage": 10,
+    "maxOpenPositions": 2,
+    "allowLong": true,
+    "allowShort": true,
+    "busy": false,
+    "lastExecution": "LEADER_AUTO_WAIT",
+    "lastSymbol": "SAGAUSDT",
+    "lastReasons": [
+     "LEADER_PLAN_NOT_QUALIFIED",
+     "VISION_COMMITTEE_UNAVAILABLE"
+    ],
+    "lastTickAt": "2026-09-21T06:20:40Z",
+    "diagnostics": {
+     "universeCount": 24,
+     "lightweightUniverseCount": 523,
+     "shortlistCount": 16,
+     "eligibleCount": 15,
+     "candidates": [
+      {
+       "symbol": "SAGAUSDT",
+       "side": "SHORT",
+       "eligible": true,
+       "stage": "PIPELINE_SELECTED"
+      },
+      {
+       "symbol": "NILUSDT",
+       "side": "LONG",
+       "eligible": false,
+       "reasons": [
+        "SPREAD_ABOVE_8_BPS"
+       ]
+      },
+      {
+       "symbol": "BTWUSDT",
+       "side": "SHORT",
+       "eligible": true
+      },
+      {
+       "symbol": "CUSDT",
+       "side": "LONG",
+       "eligible": true
+      },
+      {
+       "symbol": "CELRUSDT",
+       "side": "LONG",
+       "eligible": true
+      },
+      {
+       "symbol": "PTBUSDT",
+       "side": "LONG",
+       "eligible": true
+      },
+      {
+       "symbol": "1000PEPEUSDT",
+       "side": "LONG",
+       "eligible": true
+      },
+      {
+       "symbol": "LUNA2USDT",
+       "side": "SHORT",
+       "eligible": true
+      },
+      {
+       "symbol": "KMNOUSDT",
+       "side": "SHORT",
+       "eligible": true
+      }
+     ]
+    },
+    "health": {
+     "windowMinutes": 60,
+     "observedMinutes": 60,
+     "scanRuns": 11,
+     "tickResults": 11,
+     "skippedBusy": 109,
+     "skippedPipelineBusy": 0,
+     "deepAnalyses": 11,
+     "uniqueAnalyzedSymbols": 4,
+     "preJevQualified": 0,
+     "jevCalled": 0,
+     "jevVetoed": 0,
+     "qualified": 0,
+     "watch": 7,
+     "reviewRequired": 4,
+     "reject": 0,
+     "visionUnavailable": 4,
+     "intentReady": 0,
+     "executionResults": 0,
+     "ordersPlaced": 0,
+     "workerReviews": 130,
+     "workerWaits": 3,
+     "workerTriggers": 0,
+     "workerRefreshes": 127,
+     "fullVisionAvoided": 3,
+     "avgAnalysisMs": 287200,
+     "latestUniverseCount": 24,
+     "latestLightweightUniverseCount": 523,
+     "latestShortlistCount": 16,
+     "latestEligibleCount": 15,
+     "topReasons": [
+      {
+       "reason": "VISION_COMMITTEE_UNAVAILABLE",
+       "count": 12
+      },
+      {
+       "reason": "LEADER_PLAN_NOT_QUALIFIED",
+       "count": 11
+      }
+     ]
+    },
+    "analysisLifecycle": {
+     "version": 1,
+     "tracked": 24,
+     "activeTracking": 24,
+     "rows": [
+      {
+       "symbol": "SAGAUSDT",
+       "side": "SHORT",
+       "state": "WATCH",
+       "planStatus": "REVIEW_REQUIRED",
+       "originTF": "3m",
+       "ownerTF": "15m",
+       "waitFor": "",
+       "workerState": "REFRESH_REQUIRED",
+       "lastAnalyzedAt": 1789971700000,
+       "reanalysisEligible": true
+      },
+      {
+       "symbol": "PTBUSDT",
+       "side": "LONG",
+       "state": "WATCH",
+       "planStatus": "REVIEW_REQUIRED",
+       "originTF": "4h",
+       "ownerTF": "1d",
+       "waitFor": "NONE — tüm TF'lerde teyit edilmemiş oluşan mumları ve yapısal dönüşümün teyit edilmediği belirtiliyor.",
+       "workerState": "REFRESH_REQUIRED",
+       "lastAnalyzedAt": 1789971340000,
+       "reanalysisEligible": true
+      },
+      {
+       "symbol": "CUSDT",
+       "side": "LONG",
+       "state": "WATCH",
+       "planStatus": "REVIEW_REQUIRED",
+       "originTF": "1m",
+       "ownerTF": "1d",
+       "waitFor": "Model somut bekleme koşulu üretmedi; sonraki taze veride yeniden değerlendir.",
+       "workerState": "REFRESH_REQUIRED",
+       "lastAnalyzedAt": 1789971040000,
+       "reanalysisEligible": true
+      },
+      {
+       "symbol": "NEARUSDT",
+       "side": "SHORT",
+       "state": "WATCH",
+       "planStatus": "REVIEW_REQUIRED",
+       "originTF": "4h",
+       "ownerTF": "1d",
+       "waitFor": "1h-4h-1d süreklilik, 1d'de kapanmış mumlar ve oluşan mumu ayrı değerlendirilir; 1h'de FAILED_BREAKOUT, 4h'de ACCEPTED.",
+       "workerState": "WAIT",
+       "lastAnalyzedAt": 1789970440000,
+       "reanalysisEligible": true
+      },
+      {
+       "symbol": "AKEUSDT",
+       "side": "LONG",
+       "state": "WATCH",
+       "planStatus": "REVIEW_REQUIRED",
+       "originTF": "5m",
+       "ownerTF": "1h",
+       "waitFor": "NONE — tüm TF'lerde NO_ACTIVE_BREAKOUT veya WATCH durumu; 1h'da ACCEPTED ve ACTIVE_CONTEXT durumu.",
+       "workerState": "REFRESH_REQUIRED",
+       "lastAnalyzedAt": 1789970020000,
+       "reanalysisEligible": true
+      },
+      {
+       "symbol": "BTWUSDT",
+       "side": "LONG",
+       "state": "WATCH",
+       "planStatus": "REVIEW_REQUIRED",
+       "originTF": "1m",
+       "ownerTF": "1m",
+       "waitFor": "NONE — tüm TF'lerde NO_ACTIVE_BREAKOUT ve ACTIVE_CONTEXT → teyit yok, sadece bağlam.",
+       "workerState": "REFRESH_REQUIRED",
+       "lastAnalyzedAt": 1789969600000,
+       "reanalysisEligible": true
+      },
+      {
+       "symbol": "GUSDT",
+       "side": "LONG",
+       "state": "WATCH",
+       "planStatus": "REVIEW_REQUIRED",
+       "originTF": "1m",
+       "ownerTF": "1m",
+       "waitFor": "1m → 3m → 5m → 15m → 30m; 45m ve üst zaman dilimlerinde formasyonlar teyit edilmemiş.",
+       "workerState": "WAIT",
+       "lastAnalyzedAt": 1789969060000,
+       "reanalysisEligible": true
+      },
+      {
+       "symbol": "FFUSDT",
+       "side": "SHORT",
+       "state": "WATCH",
+       "planStatus": "WATCH",
+       "originTF": "3m",
+       "ownerTF": "5m",
+       "waitFor": "NONE (CORE_DECISION: WATCH → tüm TF_EVIDENCE'de teyit edilmemiş oluşan ve yön etkileri)",
+       "workerState": "REFRESH_REQUIRED",
+       "lastAnalyzedAt": 1789960780000,
+       "reanalysisEligible": true
+      },
+      {
+       "symbol": "ONEUSDT",
+       "side": "LONG",
+       "state": "WATCH",
+       "planStatus": "REVIEW_REQUIRED",
+       "originTF": "1d",
+       "ownerTF": "1d",
+       "waitFor": "1d yükseliş + RSI 95.74 + yapısal destek → 1d'deki teyitli yapısal destek.",
+       "workerState": "WAIT",
+       "lastAnalyzedAt": 1789960480000,
+       "reanalysisEligible": true
+      }
+     ]
+    },
+    "planWorkers": {
+     "enabled": true,
+     "busy": false,
+     "cadenceSec": 30,
+     "parallelWithVision": true,
+     "routineRouter": "9ROUTER_FREE_TEXT",
+     "secondOpinion": {
+      "configured": true,
+      "model": "openrouter/free",
+      "freeOnly": true,
+      "last": {
+       "called": false,
+       "ok": false,
+       "reason": "NOT_CALLED"
+      }
+     },
+     "lastReview": {
+      "symbol": "PTBUSDT",
+      "side": "LONG",
+      "checkedAt": "2026-09-21T06:23:40Z",
+      "state": "REFRESH_REQUIRED",
+      "source": "(demo)",
+      "reason": "(demo) gerçek gerekçe PC journal kaydında"
+     }
+    }
+   },
+   "positionManager": {
+    "ok": true,
+    "busy": false,
+    "cadenceMinutes": 5,
+    "ruleTr": "1m/3m/5m tek başına çıkış kararı vermez; owner zaman dilimi ve büyük resim doğrulaması gerekir.",
+    "lastReview": {
+     "action": "HOLD",
+     "actionTr": "AÇIK POZİSYON YOK"
+    }
+   },
+   "learning": {
+    "recent": [],
+    "stats": []
+   },
+   "visionAvailability": {
+    "summaryTr": "Görsel model çalışıyor • zaman dilimi 4h okunuyor • model sağlayıcısından yanıt alınamadı",
+    "models": [
+     {
+      "model": "local/brainhub-qwen3-vl-4b-16k",
+      "reason": "PROVIDER_UNAVAILABLE"
+     }
+    ],
+    "freeQuotaFallbackConfigured": false
+   },
+   "visionProgress": {
+    "stage": "VISUAL_TF=4h",
+    "model": "local/brainhub-qwen3-vl-4b-16k",
+    "lastStageDurationMs": 21400,
+    "queueDepth": 1,
+    "pipelineActive": 1,
+    "error": null
+   },
+   "jev": {
+    "configured": true,
+    "enabled": true,
+    "model": "typesafe/jev-1.13",
+    "mode": "ADVISORY_VETO_ONLY",
+    "budget": {
+     "calls": 0,
+     "spentUsd": 0,
+     "softBudgetUsd": 0.25,
+     "dailyCapUsd": 2.0,
+     "remainingUsd": 2.0
+    }
+   },
+   "openRouterFreeWorker": {
+    "configured": true,
+    "model": "openrouter/free",
+    "freeOnly": true,
+    "last": {
+     "called": false,
+     "ok": false,
+     "reason": "NOT_CALLED"
+    }
+   }
+  }
+ },
+ "visionProgress": {
+  "ok": true,
+  "data": {
+   "stage": "VISUAL_TF=4h",
+   "model": "local/brainhub-qwen3-vl-4b-16k",
+   "lastStageDurationMs": 21400,
+   "queueDepth": 1,
+   "pipelineActive": 1,
+   "error": null
+  }
+ },
+ "models": {
+  "ok": true,
+  "data": {
+   "models": [
+    {
+     "model": "oc/muse-spark-1.3-contributor-free",
+     "status": "untested"
+    },
+    {
+     "model": "oc/mimo-v2.5-free",
+     "status": "untested"
+    },
+    {
+     "model": "oc/nemotron-3.5-lightning-free",
+     "status": "untested"
+    },
+    {
+     "model": "kr/claude-sonnet-4.5",
+     "status": "untested"
+    },
+    {
+     "model": "local/brainhub-qwen3-vl-4b-16k",
+     "status": "untested"
+    }
+   ]
+  }
+ },
+ "account": {
+  "ok": true,
+  "data": {
+   "equity": 80.54,
+   "availableBalance": 80.54
+  }
+ },
+ "ollama": {
+  "ok": true,
+  "data": {
+   "models": [
+    {
+     "name": "brainhub-qwen3-vl-4b-16k",
+     "size_vram": 0
+    }
+   ]
+  }
+ },
+ "router": {
+  "ok": true,
+  "status": 200,
+  "ms": null
+ },
+ "backups": {
+  "ok": true,
+  "root": "C:\\BrainHubBackups",
+  "count": 5,
+  "latest": [
+   {
+    "name": "20260921-025836"
+   },
+   {
+    "name": "20260921-025650"
+   },
+   {
+    "name": "20260920-152710"
+   },
+   {
+    "name": "20260920-133603"
+   },
+   {
+    "name": "20260919-130948"
+   }
+  ]
+ },
+ "plans": [
+  {
+   "ts": 1789971760000,
+   "kind": "PLAN",
+   "symbol": "SAGAUSDT",
+   "desk": "brain",
+   "status": "REVIEW_REQUIRED",
+   "previousStatus": null,
+   "side": "SHORT",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "",
+   "fakeWait": false,
+   "reason": "VISION_COMMITTEE_UNAVAILABLE",
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789971400000,
+   "kind": "PLAN",
+   "symbol": "PTBUSDT",
+   "desk": "brain",
+   "status": "WATCH",
+   "previousStatus": null,
+   "side": "LONG",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "NONE — tüm TF'lerde teyit edilmemiş oluşan mumları ve yapısal dönüşümün teyit edilmediği belirtiliyor.",
+   "fakeWait": true,
+   "reason": null,
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789971100000,
+   "kind": "PLAN",
+   "symbol": "SAGAUSDT",
+   "desk": "brain",
+   "status": "REVIEW_REQUIRED",
+   "previousStatus": null,
+   "side": "SHORT",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "",
+   "fakeWait": false,
+   "reason": "VISION_COMMITTEE_UNAVAILABLE",
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789970800000,
+   "kind": "PLAN",
+   "symbol": "CUSDT",
+   "desk": "brain",
+   "status": "WATCH",
+   "previousStatus": null,
+   "side": "LONG",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "Model somut bekleme koşulu üretmedi; sonraki taze veride yeniden değerlendir.",
+   "fakeWait": true,
+   "reason": null,
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789970500000,
+   "kind": "PLAN",
+   "symbol": "PTBUSDT",
+   "desk": "brain",
+   "status": "WATCH",
+   "previousStatus": null,
+   "side": "LONG",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "NONE — tüm TF'lerde teyit edilmemiş oluşan mumları ve yapısal dönüşümün teyit edilmediği belirtiliyor.",
+   "fakeWait": true,
+   "reason": null,
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789970140000,
+   "kind": "PLAN",
+   "symbol": "SAGAUSDT",
+   "desk": "brain",
+   "status": "WATCH",
+   "previousStatus": null,
+   "side": "SHORT",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "",
+   "fakeWait": false,
+   "reason": null,
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789969840000,
+   "kind": "PLAN",
+   "symbol": "AKEUSDT",
+   "desk": "brain",
+   "status": "REVIEW_REQUIRED",
+   "previousStatus": null,
+   "side": "LONG",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "",
+   "fakeWait": false,
+   "reason": "VISION_COMMITTEE_UNAVAILABLE",
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789969540000,
+   "kind": "PLAN",
+   "symbol": "PTBUSDT",
+   "desk": "brain",
+   "status": "WATCH",
+   "previousStatus": null,
+   "side": "LONG",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "NONE — tüm TF'lerde teyit edilmemiş oluşan mumları ve yapısal dönüşümün teyit edilmediği belirtiliyor.",
+   "fakeWait": true,
+   "reason": null,
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789969180000,
+   "kind": "PLAN",
+   "symbol": "SAGAUSDT",
+   "desk": "brain",
+   "status": "WATCH",
+   "previousStatus": null,
+   "side": "SHORT",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "",
+   "fakeWait": false,
+   "reason": null,
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789968820000,
+   "kind": "PLAN",
+   "symbol": "CUSDT",
+   "desk": "brain",
+   "status": "REVIEW_REQUIRED",
+   "previousStatus": null,
+   "side": "LONG",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "",
+   "fakeWait": false,
+   "reason": "VISION_COMMITTEE_UNAVAILABLE",
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  },
+  {
+   "ts": 1789968460000,
+   "kind": "PLAN",
+   "symbol": "PTBUSDT",
+   "desk": "brain",
+   "status": "WATCH",
+   "previousStatus": null,
+   "side": "LONG",
+   "originTF": null,
+   "ownerTF": null,
+   "confidence": null,
+   "waitFor": "NONE — tüm TF'lerde teyit edilmemiş oluşan mumları ve yapısal dönüşümün teyit edilmediği belirtiliyor.",
+   "fakeWait": true,
+   "reason": null,
+   "supportTFs": [],
+   "vetoTFs": [],
+   "visionAttached": 9,
+   "riskReasons": [
+    "PLAN_NOT_QUALIFIED"
+   ],
+   "jev": {
+    "called": false,
+    "veto": false,
+    "reasons": [],
+    "reason": "JEV_NOT_NEEDED_FOR_NON_QUALIFIED",
+    "probabilities": null,
+    "timeframeConflicts": null,
+    "costUsd": null
+   }
+  }
+ ],
+ "lastJev": null,
+ "lastRisk": {
+  "symbol": "SAGAUSDT",
+  "ts": 1789971760000,
+  "reasons": [
+   "PLAN_NOT_QUALIFIED"
+  ]
+ },
+ "events": [
+  {
+   "ts": 1789971820000,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "PTBUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker PTBUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789971760000,
+   "kind": "PLAN",
+   "symbol": "SAGAUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "SAGAUSDT SHORT → REVIEW_REQUIRED",
+   "detail": "VISION_COMMITTEE_UNAVAILABLE"
+  },
+  {
+   "ts": 1789971740000,
+   "kind": "PLAN_COMMITTEE_FALLBACK",
+   "symbol": "SAGAUSDT",
+   "source": "journal",
+   "desk": "vision",
+   "title": "SAGAUSDT görsel komite yanıt vermedi",
+   "detail": "(demo) ayrıntı PC journal kaydında"
+  },
+  {
+   "ts": 1789971574000,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "CUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker CUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789971400000,
+   "kind": "PLAN",
+   "symbol": "PTBUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "PTBUSDT LONG → WATCH",
+   "detail": "Bekleme koşulu sahte (NONE...)"
+  },
+  {
+   "ts": 1789971328000,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "SAGAUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker SAGAUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789971100000,
+   "kind": "PLAN",
+   "symbol": "SAGAUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "SAGAUSDT SHORT → REVIEW_REQUIRED",
+   "detail": "VISION_COMMITTEE_UNAVAILABLE"
+  },
+  {
+   "ts": 1789971082001,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "AKEUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker AKEUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789971080000,
+   "kind": "PLAN_COMMITTEE_FALLBACK",
+   "symbol": "SAGAUSDT",
+   "source": "journal",
+   "desk": "vision",
+   "title": "SAGAUSDT görsel komite yanıt vermedi",
+   "detail": "(demo) ayrıntı PC journal kaydında"
+  },
+  {
+   "ts": 1789970836001,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "BTWUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker BTWUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789970800000,
+   "kind": "PLAN",
+   "symbol": "CUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "CUSDT LONG → WATCH",
+   "detail": "Bekleme koşulu sahte (NONE...)"
+  },
+  {
+   "ts": 1789970590000,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "FFUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker FFUSDT: WAIT",
+   "detail": ""
+  },
+  {
+   "ts": 1789970500000,
+   "kind": "PLAN",
+   "symbol": "PTBUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "PTBUSDT LONG → WATCH",
+   "detail": "Bekleme koşulu sahte (NONE...)"
+  },
+  {
+   "ts": 1789970344001,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "PTBUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker PTBUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789970140000,
+   "kind": "PLAN",
+   "symbol": "SAGAUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "SAGAUSDT SHORT → WATCH",
+   "detail": ""
+  },
+  {
+   "ts": 1789970098001,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "CUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker CUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789969852001,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "SAGAUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker SAGAUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789969840000,
+   "kind": "PLAN",
+   "symbol": "AKEUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "AKEUSDT LONG → REVIEW_REQUIRED",
+   "detail": "VISION_COMMITTEE_UNAVAILABLE"
+  },
+  {
+   "ts": 1789969820000,
+   "kind": "PLAN_COMMITTEE_FALLBACK",
+   "symbol": "AKEUSDT",
+   "source": "journal",
+   "desk": "vision",
+   "title": "AKEUSDT görsel komite yanıt vermedi",
+   "detail": "(demo) ayrıntı PC journal kaydında"
+  },
+  {
+   "ts": 1789969606000,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "AKEUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker AKEUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789969540000,
+   "kind": "PLAN",
+   "symbol": "PTBUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "PTBUSDT LONG → WATCH",
+   "detail": "Bekleme koşulu sahte (NONE...)"
+  },
+  {
+   "ts": 1789969360000,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "BTWUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker BTWUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789969180000,
+   "kind": "PLAN",
+   "symbol": "SAGAUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "SAGAUSDT SHORT → WATCH",
+   "detail": ""
+  },
+  {
+   "ts": 1789969114001,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "FFUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker FFUSDT: WAIT",
+   "detail": ""
+  },
+  {
+   "ts": 1789968868001,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "PTBUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker PTBUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789968820000,
+   "kind": "PLAN",
+   "symbol": "CUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "CUSDT LONG → REVIEW_REQUIRED",
+   "detail": "VISION_COMMITTEE_UNAVAILABLE"
+  },
+  {
+   "ts": 1789968800000,
+   "kind": "PLAN_COMMITTEE_FALLBACK",
+   "symbol": "CUSDT",
+   "source": "journal",
+   "desk": "vision",
+   "title": "CUSDT görsel komite yanıt vermedi",
+   "detail": "(demo) ayrıntı PC journal kaydında"
+  },
+  {
+   "ts": 1789968622000,
+   "kind": "PLAN_WORKER_REVIEW",
+   "symbol": "CUSDT",
+   "source": "journal",
+   "desk": "workers",
+   "title": "Worker CUSDT: REFRESH_REQUIRED",
+   "detail": ""
+  },
+  {
+   "ts": 1789968460000,
+   "kind": "PLAN",
+   "symbol": "PTBUSDT",
+   "source": "journal",
+   "desk": "brain",
+   "title": "PTBUSDT LONG → WATCH",
+   "detail": "Bekleme koşulu sahte (NONE...)"
+  }
+ ],
+ "log": {
+  "ok": true,
+  "mtime": "2026-09-21T06:23:40Z"
+ },
+ "demoLabel": "DEMO — 21 Eylül 09:24 ekran görüntülerindeki gerçek sayılar (PC v9.5.107). Gerçek Brain Hub'a bağlı değil."
+}
