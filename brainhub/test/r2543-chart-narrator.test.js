@@ -1,0 +1,236 @@
+'use strict';
+// CLAUDE_R2543_CHART_NARRATOR: grafiğin ne anlattığı her turda JEV'e gider.
+// Model yok, ağ yok, görüntü yok: aynı girdi her zaman aynı cümleyi üretir.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { narrateChart, narrateFrame, FRAMES } = require('../chart-narrator');
+const { prepareDecisionRequest, MAX_DECISION_REQUEST_BYTES } = require('../jev-decision');
+const { marketPacket, mirrorDigest } = require('../jev-market-packet');
+
+function frame(over) {
+  return Object.assign({
+    available: true, fresh: true, asOf: 1790520000000,
+    close: 0.01705, ema20: 0.01698, ema50: 0.01712,
+    rsi14: 46, atr14: 0.00017, atrPct: 1.03, trend: 'MIXED', breakOfStructure: null,
+    prior20High: 0.01712, prior20Low: 0.01613,
+    candle: { direction: 'BULL', range: 0.00053, body: 0.00033, bodyPct: 62.3, upperWickPct: 32.1, lowerWickPct: 5.7, rangeAtr: 3.041 },
+    patterns: [{ type: 'THREE_WHITE_SOLDIERS', side: 'LONG', status: 'CONFIRMED', at: 1790526599999 }],
+    swingStructure: { state: 'MIXED', highSequence: 'HH', lowSequence: 'LL', event: null },
+    liquidity: { buySide: 0.01712, sellSide: 0.01613, equalHigh: null, equalLow: null, lastSweep: null, fairValueGaps: [{ side: 'BEAR', low: 0.01675, high: 0.01695, at: 1, ce50: 0.01685 }] },
+    recentFairValueGaps: [{ side: 'BEAR', low: 0.01675, high: 0.01695, at: 1, ce50: 0.01685 }],
+    orderBlocks: { bullish: [], bearish: [{ side: 'BEAR', low: 0.01737, high: 0.01747, at: 1, mitigated: true, broken: false }] },
+    smcContext: {
+      available: true, swingEvent: null, swingState: 'MIXED',
+      dealingRange: { low: 0.01613, high: 0.01712, equilibrium: 0.016625, positionPct: 75.76, zone: 'PREMIUM', insideRange: true },
+      oteReference: { longDiscountZone: { low: 0.016338, high: 0.016506 }, shortPremiumZone: { low: 0.016744, high: 0.016912 } },
+      fibLevels: { leg: 'DOWN_LEG_HIGH_TO_LOW', retracement: { '0.236': 0.016364, '0.382': 0.016508, '0.5': 0.016625, '0.618': 0.016742, '0.705': 0.016828, '0.786': 0.016908 }, extension: { '1.272': 0.015861, '1.618': 0.015518 }, pricePositionPct: 75.76 }
+    }
+  }, over || {});
+}
+function unified(over) {
+  const frames = {};
+  for (const tf of FRAMES) frames[tf] = frame();
+  return Object.assign({ symbol: 'AZTECUSDT', livePrice: 0.01705, frames }, over || {});
+}
+
+test('the reading is deterministic: same candles always produce the same sentences', () => {
+  const u = unified();
+  const a = JSON.stringify(narrateChart(u));
+  const b = JSON.stringify(narrateChart(u));
+  const c = JSON.stringify(narrateChart(unified()));
+  assert.equal(a, b);
+  assert.equal(a, c);
+});
+
+test('every timeframe is read, and the two trading lanes are read in full', () => {
+  const n = narrateChart(unified());
+  assert.deepEqual(Object.keys(n.frames), FRAMES);
+  assert.equal(n.frames['5m'].detail, 'FULL');
+  assert.equal(n.frames['15m'].detail, 'FULL');
+  for (const tf of ['1m', '3m', '30m', '45m', '1h', '4h', '1d']) assert.equal(n.frames[tf].detail, 'COMPACT');
+  // Tam okuma gerçekten daha zengin, kompakt okuma yine de gerçek bir okuma.
+  assert.ok(n.frames['15m'].line.length > n.frames['1h'].line.length);
+  assert.match(n.frames['1h'].line, /trend MIXED/);
+  assert.match(n.frames['1h'].line, /structure MIXED \(HH\/LL\)/);
+});
+
+test('a full lane reading names structure, location, momentum, candle, liquidity, FVG, OB and patterns', () => {
+  const line = narrateChart(unified()).frames['15m'].line;
+  assert.match(line, /structure MIXED \(HH\/LL\)/);
+  assert.match(line, /PREMIUM half of the confirmed range at 75\.8% of range/);
+  assert.match(line, /RSI 46 NEUTRAL/);
+  assert.match(line, /ATR 1\.03% NORMAL_VOLATILITY/);
+  assert.match(line, /PRICE_BELOW_EMA20_BUT_EMA20_ABOVE_EMA50|PRICE_ABOVE_EMA20/);
+  assert.match(line, /last closed candle BULL/);
+  assert.match(line, /liquidity buy-side/);
+  assert.match(line, /nearest FVG BEAR FVG/);
+  assert.match(line, /nearest OB BEAR OB .* mitigated/);
+  assert.match(line, /THREE_WHITE_SOLDIERS\(LONG\/CONFIRMED\)/);
+});
+
+test('nothing is invented: absent fields produce no clause and unusable frames say so', () => {
+  const bare = { available: true, fresh: true, close: 0.01705 };
+  const r = narrateFrame('15m', bare, 0.01705);
+  assert.doesNotMatch(r.line, /RSI/);
+  assert.doesNotMatch(r.line, /ATR/);
+  assert.doesNotMatch(r.line, /nearest FVG/);
+  assert.doesNotMatch(r.line, /nearest OB/);
+  assert.doesNotMatch(r.line, /structure/);
+  assert.doesNotMatch(r.line, /\bnull\b|undefined|NaN/);
+  const dead = narrateFrame('4h', { available: false, reason: 'NO_CANDLES' }, 0.01);
+  assert.equal(dead.available, false);
+  assert.match(dead.line, /no usable candles/);
+  const n = narrateChart(unified({ frames: Object.assign(unified().frames, { '4h': { available: false, reason: 'NO_CANDLES' } }) }));
+  assert.ok(n.alignment.unusable.includes('4h'));
+});
+
+test('price outside the confirmed range is not described as being inside it', () => {
+  const f = frame({ smcContext: { available: true, dealingRange: { low: 0.01613, high: 0.01665, positionPct: 223.1, zone: 'ABOVE_RANGE_EXTENSION', insideRange: false } } });
+  const line = narrateFrame('15m', f, 0.01705).line;
+  assert.match(line, /price is OUTSIDE the confirmed range \(ABOVE_RANGE_EXTENSION\) at 223\.1% of range/);
+  assert.doesNotMatch(line, /half of the confirmed range/);
+});
+
+test('timeframe alignment is counted, never asserted as a rule', () => {
+  const fr = unified().frames;
+  fr['1m'] = frame({ trend: 'UP' }); fr['3m'] = frame({ trend: 'UP' });
+  fr['1h'] = frame({ trend: 'DOWN' });
+  const n = narrateChart(unified({ frames: fr }));
+  assert.deepEqual(n.alignment.up, ['1m', '3m']);
+  assert.deepEqual(n.alignment.down, ['1h']);
+  assert.equal(n.alignment.dominant, 'UP');
+  assert.match(n.alignment.line, /Disagreement across timeframes is normal and is not by itself a reason to wait\./);
+});
+
+test('the reading stays small enough to travel inside the 52 kB request', () => {
+  const bytes = Buffer.byteLength(JSON.stringify(narrateChart(unified())), 'utf8');
+  assert.ok(bytes < 9000, 'chartNarrative ' + bytes + ' bayt, 9000 sınırının altında olmalı');
+});
+
+test('over budget the raw pivot arrays are dropped before market truth, and the structure summary survives', () => {
+  const pivots = Array.from({ length: 420 }, (_, i) => ({ role: 'TOP', index: i, price: 0.0171 + i / 1e6, at: 1790500000000 + i }));
+  const body = {
+    model: 'typesafe/jev-1.13',
+    state: {
+      description: 'd',
+      record: {
+        symbol: 'AZTECUSDT', livePrice: 0.01705,
+        coreFrames: {
+          '15m': { available: true, close: 0.01705, swingStructure: { state: 'MIXED', highSequence: 'HH', lowSequence: 'LL', event: 'BOS_UP', confirmedPivots: { highs: pivots, lows: pivots }, trendLines: { upSupport: pivots } } }
+        },
+        chartNarrative: narrateChart(unified())
+      }
+    },
+    questions: { q: { type: 'choice', criteria: { A: 'a' } } }
+  };
+  const before = Buffer.byteLength(JSON.stringify(body), 'utf8');
+  assert.ok(before > MAX_DECISION_REQUEST_BYTES, 'kurgu gövde tavanı aşmalı');
+  const out = prepareDecisionRequest(body);
+  assert.equal(out.ok, true);
+  assert.ok(out.diagnostics.bytes <= MAX_DECISION_REQUEST_BYTES);
+  assert.equal(out.diagnostics.secondaryTrimApplied, true);
+  const sw = out.body.state.record.coreFrames['15m'].swingStructure;
+  assert.equal(sw.pivotsTrimmed, true);
+  assert.equal(sw.confirmedPivots, undefined);
+  assert.equal(sw.trendLines, undefined);
+  assert.equal(sw.state, 'MIXED');
+  assert.equal(sw.highSequence, 'HH');
+  assert.equal(sw.event, 'BOS_UP');
+  // Piyasa gerçeği ve grafik okuması korunur.
+  assert.equal(out.body.state.record.livePrice, 0.01705);
+  assert.equal(out.body.state.record.coreFrames['15m'].close, 0.01705);
+  assert.ok(out.body.state.record.chartNarrative.frames['15m'].line.length > 50);
+});
+
+test('the packet and its audit mirror both carry the reading', () => {
+  const p = marketPacket(unified());
+  assert.equal(p.chartNarrative.contract, 'R2543_CHART_NARRATOR_DETERMINISTIC_V1');
+  assert.ok(p.chartNarrative.frames['15m'].line.length > 50);
+  // jevSeen bir whitelist aynasidir: okuma aynada da olmali, yoksa ne gonderildigi denetlenemez.
+  const mirror = mirrorDigest(p);
+  assert.equal(mirror.chartNarrative.contract, 'R2543_CHART_NARRATOR_DETERMINISTIC_V1');
+  assert.equal(mirror.chartNarrative.frames['5m'].line, p.chartNarrative.frames['5m'].line);
+  assert.equal(mirror.chartNarrative.alignment.line, p.chartNarrative.alignment.line);
+  assert.equal(mirrorDigest({}).chartNarrative, null);
+  // EMA'lar pakette her zaman vardi; ayna da artik gosteriyor.
+  assert.equal(p.coreFrames['15m'].ema20, 0.01698);
+  assert.equal(p.coreFrames['15m'].ema50, 0.01712);
+  assert.equal(mirror.coreFrames['15m'].ema20, 0.01698);
+  assert.equal(mirror.higherContext['45m'].ema50, 0.01712);
+  assert.equal(mirror.higherContext['1h'].ema50, 0.01712);
+});
+
+test('every timeframe reports formations, EMA stack, FVG, OB, OTE and fib — not only the two lanes', () => {
+  const n = narrateChart(unified());
+  for (const tf of ['1m', '3m', '5m', '15m', '30m', '45m', '1h', '4h', '1d']) {
+    const line = n.frames[tf].line;
+    assert.match(line, /nearest FVG BEAR FVG/, tf + ' FVG taşımalı');
+    assert.match(line, /nearest OB BEAR OB/, tf + ' OB taşımalı');
+    assert.match(line, /PRICE_(INSIDE|OUTSIDE)_(LONG_DISCOUNT_OTE|SHORT_PREMIUM_OTE|BOTH_OTE_ZONES)/, tf + ' OTE konumu taşımalı');
+    assert.match(line, /fib DOWN_LEG_HIGH_TO_LOW/, tf + ' fib bacağını taşımalı');
+    assert.match(line, /nearest level 0\.\d+ at/, tf + ' en yakın fib seviyesini taşımalı');
+    assert.match(line, /PRICE_(INSIDE|OUTSIDE)_0\.618-0\.786_BAND/, tf + ' altın bölge konumunu taşımalı');
+    assert.match(line, /PRICE_(ABOVE|BELOW|AT)_EMA20/, tf + ' EMA dizilimini taşımalı');
+    assert.match(line, /THREE_WHITE_SOLDIERS\(LONG\/CONFIRMED\)/, tf + ' formasyonları taşımalı');
+  }
+  // Tam okunan hatlar ayrica fib uzatma ve geri cekilme yuzdesini de verir.
+  assert.match(n.frames['15m'].line, /retracement position 75\.8%/);
+  assert.match(n.frames['15m'].line, /extensions 1\.272 0\.01586 \/ 1\.618 0\.01552/);
+  assert.doesNotMatch(n.frames['1h'].line, /extensions 1\.272/);
+});
+
+test('fib clauses disappear when the engine has no fib levels, instead of being invented', () => {
+  const f = frame();
+  delete f.smcContext.fibLevels;
+  const line = narrateFrame('15m', f, 0.01705).line;
+  assert.doesNotMatch(line, /fib /);
+  assert.doesNotMatch(line, /0\.618-0\.786/);
+  assert.match(line, /nearest FVG/);
+});
+
+test('a PASS-2 body, whose frames live in coreMarketPacket, is trimmed instead of blocked', () => {
+  // 27 Eyl 17:18 ve 17:20: PASS-2 52.089 ve 54.258 bayt ile blocked oldu, cunku ikincil kirpma
+  // yalnizca state.record'a bakiyordu; PASS-2'de frame'ler state.coreMarketPacket icindedir.
+  const pivots = Array.from({ length: 420 }, (_, i) => ({ role: 'TOP', index: i, price: 0.0171 + i / 1e6, at: 1790500000000 + i }));
+  const heavyFrame = () => ({
+    available: true, close: 0.01705, rsi14: 46, atrPct: 1.03,
+    recentFairValueGaps: [{ side: 'BEAR', low: 0.01675, high: 0.01695, ce50: 0.01685, at: 1 }],
+    liquidity: { buySide: 0.01712, sellSide: 0.01613, fairValueGaps: [{ side: 'BEAR', low: 0.01675, high: 0.01695, ce50: 0.01685, at: 1 }] },
+    swingStructure: { state: 'MIXED', highSequence: 'HH', lowSequence: 'LL', event: 'BOS_UP', confirmedPivots: { highs: pivots, lows: pivots }, trendLines: { upSupport: pivots } },
+    smcContext: {
+      available: true, source: 'CONFIRMED_SWING_RANGE_FROM_CLOSED_CANDLES',
+      dealingRange: { low: 0.01613, high: 0.01712, positionPct: 75.76, zone: 'PREMIUM', insideRange: true },
+      fibLevels: { leg: 'DOWN_LEG_HIGH_TO_LOW', retracement: { '0.618': 0.016742 }, extension: { '1.272': 0.015861 } },
+      oteReference: { longDiscountZone: { low: 0.016338, high: 0.016506 }, shortPremiumZone: { low: 0.016744, high: 0.016912 } },
+      semantics: 'SOFT_STRUCTURAL_CONTEXT_ONLY', note: 'x'.repeat(220)
+    }
+  });
+  const body = {
+    model: 'typesafe/jev-1.13',
+    state: {
+      description: 'd',
+      coreMarketPacket: {
+        symbol: 'AZTECUSDT', livePrice: 0.01705,
+        chartNarrative: narrateChart(unified()),
+        coreFrames: { '5m': heavyFrame(), '15m': heavyFrame() },
+        higherContext: { '1h': heavyFrame(), '4h': heavyFrame() }
+      },
+      record: { attention: { symbol: 'AZTECUSDT' }, executablePlanOptions: [{ id: 'PLAN_A' }] }
+    },
+    questions: { trade_plan: { type: 'choice', criteria: { WAIT: 'w', PLAN_A: 'a' } } }
+  };
+  assert.ok(Buffer.byteLength(JSON.stringify(body), 'utf8') > MAX_DECISION_REQUEST_BYTES);
+  const out = prepareDecisionRequest(body);
+  assert.equal(out.ok, true, 'PASS-2 gövdesi bloke edilmemeli');
+  assert.ok(out.diagnostics.bytes <= MAX_DECISION_REQUEST_BYTES);
+  const p5 = out.body.state.coreMarketPacket.coreFrames['5m'];
+  assert.equal(p5.swingStructure.pivotsTrimmed, true);
+  assert.equal(p5.swingStructure.confirmedPivots, undefined);
+  // Piyasa gerçeği duruyor.
+  assert.equal(out.body.state.coreMarketPacket.livePrice, 0.01705);
+  assert.equal(p5.close, 0.01705);
+  assert.equal(p5.recentFairValueGaps[0].ce50, 0.01685);
+  assert.equal(p5.smcContext.dealingRange.zone, 'PREMIUM');
+  // Grafik okuması her zaman kalır.
+  assert.ok(out.body.state.coreMarketPacket.chartNarrative.frames['15m'].line.length > 50);
+});
