@@ -2772,11 +2772,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         symbol:candidate.symbol,
         planStatus:String(plan.status || 'REVIEW_REQUIRED'),
         reasons:[...new Set(['LEADER_PLAN_NOT_QUALIFIED', plan.reason].filter(Boolean))],
-        vision:{ attached:Number(advisory?.vision?.attached || 0), required:Number(advisory?.vision?.required || 9) },
+        chartEvidence:advisory?.chartEvidence||null,
+        vision:{ attached:Number(advisory?.vision?.attached || 0), required:Number(advisory?.vision?.required || 0), mode:advisory?.vision?.mode||null, modelUsed:advisory?.vision?.modelUsed===true },
         policy:publicPolicy(policy)
       };
     }
-    if (Number(advisory?.vision?.attached || 0) < 9) {
+    if (advisory?.jevSovereign === true) {
+      if (advisory?.chartEvidence?.complete !== true) {
+        const missing=Array.isArray(advisory?.chartEvidence?.missingFrames)?advisory.chartEvidence.missingFrames:[];
+        return { ...base, symbol:candidate.symbol, planStatus:'QUALIFIED', chartEvidence:advisory?.chartEvidence||null,
+          reasons:['DETERMINISTIC_CHART_EVIDENCE_INCOMPLETE',...missing.map(tf=>'CHART_'+String(tf).toUpperCase()+'_MISSING')], policy:publicPolicy(policy) };
+      }
+    } else if (Number(advisory?.vision?.attached || 0) < 9) {
       return { ...base, symbol:candidate.symbol, planStatus:'QUALIFIED', reasons:['VISION_9TF_INCOMPLETE'], policy:publicPolicy(policy) };
     }
 
@@ -2957,7 +2964,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       planStatus:String(plan.status || ''),
       originTF:String(plan.originTF || ''),
       ownerTF:String(plan.ownerTF || ''),
-      vision:{ attached:Number(advisory?.vision?.attached || 0), required:Number(advisory?.vision?.required || 9) },
+      chartEvidence:advisory?.chartEvidence||null,
+      vision:{ attached:Number(advisory?.vision?.attached || 0), required:Number(advisory?.vision?.required || 0), mode:advisory?.vision?.mode||null, modelUsed:advisory?.vision?.modelUsed===true },
       settings:{
         marginQuote:settings.marginQuote,
         leverage:settings.leverage,

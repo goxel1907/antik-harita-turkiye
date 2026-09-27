@@ -1434,10 +1434,25 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   });
   const executionReadiness=combineExecutionReadiness(riskGate,dryRunExecutor);
   const visionMeta=evidence?.visual||null;
-  const jevSeen=mirrorDigest(marketPacket(unified));
+  const packetForAudit=marketPacket(unified);
+  const narrative=packetForAudit?.chartNarrative||null;
+  const chartMissing=FRAME_ORDER.filter(tf=>{
+    const row=narrative?.frames?.[tf];
+    return row?.available!==true||!String(row?.line||'').trim();
+  });
+  const chartEvidence={
+    authority:'BINANCE_BRAINHUB_NUMERIC',
+    mode:'MAINLINE_CPU_DETERMINISTIC',
+    requiredFrames:FRAME_ORDER.length,
+    availableFrames:FRAME_ORDER.length-chartMissing.length,
+    complete:chartMissing.length===0,
+    missingFrames:chartMissing,
+    source:narrative?.source||'CLOSED_CANDLE_NUMERIC_CONTEXT'
+  };
+  const jevSeen=mirrorDigest(packetForAudit);
   const out={
     ok:true,candidateFound:true,committeeCalled:visionMeta?.modelUsed===true,candidate,targetedExecution:selection.targeted,
-    unifiedContext:unified,vision:visionMeta||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0},
+    unifiedContext:unified,chartEvidence,vision:visionMeta||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0,mode:'MAINLINE_CPU_DETERMINISTIC',modelUsed:false},
     committee:{mode:'JEV_DIRECTED_EVIDENCE_ONLY',available:true},plan,preJevPlan:null,
     jevPass1:pass1,jevDecision:final,evidence,knowledgeResearch:knowledgeResearchResult,riskGate,dryRunExecutor,executionReadiness,
     execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true

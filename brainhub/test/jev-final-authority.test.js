@@ -54,3 +54,12 @@ test('intent hard blocks are surfaced as LEADER_AUTO_BLOCKED instead of a health
   assert.match(src,/execution:'LEADER_AUTO_BLOCKED'[\s\S]{0,320}intent,[\s\S]{0,160}reasons:rs/);
   assert.match(src,/visionMode:'AUDIT_ON_DEMAND'/);
 });
+
+
+test('LIVE readiness uses sovereign deterministic 9TF evidence instead of PNG attachment count',()=>{
+  const src=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  assert.match(src,/advisory\?\.jevSovereign === true/);
+  assert.match(src,/DETERMINISTIC_CHART_EVIDENCE_INCOMPLETE/);
+  assert.match(src,/advisory\?\.chartEvidence\?\.complete !== true/);
+  assert.match(src,/else if \(Number\(advisory\?\.vision\?\.attached \|\| 0\) < 9\)/);
+});
