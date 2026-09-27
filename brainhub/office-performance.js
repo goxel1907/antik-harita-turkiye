@@ -28,7 +28,11 @@ function enrichCloses(rows,records=[]){
    const matches=entries.filter(e=>e.symbol===row.symbol&&e.payload.result.side===row.side&&(row.eventId?e.payload.eventId===row.eventId:Number.isFinite(at)&&Math.abs(Number(e.ts)-at)<=2000));
    if(matches.length!==1||!Number.isFinite(end))return row;
    const e=matches[0],p=e.payload,r=p.result;
-   const entryQty=num(r.executedQty),entry=num(row.entryPrice),stop=num(p.riskGate?.structuralStop?.stopPrice??p.plan?.stopPrice);
+   // CLAUDE_R2543: motor artık ilk miktarı kendisi yazıyor (initialQuantity + riskBasis). Varsa ona güven,
+   // yoksa giriş journalinden kurtar. Ham satır reportingSource altında korunur.
+   const engineInitialQty=num(row.initialQuantity);
+   const engineBasisOk=typeof row.riskBasis==='string'&&!/QUANTITY_UNAVAILABLE|REMAINING_FALLBACK/.test(row.riskBasis);
+   const entryQty=(engineInitialQty!==null&&engineInitialQty>0&&engineBasisOk)?engineInitialQty:num(r.executedQty),entry=num(row.entryPrice),stop=num(p.riskGate?.structuralStop?.stopPrice??p.plan?.stopPrice);
    row.reportingSource={entryJournalId:e.id,rawExitType:row.exitType,rawQuantity:row.quantity,rawRiskQuote:row.riskQuote};
    if(entryQty>0&&entry!==null&&stop!==null){
      row.quantity=entryQty;row.notional=entry!==null?entry*entryQty:null;

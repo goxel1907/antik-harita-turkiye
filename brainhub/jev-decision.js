@@ -477,12 +477,61 @@ function prepareDecisionRequest(input){
     }
     serialized=JSON.stringify(body);
   }
+  // CLAUDE_R2543_TRIM_PRIORITY: 52 kB tavanı KORUNUR (yükseltilmez, fail-closed kalır) ama tavan aşıldığında
+  // önce TEKRARLI/İKİNCİL içerik atılır; piyasa gerçeği (fiyat, 5m/15m/1m/3m/üst TF, mikroyapı, türev,
+  // likidasyon, giriş tezi/risk, sorular) en sona kadar korunur. 27 Eyl: PASS-2'nin %30'u (250 istek)
+  // bu tavana takılıp hiç gönderilemedi.
+  const record=body?.state?.record;
+  const recordObj=record&&typeof record==='object'&&!Array.isArray(record)?record:null;
+  if(recordObj){
+    const stripGeometry=node=>{
+      if(Array.isArray(node)){for(const x of node)stripGeometry(x);return;}
+      if(!node||typeof node!=='object')return;
+      if(Array.isArray(node.patterns)){
+        node.patterns=node.patterns.map(p=>{
+          if(!p||typeof p!=='object')return p;
+          const {geometry,...rest}=p;
+          return geometry?{...rest,geometryTrimmed:true}:rest;
+        });
+      }
+      for(const v of Object.values(node))stripGeometry(v);
+    };
+    const clipText=(node,max)=>{
+      if(Array.isArray(node)){for(const x of node)clipText(x,max);return;}
+      if(!node||typeof node!=='object')return;
+      for(const [k,v] of Object.entries(node)){
+        if(typeof v==='string'&&v.length>max)node[k]=v.slice(0,max);
+        else if(v&&typeof v==='object')clipText(v,max);
+      }
+    };
+    const secondarySteps=[
+      // 1) state.experienceMemory zaten gönderiliyorsa record içindeki kopyası tekrardır.
+      ()=>{ if(body?.state?.experienceMemory&&recordObj.experienceMemory)delete recordObj.experienceMemory; },
+      // 2) formasyon geometrisi (pivot/line dizileri) — formasyonun kendisi (tip/durum/neckline) kalır.
+      ()=>stripGeometry(recordObj),
+      // 3) uzun serbest metinler (görsel gözlem, uzun gerekçe) kısalır; sayısal gerçek dokunulmaz.
+      ()=>clipText(recordObj.requestedEvidence,800),
+      ()=>clipText(recordObj.entryThesis,600),
+      // 4) en son: TF başına yalnız son 2 formasyon.
+      ()=>{
+        const frames=[recordObj.frames,recordObj.timingFrames,recordObj.higherContext,recordObj.coreFrames].filter(x=>x&&typeof x==='object');
+        for(const group of frames)for(const f of Object.values(group))
+          if(f&&typeof f==='object'&&Array.isArray(f.patterns))f.patterns=f.patterns.slice(-2);
+      }
+    ];
+    for(const step of secondarySteps){
+      if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
+      try{step();}catch{}
+      body.state.record=recordObj;
+      serialized=JSON.stringify(body);
+    }
+  }
   const bytes=Buffer.byteLength(serialized,'utf8');
   const measure=v=>Buffer.byteLength(JSON.stringify(v??null),'utf8');
   const diagnostics={pass:body.questions?.trade_plan?2:body.questions?.lane_focus?1:'OTHER',
     chars:serialized.length,bytes,beforeBytes,maxBytes:MAX_DECISION_REQUEST_BYTES,
     estimatedTokens:Math.ceil(bytes*0.6)+1024,estimateOnly:true,
-    stateBytes:measure(body.state),questionsBytes:measure(body.questions),
+    stateBytes:measure(body.state),questionsBytes:measure(body.questions),secondaryTrimApplied:Boolean(recordObj&&beforeBytes>MAX_DECISION_REQUEST_BYTES),
     sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,measure(v)]))};
   return {ok:bytes<=MAX_DECISION_REQUEST_BYTES,body,serialized,diagnostics};
 }
@@ -1073,10 +1122,41 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         ownerTF:lifecycle?.ownerTF||currentPlan?.ownerTF||null,
         setup:lifecycle?.setup||currentPlan?.setup||null,
         managementStyle:original.managementStyle||entryContext.managementStyle||null,
-        initialInvalidation:finiteNumber(original.invalidationPrice??lifecycle?.invalidationPrice),
-        initialStop:finiteNumber(original.stopPrice??lifecycle?.originalStopPrice??lifecycle?.stopPrice),
+        // CLAUDE_R2543_EXIT_RISK_CONTEXT: ilk (değişmez) değerler ile GÜNCEL değerler ayrı alanlardır.
+        // Trailing stop hareket ederse initialStop değişmez; JEV "tez gerçekten bozuldu mu?" sorusunu ölçebilsin.
+        initialInvalidation:finiteNumber(lifecycle?.initialInvalidationPrice??original.invalidationPrice??lifecycle?.invalidationPrice),
+        initialStop:finiteNumber(lifecycle?.initialStopPrice??lifecycle?.originalStopPrice??original.stopPrice),
+        currentStop:finiteNumber(lifecycle?.stopPrice),
+        initialQuantity:finiteNumber(lifecycle?.initialQuantity),
+        initialEntryPrice:finiteNumber(lifecycle?.initialEntryPrice??lifecycle?.entryPrice),
         tp1:finiteNumber(original.takeProfit1??lifecycle?.takeProfit1),tp2:finiteNumber(original.takeProfit2),tp3:finiteNumber(original.takeProfit3)
       },
+      // CLAUDE_R2543_EXIT_RISK_CONTEXT: planlanan risk ve mevcut hareketin R cinsinden ölçüsü.
+      // Yeni bir kural/kapı DEĞİLDİR; yalnız eksik ölçüyü taşır. JEV nihai otorite olarak kalır.
+      riskState:(()=>{
+        const initStop=finiteNumber(lifecycle?.initialStopPrice??lifecycle?.originalStopPrice??original.stopPrice);
+        const initQty=finiteNumber(lifecycle?.initialQuantity);
+        const initEntry=finiteNumber(lifecycle?.initialEntryPrice??lifecycle?.entryPrice??entry);
+        const planned=finiteNumber(lifecycle?.plannedRiskQuote)??
+          (initEntry!==null&&initStop!==null&&initQty!==null?Math.abs(initEntry-initStop)*Math.abs(initQty):null);
+        const unreal=finiteNumber(position?.unrealizedPnl);
+        const stopDistancePct=finiteNumber(lifecycle?.stopDistancePct)??
+          (initEntry!==null&&initEntry!==0&&initStop!==null?Math.abs(initEntry-initStop)/Math.abs(initEntry)*100:null);
+        const movedPct=entry!==null&&entry!==0&&mark!==null&&['LONG','SHORT'].includes(side)
+          ? ((side==='LONG'?(mark-entry):(entry-mark))/entry)*100 : null;
+        return {
+          plannedRiskQuote:planned,
+          currentPnlQuote:unreal,
+          currentR:planned!==null&&planned>0&&unreal!==null?Number((unreal/planned).toFixed(3)):null,
+          stopDistancePct:stopDistancePct===null?null:Number(stopDistancePct.toFixed(4)),
+          movedPctOfEntry:movedPct===null?null:Number(movedPct.toFixed(4)),
+          movedShareOfStopDistance:movedPct!==null&&stopDistancePct!==null&&stopDistancePct>0
+            ? Number((movedPct/stopDistancePct).toFixed(3)) : null,
+          remainingQuantity:finiteNumber(position?.quantity),
+          initialQuantity:initQty,
+          note:'currentR = mevcut açık K/Z ÷ PLANLANAN risk (ilk miktar × ilk stop mesafesi). movedShareOfStopDistance 1,0 = fiyat ilk stop mesafesi kadar aleyhte hareket etti. Bunlar ölçüdür; karar JEV\'indir.'
+        };
+      })(),
       entryThesis:{why:entryContext.why||original.why||null,setupFamily:entryContext.setupFamily||original.setupFamily||null,entryTiming:entryContext.entryTiming||original.entryTiming||null,edgeBasis:entryContext.edgeBasis||original.edgeBasis||null,lane:entryContext.lane||original.lane||null,source:lifecycle?.entryPlanSource||null,marketSignature:entryContext.marketSignature||null},
       frames:coreMarket.coreFrames,timingFrames:coreMarket.timingFrames,higherContext:coreMarket.higherContext,
       noisePolicy:'Lower-timeframe noise is evidence, not by itself proof that the original owner-timeframe thesis failed. Evaluate the supplied original thesis against current owner and higher context; JEV retains final strategic authority.',

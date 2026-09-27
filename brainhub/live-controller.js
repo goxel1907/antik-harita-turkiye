@@ -233,9 +233,10 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
     // işlemin açılamaması demekti (0,8 USDT risk → %0,32 stop). Varsayılan v108 panel otoritesine
     // döndü; artık likidasyon kapısı (STOP_BEYOND_LIQUIDATION) zarar tavanını sınırlıyor.
     // live-policy.json "riskAuthority":"STRICT_POLICY_CAP" ile sert tavan seçilebilir.
-    maxRiskPctPerTrade:(policy.riskAuthority==='STRICT_POLICY_CAP'||riskPct===null)
-      ? policy.limits.maxRiskPctPerTrade
-      : Math.max(Number(policy.limits.maxRiskPctPerTrade)||0,riskPct*1.001),
+    // CLAUDE_R2543_RISK_CAP_BINDING: bu tavan ESKİDEN talebe göre büyütülüyordu (max(limit, riskPct*1.001))
+    // → config'teki %0,5 hiç bağlamıyordu (ESP: talep %15,4039, "tavan" %15,4193). Artık config değeri
+    // aynen uygulanır; boyut leader-live-intent içinde bu tavana göre AŞAĞI ölçeklenir.
+    maxRiskPctPerTrade:policy.limits.maxRiskPctPerTrade,
     maxNotionalPctPerTrade:notionalPct===null
       ? policy.limits.maxNotionalPctPerTrade
       : Math.max(Number(policy.limits.maxNotionalPctPerTrade)||0,notionalPct*1.001),
@@ -252,9 +253,13 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
     reasons:[],
     accountRisk:{ ...accountRisk, limits:effectiveLimits },
     sizing:{
-      sizingAuthority:'USER_PANEL_EXACT',
-      riskAuthority:policy.riskAuthority==='STRICT_POLICY_CAP'?'STRICT_POLICY_CAP':'USER_PANEL_EXACT',
+      sizingAuthority:'USER_PANEL_EXACT_WITHIN_CONFIGURED_RISK_CAP',
+      riskAuthority:policy.riskAuthority==='STRICT_POLICY_CAP'?'STRICT_POLICY_CAP':'CONFIGURED_RISK_CAP_BINDING',
       riskPctOfEquity:riskPct===null?null:Number(riskPct.toFixed(4)),
+      // R2543_EXACT_PANEL_AUTHORITY: panel boyutu degismez; risk tavani asilirsa emir fail-closed olur.
+      configuredMaxRiskPctPerTrade:finite(policy?.limits?.maxRiskPctPerTrade),
+      riskCapQuote:equity>0&&finite(policy?.limits?.maxRiskPctPerTrade)!==null
+        ? Number((equity*Number(policy.limits.maxRiskPctPerTrade)/100).toFixed(8)) : null,
       requestedMarginQuote:settings.marginQuote,
       appliedMarginQuote:settings.marginQuote,
       requestedLeverage:settings.leverage,
@@ -1337,13 +1342,63 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const a=Number(row?.activeAt||0), c=Number(r.createdAt||0);
     return a>0&&c>0&&Math.abs(c-a)<=180000?r:null;
   }
-  function classifyExit({ runner, netPnl, riskQuote }) {
+  // CLAUDE_R2543_INITIAL_ENTRY_RECOVERY: kapanış muhasebesi için ilk miktar/giriş/stop.
+  // Sıra: lifecycle.initial* → entryPlan → giriş journal'ı (LIVE_EXECUTION) → son çare kalan miktar.
+  // Kalan miktar (0 veya kısmi) ASLA sessizce ilk miktar sayılmaz; kullanıldığında riskBasis bunu söyler.
+  function recoverInitialEntry(row, symbol) {
+    const out={quantity:finite(row?.initialQuantity),entryPrice:finite(row?.initialEntryPrice),
+      stopPrice:finite(row?.initialStopPrice)??finite(row?.originalStopPrice),source:'LIFECYCLE_INITIAL'};
+    const plan=row?.entryPlan&&typeof row.entryPlan==='object'?row.entryPlan:null;
+    if(plan){
+      if(out.entryPrice===null){out.entryPrice=finite(plan.entryPrice);out.source='ENTRY_PLAN';}
+      if(out.stopPrice===null){out.stopPrice=finite(plan.stopPrice);out.source='ENTRY_PLAN';}
+      if(out.quantity===null&&finite(plan.quantity)!==null){out.quantity=finite(plan.quantity);out.source='ENTRY_PLAN';}
+    }
+    if(out.quantity===null||out.stopPrice===null||out.entryPrice===null){
+      try{
+        if(typeof store?.recentJournal==='function'){
+          const at=Number(row?.entryOrderAt||row?.activeAt||0);
+          const hits=store.recentJournal('LIVE_EXECUTION',{limit:500,sinceTs:Math.max(0,at-120000)}).filter(x=>
+            String(x.symbol||'').toUpperCase()===String(symbol||'').toUpperCase() &&
+            x.payload?.result?.orderPlaced===true &&
+            String(x.payload?.result?.side||'').toUpperCase()===String(row?.side||'').toUpperCase() &&
+            (row?.eventId?x.payload?.eventId===row.eventId:(at>0&&Math.abs(Number(x.ts)-at)<=120000)));
+          const hit=hits.length?hits[0]:null;
+          if(hit){
+            if(out.quantity===null)out.quantity=finite(hit.payload?.result?.executedQty)??finite(hit.payload?.plan?.quantity);
+            if(out.entryPrice===null)out.entryPrice=finite(hit.payload?.plan?.entryPrice);
+            if(out.stopPrice===null)out.stopPrice=finite(hit.payload?.plan?.stopPrice);
+            out.source='LIVE_EXECUTION_JOURNAL';
+          }
+        }
+      }catch{}
+    }
+    if(out.entryPrice===null)out.entryPrice=finite(row?.entryPrice);
+    if(out.stopPrice===null)out.stopPrice=finite(row?.stopPrice);
+    if(out.quantity===null||out.quantity===0){
+      const rem=finite(row?.quantity);
+      if(rem!==null&&rem>0){out.quantity=rem;out.source=out.source+'+REMAINING_FALLBACK';}
+      else out.source=out.source+'+QUANTITY_UNAVAILABLE';
+    }
+    out.riskQuote=out.entryPrice!==null&&out.stopPrice!==null&&finite(out.quantity)!==null&&out.quantity>0
+      ? Math.abs(out.entryPrice-out.stopPrice)*Math.abs(out.quantity) : null;
+    return out;
+  }
+  // CLAUDE_R2543_EXIT_CLASSIFICATION: JEV reduce-only çıkışı kanıtla etiketlenir; "manuel?" tahmini kaldırıldı.
+  // USER_MANUAL yalnız gerçek kanıt olduğunda yazılır (şu an BrainHub dışı kapanış için kanıt yoktur → EXTERNAL_CLOSE).
+  function classifyExit({ runner, netPnl, riskQuote, row = null, closedAt = null }) {
     const events = Array.isArray(runner?.events) ? runner.events : [];
     const tp1Reached = Number(runner?.tp1ReachedAt||0)>0 || events.some(e => e?.kind === 'PHASE' && ['TRAILING','BREAKEVEN'].includes(String(e?.to || '').toUpperCase()));
     const trailMoves = Math.max(Number(runner?.stopMoveCount||0), events.filter(e => e?.kind === 'STOP_MOVED').length);
+    const jev = row?.lastExitExecution && row.lastExitExecution.by==='JEV' ? row.lastExitExecution : null;
+    const jevAt = jev ? Number(jev.at||0) : 0;
+    const jevFresh = jev && jevAt>0 && (closedAt===null||!Number.isFinite(Number(closedAt))||Math.abs(Number(closedAt)-jevAt)<=15*60000);
+    if (jevFresh && jev.fullyClosed===true) return jev.action==='EXIT_NOW' ? 'JEV_EXIT_NOW' : 'JEV_PARTIAL_TAKE_PROFIT';
     if (tp1Reached) return netPnl !== null && netPnl > 0 ? (trailMoves > 1 ? 'TP1_RUNNER_TRAIL' : 'TP1_BREAKEVEN') : 'TP1_THEN_STOP';
     if (netPnl !== null && riskQuote && riskQuote > 0 && netPnl <= -0.7 * riskQuote) return 'STOP_LOSS';
     if (netPnl !== null && riskQuote && riskQuote > 0 && netPnl >= 0.9 * riskQuote) return 'TAKE_PROFIT';
+    if (jevFresh) return 'JEV_PARTIAL_THEN_EXTERNAL_CLOSE';
+    if (riskQuote && riskQuote > 0) return 'EXTERNAL_CLOSE';
     return 'OTHER_CLOSE';
   }
   async function positionIncome(symbol, startTime, endTime, creds) {
@@ -1412,16 +1467,23 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(!inc&&clock()-Number(row.closeDetectedAt||clock())<10*60000)continue; // gelir okunamadı: 10 dk'ya kadar yeniden dene
       const realizedPnl=inc?inc.realized:null;
       const netPnl=inc?inc.net:null;
-      const entry=finite(row.entryPrice),qty=finite(row.quantity),stop=finite(row.stopPrice);
+      // CLAUDE_R2543_TRADE_R_FIX: R ve riskQuote İLK miktar + İLK stop üzerinden hesaplanır.
+      // Eski davranış: row.quantity (kalan miktar) kullanılıyordu → tam çıkışta 0 (R=0), kısmi çıkışta şişik R.
+      const init=recoverInitialEntry(row,symbol);
+      const remainingAtClose=finite(row.quantity);
+      const entry=init.entryPrice,qty=finite(init.quantity),stop=init.stopPrice;
       const base=entry!==null&&qty!==null?Math.abs(entry*qty):null;
-      const riskQuote=entry!==null&&qty!==null&&stop!==null?Math.abs(entry-stop)*Math.abs(qty):null;
+      const riskQuote=finite(row.plannedRiskQuote)??init.riskQuote;
       const outcomePct=netPnl!==null&&base&&base>0?netPnl/base*100:null;
       const rMultiple=netPnl!==null&&riskQuote&&riskQuote>0?netPnl/riskQuote:null;
+      const riskBasis=finite(row.plannedRiskQuote)!==null?'LIFECYCLE_PLANNED_RISK':init.source;
       const runner=runnerForRow(row,symbol);
-      const exitType=classifyExit({runner,netPnl,riskQuote});
       const closedAt=clock();
+      const exitType=classifyExit({runner,netPnl,riskQuote,row,closedAt});
       const holdMinutes=activeAt>0?Math.round((closedAt-activeAt)/60000):null;
       const prev=row.state;
+      row.initialQuantity=qty??row.initialQuantity??null;
+      row.riskBasis=riskBasis;
       row.state='CLOSED';
       row.reanalysisEligible=false;
       row.executionEligibleNow=false;
@@ -1477,6 +1539,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const record={
         side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,tradeLane:row.tradeLaneName||row.entryContext?.lane||null,
         entryPrice:entry,stopPrice:stop,takeProfit1:finite(row.takeProfit1),quantity:qty,notional:base,riskQuote,
+        // CLAUDE_R2543: ilk/kalan miktar ayrımı ve risk tabanı kayda girer (raporlama ve öğrenme bunu kullanır).
+        initialQuantity:qty,remainingQuantityAtClose:remainingAtClose,riskBasis,
+        stopDistancePct:finite(row.stopDistancePct),exitBy:row?.lastExitExecution?.by||null,
         realizedPnl,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,outcomePct,rMultiple,exitType,
         openedAt:activeAt>0?new Date(activeAt).toISOString():null,closedAt:new Date(closedAt).toISOString(),holdMinutes,
         runner:runner?{phase:runner.phase,tpPlaced:runner.tpPlaced,stopMoves:Math.max(Number(runner.stopMoveCount||0),(runner.events||[]).filter(e=>e?.kind==='STOP_MOVED').length)}:null,
@@ -1604,6 +1669,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           side,setup:p.plan?.setup||null,originTF:p.plan?.originTF||null,ownerTF:p.plan?.ownerTF||null,
           tradeLane:(p.plan?.tradeLane&&typeof p.plan.tradeLane==='object'?p.plan.tradeLane.name:p.plan?.tradeLane)||null,
           entryPrice:entry,stopPrice:stop,takeProfit1:null,quantity:qty,notional:base,riskQuote,
+          initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'BACKFILL_ENTRY_JOURNAL',
           realizedPnl:inc.realized,commission:inc.commission,funding:inc.funding,netPnl,
           outcomePct:base&&base>0?netPnl/base*100:null,rMultiple,exitType,
           openedAt:new Date(e.ts).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-e.ts)/60000),
@@ -1647,7 +1713,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const entry=finite(p.entryPrice),mark=finite(p.markPrice),qty=finite(p.quantity);
       const stop=finite(rr&&rr.phase!=='CLOSED'?rr.currentStop:null)??finite(row.stopPrice);
       const firstStop=finite(row.stopPrice)??stop;
-      const riskQuote=entry!==null&&firstStop!==null&&qty!==null?Math.abs(entry-firstStop)*qty:null;
+      // CLAUDE_R2543: açık pozisyon R'si de ilk miktar + ilk stop ile (kısmi çıkış sonrası şişmesin).
+      const initQty=finite(leaderAnalysisState.bySymbol?.[String(p.symbol||'').toUpperCase()]?.initialQuantity)??qty;
+      const riskQuote=entry!==null&&firstStop!==null&&initQty!==null?Math.abs(entry-firstStop)*initQty:null;
       const own=String(row.state||'').toUpperCase()==='ACTIVE';
       return {
         symbol:p.symbol,side:p.side,quantity:qty,entryPrice:entry,markPrice:mark,unrealizedPnl:finite(p.unrealizedPnl),
@@ -1811,7 +1879,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
               });
               managementExecution={...result,attempted:true,requestedFraction:fraction};
               if(result?.ok===true&&result?.orderPlaced===true){
+                // CLAUDE_R2543_EXIT_PROVENANCE: `quantity` KALAN miktardır; initial* alanlarına dokunulmaz.
                 if(Number.isFinite(Number(result?.remainingQty)))existing.quantity=Number(result.remainingQty);
+                existing.lastExitExecution={by:'JEV',action,fraction,at:clock(),
+                  executedQty:finite(result?.executedQty),remainingQty:finite(result?.remainingQty),
+                  fullyClosed:result?.fullyClosed===true,
+                  reason:action==='EXIT_NOW'?'JEV_EXIT_NOW':'JEV_PARTIAL_TAKE_PROFIT'};
+                existing.jevExitEvents=[...(Array.isArray(existing.jevExitEvents)?existing.jevExitEvents:[]),
+                  {action,at:clock(),fraction,executedQty:finite(result?.executedQty),remainingQty:finite(result?.remainingQty),fullyClosed:result?.fullyClosed===true}].slice(-8);
                 if(result?.fullyClosed===true){
                   const rr=runnerState.bySymbol?.[position.symbol]||null;
                   if(rr){
@@ -2564,6 +2639,22 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
   }
 
+  // CLAUDE_R2543_RISK_CAP_BINDING: equity × maxRiskPctPerTrade → işlem başına mutlak risk tavanı (USDT).
+  // Equity okunamazsa tavan null döner; bu durumda hesap risk kapısı zaten fail-closed davranır.
+  async function resolveRiskCapQuote(policy) {
+    const capPct=finite(policy?.limits?.maxRiskPctPerTrade);
+    const out={maxRiskPctPerTrade:capPct,equity:null,riskCapQuote:null,source:'ACCOUNT_SUMMARY'};
+    if(capPct===null||capPct<=0){out.reason='MAX_RISK_LIMIT_MISSING';return out;}
+    try{
+      const acct=await accountSummary({maxAgeMs:15000});
+      const eq=finite(acct?.equity);
+      out.equity=eq;
+      if(eq!==null&&eq>0)out.riskCapQuote=Number((eq*capPct/100).toFixed(8));
+      else out.reason=Array.isArray(acct?.reasons)?String(acct.reasons[0]).slice(0,80):'ACCOUNT_EQUITY_UNAVAILABLE';
+    }catch(e){out.reason=String(e?.message||e).slice(0,80);}
+    return out;
+  }
+
   async function liveReadiness({ symbol = '' } = {}) {
     const policy = readPolicy(root);
     const creds = currentCredentials();
@@ -2722,6 +2813,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return { ...base, symbol:candidate.symbol, planStatus:'QUALIFIED', reasons:['BINANCE_SYMBOL_FILTERS_UNAVAILABLE'], policy:publicPolicy(policy) };
     }
 
+    const readinessRiskCap=await resolveRiskCapQuote(policy);
     const intent=buildLeaderLiveIntent({
       candidate,
       unified:advisory.unifiedContext,
@@ -2729,8 +2821,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       marginQuote:settings.marginQuote,
       leverage:settings.leverage,
       filters:exchangeFiltersFor(symbolInfo),
-      takerCommissionRate:commissionRate
+      takerCommissionRate:commissionRate,
+      riskCapQuote:readinessRiskCap.riskCapQuote
     });
+    intent.riskCapContext=readinessRiskCap;
     if (!intent.ok) {
       return {
         ...base,
@@ -3118,6 +3212,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     BINANCE_MAINT_MARGIN_UNAVAILABLE:'Binance bakım marjı kademesi doğrulanamadı; likidasyon güvenliği hesaplanamadı',
     MAINTENANCE_MARGIN_RATE_REQUIRED:'bakım marjı oranı olmadan likidasyon güvenliği doğrulanamaz',
     STOP_BEYOND_LIQUIDATION:'yapısal stop tahmini likidasyon mesafesinin dışında; panel boyutu değiştirilmeden işlem reddedildi',
+    RISK_CAP_BELOW_EXCHANGE_MINIMUM:'yapılandırılmış işlem başına risk tavanına uyan miktar, Binance minimum miktar/notional altında kaldı; limit aşılmadı, işlem açılmadı',
     LEADER_INTENT_NOT_READY:'giriş, stop veya miktar henüz güvenli emir niyetine dönüşmedi',
     EXECUTION_LINEAGE_MISMATCH:'sinyal ile emir soy zinciri eşleşmedi',
     DUPLICATE_EVENT:'aynı sinyal olayı daha önce işlendi',
@@ -3814,6 +3909,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     const freshUnified={...advisory.unifiedContext,livePrice:freshEntryPrice};
     const entryReferencePrice=freshEntryPrice;
+    // CLAUDE_R2543_RISK_CAP_BINDING: yapılandırılmış risk tavanı (live-policy limits.maxRiskPctPerTrade)
+    // × güncel equity → mutlak USDT tavanı. Config DEĞERİ değiştirilmez; yalnız gerçekten uygulanır.
+    const riskCapContext=await resolveRiskCapQuote(policy);
     const intent = buildLeaderLiveIntent({
       candidate,
       unified:freshUnified,
@@ -3824,8 +3922,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       takerCommissionRate:commissionRate,
       entryReferencePrice,
       maintenanceMarginRate:maintenance.rate,
-      jevFinalAuthority:true
+      jevFinalAuthority:true,
+      riskCapQuote:riskCapContext.riskCapQuote
     });
+    intent.riskCapContext=riskCapContext;
     intent.analysisEntryPrice=finite(advisory?.unifiedContext?.livePrice);
     intent.freshEntryPrice=freshEntryPrice;
     intent.chase=chase;
@@ -3950,6 +4050,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       executionLifecycle.entryPrice=intent.entryPrice;
       executionLifecycle.quantity=intent.quantity;
       executionLifecycle.stopPrice=intent.stopPrice;
+      // CLAUDE_R2543_IMMUTABLE_ENTRY: ilk miktar/giriş/stop ve planlanan risk bir daha ASLA
+      // kalan miktarla (remainingQty) ezilmez. Kapanış muhasebesi ve exit JEV bunları kullanır.
+      if(finite(executionLifecycle.initialQuantity)===null)executionLifecycle.initialQuantity=finite(intent.quantity);
+      if(finite(executionLifecycle.initialEntryPrice)===null)executionLifecycle.initialEntryPrice=finite(intent.entryPrice);
+      if(finite(executionLifecycle.initialStopPrice)===null)executionLifecycle.initialStopPrice=finite(intent.stopPrice);
+      if(finite(executionLifecycle.originalStopPrice)===null)executionLifecycle.originalStopPrice=finite(intent.stopPrice);
+      if(finite(executionLifecycle.initialInvalidationPrice)===null)executionLifecycle.initialInvalidationPrice=finite(advisory?.plan?.invalidationPrice);
+      if(finite(executionLifecycle.initialNotional)===null&&finite(intent.entryPrice)!==null&&finite(intent.quantity)!==null)
+        executionLifecycle.initialNotional=Math.abs(finite(intent.entryPrice)*finite(intent.quantity));
+      if(finite(executionLifecycle.plannedRiskQuote)===null&&finite(intent.entryPrice)!==null&&finite(intent.stopPrice)!==null&&finite(intent.quantity)!==null)
+        executionLifecycle.plannedRiskQuote=Math.abs(finite(intent.entryPrice)-finite(intent.stopPrice))*Math.abs(finite(intent.quantity));
+      if(finite(executionLifecycle.stopDistancePct)===null&&finite(intent.entryPrice)&&finite(intent.stopPrice)!==null)
+        executionLifecycle.stopDistancePct=Number((Math.abs(finite(intent.entryPrice)-finite(intent.stopPrice))/Math.abs(finite(intent.entryPrice))*100).toFixed(4));
       executionLifecycle.takeProfit1=intent.takeProfit1;
       executionLifecycle.takeProfit2=intent.takeProfit2;
       executionLifecycle.takeProfit3=intent.takeProfit3;
@@ -4326,7 +4439,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)) };
+  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)),
+    // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
+    _testHelpers:{classifyExit,recoverInitialEntry} };
 }
 
 module.exports = { LIVE_RESOURCE, LIVE_OWNER, normalizePolicy, resolveCredentials, requestedExecutionSettings, applyDynamicSizingGuards, jevFinalAuthorityPreflight, createLiveController };

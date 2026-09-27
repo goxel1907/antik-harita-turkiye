@@ -61,8 +61,14 @@ function marketPacket(u){
       depth20Imbalance:finite(m?.depth20Imbalance??stream?.depth20Imbalance),
       microprice:finite(m?.depthSoftContext?.microprice??stream?.depthSoftContext?.microprice),
       micropriceBps:finite(m?.depthSoftContext?.micropriceBps??stream?.depthSoftContext?.micropriceBps),
-      cvdQuote120s:flow?.available===true?finite(stream?.cvdQuote120s??flow?.cvdQuote120s??flow?.cvd120s):null,
-      cvdTrades120s:flow?.available===true?finite(stream?.cvdTrades120s):null,
+      // CLAUDE_R2543_CVD_NO_NULLING: gerçek sayısal CVD, availability bayrağına bağlı olarak SİLİNMEZ.
+      // (Bayrak metadata'dır; veri varsa gönderilir, yoksa null — uydurma yok.)
+      // Ölçüm YOKSA (örnek işlem sayısı 0) sayı gönderilmez: boş pencere "ölçülmüş 0 CVD" gibi görünemez.
+      // Ölçüm VARSA, availability bayrağı false olsa bile (ör. bayat) değer gönderilir ve nedeni metadata'da belirtilir.
+      cvdQuote120s:(finite(stream?.cvdTrades120s??flow?.sampleTrades)||0)>0?finite(stream?.cvdQuote120s??flow?.cvdQuote120s??flow?.cvd120s):null,
+      cvdTrades120s:(finite(stream?.cvdTrades120s??flow?.sampleTrades)||0)>0?finite(stream?.cvdTrades120s??flow?.sampleTrades):null,
+      orderFlowReason:flow?.available===true?null:(flow?.reason||null),
+      orderFlowAsOf:flow?.asOf||null,
       restTradeSample:{quote:finite(m?.cvdSampleQuote),trades:finite(m?.cvdSampleTrades),window:m?.cvdWindow||null,semantics:'SAMPLE_ONLY_NOT_CONTINUOUS_CVD'},
       orderFlowAvailable:flow?.available===true,
       orderFlowSource:flow?.source||null,

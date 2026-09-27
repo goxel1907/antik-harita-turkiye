@@ -143,13 +143,25 @@ function openStore(root) {
       avgOutcomePct:life.avgOutcomePct==null?null:Number(Number(life.avgOutcomePct).toFixed(4)),
       representation:'ALL_MEASURED_POSITION_CLOSED_ROWS_AGGREGATED'
     };
+    // CLAUDE_R2543_LEARNING_R_GUARD: ham kayıt silinmez; yalnız ÖLÇÜLEMEZ R'ler JEV'e "ölçülmüş sonuç"
+    // gibi verilmez. Kalan-miktar hatasından gelen R=0 ve şişmiş |R|>20 değerleri null + durum etiketiyle gider.
+    const canonicalR=p=>{
+      const r=Number(p?.rMultiple), risk=Number(p?.riskQuote), qty=Number(p?.initialQuantity??p?.quantity);
+      const basisOk=typeof p?.riskBasis==='string'&&!/QUANTITY_UNAVAILABLE|REMAINING_FALLBACK/.test(p.riskBasis);
+      if(!Number.isFinite(risk)||risk<=0||!Number.isFinite(qty)||qty<=0)return {rMultiple:null,rStatus:'UNMEASURED_INVALID_RISK_BASIS'};
+      if(!Number.isFinite(r))return {rMultiple:null,rStatus:'UNMEASURED_NO_R'};
+      if(Math.abs(r)>20)return {rMultiple:null,rStatus:'REJECTED_OUTLIER_R'};
+      return {rMultiple:Number(r.toFixed(4)),rStatus:p?.riskBasis?(basisOk?'MEASURED':'MEASURED_WEAK_BASIS'):'MEASURED_LEGACY'};
+    };
     const measuredOutcomes=learnByKind.all('POSITION_CLOSED',key,key,24).map(row=>{
       const p=safeLearningPayload(row.payload), ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
+      const cr=canonicalR(p);
       return {
         ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
         setupFamily:ec.setupFamily||p.setupFamily||null,entryTiming:ec.entryTiming||p.entryTiming||null,
         edgeBasis:ec.edgeBasis||p.edgeBasis||null,contractVersion:ec.contractVersion||p.contractVersion||null,
-        outcomePct:row.outcomePct,rMultiple:p.rMultiple??null,netPnl:p.netPnl??null,exitType:p.exitType||null,
+        outcomePct:row.outcomePct,rMultiple:cr.rMultiple,rStatus:cr.rStatus,rawRMultiple:p.rMultiple??null,
+        riskBasis:p.riskBasis||null,netPnl:p.netPnl??null,exitType:p.exitType||null,
         lane:p.tradeLane||ec.lane||null,holdMinutes:p.holdMinutes??null,
         marketSignature:ec.marketSignature||null
       };
@@ -175,6 +187,7 @@ function openStore(root) {
       recentMeasuredDetailCount:measuredOutcomes.length,
       jevLessonCount:jevLessons.length,
       changesAppliedToHardRisk:false,
+      rMeasurementPolicy:'rMultiple yalnız geçerli ilk-miktar/ilk-stop tabanı varsa ölçülmüş sayılır; rStatus UNMEASURED_* veya REJECTED_OUTLIER_R olan satırlar R kanıtı olarak kullanılamaz (ham kayıt korunur, rawRMultiple alanında).',
       note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2537+ kayıtları setupFamily/entryTiming/edgeBasis/contractVersion ile ayrıştırılır; eski generic lane kayıtları karşılaştırılabilir setup kanıtı sayılmamalıdır. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez.'
     };
   }

@@ -172,7 +172,10 @@ test('chase gate: ATR-scaled distance from trigger, back-inside and runaway bloc
   assert.equal(capped.reason, 'CLAUDE_V109_TRIGGER_CHASE_TOO_FAR', 'cap 3% even on very volatile frames');
 });
 
-test('risk authority: default panel-exact passes the real 80 USDT / 25x10 setup, STRICT_POLICY_CAP blocks', () => {
+// CLAUDE_R2543_RISK_CAP_BINDING: yapılandırılmış maxRiskPctPerTrade artık talebe göre büyütülmez.
+// Panel boyutu marj/kaldıraç/max pozisyon için hâlâ otoritedir; RİSK tavanı ise config'te yazan değerdir
+// (boyut leader-live-intent içinde bu tavana göre aşağı ölçeklenir, ölçeklenemezse fail-closed).
+test('risk authority: configured per-trade risk cap is binding for panel and strict modes', () => {
   const limits = { maxRiskPctPerTrade:1, maxNotionalPctPerTrade:25, maxDailyLossPct:5, maxOpenPositions:1, maxFamilyExposurePct:100 };
   const accountRisk = {
     account:{ available:true, equity:80.54, availableBalance:80.54, dailyRealizedPnl:0, openPositions:0 },
@@ -181,8 +184,13 @@ test('risk authority: default panel-exact passes the real 80 USDT / 25x10 setup,
   };
   const settings = { dynamic:true, marginQuote:25, leverage:10, maxOpenPositions:2 };
   const panel = applyDynamicSizingGuards(accountRisk, settings, { expectedLeverage:3, limits });
-  assert.equal(panel.sizing.riskAuthority, 'USER_PANEL_EXACT');
-  assert.equal(accountRiskCaps(panel.accountRisk).ok, true);
+  assert.equal(panel.sizing.riskAuthority, 'CONFIGURED_RISK_CAP_BINDING');
+  assert.equal(panel.accountRisk.limits.maxRiskPctPerTrade, limits.maxRiskPctPerTrade, 'tavan talebe göre büyütülmez');
+  // Tavanı aşan niyet (4 USDT risk = equity'nin %4,97'si) artık geçemez.
+  assert.equal(accountRiskCaps(panel.accountRisk).ok, false);
+  // Tavana uyan niyet (equity %1 = 0,8054 USDT) geçer: boyut ölçeklendiğinde akış açık kalır.
+  const scaled = applyDynamicSizingGuards({ ...accountRisk, intent:{ ...accountRisk.intent, riskQuote:0.8, notionalQuote:200, familyExposureAfterQuote:200 } }, settings, { expectedLeverage:3, limits });
+  assert.equal(accountRiskCaps(scaled.accountRisk).ok, true);
   const strict = applyDynamicSizingGuards(accountRisk, settings, { expectedLeverage:3, limits, riskAuthority:'STRICT_POLICY_CAP' });
   assert.equal(strict.sizing.riskAuthority, 'STRICT_POLICY_CAP');
   assert.equal(accountRiskCaps(strict.accountRisk).ok, false);

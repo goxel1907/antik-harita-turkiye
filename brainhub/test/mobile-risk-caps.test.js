@@ -22,7 +22,9 @@ test('invalid panel leverage still fails closed',()=>{
   assert.ok(out.reasons.includes('REQUESTED_LEVERAGE_INVALID'));
 });
 
-test('exact panel sizing raises per-order and total family envelopes from the chosen user settings',()=>{
+// CLAUDE_R2543_RISK_CAP_BINDING: panel marj/kaldıraç/max pozisyon ve toplam aile zarfı için otorite olmayı
+// sürdürür; ancak İŞLEM BAŞINA RİSK tavanı artık config'teki değerdir ve talebe göre büyütülmez.
+test('exact panel sizing raises notional/family envelopes but never the configured per-trade risk cap',()=>{
   const accountRisk={
     account:{available:true,equity:1000,availableBalance:1000,dailyRealizedPnl:0,openPositions:0},
     intent:{family:'ALT_LONG',riskQuote:25,notionalQuote:200,familyExposureAfterQuote:200},
@@ -34,12 +36,18 @@ test('exact panel sizing raises per-order and total family envelopes from the ch
   assert.equal(result.sizing.appliedLeverage,10);
   assert.equal(result.sizing.appliedMaxOpenPositions,3);
   assert.equal(result.sizing.expectedNotionalQuote,200);
-  assert.ok(result.accountRisk.limits.maxRiskPctPerTrade>=2.5);
+  assert.equal(result.accountRisk.limits.maxRiskPctPerTrade,policy.limits.maxRiskPctPerTrade);
+  assert.equal(result.sizing.riskAuthority,'CONFIGURED_RISK_CAP_BINDING');
+  assert.equal(result.sizing.configuredMaxRiskPctPerTrade,policy.limits.maxRiskPctPerTrade);
+  assert.equal(result.sizing.riskCapQuote,10,'1000 USDT equity × %1 = 10 USDT işlem başına risk tavanı');
   assert.ok(result.accountRisk.limits.maxNotionalPctPerTrade>=20);
   assert.equal(result.accountRisk.limits.maxOpenPositions,3);
   assert.equal(result.accountRisk.limits.maxDailyLossPct,2);
   assert.ok(result.accountRisk.limits.maxFamilyExposurePct>=60);
-  assert.equal(accountRiskCaps(result.accountRisk).ok,true);
+  // 25 USDT risk (equity %2,5) tavanı aşar → hesap risk kapısı engeller (boyut ölçeklenmeden emir geçmez).
+  assert.equal(accountRiskCaps(result.accountRisk).ok,false);
+  const capped=applyDynamicSizingGuards({...accountRisk,intent:{...accountRisk.intent,riskQuote:9.5}},{dynamic:true,marginQuote:20,leverage:10,maxOpenPositions:3},policy);
+  assert.equal(accountRiskCaps(capped.accountRisk).ok,true,'tavana uyan risk geçer');
 });
 
 test('panel sizing cannot silently create an order larger than margin times leverage',()=>{
@@ -82,7 +90,9 @@ test('exact panel sizing with 25 USDT 10x max2 is not blocked by legacy 100 perc
     limits:tightPolicy.limits
   };
   const settings={dynamic:true,marginQuote:25,leverage:10,maxOpenPositions:2};
-  const result=applyDynamicSizingGuards(accountRisk,settings,tightPolicy);
+  // CLAUDE_R2543: aile zarfı panelden türetilir (eski davranış), fakat işlem riski tavana uymak zorundadır.
+  const capRespectingRisk={...accountRisk,intent:{...accountRisk.intent,riskQuote:0.8}};
+  const result=applyDynamicSizingGuards(capRespectingRisk,settings,tightPolicy);
   assert.equal(result.ok,true);
   assert.equal(result.sizing.expectedNotionalQuote,250);
   assert.equal(result.sizing.requestedFamilyExposureQuote,500);

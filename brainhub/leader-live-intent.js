@@ -34,7 +34,10 @@ function buildLeaderLiveIntent({
   entryReferencePrice = null,
   maintenanceMarginRate = null,
   liquidationSafetyBufferPct = 0.5,
-  jevFinalAuthority = false
+  jevFinalAuthority = false,
+  // CLAUDE_R2543_RISK_CAP_BINDING: live-policy.json limits.maxRiskPctPerTrade × equity (USDT).
+  // null verilirse tavan uygulanmaz (eski davranış).
+  riskCapQuote = null
 } = {}) {
   const reasons = [];
   const softWarnings = [];
@@ -172,7 +175,13 @@ function buildLeaderLiveIntent({
   }
 
   const requestedNotional = margin * lev;
-  const quantity = floorStep(requestedNotional / entryPrice, lotStep);
+  const panelQuantity = floorStep(requestedNotional / entryPrice, lotStep);
+  // R2543_EXACT_PANEL_AUTHORITY: uygulamada secilen margin x leverage miktari aynen korunur.
+  // Risk tavani miktari/marji sessizce kucultmez. Exact panel riski tavani asarsa emir FAIL-CLOSED olur.
+  const riskCap = finite(riskCapQuote);
+  const quantity = panelQuantity;
+  const riskCapApplied = false;
+  const riskCappedQuantity = null;
   if (quantity === null || quantity <= 0) reasons.push('QUANTITY_INVALID');
   if (quantity !== null && minQty !== null && quantity < minQty) reasons.push('QUANTITY_BELOW_MIN');
   if (quantity !== null && maxQty !== null && quantity > maxQty) reasons.push('QUANTITY_ABOVE_MAX');
@@ -182,6 +191,9 @@ function buildLeaderLiveIntent({
     reasons.push('NOTIONAL_BELOW_MIN');
   }
   const riskQuote = quantity === null || riskDistance === null ? null : quantity * riskDistance;
+  if (riskCap !== null && riskCap > 0 && riskQuote !== null && riskQuote > riskCap + 1e-9) {
+    reasons.push('TRADE_RISK_CAP_EXCEEDED');
+  }
   const stopDistancePct = entryPrice!==null&&entryPrice>0&&riskDistance!==null
     ? riskDistance/entryPrice*100
     : null;
@@ -252,6 +264,9 @@ function buildLeaderLiveIntent({
     takeProfit2,
     takeProfit3,
     quantity,
+    panelQuantity,riskCapQuote:riskCap,riskCapApplied,riskCappedQuantity,
+    requestedMarginQuote:margin,
+    requestedLeverage:lev,
     notionalQuote,
     riskQuote,
     stopDistancePct,
@@ -278,6 +293,7 @@ function buildLeaderLiveIntent({
     takeProfit2,
     takeProfit3,
     quantity,
+    panelQuantity,riskCapQuote:riskCap,riskCapApplied,riskCappedQuantity,
     requestedMarginQuote:margin,
     requestedLeverage:lev,
     notionalQuote,

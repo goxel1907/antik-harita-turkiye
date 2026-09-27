@@ -22,14 +22,33 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
     participantIntent:'NOT_ASSERTED',
     source:'Binance public L2/aggTrade/forceOrder + public derivatives REST; BrainHub heuristics',
     asOf:streaming?.asOf||derivatives?.asOf||null,
-    orderFlow:{
-      '10s':compactFlow(flow['10s']),
-      '30s':compactFlow(flow['30s']),
-      '120s':compactFlow(flow['120s']),
-      cvdQuote120s:finite(streaming?.cvdQuote120s),
-      depth20Imbalance:finite(streaming?.depth20Imbalance),
-      spreadBps:finite(streaming?.spreadBps)
-    },
+    orderFlow:(()=>{
+      // CLAUDE_R2543_ORDER_FLOW_AVAILABILITY: bu nesnede `available` HİÇ üretilmiyordu; JEV paketi
+      // `flow.available===true` diye baktığı için 595/595 karar paketinde orderFlowAvailable=false çıktı.
+      // Kural: metadata dürüst olsun ama gerçek sayısal CVD sırf bayrak yüzünden silinmesin (veri uydurulmaz).
+      const cvd=finite(streaming?.cvdQuote120s);
+      const trades=Number(streaming?.cvdTrades120s);
+      const ageMs=Number.isFinite(Number(streaming?.ageMs))?Number(streaming.ageMs):null;
+      const stale=ageMs!==null&&ageMs>45000;
+      const hasSample=Number.isFinite(trades)&&trades>0;
+      const available=cvd!==null&&hasSample&&!stale&&(streaming?.available!==false);
+      const reason=available?null:(cvd===null?'NO_CVD_VALUE':(!hasSample?'NO_TRADE_SAMPLE':(stale?'STALE_STREAM':'STREAM_NOT_AVAILABLE')));
+      return {
+        available,
+        reason,
+        source:cvd!==null?'BINANCE_WS_AGGTRADE_PUBLIC_120S':null,
+        asOf:streaming?.cvdAsOf||streaming?.asOf||null,
+        ageMs,
+        sampleTrades:Number.isFinite(trades)?trades:null,
+        '10s':compactFlow(flow['10s']),
+        '30s':compactFlow(flow['30s']),
+        '120s':compactFlow(flow['120s']),
+        cvdQuote120s:cvd,
+        depth20Imbalance:finite(streaming?.depth20Imbalance),
+        spreadBps:finite(streaming?.spreadBps),
+        semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY_NOT_EXCHANGE_CVD'
+      };
+    })(),
     bookBehavior:{
       available:dyn.available===true,
       bidWalls:Array.isArray(dyn.bidWalls)?dyn.bidWalls.slice(0,4):[],
