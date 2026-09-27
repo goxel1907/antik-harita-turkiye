@@ -1,4 +1,5 @@
 'use strict';
+const { enrichCloses } = require('./office-performance');
 
 const fs = require('node:fs');
 const { performanceReport, laneOf, sameEntry, reconcileCloses } = require('./office-performance');
@@ -1536,7 +1537,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       regime5m:pickFrame(f5),regime15m:pickFrame(f15),
       orderFlow:{available:flow?.available===true,source:flow?.source||null,cvd120s:finite(flow?.cvdQuote120s??flow?.cvd120s??depth?.streaming?.cvdQuote120s)},
       depth:{imbalance:finite(depth?.depth20Imbalance??depth?.streaming?.depth20Imbalance),spreadBps:finite(depth?.spreadBps)},
-      derivatives:{oiDeltaPct:finite(d?.openInterest?.delta5mPct??d?.oiDelta5mPct),fundingRate:finite(d?.fundingRate),takerBuySellRatio:finite(d?.takerBuySellRatio)},
+      derivatives:{oiDeltaPct:finite(d?.openInterest?.delta5mPct??d?.oiDelta5mPct),fundingRate:finite(d?.fundingRate??d?.funding?.lastFundingRate),takerBuySellRatio:finite(d?.takerBuySellRatio??d?.taker?.buySellRatio)},
       observedLiquidations:{available:liq?.available===true,count:finite(liq?.count),source:liq?.source||null}
     };
   }
@@ -1665,7 +1666,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let closed=[];
     try{closed=typeof store?.recentJournal==='function'?store.recentJournal('POSITION_CLOSED',{limit:closedLimit}):[];}catch{closed=[];}
     const allOfficeRecords=typeof store.officeRecords==='function'?store.officeRecords():closed;
-    const rows=reconcileCloses(allOfficeRecords.filter(x=>x.kind==='POSITION_CLOSED').map(x=>({symbol:x.symbol,id:x.id,ts:new Date(x.ts).toISOString(),...x.payload}))).trades
+    const rows=reconcileCloses(enrichCloses(allOfficeRecords.filter(x=>x.kind==='POSITION_CLOSED').map(x=>({symbol:x.symbol,id:x.id,ts:new Date(x.ts).toISOString(),...x.payload})),allOfficeRecords)).trades
       .filter(x=>x.incomeAvailable!==undefined||Number.isFinite(Number(x.netPnl)))
       .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts)).slice(0,closedLimit);
     const measured=rows.filter(x=>Number.isFinite(Number(x.netPnl)));
@@ -1762,6 +1763,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         ownerTF:existing.ownerTF||advisory?.plan?.ownerTF||null,
         setup:existing.setup||advisory?.plan?.setup||null
       };
+      // Recover original entry context for positions opened before this patch, without changing live state.
+      if(!lifecycle.entryPlan&&typeof store.recentJournal==='function'){
+        const at=Number(existing.activeAt||0);
+        const matches=store.recentJournal('LIVE_EXECUTION',{limit:500,sinceTs:Math.max(0,at-2000)}).filter(x=>x.symbol===position.symbol&&x.payload?.result?.orderPlaced===true&&x.payload?.result?.side===position.side&&(existing.eventId?x.payload.eventId===existing.eventId:at>0&&Math.abs(Number(x.ts)-at)<=2000));
+        if(matches.length===1){lifecycle.entryPlan=matches[0].payload.plan;lifecycle.entryPlanSource='LIVE_EXECUTION_JOURNAL';}
+      }
       const assessment=positionManager.assessPosition({position,lifecycle,unified:advisory?.unifiedContext||{}});
       let jevExit={ok:false,called:false,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi kullanılamadı.'};
       if(typeof exitJudge==='function'&&advisory?.unifiedContext){
@@ -3949,6 +3956,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       executionLifecycle.activeAt=clock();
       executionLifecycle.entryOrderAt=entryOrderAt;
       executionLifecycle.eventId=eventId;
+      executionLifecycle.entryPlan=JSON.parse(JSON.stringify(advisory?.plan||{}));
+      executionLifecycle.entryPlanSource='LIVE_EXECUTION_ENTRY';
       executionLifecycle.closeMissCount=0;
       executionLifecycle.closeDetectedAt=null;
       // CLAUDE_V113_OUTCOME_LEDGER: neden girildi — kapanışta sonuçla birlikte beyne yazılır.

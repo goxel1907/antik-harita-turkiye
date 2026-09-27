@@ -1,6 +1,6 @@
 'use strict';
 
-function finite(v){const n=Number(v);return Number.isFinite(n)?n:null;}
+function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function arr(v){return Array.isArray(v)?v:[];}
 function clipArr(v,n){return arr(v).slice(-Math.max(0,n));}
 
@@ -56,12 +56,14 @@ function marketPacket(u){
     microstructure:{
       available:m?.available===true||stream?.available===true,
       sourceQuality:m?.sourceQuality||u?.dataQuality?.microstructureQuality||null,
+      bid:finite(m?.bid),ask:finite(m?.ask),
       spreadBps:finite(m?.spreadBps),
       depth20Imbalance:finite(m?.depth20Imbalance??stream?.depth20Imbalance),
       microprice:finite(m?.depthSoftContext?.microprice??stream?.depthSoftContext?.microprice),
       micropriceBps:finite(m?.depthSoftContext?.micropriceBps??stream?.depthSoftContext?.micropriceBps),
-      cvdQuote120s:finite(stream?.cvdQuote120s??flow?.cvdQuote120s??flow?.cvd120s),
-      cvdTrades120s:finite(stream?.cvdTrades120s),
+      cvdQuote120s:flow?.available===true?finite(stream?.cvdQuote120s??flow?.cvdQuote120s??flow?.cvd120s):null,
+      cvdTrades120s:flow?.available===true?finite(stream?.cvdTrades120s):null,
+      restTradeSample:{quote:finite(m?.cvdSampleQuote),trades:finite(m?.cvdSampleTrades),window:m?.cvdWindow||null,semantics:'SAMPLE_ONLY_NOT_CONTINUOUS_CVD'},
       orderFlowAvailable:flow?.available===true,
       orderFlowSource:flow?.source||null,
       bookBehavior:u?.marketMakerEvidence?.bookBehavior||null,
@@ -69,13 +71,14 @@ function marketPacket(u){
       participantIntent:u?.marketMakerEvidence?.participantIntent||'NOT_ASSERTED'
     },
     derivatives:{
-      available:d?.available!==false,
-      fundingRate:finite(d?.fundingRate),
+      available:d?.available===true,
+      asOf:d?.asOf||null,source:d?.source||null,
+      fundingRate:finite(d?.fundingRate??d?.funding?.lastFundingRate),
       openInterest:d?.openInterest||null,
       oiDelta5mPct:finite(d?.openInterest?.delta5mPct??d?.oiDelta5mPct),
-      takerBuySellRatio:finite(d?.takerBuySellRatio),
-      topTraderLongShortRatio:finite(d?.topTraderLongShortRatio),
-      globalLongShortRatio:finite(d?.globalLongShortRatio)
+      takerBuySellRatio:finite(d?.takerBuySellRatio??d?.taker?.buySellRatio),
+      topTraderLongShortRatio:finite(d?.topTraderLongShortRatio??d?.topTraderPosition?.longShortRatio),
+      globalLongShortRatio:finite(d?.globalLongShortRatio??d?.globalAccount?.longShortRatio)
     },
     observedLiquidations:{
       available:liq?.available===true,source:liq?.source||null,

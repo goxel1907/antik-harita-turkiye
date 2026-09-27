@@ -34,6 +34,20 @@ const ALLOWED_BRAIN_PATHS = new Set([
 ]);
 
 const cache = new Map();
+function canonicalPositions(data){
+ if(!data)return data;
+ let db;
+ try{
+   const {DatabaseSync}=require('node:sqlite');
+   const perfPath=fs.existsSync(path.join(BRAIN_ROOT,'server','office-performance.js'))?path.join(BRAIN_ROOT,'server','office-performance.js'):path.join(HERE,'..','office-performance.js');
+   const {enrichCloses,performanceReport}=require(perfPath);
+   db=new DatabaseSync(path.join(BRAIN_ROOT,'data','brainhub.sqlite'),{readOnly:true});
+   const records=db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION') ORDER BY ts ASC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
+   return {...data,closed:enrichCloses(data.closed||[],records),performance:performanceReport(records,data.open||[]),reportingOverlay:'READ_ONLY_SQLITE_CANONICAL'};
+ }catch(e){return {...data,reportingOverlayError:String(e.message).slice(0,160)};}
+ finally{if(db)db.close();}
+}
+
 const SECRETISH = /(api[-_]?key|secret|token|password|authorization|signature|privatekey|listenkey)/i;
 
 function nowIso() { return new Date().toISOString(); }
@@ -445,7 +459,7 @@ async function buildSnapshot() {
     visionProgress: { ok: visionProgress?.ok === true, data: scrub(visionProgress?.data) },
     models: { ok: models?.ok === true, data: scrub(models?.data) },
     account: account ? { ok: account.ok === true, data: scrub(account.data), error: account.error || null } : { ok: false, disabled: true },
-    positions: positions ? { ok: positions.ok === true, data: positions.ok === true ? scrub(positions.data) : null, error: positions.error || (positions.ok ? null : 'HTTP ' + positions.status) } : { ok: false, disabled: true },
+    positions: positions ? { ok: positions.ok === true, data: positions.ok === true ? scrub(canonicalPositions(positions.data)) : null, error: positions.error || (positions.ok ? null : 'HTTP ' + positions.status) } : { ok: false, disabled: true },
     ollama: { ok: ollama?.ok === true, data: scrub(ollama?.data), error: ollama?.error || null },
     router,
     backups,

@@ -1057,6 +1057,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const pnlPct=entry!==null&&entry>0&&mark!==null&&['LONG','SHORT'].includes(side)
       ? (side==='LONG'?(mark-entry)/entry:(entry-mark)/entry)*100:null;
     const liveContext=liveReasoningContext(root,unified?.learning);
+    const original=lifecycle?.entryPlan||{};
+    const entryContext=lifecycle?.entryContext||{};
+    const coreMarket=marketPacket(unified);
     const record={
       contract:'R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT',
       authority:{decisionOwner:'JEV',workers:'EVIDENCE_ONLY',postJevStrategicRevote:false},
@@ -1069,12 +1072,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         originTF:lifecycle?.originTF||currentPlan?.originTF||null,
         ownerTF:lifecycle?.ownerTF||currentPlan?.ownerTF||null,
         setup:lifecycle?.setup||currentPlan?.setup||null,
-        managementStyle:currentPlan?.managementStyle||null,
-        initialInvalidation:finiteNumber(currentPlan?.invalidationPrice),
-        initialStop:finiteNumber(currentPlan?.stopPrice),
-        tp1:finiteNumber(currentPlan?.takeProfit1),tp2:finiteNumber(currentPlan?.takeProfit2),tp3:finiteNumber(currentPlan?.takeProfit3)
+        managementStyle:original.managementStyle||entryContext.managementStyle||null,
+        initialInvalidation:finiteNumber(original.invalidationPrice??lifecycle?.invalidationPrice),
+        initialStop:finiteNumber(original.stopPrice??lifecycle?.originalStopPrice??lifecycle?.stopPrice),
+        tp1:finiteNumber(original.takeProfit1??lifecycle?.takeProfit1),tp2:finiteNumber(original.takeProfit2),tp3:finiteNumber(original.takeProfit3)
       },
-      frames:{'5m':sovereignFrame(unified?.frames?.['5m']),'15m':sovereignFrame(unified?.frames?.['15m'])},
+      entryThesis:{why:entryContext.why||original.why||null,setupFamily:entryContext.setupFamily||original.setupFamily||null,entryTiming:entryContext.entryTiming||original.entryTiming||null,edgeBasis:entryContext.edgeBasis||original.edgeBasis||null,lane:entryContext.lane||original.lane||null,source:lifecycle?.entryPlanSource||null,marketSignature:entryContext.marketSignature||null},
+      frames:coreMarket.coreFrames,timingFrames:coreMarket.timingFrames,higherContext:coreMarket.higherContext,
+      noisePolicy:'Lower-timeframe noise is evidence, not by itself proof that the original owner-timeframe thesis failed. Evaluate the supplied original thesis against current owner and higher context; JEV retains final strategic authority.',
       orderFlow:unified?.marketMakerEvidence?.orderFlow||null,
       depth:unified?.marketMakerEvidence?.bookBehavior||null,
       derivatives:unified?.derivatives||null,

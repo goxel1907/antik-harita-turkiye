@@ -86,7 +86,7 @@ function openStore(root) {
     }).filter(x => x.payload);
   }
   function officeRecords() {
-    return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT') ORDER BY ts DESC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
+    return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION') ORDER BY ts DESC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
   }
   function getJournal(limit = 50) {
     return list.all(Math.max(1, Math.min(200, Number(limit) || 50))).map(x => ({ ...x, payload: JSON.parse(x.payload) }));
