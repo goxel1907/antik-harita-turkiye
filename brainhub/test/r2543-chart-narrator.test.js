@@ -186,3 +186,50 @@ test('fib clauses disappear when the engine has no fib levels, instead of being 
   assert.doesNotMatch(line, /0\.618-0\.786/);
   assert.match(line, /nearest FVG/);
 });
+
+test('a PASS-2 body, whose frames live in coreMarketPacket, is trimmed instead of blocked', () => {
+  // 27 Eyl 17:18 ve 17:20: PASS-2 52.089 ve 54.258 bayt ile blocked oldu, cunku ikincil kirpma
+  // yalnizca state.record'a bakiyordu; PASS-2'de frame'ler state.coreMarketPacket icindedir.
+  const pivots = Array.from({ length: 420 }, (_, i) => ({ role: 'TOP', index: i, price: 0.0171 + i / 1e6, at: 1790500000000 + i }));
+  const heavyFrame = () => ({
+    available: true, close: 0.01705, rsi14: 46, atrPct: 1.03,
+    recentFairValueGaps: [{ side: 'BEAR', low: 0.01675, high: 0.01695, ce50: 0.01685, at: 1 }],
+    liquidity: { buySide: 0.01712, sellSide: 0.01613, fairValueGaps: [{ side: 'BEAR', low: 0.01675, high: 0.01695, ce50: 0.01685, at: 1 }] },
+    swingStructure: { state: 'MIXED', highSequence: 'HH', lowSequence: 'LL', event: 'BOS_UP', confirmedPivots: { highs: pivots, lows: pivots }, trendLines: { upSupport: pivots } },
+    smcContext: {
+      available: true, source: 'CONFIRMED_SWING_RANGE_FROM_CLOSED_CANDLES',
+      dealingRange: { low: 0.01613, high: 0.01712, positionPct: 75.76, zone: 'PREMIUM', insideRange: true },
+      fibLevels: { leg: 'DOWN_LEG_HIGH_TO_LOW', retracement: { '0.618': 0.016742 }, extension: { '1.272': 0.015861 } },
+      oteReference: { longDiscountZone: { low: 0.016338, high: 0.016506 }, shortPremiumZone: { low: 0.016744, high: 0.016912 } },
+      semantics: 'SOFT_STRUCTURAL_CONTEXT_ONLY', note: 'x'.repeat(220)
+    }
+  });
+  const body = {
+    model: 'typesafe/jev-1.13',
+    state: {
+      description: 'd',
+      coreMarketPacket: {
+        symbol: 'AZTECUSDT', livePrice: 0.01705,
+        chartNarrative: narrateChart(unified()),
+        coreFrames: { '5m': heavyFrame(), '15m': heavyFrame() },
+        higherContext: { '1h': heavyFrame(), '4h': heavyFrame() }
+      },
+      record: { attention: { symbol: 'AZTECUSDT' }, executablePlanOptions: [{ id: 'PLAN_A' }] }
+    },
+    questions: { trade_plan: { type: 'choice', criteria: { WAIT: 'w', PLAN_A: 'a' } } }
+  };
+  assert.ok(Buffer.byteLength(JSON.stringify(body), 'utf8') > MAX_DECISION_REQUEST_BYTES);
+  const out = prepareDecisionRequest(body);
+  assert.equal(out.ok, true, 'PASS-2 gövdesi bloke edilmemeli');
+  assert.ok(out.diagnostics.bytes <= MAX_DECISION_REQUEST_BYTES);
+  const p5 = out.body.state.coreMarketPacket.coreFrames['5m'];
+  assert.equal(p5.swingStructure.pivotsTrimmed, true);
+  assert.equal(p5.swingStructure.confirmedPivots, undefined);
+  // Piyasa gerçeği duruyor.
+  assert.equal(out.body.state.coreMarketPacket.livePrice, 0.01705);
+  assert.equal(p5.close, 0.01705);
+  assert.equal(p5.recentFairValueGaps[0].ce50, 0.01685);
+  assert.equal(p5.smcContext.dealingRange.zone, 'PREMIUM');
+  // Grafik okuması her zaman kalır.
+  assert.ok(out.body.state.coreMarketPacket.chartNarrative.frames['15m'].line.length > 50);
+});

@@ -483,7 +483,11 @@ function prepareDecisionRequest(input){
   // bu tavana takılıp hiç gönderilemedi.
   const record=body?.state?.record;
   const recordObj=record&&typeof record==='object'&&!Array.isArray(record)?record:null;
-  if(recordObj){
+  // CLAUDE_R2543_TRIM_SCOPE: PASS-1'de frame'ler state.record icindedir, PASS-2'de state.coreMarketPacket
+  // icindedir. Kirpma ikisini de gormezse PASS-2 tavana takilip HIC gonderilemez (27 Eyl 17:18/17:20).
+  const packetObj=body?.state?.coreMarketPacket&&typeof body.state.coreMarketPacket==='object'?body.state.coreMarketPacket:null;
+  const targets=[recordObj,packetObj].filter(Boolean);
+  if(recordObj||packetObj){
     const stripGeometry=node=>{
       if(Array.isArray(node)){for(const x of node)stripGeometry(x);return;}
       if(!node||typeof node!=='object')return;
@@ -508,7 +512,7 @@ function prepareDecisionRequest(input){
       // 1) state.experienceMemory zaten gönderiliyorsa record içindeki kopyası tekrardır.
       ()=>{ if(body?.state?.experienceMemory&&recordObj.experienceMemory)delete recordObj.experienceMemory; },
       // 2) formasyon geometrisi (pivot/line dizileri) — formasyonun kendisi (tip/durum/neckline) kalır.
-      ()=>stripGeometry(recordObj),
+      ()=>{for(const t of targets)stripGeometry(t);},
       // 3) ham pivot/trend-çizgisi dizileri — yapı özeti (state/HH-LL/event/son teyitli swing) KALIR.
       //    Bu diziler paketin en ağır tekrarıdır; chartNarrative aynı yapıyı tek cümleyle zaten taşır.
       ()=>{
@@ -522,14 +526,47 @@ function prepareDecisionRequest(input){
           }
           for(const v of Object.values(node))stripPivots(v);
         };
-        stripPivots(recordObj);
+        for(const t of targets)stripPivots(t);
+      },
+      // 3b) ayni FVG listesinin ikinci kopyasi (liquidity.fairValueGaps) ve SMC duz metinleri.
+      //     Seviyeler recentFairValueGaps'te aynen kalir; silinen yalnizca KOPYA ve ACIKLAMA metnidir.
+      ()=>{
+        const stripDup=node=>{
+          if(Array.isArray(node)){for(const x of node)stripDup(x);return;}
+          if(!node||typeof node!=='object')return;
+          if(Array.isArray(node.recentFairValueGaps)&&node.liquidity&&typeof node.liquidity==='object'&&Array.isArray(node.liquidity.fairValueGaps)){
+            const {fairValueGaps,...rest}=node.liquidity;
+            node.liquidity={...rest,fairValueGapsTrimmed:true};
+          }
+          const smc=node.smcContext;
+          if(smc&&typeof smc==='object'){
+            const {note,semantics,source,...rest}=smc;
+            if(note||semantics||source)node.smcContext=rest;
+          }
+          for(const v of Object.values(node))stripDup(v);
+        };
+        for(const t of targets)stripDup(t);
+      },
+      // 3c) ham fib/OTE nesneleri — chartNarrative bunlari zaten cumleyle tasiyor.
+      ()=>{
+        const stripFib=node=>{
+          if(Array.isArray(node)){for(const x of node)stripFib(x);return;}
+          if(!node||typeof node!=='object')return;
+          const smc=node.smcContext;
+          if(smc&&typeof smc==='object'&&(smc.fibLevels||smc.oteReference)){
+            const {fibLevels,oteReference,...rest}=smc;
+            node.smcContext={...rest,fibAndOteInNarrative:true};
+          }
+          for(const v of Object.values(node))stripFib(v);
+        };
+        for(const t of targets)stripFib(t);
       },
       // 4) uzun serbest metinler (görsel gözlem, uzun gerekçe) kısalır; sayısal gerçek dokunulmaz.
-      ()=>clipText(recordObj.requestedEvidence,800),
-      ()=>clipText(recordObj.entryThesis,600),
+      ()=>{if(recordObj)clipText(recordObj.requestedEvidence,800);},
+      ()=>{if(recordObj)clipText(recordObj.entryThesis,600);},
       // 5) en son: TF başına yalnız son 2 formasyon.
       ()=>{
-        const frames=[recordObj.frames,recordObj.timingFrames,recordObj.higherContext,recordObj.coreFrames].filter(x=>x&&typeof x==='object');
+        const frames=targets.flatMap(t=>[t.frames,t.timingFrames,t.higherContext,t.coreFrames]).filter(x=>x&&typeof x==='object');
         for(const group of frames)for(const f of Object.values(group))
           if(f&&typeof f==='object'&&Array.isArray(f.patterns))f.patterns=f.patterns.slice(-2);
       }
@@ -537,7 +574,8 @@ function prepareDecisionRequest(input){
     for(const step of secondarySteps){
       if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
       try{step();}catch{}
-      body.state.record=recordObj;
+      if(recordObj)body.state.record=recordObj;
+      if(packetObj)body.state.coreMarketPacket=packetObj;
       serialized=JSON.stringify(body);
     }
   }
@@ -546,7 +584,7 @@ function prepareDecisionRequest(input){
   const diagnostics={pass:body.questions?.trade_plan?2:body.questions?.lane_focus?1:'OTHER',
     chars:serialized.length,bytes,beforeBytes,maxBytes:MAX_DECISION_REQUEST_BYTES,
     estimatedTokens:Math.ceil(bytes*0.6)+1024,estimateOnly:true,
-    stateBytes:measure(body.state),questionsBytes:measure(body.questions),secondaryTrimApplied:Boolean(recordObj&&beforeBytes>MAX_DECISION_REQUEST_BYTES),
+    stateBytes:measure(body.state),questionsBytes:measure(body.questions),secondaryTrimApplied:Boolean((recordObj||packetObj)&&beforeBytes>MAX_DECISION_REQUEST_BYTES),
     sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,measure(v)]))};
   return {ok:bytes<=MAX_DECISION_REQUEST_BYTES,body,serialized,diagnostics};
 }
