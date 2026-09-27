@@ -247,7 +247,7 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
     derivatives,
     marketMakerEvidence,
     authority:{finalStrategicAuthority:'JEV',scannerAuthority:'ATTENTION_ONLY',workerAuthority:'EVIDENCE_ONLY'},
-    visualPolicy:{tradingViewPrimaryWhenValidated:true,binanceInternalChartFallback:true,numericAuthority:'BINANCE_BRAINHUB',visualMayOverrideNumeric:false},
+    visualPolicy:{deterministicChartNarrativePrimary:true,visionMode:'AUDIT_ON_DEMAND',binanceInternalChartFallback:true,numericAuthority:'BINANCE_BRAINHUB',visualMayOverrideNumeric:false},
     global:{
       btc:globalAsset(global?.btc),
       eth:globalAsset(global?.eth),
@@ -1238,7 +1238,7 @@ function sovereignRequestedFrames(pass1){
   if(requested.has('TRADINGVIEW_15M'))frames.push('15m');
   if(requested.has('TIMING_1M'))frames.push('1m');
   if(requested.has('TIMING_3M'))frames.push('3m');
-  if(requested.has('HIGHER_TF_CONTEXT'))frames.push('30m','1h','4h','1d');
+  if(requested.has('HIGHER_TF_CONTEXT'))frames.push('30m','45m','1h','4h','1d');
   return [...new Set(frames)];
 }
 function compactEvidenceFrame(f){
@@ -1251,27 +1251,21 @@ function compactEvidenceFrame(f){
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,smcContext:withoutFib(f.smcContext)
   };
 }
-async function buildSovereignEvidence({candidate,unified,pass1,committee}){
+async function buildSovereignEvidence({candidate,unified,pass1,committee,visionAudit=false}){
   const requested=new Set(Array.isArray(pass1?.requestedEvidence)?pass1.requestedEvidence:[]);
   const evidence={requested:[...requested],missing:[],visual:null};
   if(requested.has('TIMING_1M'))evidence.timing1m=compactEvidenceFrame(unified?.frames?.['1m']);
   if(requested.has('TIMING_3M'))evidence.timing3m=compactEvidenceFrame(unified?.frames?.['3m']);
-  if(requested.has('HIGHER_TF_CONTEXT')){
-    evidence.higherTf=Object.fromEntries(['30m','1h','4h','1d'].map(tf=>[tf,compactEvidenceFrame(unified?.frames?.[tf])]));
-  }
-  if(requested.has('ORDER_FLOW_CVD')){
-    evidence.orderFlow=unified?.marketMakerEvidence?.orderFlow||unified?.microstructure?.streaming?.orderFlow||{available:false,reason:'ORDER_FLOW_UNAVAILABLE'};
-  }
-  if(requested.has('DEPTH_L2')){
-    evidence.depth={
-      sourceQuality:unified?.dataQuality?.microstructureQuality||null,
-      depth20Imbalance:unified?.microstructure?.depth20Imbalance??unified?.microstructure?.streaming?.depth20Imbalance??null,
-      spreadBps:unified?.microstructure?.spreadBps??null,
-      bookBehavior:unified?.marketMakerEvidence?.bookBehavior||null,
-      participantIdentity:unified?.marketMakerEvidence?.participantIdentity||'NOT_IDENTIFIED',
-      participantIntent:unified?.marketMakerEvidence?.participantIntent||'NOT_ASSERTED'
-    };
-  }
+  if(requested.has('HIGHER_TF_CONTEXT'))evidence.higherTf=Object.fromEntries(['30m','45m','1h','4h','1d'].map(tf=>[tf,compactEvidenceFrame(unified?.frames?.[tf])]));
+  if(requested.has('ORDER_FLOW_CVD'))evidence.orderFlow=unified?.marketMakerEvidence?.orderFlow||unified?.microstructure?.streaming?.orderFlow||{available:false,reason:'ORDER_FLOW_UNAVAILABLE'};
+  if(requested.has('DEPTH_L2'))evidence.depth={
+    sourceQuality:unified?.dataQuality?.microstructureQuality||null,
+    depth20Imbalance:unified?.microstructure?.depth20Imbalance??unified?.microstructure?.streaming?.depth20Imbalance??null,
+    spreadBps:unified?.microstructure?.spreadBps??null,
+    bookBehavior:unified?.marketMakerEvidence?.bookBehavior||null,
+    participantIdentity:unified?.marketMakerEvidence?.participantIdentity||'NOT_IDENTIFIED',
+    participantIntent:unified?.marketMakerEvidence?.participantIntent||'NOT_ASSERTED'
+  };
   if(requested.has('DERIVATIVES'))evidence.derivatives=unified?.derivatives||{available:false};
   if(requested.has('OBSERVED_LIQUIDATIONS'))evidence.observedLiquidations=unified?.liquidationContext||{available:false};
   if(requested.has('HISTORY_OUTCOME'))evidence.historyOutcome=compactOutcomeLearningContext(unified?.learning||null);
@@ -1280,38 +1274,38 @@ async function buildSovereignEvidence({candidate,unified,pass1,committee}){
     (tf==='15m'&&requested.has('TRADINGVIEW_15M'))||
     (tf==='1m'&&requested.has('TIMING_1M'))||
     (tf==='3m'&&requested.has('TIMING_3M'))||
-    (['30m','1h','4h','1d'].includes(tf)&&requested.has('HIGHER_TF_CONTEXT'))
+    (['30m','45m','1h','4h','1d'].includes(tf)&&requested.has('HIGHER_TF_CONTEXT'))
   );
-  if(visualFrames.length){
-    const vision=await buildVisionCharts(candidate.symbol,128,{
-      frames:visualFrames,
-      observedLiquidations:Array.isArray(unified?.liquidationContext?.zones)?unified.liquidationContext.zones:[]
-    });
+  if(visualFrames.length&&visionAudit===true){
+    const vision=await buildVisionCharts(candidate.symbol,128,{frames:visualFrames,observedLiquidations:Array.isArray(unified?.liquidationContext?.zones)?unified.liquidationContext.zones:[]});
     if(vision.attached>0){
       try{
         const labels=visualFrames.map(tf=>'OBS_'+tf.toUpperCase()+': concise factual visual observations only').join('\n');
         const vr=await committee({
-          role:'STRUCTURE',
-          evidenceOnly:true,
-          system:'You are a Vision EVIDENCE_ONLY worker for JEV. Read only the requested chart images. Report factual structure, candle, liquidity, OB/FVG/sweep observations. Do not choose LONG/SHORT, do not score, do not QUALIFY/VETO, and do not propose an order. Forming candles are context only. Binance/BrainHub numeric truth outranks visual interpretation.',
+          role:'STRUCTURE',evidenceOnly:true,
+          system:'You are a Vision EVIDENCE_ONLY audit worker for JEV. Report factual observations only. Never choose LONG/SHORT, never veto, and never override Binance/BrainHub numeric truth.',
           prompt:'Requested symbol: '+candidate.symbol+'\nRequested frames: '+visualFrames.join(',')+'\nReturn only evidence observations, one line per requested timeframe.\n'+labels,
           images:vision.images,
           localContext:{symbol:unified.symbol,frames:Object.fromEntries(visualFrames.map(tf=>[tf,compactEvidenceFrame(unified?.frames?.[tf])]))}
         });
-        evidence.visual={
-          authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:vision.attached,required:vision.required,
-          source:vr?.vision?.source||vision.mode||'VISION_EVIDENCE',text:String(vr?.text||'').slice(0,6000),
-          frames:vision.frames,failures:vision.failures
-        };
+        evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:vision.attached,required:vision.required,source:vr?.vision?.source||vision.mode||'VISION_AUDIT',mode:'AUDIT_ON_DEMAND',modelUsed:true,deterministicFrames:0,text:String(vr?.text||'').slice(0,6000),frames:vision.frames,failures:vision.failures};
       }catch(e){
-        evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:vision.attached,required:vision.required,error:String(e?.message||e).slice(0,300),frames:vision.frames,failures:vision.failures};
+        evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:vision.attached,required:vision.required,source:'VISION_AUDIT_ERROR',mode:'AUDIT_ON_DEMAND',modelUsed:true,deterministicFrames:0,error:String(e?.message||e).slice(0,300),frames:vision.frames,failures:vision.failures};
       }
-    }else{
-      evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:0,required:vision.required,failures:vision.failures};
+    }else evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:0,required:vision.required,source:'VISION_AUDIT_UNAVAILABLE',mode:'AUDIT_ON_DEMAND',modelUsed:true,deterministicFrames:0,failures:vision.failures};
+  }else if(visualFrames.length){
+    const narrative=marketPacket(unified)?.chartNarrative||null;
+    const lines=[],failures=[];
+    for(const tf of visualFrames){
+      const row=narrative?.frames?.[tf];
+      if(row?.available===true&&String(row?.line||'').trim())lines.push(tf+': '+String(row.line));
+      else failures.push({tf,reason:row?.reason||'DETERMINISTIC_CHART_FRAME_UNAVAILABLE'});
     }
+    evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:0,required:0,source:'DETERMINISTIC_CHART_NARRATIVE_NO_GPU',mode:'MAINLINE_CPU_DETERMINISTIC',modelUsed:false,deterministicFrames:Math.max(0,visualFrames.length-failures.length),text:lines.join('\n').slice(0,12000),frames:null,failures};
   }
   return evidence;
 }
+
 function sovereignJournalPayload({candidate,plan,pass1,final,vision,jevSeen,riskGate,executionReadiness}){
   return {
     releaseContract:'R2542_JEV_TRADER_OFFICE',
@@ -1358,7 +1352,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   if(!pass1?.ok){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:pass1?.reason||'JEV_SOVEREIGN_PASS1_UNAVAILABLE',jevPass1:pass1||null,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
   }
-  const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee});
+  const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee,visionAudit:executionIntent?.visionAudit===true});
   let knowledgeResearchResult=null;
   // R2535: knowledge-gap detection runs for every sovereign decision. It is local/cheap when no gap exists.
   // If a real unfamiliar term is present, 9Router free + OpenRouter free research it, fetched sources are
@@ -1386,7 +1380,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
       jevSovereign:true,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
     };
     return {
-      ok:true,candidateFound:true,committeeCalled:Boolean(evidence?.visual),candidate,targetedExecution:selection.targeted,
+      ok:true,candidateFound:true,committeeCalled:evidence?.visual?.modelUsed===true,candidate,targetedExecution:selection.targeted,
       unifiedContext:unified,vision:evidence?.visual||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0},
       committee:{mode:'JEV_DIRECTED_POSITION_EVIDENCE_ONLY',available:true},plan,preJevPlan:null,
       jevPass1:pass1,jevDecision:null,evidence,knowledgeResearch:knowledgeResearchResult,riskGate:null,dryRunExecutor:null,executionReadiness:null,
@@ -1442,7 +1436,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   const visionMeta=evidence?.visual||null;
   const jevSeen=mirrorDigest(marketPacket(unified));
   const out={
-    ok:true,candidateFound:true,committeeCalled:Boolean(visionMeta),candidate,targetedExecution:selection.targeted,
+    ok:true,candidateFound:true,committeeCalled:visionMeta?.modelUsed===true,candidate,targetedExecution:selection.targeted,
     unifiedContext:unified,vision:visionMeta||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0},
     committee:{mode:'JEV_DIRECTED_EVIDENCE_ONLY',available:true},plan,preJevPlan:null,
     jevPass1:pass1,jevDecision:final,evidence,knowledgeResearch:knowledgeResearchResult,riskGate,dryRunExecutor,executionReadiness,

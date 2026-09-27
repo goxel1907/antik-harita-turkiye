@@ -56,7 +56,7 @@ function marketPacket(u){
       '1m':framePacket(u?.frames?.['1m']),
       '3m':framePacket(u?.frames?.['3m'])
     },
-    higherContext:Object.fromEntries(['30m','1h','4h','1d'].map(tf=>[tf,framePacket(u?.frames?.[tf])])),
+    higherContext:Object.fromEntries(['30m','45m','1h','4h','1d'].map(tf=>[tf,framePacket(u?.frames?.[tf])])),
     microstructure:{
       available:m?.available===true||stream?.available===true,
       sourceQuality:m?.sourceQuality||u?.dataQuality?.microstructureQuality||null,
@@ -134,7 +134,7 @@ function mirrorDigest(packet){
       '1m':mirrorFrameDigest(p?.timingFrames?.['1m']),
       '3m':mirrorFrameDigest(p?.timingFrames?.['3m'])
     },
-    higherContext:Object.fromEntries(['30m','1h','4h','1d'].map(tf=>[tf,mirrorFrameDigest(p?.higherContext?.[tf])])),
+    higherContext:Object.fromEntries(['30m','45m','1h','4h','1d'].map(tf=>[tf,mirrorFrameDigest(p?.higherContext?.[tf])])),
     // CLAUDE_R2543: JEV'e giden grafik okumasi aynaya da girer; aksi halde ne gonderildigi denetlenemez.
     chartNarrative:p.chartNarrative||null,
     microstructure:p.microstructure||null,derivatives:p.derivatives||null,

@@ -40,8 +40,8 @@ const CHECKS = [
 ];
 const FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const SOVEREIGN_EVIDENCE=[
-  ['TRADINGVIEW_5M','Request a fresh validated 5m chart reading for the 5m scalp lane. It is rendered locally on GPU at zero cost from the same closed candles as the numeric packet, so it can never disagree with the numbers about what happened. It adds what the numeric fields do not carry: multi-candle visual geometry, wick clusters, how price actually reacted at the drawn levels, and the shape of the most recent legs. It is an additional read, never an override of numeric truth.'],
-  ['TRADINGVIEW_15M','Request a fresh validated 15m chart reading for the 15m trade lane and primary context. It is rendered locally on GPU at zero cost from the same closed candles as the numeric packet. It adds multi-candle visual geometry, wick clusters, reaction quality at the drawn levels and the shape of the most recent legs. It is an additional read, never an override of numeric truth.'],
+  ['TRADINGVIEW_5M','Request the fresh deterministic 5m chart reading for the scalp lane. Mainline evidence is generated from the same closed-candle numeric truth as the JEV packet and does not require GPU/VLM. Optional image/Vision audit is separate and can never override numeric truth.'],
+  ['TRADINGVIEW_15M','Request the fresh deterministic 15m chart reading for the main trade lane. Mainline evidence is generated from the same closed-candle numeric truth as the JEV packet and does not require GPU/VLM. Optional image/Vision audit is separate and can never override numeric truth.'],
   ['TIMING_1M','Request 1m timing evidence only if it materially helps entry timing; it is never a mandatory vote.'],
   ['TIMING_3M','Request 3m timing evidence only if it materially helps entry timing; it is never a mandatory vote.'],
   ['ORDER_FLOW_CVD','Request current order-flow/CVD evidence with source and freshness labels.'],
@@ -98,7 +98,7 @@ function sovereignAttentionRecord(candidate,unified){
       noHard15mStrategicVeto:true,
       formingCandleIsContextOnly:true,
       numericTruth:'BINANCE_BRAINHUB',
-      visualWorker:'EVIDENCE_ONLY'
+      visualWorker:'AUDIT_ON_DEMAND_EVIDENCE_ONLY'
     }
   };
 }
@@ -120,7 +120,8 @@ function compactSovereignEvidence(evidence,maxChars=28000){
       authority:visual.authority||'EVIDENCE_ONLY',
       requestedFrames:Array.isArray(visual.requestedFrames)?visual.requestedFrames.slice(0,8):[],
       attached:finiteNumber(visual.attached),required:finiteNumber(visual.required),
-      source:visual.source||null,error:visual.error||null,
+      source:visual.source||null,mode:visual.mode||null,modelUsed:visual.modelUsed===true,
+      deterministicFrames:finiteNumber(visual.deterministicFrames),error:visual.error||null,
       text:String(visual.text||'').slice(0,6000),
       frames:visual.frames||null,
       failures:Array.isArray(visual.failures)?visual.failures.slice(0,6):[]
@@ -810,7 +811,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-1 is the sole strategic evidence director. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON and must be used as read-only reasoning context; JEV never needs to request HISTORY_OUTCOME merely to remember its own measured past. Radar only raises attention. Decide which evidence workers should fetch. Visual chart evidence (TRADINGVIEW_5M / TRADINGVIEW_15M) is drawn locally on GPU at zero cost from the same closed candles as the numeric packet; requesting it is optional and is never penalised, and choosing not to request it is equally valid. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies. If a material concept is not understood from the supplied Cortex/evidence, do not invent it; prefer WAIT until verified knowledge is available.',
+        description:'JEV PASS-1 is the sole strategic evidence director. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON and must be used as read-only reasoning context; JEV never needs to request HISTORY_OUTCOME merely to remember its own measured past. Radar only raises attention. Decide which evidence workers should fetch. Chart evidence (TRADINGVIEW_5M / TRADINGVIEW_15M) is fulfilled in the mainline by deterministic closed-candle chartNarrative from the same numeric packet, without GPU/VLM. Image/Vision is audit-on-demand only, optional, and never overrides numeric truth. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies. If a material concept is not understood from the supplied Cortex/evidence, do not invent it; prefer WAIT until verified knowledge is available.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,

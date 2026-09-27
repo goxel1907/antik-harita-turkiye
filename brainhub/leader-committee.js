@@ -49,56 +49,42 @@ function compactCandidate(c) {
 
 function selectDeepCandidates(scan, limit = 16) {
   const leaders=Array.isArray(scan?.leaders)?scan.leaders:[];
-  const top3=leaders
-    .filter(x=>x&&num(x.attackRank)>=1&&num(x.attackRank)<=3)
-    .sort((a,b)=>num(a.attackRank)-num(b.attackRank));
-  const top4to10=leaders
-    .filter(x=>x&&num(x.attackRank)>=4&&num(x.attackRank)<=10)
-    .sort((a,b)=>num(a.attackRank)-num(b.attackRank));
-
-  const categoryPools=[
-    // Keep the established CURRENT_ATTACK_TOP10 reason contract for lifecycle/UI
-    // compatibility; pool order still gives ranks 1-3 strict priority over 4-10.
-    { reason:'CURRENT_ATTACK_TOP10', rows:top3 },
-    { reason:'CURRENT_ATTACK_TOP10', rows:top4to10 },
-    { reason:'BINANCE_TOP24_GAINER', rows:Array.isArray(scan?.gainerCandidates)?scan.gainerCandidates:[] },
-    { reason:'LIGHTWEIGHT_ACCELERATION', rows:Array.isArray(scan?.acceleratingCandidates)?scan.acceleratingCandidates:[] },
-    { reason:'ACCUMULATION_BREAKOUT_PROXY', rows:Array.isArray(scan?.accumulationCandidates)?scan.accumulationCandidates:[] },
-    { reason:'APP_EARLY_ATTENTION', rows:Array.isArray(scan?.attentionCandidates)?scan.attentionCandidates:[] }
-  ];
-
-  const approachPools=[
-    ...(Array.isArray(scan?.top3Approach)?scan.top3Approach:[]),
-    ...(Array.isArray(scan?.top10Approach)?scan.top10Approach:[]),
-    ...(Array.isArray(scan?.earlyTop5)?scan.earlyTop5:[]),
-    ...(Array.isArray(scan?.earlyExpansion)?scan.earlyExpansion:[])
-  ].sort((a,b)=>
+  const top3=leaders.filter(x=>x&&num(x.attackRank)>=1&&num(x.attackRank)<=3).sort((a,b)=>num(a.attackRank)-num(b.attackRank));
+  const top4to10=leaders.filter(x=>x&&num(x.attackRank)>=4&&num(x.attackRank)<=10).sort((a,b)=>num(a.attackRank)-num(b.attackRank));
+  const sortApproach=rows=>(Array.isArray(rows)?rows:[]).filter(Boolean).sort((a,b)=>
     (STATE_PRIORITY[b.leaderState]||0)-(STATE_PRIORITY[a.leaderState]||0) ||
     num(a.projectedRank)-num(b.projectedRank) ||
     num(b.rankVelocity)-num(a.rankVelocity) ||
+    num(b.rankAcceleration)-num(a.rankAcceleration) ||
     num(b.leaderHunterScore)-num(a.leaderHunterScore));
-
-  const seen=new Set();
-  const out=[];
-  const addPool=(rows,reason)=>{
+  const top3Approach=sortApproach(scan?.top3Approach);
+  const otherApproach=sortApproach([
+    ...(Array.isArray(scan?.top10Approach)?scan.top10Approach:[]),
+    ...(Array.isArray(scan?.earlyTop5)?scan.earlyTop5:[]),
+    ...(Array.isArray(scan?.earlyExpansion)?scan.earlyExpansion:[])
+  ]);
+  // R2543_CPU_PRIORITY: top3 -> top3 yaklaşan -> current 4-10 -> diğer erken ilgi
+  // -> acceleration/accumulation/attention -> Binance top24 kalan kapasiteyi doldurur.
+  const pools=[
+    ['CURRENT_ATTACK_TOP10',top3,false],
+    ['TOP3_APPROACH',top3Approach,true],
+    ['CURRENT_ATTACK_TOP10',top4to10,false],
+    ['APPROACHING',otherApproach,true],
+    ['LIGHTWEIGHT_ACCELERATION',Array.isArray(scan?.acceleratingCandidates)?scan.acceleratingCandidates:[],false],
+    ['ACCUMULATION_BREAKOUT_PROXY',Array.isArray(scan?.accumulationCandidates)?scan.accumulationCandidates:[],false],
+    ['APP_EARLY_ATTENTION',Array.isArray(scan?.attentionCandidates)?scan.attentionCandidates:[],false],
+    ['BINANCE_TOP24_GAINER',Array.isArray(scan?.gainerCandidates)?scan.gainerCandidates:[],false]
+  ];
+  const seen=new Set(),out=[];
+  for(const [reason,rows,leaderReason] of pools){
     for(const c of rows){
       if(out.length>=limit)break;
-      if(!c?.symbol||seen.has(c.symbol))continue;
-      seen.add(c.symbol);
-      out.push({...c,deepScanReason:reason});
+      const symbol=String(c?.symbol||'').trim().toUpperCase();
+      if(!symbol||seen.has(symbol))continue;
+      seen.add(symbol);
+      out.push({...c,symbol,deepScanReason:leaderReason?(c.leaderState||reason):reason});
     }
-  };
-  for(const p of categoryPools){
-    addPool(p.rows,p.reason);
     if(out.length>=limit)break;
-  }
-  if(out.length<limit){
-    for(const c of approachPools){
-      if(out.length>=limit)break;
-      if(!c?.symbol||seen.has(c.symbol))continue;
-      seen.add(c.symbol);
-      out.push({...c,deepScanReason:c.leaderState||'APPROACHING'});
-    }
   }
   return out.slice(0,Math.max(1,limit));
 }

@@ -391,7 +391,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // CLAUDE_V111: saniyelik yeniden doğrulamalar Vision süresi ortalamasını bozmasın.
     const durations = analyses.filter(x => x.claudeRevalidated !== true && !x.claudeFastLane).map(x => Number(x.durationMs)).filter(Number.isFinite);
     const reasonCounts = new Map();
-    for (const x of [...analyses,...ticks]) {
+    for (const x of [...analyses,...ticks,...finalAuthorityEvents]) {
       const perEvent=new Set([
         ...(Array.isArray(x.reasons)?x.reasons:[]),
         x.reason
@@ -2468,7 +2468,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         enabled:Boolean(market&&typeof pipeline?.buildUnifiedContext==='function'),
         busy:planWorkerBusy,
         cadenceSec:30,
-        parallelWithVision:true,
+        parallelWithVision:false,
+        visionMode:'AUDIT_ON_DEMAND',
         routineRouter:'9ROUTER_FREE_TEXT',
         secondOpinion:freeWorker&&typeof freeWorker.status==='function'?freeWorker.status():{configured:false,model:'openrouter/free',freeOnly:true},
         lastReview:planWorkerState.lastReview,
@@ -3878,7 +3879,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(freshEntryPrice===null||freshEntryPrice<=0){
       const rs=['LIVE_ENTRY_PRICE_REFRESH_FAILED'];
       annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs);
-      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
+      leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:rs});
+      leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs});
+      return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
     }
     // CLAUDE_V109_TRIGGER_CHASE_GATE + CLAUDE_V109_ENTRY_REFERENCE_FRESH:
     // ChatGPT v109 transport sapmasını tetik seviyesine göre %0,5 ile ölçüyordu; kırılım mumu çoğu
@@ -3905,7 +3908,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!maintenance.ok){
       const rs=[maintenance.reason||'BINANCE_MAINT_MARGIN_UNAVAILABLE'];
       annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{maintenanceMargin:maintenance});
-      return {ok:true,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_WAIT',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,maintenanceMargin:maintenance};
+      leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:rs});
+      leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs});
+      return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,maintenanceMargin:maintenance};
     }
     const freshUnified={...advisory.unifiedContext,livePrice:freshEntryPrice};
     const entryReferencePrice=freshEntryPrice;
@@ -3934,15 +3939,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if (!intent.ok) {
       leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:intent.reasons||[]});
       const rs=intent.reasons || ['LEADER_INTENT_NOT_READY'];
+      leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0]||null,reasons:rs});
       annotateLeaderDiagnostic(candidate.symbol, 'INTENT_NOT_READY', rs, {
         costModel:intent.costModel || null,
         commission:commissionMeta
       });
       return {
-        ok:true,
+        ok:false,
         orderPlaced:false,
         liveAllowed:false,
-        execution:'LEADER_AUTO_WAIT',
+        retryable:false,
+        execution:'LEADER_AUTO_BLOCKED',
         symbol:candidate.symbol,
         plan:advisory.plan,
         intent,

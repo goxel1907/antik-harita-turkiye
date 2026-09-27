@@ -295,7 +295,9 @@ function derive(snap) {
   const wr = Number(h.workerReviews || 0);
   const wref = Number(h.workerRefreshes || 0);
   const vu = Number(h.visionUnavailable || 0);
-  const hardSafetyReady = Number(h.claudeV111?.finalAuthorityHardSafetyReady ?? h.intentReady ?? 0);
+  const approved = Number(h.claudeV111?.finalAuthorityApproved ?? h.qualified ?? 0);
+  const intentBuilt = Number(h.claudeV111?.finalAuthorityIntentBuilt ?? h.intentBuilt ?? 0);
+  const hardSafetyReady = Number(h.claudeV111?.finalAuthorityHardSafetyReady ?? h.safetyReady ?? h.intentReady ?? 0);
   const sovereign = st.jevSovereign?.enabled === true || snap.health?.data?.jevSovereign?.enabled === true;
   const pass1 = Number(h.sovereignPass1Calls || 0);
   const finalCalls = Number(h.sovereignFinalCalls || 0);
@@ -338,7 +340,8 @@ function derive(snap) {
     const pr = h.claudeV112?.positionRest || null;
     if (pr?.active) add('ok', 'POSITION_REST', `Pozisyonlar dolu (${pr.openPositions}/${pr.maxOpenPositions}) — ajanlar dinleniyor`, `Yeni giriş analizi (Vision, hızlı hat/Jev, plan worker) ${pr.since ? new Date(pr.since).toLocaleTimeString('tr-TR') + "'den beri " : ''}durdu; Binance'e yeni emir gitmez. Açık pozisyonlar runner ve pozisyon yöneticisiyle yönetiliyor; yer açılınca kendiliğinden devam eder.`);
     // CLAUDE_V112: LIVE kapalıyken Jev onayı hard safety'ye hiç gitmez; bu uyarı yalnız LIVE açıkken anlamlı.
-    if (st.armed === true && !pr?.active && Number(h.qualified || 0) > 0 && hardSafetyReady === 0) add('warning', 'NO_INTENT', 'JEV onayı var, zorunlu güvenlik geçişi yok', 'JEV son stratejik karardır. Sonrasında yalnız teknik/zorunlu güvenlik: LIVE, bakiye/pozisyon limitleri, geçerli stop-likidasyon geometrisi, Binance filtreleri, taze fiyat, kill-switch, lease/lineage ve tek kullanımlık yürütme yetkisi engel olabilir.');
+    if (st.armed === true && !pr?.active && approved > 0 && intentBuilt === 0) add('warning', 'NO_INTENT', 'JEV onayı var, emir niyeti oluşmadı', 'JEV final kararından sonra intent üretimi hard-block nedenleriyle kesiliyor olabilir. leaderAuto.activeBlocker ve JEV_FINAL_AUTHORITY HARD_BLOCK nedenleri gösterilmelidir.');
+    if (intentBuilt > 0 && hardSafetyReady === 0) add('warning', 'NO_SAFETY', 'Emir niyeti var, zorunlu güvenlik geçmedi', 'Stop/likidasyon geometrisi, bakiye/pozisyon limitleri, Binance filtreleri, taze fiyat, kill-switch, lease/lineage veya execution claim engeli olabilir.');
     if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Zorunlu güvenlik geçti, emir yok', 'Yürütme katmanı (LIVE yürütme yetkisi, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
     if (sovereign && !budgetBlocked && deep >= 1 && pass1 === 0) add('serious','JEV_PASS1_MISSING','Radar/analiz JEV PASS-1’e ulaşmıyor',`${deep} değerlendirme var ama PASS-1 çağrısı yok. Scanner yalnız ATTENTION_ONLY olmalı ve stratejik kapı JEV’den önce çalışmamalı.`);
     if (sovereign && !budgetBlocked && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • kanıt isteği ${evidenceRequests} • PASS-2/son karar 0. Kanıt ajanı veya JEV son karar çağrısı kontrol edilmeli.`);
@@ -348,7 +351,7 @@ function derive(snap) {
     if (!sovereign && Number(h.laneScalpPlans || 0) > 0) add(Number(h.laneScalpReady||0)>0?'ok':'info','SCALP_LANE',`Scalp momentum hattı ${Number(h.laneScalpReady||0)>0?'hazır aday taşıyor':'izliyor'}`,`${h.laneScalpPlans||0} scalp planı • hazır ${h.laneScalpReady||0}. Tek 1m/3m/5m final karar vermez; en az iki alt TF + 15m karşı-veto kontrolü gerekir.`);
     if (!sovereign && Number(h.laneMain15Plans || 0) > 0) add('info','MAIN_15M_LANE','15m ana işlem hattı aktif',`${h.laneMain15Plans||0} plan • 15m hazır ${h.laneMain15Ready||0}. 30m+ yapı/likidite/formasyon bağlamıdır.`);
     if (finite(h.avgAnalysisMs) !== null && h.avgAnalysisMs > 240000) add('warning', 'SLOW', 'Derin analiz yavaş', `Ortalama ${(h.avgAnalysisMs / 1000).toFixed(0)} sn; 1m/3m/5m kurulumları için geç.`);
-    if (Number(h.skippedBusy || 0) > 60) add('info', 'BUSY', 'Turların çoğu atlanıyor', `${h.skippedBusy} tur yoğunluk nedeniyle atlandı (tek GPU, tek analiz).`);
+    if (Number(h.skippedBusy || 0) > 60) add('info', 'BUSY', 'Turların çoğu atlanıyor', `${h.skippedBusy} tur analiz/pipeline yoğunluğu nedeniyle atlandı. GPU ana karar hattında zorunlu değildir; skippedPipelineBusy/skippedExecutorBusy ayrı izlenmelidir.`);
   }
   const funnel = sovereign ? [
     { key: 'universe', label: 'Binance evreni', value: finite(h.latestLightweightUniverseCount) ?? finite(h.latestUniverseCount) },
@@ -360,7 +363,9 @@ function derive(snap) {
     { key: 'final', label: 'JEV PASS-2 • SON KARAR', value: finalCalls },
     { key: 'action', label: 'ALIŞ + SATIŞ son karar', value: Number(h.sovereignLong||0)+Number(h.sovereignShort||0) },
     { key: 'wait', label: 'JEV BEKLE', value: Number(h.sovereignWait||0) },
-    { key: 'intent', label: 'Zorunlu güvenlik geçti', value: hardSafetyReady },
+    { key: 'approved', label: 'JEV MARKET_NOW onayı', value: approved },
+    { key: 'intent', label: 'Emir niyeti oluştu', value: intentBuilt },
+    { key: 'safety', label: 'Zorunlu güvenlik geçti', value: hardSafetyReady },
     { key: 'orders', label: 'Açılan emir', value: finite(h.ordersPlaced) ?? 0 }
   ] : [
     { key: 'universe', label: 'Binance evreni', value: finite(h.latestLightweightUniverseCount) ?? finite(h.latestUniverseCount) },
@@ -380,14 +385,14 @@ function derive(snap) {
   if (sovereign && pf) {
     const counts = { deep: pf.analyses, pass1: pf.pass1, final: pf.pass2,
       action: Number(pf.long || 0) + Number(pf.short || 0), wait: pf.wait,
-      intent: pf.safetyPassed, orders: pf.orders };
+      approved:pf.approved, intent:pf.intentBuilt, safety:pf.safetyPassed, orders: pf.orders };
     for (const item of funnel) if (counts[item.key] != null) item.value = counts[item.key];
   }
   // One durable source for decision displays; raw scanner health stays intact.
   const decisionHealth = sovereign && pf ? {
     sovereignPass1Calls:Number(pf.pass1||0),sovereignFinalCalls:Number(pf.pass2||0),
     sovereignLong:Number(pf.long||0),sovereignShort:Number(pf.short||0),sovereignWait:Number(pf.wait||0),
-    ordersPlaced:Number(pf.orders||0),intentReady:Number(pf.safetyPassed||0),
+    ordersPlaced:Number(pf.orders||0),qualified:Number(pf.approved||0),intentBuilt:Number(pf.intentBuilt||0),safetyReady:Number(pf.safetyPassed||0),intentReady:Number(pf.safetyPassed||0),
     decisionAnalyses:Number(pf.analyses||0),decisionUniqueCoins:Number(pf.uniqueCoverage||0)
   } : {};
   const vp = snap.visionProgress?.data || st.visionProgress || {};

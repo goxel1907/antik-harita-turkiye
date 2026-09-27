@@ -277,7 +277,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 
   <section class="row4">
     <div class="card">
-      <h2>Görsel Analist (GPU) <span class="hint" id="visHint"></span></h2>
+      <h2>Grafik Kanıtı / GPU Audit (opsiyonel) <span class="hint" id="visHint"></span></h2>
       <div class="tfs" id="tfs"></div>
       <div class="stages" id="stages"></div>
       <dl class="kv" id="visKv" style="margin-top:10px"></dl>
@@ -439,7 +439,7 @@ const DESKS = [
   { id:'scanner',  x:140, y:112, name:'Tarayıcı',            role:'Binance evreni → hedef 24' },
   { id:'workers',  x:140, y:342, name:'Plan Kanıt Ajanları',   role:'9Router ücretsiz metin' },
   { id:'orfree',   x:140, y:572, name:'OpenRouter Free',      role:'ikinci görüş' },
-  { id:'vision',   x:550, y:98,  name:'Görsel Analist',       role:'Qwen3-VL • GPU' },
+  { id:'vision',   x:550, y:98,  name:'Görsel Analist',       role:'Deterministik ana hat • GPU audit' },
   { id:'positions',x:550, y:598, name:'Pozisyon Yöneticisi',  role:'açık pozisyon • JEV yönetimi' },
   { id:'jev',      x:960, y:112, name:'JEV Patron',            role:'PASS-1 kanıt yöneticisi • PASS-2 SON KARAR' },
   { id:'risk',     x:960, y:342, name:'Zorunlu Güvenlik',    role:'stop • likidasyon • bakiye • limit • yürütme yetkisi' },
@@ -641,7 +641,7 @@ function renderKpis(s){
     kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
     kpi('JEV değerlendirme (60 dk)', `${h.decisionAnalyses??h.deepAnalyses??0} / ${h.decisionUniqueCoins??h.uniqueAnalyzedSymbols??0} coin`, `PASS-1 ${h.sovereignPass1Calls??0} • PASS-2 çağrı ${h.sovereignFinalCalls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0}`),
     kpi('JEV son karar', `${(h.sovereignLong??0)+(h.sovereignShort??0)} işlem / ${h.sovereignWait??0} BEKLE`, `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • zorunlu güvenlik sonrası emir ${h.ordersPlaced??0}`, ((h.sovereignLong||0)+(h.sovereignShort||0))>0?'good':'info'),
-    kpi('Açılan emir', `${h.ordersPlaced??0}`, `zorunlu güvenlik ${h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null),
+    kpi('Açılan emir', `${h.ordersPlaced??0}`, `onay ${h.claudeV111?.finalAuthorityApproved??h.qualified??0} • niyet ${h.claudeV111?.finalAuthorityIntentBuilt??h.intentBuilt??0} • güvenlik ${h.claudeV111?.finalAuthorityHardSafetyReady??h.safetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null),
     kpi('Günlük zarar freni', maxDailyLossPct!=null?`%${maxDailyLossPct}`:'—', maxDailyLossPct!=null?'eşik dolunca yeni emir zorunlu güvenlikte engellenir':'live-policy sınırı okunamadı', maxDailyLossPct!=null?'good':'warn'),
     kpi('Stop sonrası yeniden giriş', stopCooldown!=null?`${stopCooldown} dk`:'aktif', 'aynı coin hızlı hatta hemen yeniden açılmaz; intikam işlemi engellenir', 'good')
   ].join('');
@@ -650,7 +650,7 @@ function renderKpis(s){
   // CLAUDE_R2543_UX: surum adinda VISION yaziyor diye gorsel analizin calistigi sanilmasin.
   const vStage=String(s.visionProgress?.data?.stage||'IDLE').toUpperCase();
   const vOllama=s.ollama?.ok===true;
-  chip('#chipVision', !vOllama?'bad':(vStage==='ERROR'?'bad':(vStage==='IDLE'?'warn':'good')), 'GÖRSEL '+(vOllama?trUi(vStage):'OLLAMA YOK'));
+  chip('#chipVision', vStage==='ERROR'?'warn':'good', 'GRAFİK DETERMINİSTİK • GPU '+(vOllama?'AUDIT HAZIR':'AUDIT KAPALI'));
   const cap=la.capacity||{};
   const block=la.activeBlocker;
   chip('#chipAuto', block?'bad':la.enabled?'good':'bad', (la.enabled?'OTO AKTİF':'OTO KAPALI')+(block?' • OTO YÜRÜTME ENGELLENDİ: '+block.reasons.map(trUi).join(', '):'')+` • açık ${cap.known?cap.open:'?'} / bekleyen ${cap.pending??'?'} / sınır ${cap.max??'?'}`);
@@ -948,7 +948,7 @@ function renderOffice(s, vinfo){
   setDesk('positions', st.positionManager?.busy?'busy':'', st.positionManager?.lastReview?.actionTr || 'açık pozisyon yok');
   const lastPlan=(s.plans||[])[0];
   $('#brainTxt').textContent = lastPlan ? `${lastPlan.symbol} ${lastPlan.side||''} → ${STATUS_TR[lastPlan.status]||lastPlan.status}` : 'plan bekleniyor';
-  const pass1=+(h.sovereignPass1Calls??h.preJevQualified??0), qual=+h.qualified||0, intent=+(h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0)||0, orders=+h.ordersPlaced||0;
+  const pass1=+(h.sovereignPass1Calls??h.preJevQualified??0), approved=+(h.claudeV111?.finalAuthorityApproved??h.qualified??0)||0, intentBuilt=+(h.claudeV111?.finalAuthorityIntentBuilt??h.intentBuilt??0)||0, safety=+(h.claudeV111?.finalAuthorityHardSafetyReady??h.safetyReady??h.intentReady??0)||0, orders=+h.ordersPlaced||0;
   const sl=h.latestShortlistCount??la.diagnostics?.shortlistCount; const cv=h.claudeV109||{};
   $('#brainIn').textContent = `📥 ${sl??'?'} aday • ${h.deepAnalyses??0} analiz • 15m hazır ${h.laneMain15Ready??0} • scalp hazır ${h.laneScalpReady??0} • ${wr} kanıt ajanı${cv.dtWouldQualify?` • kod-tetik ${cv.dtWouldQualify}`:''}`;
   // Akış kenarları
@@ -960,13 +960,13 @@ function renderOffice(s, vinfo){
   setEdge('workers','brain', workerActive?'active':'');
   setEdge('orfree','workers', orf.last?.called?'active':'');
   setEdge('brain','jev', pass1>0?'active':'blocked');
-  setEdge('jev','risk', qual>0?'active':'blocked');
-  setEdge('risk','exec', intent>0?'active':'blocked');
+  setEdge('jev','risk', approved>0?'active':'blocked');
+  setEdge('risk','exec', intentBuilt>0?'active':'blocked');
   setEdge('exec','positions', orders>0?'active':'blocked');
   setEdge('positions','brain', st.positionManager?.lastReview?.symbol?'active':'');
   setGate('gQual', pass1>0, `JEV PASS-1 ${pass1} • kanıt ${h.sovereignEvidenceRequests??0}`);
-  setGate('gJev', qual>0, `JEV son karar onayı ${qual} • ${h.jevVetoed??0} veto`);
-  setGate('gIntent', intent>0, `Güvenlik geçti ${intent}`);
+  setGate('gJev', approved>0, `JEV MARKET_NOW onayı ${approved}`);
+  setGate('gIntent', intentBuilt>0, `Niyet ${intentBuilt} • güvenlik ${safety}`);
   setGate('gLive', st.armed===true && orders>0, st.armed?`Emir ${orders}`:'LIVE KAPALI');
   // Yürüyen trader'lar: aktif rotada veri taşır; tıkalı rotada kapıda bekler.
   const lwr=la.planWorkers?.lastReview;
@@ -981,8 +981,8 @@ function renderOffice(s, vinfo){
     'vision-brain':[visBusy, tfNow?`${tfNow} okundu`:(vinfo.phase==='CORE'?'çekirdek karar':'TF notları')],
     'positions-brain':[!!st.positionManager?.lastReview?.symbol, 'pozisyon JEV'],
     'brain-jev':[pass1>0, `PASS-1 ${pass1}`],
-    'jev-risk':[qual>0, `onay ${qual}`],
-    'risk-exec':[intent>0, `niyet ${intent}`],
+    'jev-risk':[approved>0, `onay ${approved}`],
+    'risk-exec':[intentBuilt>0, `niyet ${intentBuilt} • güvenlik ${safety}`],
     'exec-positions':[orders>0, `emir ${orders}`]
   };
   const WAIT={
@@ -1088,7 +1088,7 @@ function mirrorCandidates(s){
     if(!/^[A-Z0-9]{1,28}USDT$/.test(z)||seen.has(z))return;
     seen.add(z);out.push(z);
   };
-  // Önce şu an GPU/Vision hattında okunan coin, sonra son JEV kararı.
+  // Önce şu an grafik/kanıt hattında okunan coin, sonra son JEV kararı.
   add(s?.visionProgress?.data?.symbol);
   add(s?.status?.data?.leaderAuto?.currentSymbol);
   add(s?.lastJev?.symbol);

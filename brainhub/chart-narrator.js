@@ -13,7 +13,7 @@
 //  * Çıktı saf fonksiyondur: saat, rastgelelik, ağ, model yoktur. Aynı girdi -> aynı çıktı.
 //  * Yorum katmanıdır, otorite değildir. Sayısal paket yine tek gerçektir; JEV nihai karar sahibidir.
 
-const FRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d'];
+const FRAMES = ['1m', '3m', '5m', '15m', '30m', '45m', '1h', '4h', '1d'];
 
 function finite(v) {
   if (v === null || v === undefined || v === '') return null;
