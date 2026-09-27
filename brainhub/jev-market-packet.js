@@ -133,6 +133,8 @@ function mirrorDigest(packet){
       '3m':mirrorFrameDigest(p?.timingFrames?.['3m'])
     },
     higherContext:Object.fromEntries(['30m','1h','4h','1d'].map(tf=>[tf,mirrorFrameDigest(p?.higherContext?.[tf])])),
+    // CLAUDE_R2543: JEV'e giden grafik okumasi aynaya da girer; aksi halde ne gonderildigi denetlenemez.
+    chartNarrative:p.chartNarrative||null,
     microstructure:p.microstructure||null,derivatives:p.derivatives||null,
     observedLiquidations:p.observedLiquidations||null,dataQuality:p.dataQuality||null
   };

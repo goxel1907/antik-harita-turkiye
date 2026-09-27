@@ -5,6 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { narrateChart, narrateFrame, FRAMES } = require('../chart-narrator');
 const { prepareDecisionRequest, MAX_DECISION_REQUEST_BYTES } = require('../jev-decision');
+const { marketPacket, mirrorDigest } = require('../jev-market-packet');
 
 function frame(over) {
   return Object.assign({
@@ -138,4 +139,16 @@ test('over budget the raw pivot arrays are dropped before market truth, and the 
   assert.equal(out.body.state.record.livePrice, 0.01705);
   assert.equal(out.body.state.record.coreFrames['15m'].close, 0.01705);
   assert.ok(out.body.state.record.chartNarrative.frames['15m'].line.length > 50);
+});
+
+test('the packet and its audit mirror both carry the reading', () => {
+  const p = marketPacket(unified());
+  assert.equal(p.chartNarrative.contract, 'R2543_CHART_NARRATOR_DETERMINISTIC_V1');
+  assert.ok(p.chartNarrative.frames['15m'].line.length > 50);
+  // jevSeen bir whitelist aynasidir: okuma aynada da olmali, yoksa ne gonderildigi denetlenemez.
+  const mirror = mirrorDigest(p);
+  assert.equal(mirror.chartNarrative.contract, 'R2543_CHART_NARRATOR_DETERMINISTIC_V1');
+  assert.equal(mirror.chartNarrative.frames['5m'].line, p.chartNarrative.frames['5m'].line);
+  assert.equal(mirror.chartNarrative.alignment.line, p.chartNarrative.alignment.line);
+  assert.equal(mirrorDigest({}).chartNarrative, null);
 });
