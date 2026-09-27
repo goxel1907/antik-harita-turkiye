@@ -369,6 +369,13 @@ function derive(snap) {
       intent: pf.safetyPassed, orders: pf.orders };
     for (const item of funnel) if (counts[item.key] != null) item.value = counts[item.key];
   }
+  // One durable source for decision displays; raw scanner health stays intact.
+  const decisionHealth = sovereign && pf ? {
+    sovereignPass1Calls:Number(pf.pass1||0),sovereignFinalCalls:Number(pf.pass2||0),
+    sovereignLong:Number(pf.long||0),sovereignShort:Number(pf.short||0),sovereignWait:Number(pf.wait||0),
+    ordersPlaced:Number(pf.orders||0),intentReady:Number(pf.safetyPassed||0),
+    decisionAnalyses:Number(pf.analyses||0),decisionUniqueCoins:Number(pf.uniqueCoverage||0)
+  } : {};
   const vp = snap.visionProgress?.data || st.visionProgress || {};
   const stage = String(vp.stage || 'IDLE');
   const desks = {
@@ -379,7 +386,7 @@ function derive(snap) {
     exec: { busy: la.busy === true, text: String(la.lastExecution || '—') },
     positions: { busy: st.positionManager?.busy === true, text: String(st.positionManager?.lastReview?.actionTr || '—') }
   };
-  return { blockers, funnel, desks, stage, budget: budget || null, budgetBlocked,
+  return { blockers, funnel, desks, stage, decisionHealth, budget: budget || null, budgetBlocked,
     scanner: { scanRuns: h.scanRuns ?? null, tickResults: h.tickResults ?? null,
       deepAnalyses: h.deepAnalyses ?? null, uniqueAnalyzedSymbols: h.uniqueAnalyzedSymbols ?? null,
       latestLightweightUniverseCount: h.latestLightweightUniverseCount ?? null,

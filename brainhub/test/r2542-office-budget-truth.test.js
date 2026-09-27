@@ -17,6 +17,9 @@ test('Office preserves runtime scanner health while reconciling durable decision
   assert.equal(d.scanner.deepAnalyses,180); assert.equal(d.scanner.uniqueAnalyzedSymbols,49);
   assert.equal(d.funnel.find(x=>x.key==='pass1').value,4);
   assert.equal(d.funnel.find(x=>x.key==='orders').value,0);
+  assert.equal(d.decisionHealth.sovereignPass1Calls,4);
+  assert.equal(d.decisionHealth.sovereignFinalCalls,1);
+  assert.equal(d.decisionHealth.decisionAnalyses,12);
 });
 for(const pass1 of [0,3])test(`Office budget refusal suppresses misleading pipeline diagnosis (PASS-1 ${pass1})`,()=>{
   const d=derive(snapshot(pass1));

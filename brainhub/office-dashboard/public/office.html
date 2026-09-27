@@ -611,7 +611,7 @@ function kpi(l,v,s,tone){ return `<div class="kpi"><div class="l">${esc(l)}</div
 function chip(id, tone, text){ const c=$(id); c.className='chip '+(tone||''); c.querySelector('span:last-child').textContent=text; }
 
 function renderKpis(s){
-  const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h=la.health||{}; const acc=s.account?.data||{};
+  const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h={...(la.health||{}),...(s.derived?.decisionHealth||{})}; const acc=s.account?.data||{};
   const armed = st.armed===true; const exp = st.expiresAt ? Math.max(0,Math.round((Date.parse(st.expiresAt)-Date.now())/60000)) : null;
   const eq = num(acc.equity ?? acc.account?.equity ?? acc.totalWalletBalance);
   const avail = num(acc.availableBalance ?? acc.account?.availableBalance);
@@ -627,7 +627,7 @@ function renderKpis(s){
     kpi('Tarayıcı (60 dk)', `${h.scanRuns??0} tarama / ${h.tickResults??0} tur`, `${h.deepAnalyses??0} analiz • ${h.uniqueAnalyzedSymbols??0} coin • evren ${h.latestLightweightUniverseCount??'—'} / kısa liste ${h.latestShortlistCount??'—'}`),
     kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`en fazla ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'ALIŞ (LONG)':'',la.allowShort?'SATIŞ (SHORT)':''].filter(Boolean).join(' ')}`:'Otomatik lider etkin değil', la.enabled?null:'critical'),
     kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
-    kpi('JEV değerlendirme (60 dk)', `${h.deepAnalyses??0} / ${h.uniqueAnalyzedSymbols??0} coin`, `PASS-1 ${h.sovereignPass1Calls??0} • son karar ${h.sovereignFinalCalls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0}`),
+    kpi('JEV değerlendirme (60 dk)', `${h.decisionAnalyses??h.deepAnalyses??0} / ${h.decisionUniqueCoins??h.uniqueAnalyzedSymbols??0} coin`, `PASS-1 ${h.sovereignPass1Calls??0} • PASS-2 çağrı ${h.sovereignFinalCalls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0}`),
     kpi('JEV son karar', `${(h.sovereignLong??0)+(h.sovereignShort??0)} işlem / ${h.sovereignWait??0} BEKLE`, `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • zorunlu güvenlik sonrası emir ${h.ordersPlaced??0}`, ((h.sovereignLong||0)+(h.sovereignShort||0))>0?'good':'info'),
     kpi('Açılan emir', `${h.ordersPlaced??0}`, `zorunlu güvenlik ${h.claudeV111?.finalAuthorityHardSafetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null),
     kpi('Günlük zarar freni', maxDailyLossPct!=null?`%${maxDailyLossPct}`:'—', maxDailyLossPct!=null?'eşik dolunca yeni emir zorunlu güvenlikte engellenir':'live-policy sınırı okunamadı', maxDailyLossPct!=null?'good':'warn'),
@@ -643,7 +643,7 @@ function renderKpis(s){
 }
 
 function renderLanes(s){
-  const st=s.status?.data||{}; const h=st.leaderAuto?.health||{};
+  const st=s.status?.data||{}; const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})};
   const stages=Array.isArray(h.momentumStages)?h.momentumStages:[];
   const topStage=stages[0]?.stage||'—';
   const mainReady=+h.laneMain15Ready||0, mainPlans=+h.laneMain15Plans||0;
@@ -708,7 +708,7 @@ function renderVision(s){
 
 function renderJev(s){
   const st=s.status?.data||{}; const j=st.jev||{}; const b=s.derived?.budget||j.budget||{}; const lj=s.lastJev;
-  const h=st.leaderAuto?.health||{}; const sovereign=st.jevSovereign?.enabled===true || s.health?.data?.jevSovereign?.enabled===true;
+  const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})}; const sovereign=st.jevSovereign?.enabled===true || s.health?.data?.jevSovereign?.enabled===true;
   if(sovereign){
     const le=st.learning||{};
     const sel=h.sovereignSelectivityDiagnostic||{};
@@ -745,7 +745,7 @@ function renderJev(s){
 }
 
 function renderWorkers(s){
-  const st=s.status?.data||{}; const h=st.leaderAuto?.health||{}; const pw=st.leaderAuto?.planWorkers||{}; const orf=st.openRouterFreeWorker||pw.secondOpinion||{};
+  const st=s.status?.data||{}; const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})}; const pw=st.leaderAuto?.planWorkers||{}; const orf=st.openRouterFreeWorker||pw.secondOpinion||{};
   const w=+h.workerWaits||0, t=+h.workerTriggers||0, r=+h.workerRefreshes||0; const tot=Math.max(1,w+t+r);
   const segs=[['Bekle',w,'var(--series-3)'],['Tetik',t,'var(--series-1)'],['9TF yenile',r,'var(--series-2)']];
   $('#wBar').innerHTML = segs.filter(x=>x[1]>0).map(([l,v,c])=>`<i title="${l}: ${v}" style="width:${v/tot*100}%;background:${c}"></i>`).join('');
@@ -918,7 +918,7 @@ function renderSources(s){
 
 function shortSym(x){ return String(x||'').replace(/USDT$/,''); }
 function renderOffice(s, vinfo){
-  const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h=la.health||{}; const d=s.derived?.desks||{};
+  const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h={...(la.health||{}),...(s.derived?.decisionHealth||{})}; const d=s.derived?.desks||{};
   const visBusy = !['IDLE','DONE','ERROR'].includes(vinfo.phase);
   setDesk('scanner', (h.scanRuns||0)>0?'busy':'', d.scanner?.text);
   setDesk('vision', vinfo.phase==='ERROR'?'blocked':(visBusy?'busy':''), (trUi(s.visionProgress?.data?.stage || 'IDLE')));
@@ -994,7 +994,7 @@ function renderOffice(s, vinfo){
 }
 
 function renderV109(s){
-  const st=s.status?.data||{}; const h=st.leaderAuto?.health||{}; const cv=h.claudeV109;
+  const st=s.status?.data||{}; const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})}; const cv=h.claudeV109;
   const fv=String(s.health?.data?.featureVersion||st.featureVersion||'');
   const isV109=/9\.5\.1(09|1[0-9])/.test(fv);
   const isV111=/9\.5\.11[1-9]-CLAUDE/.test(fv);

@@ -10,8 +10,8 @@ const DEFAULTS={
   creditsUrl:'https://openrouter.ai/api/v1/credits',
   billingCacheMs:300000,
   mode:'SOVEREIGN_DIRECTOR_5M15M',
-  softBudgetUsd:0.25,
-  dailyCapUsd:5.00,
+  softBudgetUsd:0,
+  dailyCapUsd:100,
   timeoutMs:30000,
   maxPayloadChars:48000,
   reservePerCallUsd:0.002
@@ -442,6 +442,51 @@ function usageCost(data,reserve,body){
   return Math.min(reserve,conservativeTokens*0.042/1_000_000*1.5);
 }
 
+// R2542_WHOLE_REQUEST_GUARD: bound the serialized envelope, not one record.
+// The estimate is diagnostic only, NOT the provider tokenizer.
+// Never trim core market truth, executable plans, requested evidence or questions.
+// A measured 55,057-byte request used 32,735 provider tokens. Leave headroom.
+const MAX_DECISION_REQUEST_BYTES=52000;
+function prepareDecisionRequest(input){
+  const body=JSON.parse(JSON.stringify(input));
+  const beforeBytes=Buffer.byteLength(JSON.stringify(body),'utf8');
+  const state=body.state||{};
+  let serialized=JSON.stringify(body);
+  for(const limit of [6000,4000,2500,1600,900]){
+    if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
+    const cortex=state.professionalTraderCortex;
+    if(cortex&&typeof cortex.reference==='string'){
+      cortex.reference=cortex.reference.slice(0,limit);
+      cortex.referenceTrimmed=true;
+    }
+    const knowledge=state.dynamicKnowledge;
+    if(knowledge&&Array.isArray(knowledge.entries)){
+      knowledge.entries=knowledge.entries.slice(0,Math.max(1,Math.floor(limit/1400))).map(x=>({
+        ...x,summary:String(x.summary||'').slice(0,Math.floor(limit/4)),
+        keyPoints:(Array.isArray(x.keyPoints)?x.keyPoints:[]).slice(0,2).map(v=>String(v).slice(0,240)),
+        sourceUrls:(Array.isArray(x.sourceUrls)?x.sourceUrls:[]).slice(0,1)
+      }));
+      delete knowledge.text; // duplicate serialization of entries
+      knowledge.referenceTrimmed=true;
+    }
+    const memory=state.experienceMemory;
+    if(memory&&typeof memory==='object'){
+      for(const key of ['stats','measuredOutcomes','jevLessons'])
+        if(Array.isArray(memory[key]))memory[key]=memory[key].slice(0,Math.max(1,Math.floor(limit/1800)));
+      memory.memoryTrimmed=true;
+    }
+    serialized=JSON.stringify(body);
+  }
+  const bytes=Buffer.byteLength(serialized,'utf8');
+  const measure=v=>Buffer.byteLength(JSON.stringify(v??null),'utf8');
+  const diagnostics={pass:body.questions?.trade_plan?2:body.questions?.lane_focus?1:'OTHER',
+    chars:serialized.length,bytes,beforeBytes,maxBytes:MAX_DECISION_REQUEST_BYTES,
+    estimatedTokens:Math.ceil(bytes*0.6)+1024,estimateOnly:true,
+    stateBytes:measure(body.state),questionsBytes:measure(body.questions),
+    sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,measure(v)]))};
+  return {ok:bytes<=MAX_DECISION_REQUEST_BYTES,body,serialized,diagnostics};
+}
+
 function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.fetch,clock=()=>Date.now()}={}){
   if(!root)throw new Error('root required');
   if(typeof fetchImpl!=='function')throw new Error('fetch implementation required');
@@ -562,6 +607,15 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   async function decisions(body,{reserve=true}={}){
     if(!configured)return {ok:false,configured:false,required:false,reason:'OPENROUTER_NOT_CONFIGURED'};
+    const prepared=prepareDecisionRequest(body);
+    const requestSize=prepared.diagnostics;
+    // Metadata only: no market payload, account details, keys or response text.
+    try{fs.mkdirSync(path.join(root,'logs'),{recursive:true});
+      fs.appendFileSync(path.join(root,'logs','jev-request-size.log'),JSON.stringify({at:new Date(clock()).toISOString(),...requestSize,blocked:!prepared.ok})+'\n','utf8');
+    }catch{}
+    if(!prepared.ok)return {ok:false,configured:true,required:true,called:false,attempted:false,
+      reason:'JEV_REQUEST_CONTEXT_TOO_LARGE',requestSize,budget:budgetStatus()};
+    body=prepared.body;
     const reservation=reserve?reserveBudget():{ok:true,reservedUsd:0};
     if(!reservation.ok)return {ok:false,configured:true,required:true,called:false,attempted:false,reason:'JEV_DAILY_BUDGET_EXHAUSTED',budget:budgetStatus()};
     const started=clock();
@@ -572,7 +626,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       let lastError=null;
       for(attempts=1;attempts<=2;attempts++){
         try{
-          r=await fetchJson(fetchImpl,cfg.decisionsUrl,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)},cfg.timeoutMs);
+          r=await fetchJson(fetchImpl,cfg.decisionsUrl,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:prepared.serialized},cfg.timeoutMs);
           if(r.ok||!transientHttp.has(Number(r.status))||attempts>=2)break;
         }catch(e){
           lastError=e;
@@ -587,9 +641,15 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
       if(!r.ok){
         if(reserve)settleBudget(reservation,cfg.reservePerCallUsd);
-        return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,attempts,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus()};
+        try{fs.appendFileSync(path.join(root,'logs','jev-http-error.log'),JSON.stringify({
+          at:new Date(clock()).toISOString(),reason:'JEV_HTTP_ERROR',httpStatus:r.status,requestSize,
+          contextExceeded:JSON.stringify(r.data).includes('max_tokens_exceeded')})+'\n','utf8');}catch{}
+        return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,requestSize,attempts,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus()};
       }
       const cost=reserve?usageCost(r.data,cfg.reservePerCallUsd,body):0;
+      try{fs.appendFileSync(path.join(root,'logs','jev-request-result.log'),JSON.stringify({
+        at:new Date(clock()).toISOString(),pass:requestSize.pass,bytes:requestSize.bytes,
+        httpStatus:r.status,inputTokens:r.data?.usage?.input_tokens??r.data?.usage?.prompt_tokens??null})+'\n','utf8');}catch{}
       if(reserve)settleBudget(reservation,cost);
       return {ok:true,configured:true,required:true,data:r.data,attempts,durationMs:clock()-started,costUsd:cost,budget:budgetStatus()};
     }catch(e){
@@ -658,7 +718,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       questions
     };
     const out=await decisions(body,{reserve:true});
-    if(!out.ok){const budgetBlocked=out.reason==='JEV_DAILY_BUDGET_EXHAUSTED';return {...out,called:!budgetBlocked,attempted:!budgetBlocked,pass:1,mode:'SOVEREIGN_CHOICE'};}
+    if(!out.ok){const notCalled=out.called===false;return {...out,called:!notCalled,attempted:!notCalled,pass:1,mode:'SOVEREIGN_CHOICE'};}
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const laneFocus=choiceValue(answers.lane_focus);
     const directionFocus=choiceValue(answers.direction_focus);
@@ -824,7 +884,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
     };
     const out=await decisions(body,{reserve:true});
-    if(!out.ok){const budgetBlocked=out.reason==='JEV_DAILY_BUDGET_EXHAUSTED';return {...out,called:!budgetBlocked,attempted:!budgetBlocked,pass:2,mode:'SOVEREIGN_CHOICE'};}
+    if(!out.ok){const notCalled=out.called===false;return {...out,called:!notCalled,attempted:!notCalled,pass:2,mode:'SOVEREIGN_CHOICE'};}
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const selectedId=choiceValue(answers.trade_plan);
     const setupFamily=choiceValue(answers.setup_family);
@@ -944,7 +1004,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
     };
     const out=await decisions(body,{reserve:true});
-    if(!out.ok)return {...out,called:true,teacher:'JEV',mode:'SOVEREIGN_SHADOW_TEACHER'};
+    if(!out.ok)return {...out,called:out.called!==false,teacher:'JEV',mode:'SOVEREIGN_SHADOW_TEACHER'};
     const a=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const lessonFocus=choiceValue(a.lesson_focus);
     const evidenceFocus=choiceValue(a.evidence_focus);
@@ -983,7 +1043,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
     };
     const out=await decisions(body,{reserve:true});
-    if(!out.ok)return {...out,called:true,verdict:'REJECT'};
+    if(!out.ok)return {...out,called:out.called!==false,verdict:'REJECT'};
     const verdict=choiceValue(out.data?.answers?.research_verdict);
     if(!['ACCEPT_REFERENCE','REJECT','RESEARCH_MORE'].includes(verdict))return {ok:false,called:true,verdict:'REJECT',reason:'JEV_KNOWLEDGE_REVIEW_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
     return {ok:true,called:true,verdict,model:cfg.model,mode:'SOVEREIGN_KNOWLEDGE_REVIEW',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
@@ -1050,7 +1110,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
     };
     const out=await decisions(body,{reserve:true});
-    if(!out.ok)return {...out,called:true,finalAuthority:false,action:'HOLD_REVIEW',mode:'SOVEREIGN_CHOICE'};
+    if(!out.ok)return {...out,called:out.called!==false,finalAuthority:false,action:'HOLD_REVIEW',mode:'SOVEREIGN_CHOICE'};
     const action=choiceValue(out.data?.answers?.position_action);
     const partialChoice=choiceValue(out.data?.answers?.partial_fraction)||'P33';
     const partialFraction={P25:0.25,P33:1/3,P50:0.5}[partialChoice]||1/3;
@@ -1085,7 +1145,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(record.length>cfg.maxPayloadChars)return {ok:false,configured:true,required:true,called:false,action:'HOLD_REVIEW',reason:'JEV_EXIT_EVIDENCE_PAYLOAD_TOO_LARGE',budget:budgetStatus()};
     const body={model:cfg.model,state:{description:'BrainHub açık futures pozisyonu için yalnız risk/çıkış değerlendirmesi. Emir verme. Düşük TF gürültüsünü owner ve büyük resimden daha ağır sayma.',record},questions:exitDecisionQuestions()};
     const out=await decisions(body,{reserve:true});
-    if(!out.ok)return {...out,called:true,action:'HOLD_REVIEW',mode:cfg.mode};
+    if(!out.ok)return {...out,called:out.called!==false,action:'HOLD_REVIEW',mode:cfg.mode};
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const p=Object.fromEntries(EXIT_CHECKS.map(([id,key])=>[key,noulProbability(answers[id])]));
     const missing=Object.entries(p).filter(([,v])=>v===null).map(([k])=>k);
@@ -1132,7 +1192,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       questions:decisionQuestions()
     };
     const out=await decisions(body,{reserve:true});
-    if(!out.ok)return {...out,called:true,veto:true,mode:cfg.mode};
+    if(!out.ok)return {...out,called:out.called!==false,veto:true,mode:cfg.mode};
     const answers=out.data?.answers&&typeof out.data.answers==='object'?out.data.answers:{};
     const probabilities=Object.fromEntries(CHECKS.map(([id,key])=>[key,noulProbability(answers[id])]));
     const timeframeConflicts=Object.fromEntries(FRAMES.map(tf=>[tf,noulProbability(answers['conflict_'+tf])]));
@@ -1155,4 +1215,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
 }
-module.exports={CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,dynamicKnowledgeReference,createJevClient};
+module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,dynamicKnowledgeReference,createJevClient};
