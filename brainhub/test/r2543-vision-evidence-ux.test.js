@@ -64,3 +64,10 @@ test('office panel: other-close label and vision badge are explicit', () => {
   // Kullanıcı manuel kapanış karşılığı hâlâ mevcut ve yeniden sınıflandırma yapılmadı.
   assert.match(OFFICE, /USER_MANUAL:'Kullanıcı manuel kapattı'/);
 });
+
+test('office panel shows the deterministic chart reading that JEV receives', () => {
+  assert.match(OFFICE, /id="mirrorNarrative"/);
+  assert.match(OFFICE, /const narr=p\?\.chartNarrative\|\|null;/);
+  assert.match(OFFICE, /GRAFİK OKUMA BEYNİ — JEV'e her turda giden metin/);
+  assert.match(OFFICE, /motor henüz R2543 chart-narrator sürümünü yüklemedi/);
+});

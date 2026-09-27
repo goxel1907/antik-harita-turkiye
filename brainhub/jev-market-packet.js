@@ -1,5 +1,7 @@
 'use strict';
 
+const {narrateChart}=require('./chart-narrator');
+
 function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function arr(v){return Array.isArray(v)?v:[];}
 function clipArr(v,n){return arr(v).slice(-Math.max(0,n));}
@@ -44,6 +46,8 @@ function marketPacket(u){
   return {
     contract:'R2537_JEV_CONTEXT_COMPLETE_READ_ONLY',
     symbol:u?.symbol||null,livePrice:finite(u?.livePrice),
+    // CLAUDE_R2543: grafigin ne anlattigi HER TURDA, deterministik olarak pakete girer.
+    chartNarrative:narrateChart(u),
     coreFrames:{
       '5m':framePacket(u?.frames?.['5m'],{full:true}),
       '15m':framePacket(u?.frames?.['15m'],{full:true})

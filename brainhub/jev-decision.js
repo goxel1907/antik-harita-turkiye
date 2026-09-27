@@ -509,10 +509,25 @@ function prepareDecisionRequest(input){
       ()=>{ if(body?.state?.experienceMemory&&recordObj.experienceMemory)delete recordObj.experienceMemory; },
       // 2) formasyon geometrisi (pivot/line dizileri) — formasyonun kendisi (tip/durum/neckline) kalır.
       ()=>stripGeometry(recordObj),
-      // 3) uzun serbest metinler (görsel gözlem, uzun gerekçe) kısalır; sayısal gerçek dokunulmaz.
+      // 3) ham pivot/trend-çizgisi dizileri — yapı özeti (state/HH-LL/event/son teyitli swing) KALIR.
+      //    Bu diziler paketin en ağır tekrarıdır; chartNarrative aynı yapıyı tek cümleyle zaten taşır.
+      ()=>{
+        const stripPivots=node=>{
+          if(Array.isArray(node)){for(const x of node)stripPivots(x);return;}
+          if(!node||typeof node!=='object')return;
+          const sw=node.swingStructure;
+          if(sw&&typeof sw==='object'&&(sw.confirmedPivots||sw.trendLines)){
+            const {confirmedPivots,trendLines,...rest}=sw;
+            node.swingStructure={...rest,pivotsTrimmed:true};
+          }
+          for(const v of Object.values(node))stripPivots(v);
+        };
+        stripPivots(recordObj);
+      },
+      // 4) uzun serbest metinler (görsel gözlem, uzun gerekçe) kısalır; sayısal gerçek dokunulmaz.
       ()=>clipText(recordObj.requestedEvidence,800),
       ()=>clipText(recordObj.entryThesis,600),
-      // 4) en son: TF başına yalnız son 2 formasyon.
+      // 5) en son: TF başına yalnız son 2 formasyon.
       ()=>{
         const frames=[recordObj.frames,recordObj.timingFrames,recordObj.higherContext,recordObj.coreFrames].filter(x=>x&&typeof x==='object');
         for(const group of frames)for(const f of Object.values(group))
