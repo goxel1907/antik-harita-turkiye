@@ -26,8 +26,8 @@ test('priority target universe caps per-symbol detail work at 24 and preserves b
   const attention={
     available:true,updatedAt:Date.now(),ageMs:1000,
     rows:[
-      {symbol:row(70).symbol,talkScore:90,earlyMoveScore:95,sourceConfidence:80,preMoveState:'ERKEN',direction:'YUKARI_İLGİ'},
-      {symbol:row(71).symbol,talkScore:88,earlyMoveScore:92,sourceConfidence:75,preMoveState:'ERKEN',direction:'YUKARI_İLGİ'}
+      {symbol:row(70).symbol,talkScore:90,earlyMoveScore:95,sourceConfidence:80,preMoveState:'ERKEN',direction:'YUKARI_Ä°LGÄ°'},
+      {symbol:row(71).symbol,talkScore:88,earlyMoveScore:92,sourceConfidence:75,preMoveState:'ERKEN',direction:'YUKARI_Ä°LGÄ°'}
     ]
   };
 
@@ -43,7 +43,7 @@ test('priority target universe caps per-symbol detail work at 24 and preserves b
   assert.ok(out.candidates.some(x=>x.targetSources.includes('APP_EARLY_ATTENTION')));
 });
 
-test('deep 9TF priority is top3, ranks4-10, gainers, acceleration, accumulation, then app attention',()=>{
+test('deep 9TF priority is top3, ranks4-10, early acceleration/accumulation/attention, then top24 fill',()=>{
   const base=(symbol,rank)=>({
     symbol,side:'LONG',attackRank:rank,projectedRank:rank,leaderState:'WATCH',
     tradeQuality:80,spreadBps:1,directionSupport:2,longExpansionScore:60,shortExpansionScore:10,
@@ -70,10 +70,10 @@ test('deep 9TF priority is top3, ranks4-10, gainers, acceleration, accumulation,
       ['TOP2USDT','CURRENT_ATTACK_TOP10'],
       ['TOP4USDT','CURRENT_ATTACK_TOP10'],
       ['TOP7USDT','CURRENT_ATTACK_TOP10'],
-      ['GAINUSDT','BINANCE_TOP24_GAINER'],
       ['FASTUSDT','LIGHTWEIGHT_ACCELERATION'],
       ['ACCUSDT','ACCUMULATION_BREAKOUT_PROXY'],
-      ['ATTNUSDT','APP_EARLY_ATTENTION']
+      ['ATTNUSDT','APP_EARLY_ATTENTION'],
+      ['GAINUSDT','BINANCE_TOP24_GAINER']
     ]
   );
 });
