@@ -10,26 +10,25 @@ const { SOVEREIGN_EVIDENCE } = require('../jev-decision');
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'jev-decision.js'), 'utf8');
 const OFFICE = fs.readFileSync(path.join(__dirname, '..', 'office-dashboard', 'public', 'office.html'), 'utf8');
 
-test('chart evidence stays optional but is described truthfully to PASS-1', () => {
+test('chart evidence stays optional and mainline is deterministic without GPU/VLM', () => {
   const ids = SOVEREIGN_EVIDENCE.map(([id]) => id);
-  // Yeni bir kanıt türü eklenmedi, hiçbiri kaldırılmadı: JEV'in seçenek kümesi aynı.
   assert.deepEqual(ids, [
     'TRADINGVIEW_5M', 'TRADINGVIEW_15M', 'TIMING_1M', 'TIMING_3M', 'ORDER_FLOW_CVD',
     'DEPTH_L2', 'DERIVATIVES', 'OBSERVED_LIQUIDATIONS', 'HIGHER_TF_CONTEXT', 'HISTORY_OUTCOME'
   ]);
   for (const id of ['TRADINGVIEW_5M', 'TRADINGVIEW_15M']) {
     const [, desc] = SOVEREIGN_EVIDENCE.find(([x]) => x === id);
-    assert.match(desc, /zero cost/i, id + ' bedelsiz olduğunu söylemeli');
-    assert.match(desc, /locally on GPU/i, id + ' yerel GPU olduğunu söylemeli');
-    assert.match(desc, /same closed candles as the numeric packet/i, id + ' aynı kapanmış mumlardan çizildiğini söylemeli');
-    assert.match(desc, /never an override of numeric truth/i, id + ' sayısal gerçeği ezmediğini söylemeli');
+    assert.match(desc, /deterministic/i, id + ' deterministik ana hattı söylemeli');
+    assert.match(desc, /same closed-candle numeric truth/i, id + ' aynı kapanmış mum sayısal gerçeğine dayanmalı');
+    assert.match(desc, /does not require GPU/i, id + ' ana hatta GPU/VLM gerektirmemeli');
+    assert.match(desc, /can never override numeric truth/i, id + ' görsel audit sayısal gerçeği ezmemeli');
   }
 });
 
-test('PASS-1 brief tells JEV chart evidence is free and never penalised', () => {
-  assert.match(SRC, /Visual chart evidence \(TRADINGVIEW_5M \/ TRADINGVIEW_15M\) is drawn locally on GPU at zero cost/);
-  assert.match(SRC, /requesting it is optional and is never penalised/);
-  // Zorunluluk/kapı eklenmedi.
+test('PASS-1 brief tells JEV chart evidence is deterministic mainline and Vision is audit-on-demand', () => {
+  assert.match(SRC, /fulfilled in the mainline by deterministic closed-candle chartNarrative/);
+  assert.match(SRC, /without GPU/);
+  assert.match(SRC, /audit-on-demand only/);
   assert.doesNotMatch(SRC, /must request TRADINGVIEW/i);
   assert.doesNotMatch(SRC, /always request the chart/i);
 });
@@ -49,9 +48,9 @@ test('office panel: closed-trade list shows the day, not only the clock', () => 
   assert.match(OFFICE, /<th>Kapanış \(gg\.aa • ss:dd\)<\/th>/);
 });
 
-test('office panel: gate label fits and Ollama readiness is not a false alarm', () => {
-  assert.match(OFFICE, /setGate\('gIntent', intent>0, `Güvenlik geçti \$\{intent\}`\);/);
-  assert.doesNotMatch(OFFICE, /`Zorunlu güvenlik geçti \$\{intent\}`/);
+test('office panel: approve -> intent -> safety is explicit and Ollama readiness is not a false alarm', () => {
+  assert.ok(OFFICE.includes("setGate('gJev', approved>0, `JEV MARKET_NOW onayı ${approved}`);"));
+  assert.ok(OFFICE.includes("setGate('gIntent', intentBuilt>0, `Niyet ${intentBuilt} • güvenlik ${safety}`);"));
   assert.match(OFFICE, /hazır • model bellekte değil \(ilk istekte yüklenir\)/);
   assert.doesNotMatch(OFFICE, /s\.ollama\?\.ok\?'model yüklü değil'/);
 });
@@ -60,7 +59,7 @@ test('office panel: other-close label and vision badge are explicit', () => {
   assert.match(OFFICE, /OTHER_CLOSE:'Diğer kapanış — neden doğrulanmadı \(manuel\/borsa olabilir\)'/);
   assert.match(OFFICE, /id="chipVision"/);
   assert.match(OFFICE, /chip\('#chipVision'/);
-  assert.match(OFFICE, /'GÖRSEL '\+\(vOllama\?trUi\(vStage\):'OLLAMA YOK'\)/);
+  assert.ok(OFFICE.includes("'GRAFİK DETERMINİSTİK • GPU '+(vOllama?'AUDIT HAZIR':'AUDIT KAPALI')"));
   // Kullanıcı manuel kapanış karşılığı hâlâ mevcut ve yeniden sınıflandırma yapılmadı.
   assert.match(OFFICE, /USER_MANUAL:'Kullanıcı manuel kapattı'/);
 });
