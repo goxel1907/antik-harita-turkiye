@@ -31,8 +31,9 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
       const ageMs=finite(Object.hasOwn(streaming,'cvdAgeMs')?streaming.cvdAgeMs:streaming?.ageMs);
       const stale=ageMs!==null&&ageMs>45000;
       const hasSample=Number.isFinite(trades)&&trades>0;
-      const available=cvd!==null&&hasSample&&!stale&&(streaming?.available!==false);
-      const reason=available?null:(cvd===null?'NO_CVD_VALUE':(!hasSample?'NO_TRADE_SAMPLE':(stale?'STALE_STREAM':'STREAM_NOT_AVAILABLE')));
+      // The market trade channel can be fresh while the separate public book channel warms up.
+      const available=cvd!==null&&hasSample&&ageMs!==null&&!stale;
+      const reason=available?null:(cvd===null?'NO_CVD_VALUE':(!hasSample?'NO_TRADE_SAMPLE':(stale?'STALE_STREAM':'UNKNOWN_TRADE_AGE')));
       return {
         available,
         reason,

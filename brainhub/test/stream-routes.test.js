@@ -60,3 +60,12 @@ test('fresh book updates cannot label old CVD fresh; missing CVD remains null',(
   assert.equal(buildMarketMakerEvidence({streaming:{cvdQuote120s:null,cvdTrades120s:0}}).orderFlow.cvdQuote120s,null);
   stream.shutdown();
 });
+test('CVD freshness is independent from a warming book channel and needs a known trade age',()=>{
+  const streaming={available:false,cvdQuote120s:-766.77,cvdTrades120s:117,cvdAgeMs:500};
+  const flow=buildMarketMakerEvidence({streaming}).orderFlow;
+  assert.equal(flow.available,true);assert.equal(flow.reason,null);
+  assert.equal(flow.cvdQuote120s,-766.77);
+  const unknown=buildMarketMakerEvidence({streaming:{...streaming,cvdAgeMs:null}}).orderFlow;
+  assert.equal(unknown.available,false);assert.equal(unknown.reason,'UNKNOWN_TRADE_AGE');
+  assert.equal(unknown.cvdQuote120s,-766.77);
+});
