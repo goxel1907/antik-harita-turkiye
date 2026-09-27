@@ -32,7 +32,11 @@ required=[
     ("R2539 identity","v9.5.114-JEV-PC-ONLY-R2539" in main),
     ("PC-only client","ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in client),
     ("direct runner inert","historical PHONE Binance executor permanently inert" in auto),
-    ("15s truth","FRESH_MS = 15000L" in truth),
+    # CLAUDE_R2543_FIX: 26 Eyl'de V95113PcTruth.java R2542 icin 45 sn / 3 hata degerine guncellendi;
+    # bu on sart 15 sn'de kalinca zincir v95122'de patliyordu. Invariant 45 sn oldugu icin BEKLENTI duzeltildi,
+    # kaynak 15 sn'ye GERI ALINMADI.
+    ("45s truth","FRESH_MS = 45000L" in truth),
+    ("3 fail truth","MIN_FAILURES_BEFORE_UNHEALTHY = 3" in truth),
 ]
 bad=[name for name,ok in required if not ok]
 if bad:
@@ -100,7 +104,8 @@ checks={
     "client blocked":"ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in CLIENT.read_text(encoding="utf-8"),
     "no live execute post":'post(c, "/live/execute", intent, true)' not in CLIENT.read_text(encoding="utf-8"),
     "direct runner inert":"historical PHONE Binance executor permanently inert" in AUTO.read_text(encoding="utf-8"),
-    "truth 15s":"FRESH_MS = 15000L" in TRUTH.read_text(encoding="utf-8"),
+    "truth 45s":"FRESH_MS = 45000L" in TRUTH.read_text(encoding="utf-8"),
+    "truth 3 fail":"MIN_FAILURES_BEFORE_UNHEALTHY = 3" in TRUTH.read_text(encoding="utf-8"),
     "version":"versionName '9.5.115-r2541'" in BUILD.read_text(encoding="utf-8") and "versionCode 26092502" in BUILD.read_text(encoding="utf-8"),
     "ui timing Turkish":"GERİ ÇEKİLME BEKLENİYOR" in CARD.read_text(encoding="utf-8") and "ŞİMDİ PİYASA GİRİŞİ" in CARD.read_text(encoding="utf-8") and "KIRILIM + GERİ TEST" in CARD.read_text(encoding="utf-8"),
     "ui direction Turkish":"OTO KARAR MERKEZİ • ALIŞ (LONG) / SATIŞ (SHORT)" in CARD.read_text(encoding="utf-8"),
