@@ -22,7 +22,8 @@ function frame(over) {
     smcContext: {
       available: true, swingEvent: null, swingState: 'MIXED',
       dealingRange: { low: 0.01613, high: 0.01712, equilibrium: 0.016625, positionPct: 75.76, zone: 'PREMIUM', insideRange: true },
-      oteReference: { longDiscountZone: { low: 0.016338, high: 0.016506 }, shortPremiumZone: { low: 0.016744, high: 0.016912 } }
+      oteReference: { longDiscountZone: { low: 0.016338, high: 0.016506 }, shortPremiumZone: { low: 0.016744, high: 0.016912 } },
+      fibLevels: { leg: 'DOWN_LEG_HIGH_TO_LOW', retracement: { '0.236': 0.016364, '0.382': 0.016508, '0.5': 0.016625, '0.618': 0.016742, '0.705': 0.016828, '0.786': 0.016908 }, extension: { '1.272': 0.015861, '1.618': 0.015518 }, pricePositionPct: 75.76 }
     }
   }, over || {});
 }
@@ -103,7 +104,7 @@ test('timeframe alignment is counted, never asserted as a rule', () => {
 
 test('the reading stays small enough to travel inside the 52 kB request', () => {
   const bytes = Buffer.byteLength(JSON.stringify(narrateChart(unified())), 'utf8');
-  assert.ok(bytes < 6000, 'chartNarrative ' + bytes + ' bayt, 6000 sınırının altında olmalı');
+  assert.ok(bytes < 9000, 'chartNarrative ' + bytes + ' bayt, 9000 sınırının altında olmalı');
 });
 
 test('over budget the raw pivot arrays are dropped before market truth, and the structure summary survives', () => {
@@ -151,4 +152,37 @@ test('the packet and its audit mirror both carry the reading', () => {
   assert.equal(mirror.chartNarrative.frames['5m'].line, p.chartNarrative.frames['5m'].line);
   assert.equal(mirror.chartNarrative.alignment.line, p.chartNarrative.alignment.line);
   assert.equal(mirrorDigest({}).chartNarrative, null);
+  // EMA'lar pakette her zaman vardi; ayna da artik gosteriyor.
+  assert.equal(p.coreFrames['15m'].ema20, 0.01698);
+  assert.equal(p.coreFrames['15m'].ema50, 0.01712);
+  assert.equal(mirror.coreFrames['15m'].ema20, 0.01698);
+  assert.equal(mirror.higherContext['1h'].ema50, 0.01712);
+});
+
+test('every timeframe reports formations, EMA stack, FVG, OB, OTE and fib — not only the two lanes', () => {
+  const n = narrateChart(unified());
+  for (const tf of ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']) {
+    const line = n.frames[tf].line;
+    assert.match(line, /nearest FVG BEAR FVG/, tf + ' FVG taşımalı');
+    assert.match(line, /nearest OB BEAR OB/, tf + ' OB taşımalı');
+    assert.match(line, /PRICE_(INSIDE|OUTSIDE)_(LONG_DISCOUNT_OTE|SHORT_PREMIUM_OTE|BOTH_OTE_ZONES)/, tf + ' OTE konumu taşımalı');
+    assert.match(line, /fib DOWN_LEG_HIGH_TO_LOW/, tf + ' fib bacağını taşımalı');
+    assert.match(line, /nearest level 0\.\d+ at/, tf + ' en yakın fib seviyesini taşımalı');
+    assert.match(line, /PRICE_(INSIDE|OUTSIDE)_0\.618-0\.786_BAND/, tf + ' altın bölge konumunu taşımalı');
+    assert.match(line, /PRICE_(ABOVE|BELOW|AT)_EMA20/, tf + ' EMA dizilimini taşımalı');
+    assert.match(line, /THREE_WHITE_SOLDIERS\(LONG\/CONFIRMED\)/, tf + ' formasyonları taşımalı');
+  }
+  // Tam okunan hatlar ayrica fib uzatma ve geri cekilme yuzdesini de verir.
+  assert.match(n.frames['15m'].line, /retracement position 75\.8%/);
+  assert.match(n.frames['15m'].line, /extensions 1\.272 0\.01586 \/ 1\.618 0\.01552/);
+  assert.doesNotMatch(n.frames['1h'].line, /extensions 1\.272/);
+});
+
+test('fib clauses disappear when the engine has no fib levels, instead of being invented', () => {
+  const f = frame();
+  delete f.smcContext.fibLevels;
+  const line = narrateFrame('15m', f, 0.01705).line;
+  assert.doesNotMatch(line, /fib /);
+  assert.doesNotMatch(line, /0\.618-0\.786/);
+  assert.match(line, /nearest FVG/);
 });

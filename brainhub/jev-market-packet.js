@@ -112,6 +112,8 @@ function mirrorFrameDigest(f){
   if(!f||f.available===false)return f||{available:false};
   return {
     available:true,fresh:f.fresh===true,asOf:f.asOf||null,close:f.close??null,
+    // CLAUDE_R2543: EMA'lar pakette hep vardi ama aynada gorunmuyordu; ne gonderildigi denetlenebilsin.
+    ema20:f.ema20??null,ema50:f.ema50??null,
     trend:f.trend||null,breakOfStructure:f.breakOfStructure||null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,
     prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,candle:f.candle||null,
     patterns:arr(f.patterns).slice(-6),swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,

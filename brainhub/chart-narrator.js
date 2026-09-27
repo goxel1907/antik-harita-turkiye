@@ -121,6 +121,47 @@ function oteText(smc, price) {
   if (sin) return 'PRICE_INSIDE_SHORT_PREMIUM_OTE';
   return 'PRICE_OUTSIDE_BOTH_OTE_ZONES';
 }
+function fibRead(smc, price) {
+  const fl = smc && smc.fibLevels;
+  if (!fl || price === null) return null;
+  const ret = fl.retracement && typeof fl.retracement === 'object' ? fl.retracement : null;
+  const ext = fl.extension && typeof fl.extension === 'object' ? fl.extension : null;
+  let nearest = null;
+  if (ret) {
+    for (const [name, raw] of Object.entries(ret)) {
+      const v = finite(raw);
+      if (v === null) continue;
+      const d = Math.abs(distPct(price, v));
+      if (d === null) continue;
+      if (!nearest || d < nearest.distance) nearest = { name, value: v, distance: d, where: price < v ? 'ABOVE_PRICE' : 'BELOW_PRICE' };
+    }
+  }
+  const g618 = ret ? finite(ret['0.618']) : null;
+  const g786 = ret ? finite(ret['0.786']) : null;
+  let golden = null;
+  if (g618 !== null && g786 !== null) {
+    const lo = Math.min(g618, g786), hi = Math.max(g618, g786);
+    golden = price >= lo && price <= hi ? 'PRICE_INSIDE_0.618-0.786_BAND' : 'PRICE_OUTSIDE_0.618-0.786_BAND';
+  }
+  return {
+    leg: fl.leg || null, nearest, golden,
+    positionPct: finite(fl.pricePositionPct),
+    ext1272: ext ? finite(ext['1.272']) : null,
+    ext1618: ext ? finite(ext['1.618']) : null
+  };
+}
+function fibText(fr, { full }) {
+  if (!fr) return null;
+  const bits = [];
+  if (fr.leg) bits.push(fr.leg);
+  if (fr.nearest) bits.push('nearest level ' + fr.nearest.name + ' at ' + px(fr.nearest.value) + ' ' + fr.nearest.where + ' ' + pct(fr.nearest.distance, 2) + '% away');
+  if (fr.golden) bits.push(fr.golden);
+  if (full) {
+    if (fr.positionPct !== null) bits.push('retracement position ' + pct(fr.positionPct) + '%');
+    if (fr.ext1272 !== null) bits.push('extensions 1.272 ' + px(fr.ext1272) + (fr.ext1618 !== null ? ' / 1.618 ' + px(fr.ext1618) : ''));
+  }
+  return bits.length ? bits.join(', ') : null;
+}
 function patternText(list) {
   if (!Array.isArray(list) || !list.length) return null;
   return list.slice(-3).map(p => {
@@ -161,14 +202,15 @@ function narrateFrame(tf, f, livePrice, opts) {
     ote: oteText(smc, price)
   };
 
-  const fvgSource = Array.isArray(f.recentFairValueGaps) && f.recentFairValueGaps.length
-    ? f.recentFairValueGaps : liq.fairValueGaps;
-  const fvg = nearestZone(fvgSource, price, 'FVG');
-  const obs = [].concat(
+
+  const fvgSourceAll = Array.isArray(f.recentFairValueGaps) && f.recentFairValueGaps.length
+    ? f.recentFairValueGaps : (liq.fairValueGaps || (smc && smc.fairValueGaps));
+  const obsAll = [].concat(
     Array.isArray(f.orderBlocks && f.orderBlocks.bullish) ? f.orderBlocks.bullish : [],
     Array.isArray(f.orderBlocks && f.orderBlocks.bearish) ? f.orderBlocks.bearish : []
   );
-  const ob = nearestZone(obs, price, 'OB');
+  const cFvg = nearestZone(fvgSourceAll, price, 'FVG');
+  const cOb = nearestZone(obsAll, price, 'OB');
 
   if (!full) {
     // Yan zaman dilimleri: tek satir, ayni deterministik sozlukle, fiyat tekrari olmadan.
@@ -180,6 +222,15 @@ function narrateFrame(tf, f, livePrice, opts) {
     if (flags.rsiState) bits.push('RSI ' + pct(finite(f.rsi14)) + ' ' + flags.rsiState);
     if (flags.volState) bits.push('ATR ' + pct(finite(f.atrPct), 2) + '% ' + flags.volState);
     if (c && flags.candleShape) bits.push('last candle ' + (c.direction || '?') + ' ' + flags.candleShape);
+    if (flags.emaStack) bits.push(flags.emaStack);
+    // Bu zaman dilimi ikincil diye FVG/OB/OTE/Fib gizlenmez; yalnizca daha kisa yazilir.
+    if (cFvg) bits.push('nearest FVG ' + zoneText(cFvg));
+    if (cOb) bits.push('nearest OB ' + zoneText(cOb));
+    if (flags.ote) bits.push(flags.ote);
+    const cFib = fibText(fibRead(smc, price), { full: false });
+    if (cFib) bits.push('fib ' + cFib);
+    const cPat = patternText(f.patterns);
+    if (cPat) bits.push('patterns ' + cPat);
     return {
       tf, available: true, detail: 'COMPACT',
       flags: { fresh: flags.fresh, trend: flags.trend, zone: flags.zone, event: flags.event },
@@ -224,9 +275,11 @@ function narrateFrame(tf, f, livePrice, opts) {
       liq.lastSweep ? 'last sweep ' + String(liq.lastSweep) : null
     ].filter(Boolean).join(', ') + '.');
   }
-  const fvgT = zoneText(fvg); if (fvgT) s.push('nearest FVG ' + fvgT + '.');
-  const obT = zoneText(ob); if (obT) s.push('nearest OB ' + obT + '.');
+  const fvgT = zoneText(cFvg); if (fvgT) s.push('nearest FVG ' + fvgT + '.');
+  const obT = zoneText(cOb); if (obT) s.push('nearest OB ' + obT + '.');
   if (flags.ote) s.push(flags.ote + '.');
+  const fFib = fibText(fibRead(smc, price), { full: true });
+  if (fFib) s.push('fib ' + fFib + '.');
   const pt = patternText(f.patterns); if (pt) s.push('closed-candle patterns: ' + pt + '.');
 
   return {
