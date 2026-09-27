@@ -28,7 +28,7 @@ test('R2541 BrainHub preserves read-only full-overlay JEV live mirror with atomi
 
 test('R2538 decision journal preserves exact JEV-seen digest and Vision evidence excerpt',()=>{
   const pipeline=fs.readFileSync(path.join(__dirname,'..','pipeline.js'),'utf8');
-  assert.match(pipeline,/mirrorDigest\(marketPacket\(unified\)\)/);
+  assert.match(pipeline,/(?:mirrorDigest\(marketPacket\(unified\)\)|const packetForAudit=marketPacket\(unified\);[\s\S]*?const jevSeen=mirrorDigest\(packetForAudit\);)/);
   assert.match(pipeline,/jevSeen:jevSeen\|\|null/);
   assert.match(pipeline,/textExcerpt:String\(vision\.text\|\|''\)\.slice\(0,1600\)/);
 });
