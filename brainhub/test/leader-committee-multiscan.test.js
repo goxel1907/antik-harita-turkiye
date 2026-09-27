@@ -137,6 +137,8 @@ test('deep-scan prompt explicitly requires independent LONG and SHORT review for
   });
   const prompt = buildPrompt([longRow, shortRow]);
   assert.match(prompt, /Her sembolde LONG ve SHORT hipotezlerini AYRI değerlendir/);
+  assert.match(prompt, /TOP3_APPROACH/);
+  assert.match(prompt, /BINANCE_TOP24_GAINER kalan derin-tarama kapasitesini dolduran/);
   assert.match(prompt, /LONG_STATUS: WATCH \| QUALIFIED \| REJECT/);
   assert.match(prompt, /SHORT_STATUS: WATCH \| QUALIFIED \| REJECT/);
   assert.match(prompt, /LONGUSDT/);

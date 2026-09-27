@@ -166,7 +166,7 @@ function buildPrompt(candidates) {
   const rows = candidates.map(compactCandidate);
   return [
     'Leader Hunter derin tarama paketi.',
-    'Öncelik sırası: CURRENT_ATTACK_TOP3, CURRENT_ATTACK_4_10, BINANCE_TOP24_GAINER, ACCUMULATION_BREAKOUT_PROXY, APP_EARLY_ATTENTION; sonra diğer erken yaklaşanlar.',
+    'Öncelik sırası: CURRENT_ATTACK_TOP3, TOP3_APPROACH, CURRENT_ATTACK_4_10, diğer APPROACHING/erken ilgi, LIGHTWEIGHT_ACCELERATION, ACCUMULATION_BREAKOUT_PROXY, APP_EARLY_ATTENTION; BINANCE_TOP24_GAINER kalan derin-tarama kapasitesini dolduran keşif havuzudur.',
     'Attack rank uygulamanın iç fırsat sıralamasıdır. BINANCE_TOP24_GAINER ayrı bir keşif kovasıdır ve tek başına işlem sinyali değildir.',
     'Her sembolde LONG ve SHORT hipotezlerini AYRI değerlendir. Scanner preferred side yalnız başlangıç hipotezidir, karar değildir.',
     'LONG_EXPANSION ve SHORT_EXPANSION ayrı sinyallerdir. movementPotential yönsüz hareket potansiyelidir; hiçbiri işlem garantisi değildir.',
