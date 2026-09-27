@@ -1,6 +1,6 @@
 'use strict';
 
-function finite(v){const n=Number(v);return Number.isFinite(n)?n:null;}
+function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function compactFlow(w){
   if(!w||typeof w!=='object')return null;
   return {
@@ -28,7 +28,7 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
       // Kural: metadata dürüst olsun ama gerçek sayısal CVD sırf bayrak yüzünden silinmesin (veri uydurulmaz).
       const cvd=finite(streaming?.cvdQuote120s);
       const trades=Number(streaming?.cvdTrades120s);
-      const ageMs=Number.isFinite(Number(streaming?.ageMs))?Number(streaming.ageMs):null;
+      const ageMs=finite(Object.hasOwn(streaming,'cvdAgeMs')?streaming.cvdAgeMs:streaming?.ageMs);
       const stale=ageMs!==null&&ageMs>45000;
       const hasSample=Number.isFinite(trades)&&trades>0;
       const available=cvd!==null&&hasSample&&!stale&&(streaming?.available!==false);

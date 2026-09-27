@@ -6,7 +6,8 @@ const { FRAMES, NATIVE_FRAMES, analyzeFrames, microstructure, parseKlines, aggre
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
 const GECKO = 'https://api.coingecko.com/api/v3';
-const FUTURES_WS = 'wss://fstream.binance.com/ws';
+const FUTURES_WS = 'wss://fstream.binance.com/public/ws';
+const FUTURES_MARKET_WS = 'wss://fstream.binance.com/market/ws';
 const frameCache = new Map();
 const depthCache = new Map();
 const derivativesCache = new Map();
@@ -299,10 +300,11 @@ class StreamingMarket {
   constructor({ WebSocketImpl = (typeof WebSocket === 'function' ? WebSocket : null), now = () => Date.now() } = {}) {
     this.WebSocketImpl = WebSocketImpl;
     this.now = now;
-    this.ws = null;
-    this.connecting = false;
-    this.reconnectTimer = null;
-    this.reconnectMs = 1000;
+    this.channels = {
+      public:{ endpoint:FUTURES_WS, streams:['bookTicker','depth20@100ms'], ws:null, connecting:false, timer:null, retryMs:1000 },
+      market:{ endpoint:FUTURES_MARKET_WS, streams:['aggTrade','forceOrder'], ws:null, connecting:false, timer:null, retryMs:1000 }
+    };
+    this.stopped = false;
     this.states = new Map();
     this.subscribed = new Set();
     this.subscriptionId = 1;
@@ -321,8 +323,7 @@ class StreamingMarket {
         const victim = [...this.states.values()].filter(x=>!this.protectedSymbols.has(x.symbol))
           .sort((a,b)=>(a.lastRequestedAt||0)-(b.lastRequestedAt||0)||a.symbol.localeCompare(b.symbol))[0];
         if (!victim) return null; // optional stream unavailable; REST evidence still runs
-        const ws=this.ws, s=victim.symbol.toLowerCase();
-        if(ws?.readyState===1)try{ws.send(JSON.stringify({method:'UNSUBSCRIBE',params:[`${s}@aggTrade`,`${s}@bookTicker`,`${s}@depth20@100ms`,`${s}@forceOrder`],id:this.subscriptionId++}));}catch{}
+        this.sendSubscriptions([victim.symbol], 'UNSUBSCRIBE');
         this.states.delete(victim.symbol); this.subscribed.delete(victim.symbol); this.evictions++;
       }
       this.states.set(symbol, {
@@ -338,61 +339,69 @@ class StreamingMarket {
     if(added)this.subscribeSymbols([symbol]);
     return this.states.get(symbol);
   }
+  // Preserve the public-book socket interface used by existing diagnostics.
+  get ws() { return this.channels.public.ws; }
+  set ws(value) { this.channels.public.ws = value; }
   connect() {
-    if (!this.WebSocketImpl || this.ws || this.connecting || !this.subscribed.size) return;
-    this.connecting = true;
+    for (const channel of Object.values(this.channels)) this.connectChannel(channel);
+  }
+  connectChannel(channel) {
+    if (this.stopped || !this.WebSocketImpl || channel.ws || channel.connecting || !this.subscribed.size) return;
+    channel.connecting = true;
     let ws;
-    try { ws = new this.WebSocketImpl(FUTURES_WS); }
-    catch { this.connecting = false; this.scheduleReconnect(); return; }
-    this.ws = ws;
+    try { ws = new this.WebSocketImpl(channel.endpoint); }
+    catch { channel.connecting = false; this.scheduleReconnect(channel); return; }
+    channel.ws = ws;
     const on = (name, fn) => {
       if (typeof ws.addEventListener === 'function') ws.addEventListener(name, fn);
       else ws['on' + name] = fn;
     };
     on('open', () => {
-      this.connecting = false;
-      this.reconnectMs = 1000;
-      this.subscribeSymbols([...this.subscribed], true);
+      if (this.stopped || channel.ws !== ws) return;
+      channel.connecting = false;
+      channel.retryMs = 1000;
+      this.sendSubscriptions([...this.subscribed], 'SUBSCRIBE', channel);
     });
     on('message', async event => {
       try {
+        if (this.stopped || channel.ws !== ws) return;
         let raw = event?.data;
         if (raw && typeof raw.text === 'function') raw = await raw.text();
         else if (raw instanceof ArrayBuffer) raw = Buffer.from(raw).toString('utf8');
         else if (ArrayBuffer.isView(raw)) raw = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString('utf8');
-        const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        this.ingest(msg);
+        if (this.stopped || channel.ws !== ws) return;
+        this.ingest(typeof raw === 'string' ? JSON.parse(raw) : raw);
       } catch { }
     });
     on('error', () => { });
     on('close', () => {
-      if (this.ws === ws) this.ws = null;
-      this.connecting = false;
-      this.scheduleReconnect();
+      if (channel.ws !== ws) return;
+      channel.ws = null;
+      channel.connecting = false;
+      this.scheduleReconnect(channel);
     });
   }
-  scheduleReconnect() {
-    if (!this.WebSocketImpl || !this.subscribed.size || this.reconnectTimer) return;
-    const delay = Math.min(this.reconnectMs, 30000);
-    this.reconnectMs = Math.min(delay * 2, 30000);
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect();
+  scheduleReconnect(channel) {
+    if (this.stopped || !this.WebSocketImpl || !this.subscribed.size || channel.timer) return;
+    const delay = Math.min(channel.retryMs, 30000);
+    channel.retryMs = Math.min(delay * 2, 30000);
+    channel.timer = setTimeout(() => {
+      channel.timer = null;
+      this.connectChannel(channel);
     }, delay);
-    if (typeof this.reconnectTimer.unref === 'function') this.reconnectTimer.unref();
+    channel.timer.unref?.();
   }
-  subscribeSymbols(symbols, force = false) {
-    const ws = this.ws;
-    if (!ws || ws.readyState !== 1 || typeof ws.send !== 'function') return;
-    const params = [];
-    for (const symbol of symbols) {
-      if (!force && !this.subscribed.has(symbol)) continue;
-      const s = symbol.toLowerCase();
-      params.push(`${s}@aggTrade`, `${s}@bookTicker`, `${s}@depth20@100ms`, `${s}@forceOrder`);
+  subscribeSymbols(symbols) {
+    this.sendSubscriptions(symbols.filter(s => this.subscribed.has(s)), 'SUBSCRIBE');
+  }
+  sendSubscriptions(symbols, method, onlyChannel = null) {
+    if (this.stopped) return;
+    for (const channel of onlyChannel ? [onlyChannel] : Object.values(this.channels)) {
+      const ws = channel.ws;
+      if (ws?.readyState !== 1 || typeof ws.send !== 'function') continue;
+      const params = symbols.flatMap(symbol => channel.streams.map(s => `${symbol.toLowerCase()}@${s}`));
+      if (params.length) try { ws.send(JSON.stringify({method, params, id:this.subscriptionId++})); } catch { }
     }
-    if (!params.length) return;
-    try { ws.send(JSON.stringify({ method:'SUBSCRIBE', params, id:this.subscriptionId++ })); }
-    catch { }
   }
   cleanup(state, now = this.now()) {
     state.trades = state.trades.filter(x => now - x.at <= this.tradeWindowMs && now >= x.at);
@@ -488,6 +497,7 @@ class StreamingMarket {
       cvdQuote120s:state.trades.length ? round(cvdQuote, 2) : null,
       cvdTrades120s:state.trades.length,
       cvdAsOf:state.tradeAt || null,
+      cvdAgeMs:state.tradeAt > 0 && now >= state.tradeAt ? now - state.tradeAt : null,
       orderFlow:{windows:{'10s':flow10,'30s':flow30,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
       depthDynamics:dynamics,
       observedLiquidations:{
@@ -525,17 +535,19 @@ class StreamingMarket {
       freshSymbols:fresh,
       warmingOrStaleSymbols:warming,
       endpoint:FUTURES_WS,
+      channels:Object.fromEntries(Object.entries(this.channels).map(([name,c]) => [name,{endpoint:c.endpoint,connected:c.ws?.readyState===1}])),
       publicOnly:true
     };
   }
   shutdown() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
-    const ws = this.ws;
-    this.ws = null;
-    this.connecting = false;
-    if (ws && typeof ws.close === 'function') {
-      try { ws.close(); } catch { }
+    this.stopped = true;
+    for (const channel of Object.values(this.channels)) {
+      if (channel.timer) clearTimeout(channel.timer);
+      channel.timer = null;
+      const ws = channel.ws;
+      channel.ws = null;
+      channel.connecting = false;
+      if (ws && typeof ws.close === 'function') try { ws.close(); } catch { }
     }
   }
 }
