@@ -6,6 +6,23 @@ function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number
 function arr(v){return Array.isArray(v)?v:[];}
 function clipArr(v,n){return arr(v).slice(-Math.max(0,n));}
 
+function formingDigest(x){
+  if(!x||typeof x!=='object')return null;
+  return {elapsedPct:finite(x.elapsedPct),direction:x.direction||null,changePct:finite(x.changePct),changeAtr:finite(x.changeAtr),
+    rangeAtr:finite(x.rangeAtr),vsLastClosePct:finite(x.vsLastClosePct),last:finite(x.last),notClosed:true};
+}
+function rankPatterns(list,n){
+  // CLAUDE_R2544_5_PATTERN_RANK: kırpmada son-N yerine önem sırası; iki yön de varsa karşı kanıt korunur.
+  const STRUCT=new Set(['DISPLACEMENT','SELL_SIDE_SWEEP_RECLAIM','BUY_SIDE_SWEEP_REJECT','RESISTANCE_FLIP_ACCEPTANCE','SUPPORT_FLIP_ACCEPTANCE',
+    'ASCENDING_TRIANGLE','DESCENDING_TRIANGLE','SYMMETRICAL_TRIANGLE','RISING_WEDGE','FALLING_WEDGE','BULL_FLAG_OR_PENNANT','BEAR_FLAG_OR_PENNANT',
+    'DOUBLE_TOP','DOUBLE_BOTTOM','HEAD_AND_SHOULDERS','INVERSE_HEAD_AND_SHOULDERS','RISING_CHANNEL','FALLING_CHANNEL']);
+  const xs=arr(list).map((p,i)=>({p,i,score:(String(p?.status).toUpperCase()==='CONFIRMED'?4:0)+(STRUCT.has(String(p?.type))?2:0)+(['LONG','SHORT'].includes(String(p?.side))?1:0)+i*0.001}));
+  xs.sort((a,b)=>b.score-a.score);
+  const pick=[];
+  for(const side of ['LONG','SHORT']){const top=xs.find(x=>String(x.p?.side)===side);if(top&&pick.length<n)pick.push(top);}
+  for(const x of xs){if(pick.length>=n)break;if(!pick.includes(x))pick.push(x);}
+  return pick.sort((a,b)=>a.i-b.i).map(x=>x.p);
+}
 function framePacket(f,{full=false}={}){
   if(!f?.available)return {available:false,source:f?.source||null,synthetic:f?.synthetic===true,asOf:f?.asOf??null,ageMs:finite(f?.ageMs),reason:f?.reason||'UNAVAILABLE'};
   const base={
@@ -21,7 +38,9 @@ function framePacket(f,{full=false}={}){
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,
     // CLAUDE_R2544_PREMOVE: hareket başlamadan önceki deterministik imza (yalnız 1m/3m/5m; kanıt, karar değil).
     preMove:f.preMove&&f.preMove.available?{state:f.preMove.state,score:f.preMove.score,direction:f.preMove.direction,
-      triggers:f.preMove.triggers,invalidation:f.preMove.invalidation,reasons:clipArr(f.preMove.reasons,6)}:null
+      triggers:f.preMove.triggers,invalidation:f.preMove.invalidation,reasons:clipArr(f.preMove.reasons,6)}:null,
+    // CLAUDE_R2544_5_FORMING_CANDLE: kapanmamış mum — yalnız bağlam (yapı/formasyon kapalı mumdan).
+    forming:formingDigest(f.forming)
   };
   if(full){
     const fvgSource=arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps;
@@ -126,7 +145,9 @@ function mirrorFrameDigest(f){
     patterns:arr(f.patterns).slice(-6),swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,
     recentFairValueGaps:clipArr(arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps,3),
     orderBlocks:{bullish:arr(f?.orderBlocks?.bullish).slice(-2),bearish:arr(f?.orderBlocks?.bearish).slice(-2)},
-    smcContext:f.smcContext||null
+    smcContext:f.smcContext||null,
+    // CLAUDE_R2544_5: denetim aynası JEV'e giden ön-hareket ve kapanmamış mum bilgisini de gösterir.
+    preMove:f.preMove||null,forming:f.forming||null
   };
 }
 function mirrorDigest(packet){
@@ -149,4 +170,4 @@ function mirrorDigest(packet){
   };
 }
 
-module.exports={framePacket,marketPacket,mirrorDigest};
+module.exports={framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest};

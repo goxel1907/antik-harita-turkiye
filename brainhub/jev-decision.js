@@ -1,6 +1,6 @@
 const fs=require('fs');
 const path=require('path');
-const {marketPacket,mirrorDigest}=require('./jev-market-packet');
+const {marketPacket,mirrorDigest,rankPatterns,formingDigest}=require('./jev-market-packet');
 
 const DEFAULTS={
   enabled:false,
@@ -66,7 +66,7 @@ function sovereignFrame(f){
     available:true,fresh:f.fresh===true,asOf:f.asOf||null,close:finiteNumber(f.close),trend:f.trend||null,
     rsi14:finiteNumber(f.rsi14),atrPct:finiteNumber(f.atrPct),breakOfStructure:f.breakOfStructure||null,
     prior20High:finiteNumber(f.prior20High),prior20Low:finiteNumber(f.prior20Low),
-    swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[],
+    swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,patterns:Array.isArray(f.patterns)?rankPatterns(f.patterns,4):[],forming:formingDigest(f.forming),
     candle:f.candle||null
   };
 }
@@ -330,7 +330,7 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
       close:f.close??null, ema20:f.ema20??null, ema50:f.ema50??null, rsi14:f.rsi14??null, atrPct:f.atrPct??null,
       returnPct:f.returnPct??null, prior20High:f.prior20High??null, prior20Low:f.prior20Low??null,
       swing:compactSwing(f.swingStructure), orderBlocks:compactOrderBlocks(f.orderBlocks),
-      candle:f.candle||null, patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[], smcContext:compactSmc(f.smcContext), liquidity:f.liquidity||null,
+      candle:f.candle||null, patterns:Array.isArray(f.patterns)?rankPatterns(f.patterns,4):[],forming:formingDigest(f.forming), smcContext:compactSmc(f.smcContext), liquidity:f.liquidity||null,
       role:d.role||null,
       why:String(d.why||'').slice(0,240),
       waitFor:String(d.waitFor||'').slice(0,180),
@@ -572,12 +572,12 @@ function prepareDecisionRequest(input){
       ()=>{
         const frames=targets.flatMap(t=>[t.frames,t.timingFrames,t.higherContext,t.coreFrames]).filter(x=>x&&typeof x==='object');
         for(const group of frames)for(const f of Object.values(group))
-          if(f&&typeof f==='object'&&Array.isArray(f.patterns))f.patterns=f.patterns.slice(-2);
+          if(f&&typeof f==='object'&&Array.isArray(f.patterns))f.patterns=rankPatterns(f.patterns,3);
       },
       // CLAUDE_R2544_TRIM_HIGHER_CONTEXT: R2543+R2544 paketi büyüdü (28.09: PASS-2'nin 3/17'si tavanı aştı).
       // 6) Üst bağlam (30m/45m/1h/4h/1d) özetlenir; 5m/15m çekirdeği ve 1m/3m zamanlaması dokunulmaz kalır.
       ()=>{
-        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle'];
+        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming'];
         for(const t of targets){
           const hc=t.higherContext;
           if(!hc||typeof hc!=='object')continue;
@@ -603,7 +603,7 @@ function prepareDecisionRequest(input){
       }
       // Not: serbest metinler topluca KIRPILMAZ — kırpılamayan piyasa/veri gerçeği varsa istek fail-closed kalır.
     ];
-    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_LAST2_PER_TF','HIGHER_CONTEXT_SUMMARY','EXPERIENCE_MEMORY_MIN'];
+    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','EXPERIENCE_MEMORY_MIN'];
     for(const [stepIndex,step] of secondarySteps.entries()){
       if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
       trimStepsApplied.push(secondaryStepNames[stepIndex]||('SECONDARY_'+stepIndex));
@@ -891,7 +891,11 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         'invalidation='+p.invalidationPrice,
         'invalidationSource='+String(p.invalidationSource||'UNKNOWN'),
         'frame='+p.originTF,
-        'basis='+String(p.basis||'STRUCTURE')
+        'basis='+String(p.basis||'STRUCTURE'),
+        // CLAUDE_R2544_5_GEOMETRY: ölçü; karar JEV'in.
+        ...(Number.isFinite(Number(p.stopPct))?['stopDistance='+p.stopPct+'%'+(Number.isFinite(Number(p.stopAtr))?' ('+p.stopAtr+'x '+p.originTF+' ATR)':'')]:[]),
+        ...(p.geometryNote?['geometry='+p.geometryNote]:[]),
+        ...(p.formingOwnerTF&&p.formingOwnerTF.changeAtr!==null?['forming '+p.originTF+' candle (not closed) '+p.formingOwnerTF.direction+' '+p.formingOwnerTF.changeAtr+' ATR'+(p.formingOwnerTF.againstSide?' AGAINST this side':'')]:[])
       ].join(' | ');
     }
     const liveContext=liveReasoningContext(root,unified?.learning);

@@ -1167,12 +1167,22 @@ function sovereignPlanOption({side,lane,tf,live,frame,anchor,id}){
   const tp2=live+sign*risk*2;
   const tp3=live+sign*risk*3;
   if(tp3<=0)return null;
+  // CLAUDE_R2544_5_GEOMETRY: stop mesafesi hat TF'sinin ATR'si cinsinden açıkça verilir (29.09 COTI: stop %0,55
+  // = 0,55× ATR15m, 2 dk'da doldu). Karar JEV'de; <0,25 ATR dejenere seçenek sunulmaz.
+  const stopPct=risk/live*100;
+  const stopAtr=atrPct>0?stopPct/atrPct:null;
+  if(stopAtr!==null&&stopAtr<0.25)return null;
+  const fm=frame?.forming||null;
+  const formingAgainst=fm&&Number.isFinite(Number(fm.changeAtr))&&(sign*Number(fm.changeAtr))<=-1;
   return {
     id,side,lane,originTF:tf,ownerTF:tf,entryMode:'MARKET_NOW',
     entryPrice:live,invalidationPrice:invalidation,invalidationSource:anchor.source,
     stopPrice:stop,takeProfit1:tp1,takeProfit2:tp2,takeProfit3:tp3,
     basis:'CLOSED_'+tf.toUpperCase()+'_'+anchor.source,
     anchorNote:anchor.note||null,
+    stopPct:Number(stopPct.toFixed(3)),stopAtr:stopAtr===null?null:Number(stopAtr.toFixed(2)),
+    geometryNote:stopAtr===null?null:stopAtr<0.6?'STOP_INSIDE_'+tf+'_NOISE_LT_0.6ATR':stopAtr>3?'STOP_WIDE_GT_3ATR_'+tf:null,
+    formingOwnerTF:fm?{direction:fm.direction||null,changeAtr:Number.isFinite(Number(fm.changeAtr))?Number(fm.changeAtr):null,elapsedPct:Number.isFinite(Number(fm.elapsedPct))?Number(fm.elapsedPct):null,againstSide:formingAgainst===true}:null,
     management:'JEV_SELECTED_AFTER_ENTRY'
   };
 }

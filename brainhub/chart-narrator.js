@@ -173,6 +173,17 @@ function patternText(list) {
   }).filter(Boolean).join(', ') || null;
 }
 
+// CLAUDE_R2544_5_FORMING_CANDLE: kapanmamış mum cümlesi (yalnız alan varsa; açıkça "NOT CLOSED").
+function formingText(fm, compact) {
+  if (!fm || typeof fm !== 'object') return null;
+  const ch = finite(fm.changePct), atr = finite(fm.changeAtr), el = finite(fm.elapsedPct), vs = finite(fm.vsLastClosePct), rg = finite(fm.rangeAtr);
+  if (ch === null) return null;
+  const sign = v => (v > 0 ? '+' : '') + pct(v, 2);
+  if (compact) return 'forming (NOT closed) ' + (fm.direction || '?') + ' ' + sign(ch) + '%' + (atr !== null ? ' (' + sign(atr) + ' ATR)' : '') + (el !== null ? ' at ' + pct(el, 0) + '% elapsed' : '');
+  return 'FORMING candle (NOT closed' + (el !== null ? ', ' + pct(el, 0) + '% elapsed' : '') + '): ' + (fm.direction || '?') + ' ' + sign(ch) + '% since open' +
+    (atr !== null ? ' (' + sign(atr) + ' ATR)' : '') + (rg !== null ? ', range ' + pct(rg, 2) + ' ATR' : '') +
+    (vs !== null ? ', live price ' + sign(vs) + '% vs last closed candle' : '') + '; closed-candle structure above does not include this move yet';
+}
 function narrateFrame(tf, f, livePrice, opts) {
   const full = !opts || opts.full !== false;
   if (!f || f.available !== true) {
@@ -231,6 +242,8 @@ function narrateFrame(tf, f, livePrice, opts) {
     if (cFib) bits.push('fib ' + cFib);
     const cPat = patternText(f.patterns);
     if (cPat) bits.push('patterns ' + cPat);
+    const cForm = formingText(f.forming, true);
+    if (cForm) bits.push(cForm);
     return {
       tf, available: true, detail: 'COMPACT',
       flags: { fresh: flags.fresh, trend: flags.trend, zone: flags.zone, event: flags.event },
@@ -281,6 +294,7 @@ function narrateFrame(tf, f, livePrice, opts) {
   const fFib = fibText(fibRead(smc, price), { full: true });
   if (fFib) s.push('fib ' + fFib + '.');
   const pt = patternText(f.patterns); if (pt) s.push('closed-candle patterns: ' + pt + '.');
+  const ft = formingText(f.forming, false); if (ft) s.push(ft + '.');
 
   return {
     tf, available: true, detail: 'FULL',
@@ -323,6 +337,16 @@ function narrateChart(u) {
       '. Disagreement across timeframes is normal and is not by itself a reason to wait.'
   };
 
+  // CLAUDE_R2544_5: kapalı mum yönü ile açık mumun güçlü ters hareketi ayrışıyorsa açıkça söylenir.
+  const divergences = [];
+  for (const tf of ['5m', '15m', '1h']) {
+    const fr = u && u.frames ? u.frames[tf] : null, fm = fr && fr.forming;
+    const atr = fm ? finite(fm.changeAtr) : null, t = fr ? String(fr.trend || '').toUpperCase() : '';
+    if (atr === null || Math.abs(atr) < 1) continue;
+    if ((t === 'UP' && atr <= -1) || (t === 'DOWN' && atr >= 1) || t === 'MIXED')
+      divergences.push(tf + ' closed trend ' + (t || '?') + ' but forming candle ' + (atr > 0 ? '+' : '') + pct(atr, 2) + ' ATR');
+  }
+  alignment.formingLine = divergences.length ? 'LIVE vs CLOSED: ' + divergences.join('; ') + '. The unclosed move is real price action that the closed-candle structure has not absorbed yet.' : null;
   const narrative = {
     contract: 'R2543_CHART_NARRATOR_DETERMINISTIC_V1',
     source: 'CLOSED_CANDLE_NUMERIC_TRUTH',

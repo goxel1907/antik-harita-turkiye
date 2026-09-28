@@ -20,15 +20,25 @@ function ema(values, period) {
   for (let i = 1; i < values.length; i++) value = a * values[i] + (1 - a) * value;
   return value;
 }
+// CLAUDE_R2544_5_RSI_WILDER: standart Wilder RSI (Binance/TradingView ile aynı yöntem).
+// Önceki basit-ortalama (Cutler) RSI uç değer üretiyordu: 29.09 PHA 5m paket 20,8 ↔ grafik 41,9;
+// PENDLE 1m 73,2 ↔ 61,9 — JEV "aşırı satım/alım" gördü, grafik nötrdü.
 function rsi(values, period = 14) {
   if (values.length < period + 1) return null;
   let gains = 0, losses = 0;
-  for (let i = values.length - period; i < values.length; i++) {
+  for (let i = 1; i <= period; i++) {
     const d = values[i] - values[i - 1];
     gains += Math.max(0, d);
     losses += Math.max(0, -d);
   }
-  return losses === 0 ? 100 : 100 - 100 / (1 + gains / losses);
+  gains /= period; losses /= period;
+  for (let i = period + 1; i < values.length; i++) {
+    const d = values[i] - values[i - 1];
+    gains = (gains * (period - 1) + Math.max(0, d)) / period;
+    losses = (losses * (period - 1) + Math.max(0, -d)) / period;
+  }
+  if (losses === 0) return gains === 0 ? 50 : 100;
+  return 100 - 100 / (1 + gains / losses);
 }
 function atr(candles, period = 14) {
   if (candles.length < period + 1) return null;
@@ -523,13 +533,38 @@ function structure(c, frame = null) {
   }
   return base;
 }
+// CLAUDE_R2544_5_FORMING_CANDLE: yapı/formasyon kapalı mumdan okunur (repaint yok); ama henüz kapanmamış
+// mumun ne yaptığı JEV'e AYRI ve açıkça etiketli bağlam olarak verilir. 29.09 SOON: son kapalı 15m UP /
+// yükselen üçgen iken açık 15m mumu -%2,6 düşüyordu; paket bunu söylemediği için "dönüş ALIŞ" açıldı.
+function formingCandle(raw, now, closed) {
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const k = raw[raw.length - 1];
+  const openTime = finite(k && k[0]), closeTime = finite(k && k[6]);
+  if (openTime === null || closeTime === null || !(closeTime >= now) || openTime > now) return null;
+  const o = finite(k[1]), h = finite(k[2]), l = finite(k[3]), c = finite(k[4]);
+  if ([o, h, l, c].some(x => x === null) || !(o > 0) || h < l) return null;
+  const a = closed && closed.available ? finite(closed.atr14) : null;
+  const lastClose = closed && closed.available ? finite(closed.close) : null;
+  return {
+    openTime, closeTime, open:round(o), high:round(h), low:round(l), last:round(c),
+    elapsedPct:round(Math.min(100, Math.max(0, (now - openTime) / (closeTime - openTime + 1) * 100)), 1),
+    changePct:round((c - o) / o * 100, 3), changeAtr:a ? round((c - o) / a, 2) : null, rangeAtr:a ? round((h - l) / a, 2) : null,
+    direction:c > o ? 'BULL' : c < o ? 'BEAR' : 'FLAT',
+    vsLastClosePct:lastClose ? round((c - lastClose) / lastClose * 100, 3) : null,
+    semantics:'FORMING_CANDLE_NOT_CLOSED_CONTEXT_ONLY'
+  };
+}
 function analyzeFrames(rawByFrame, now = Date.now()) {
   const out = {};
   const parsed15 = parseKlines(rawByFrame['15m'] || [], now);
   for (const frame of FRAMES) {
     try {
       if (frame === '45m') out[frame] = structure(aggregate45m(parsed15, now), frame);
-      else out[frame] = structure(parseKlines(rawByFrame[frame], now), frame);
+      else {
+        out[frame] = structure(parseKlines(rawByFrame[frame], now), frame);
+        const forming = formingCandle(rawByFrame[frame], now, out[frame]);
+        if (forming && out[frame] && out[frame].available) out[frame].forming = forming;
+      }
     } catch (e) { out[frame] = { available:false, reason:String(e.message || e) }; }
   }
   return out;
@@ -623,4 +658,4 @@ function handoff(initialStop, candidateStop, side) {
   const safe = side === 'LONG' ? candidateStop >= initialStop : side === 'SHORT' ? candidateStop <= initialStop : false;
   return { allowed:safe, stop:safe ? candidateStop : initialStop, reason:safe ? 'RISK_NOT_WIDENED' : 'WOULD_WIDEN_RISK' };
 }
-module.exports = { FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, orderBlocks, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };
+module.exports = { rsi, formingCandle, FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, orderBlocks, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };
