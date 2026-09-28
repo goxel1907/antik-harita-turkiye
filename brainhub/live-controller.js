@@ -366,6 +366,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
 
   const officeDecisionContext=new Map();
+  // CLAUDE_R2543_OBS_RISK_NUMBERS: intent'in risk sayılarını tek küçük nesnede toplar (salt gözlem).
+  function intentRiskContext(intent,riskCapContext,settings){
+    const n=v=>{const x=Number(v);return Number.isFinite(x)?Number(x.toFixed(6)):null;};
+    return {
+      equity:n(riskCapContext?.equity),
+      maxRiskPctPerTrade:n(riskCapContext?.maxRiskPctPerTrade),
+      riskCapQuote:n(intent?.riskCapQuote??riskCapContext?.riskCapQuote),
+      riskQuote:n(intent?.riskQuote),
+      stopDistancePct:n(intent?.stopDistancePct),
+      estimatedLiquidationDistancePct:n(intent?.estimatedLiquidationDistancePct),
+      notionalQuote:n(intent?.notionalQuote),
+      marginQuote:n(intent?.requestedMarginQuote??settings?.marginQuote),
+      leverage:n(intent?.requestedLeverage??settings?.leverage),
+      entryPrice:n(intent?.entryPrice),
+      stopPrice:n(intent?.stopPrice),
+      maintenanceMarginRate:n(intent?.maintenanceMarginRate)
+    };
+  }
+
   function leaderHealthEvent(kind, data = {}) {
     const at = trimLeaderAutoHealth();
     const symbol=String(data.symbol||'');
@@ -3945,9 +3964,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     intent.maintenanceMargin=maintenance;
     intent.finalAuthoritySoftWarnings=[...new Set([...(intent.softWarnings||[]),...finalAuthoritySoftWarnings])];
     if (!intent.ok) {
-      leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:intent.reasons||[]});
+      // CLAUDE_R2543_OBS_RISK_NUMBERS: blok nedeni yalnız kod değil, onu doğuran sayılarla kaydedilir
+      // (Office/journal ve fast-lane logu). Salt gözlem; karar/boyut mantığı değişmez.
+      const riskContext=intentRiskContext(intent,riskCapContext,settings);
+      leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:intent.reasons||[],riskContext});
       const rs=intent.reasons || ['LEADER_INTENT_NOT_READY'];
-      leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0]||null,reasons:rs});
+      leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0]||null,reasons:rs,riskContext});
       annotateLeaderDiagnostic(candidate.symbol, 'INTENT_NOT_READY', rs, {
         costModel:intent.costModel || null,
         commission:commissionMeta
@@ -3957,6 +3979,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         orderPlaced:false,
         liveAllowed:false,
         retryable:false,
+        riskContext,
         execution:'LEADER_AUTO_BLOCKED',
         symbol:candidate.symbol,
         plan:advisory.plan,

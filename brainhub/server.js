@@ -2119,13 +2119,31 @@ const claudeRunnerTimer=setInterval(async()=>{
 },30000);
 if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 
+// CLAUDE_R2543_OBS_FAST_LANE_REASONS: fast-lane satırı artık NEDEN'i de yazar (reasons, JEV aksiyon/zamanlama,
+// blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
+function fastLaneObsSuffix(result){
+  try{
+    const r=result||{};
+    const reasons=Array.isArray(r.reasons)?r.reasons.slice(0,6).join(','):'';
+    const jd=r.plan?.jevDecision||null;
+    let s=' side='+(r.plan?.side||'-')+' lane='+(r.plan?.lane||'-')+' reasons='+(reasons||'-');
+    if(jd)s+=' jev='+(jd.action||'-')+'/'+(jd.entryTiming||'-')+(jd.waitReason?'/'+jd.waitReason:'');
+    const k=r.riskContext;
+    if(k&&typeof k==='object'){
+      const f=(v,d=2)=>v===null||v===undefined||!Number.isFinite(Number(v))?'?':Number(v).toFixed(d);
+      s+=' risk='+f(k.riskQuote)+'/'+f(k.riskCapQuote)+'USDT stop='+f(k.stopDistancePct)+'% liq='+f(k.estimatedLiquidationDistancePct)+'% notional='+f(k.notionalQuote)+' eq='+f(k.equity);
+    }
+    return s.slice(0,600);
+  }catch{return '';}
+}
+
 // CLAUDE_V112_SCALP_FAST_LANE: 20 sn'de bir, Vision analizinden bağımsız. Momentum scalp sinyali ve
 // worker'ın gördüğü sayısal tetikler Vision'ı beklemeden Jev'e gider (BINDING). SHADOW = yalnız kayıt.
 const claudeFastLaneTimer=setInterval(async()=>{
   try{
     const out=await live.scalpFastLaneTick();
     if(out&&out.skipped!==true&&out.kind){
-      log('CLAUDE FAST LANE kind='+out.kind+' symbol='+(out.symbol||'?')+' applied='+(out.applied!==false)+' execution='+(out.result?.execution||'-')+' plan='+(out.result?.plan?.status||'-'));
+      log('CLAUDE FAST LANE kind='+out.kind+' symbol='+(out.symbol||'?')+' applied='+(out.applied!==false)+' execution='+(out.result?.execution||'-')+' plan='+(out.result?.plan?.status||'-')+fastLaneObsSuffix(out.result));
     }else if(out?.ok===false){
       log('CLAUDE FAST LANE ERROR '+String(out?.reason||'unknown').slice(0,160));
     }

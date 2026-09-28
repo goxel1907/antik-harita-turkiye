@@ -453,8 +453,11 @@ function prepareDecisionRequest(input){
   const beforeBytes=Buffer.byteLength(JSON.stringify(body),'utf8');
   const state=body.state||{};
   let serialized=JSON.stringify(body);
+  // CLAUDE_R2543_OBS_TRIM_STEPS: hangi budama adımlarının gerçekten çalıştığı kaydedilir (salt gözlem).
+  const trimStepsApplied=[];
   for(const limit of [6000,4000,2500,1600,900]){
     if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
+    trimStepsApplied.push('PRIMARY_CONTEXT_'+limit);
     const cortex=state.professionalTraderCortex;
     if(cortex&&typeof cortex.reference==='string'){
       cortex.reference=cortex.reference.slice(0,limit);
@@ -572,8 +575,10 @@ function prepareDecisionRequest(input){
           if(f&&typeof f==='object'&&Array.isArray(f.patterns))f.patterns=f.patterns.slice(-2);
       }
     ];
-    for(const step of secondarySteps){
+    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_LAST2_PER_TF'];
+    for(const [stepIndex,step] of secondarySteps.entries()){
       if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
+      trimStepsApplied.push(secondaryStepNames[stepIndex]||('SECONDARY_'+stepIndex));
       try{step();}catch{}
       if(recordObj)body.state.record=recordObj;
       if(packetObj)body.state.coreMarketPacket=packetObj;
@@ -586,6 +591,7 @@ function prepareDecisionRequest(input){
     chars:serialized.length,bytes,beforeBytes,maxBytes:MAX_DECISION_REQUEST_BYTES,
     estimatedTokens:Math.ceil(bytes*0.6)+1024,estimateOnly:true,
     stateBytes:measure(body.state),questionsBytes:measure(body.questions),secondaryTrimApplied:Boolean((recordObj||packetObj)&&beforeBytes>MAX_DECISION_REQUEST_BYTES),
+    trimStepsApplied,marketTrimApplied:trimStepsApplied.some(x=>!x.startsWith('PRIMARY_CONTEXT_')&&x!=='DUP_RECORD_EXPERIENCE_MEMORY'),
     sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,measure(v)]))};
   return {ok:bytes<=MAX_DECISION_REQUEST_BYTES,body,serialized,diagnostics};
 }
