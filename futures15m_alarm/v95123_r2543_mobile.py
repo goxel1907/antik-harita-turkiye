@@ -37,8 +37,11 @@ auto = AUTO.read_text(encoding="utf-8")
 truth = TRUTH.read_text(encoding="utf-8")
 build = BUILD.read_text(encoding="utf-8")
 
+R2541_IDS = ("v9.5.115-JEV-PC-ONLY-R2541-HF4", "v9.5.115-JEV-PC-ONLY-R2541")
+PRIOR_ID = next((i for i in R2541_IDS if i in main), None)
+
 required = [
-    ("R2541 identity", "v9.5.115-JEV-PC-ONLY-R2541" in main),
+    ("R2541 identity", PRIOR_ID is not None),
     ("PC-only client", "ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY" in client),
     ("no live execute post", 'post(c, "/live/execute", intent, true)' not in client),
     ("direct runner inert", "historical PHONE Binance executor permanently inert" in auto),
@@ -52,7 +55,7 @@ if bad:
     raise SystemExit("R2543 safety prerequisite missing: " + ", ".join(bad))
 
 # --- kurulabilir kimlik -------------------------------------------------------
-main = main.replace("v9.5.115-JEV-PC-ONLY-R2541", "v9.5.116-JEV-PC-ONLY-R2543", 1)
+main = main.replace(PRIOR_ID, "v9.5.116-JEV-PC-ONLY-R2543", 1)
 main = main.replace(
     "R2541 ANDROID GÜVENLİĞİ:",
     "R2543 ANDROID GÜVENLİĞİ: PC tek emir yürütücüsü • marj/kaldıraç/max pozisyon ve LIVE bu telefondan ayarlanır • emir PC'den gider • risk tavanı aşılırsa işlem hiç açılmaz •",
@@ -74,7 +77,7 @@ if "PC R2541 ATOMİK AYNA • ANDROID PC-ONLY FAIL-CLOSED" in client:
 # --- R2542/R2543 gorunur sozluk ----------------------------------------------
 # DIKKAT: .replace zinciri alt-dizge eslestirir; UZUN kod ONCE gelmeli
 # (JEV_PARTIAL_THEN_EXTERNAL_CLOSE, EXTERNAL_CLOSE'dan once).
-ui_anchor = '        s=s.replace("WAIT_PULLBACK","GERİ ÇEKİLME BEKLENİYOR")'
+ui_anchor = '        s=s.replace("LEADER_AUTO_BLOCKED","OTO İŞLEM GÜVENLİK NEDENİYLE DURDU")'
 if ui_anchor not in card:
     raise SystemExit("R2543 AutoDecisionCard trText anchor missing")
 
@@ -141,6 +144,7 @@ checks = {
     "replace order": card_now.index('"JEV_PARTIAL_THEN_EXTERNAL_CLOSE"') < card_now.index('"EXTERNAL_CLOSE"'),
     # R2541 sozlugu bozulmadi
     "r2541 kept": "GERİ ÇEKİLME BEKLENİYOR" in card_now and "ŞİMDİ PİYASA GİRİŞİ" in card_now,
+    "old identity gone": not any(i in main_now for i in R2541_IDS),
 }
 failed = [k for k, v in checks.items() if not v]
 if failed:

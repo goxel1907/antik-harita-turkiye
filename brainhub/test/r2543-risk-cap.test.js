@@ -79,3 +79,13 @@ test('R2543 exact panel: iki uygun pozisyonda her biri 20x12 exact kalir; max2 s
   const total=a.riskQuote+b.riskQuote;
   assert.ok(total<=2*riskCapQuote+1e-9,'max2 toplam risk <= 2 x cap');
 });
+
+for(const [marginQuote,leverage] of [[15,10],[22,12],[35,8]])test(`dynamic panel ${marginQuote} x ${leverage} is exact or rejected`,()=>{
+ const accepted=buildLeaderLiveIntent(espLike({marginQuote,leverage}));
+ const blocked=buildLeaderLiveIntent(espLike({marginQuote,leverage,riskCapQuote:0.001}));
+ assert.equal(accepted.ok,true);assert.equal(blocked.ok,false);
+ assert.equal(accepted.quantity,blocked.quantity);assert.equal(blocked.requestedLeverage,leverage);
+ assert.ok(accepted.notionalQuote<=marginQuote*leverage);
+ assert.ok(marginQuote*leverage-accepted.notionalQuote<0.100866);
+ assert.ok(blocked.reasons.includes('TRADE_RISK_CAP_EXCEEDED'));
+});

@@ -500,6 +500,7 @@ function structure(c, frame = null) {
   const base = {
     available:true, frame, asOf:last.closeTime, closedCandles:c.length,
     close:round(last.close), ema20:round(e20), ema50:round(e50),
+    closedCandle:{open:round(last.open),high:round(last.high),low:round(last.low),close:round(last.close),openTime:last.openTime??null,closeTime:last.closeTime},
     rsi14:round(rsi(close), 2), atr14:round(a14), atrPct:round(a14 / last.close * 100, 3),
     trend:direction, prior20High:round(high), prior20Low:round(low),
     breakOfStructure:breaksHigh ? 'UP' : breaksLow ? 'DOWN' : null,

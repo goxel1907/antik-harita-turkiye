@@ -7,14 +7,17 @@ function arr(v){return Array.isArray(v)?v:[];}
 function clipArr(v,n){return arr(v).slice(-Math.max(0,n));}
 
 function framePacket(f,{full=false}={}){
-  if(!f?.available)return {available:false,reason:f?.reason||'UNAVAILABLE'};
+  if(!f?.available)return {available:false,source:f?.source||null,synthetic:f?.synthetic===true,asOf:f?.asOf??null,ageMs:finite(f?.ageMs),reason:f?.reason||'UNAVAILABLE'};
   const base={
-    available:true,fresh:f.fresh===true,asOf:f.asOf||null,
+    available:true,fresh:f.fresh===true,asOf:f.asOf||null,source:f.source||null,synthetic:f.synthetic===true,ageMs:finite(f.ageMs),closedCandle:f.closedCandle||null,
     close:finite(f.close),ema20:finite(f.ema20),ema50:finite(f.ema50),
     rsi14:finite(f.rsi14),atr14:finite(f.atr14),atrPct:finite(f.atrPct),returnPct:finite(f.returnPct),
     trend:f.trend||null,breakOfStructure:f.breakOfStructure||null,
     prior20High:finite(f.prior20High),prior20Low:finite(f.prior20Low),
     candle:f.candle||null,patterns:clipArr(f.patterns,6),
+    // Canonical numeric levels survive request compaction; prose is not a numeric substitute.
+    fibLevels:f.smcContext?.fibLevels||null,oteReference:f.smcContext?.oteReference||null,
+    orderBlocks:{bullish:clipArr(f?.orderBlocks?.bullish,2),bearish:clipArr(f?.orderBlocks?.bearish,2)},
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null
   };
   if(full){
@@ -72,7 +75,7 @@ function marketPacket(u){
       cvdQuote120s:(finite(stream?.cvdTrades120s??flow?.sampleTrades)||0)>0?finite(stream?.cvdQuote120s??flow?.cvdQuote120s??flow?.cvd120s):null,
       cvdTrades120s:(finite(stream?.cvdTrades120s??flow?.sampleTrades)||0)>0?finite(stream?.cvdTrades120s??flow?.sampleTrades):null,
       orderFlowReason:flow?.available===true?null:(flow?.reason||null),
-      orderFlowAsOf:flow?.asOf||null,
+      orderFlowAsOf:flow?.asOf||null,orderFlowAgeMs:finite(flow?.ageMs),
       restTradeSample:{quote:finite(m?.cvdSampleQuote),trades:finite(m?.cvdSampleTrades),window:m?.cvdWindow||null,semantics:'SAMPLE_ONLY_NOT_CONTINUOUS_CVD'},
       orderFlowAvailable:flow?.available===true,
       orderFlowSource:flow?.source||null,
@@ -111,9 +114,10 @@ function marketPacket(u){
 function mirrorFrameDigest(f){
   if(!f||f.available===false)return f||{available:false};
   return {
-    available:true,fresh:f.fresh===true,asOf:f.asOf||null,close:f.close??null,
+    available:true,fresh:f.fresh===true,asOf:f.asOf||null,source:f.source||null,synthetic:f.synthetic===true,ageMs:finite(f.ageMs),closedCandle:f.closedCandle||null,close:f.close??null,
     // CLAUDE_R2543: EMA'lar pakette hep vardi ama aynada gorunmuyordu; ne gonderildigi denetlenebilsin.
     ema20:f.ema20??null,ema50:f.ema50??null,
+    fibLevels:f.fibLevels||null,oteReference:f.oteReference||null,
     trend:f.trend||null,breakOfStructure:f.breakOfStructure||null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,
     prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,candle:f.candle||null,
     patterns:arr(f.patterns).slice(-6),swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,

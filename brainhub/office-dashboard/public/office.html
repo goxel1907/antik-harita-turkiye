@@ -215,7 +215,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
     <div class="spacer"></div>
     <span class="chip" id="chipVer"><span class="dot"></span><span>PC —</span></span>
-    <span class="chip claude" id="chipClaude" title="Bu sürüm Claude (Anthropic) tarafından ChatGPT v9.5.109 dalı üzerine tamamlandı"><span class="dot"></span><span>CLAUDE_V109 —</span></span>
+    <span class="chip claude" id="chipClaude" title="Stratejik karar yetkisi canlı PC durumundan okunur"><span class="dot"></span><span>JEV Son Karar</span></span>
     <span class="chip" id="chipVision" title="Görsel analist (yerel Qwen3-VL) durumu. BOŞTA = JEV bu turda grafik kanıtı istemedi."><span class="dot"></span><span>GÖRSEL —</span></span>
     <span class="chip" id="chipLive"><span class="dot"></span><span>LIVE —</span></span>
     <span class="chip" id="chipAuto"><span class="dot"></span><span>OTO —</span></span>
@@ -293,17 +293,17 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <div class="legend" id="wLegend"></div>
       <dl class="kv" id="wKv" style="margin-top:10px"></dl>
     </div>
-    <div class="card v109">
-      <h2>Claude v9.5.112 • hızlı scalp / kod-tetik → JEV SON KARAR → zorunlu güvenlik → emir <span class="hint">v111 doğrulama + v112 hızlı hat + iz süren pozisyon</span></h2>
+    <details class="card v109"><summary>Uyumluluk ve geçmiş tanılama</summary>
+      <h2>JEV SON KARAR → zorunlu güvenlik → emir</h2>
       <dl class="kv" id="v109Kv"></dl>
       <div class="v109-bars" id="v109Bars"></div>
       <div class="legend" id="v109Note"></div>
-    </div>
+    </details>
   </section>
 
   <section class="row2">
     <div class="card">
-      <h2>Takip edilen setuplar <span class="hint">⚠ = somut bekleme koşulu yok • tetik = kapanış seviyesi (v109)</span></h2>
+      <h2>Takip edilen setuplar <span class="hint">⚠ = somut bekleme koşulu yok • tetik = kapanış seviyesi</span></h2>
       <div style="overflow:auto"><table id="setups"></table></div>
     </div>
     <div class="card tl">
@@ -315,6 +315,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
   </section>
 
+  <section><div class="card"><h2>Analiz yolu ve işlem engelleri</h2><div id="cpuPolicy"></div><div id="priorityQueue"></div><div style="overflow:auto"><table id="decisionChains"></table></div></div></section>
   <!-- CLAUDE_V113_POSITION_LEDGER: Binance açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, 30 sn) -->
   <section>
     <div class="card">
@@ -322,7 +323,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <div style="overflow:auto"><table id="openPos"></table></div>
       <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + fonlama)</span></h2>
       <div style="overflow:auto"><table id="closedPos"></table></div>
-      <h2 style="margin-top:16px">R2542 Trader Office • 5M Scalper / 15M Trader performansı
+      <h2 style="margin-top:16px">BrainHub Trader Office • 5M Scalper / 15M Trader performansı
         <span class="hint" id="deskPerfHint">karar → zamanlama → emir → sonuç</span>
       </h2>
       <div style="overflow:auto"><table id="deskPerf"></table></div>
@@ -645,7 +646,7 @@ function renderKpis(s){
     kpi('Günlük zarar freni', maxDailyLossPct!=null?`%${maxDailyLossPct}`:'—', maxDailyLossPct!=null?'eşik dolunca yeni emir zorunlu güvenlikte engellenir':'live-policy sınırı okunamadı', maxDailyLossPct!=null?'good':'warn'),
     kpi('Stop sonrası yeniden giriş', stopCooldown!=null?`${stopCooldown} dk`:'aktif', 'aynı coin hızlı hatta hemen yeniden açılmaz; intikam işlemi engellenir', 'good')
   ].join('');
-  chip('#chipVer', s.health?.ok?'good':'bad', `PC ${s.health?.data?.featureVersion || st.featureVersion || '—'}`);
+  chip('#chipVer', s.health?.ok?'good':'bad', s.health?.ok?'PC BAĞLI':'PC BAĞLANTI BEKLENİYOR');
   chip('#chipLive', armed?'good':'bad', armed?`LIVE AÇIK${exp!=null?' • '+exp+' dk':''}`:'LIVE KAPALI');
   // CLAUDE_R2543_UX: surum adinda VISION yaziyor diye gorsel analizin calistigi sanilmasin.
   const vStage=String(s.visionProgress?.data?.stage||'IDLE').toUpperCase();
@@ -653,7 +654,7 @@ function renderKpis(s){
   chip('#chipVision', vStage==='ERROR'?'warn':'good', 'GRAFİK DETERMINİSTİK • GPU '+(vOllama?'AUDIT HAZIR':'AUDIT KAPALI'));
   const cap=la.capacity||{};
   const block=la.activeBlocker;
-  chip('#chipAuto', block?'bad':la.enabled?'good':'bad', (la.enabled?'OTO AKTİF':'OTO KAPALI')+(block?' • OTO YÜRÜTME ENGELLENDİ: '+block.reasons.map(trUi).join(', '):'')+` • açık ${cap.known?cap.open:'?'} / bekleyen ${cap.pending??'?'} / sınır ${cap.max??'?'}`);
+  chip('#chipAuto', block?'bad':la.enabled?'good':'bad', (la.enabled?'OTO AKTİF':'OTO KAPALI')+(block?' • OTO YÜRÜTME ENGELLENDİ: '+(Array.isArray(block.reasons)?block.reasons:[block.reason||block.reasons]).filter(Boolean).map(trUi).join(', '):'')+` • açık ${cap.known?cap.open:'?'} / bekleyen ${cap.pending??'?'} / sınır ${cap.max??'?'}`);
   const age = s.generatedAt ? Math.round((Date.now()-Date.parse(s.generatedAt))/1000) : null;
   chip('#chipFresh', s.status?.ok?'good':'bad', s.status?.ok?`veri ${age!=null?age+' sn':''} önce`:'Brain Hub yok');
 }
@@ -944,7 +945,7 @@ function renderOffice(s, vinfo){
   const orf=st.openRouterFreeWorker||{}; setDesk('orfree', orf.last?.called?(orf.last.ok?'ok':'blocked'):'', orf.last?.called?(orf.last.ok?'son çağrı OK':'son çağrı başarısız'):'çağrılmadı');
   const jevCalled=+h.jevCalled||0, jevShadow=+h.jevShadowCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):(jevShadow?'busy':''), d.jev?.text);
   const lr = s.lastRisk; setDesk('risk', lr?'warn':'ok', lr?`${lr.symbol}: ZORUNLU • ${trUi(lr.reasons[0])}`:'JEV sonrası yalnız zorunlu güvenlik');
-  setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${la.activeBlocker?la.activeBlocker.reasons.map(trUi).join(', '):'aktif engel yok'}`:'LIVE KAPALI');
+  setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${(s.derived?.execution?.lastBlock||la.activeBlocker)?'son engel: '+[].concat((s.derived?.execution?.lastBlock||la.activeBlocker).reasons||(s.derived?.execution?.lastBlock||la.activeBlocker).reason||[]).map(trUi).join(', '):'kayıtlı zorunlu engel yok'}`:'LIVE KAPALI');
   setDesk('positions', st.positionManager?.busy?'busy':'', st.positionManager?.lastReview?.actionTr || 'açık pozisyon yok');
   const lastPlan=(s.plans||[])[0];
   $('#brainTxt').textContent = lastPlan ? `${lastPlan.symbol} ${lastPlan.side||''} → ${STATUS_TR[lastPlan.status]||lastPlan.status}` : 'plan bekleniyor';
@@ -993,7 +994,7 @@ function renderOffice(s, vinfo){
     setWalker(`wk-${k}`, on, label);
     if(g){
       // Kapıda bekleyen: yalnız bir önceki aşamada iş varsa (tıkanma noktası) göster.
-      const upstream = k==='brain-jev' ? (+h.deepAnalyses||0)>0 : k==='jev-risk' ? pass1>0 : k==='risk-exec' ? qual>0 : intent>0 || (k==='exec-positions'&&!st.armed&&qual>0);
+      const upstream = k==='brain-jev' ? (+h.deepAnalyses||0)>0 : k==='jev-risk' ? pass1>0 : k==='risk-exec' ? approved>0 : safety>0 || (k==='exec-positions'&&!st.armed&&approved>0);
       setWalker(`wt-${k}`, !on && upstream, WAIT[k]);
     }
   }
@@ -1010,6 +1011,19 @@ function renderOffice(s, vinfo){
   else setBubble('brain', lastPlan?`${lastPlan.symbol}: ${STATUS_TR[lastPlan.status]||lastPlan.status}`:'');
 }
 
+function renderCpuPolicy(s){
+  const la=s.status?.data?.leaderAuto||{}, policy=la.pipelinePolicy||{};
+  $('#cpuPolicy').textContent=policy.gpuMainline===false?'Ana analiz: deterministik CPU • GPU: yalnız isteğe bağlı inceleme • JEV nihai karar sahibi':'Ana analiz modu: runtime güncellemesi bekleniyor';
+  const c=la.diagnostics?.candidates||[],b=la.diagnostics?.priorityBuckets||{};
+  const names=xs=>(xs||[]).map(x=>typeof x==='string'?x:x.symbol).filter(Boolean).join(', ')||'—';
+  const top=c.filter(x=>Number(x.attackRank)>0&&Number(x.attackRank)<=3);
+  $('#priorityQueue').textContent=`Top 3: ${names(top)} • Yaklaşan: ${names(b.approachContinuity)} • Top 24: ${names(b.top24Gainers)} • Erken ilgi: ${names(b.newAcceleration)} • Seçim: ${la.diagnostics?.selectionReason||'—'}`;
+  const ph=s.packetHealth||{},vp=s.visionProgress?.data||{};
+  $('#cpuPolicy').textContent+=` • Son istek: ${ph.bytes??'—'} / ${ph.maxBytes??52000} bayt (PASS ${ph.pass??'—'}, ${ph.at?fmtDayTime(Date.parse(ph.at)):'kayıt yok'}) • Ana GPU kuyruğu: ${policy.gpuMainline===false?'0 (kullanılmaz)':'bilinmiyor'} • Son görsel inceleme: ${vp.stage||vp.status||'kayıt yok'}`;
+  const e=s.derived?.execution||{},chains=(e.chains||[]).slice(0,12);
+  $('#priorityQueue').textContent+=' • Engel sayıları: '+(Object.entries(e.reasonCounts||{}).map(([k,v])=>trUi(k)+': '+v).join(', ')||'yok');
+  $('#decisionChains').innerHTML='<thead><tr><th>Karar / coin</th><th>Aşamalar</th><th>Son neden</th></tr></thead><tbody>'+chains.map(c=>`<tr><td>${esc(c.symbol||'')}<br><small>${esc(c.decisionId)}</small></td><td>${esc((c.stages||[]).map(x=>trUi(x.stage)).join(' → '))}</td><td>${esc((c.reasons||[]).map(trUi).join(', ')||'—')}</td></tr>`).join('')+'</tbody>';
+}
 function renderV109(s){
   const st=s.status?.data||{}; const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})}; const cv=h.claudeV109;
   const fv=String(s.health?.data?.featureVersion||st.featureVersion||'');
@@ -1019,9 +1033,9 @@ function renderV109(s){
   const c111=h.claudeV111||null;
   const cfg111=c111?.config||s.health?.data?.claudeV111Config||st.claudeV111Config||{};
   const cfg=cv?.config||s.health?.data?.claudeV109Config||st.claudeV109Config||{};
-  chip('#chipClaude', isV109?'claude':'warn', isV111?`${c112?'CLAUDE_V112':'CLAUDE_V111'} • kod-tetik ${trUi(cfg.deterministicTriggerMode||'SHADOW')} • hızlı scalp ${trUi(cfg111.scalpFastLane||'SHADOW')} • iz sürme ${trUi(cfg111.runnerMode||'SHADOW')}`:(isV109?`CLAUDE_V109 • DT ${trUi(cfg.deterministicTriggerMode||'SHADOW')}`:'CLAUDE_V109 bekleniyor'));
+  chip('#chipClaude', st.jevSovereign?.enabled?'good':'warn', st.jevSovereign?.enabled?'JEV SON KARAR':'KARAR YETKİSİ BEKLENİYOR');
   const sovereign=st.jevSovereign?.enabled===true || s.health?.data?.jevSovereign?.enabled===true;
-  const jevPolicyEl=$('#jevPolicy'); if(jevPolicyEl) jevPolicyEl.textContent = sovereign ? 'R2.5.3.2 • JEV PATRON • puan/veto kapısı yok' : (cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED' ? 'Claude rol-ağırlıklı' : 'legacy v108');
+  const jevPolicyEl=$('#jevPolicy'); if(jevPolicyEl) jevPolicyEl.textContent = sovereign ? 'JEV SON KARAR • tarayıcı yalnız aday bulur' : (cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED' ? 'Claude rol-ağırlıklı' : 'legacy v108');
   const pct=v=>{const n=num(v); return n==null?'—':(n>0?'+':'')+n.toFixed(2)+'%';};
   const hrs=num(h.shadowEvidenceHours);
   $('#v109Kv').innerHTML = (isV109 ? [
@@ -1179,13 +1193,13 @@ async function renderMirror(s){
     const narr=p?.chartNarrative||null;
     const narrEl=$('#mirrorNarrative');
     if(narr&&narr.frames){
-      const order=['1m','3m','5m','15m','30m','1h','4h','1d'];
+      const order=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
       const rowsHtml=order.filter(tf=>narr.frames[tf]).map(tf=>{
         const fr=narr.frames[tf];
         const lane=fr.detail==='FULL'?' lane':'';
         return `<div class="nrow${lane}"><span class="ntf">${esc(tf)}${fr.detail==='FULL'?' ●':''}</span><span class="ntx">${esc(String(fr.line||'').replace(new RegExp('^'+tf+':\\s*'),''))}</span></div>`;
       }).join('');
-      narrEl.innerHTML=`<h4>GRAFİK OKUMA BEYNİ — JEV'e her turda giden metin</h4>`
+      narrEl.innerHTML=`<h4>GRAFİK OKUMA BEYNİ — JEV'e her turda giden metin</h4><p>TF ${Object.keys(narr.frames).length}/9 • 45m: 15m mumlarından sentetik bağlam • Paket izi ${esc((narr.hash||'yok').slice(0,16))} • CVD ${p.microstructure?.cvdTrades120s??0} işlem / ${p.microstructure?.orderFlowAgeMs??'—'} ms</p>`
         +`<p class="nh">Deterministik: grafiği çizen kapalı mum sayılarından üretilir, model/görüntü kullanılmaz, aynı mumlar her zaman aynı cümleyi verir. ● = tam okunan işlem hattı (5m, 15m). Metin JEV'e İngilizce gider; aşağıda birebir aynısı gösterilir.</p>`
         +rowsHtml
         +(narr.alignment?.line?`<div class="nalign">${esc(narr.alignment.line)}</div>`:'');
@@ -1249,7 +1263,7 @@ async function tick(){
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
     renderKpis(s); renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
-    renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); renderSources(s); renderOffice(s, vinfo); renderV109(s);
+    renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yalnız GET`;
   }catch(e){

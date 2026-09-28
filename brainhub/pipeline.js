@@ -104,6 +104,9 @@ function summarizeFrame(frame, f, now, livePrice) {
   return {
     available:true,
     frame,
+    source:f.source||(frame==='45m'?'BINANCE_15M_AGGREGATED_45M':null),
+    synthetic:f.synthetic===true||frame==='45m',
+    closedCandle:f.closedCandle||null,
     fresh:frameFresh(frame, f, now),
     asOf:f.asOf,
     close:f.close,
@@ -1299,7 +1302,12 @@ async function buildSovereignEvidence({candidate,unified,pass1,committee,visionA
     for(const tf of visualFrames){
       const row=narrative?.frames?.[tf];
       if(row?.available===true&&String(row?.line||'').trim())lines.push(tf+': '+String(row.line));
-      else failures.push({tf,reason:row?.reason||'DETERMINISTIC_CHART_FRAME_UNAVAILABLE'});
+      else {
+        const reason=row?.reason||'DETERMINISTIC_CHART_FRAME_UNAVAILABLE';
+        failures.push({tf,reason});
+        evidence.missing.push(tf+':'+reason);
+        lines.push(row?.line||tf+': no usable candles, nothing is read from this timeframe.');
+      }
     }
     evidence.visual={authority:'EVIDENCE_ONLY',requestedFrames:visualFrames,attached:0,required:0,source:'DETERMINISTIC_CHART_NARRATIVE_NO_GPU',mode:'MAINLINE_CPU_DETERMINISTIC',modelUsed:false,deterministicFrames:Math.max(0,visualFrames.length-failures.length),text:lines.join('\n').slice(0,12000),frames:null,failures};
   }
@@ -1449,7 +1457,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     missingFrames:chartMissing,
     source:narrative?.source||'CLOSED_CANDLE_NUMERIC_CONTEXT'
   };
-  const jevSeen=mirrorDigest(packetForAudit);
+  const jevSeen=final.jevSeen||mirrorDigest(packetForAudit);
   const out={
     ok:true,candidateFound:true,committeeCalled:visionMeta?.modelUsed===true,candidate,targetedExecution:selection.targeted,
     unifiedContext:unified,chartEvidence,vision:visionMeta||{authority:'EVIDENCE_ONLY',requestedFrames:[],attached:0,required:0,mode:'MAINLINE_CPU_DETERMINISTIC',modelUsed:false},

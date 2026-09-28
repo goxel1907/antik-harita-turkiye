@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.1.0-JEV-TRADER-OFFICE-R2542';
+const OFFICE_VERSION = '2.1.1-R2543';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -289,6 +289,8 @@ function derive(snap) {
   const st = snap.status?.data || {};
   const la = st.leaderAuto || {};
   const h = la.health || {};
+  const pf = snap.positions?.data?.performance?.funnel;
+  const execution = pf?.execution || { chains: [], reasonCounts: pf?.blockedReasons || {}, lastBlock: null };
   const rows = la.analysisLifecycle?.rows || [];
   const deep = Number(h.deepAnalyses || 0);
   const unique = Number(h.uniqueAnalyzedSymbols || 0);
@@ -307,6 +309,13 @@ function derive(snap) {
   const budgetBlocked = budget?.budgetCallBlocked === true || budget?.canReserveNextCall === false;
   const blockers = [];
   const add = (level, code, title, detail) => blockers.push({ level, code, title, detail });
+  const activeBlocker = execution.lastBlock || la.activeBlocker;
+  if (activeBlocker) {
+    const rawReasons = activeBlocker.reasons ?? activeBlocker.reason;
+    const reasons = (Array.isArray(rawReasons) ? rawReasons : [rawReasons]).filter(Boolean).map(String);
+    add('serious', 'EXECUTION_HARD_BLOCK', 'Son yürütme güvenlik engeli',
+      [activeBlocker.symbol, ...reasons, activeBlocker.at || activeBlocker.ts || null].filter(Boolean).join(' • ') || 'Neden bildirilmedi');
+  }
 
   if (!snap.status?.ok) add('critical', 'BRAIN_UNREACHABLE', 'Brain Hub yanıt vermiyor', snap.status?.error || ('HTTP ' + (snap.status?.status || 0)));
   if (st && snap.status?.ok) {
@@ -364,7 +373,8 @@ function derive(snap) {
     { key: 'action', label: 'ALIŞ + SATIŞ son karar', value: Number(h.sovereignLong||0)+Number(h.sovereignShort||0) },
     { key: 'wait', label: 'JEV BEKLE', value: Number(h.sovereignWait||0) },
     { key: 'approved', label: 'JEV MARKET_NOW onayı', value: approved },
-    { key: 'intent', label: 'Emir niyeti oluştu', value: intentBuilt },
+    { key: 'intentBuilt', label: 'Emir niyeti oluştu', value: intentBuilt },
+    { key: 'hardBlocked', label: 'Yürütme güvenlik engeli', value: finite(pf?.hardBlocked) ?? 0 },
     { key: 'safety', label: 'Zorunlu güvenlik geçti', value: hardSafetyReady },
     { key: 'orders', label: 'Açılan emir', value: finite(h.ordersPlaced) ?? 0 }
   ] : [
@@ -381,11 +391,10 @@ function derive(snap) {
   ];
   // Keep /live/status intact. Durable decision events reconcile the funnel only;
   // they must never replace scanner health or fabricate historical runtime calls.
-  const pf = snap.positions?.data?.performance?.funnel;
   if (sovereign && pf) {
     const counts = { deep: pf.analyses, pass1: pf.pass1, final: pf.pass2,
       action: Number(pf.long || 0) + Number(pf.short || 0), wait: pf.wait,
-      approved:pf.approved, intent:pf.intentBuilt, safety:pf.safetyPassed, orders: pf.orders };
+      approved:pf.approved, intentBuilt:pf.intentBuilt, hardBlocked:pf.hardBlocked, safety:pf.safetyPassed, orders: pf.orders };
     for (const item of funnel) if (counts[item.key] != null) item.value = counts[item.key];
   }
   // One durable source for decision displays; raw scanner health stays intact.
@@ -393,6 +402,7 @@ function derive(snap) {
     sovereignPass1Calls:Number(pf.pass1||0),sovereignFinalCalls:Number(pf.pass2||0),
     sovereignLong:Number(pf.long||0),sovereignShort:Number(pf.short||0),sovereignWait:Number(pf.wait||0),
     ordersPlaced:Number(pf.orders||0),qualified:Number(pf.approved||0),intentBuilt:Number(pf.intentBuilt||0),safetyReady:Number(pf.safetyPassed||0),intentReady:Number(pf.safetyPassed||0),
+    claudeV111:{...h.claudeV111,finalAuthorityApproved:Number(pf.approved||0),finalAuthorityIntentBuilt:Number(pf.intentBuilt||0),finalAuthorityHardSafetyReady:Number(pf.safetyPassed||0)},
     decisionAnalyses:Number(pf.analyses||0),decisionUniqueCoins:Number(pf.uniqueCoverage||0)
   } : {};
   const vp = snap.visionProgress?.data || st.visionProgress || {};
@@ -405,7 +415,7 @@ function derive(snap) {
     exec: { busy: la.busy === true, text: String(la.lastExecution || '—') },
     positions: { busy: st.positionManager?.busy === true, text: String(st.positionManager?.lastReview?.actionTr || '—') }
   };
-  return { blockers, funnel, desks, stage, decisionHealth, budget: budget || null, budgetBlocked,
+  return { blockers, funnel, desks, stage, decisionHealth, execution, budget: budget || null, budgetBlocked,
     scanner: { scanRuns: h.scanRuns ?? null, tickResults: h.tickResults ?? null,
       deepAnalyses: h.deepAnalyses ?? null, uniqueAnalyzedSymbols: h.uniqueAnalyzedSymbols ?? null,
       latestLightweightUniverseCount: h.latestLightweightUniverseCount ?? null,

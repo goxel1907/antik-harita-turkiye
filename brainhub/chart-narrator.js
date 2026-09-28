@@ -304,6 +304,8 @@ function narrateChart(u) {
     const r = frames[tf];
     if (!r.available) { unusable.push(tf); continue; }
     if (r.flags.fresh !== true) stale.push(tf);
+    // Aggregated 45m remains visible context, never an independent alignment vote.
+    if (tf === '45m' || u?.frames?.[tf]?.synthetic === true) continue;
     const t = String(r.flags.trend || '').toUpperCase();
     if (t === 'UP') up.push(tf); else if (t === 'DOWN') down.push(tf); else mixed.push(tf);
   }
@@ -321,13 +323,14 @@ function narrateChart(u) {
       '. Disagreement across timeframes is normal and is not by itself a reason to wait.'
   };
 
-  return {
+  const narrative = {
     contract: 'R2543_CHART_NARRATOR_DETERMINISTIC_V1',
     source: 'CLOSED_CANDLE_NUMERIC_TRUTH',
     semantics: 'Deterministic reading of the same closed candles the chart is drawn from. No model and no image are involved, so it cannot hallucinate: a clause appears only when its numeric field exists. 5m and 15m are read in full, the other timeframes in one compact line. Interpretation layer only — the numeric packet stays the single truth and JEV owns the decision.',
     frames,
     alignment
   };
+  return {...narrative, hash: require('node:crypto').createHash('sha256').update(JSON.stringify(narrative)).digest('hex')};
 }
 
 module.exports = { narrateChart, narrateFrame, FRAMES, _internals: { rsiState, volState, emaStack, candleShape, candleSize, nearestZone, px } };

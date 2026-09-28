@@ -1,6 +1,6 @@
 const fs=require('fs');
 const path=require('path');
-const {marketPacket}=require('./jev-market-packet');
+const {marketPacket,mirrorDigest}=require('./jev-market-packet');
 
 const DEFAULTS={
   enabled:false,
@@ -754,7 +754,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         at:new Date(clock()).toISOString(),pass:requestSize.pass,bytes:requestSize.bytes,
         httpStatus:r.status,inputTokens:r.data?.usage?.input_tokens??r.data?.usage?.prompt_tokens??null})+'\n','utf8');}catch{}
       if(reserve)settleBudget(reservation,cost);
-      return {ok:true,configured:true,required:true,data:r.data,attempts,durationMs:clock()-started,costUsd:cost,budget:budgetStatus()};
+      const sentPacket=JSON.parse(prepared.serialized)?.state?.coreMarketPacket;
+      return {ok:true,configured:true,required:true,data:r.data,jevSeen:sentPacket?mirrorDigest(sentPacket):null,requestSize,attempts,durationMs:clock()-started,costUsd:cost,budget:budgetStatus()};
     }catch(e){
       if(reserve)settleBudget(reservation,cfg.reservePerCallUsd);
       return {ok:false,configured:true,required:true,reason:'JEV_REQUEST_ERROR',attempts,durationMs:clock()-started,detail:String(e?.message||e).slice(0,300),budget:budgetStatus()};
@@ -1019,6 +1020,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       action:selectedId==='WAIT'?'WAIT':selectedPlan.side,
       selectedPlanId:selectedId,selectedPlan,setupFamily:setupFamily||null,entryTiming:entryTiming||null,waitReason,edgeBasis:edgeBasis||null,
       managementStyle,targetProfile,partialProfile,breakevenRule,trailRule,evidenceTrimmed:boundedEvidence.evidenceTrimmed===true,
+      jevSeen:out.jevSeen,requestSize:out.requestSize,
       model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };
   }

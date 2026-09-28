@@ -47,7 +47,8 @@ function compactCandidate(c) {
   };
 }
 
-function selectDeepCandidates(scan, limit = 16) {
+function selectDeepCandidates(scan, limit = 16, options = {}) {
+  if(options.deterministicPriority)return require('./attention-priority').selectDeterministicCandidates(scan,limit);
   const leaders=Array.isArray(scan?.leaders)?scan.leaders:[];
   const top3=leaders.filter(x=>x&&num(x.attackRank)>=1&&num(x.attackRank)<=3).sort((a,b)=>num(a.attackRank)-num(b.attackRank));
   const top4to10=leaders.filter(x=>x&&num(x.attackRank)>=4&&num(x.attackRank)<=10).sort((a,b)=>num(a.attackRank)-num(b.attackRank));
