@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.118-r2544-claude PRO UI + PC R2544 PANEL RISK + POSITION GUARD + PREMOVE
+    name: Futures 15m Alarm PRO APK v9.5.119-r2544.4-claude DESK STATS + PRO UI + PC R2544.4
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -487,6 +487,16 @@ workflows:
           grep -q 'ic_launcher_r2544' /tmp/futures15m-build/Futures15mAlarm/app/src/main/AndroidManifest.xml
           test -f /tmp/futures15m-build/Futures15mAlarm/app/src/main/res/drawable/ic_launcher_foreground_r2544.xml
           echo 'V126_ANDROID_R2544_PRO_UI_OK'
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95127_r2544_4_desk_stats.py"
+          grep -q 'V95127_R2544_4_DESK_STATS' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'public static String deskStatsText' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q "versionName '9.5.119-r2544.4-claude'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26092901' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'try { v9551InstallValidityCard(); }' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java; then
+            echo 'R2544_4_VALIDITY_CARD_STILL_INSTALLED'
+            exit 1
+          fi
+          echo 'V127_ANDROID_R2544_4_DESK_STATS_OK'
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
@@ -660,7 +670,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.118-r2544-claude PC-only fail-closed signed APK
+      - name: Build installable v9.5.119-r2544.4-claude PC-only fail-closed signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -706,9 +716,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.118-R2544-CLAUDE.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.119-R2544.4-CLAUDE.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.118-R2544-CLAUDE.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.119-R2544.4-CLAUDE.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -719,5 +729,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.118-R2544-CLAUDE.apk
+      - Futures15mAlarm-PRO-v9.5.119-R2544.4-CLAUDE.apk
       - v9595-gradle.log
