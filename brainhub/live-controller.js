@@ -347,6 +347,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const fastLaneSeen = new Map();
   // CLAUDE_R2544_CHASE_REQUEUE: fiyatı kaçan (kovalama engellenen) sembol, taze veriyle hemen yeniden JEV'e gider.
   const fastLanePriority = new Map();
+  let fastLanePreMoveOffset = 0;
   let fastLaneState = { lastTickAt:null, lastSignal:null, lastResult:null, history:[] };
   let lastDisarmReason = 'STARTUP_FAIL_CLOSED';
   let accountSummaryCache = { at:0, value:null };
@@ -2385,7 +2386,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         }
         // (b) CLAUDE_R2544_PREMOVE: ilk 8 aday arasında hareket BAŞLAMADAN imza verenler öne alınır.
         if(!chosen&&eligible.length&&market&&typeof market.preMoveProbe==='function'){
-          const pool=eligible.slice(0,8);
+          // Kapsama: 24 adayın tamamı 3 turda taranır (her tur 8, dönen pencere); top24/erken ilgi de görülür.
+          const start=eligible.length>8?(fastLanePreMoveOffset%eligible.length):0;
+          const pool=[...eligible.slice(start),...eligible.slice(0,start)].slice(0,8);
+          fastLanePreMoveOffset+=8;
           const timeout=(pr,ms)=>Promise.race([pr,new Promise(r=>setTimeout(()=>r(null),ms))]);
           const probes=await Promise.all(pool.map(c=>timeout(market.preMoveProbe(symOf(c)),5000).catch(()=>null)));
           const ranked=pool.map((c,i)=>({c,p:probes[i]?.combined||null,i}))
@@ -4061,7 +4065,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // piyasa emri AÇILMAZ; sembol hızlı hatta öncelik alır → 20 sn içinde taze veriyle yeniden JEV.
     {
       const gcfg=positionGuard.readConfig(root);
-      const aPrice=finite(advisory?.unifiedContext?.livePrice);
+      // Referans: JEV planının giriş fiyatı (yoksa analiz anındaki canlı fiyat).
+      const aPrice=finite(chasePlan?.entryPrice)??finite(advisory?.unifiedContext?.livePrice);
       const pStop=finite(chasePlan?.stopPrice)??finite(chasePlan?.invalidationPrice);
       const cSide=String(chasePlan?.side||'').toUpperCase();
       if(aPrice!==null&&aPrice>0&&pStop!==null&&['LONG','SHORT'].includes(cSide)&&Math.abs(aPrice-pStop)>0){

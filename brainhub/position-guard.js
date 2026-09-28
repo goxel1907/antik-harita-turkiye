@@ -8,6 +8,7 @@
 //   • 15M_TRADE (runner): TP1 öncesi 1R'de başabaş, uzun süre ilerlemezse zaman stopu.
 //   TP1 sonrası (BREAKEVEN/TRAILING) iz süren stop CLAUDE_V111 runner'dadır; guard orada yalnız likidasyon bekçisidir.
 const fs=require('node:fs');
+const {LIQ_RULE,safeStopDistancePct}=require('./liquidation');
 const path=require('node:path');
 
 const DEFAULTS=Object.freeze({
@@ -18,8 +19,9 @@ const DEFAULTS=Object.freeze({
   scalpTimeStopMin:25, scalpTimeStopMaxMfeR:0.3, scalpTimeStopMaxProgressR:0.1,
   tradeBreakevenAtR:1.0, tradeTimeStopMin:180, tradeTimeStopMaxMfeR:0.3, tradeTimeStopMaxProgressR:0,
   breakevenBufferPct:0.12,
-  liqStopMaxFraction:0.8,        // stop, mark→likidasyon mesafesinin %80'inden uzaktaysa sıkılaştır
-  liqTightenFraction:0.6,        // yeni stop mesafesi = likidasyon mesafesinin %60'ı
+  liqStopMaxFraction:LIQ_RULE.maxFraction, // emir öncesi kapıyla AYNI kural (liquidation.js safeStopDistancePct)
+  liqBufferPct:LIQ_RULE.bufferPct,
+  liqTightenFraction:0.9,        // ihlalde yeni stop mesafesi = güvenli mesafenin %90'ı
   liqEmergencyPct:0.8,           // mark likidasyona %0.8'den yakınsa kapat
   minGapPct:0.15,                // yeni stop mark'a bu kadardan yakın olamaz (yoksa kapat)
   minImprovePct:0.05,
@@ -91,7 +93,9 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
   const propose=(rawTarget,reason)=>{
     const target=roundStop(rawTarget,side,snap?.tickSize);
     const gapPct=dir*(mark-target)/mark*100; // stop mark'ın doğru tarafında ve uzaklığı
-    if(gapPct<cfg.minGapPct)return {action:'CLOSE',reason:reason+'_LEVEL_ALREADY_CROSSED',target:null};
+    // Seviye GERÇEKTEN geçildiyse kapat; yalnız çok yakınsa bekle (küçük R'li kazançlı scalp erken kapatılmaz).
+    if(gapPct<=0)return {action:'CLOSE',reason:reason+'_LEVEL_ALREADY_CROSSED',target:null};
+    if(gapPct<cfg.minGapPct)return null;
     if(!tighter(target)||improvePct(target)<cfg.minImprovePct)return null; // asla genişletme
     return {action:'TIGHTEN_STOP',reason,target};
   };
@@ -100,11 +104,12 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
   // 1) Likidasyon bekçisi (her fazda).
   if(liqDistPct!==null){
     if(liqDistPct<=cfg.liqEmergencyPct)return decide({action:'CLOSE',reason:'GUARD_LIQUIDATION_PROXIMITY',target:null});
-    const liqDist=Math.abs(mark-liqPrice);
-    const stopDist=curStop===null?Infinity:dir*(mark-curStop);
-    const stopBeyondLiq=curStop===null||(dir===1?curStop<=liqPrice:curStop>=liqPrice);
-    if(stopBeyondLiq||stopDist/liqDist>cfg.liqStopMaxFraction){
-      const d=propose(mark-dir*liqDist*cfg.liqTightenFraction,'GUARD_STOP_NEAR_LIQUIDATION');
+    const stopDistPct=curStop===null?Infinity:dir*(mark-curStop)/mark*100;
+    const safe=safeStopDistancePct(liqDistPct,{bufferPct:cfg.liqBufferPct,maxFraction:cfg.liqStopMaxFraction});
+    out.metrics.safeStopDistancePct=Number(safe.toFixed(4));
+    if(stopDistPct>safe){
+      const safePct=safeStopDistancePct(liqDistPct,{bufferPct:cfg.liqBufferPct,maxFraction:cfg.liqStopMaxFraction});
+    const d=propose(mark-dir*mark*safePct/100*cfg.liqTightenFraction,'GUARD_STOP_NEAR_LIQUIDATION');
       if(d)return decide(d);
     }
   }

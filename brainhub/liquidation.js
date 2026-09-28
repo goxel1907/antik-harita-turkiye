@@ -24,16 +24,25 @@ function estimateLiquidation({side,entryPrice,leverage,maintenanceMarginRate,mai
   return {ok:price!==null,model:'BINANCE_ISOLATED_ONE_WAY',side:s,entryPrice:ep,leverage:lev,maintenanceMarginRate:mmr,price,distancePct};
 }
 
-// Stop likidasyondan ÖNCE mi tetiklenir? bufferPct: likidasyona en az bu kadar (fiyat %) mesafe kalmalı.
-function stopVsLiquidation({side,entryPrice,stopPrice,liquidationPrice,bufferPct=0.5}={}){
+// TEK GÜVENLİ STOP KURALI (emir öncesi kapı + açık pozisyon koruması aynı sayıyı kullanır):
+// stop mesafesi ≤ min(likidasyon mesafesi − tampon, maxFraction × likidasyon mesafesi).
+const LIQ_RULE=Object.freeze({bufferPct:0.5,maxFraction:0.9});
+function safeStopDistancePct(liqDistancePct,{bufferPct=LIQ_RULE.bufferPct,maxFraction=LIQ_RULE.maxFraction}={}){
+  const d=finite(liqDistancePct);
+  if(d===null||d<=0)return 0;
+  return Math.max(0,Math.min(d-Math.max(0,finite(bufferPct)??LIQ_RULE.bufferPct),d*(finite(maxFraction)??LIQ_RULE.maxFraction)));
+}
+// Stop likidasyondan güvenli mesafede ÖNCE mi tetiklenir?
+function stopVsLiquidation({side,entryPrice,stopPrice,liquidationPrice,bufferPct=LIQ_RULE.bufferPct,maxFraction=LIQ_RULE.maxFraction}={}){
   const s=String(side||'').toUpperCase();
   const ep=finite(entryPrice),sp=finite(stopPrice),lp=finite(liquidationPrice),buf=Math.max(0,finite(bufferPct)??0.5);
   if(!['LONG','SHORT'].includes(s)||ep===null||sp===null||lp===null)return {ok:false,known:false,reason:'LIQUIDATION_UNKNOWN'};
   const stopDistancePct=Math.abs(ep-sp)/ep*100;
   const liqDistancePct=Math.abs(ep-lp)/ep*100;
-  const usableLiqDistancePct=Math.max(0,liqDistancePct-buf);
+  const usableLiqDistancePct=safeStopDistancePct(liqDistancePct,{bufferPct:buf,maxFraction});
   const stopOnRightSide=s==='LONG'?sp<ep:sp>ep;
-  const stopBeforeLiq=s==='LONG'?sp>lp*(1+buf/100):sp<lp*(1-buf/100);
+  const liqOnRightSide=s==='LONG'?lp<ep:lp>ep;
+  const stopBeforeLiq=liqOnRightSide&&stopDistancePct<=usableLiqDistancePct+1e-12;
   return {ok:stopOnRightSide&&stopBeforeLiq,known:true,stopDistancePct,liqDistancePct,usableLiqDistancePct,
     stopToLiqFraction:liqDistancePct>0?stopDistancePct/liqDistancePct:null,
     reason:!stopOnRightSide?'STOP_WRONG_SIDE':stopBeforeLiq?null:'STOP_BEYOND_LIQUIDATION'};
@@ -48,4 +57,4 @@ function effectiveLiquidationPrice({exchangeLiquidationPrice,estimate}={}){
   return {price:null,source:'UNKNOWN'};
 }
 
-module.exports={estimateLiquidation,stopVsLiquidation,effectiveLiquidationPrice};
+module.exports={LIQ_RULE,safeStopDistancePct,estimateLiquidation,stopVsLiquidation,effectiveLiquidationPrice};

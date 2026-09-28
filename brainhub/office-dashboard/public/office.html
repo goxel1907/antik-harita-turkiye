@@ -44,8 +44,14 @@ header .sub{color:var(--text-muted);font-size:12px}
 .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:12px}
 .kpi{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;min-width:0}
 .kpi .l{font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px}
-.kpi .v{font-size:22px;font-weight:650;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kpi .s{font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .v{font-size:20px;font-weight:650;margin-top:2px;line-height:1.18;overflow-wrap:anywhere}
+.kpi .s{font-size:12px;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* CLAUDE_R2544: karar & koruma şeridi */
+.guard-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 12px}
+.guard-strip .lane-card .v{font-size:16px;font-weight:650;margin:3px 0 2px;line-height:1.2}
+.guard-strip .lane-card .s{font-size:12px;color:var(--text-secondary);line-height:1.35}
+@media (max-width:980px){.guard-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.guard-strip{grid-template-columns:1fr}}
 .lane-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 12px}
 .lane-card{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;position:relative;overflow:hidden}
 .lane-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--text-muted)}
@@ -224,6 +230,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   </header>
 
   <section class="kpis" id="kpis"></section>
+  <section class="guard-strip" id="guardStrip" aria-label="Karar ve koruma (R2544)"></section>
   <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
   <section class="lane-strip" id="laneStrip"></section>
 
@@ -626,9 +633,34 @@ function setBubble(id, text){
 }
 
 // ---------- Paneller ----------
-function kpi(l,v,s,tone){ return `<div class="kpi"><div class="l">${esc(l)}</div><div class="v" style="${tone?`color:var(--${tone})`:''}">${esc(v)}</div><div class="s">${esc(s||'')}</div></div>`; }
+function kpi(l,v,s,tone){ return `<div class="kpi" title="${esc(String(v??'')+' — '+String(s??''))}"><div class="l">${esc(l)}</div><div class="v" style="${tone?`color:var(--${tone})`:''}">${esc(v)}</div><div class="s">${esc(s||'')}</div></div>`; }
 function chip(id, tone, text){ const c=$(id); c.className='chip '+(tone||''); c.querySelector('span:last-child').textContent=text; }
 
+// CLAUDE_R2544: Karar & koruma şeridi — panel risk otoritesi, açık pozisyon koruması, ön-hareket, son engel.
+function renderGuardStrip(s){
+  const el=document.getElementById('guardStrip'); if(!el) return;
+  const st=s.status?.data||{}; const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})};
+  const c111=h.claudeV111||{}; const c112=h.claudeV112||{}; const la=st.leaderAuto?.config||st.leaderAuto||{};
+  const ra=st.policy?.riskAuthority||st.leaderAuto?.policy?.riskAuthority||'USER_PANEL_EXACT';
+  const g=c111.runner?.guard||null; const pm=c112.fastLane?.preMoveScan||null; const cq=c112.fastLane?.chasePriority||[];
+  const lb=s.derived?.execution?.lastBlock||st.leaderAuto?.activeBlocker||null;
+  const card=(tone,title,v,sub,tags)=>`<div class="lane-card ${tone}"><div class="t">${esc(title)}</div><div class="v">${v}</div><div class="s">${sub}</div>${(tags||[]).length?`<div class="mini">${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>`:''}</div>`;
+  const rows=(g?.rows||[]);
+  const guardSub=rows.length?rows.slice(0,2).map(r=>`${esc(r.symbol)} ${r.lane==='5M_SCALP'?'scalp':'trade'} • stop ${esc(r.currentStop??'—')} • liq ${esc(r.exchangeLiquidationPrice??r.estimatedLiquidationPrice??'—')} • MFE ${esc(r.mfeR??'—')}R${r.last?.reason?' • '+esc(trUi(r.last.reason)):''}`).join('<br>'):'Açık pozisyon yok — pozisyon açılınca 10 sn\'de bir izlenir.';
+  const hits=(pm?.hits||[]);
+  const pmSub=pm?(hits.length?hits.slice(0,3).map(x=>`${esc(x.symbol)} ${x.state==='IGNITION'?'ATEŞLEME':'ÖN-HAREKET'} ${x.direction==='LONG'?'↑ LONG':x.direction==='SHORT'?'↓ SHORT':'↕'} (${esc(x.priority)})`).join('<br>'):`${esc(pm.checked??0)} aday tarandı • imza yok`):'Hızlı hat henüz tarama yapmadı.';
+  const lbReasons=lb?[].concat(lb.reasons||lb.reason||[]).map(trUi).join(', '):'';
+  const rc=lb?.riskContext||null, ch=lb?.chaseR||null;
+  const lbSub=lb?`${esc(lb.symbol||'')} • ${esc(lbReasons)}${rc?`<br>risk ${esc(rc.riskQuote??'—')} USDT • stop %${esc(rc.stopDistancePct?.toFixed?rc.stopDistancePct.toFixed(2):rc.stopDistancePct??'—')} • liq %${esc(rc.estimatedLiquidationDistancePct?.toFixed?rc.estimatedLiquidationDistancePct.toFixed(2):'—')}`:''}${ch?`<br>kaçış ${esc(ch.runR)}R / sınır ${esc(ch.limitR)}R`:''}`:'Kayıtlı zorunlu engel yok.';
+  el.innerHTML=[
+    card(ra==='STRICT_POLICY_CAP'?'warn':'info','Risk otoritesi',ra==='STRICT_POLICY_CAP'?'SIKI TAVAN':'PANEL',
+      ra==='STRICT_POLICY_CAP'?'live-policy işlem risk tavanı bağlayıcı.':`${esc(la.marginQuote??'?')} USDT × ${esc(la.leverage??'?')}x • en fazla ${esc(la.maxOpenPositions??'?')} pozisyon • işlem risk tavanı yok`,
+      ['yapısal stop','likidasyon kapısı','kovalama 0.5R']),
+    card(g&&g.mode==='BINDING'?'good':'warn','Pozisyon koruması',g?(g.mode==='BINDING'?'BAĞLAYICI • 10 sn':esc(trUi(g.mode))):'—',guardSub,['başabaş','kâr kilidi','zaman stopu','likidasyon bekçisi']),
+    card(hits.length?'good':'info','Ön-hareket radarı',hits.length?`${hits.length} imza`:'bekliyor',pmSub,cq.length?cq.map(x=>`${x.symbol} yeniden JEV ×${x.runs}`):['kaçan sembol yok']),
+    card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,[])
+  ].join('');
+}
 function renderKpis(s){
   const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h={...(la.health||{}),...(s.derived?.decisionHealth||{})}; const acc=s.account?.data||{};
   const armed = st.armed===true; const exp = st.expiresAt ? Math.max(0,Math.round((Date.parse(st.expiresAt)-Date.now())/60000)) : null;
@@ -1273,7 +1305,7 @@ async function tick(){
     const s = await r.json(); last=s;
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
-    renderKpis(s); renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    renderKpis(s); try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yalnız GET`;

@@ -147,3 +147,33 @@ test('controller: guard places reduce-only tighter stop, then closes crossed sca
   assert.equal(controller.runnerStatus().rows[0].phase,'CLOSED');
   assert.ok(controller.runnerStatus().guard);
 });
+
+test('öz-denetim: küçük R ile +0.7R scalp erken KAPATILMAZ (hedef mark\'a çok yakınsa bekler)',()=>{
+  // R=%0.3: BE hedefi 100.12, mark 100.21 → aralık %0.09 < minGap %0.15 → eylem yok (eski hata: CLOSE)
+  const r=G.evaluateGuard(base({row:{originalStopPrice:99.7,currentStop:99.7},snap:{markPrice:100.21}}));
+  assert.equal(r.action,'NONE',JSON.stringify(r));
+  const crossed=G.evaluateGuard(base({row:{originalStopPrice:99.7,currentStop:99.7,guardMfeR:0.8},snap:{markPrice:100.05}}));
+  assert.equal(crossed.action,'CLOSE','BE seviyesi gerçekten geçildiyse kapatır');
+});
+
+test('öz-denetim: emir öncesi kapıdan geçen stop, girişte guard tarafından likidasyon için sıkılaştırılmaz (tek kural)',()=>{
+  let checked=0;
+  for(const lev of [3,5,8,10,12,15,20,25]){
+    for(const mmr of [0.004,0.005,0.01,0.025]){
+      for(const side of ['LONG','SHORT']){
+        const est=L.estimateLiquidation({side,entryPrice:100,leverage:lev,maintenanceMarginRate:mmr});
+        for(let stopPct=0.3;stopPct<15;stopPct+=0.37){
+          const stop=side==='LONG'?100*(1-stopPct/100):100*(1+stopPct/100);
+          const pre=L.stopVsLiquidation({side,entryPrice:100,stopPrice:stop,liquidationPrice:est.price});
+          const g=G.evaluateGuard({row:{symbol:'X',side,entryPrice:100,originalStopPrice:stop,currentStop:stop,originTF:'15m',createdAt:0},
+            snap:{qty:1,entryPrice:100,markPrice:100,tickSize:0.0001,liquidationPrice:est.price},phase:'INITIAL',now:1000});
+          const guardLiqAction=g.reason==='GUARD_STOP_NEAR_LIQUIDATION'||g.reason==='GUARD_LIQUIDATION_PROXIMITY';
+          if(pre.ok)assert.equal(guardLiqAction,false,`lev ${lev} mmr ${mmr} ${side} stop ${stopPct.toFixed(2)}%: kapı geçti ama guard sıkılaştırdı`);
+          else assert.equal(guardLiqAction,true,`lev ${lev} ${side} stop ${stopPct.toFixed(2)}%: kapı reddetti ama guard görmedi`);
+          checked++;
+        }
+      }
+    }
+  }
+  assert.ok(checked>2000);
+});
