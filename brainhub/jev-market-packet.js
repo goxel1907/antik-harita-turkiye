@@ -18,7 +18,10 @@ function framePacket(f,{full=false}={}){
     // Canonical numeric levels survive request compaction; prose is not a numeric substitute.
     fibLevels:f.smcContext?.fibLevels||null,oteReference:f.smcContext?.oteReference||null,
     orderBlocks:{bullish:clipArr(f?.orderBlocks?.bullish,2),bearish:clipArr(f?.orderBlocks?.bearish,2)},
-    swingStructure:f.swingStructure||null,liquidity:f.liquidity||null
+    swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,
+    // CLAUDE_R2544_PREMOVE: hareket başlamadan önceki deterministik imza (yalnız 1m/3m/5m; kanıt, karar değil).
+    preMove:f.preMove&&f.preMove.available?{state:f.preMove.state,score:f.preMove.score,direction:f.preMove.direction,
+      triggers:f.preMove.triggers,invalidation:f.preMove.invalidation,reasons:clipArr(f.preMove.reasons,6)}:null
   };
   if(full){
     const fvgSource=arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps;

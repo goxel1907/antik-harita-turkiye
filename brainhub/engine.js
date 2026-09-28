@@ -1,4 +1,5 @@
 'use strict';
+const { preMoveSignal } = require('./premove');
 
 const FRAMES = ['1m', '3m', '5m', '15m', '30m', '45m', '1h', '4h', '1d'];
 const NATIVE_FRAMES = FRAMES.filter(x => x !== '45m');
@@ -515,6 +516,11 @@ function structure(c, frame = null) {
   base.smcContext = smcContext(swings, last.close, gaps);
   base.orderBlocks = orderBlocks(c, a14);
   base.opportunity = opportunity(c, frame, a14, base);
+  // CLAUDE_R2544_PREMOVE: kısa TF'lerde hareket başlamadan önceki imza (sıkışma/emilim/delta/seviye).
+  if (['1m','3m','5m'].includes(frame)) {
+    try { base.preMove = preMoveSignal(c, { atr14:a14, prior20High:high, prior20Low:low, frame }); }
+    catch (e) { base.preMove = { available:false, frame, reason:String(e.message || e).slice(0,80) }; }
+  }
   return base;
 }
 function analyzeFrames(rawByFrame, now = Date.now()) {

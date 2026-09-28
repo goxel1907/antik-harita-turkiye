@@ -2,6 +2,7 @@
 
 const zlib = require('zlib');
 const { FRAMES, NATIVE_FRAMES, analyzeFrames, microstructure, parseKlines, aggregate45m, structure } = require('./engine');
+const { combinePreMove } = require('./premove');
 
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
@@ -628,6 +629,26 @@ async function frameSet(symbol, base = FUTURES, path = '/fapi/v1/klines') {
   frameCache.set(cacheKey, { at: snapshotNow, result: out });
   return out;
 }
+// CLAUDE_R2544_PREMOVE: hızlı-hat sıralaması için hafif prob — yalnız 1m+3m (72 mum), 15 sn önbellek.
+const preMoveCache = new Map();
+async function preMoveProbe(symbol) {
+  if (!validSymbol(symbol)) return { available:false, reason:'SYMBOL_INVALID' };
+  const cached = preMoveCache.get(symbol);
+  if (cached && Date.now() - cached.at < 15000) return cached.result;
+  const byTf = {};
+  await Promise.all(['1m','3m'].map(async tf => {
+    try {
+      const raw = await getJson(FUTURES, `/fapi/v1/klines?symbol=${symbol}&interval=${tf}&limit=72`, 6000);
+      const candles = parseKlines(raw, Date.now());
+      const s = structure(candles, tf);
+      byTf[tf] = s?.preMove || { available:false, frame:tf, reason:s?.reason || 'NO_PREMOVE' };
+    } catch (e) { byTf[tf] = { available:false, frame:tf, reason:String(e.message || e).slice(0,80) }; }
+  }));
+  const result = { symbol, at:Date.now(), byTf, combined:combinePreMove(byTf) };
+  preMoveCache.set(symbol, { at:Date.now(), result });
+  if (preMoveCache.size > 400) { for (const k of [...preMoveCache.keys()].slice(0,100)) preMoveCache.delete(k); }
+  return result;
+}
 async function symbolContext(symbol, options = {}) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
   marketStream.ensureSymbol(symbol);
@@ -1181,4 +1202,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { globalContext, symbolContext, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };
+module.exports = { globalContext, symbolContext, preMoveProbe, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };

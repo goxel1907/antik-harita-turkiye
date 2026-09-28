@@ -24,6 +24,7 @@ const claudeV109 = require('./claude-v109');
 const claudeV111 = require('./claude-v111');
 const claudeV112 = require('./claude-v112');
 const tradeLanesV111 = require('./trade-lanes');
+const positionGuard = require('./position-guard');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -236,7 +237,13 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
     // CLAUDE_R2543_RISK_CAP_BINDING: bu tavan ESKİDEN talebe göre büyütülüyordu (max(limit, riskPct*1.001))
     // → config'teki %0,5 hiç bağlamıyordu (ESP: talep %15,4039, "tavan" %15,4193). Artık config değeri
     // aynen uygulanır; boyut leader-live-intent içinde bu tavana göre AŞAĞI ölçeklenir.
-    maxRiskPctPerTrade:policy.limits.maxRiskPctPerTrade,
+    // CLAUDE_R2544_USER_PANEL_RISK_AUTHORITY (kullanıcı kararı 28.09.2026): varsayılan USER_PANEL_EXACT.
+    // İşlem başına risk tavanı YALNIZ live-policy.json "riskAuthority":"STRICT_POLICY_CAP" ise bağlayıcıdır.
+    // Panel (marj × kaldıraç × max pozisyon) tek otoritedir; zarar sınırını yapısal stop + likidasyon
+    // kapısı + position-guard (açık pozisyon koruması) belirler.
+    maxRiskPctPerTrade:policy.riskAuthority==='STRICT_POLICY_CAP'||riskPct===null
+      ? policy.limits.maxRiskPctPerTrade
+      : Math.max(Number(policy.limits.maxRiskPctPerTrade)||0,riskPct*1.001),
     maxNotionalPctPerTrade:notionalPct===null
       ? policy.limits.maxNotionalPctPerTrade
       : Math.max(Number(policy.limits.maxNotionalPctPerTrade)||0,notionalPct*1.001),
@@ -253,12 +260,12 @@ function applyDynamicSizingGuards(accountRisk, settings, policy) {
     reasons:[],
     accountRisk:{ ...accountRisk, limits:effectiveLimits },
     sizing:{
-      sizingAuthority:'USER_PANEL_EXACT_WITHIN_CONFIGURED_RISK_CAP',
-      riskAuthority:policy.riskAuthority==='STRICT_POLICY_CAP'?'STRICT_POLICY_CAP':'CONFIGURED_RISK_CAP_BINDING',
+      sizingAuthority:policy.riskAuthority==='STRICT_POLICY_CAP'?'USER_PANEL_EXACT_WITHIN_CONFIGURED_RISK_CAP':'USER_PANEL_EXACT',
+      riskAuthority:policy.riskAuthority==='STRICT_POLICY_CAP'?'STRICT_POLICY_CAP':'USER_PANEL_EXACT',
       riskPctOfEquity:riskPct===null?null:Number(riskPct.toFixed(4)),
       // R2543_EXACT_PANEL_AUTHORITY: panel boyutu degismez; risk tavani asilirsa emir fail-closed olur.
       configuredMaxRiskPctPerTrade:finite(policy?.limits?.maxRiskPctPerTrade),
-      riskCapQuote:equity>0&&finite(policy?.limits?.maxRiskPctPerTrade)!==null
+      riskCapQuote:policy.riskAuthority==='STRICT_POLICY_CAP'&&equity>0&&finite(policy?.limits?.maxRiskPctPerTrade)!==null
         ? Number((equity*Number(policy.limits.maxRiskPctPerTrade)/100).toFixed(8)) : null,
       requestedMarginQuote:settings.marginQuote,
       appliedMarginQuote:settings.marginQuote,
@@ -338,6 +345,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   let fastLaneSymbol = null;
   let fastLaneJevCalls = [];
   const fastLaneSeen = new Map();
+  // CLAUDE_R2544_CHASE_REQUEUE: fiyatı kaçan (kovalama engellenen) sembol, taze veriyle hemen yeniden JEV'e gider.
+  const fastLanePriority = new Map();
   let fastLaneState = { lastTickAt:null, lastSignal:null, lastResult:null, history:[] };
   let lastDisarmReason = 'STARTUP_FAIL_CLOSED';
   let accountSummaryCache = { at:0, value:null };
@@ -1994,7 +2003,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     for(const cid of row.unknownClientAlgoIds||[])if(cid)refs.push({clientAlgoId:String(cid)});
     return refs;
   }
-  function registerRunner({intent,result,mode}){
+  function registerRunner({intent,result,mode,lane=null}){
     const symbol=String(result?.symbol||intent?.symbol||'').toUpperCase();
     if(!/^[A-Z0-9]{2,28}$/.test(symbol))return null;
     const prev=runnerState.bySymbol?.[symbol];
@@ -2016,6 +2025,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       tpPlaced:Number(result?.runner?.tpPlaced||(Array.isArray(result?.tpAlgoIds)?result.tpAlgoIds.length:2))||2,
       takeProfit3:finite(intent?.takeProfit3),
       originTF:String(intent?.originTF||'').toLowerCase(),
+      lane:lane?String(lane).toUpperCase():null,
+      estimatedLiquidationPrice:finite(intent?.estimatedLiquidationPrice),
+      requestedLeverage:finite(intent?.requestedLeverage),
       currentStop:finite(intent?.stopPrice),
       shadowStop:null,
       runnerAlgoIds:[],
@@ -2046,7 +2058,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         trailTf:x.lastDesired?.trail?.tf||null,lastReason:x.lastDesired?.reason||x.lastDesired?.basis||null,
         failures:Number(x.failures||0),tp3FallbackPlaced:x.tp3FallbackPlaced===true
       })),
-      last:runnerLast
+      last:runnerLast,
+      guard:guardSummary()
     };
   }
   async function cancelRefs(refs,creds){
@@ -2068,7 +2081,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       row.closedAt=clock();
       let cleanup=null;
       // Pozisyon kapandı: bu işleme ait artık koşullu emirler sonraki pozisyonu etkilemesin.
-      if(binding){
+      if(binding||row.guardOrdersPlaced===true){
         const c=await cancelRefs(runnerOrderRefs(row),creds);
         cleanup={cancelled:c.done.length,failed:c.failed.length};
         if(c.failed.length)runnerState.orphans=[...(runnerState.orphans||[]),...c.failed.map(r=>({...r,symbol:row.symbol}))].slice(-60);
@@ -2078,6 +2091,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     const phase=claudeV111.runnerPhase({initialQty:row.initialQty,tpQty:row.tpQty,remainingQty:snap.qty,stepSize:snap.stepSize,tpPlaced:row.tpPlaced||2});
     if(phase!==row.phase){runnerEvent(row,'PHASE',{from:row.phase,to:phase,remainingQty:snap.qty});row.phase=phase;}
+    // CLAUDE_R2544_POSITION_GUARD: runner'dan ÖNCE koruma (likidasyon + scalp/trade kuralları).
+    const guarded=await applyPositionGuard(row,snap,phase,creds);
+    if(guarded)return guarded;
     if(binding&&Array.isArray(row.pendingCancel)&&row.pendingCancel.length){
       const c=await cancelRefs(row.pendingCancel.map(id=>({algoId:id})),creds);
       row.pendingCancel=c.failed.map(r=>r.algoId);
@@ -2139,12 +2155,84 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     runnerEvent(row,'STOP_MOVED',{from,to:desired.target,basis:desired.basis,trailTf:desired.trail?.tf||null,algoId:placed.algoId,cancelled:c.done.length,cancelFailed:c.failed.length});
     return {symbol:row.symbol,ok:true,phase,action:'STOP_MOVED',target:desired.target};
   }
+  // =====================================================================
+  // CLAUDE_R2544_POSITION_GUARD: açık pozisyon ultra takip (10 sn). Yalnız reduce-only koruma.
+  // =====================================================================
+  function guardSummary(){
+    const rows=Object.values(runnerState.bySymbol||{}).filter(x=>x&&typeof x==='object'&&x.phase!=='CLOSED');
+    return {mode:positionGuard.readConfig(root).mode,rows:rows.slice(0,6).map(x=>({symbol:x.symbol,side:x.side,lane:positionGuard.laneOf(x),
+      currentStop:finite(x.currentStop),estimatedLiquidationPrice:finite(x.estimatedLiquidationPrice),exchangeLiquidationPrice:finite(x.exchangeLiquidationPrice),
+      mfeR:finite(x.guardMfeR),maeR:finite(x.guardMaeR),last:x.guardLast||null}))};
+  }
+  async function applyPositionGuard(row,snap,phase,creds){
+    const gcfg=positionGuard.readConfig(root);
+    if(gcfg.mode==='OFF')return null;
+    const now=clock();
+    const ev=positionGuard.evaluateGuard({row,snap,phase,now,config:gcfg});
+    const m=ev.metrics||{};
+    if(Number.isFinite(m.mfeR))row.guardMfeR=m.mfeR;
+    if(Number.isFinite(m.progressR))row.guardMaeR=Math.min(finite(row.guardMaeR)??m.progressR,m.progressR);
+    row.guardLast={at:new Date(now).toISOString(),action:ev.action,reason:ev.reason,progressR:m.progressR??null,mfeR:m.mfeR??null,liquidationPrice:m.liquidationPrice??null,liquidationSource:m.liquidationSource||null};
+    // Likidasyon tutarlılığı: tahmin (emir öncesi) vs Binance (açık pozisyon) bir kez kaydedilir.
+    const exLiq=finite(snap?.liquidationPrice);
+    if(exLiq!==null&&exLiq>0&&!row.liqCheckedAt){
+      row.liqCheckedAt=now;row.exchangeLiquidationPrice=exLiq;
+      const est=finite(row.estimatedLiquidationPrice);
+      runnerEvent(row,'LIQUIDATION_CHECK',{estimated:est,exchange:exLiq,marginMode:snap?.marginMode||null,
+        deviationPct:est!==null&&est>0?Number((Math.abs(est-exLiq)/exLiq*100).toFixed(4)):null,
+        estimateConservative:est===null?null:(String(row.side).toUpperCase()==='LONG'?est>=exLiq:est<=exLiq)});
+    }else if(exLiq!==null&&exLiq>0)row.exchangeLiquidationPrice=exLiq;
+    if(ev.action==='NONE')return null;
+    if(gcfg.mode==='SHADOW'){
+      if(row.guardShadowReason!==ev.reason){row.guardShadowReason=ev.reason;runnerEvent(row,'GUARD_SHADOW',{action:ev.action,reason:ev.reason,target:ev.target,metrics:m});}
+      return null;
+    }
+    if(ev.action==='CLOSE'){
+      if(now-Number(row.guardCloseAttemptAt||0)<10000)return {symbol:row.symbol,ok:true,phase,action:'GUARD_CLOSE_PENDING',reason:ev.reason};
+      row.guardCloseAttemptAt=now;
+      const r=await transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:1,credentials:creds,reason:ev.reason});
+      runnerEvent(row,'GUARD_CLOSE',{reason:ev.reason,ok:r?.ok===true,executedQty:r?.executedQty??null,remainingQty:r?.remainingQty??null,error:r?.ok===true?null:(r?.reason||null),metrics:m});
+      leaderHealthEvent('POSITION_GUARD',{symbol:row.symbol,stage:'CLOSE',reason:ev.reason,ok:r?.ok===true});
+      return {symbol:row.symbol,ok:r?.ok===true,phase,action:'GUARD_CLOSE',reason:ev.reason};
+    }
+    if(now-Number(row.guardLastActionAt||0)<gcfg.tightenCooldownSec*1000)return {symbol:row.symbol,ok:true,phase,action:'GUARD_COOLDOWN',reason:ev.reason};
+    row.guardLastActionAt=now;
+    const clientAlgoId=('CG'+row.symbol.slice(0,10)+now.toString(36)).slice(0,36);
+    const placed=await transport.placeRunnerStop({symbol:row.symbol,side:row.side,hedgeMode:snap.hedgeMode,quantity:snap.qty,triggerPrice:ev.target,clientAlgoId,credentials:creds});
+    if(!placed?.ok){
+      row.guardFailures=Number(row.guardFailures||0)+1;
+      if(placed?.requestSent!==false)row.unknownClientAlgoIds=[...(row.unknownClientAlgoIds||[]),clientAlgoId].slice(-10);
+      runnerEvent(row,'GUARD_STOP_FAILED',{target:ev.target,reason:ev.reason,error:placed?.reason||null,failures:row.guardFailures});
+      // Likidasyon koruması stop koyamıyorsa pozisyon kapatılır (fail-closed).
+      if(row.guardFailures>=3&&ev.reason==='GUARD_STOP_NEAR_LIQUIDATION'){
+        const r=await transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:1,credentials:creds,reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE'});
+        runnerEvent(row,'GUARD_CLOSE',{reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE',ok:r?.ok===true,error:r?.ok===true?null:(r?.reason||null)});
+        return {symbol:row.symbol,ok:r?.ok===true,phase,action:'GUARD_CLOSE',reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE'};
+      }
+      return {symbol:row.symbol,ok:false,phase,action:'GUARD_STOP_FAILED',reason:placed?.reason||null};
+    }
+    const previous=(row.runnerAlgoIds||[]).slice();
+    row.runnerAlgoIds=[placed.algoId];
+    row.runnerStopQty=snap.qty;
+    const from=row.currentStop;
+    row.currentStop=ev.target;
+    row.guardOrdersPlaced=true;
+    row.guardFailures=0;
+    const c=await cancelRefs(previous.map(id=>({algoId:id})),creds);
+    row.pendingCancel=[...(row.pendingCancel||[]),...c.failed.map(r=>r.algoId)].slice(-10);
+    runnerEvent(row,'GUARD_STOP_MOVED',{from,to:ev.target,reason:ev.reason,algoId:placed.algoId,metrics:m});
+    leaderHealthEvent('POSITION_GUARD',{symbol:row.symbol,stage:'STOP_MOVED',reason:ev.reason,to:ev.target});
+    return {symbol:row.symbol,ok:true,phase,action:'GUARD_STOP_MOVED',target:ev.target,reason:ev.reason};
+  }
+
   async function runnerTick(){
     const cfg=claudeV111.readConfig();
     const rows=Object.values(runnerState.bySymbol||{}).filter(x=>x&&typeof x==='object'&&x.phase!=='CLOSED');
     const orphans=Array.isArray(runnerState.orphans)?runnerState.orphans:[];
     // OFF yalnız yeni izlemeyi durdurur; BINDING ile açılmış pozisyonlar korunmaya devam eder (bulgu #3).
-    const active=cfg.runnerMode==='OFF'?rows.filter(runnerBinding):rows;
+    // CLAUDE_R2544: position-guard açıksa runner OFF olsa da tüm açık kayıtlar korunur.
+    const guardOn=positionGuard.readConfig(root).mode!=='OFF';
+    const active=cfg.runnerMode==='OFF'&&!guardOn?rows.filter(runnerBinding):rows;
     if(!active.length&&!orphans.length)return {ok:true,skipped:true,reason:cfg.runnerMode==='OFF'?'RUNNER_OFF':'RUNNER_NO_POSITION'};
     if(runnerBusy)return {ok:true,skipped:true,reason:'RUNNER_BUSY'};
     const creds=currentCredentials();
@@ -2191,7 +2279,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       lastTickAt:fastLaneState.lastTickAt,
       lastSignal:fastLaneState.lastSignal,
       lastResult:fastLaneState.lastResult,
-      history:fastLaneState.history.slice(0,8)
+      history:fastLaneState.history.slice(0,8),
+      preMoveScan:fastLaneState.lastPreMoveScan||null,
+      chasePriority:[...fastLanePriority.entries()].map(([symbol,v])=>({symbol,reason:v.reason,untilMs:Number(v.until)||null,runs:Number(v.runs||0)})).slice(0,6)
     };
   }
   // CLAUDE_V112_POSITION_SLOTS_REST (kullanıcı kuralı): açık pozisyon sayısı panel max'a ulaştıysa
@@ -2279,18 +2369,40 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           .filter(c=>/^[A-Z0-9]{1,28}USDT$/.test(String(c?.symbol||'').toUpperCase()))
           .filter(c=>String(leaderAnalysisState.bySymbol?.[String(c?.symbol||'').toUpperCase()]?.state||'').toUpperCase()!=='ACTIVE');
         const cooldownMs=60000;
-        const chosen=candidates.find(c=>{
-          const sym=String(c?.symbol||'').toUpperCase();
+        const symOf=c=>String(c?.symbol||'').toUpperCase();
+        const eligible=candidates.filter(c=>{
+          const sym=symOf(c);
           if(!sym||sym===leaderVisionSymbol)return false;
           const last=Number(fastLaneSeen.get('JEVATTN|'+sym)||0);
           return !last||now-last>=cooldownMs;
         });
+        let chosen=null,selection='SCANNER_ORDER',preMove=null;
+        // (a) CLAUDE_R2544_CHASE_REQUEUE: fiyatı kaçan sembol 20 sn sonra taze veriyle (soğuma beklemeden) yeniden.
+        for(const [psym,pv] of [...fastLanePriority.entries()]){
+          if(!(Number(pv?.until)>now)){fastLanePriority.delete(psym);continue;}
+          const hit=candidates.find(c=>symOf(c)===psym&&psym!==leaderVisionSymbol);
+          if(hit&&now-Number(pv.lastRunAt||0)>=20000){chosen=hit;selection='CHASE_REQUEUE';pv.lastRunAt=now;pv.runs=Number(pv.runs||0)+1;if(pv.runs>=3)fastLanePriority.delete(psym);break;}
+        }
+        // (b) CLAUDE_R2544_PREMOVE: ilk 8 aday arasında hareket BAŞLAMADAN imza verenler öne alınır.
+        if(!chosen&&eligible.length&&market&&typeof market.preMoveProbe==='function'){
+          const pool=eligible.slice(0,8);
+          const timeout=(pr,ms)=>Promise.race([pr,new Promise(r=>setTimeout(()=>r(null),ms))]);
+          const probes=await Promise.all(pool.map(c=>timeout(market.preMoveProbe(symOf(c)),5000).catch(()=>null)));
+          const ranked=pool.map((c,i)=>({c,p:probes[i]?.combined||null,i}))
+            .filter(x=>x.p&&x.p.available&&['IGNITION','PRE_MOVE'].includes(x.p.state))
+            .sort((a,b)=>b.p.priority-a.p.priority||a.i-b.i);
+          fastLaneState.lastPreMoveScan={at:new Date(now).toISOString(),checked:pool.length,
+            hits:ranked.slice(0,5).map(x=>({symbol:symOf(x.c),state:x.p.state,direction:x.p.direction,priority:x.p.priority,frame:x.p.frame}))};
+          if(ranked.length){chosen=ranked[0].c;preMove=ranked[0].p;selection='PRE_MOVE_'+ranked[0].p.state;}
+        }
+        if(!chosen)chosen=eligible[0]||null;
         if(!chosen)return {ok:true,skipped:true,reason:'JEV_SOVEREIGN_FAST_ATTENTION_NO_SYMBOL',checked:candidates.length};
-        const sym=String(chosen.symbol||'').toUpperCase();
+        const sym=symOf(chosen);
         fastLaneSeen.set('JEVATTN|'+sym,now);
-        fastLaneState.lastSignal=fastLaneRecord('JEV_ATTENTION',{symbol:sym,source:chosen.deepScanReason||null,targetSources:Array.isArray(chosen.targetSources)?chosen.targetSources.slice(0,8):[]});
+        fastLaneState.lastSignal=fastLaneRecord('JEV_ATTENTION',{symbol:sym,selection,preMove:preMove?{state:preMove.state,direction:preMove.direction,priority:preMove.priority,frame:preMove.frame,reasons:preMove.reasons}:null,source:chosen.deepScanReason||null,targetSources:Array.isArray(chosen.targetSources)?chosen.targetSources.slice(0,8):[]});
+        if(preMove){try{store.journal('CLAUDE_R2544_PREMOVE_ATTENTION',sym,{selection,state:preMove.state,direction:preMove.direction,priority:preMove.priority,frame:preMove.frame,triggers:preMove.triggers,reasons:preMove.reasons});}catch{}}
         leaderHealthEvent('FAST_LANE',{fastKind:'JEV_ATTENTION',symbol:sym,applied:true});
-        const out=await run('JEV_ATTENTION',sym,null,{});
+        const out=await run('JEV_ATTENTION',sym,null,{selection,preMove});
         fastLaneState.lastResult=fastLaneRecord('RESULT',{symbol:sym,kind:'JEV_ATTENTION',execution:out?.execution||null,orderPlaced:out?.orderPlaced===true,planStatus:out?.plan?.status||null,jevAction:out?.jevDecision?.action||null,reasons:(out?.reasons||[]).slice(0,4)});
         return {ok:true,kind:'JEV_ATTENTION',symbol:sym,result:out};
       }
@@ -2663,7 +2775,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // Equity okunamazsa tavan null döner; bu durumda hesap risk kapısı zaten fail-closed davranır.
   async function resolveRiskCapQuote(policy) {
     const capPct=finite(policy?.limits?.maxRiskPctPerTrade);
-    const out={maxRiskPctPerTrade:capPct,equity:null,riskCapQuote:null,source:'ACCOUNT_SUMMARY'};
+    const out={maxRiskPctPerTrade:capPct,equity:null,riskCapQuote:null,source:'ACCOUNT_SUMMARY',riskAuthority:policy?.riskAuthority==='STRICT_POLICY_CAP'?'STRICT_POLICY_CAP':'USER_PANEL_EXACT'};
+    // CLAUDE_R2544_USER_PANEL_RISK_AUTHORITY: panel modunda tavan yok; equity yalnız telemetri için okunur.
+    if(out.riskAuthority!=='STRICT_POLICY_CAP'){
+      try{const acct=await accountSummary({maxAgeMs:15000});out.equity=finite(acct?.equity);}catch{}
+      out.reason='USER_PANEL_EXACT_NO_RISK_CAP';
+      return out;
+    }
     if(capPct===null||capPct<=0){out.reason='MAX_RISK_LIMIT_MISSING';return out;}
     try{
       const acct=await accountSummary({maxAgeMs:15000});
@@ -3190,7 +3308,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         rate,
         bracket:Number(bracket?.bracket)||null,
         notionalFloor:finite(bracket?.notionalFloor),
-        notionalCap:finite(bracket?.notionalCap)
+        notionalCap:finite(bracket?.notionalCap),
+        cum:finite(bracket?.cum)
       };
     }catch(e){
       return {ok:false,reason:'BINANCE_MAINT_MARGIN_UNAVAILABLE',detail:String(e?.message||e).slice(0,180)};
@@ -3527,7 +3646,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function annotateLeaderDiagnostic(symbol, stage, reasons = [], extra = {}) {
     const target = leaderAutoLastDiagnostics?.candidates?.find(x => x.symbol === String(symbol || '').toUpperCase());
     if (!target) return;
+    // CLAUDE_R2544_SINGLE_SELECTED: aynı taramada tek seçili satır — Android/Office "SON ADAY" ile
+    // "OTO" son tick'i aynı adaydan okur (karışık snapshot hatası, R2543 devir Bölüm 5).
+    for (const row of leaderAutoLastDiagnostics?.candidates || []) if (row !== target) row.selected = false;
     target.selected = true;
+    target.annotatedAt = new Date(clock()).toISOString();
+    target.tickAt = leaderAutoLastTickAt || null;
     target.stage = String(stage || target.stage || '');
     target.stageTr = LEADER_STAGE_TR[target.stage] || target.stage;
     target.lastReasons = Array.isArray(reasons) ? reasons.slice(0,8) : [];
@@ -3743,11 +3867,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if (fastMode && (!advisory?.plan || String(advisory.plan.status || '').toUpperCase() !== 'QUALIFIED')) {
       // Hızlı hat: nitelikli değilse (sinyal kayboldu / Jev veto / hat kuralı) takip planı yazılmaz;
       // ana döngü coini normal 9TF akışıyla ele alır.
-      const rs=[...new Set([fastMode.kind==='SCALP'?'CLAUDE_V112_FAST_LANE_NOT_QUALIFIED':'CLAUDE_V112_REVALIDATION_NOT_QUALIFIED', advisory?.plan?.reason || advisory?.reason].filter(Boolean))];
+      const rs=[...new Set([fastMode.kind==='SCALP'?'CLAUDE_V112_FAST_LANE_NOT_QUALIFIED':fastMode.kind==='JEV_ATTENTION'?'JEV_ATTENTION_NOT_QUALIFIED':'CLAUDE_V112_REVALIDATION_NOT_QUALIFIED', advisory?.plan?.reason || advisory?.reason].filter(Boolean))];
       annotateLeaderDiagnostic(candidate.symbol, 'FAST_LANE_NOT_QUALIFIED', rs, visionDiagnosticExtras(advisory));
-      if (fastMode.kind==='REVALIDATION' && advisory?.plan && advisory?.unifiedContext) {
+      // CLAUDE_R2544_STALE_LIFECYCLE_FIX: JEV_ATTENTION yeni kararı (WATCH) eski ARMED/MARKET_NOW satırını ezmeli;
+      // aksi halde Office/Android dakikalar önceki MARKET_NOW'u güncel sanır (R2543 devir: BTWUSDT 17:15→17:52Z).
+      if ((fastMode.kind==='REVALIDATION'||fastMode.kind==='JEV_ATTENTION') && advisory?.plan && advisory?.unifiedContext) {
         // Jev vetosundan sonra aynı plan tekrar hızlı yola girmesin: yaşam döngüsü güncellenir (latch temizlenir).
-        upsertLeaderLifecycle(candidate,advisory,null,'CLAUDE_V112_REVALIDATION_'+String(advisory.plan.status || 'REVIEW_REQUIRED').toUpperCase());
+        upsertLeaderLifecycle(candidate,advisory,null,(fastMode.kind==='JEV_ATTENTION'?'JEV_ATTENTION_':'CLAUDE_V112_REVALIDATION_')+String(advisory.plan.status || 'REVIEW_REQUIRED').toUpperCase());
       }
       return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', symbol:candidate.symbol, plan:advisory?.plan || null, reasons:rs, fastLane:fastMode.kind };
     }
@@ -3930,6 +4056,31 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       finalAuthoritySoftWarnings.push(warning);
       leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'SOFT_WARNING',symbol:candidate.symbol,reason:warning,chase});
     }
+    // CLAUDE_R2544_CHASE_R_GUARD (bağlayıcı): risk tavanı kalktığı için kovalama stop mesafesini şişirir.
+    // Analiz fiyatından giriş yönünde >chaseMaxRunR (varsayılan 0.5R) kaçtıysa veya stop zaten geçildiyse
+    // piyasa emri AÇILMAZ; sembol hızlı hatta öncelik alır → 20 sn içinde taze veriyle yeniden JEV.
+    {
+      const gcfg=positionGuard.readConfig(root);
+      const aPrice=finite(advisory?.unifiedContext?.livePrice);
+      const pStop=finite(chasePlan?.stopPrice)??finite(chasePlan?.invalidationPrice);
+      const cSide=String(chasePlan?.side||'').toUpperCase();
+      if(aPrice!==null&&aPrice>0&&pStop!==null&&['LONG','SHORT'].includes(cSide)&&Math.abs(aPrice-pStop)>0){
+        const dir=cSide==='LONG'?1:-1;
+        const R0=Math.abs(aPrice-pStop);
+        const runR=dir*(freshEntryPrice-aPrice)/R0;
+        const stopBreached=dir===1?freshEntryPrice<=pStop:freshEntryPrice>=pStop;
+        if(stopBreached||runR>gcfg.chaseMaxRunR){
+          const rs=[stopBreached?'CHASE_STOP_ALREADY_BREACHED':'CHASE_EXCEEDS_R_LIMIT'];
+          const chaseR={analysisPrice:aPrice,freshPrice:freshEntryPrice,stopPrice:pStop,runR:Number(runR.toFixed(3)),limitR:gcfg.chaseMaxRunR};
+          const symU=String(candidate.symbol||'').toUpperCase();
+          if(!stopBreached)fastLanePriority.set(symU,{until:clock()+gcfg.chasePriorityMin*60000,reason:rs[0],at:clock(),lastRunAt:clock(),runs:0});
+          annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{chaseR});
+          leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:rs,chaseR});
+          leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs,chaseR});
+          return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,chaseR,requeued:!stopBreached};
+        }
+      }
+    }
     const requestedNotional=Number(settings.marginQuote)*Number(settings.leverage);
     const maintenance=await maintenanceMarginRateFor(candidate.symbol,requestedNotional,creds);
     if(!maintenance.ok){
@@ -3954,6 +4105,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       takerCommissionRate:commissionRate,
       entryReferencePrice,
       maintenanceMarginRate:maintenance.rate,
+      maintenanceAmount:maintenance.cum||0,
       jevFinalAuthority:true,
       riskCapQuote:riskCapContext.riskCapQuote
     });
@@ -4135,8 +4287,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }catch{}
       leaderAnalysisState.bySymbol[String(candidate.symbol||'').toUpperCase()]=executionLifecycle;
       writeLeaderAnalysisState();
-      if(result?.stopProtected===true&&runnerModeAtEntry!=='OFF'){
-        try{registerRunner({intent,result,mode:runnerModeAtEntry});}catch{}
+      // CLAUDE_R2544_POSITION_GUARD: runner modu OFF olsa bile açık pozisyon guard takibine kaydedilir.
+      if(result?.stopProtected===true&&(runnerModeAtEntry!=='OFF'||positionGuard.readConfig(root).mode!=='OFF')){
+        try{registerRunner({intent,result,mode:runnerModeAtEntry,lane:advisory?.plan?.lane||null});}catch{}
       }
       try{store.recordLearning?.('POSITION_OPENED',intent.symbol,{side:intent.side,setup:advisory?.plan?.setup,originTF:intent.originTF,ownerTF:advisory?.plan?.ownerTF,decision:'ACTIVE',entryPrice:intent.entryPrice,quantity:intent.quantity});}catch{}
     }
@@ -4477,7 +4630,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

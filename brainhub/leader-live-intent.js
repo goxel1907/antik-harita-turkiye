@@ -1,4 +1,5 @@
 'use strict';
+const {estimateLiquidation,stopVsLiquidation}=require('./liquidation');
 
 function finite(v) {
   if (v === null || v === undefined) return null;
@@ -33,6 +34,7 @@ function buildLeaderLiveIntent({
   minimumScalpEdgeMultiple = 1.5,
   entryReferencePrice = null,
   maintenanceMarginRate = null,
+  maintenanceAmount = 0,
   liquidationSafetyBufferPct = 0.5,
   jevFinalAuthority = false,
   // CLAUDE_R2543_RISK_CAP_BINDING: live-policy.json limits.maxRiskPctPerTrade × equity (USDT).
@@ -199,14 +201,20 @@ function buildLeaderLiveIntent({
     : null;
   const mmr=finite(maintenanceMarginRate);
   const liquidationBufferPct=Math.max(0,finite(liquidationSafetyBufferPct)??0.5);
-  const estimatedLiquidationDistancePct=lev!==null&&lev>0&&mmr!==null&&mmr>=0
-    ? Math.max(0,((1/lev)-mmr)*100-liquidationBufferPct)
-    : null;
+  // CLAUDE_R2544_LIQUIDATION_MODEL: emir öncesi ve açık pozisyon koruması aynı modeli kullanır
+  // (liquidation.js). estimatedLiquidationDistancePct = tampon düşülmüş kullanılabilir mesafe (eski alan adı korunur).
+  const liq=lev!==null&&lev>0&&mmr!==null&&mmr>=0&&entryPrice!==null
+    ? estimateLiquidation({side,entryPrice,leverage:lev,maintenanceMarginRate:mmr,maintenanceAmount:maintenanceAmount,quantity:panelQuantity})
+    : {ok:false};
+  const estimatedLiquidationPrice=liq.ok?liq.price:null;
+  const liqCheck=liq.ok&&stopPrice!==null
+    ? stopVsLiquidation({side,entryPrice,stopPrice,liquidationPrice:liq.price,bufferPct:liquidationBufferPct})
+    : {known:false};
+  const estimatedLiquidationDistancePct=liqCheck.known?Math.max(0,liqCheck.usableLiqDistancePct):null;
   // Production Leader Auto obtains the Binance bracket before calling this
   // builder. Unit/advisory callers may omit it; in that case no liquidation
   // estimate is asserted here.
-  if(estimatedLiquidationDistancePct!==null&&stopDistancePct!==null&&
-     stopDistancePct>=estimatedLiquidationDistancePct){
+  if(liqCheck.known&&liqCheck.ok!==true){
     reasons.push('STOP_BEYOND_LIQUIDATION');
   }
 
@@ -272,6 +280,8 @@ function buildLeaderLiveIntent({
     stopDistancePct,
     maintenanceMarginRate:mmr,
     estimatedLiquidationDistancePct,
+    estimatedLiquidationPrice,
+    liquidationModel:liq.ok?liq.model:null,
     liquidationSafetyBufferPct:liquidationBufferPct,
     costModel,
     jevFinalAuthority:Boolean(jevFinalAuthority),
@@ -301,6 +311,8 @@ function buildLeaderLiveIntent({
     stopDistancePct,
     maintenanceMarginRate:mmr,
     estimatedLiquidationDistancePct,
+    estimatedLiquidationPrice,
+    liquidationModel:liq.ok?liq.model:null,
     liquidationSafetyBufferPct:liquidationBufferPct,
     costModel,
     jevFinalAuthority:Boolean(jevFinalAuthority),

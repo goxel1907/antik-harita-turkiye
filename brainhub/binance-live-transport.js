@@ -762,7 +762,11 @@ class BinanceLiveTransport {
         ok:true, symbol:sym, side:s, hedgeMode, positionSide:hedgeMode ? s : 'BOTH', qty,
         oppositeOpen:!sideMatches && amt !== 0,
         entryPrice:finite(row?.entryPrice), markPrice:finite(row?.markPrice),
-        tickSize:finite(priceFilter?.tickSize), stepSize:finite(lot?.stepSize)
+        tickSize:finite(priceFilter?.tickSize), stepSize:finite(lot?.stepSize),
+        // CLAUDE_R2544_LIQUIDATION_MODEL: açık pozisyonda Binance likidasyon fiyatı otoritedir.
+        liquidationPrice:finite(row?.liquidationPrice), breakEvenPrice:finite(row?.breakEvenPrice),
+        isolatedWallet:finite(row?.isolatedWallet),
+        marginMode:finite(row?.isolatedWallet)>0||String(row?.marginType||'').toLowerCase()==='isolated'?'ISOLATED':(row?'CROSSED':null)
       };
     } catch (e) {
       return { ok:false, reason:String(e?.message || 'RUNNER_SNAPSHOT_FAILED').slice(0,120), exchangeError:e?.body || null };

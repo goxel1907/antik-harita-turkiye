@@ -1251,7 +1251,8 @@ function compactEvidenceFrame(f){
     rsi14:f.rsi14??null,atrPct:f.atrPct??null,breakOfStructure:f.breakOfStructure||null,
     prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,
     candle:f.candle||null,patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[],
-    swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,smcContext:withoutFib(f.smcContext)
+    swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,smcContext:withoutFib(f.smcContext),
+    preMove:f.preMove&&f.preMove.available?{state:f.preMove.state,score:f.preMove.score,direction:f.preMove.direction,triggers:f.preMove.triggers,reasons:(f.preMove.reasons||[]).slice(0,6)}:null
   };
 }
 async function buildSovereignEvidence({candidate,unified,pass1,committee,visionAudit=false}){
