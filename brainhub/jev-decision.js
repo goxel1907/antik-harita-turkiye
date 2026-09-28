@@ -588,10 +588,22 @@ function prepareDecisionRequest(input){
             o.compacted=true;hc[tf]=o;
           }
         }
+      },
+      // CLAUDE_R2544_4_TRIM_MEMORY: 29.09 PASS-2 bloklarının 8/28'i ≤2,1 kB taşma; deneyim hafızası (yumuşak bağlam,
+      // piyasa gerçeği değil) son çare olarak en kısa özete iner. Kırpılamayan piyasa gerçeği varsa yine fail-closed.
+      ()=>{
+        const mem=body?.state?.experienceMemory;
+        if(mem&&typeof mem==='object'){
+          for(const key of Object.keys(mem)){
+            if(Array.isArray(mem[key]))mem[key]=mem[key].slice(0,1);
+            else if(typeof mem[key]==='string'&&mem[key].length>400)mem[key]=mem[key].slice(0,400);
+          }
+          mem.memoryCompacted=true;
+        }
       }
       // Not: serbest metinler topluca KIRPILMAZ — kırpılamayan piyasa/veri gerçeği varsa istek fail-closed kalır.
     ];
-    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_LAST2_PER_TF','HIGHER_CONTEXT_SUMMARY'];
+    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_LAST2_PER_TF','HIGHER_CONTEXT_SUMMARY','EXPERIENCE_MEMORY_MIN'];
     for(const [stepIndex,step] of secondarySteps.entries()){
       if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
       trimStepsApplied.push(secondaryStepNames[stepIndex]||('SECONDARY_'+stepIndex));
@@ -1243,12 +1255,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       derivatives:unified?.derivatives||null,
       observedLiquidations:unified?.liquidationContext||null,
       experienceMemory:liveContext.experienceMemory,
-      requestedEvidence:evidence||null
+      requestedEvidence:evidence||null,
+      // CLAUDE_R2544_4_PARTIAL_CONTRACT: kısmi kâr yürütme sözleşmesi ve bu pozisyonda şimdiye kadar alınan kısmiler.
+      managementContract:lifecycle?.managementContract||null
     };
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the sole strategic position manager. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action. If a material concept is not understood, do not invent it.',
+        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,

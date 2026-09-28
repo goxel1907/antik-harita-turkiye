@@ -27,7 +27,14 @@ const DEFAULTS=Object.freeze({
   minImprovePct:0.05,
   tightenCooldownSec:15,
   chaseMaxRunR:0.5,              // analizden bu yana giriş yönünde >0.5R kaçtıysa kovalama yok → taze veriyle hemen yeniden JEV
-  chasePriorityMin:3             // kaçan sembol 3 dk boyunca hızlı hatta öncelikli
+  chasePriorityMin:3,            // kaçan sembol 3 dk boyunca hızlı hatta öncelikli
+  // CLAUDE_R2544_4_SCALE_OUT (29.09 kanıtı: 64 gerçek işlemin 1m yolu; medyan MFE 0,62R, yalnız 19/64 işlem
+  // stoptan önce 1R gördü). 0,5R'de 1/3 azalt + başabaş, 1R'de borsa TP1 (1/3), kalan runner. Test edilen
+  // yönetimlerin en iyisi (-0,09R/işlem; gerçekleşen -0,22R/işlem). 0 = kapalı.
+  scaleOutEnabled:1, scaleOutAtR:0.5, scaleOutFraction:0.3333, scaleOutMinMovePct:0.3, // ücret (~%0,1 gidiş-dönüş) üstünde anlamlı kâr
+  // CLAUDE_R2544_4_PARTIAL_CONTRACT: JEV pozisyon incelemesinin KISMİ KÂR AL kararı için yürütme sözleşmesi.
+  // AZTEC 29.09: 5 dk'da bir 6 kısmi (ilki 0,08R'de) → pozisyonun %97'si hareket gelmeden kapandı.
+  partialContractEnabled:1, partialMinR:0.5, partialMaxReviewCount:2, partialMinSpacingMin:10
 });
 
 function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
@@ -116,6 +123,17 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
   // TP1 sonrası iz süren stop runner'dadır.
   if(String(phase||'INITIAL').toUpperCase()!=='INITIAL')return out;
 
+  // 2) Kademeli kâr: 0,5R'de bir kez 1/3 azalt; ardından stop başabaşa (asla genişlemez).
+  if(cfg.scaleOutEnabled>0){
+    const movePct=dir*(mark-entry)/entry*100;
+    if(row?.scaleOutDone!==true&&progressR>=cfg.scaleOutAtR&&movePct>=cfg.scaleOutMinMovePct){
+      out.action='SCALE_OUT';out.reason='GUARD_SCALE_OUT_'+cfg.scaleOutAtR+'R';out.fraction=cfg.scaleOutFraction;return out;
+    }
+    if(row?.scaleOutDone===true){
+      const d=propose(entry*(1+dir*cfg.breakevenBufferPct/100),'GUARD_SCALE_OUT_BREAKEVEN');if(d)return decide(d);
+    }
+  }
+
   if(lane==='5M_SCALP'){
     if(ageMin<=cfg.scalpFastFailMin&&progressR<=cfg.scalpFastFailR){
       const d=propose(entry+dir*cfg.scalpFastFailTightenR*R,'GUARD_SCALP_FAST_FAIL');if(d)return decide(d);
@@ -140,4 +158,22 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
   return out;
 }
 
-module.exports={DEFAULTS,readConfig,evaluateGuard,laneOf,roundStop};
+// JEV incelemesinden gelen KISMİ KÂR AL için yürütme sözleşmesi (saf fonksiyon). Tam çıkış (EXIT_NOW) buradan geçmez.
+function partialContract({side,entryPrice,initialStop,markPrice,partialEvents=[],now=Date.now(),config=DEFAULTS}={}){
+  const cfg={...DEFAULTS,...(config||{})};
+  const s=String(side||'').toUpperCase(),e=finite(entryPrice),st=finite(initialStop),m=finite(markPrice);
+  const events=(Array.isArray(partialEvents)?partialEvents:[]).filter(x=>String(x?.action||'')==='PARTIAL_TAKE_PROFIT');
+  const lastAt=events.reduce((a,x)=>Math.max(a,finite(x?.at)||0),0)||null;
+  const base={enabled:cfg.partialContractEnabled>0,minR:cfg.partialMinR,maxReviewPartials:cfg.partialMaxReviewCount,
+    minSpacingMin:cfg.partialMinSpacingMin,reviewPartialsTaken:events.length,lastPartialAt:lastAt,progressR:null};
+  if(!(cfg.partialContractEnabled>0))return {...base,allow:true,reason:'PARTIAL_CONTRACT_OFF'};
+  if(!['LONG','SHORT'].includes(s)||e===null||st===null||m===null||e===st)return {...base,allow:false,reason:'PARTIAL_CONTRACT_INPUT_INCOMPLETE'};
+  const progressR=(s==='LONG'?1:-1)*(m-e)/Math.abs(e-st);
+  const out={...base,progressR:Number(progressR.toFixed(3))};
+  if(events.length>=cfg.partialMaxReviewCount)return {...out,allow:false,reason:'PARTIAL_DEFERRED_MAX_COUNT'};
+  if(lastAt&&now-lastAt<cfg.partialMinSpacingMin*60000)return {...out,allow:false,reason:'PARTIAL_DEFERRED_SPACING'};
+  if(progressR<cfg.partialMinR)return {...out,allow:false,reason:'PARTIAL_DEFERRED_BELOW_MIN_R'};
+  return {...out,allow:true,reason:'PARTIAL_CONTRACT_OK'};
+}
+
+module.exports={DEFAULTS,readConfig,evaluateGuard,partialContract,laneOf,roundStop};

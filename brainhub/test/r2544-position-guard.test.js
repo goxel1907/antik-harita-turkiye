@@ -10,7 +10,7 @@ const L=require('../liquidation');
 const {buildLeaderLiveIntent}=require('../leader-live-intent');
 
 const base=(o={})=>({row:{symbol:'ABCUSDT',side:'LONG',entryPrice:100,originalStopPrice:98,currentStop:98,originTF:'5m',createdAt:0,...(o.row||{})},
-  snap:{qty:10,entryPrice:100,markPrice:100,tickSize:0.01,...(o.snap||{})},phase:o.phase||'INITIAL',now:o.now??60000,config:{...G.DEFAULTS,...(o.config||{})}});
+  snap:{qty:10,entryPrice:100,markPrice:100,tickSize:0.01,...(o.snap||{})},phase:o.phase||'INITIAL',now:o.now??60000,config:{...G.DEFAULTS,scaleOutEnabled:0,...(o.config||{})}});
 
 test('liquidation model: isolated formula, long/short symmetric, stop-before-liq check',()=>{
   const l=L.estimateLiquidation({side:'LONG',entryPrice:100,leverage:12,maintenanceMarginRate:0.005});
@@ -106,6 +106,7 @@ test('controller: guard places reduce-only tighter stop, then closes crossed sca
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   fs.mkdirSync(path.join(root,'config'),{recursive:true});
   fs.writeFileSync(path.join(root,'config','claude-v111.json'),JSON.stringify({runnerMode:'OFF'}));
+  fs.writeFileSync(path.join(root,'config','position-guard.json'),JSON.stringify({scaleOutEnabled:0})); // eski kurallar; kademeli kâr ayrı testte
   const v111=require('../claude-v111');
   const prevRoot=process.env.BRAINHUB_ROOT; process.env.BRAINHUB_ROOT=root; v111.resetConfigCache();
   t.after(()=>{process.env.BRAINHUB_ROOT=prevRoot;v111.resetConfigCache();});

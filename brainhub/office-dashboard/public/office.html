@@ -11,7 +11,7 @@
   --text-primary:#f4f5f7; --text-secondary:#c3c6cf; --text-muted:#8b909c;
   --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500; --series-5:#d55181; --series-7:#9085e9;
   --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b; --info:#3987e5;
-  --floor:#141821; --floor-grid:#1d2230; --desk:#3a3226; --desk-top:#4b4131; --screen-off:#2a303c;
+  --floor:#141821; --floor-grid:#1d2230; --desk:#3a3226; --desk-top:#4b4131; --screen-off:#2a303c; --chair:#2a2f3a; --chair-hi:#363c49; --sofa:#34465c; --sofa-hi:#435872; --monitor:#0b0d11;
   --radius:10px;
 }
 @media (prefers-color-scheme: light){
@@ -20,7 +20,7 @@
     --bg:#f3f2ef; --surface-1:#fcfcfb; --surface-2:#f4f3f0; --surface-3:#e9e7e2; --line:#d9d6cf;
     --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#76746f;
     --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100; --series-5:#e87ba4; --series-7:#4a3aa7;
-    --floor:#e8e6e0; --floor-grid:#dcd9d1; --desk:#b89b72; --desk-top:#cdb28a; --screen-off:#c9cdd6;
+    --floor:#e8e6e0; --floor-grid:#dcd9d1; --desk:#b89b72; --desk-top:#cdb28a; --screen-off:#c9cdd6; --chair:#565c6b; --chair-hi:#6a7182; --sofa:#7f97b2; --sofa-hi:#98adc5; --monitor:#1b1e25;
   }
 }
 :root[data-theme="light"]{
@@ -28,7 +28,7 @@
   --bg:#f3f2ef; --surface-1:#fcfcfb; --surface-2:#f4f3f0; --surface-3:#e9e7e2; --line:#d9d6cf;
   --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#76746f;
   --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100; --series-5:#e87ba4; --series-7:#4a3aa7;
-  --floor:#e8e6e0; --floor-grid:#dcd9d1; --desk:#b89b72; --desk-top:#cdb28a; --screen-off:#c9cdd6;
+  --floor:#e8e6e0; --floor-grid:#dcd9d1; --desk:#b89b72; --desk-top:#cdb28a; --screen-off:#c9cdd6; --chair:#565c6b; --chair-hi:#6a7182; --sofa:#7f97b2; --sofa-hi:#98adc5; --monitor:#1b1e25;
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--text-primary);font:14px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
@@ -164,11 +164,22 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .o-desk.busy .arm{animation:type .35s ease-in-out infinite}
 .o-desk.busy .arm.r{animation-delay:.17s}
 .o-desk .scr{fill:var(--screen-off);transition:fill .4s}
-.o-desk.busy .scr{fill:var(--series-1)}
-.o-desk.ok .scr{fill:var(--good)}
-.o-desk.blocked .scr{fill:var(--critical)}
-.o-desk.warn .scr{fill:var(--warning)}
-.o-desk .halo{opacity:0}
+/* CLAUDE_R2544_4_FLOOR: profesyonel işlem masası — çift monitör, mum grafiği, koltuk, kulaklık, durum LED'i */
+.o-desk.busy .scr{fill:#0e2038}.o-desk.ok .scr{fill:#0c2418}.o-desk.blocked .scr{fill:#2a1111}.o-desk.warn .scr{fill:#2a2310}.o-desk.watch .scr{fill:#0b1a2c}
+.o-desk .chart{opacity:.18;transition:opacity .4s}.o-desk.busy .chart,.o-desk.ok .chart,.o-desk.warn .chart,.o-desk.watch .chart,.o-desk.blocked .chart{opacity:.95}
+.o-desk .cg{fill:#26a69a}.o-desk .cr{fill:#ef5350}.o-desk .wick{stroke:#9aa4b2;stroke-width:1}
+.o-desk .saver{opacity:0;transition:opacity .4s}.o-desk.away .saver{opacity:.85}.o-desk.away .chart{opacity:0}
+.o-desk .person{transition:opacity .5s}.o-desk.away .person{opacity:0}
+.o-desk .led{fill:var(--text-muted)}.o-desk.busy .led{fill:var(--series-1)}.o-desk.ok .led{fill:var(--good)}.o-desk.blocked .led{fill:var(--critical)}.o-desk.warn .led,.o-desk.away .led{fill:var(--warning)}
+.o-desk.watch .led{fill:var(--good);animation:pulse 1.1s ease-in-out infinite}
+.o-desk.watch .halo{fill:var(--good);animation:glow 2.4s ease-in-out infinite}
+.o-desk .steam,.rester .steam{fill:none;stroke:var(--text-muted);stroke-width:1.2;stroke-linecap:round;opacity:.6;animation:steam 2.6s ease-in-out infinite}
+@keyframes steam{0%{transform:translateY(0);opacity:0}30%{opacity:.7}100%{transform:translateY(-6px);opacity:0}}
+.o-desk.watch .arm{animation:type .9s ease-in-out infinite}
+.rester .rb{animation:idle 3.2s ease-in-out infinite}
+.lounge-l{fill:var(--text-secondary);font-size:11px;font-weight:600}
+.tb-h{fill:#9fb3c8;font-size:10.5px;font-weight:700;letter-spacing:.4px}.tb-t{fill:#e6edf3;font-size:11px;font-variant-numeric:tabular-nums}.tb-g{fill:#26a69a}.tb-r{fill:#ef5350}
+.o-desk .halo{opacity:0;fill-opacity:.2}
 .o-desk.busy .halo{animation:glow 1.4s ease-in-out infinite}
 .o-edge{stroke:var(--line);stroke-width:2;fill:none;stroke-dasharray:5 6}
 .o-edge.active{stroke:var(--series-1);stroke-dasharray:none;opacity:.8}
@@ -205,7 +216,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .v109-bars .n{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-secondary)}
 .chip.claude{border-color:var(--series-7);color:var(--text-primary)} .chip.claude .dot{background:var(--series-7)}
 .trig{font-variant-numeric:tabular-nums;white-space:nowrap}
-@media (prefers-reduced-motion: reduce){.walker .leg,.walker .wb,.walker .arm2,.brain-core,.o-desk .arm,.tf.now{animation:none!important}}
+@media (prefers-reduced-motion: reduce){.walker .leg,.walker .wb,.walker .arm2,.brain-core,.o-desk .arm,.tf.now,.o-desk .led,.o-desk .halo,.steam,.rester .rb{animation:none!important}}
 @media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-main,.row2{grid-template-columns:1fr}.row3{grid-template-columns:1fr}}
 .office #officeHost{overflow-x:auto}
 @media (max-width:560px){.office svg{min-width:820px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.tfs{grid-template-columns:repeat(5,minmax(0,1fr))}.kpi .v{font-size:18px}}
@@ -415,6 +426,9 @@ const UI_TR = {
   TRADE_RISK_CAP_EXCEEDED:'İŞLEM RİSK TAVANI AŞILDI',
   CHASE_EXCEEDS_R_LIMIT:'FİYAT KAÇTI (>0.5R) — TAZE VERİYLE YENİDEN JEV',
   REENTRY_COOLDOWN_AFTER_LOSS:'ZARARLI KAPANIŞ SONRASI SOĞUMA — AYNI COİNE YENİDEN GİRİŞ YOK',
+  GUARD_SCALE_OUT:'KADEMELİ KÂR (0,5R) — 1/3 AZALTILDI', GUARD_SCALE_OUT_BREAKEVEN:'KADEMELİ KÂR SONRASI BAŞABAŞ STOP',
+  PARTIAL_DEFERRED_BELOW_MIN_R:'JEV KISMİ ERTELENDİ — 0,5R ALTINDA', PARTIAL_DEFERRED_MAX_COUNT:'JEV KISMİ ERTELENDİ — EN ÇOK 2 KISMİ',
+  PARTIAL_DEFERRED_SPACING:'JEV KISMİ ERTELENDİ — 10 DK ARA', JEV_PARTIAL_DEFERRED:'JEV KISMİ KÂR ERTELENDİ',
   CHASE_STOP_ALREADY_BREACHED:'STOP SEVİYESİ ZATEN GEÇİLDİ — GİRİŞ YOK',
   STOP_BEYOND_LIQUIDATION:'STOP LİKİDASYONDAN SONRA — GİRİŞ YOK',
   GUARD_SCALP_BREAKEVEN:'SCALP BAŞABAŞ', GUARD_SCALP_PROFIT_LOCK:'SCALP KÂR KİLİDİ', GUARD_SCALP_FAST_FAIL:'SCALP ERKEN ZARAR KESME',
@@ -449,7 +463,7 @@ const JEV_CHECKS = [
 ];
 
 // ---------- Ofis katı (SVG) ----------
-const VW=1100, VH=680;
+const VW=1100, VH=780;
 const DESKS = [
   { id:'scanner',  x:140, y:112, name:'Tarayıcı',            role:'Binance evreni → hedef 24' },
   { id:'workers',  x:140, y:342, name:'Plan Kanıt Ajanları',   role:'9Router ücretsiz metin' },
@@ -501,29 +515,82 @@ function walkerSvg(id, color, cls, extra=''){
     </g></g>
   </g>`;
 }
-function personSvg(){
+function personSvg(color){
+  // Oturan trader (önden): koltuk arkası, gövde, kulaklık; eller klavyede.
   return `<g class="person">
-    <circle cx="0" cy="-58" r="11" fill="var(--text-secondary)"/>
-    <path d="M-17,-18 Q-17,-44 0,-44 Q17,-44 17,-18 Z" fill="var(--surface-3)" stroke="var(--line)"/>
-    <rect class="arm l" x="-19" y="-24" width="9" height="16" rx="4" fill="var(--text-secondary)"/>
-    <rect class="arm r" x="10" y="-24" width="9" height="16" rx="4" fill="var(--text-secondary)"/>
+    <path d="M-21,-12 Q-21,-43 0,-43 Q21,-43 21,-12 Z" fill="${color}"/>
+    <path d="M-6,-43 L0,-36 L6,-43 Z" fill="#fff" opacity=".85"/>
+    <circle cx="0" cy="-53" r="10" fill="#d8ae88"/>
+    <path d="M-10.5,-55 Q-10,-66 0,-66 Q10,-66 10.5,-55 Q7,-61 0,-61 Q-7,-61 -10.5,-55 Z" fill="#2b2f38"/>
+    <path d="M-11.5,-53 A11.5 12 0 0 1 11.5,-53" fill="none" stroke="#15171c" stroke-width="2.2"/>
+    <rect x="-14" y="-57" width="5" height="8" rx="2.2" fill="#15171c"/><rect x="9" y="-57" width="5" height="8" rx="2.2" fill="#15171c"/>
+    <path d="M-12,-50 Q-12,-44 -5,-45" fill="none" stroke="#15171c" stroke-width="1.6"/>
+    <rect class="arm l" x="-17" y="-18" width="10" height="7" rx="3.4" fill="#d8ae88"/>
+    <rect class="arm r" x="7" y="-18" width="10" height="7" rx="3.4" fill="#d8ae88"/>
   </g>`;
 }
-function deskSvg(d){
+function candlesSvg(x0,seed){
+  // Sabit, deterministik mini mum dizisi (görsel amaçlı; gerçek fiyat değildir).
+  const H=[[6,11,4,13,0],[9,5,3,12,1],[5,8,2,10,0],[8,4,2,10,1],[4,9,2,11,0],[7,3,1,9,1],[3,7,1,8,0],[6,2,0,8,1]];
+  let out='';
+  for(let k=0;k<7;k++){const h=H[(k+seed)%H.length];const x=x0+k*7;const top=-40+Math.min(h[0],h[1]),hgt=Math.max(2,Math.abs(h[0]-h[1]));
+    out+=`<line class="wick" x1="${x+2}" x2="${x+2}" y1="${-40+h[2]}" y2="${-40+h[3]+4}"/><rect class="${h[4]?'cr':'cg'}" x="${x}" y="${top}" width="4" height="${hgt}" rx=".6"/>`;}
+  return out;
+}
+function deskSvg(d,idx){
+  const color=DESK_COLOR[d.id]||'var(--series-1)';
   return `<g class="o-desk" id="desk-${d.id}" transform="translate(${d.x},${d.y})">
-    <ellipse class="halo" cx="0" cy="-8" rx="92" ry="58" fill="var(--series-1)" opacity="0"/>
-    ${personSvg()}
-    <rect x="-70" y="-14" width="140" height="34" rx="6" fill="var(--desk)"/>
-    <rect x="-70" y="-14" width="140" height="8" rx="4" fill="var(--desk-top)"/>
-    <rect x="-34" y="-44" width="68" height="36" rx="4" fill="#0c0e12"/>
-    <rect class="scr" x="-31" y="-41" width="62" height="28" rx="2"/>
-    <g class="screen-lines" fill="#ffffff" opacity=".55">
-      <rect x="-26" y="-36" width="34" height="3" rx="1.5"/><rect x="-26" y="-30" width="46" height="3" rx="1.5"/><rect x="-26" y="-24" width="24" height="3" rx="1.5"/>
+    <ellipse class="halo" cx="0" cy="-10" rx="96" ry="60" fill="var(--series-1)" opacity="0"/>
+    <ellipse cx="0" cy="25" rx="84" ry="7" fill="#000" opacity=".2"/>
+    <g class="chair"><rect x="-19" y="-66" width="38" height="46" rx="10" fill="var(--chair)"/><rect x="-14" y="-61" width="28" height="34" rx="7" fill="var(--chair-hi)"/></g>
+    ${personSvg(color)}
+    <rect x="-80" y="-13" width="160" height="9" rx="4" fill="var(--desk-top)"/>
+    <rect x="-76" y="-5" width="152" height="25" rx="5" fill="var(--desk)"/>
+    <rect x="-70" y="20" width="6" height="6" fill="var(--desk)"/><rect x="64" y="20" width="6" height="6" fill="var(--desk)"/>
+    <circle class="led" cx="66" cy="8" r="3"/>
+    <g class="mon">
+      <rect x="-70" y="-50" width="60" height="37" rx="3.5" fill="var(--monitor)"/><rect class="scr" x="-67.5" y="-47.5" width="55" height="31" rx="2"/>
+      <rect x="10" y="-50" width="60" height="37" rx="3.5" fill="var(--monitor)"/><rect class="scr" x="12.5" y="-47.5" width="55" height="31" rx="2"/>
+      <rect x="-43" y="-13" width="6" height="3" fill="var(--monitor)"/><rect x="37" y="-13" width="6" height="3" fill="var(--monitor)"/>
+      <g class="chart">${candlesSvg(-64,idx*3)}
+        <rect x="16" y="-44" width="22" height="2.4" rx="1" fill="#26a69a" opacity=".85"/><rect x="16" y="-39" width="30" height="2.4" rx="1" fill="#26a69a" opacity=".6"/>
+        <rect x="16" y="-34" width="18" height="2.4" rx="1" fill="#ef5350" opacity=".85"/><rect x="16" y="-29" width="34" height="2.4" rx="1" fill="#ef5350" opacity=".6"/>
+        <rect x="16" y="-24" width="44" height="2" rx="1" fill="#9aa4b2" opacity=".5"/></g>
+      <g class="saver"><text x="-40" y="-27" text-anchor="middle" font-size="12" fill="#8b909c">☕</text><text x="40" y="-27" text-anchor="middle" font-size="9" fill="#8b909c">mola</text></g>
     </g>
-    <rect x="-4" y="-8" width="8" height="6" fill="#0c0e12"/>
-    <text class="o-lbl" x="0" y="40" text-anchor="middle">${esc(d.name)}</text>
-    <text class="o-sub" x="0" y="55" text-anchor="middle">${esc(d.role)}</text>
-    <text class="o-sub" id="deskTxt-${d.id}" x="0" y="70" text-anchor="middle">—</text>
+    <rect x="-19" y="-11.5" width="38" height="5" rx="1.5" fill="#1d2027"/><ellipse cx="28" cy="-9" rx="4" ry="2.6" fill="#1d2027"/>
+    <g transform="translate(-62,-13)"><rect x="-4" y="-9" width="8" height="9" rx="1.6" fill="#f2efe9"/><path d="M4,-7 q3,0 3,3 q0,3 -3,3" fill="none" stroke="#f2efe9" stroke-width="1.4"/><path class="steam" d="M0,-11 q-2,-3 0,-6"/></g>
+    <text class="o-lbl" x="0" y="42" text-anchor="middle">${esc(d.name)}</text>
+    <text class="o-sub" x="0" y="57" text-anchor="middle">${esc(d.role)}</text>
+    <text class="o-sub" id="deskTxt-${d.id}" x="0" y="72" text-anchor="middle">—</text>
+  </g>`;
+}
+const RESTERS=[['scanner','Tarayıcı',318],['workers','Kanıt ajanı',388],['orfree','2. görüş',598],['vision','Görsel analist',668]];
+function loungeSvg(){
+  const y=696;
+  const rest=RESTERS.map(([id,name,x],i)=>`<g class="rester" id="rest-${id}" transform="translate(${x},${y+44})" style="display:none"><g class="rb">
+      <rect x="-10" y="-24" width="20" height="19" rx="7" fill="${DESK_COLOR[id]}"/><circle cx="0" cy="-31" r="7.5" fill="#d8ae88"/>
+      <path d="M-7.5,-33 Q0,-42 7.5,-33 Q5,-37 0,-37.5 Q-5,-37 -7.5,-33Z" fill="#2b2f38"/>
+      <rect x="9" y="-17" width="6" height="7" rx="1.4" fill="#f2efe9"/><path class="steam" d="M12,-20 q-2,-3 0,-6"/></g>
+      <text class="o-sub" y="13" text-anchor="middle" font-size="10">${esc(name)}</text></g>`).join('');
+  return `<g id="lounge">
+    <rect x="240" y="${y-10}" width="620" height="84" rx="16" fill="var(--series-3)" opacity=".06" stroke="var(--series-3)" stroke-opacity=".35" stroke-dasharray="6 6"/>
+    <text class="lounge-l" x="256" y="${y+6}">☕ DİNLENME SALONU</text>
+    <text class="o-sub" id="loungeTxt" x="846" y="${y+6}" text-anchor="end">—</text>
+    <rect x="286" y="${y+20}" width="150" height="16" rx="7" fill="var(--sofa-hi)"/><rect x="282" y="${y+32}" width="158" height="22" rx="9" fill="var(--sofa)"/>
+    <rect x="566" y="${y+20}" width="150" height="16" rx="7" fill="var(--sofa-hi)"/><rect x="562" y="${y+32}" width="158" height="22" rx="9" fill="var(--sofa)"/>
+    <ellipse cx="500" cy="${y+50}" rx="36" ry="9" fill="var(--desk-top)"/><rect x="496" y="${y+50}" width="8" height="12" fill="var(--desk)"/>
+    <g transform="translate(790,${y+18})"><rect width="26" height="40" rx="4" fill="#2b2f38"/><rect x="5" y="6" width="16" height="9" rx="2" fill="#0c2418"/><circle cx="13" cy="24" r="3" fill="#ef5350"/><rect x="7" y="32" width="12" height="5" rx="1" fill="#555c68"/></g>
+    <g transform="translate(262,${y+56})"><rect x="-9" y="-2" width="18" height="12" rx="3" fill="#6b4f36"/><circle cx="-5" cy="-10" r="8" fill="#199e70" opacity=".85"/><circle cx="6" cy="-13" r="9" fill="#1baf7a" opacity=".85"/><circle cx="0" cy="-20" r="7" fill="#0f8a5f" opacity=".9"/></g>
+    ${rest}
+  </g>`;
+}
+function tradeBoardSvg(){
+  return `<g id="tradeBoard" transform="translate(672,18)">
+    <rect width="206" height="92" rx="10" fill="#0b1320" stroke="#2f3a4d"/>
+    <rect x="1" y="1" width="204" height="20" rx="9" fill="#111c2e"/>
+    <text class="tb-h" x="10" y="15">📈 İŞLEM TAKİP PANOSU</text><circle id="tbLed" cx="194" cy="11" r="3.5" fill="#8b909c"/>
+    <text class="tb-t" id="tb1" x="10" y="40">—</text><text class="tb-t" id="tb2" x="10" y="58">—</text><text class="tb-t" id="tb3" x="10" y="76">—</text>
   </g>`;
 }
 function buildOffice(){
@@ -595,7 +662,7 @@ function buildOffice(){
   window.__officeLayers={walkDefs,walkers,waiters,orbitVisible,orbiters,orbitDef};
   const bubble = `<g class="o-bub" id="bubble" style="display:none"><rect x="0" y="0" width="10" height="26" rx="8"/><text id="bubbleTxt" x="10" y="17">—</text></g>`;
   const L=window.__officeLayers;
-  $('#officeHost').innerHTML = `<svg viewBox="0 0 ${VW} ${VH}" role="img" aria-label="BrainHub ofis katı: masalar, beyin ve veriyi beyne taşıyan trader'lar">${floor}${L.walkDefs}${L.orbitDef}${edges}${L.orbitVisible}${brain}${DESKS.map(deskSvg).join('')}${gatesSvg}${L.waiters}${L.orbiters}${L.walkers}${brainLabel}${bubble}</svg>`;
+  $('#officeHost').innerHTML = `<svg viewBox="0 0 ${VW} ${VH}" role="img" aria-label="BrainHub ofis katı: masalar, beyin ve veriyi beyne taşıyan trader'lar">${floor}${L.walkDefs}${L.orbitDef}${edges}${L.orbitVisible}${brain}${DESKS.map((d,i)=>deskSvg(d,i)).join('')}${loungeSvg()}${tradeBoardSvg()}${gatesSvg}${L.waiters}${L.orbiters}${L.walkers}${brainLabel}${bubble}</svg>`;
   try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches) $('#officeHost svg').pauseAnimations(); }catch{}
 }
 function setWalker(id, show, label){
@@ -643,7 +710,7 @@ function renderGuardStrip(s){
   const st=s.status?.data||{}; const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})};
   const c111=h.claudeV111||{}; const c112=h.claudeV112||{}; const la=st.leaderAuto?.config||st.leaderAuto||{};
   const ra=st.policy?.riskAuthority||st.leaderAuto?.policy?.riskAuthority||'USER_PANEL_EXACT';
-  const g=c111.runner?.guard||null; const pm=c112.fastLane?.preMoveScan||null; const cq=c112.fastLane?.chasePriority||[]; const rc=c112.fastLane?.reentryCooldown||[];
+  const g=c111.runner?.guard||null; const pm=c112.fastLane?.preMoveScan||null; const cq=c112.fastLane?.chasePriority||[]; const rcd=c112.fastLane?.reentryCooldown||[];
   const lb=s.derived?.execution?.lastBlock||st.leaderAuto?.activeBlocker||null;
   const card=(tone,title,v,sub,tags)=>`<div class="lane-card ${tone}"><div class="t">${esc(title)}</div><div class="v">${v}</div><div class="s">${sub}</div>${(tags||[]).length?`<div class="mini">${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>`:''}</div>`;
   const rows=(g?.rows||[]);
@@ -657,9 +724,9 @@ function renderGuardStrip(s){
     card(ra==='STRICT_POLICY_CAP'?'warn':'info','Risk otoritesi',ra==='STRICT_POLICY_CAP'?'SIKI TAVAN':'PANEL',
       ra==='STRICT_POLICY_CAP'?'live-policy işlem risk tavanı bağlayıcı.':`${esc(la.marginQuote??'?')} USDT × ${esc(la.leverage??'?')}x • en fazla ${esc(la.maxOpenPositions??'?')} pozisyon • işlem risk tavanı yok`,
       ['yapısal stop','likidasyon kapısı','kovalama 0.5R']),
-    card(g&&g.mode==='BINDING'?'good':'warn','Pozisyon koruması',g?(g.mode==='BINDING'?'BAĞLAYICI • 10 sn':esc(trUi(g.mode))):'—',guardSub,['başabaş','kâr kilidi','zaman stopu','likidasyon bekçisi']),
+    card(g&&g.mode==='BINDING'?'good':'warn','Pozisyon koruması',g?(g.mode==='BINDING'?'BAĞLAYICI • 10 sn':esc(trUi(g.mode))):'—',guardSub,['0,5R: 1/3 kâr + başabaş','JEV kısmi ≥0,5R • en çok 2','kâr kilidi','zaman stopu','likidasyon bekçisi']),
     card(hits.length?'good':'info','Ön-hareket radarı',hits.length?`${hits.length} imza`:'bekliyor',pmSub,cq.length?cq.map(x=>`${x.symbol} yeniden JEV ×${x.runs}`):['kaçan sembol yok']),
-    card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,rc.length?rc.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])
+    card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,rcd.length?rcd.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])
   ].join('');
 }
 function renderKpis(s){
@@ -1048,17 +1115,60 @@ function renderOffice(s, vinfo){
   if(visBusy) setBubble('vision', `${lastPlan?.symbol||''} okunuyor: ${stage}`);
   else if(lwr) setBubble('workers', `${lwr.symbol}: ${lwr.state}`);
   else setBubble('brain', lastPlan?`${lastPlan.symbol}: ${STATUS_TR[lastPlan.status]||lastPlan.status}`:'');
+  try{ renderFloorShift(s, la, st); }catch(e){ /* salt görsel katman; ana ekranı asla bozmaz */ }
+}
+// CLAUDE_R2544_4_FLOOR_SHIFT: pozisyon varken ekip işlemi masada izler; pozisyon sınırı doluysa giriş ekibi
+// (tarayıcı, kanıt ajanları, 2. görüş, görsel analist) dinlenme salonuna geçer — runtime'daki
+// "Pozisyonlar dolu — ajanlar dinleniyor" durumunun birebir görseli. Salt-okunur; hiçbir şeyi tetiklemez.
+function renderFloorShift(s, la, st){
+  const open=(s.positions?.data?.open||[]).filter(p=>p&&p.symbol);
+  const maxPos=Number(la.maxOpenPositions)||Number(la.effectiveMaxOpenPositions)||1;
+  const full=open.length>0&&open.length>=maxPos;
+  for(const [id] of RESTERS){
+    const g=document.getElementById('desk-'+id), r=document.getElementById('rest-'+id);
+    if(r) r.style.display=full?'':'none';
+    if(g&&full){ g.setAttribute('class','o-desk away'); const t=document.getElementById('deskTxt-'+id); if(t) t.textContent='molada • pozisyon sınırı dolu'; }
+  }
+  if(full) for(const k of ['scanner-brain','workers-brain','orfree-workers','brain-vision','vision-brain']) setWalker('wk-'+k,false);
+  for(const id of ['positions','jev','risk','exec']){
+    const g=document.getElementById('desk-'+id); if(!g) continue;
+    const c=(g.getAttribute('class')||'').replace(/\bwatch\b/g,'').trim();
+    g.setAttribute('class', open.length ? c+' watch' : c);
+  }
+  const lt=document.getElementById('loungeTxt');
+  if(lt) lt.textContent = full ? `giriş ekibi molada • ${open.length}/${maxPos} pozisyon masada takipte` : (open.length ? `${open.length} pozisyon takipte • ekip masada` : 'boş — ekip masada, piyasa taranıyor');
+  const fmtR=v=>v==null||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+'R';
+  const lines=open.slice(0,2).map(p=>{
+    const age=p.openedAt?Math.max(0,Math.round((Date.now()-Date.parse(p.openedAt))/60000)):null;
+    return [`${shortSym(p.symbol)} ${p.side==='LONG'?'ALIŞ':'SATIŞ'} • ${fmtR(p.unrealizedR)} • ${Number(p.unrealizedPnl)>=0?'+':''}${Number(p.unrealizedPnl||0).toFixed(2)}$`,
+      `stop ${p.stopPrice??'—'} • ${trUi(p.runnerPhase||'—')} • ${age==null?'—':age+' dk'}`, Number(p.unrealizedPnl)||0];
+  });
+  const t1=document.getElementById('tb1'),t2=document.getElementById('tb2'),t3=document.getElementById('tb3'),led=document.getElementById('tbLed');
+  if(t1){
+    if(lines.length){
+      t1.textContent=lines[0][0]; t1.setAttribute('class','tb-t '+(lines[0][2]>=0?'tb-g':'tb-r'));
+      t2.textContent=lines[0][1]; t2.setAttribute('class','tb-t');
+      t3.textContent=lines[1]?lines[1][0]:(st.positionManager?.lastReview?.actionTr?('JEV: '+st.positionManager.lastReview.actionTr):'JEV 5 dk\'da bir inceler • guard 10 sn');
+      t3.setAttribute('class','tb-t'+(lines[1]?(lines[1][2]>=0?' tb-g':' tb-r'):''));
+      led.setAttribute('fill','#26a69a');
+    }else{
+      t1.textContent='açık pozisyon yok'; t1.setAttribute('class','tb-t'); t2.textContent='ekip piyasayı tarıyor'; t3.textContent=st.armed?'LIVE açık • OTO '+(la.enabled?'aktif':'kapalı'):'LIVE kapalı'; led.setAttribute('fill','#8b909c');
+    }
+  }
 }
 
 function renderCpuPolicy(s){
-  const la=s.status?.data?.leaderAuto||{}, policy=la.pipelinePolicy||{};
+  const la=s.status?.data?.leaderAuto||{};
+  // CLAUDE_R2544_4: runtime pipelinePolicy yayınlamazsa planWorkers.visionMode'dan türetilir (eski "güncelleme bekleniyor" takılması).
+  const policy=la.pipelinePolicy||(la.planWorkers?.visionMode==='AUDIT_ON_DEMAND'?{gpuMainline:false}:{});
   $('#cpuPolicy').textContent=policy.gpuMainline===false?'Ana analiz: deterministik CPU • GPU: yalnız isteğe bağlı inceleme • JEV nihai karar sahibi':'Ana analiz modu: runtime güncellemesi bekleniyor';
   const c=la.diagnostics?.candidates||[],b=la.diagnostics?.priorityBuckets||{};
   const names=xs=>(xs||[]).map(x=>typeof x==='string'?x:x.symbol).filter(Boolean).join(', ')||'—';
   const top=c.filter(x=>Number(x.attackRank)>0&&Number(x.attackRank)<=3);
   $('#priorityQueue').textContent=`Top 3: ${names(top)} • Yaklaşan: ${names(b.approachContinuity)} • Top 24: ${names(b.top24Gainers)} • Erken ilgi: ${names(b.newAcceleration)} • Seçim: ${la.diagnostics?.selectionReason||'—'}`;
   const ph=s.packetHealth||{},vp=s.visionProgress?.data||{};
-  $('#cpuPolicy').textContent+=` • Son istek: ${ph.bytes??'—'} / ${ph.maxBytes??52000} bayt (PASS ${ph.pass??'—'}, ${ph.at?fmtDayTime(Date.parse(ph.at)):'kayıt yok'}) • Ana GPU kuyruğu: ${policy.gpuMainline===false?'0 (kullanılmaz)':'bilinmiyor'} • Son görsel inceleme: ${vp.stage||vp.status||'kayıt yok'}`;
+  const l60=ph.last60||{};
+  $('#cpuPolicy').textContent+=` • Son JEV isteği: ${ph.bytes??'—'} / ${ph.maxBytes??52000} bayt (PASS ${ph.pass??'—'}${ph.blocked?' • TAVAN AŞILDI':''}, ${ph.at?fmtDayTime(Date.parse(ph.at)):'kayıt yok'}) • 60 dk: ${l60.calls??0} istek, ${l60.blocked??0} tavan engeli • Ana GPU kuyruğu: ${policy.gpuMainline===false?'0 (kullanılmaz)':'bilinmiyor'} • Son görsel inceleme: ${vp.stage||vp.status||'kayıt yok'}`;
   const e=s.derived?.execution||{},chains=(e.chains||[]).slice(0,12);
   $('#priorityQueue').textContent+=' • Engel sayıları: '+(Object.entries(e.reasonCounts||{}).map(([k,v])=>trUi(k)+': '+v).join(', ')||'yok');
   $('#decisionChains').innerHTML='<thead><tr><th>Karar / coin</th><th>Aşamalar</th><th>Son neden</th></tr></thead><tbody>'+chains.map(c=>`<tr><td>${esc(c.symbol||'')}<br><small>${esc(c.decisionId)}</small></td><td>${esc((c.stages||[]).map(x=>trUi(x.stage)).join(' → '))}</td><td>${esc((c.reasons||[]).map(trUi).join(', ')||'—')}</td></tr>`).join('')+'</tbody>';

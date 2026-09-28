@@ -1805,7 +1805,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         winRatePct:xs.length?Number((100*winsDesk/xs.length).toFixed(1)):null,
         netPnl:Number(netDesk.toFixed(4)),
         netR:rsDesk.length?Number(rsDesk.reduce((a,b)=>a+b,0).toFixed(2)):null,
-        avgR:rsDesk.length?Number((rsDesk.reduce((a,b)=>a+b,0)/rsDesk.length).toFixed(2)):null
+        avgR:rsDesk.length?Number((rsDesk.reduce((a,b)=>a+b,0)/rsDesk.length).toFixed(2)):null,
+        // CLAUDE_R2544_4_MOBILE_DESKS: telefon masası kartı için son 24 saat (bu listedeki kapanışlardan).
+        last24h:(()=>{const since=clock()-86400000;const ys=xs.filter(x=>Date.parse(x.closedAt||x.ts)>=since);
+          return {closed:ys.length,wins:ys.filter(x=>Number(x.netPnl)>0).length,netPnl:Number(ys.reduce((a,x)=>a+Number(x.netPnl),0).toFixed(4))};})()
       };
     });
     return {
@@ -1884,15 +1887,30 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(matches.length===1){lifecycle.entryPlan=matches[0].payload.plan;lifecycle.entryPlanSource='LIVE_EXECUTION_JOURNAL';}
       }
       const assessment=positionManager.assessPosition({position,lifecycle,unified:advisory?.unifiedContext||{}});
+      const runnerRow=runnerState.bySymbol?.[position.symbol]||null;
+      const partialGate=positionGuard.partialContract({side:position.side,
+        entryPrice:finite(runnerRow?.entryPrice)??finite(lifecycle?.entryPlan?.entryPrice)??finite(position.entryPrice),
+        initialStop:finite(runnerRow?.originalStopPrice)??finite(lifecycle?.entryPlan?.stopPrice),
+        markPrice:finite(position.markPrice),partialEvents:existing?.jevExitEvents||[],now:clock(),config:positionGuard.readConfig(root)});
+      lifecycle.managementContract={...partialGate,guardScaleOut:runnerRow?.scaleOutDone===true?'DONE':'ARMED_AT_'+positionGuard.readConfig(root).scaleOutAtR+'R',
+        rule:'PARTIAL_TAKE_PROFIT executes only if progressR >= minR, reviewPartialsTaken < maxReviewPartials and minSpacingMin elapsed; otherwise it is recorded as HOLD. The position guard automatically scales out ~1/3 at 0.5R and moves the stop to breakeven; TP1 (1R) is an exchange order. EXIT_NOW is never restricted.'};
       let jevExit={ok:false,called:false,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi kullanılamadı.'};
       if(typeof exitJudge==='function'&&advisory?.unifiedContext){
         try{jevExit=await exitJudge({position,lifecycle,currentPlan:advisory.plan,unified:advisory.unifiedContext,evidence:advisory?.evidence||null});}
         catch(e){jevExit={ok:false,called:true,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi hata verdi; agresif çıkış kararı uygulanmadı.',reason:'JEV_EXIT_EXCEPTION'};}
       }
       const requestedAction=String(jevExit?.action||'HOLD_REVIEW');
-      const action=jevExit?.finalAuthority===true
+      let action=jevExit?.finalAuthority===true
         ? (['HOLD','PROTECT_PROFIT','PARTIAL_TAKE_PROFIT','EXIT_NOW'].includes(requestedAction)?requestedAction:'HOLD_REVIEW')
         : positionManager.capJevExitAction(requestedAction,assessment);
+      // CLAUDE_R2544_4_PARTIAL_CONTRACT: JEV KISMİ KÂR AL yalnız sözleşme içinde yürür (≥0,5R, en çok 2, 10 dk ara).
+      // Sözleşme JEV'e pakette açıkça verilir; ihlal eden kısmi TUT olarak kaydedilir. EXIT_NOW etkilenmez.
+      let partialDeferred=null;
+      if(action==='PARTIAL_TAKE_PROFIT'&&!partialGate.allow){
+        partialDeferred=partialGate;action='HOLD';
+        try{store.journal('JEV_PARTIAL_DEFERRED',position.symbol,{requestedJevAction:requestedAction,contract:partialGate,markPrice:position.markPrice});}catch{}
+        leaderHealthEvent('JEV_PARTIAL_DEFERRED',{symbol:position.symbol,reason:partialGate.reason,progressR:partialGate.progressR});
+      }
       const actionTr=positionManager.actionTurkish(action);
       let reasonTr='Büyük resim ve owner yapı korunuyor; pozisyon izleniyor.';
       if(assessment.lowTfNoiseOnly)reasonTr='1m/3m/5m tersliği büyük resim tarafından doğrulanmadı; gürültü/erken uyarı olarak izlendi.';
@@ -1900,6 +1918,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(action==='PARTIAL_TAKE_PROFIT')reasonTr='JEV açık pozisyonun bir bölümünü azaltmayı seçti; LIVE açıksa BrainHub-owned pozisyon seçilen oranla reduce-only MARKET azaltılır.';
       if(action==='EXIT_NOW')reasonTr='JEV tezi/invalidation artık pozisyonu taşımayı haklı çıkarmıyor; LIVE açıksa BrainHub-owned pozisyon reduce-only MARKET ile kapatılır.';
       if(action==='HOLD_REVIEW')reasonTr='Veri/kanıt yeterli değil; agresif çıkış uygulanmadı, yeniden analiz bekleniyor.';
+      if(partialDeferred)reasonTr=`JEV kısmi kâr istedi; yönetim sözleşmesi nedeniyle ertelendi (${partialDeferred.reason}, ilerleme ${partialDeferred.progressR??'—'}R, alınan kısmi ${partialDeferred.reviewPartialsTaken}/${partialDeferred.maxReviewPartials}). Pozisyon TUT; 0,5R kademeli kâr + başabaş guard'da.`;
 
       let managementExecution={ok:true,attempted:false,orderPlaced:false,execution:'ADVISORY_ONLY',reason:null};
       const brainOwned=String(existing?.state||'').toUpperCase()==='ACTIVE';
@@ -1931,6 +1950,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
                   executedQty:finite(result?.executedQty),remainingQty:finite(result?.remainingQty),
                   fullyClosed:result?.fullyClosed===true,
                   reason:action==='EXIT_NOW'?'JEV_EXIT_NOW':'JEV_PARTIAL_TAKE_PROFIT'};
+                if(result?.fullyClosed!==true&&runnerState.bySymbol?.[position.symbol]){
+                  const rr0=runnerState.bySymbol[position.symbol];
+                  rr0.mgmtReducedQty=(finite(rr0.mgmtReducedQty)||0)+(finite(result?.executedQty)||0);writeRunnerState();
+                }
                 existing.jevExitEvents=[...(Array.isArray(existing.jevExitEvents)?existing.jevExitEvents:[]),
                   {action,at:clock(),fraction,executedQty:finite(result?.executedQty),remainingQty:finite(result?.remainingQty),fullyClosed:result?.fullyClosed===true}].slice(-8);
                 if(result?.fullyClosed===true){
@@ -1956,6 +1979,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         entryPrice:position.entryPrice,markPrice:position.markPrice,unrealizedPnl:position.unrealizedPnl,
         pnlPct:assessment.pnlPct,originTF:lifecycle.originTF,ownerTF:lifecycle.ownerTF,
         action,actionTr,reasonTr,requestedJevAction:requestedAction,
+        partialContract:partialGate,partialDeferred:partialDeferred?partialDeferred.reason:null,
         jevSummaryTr:String(jevExit?.summaryTr||'').slice(0,360),
         assessment,jev:{called:jevExit?.called===true,ok:jevExit?.ok===true,finalAuthority:jevExit?.finalAuthority===true,model:jevExit?.model||null,mode:jevExit?.mode||null},
         brainOwned,
@@ -2107,7 +2131,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       runnerEvent(row,'CLOSED',{cleanup});
       return {symbol:row.symbol,ok:true,phase:'CLOSED',action:'CLOSED',cleanup};
     }
-    const phase=claudeV111.runnerPhase({initialQty:row.initialQty,tpQty:row.tpQty,remainingQty:snap.qty,stepSize:snap.stepSize,tpPlaced:row.tpPlaced||2});
+    // CLAUDE_R2544_4_RUNNER_PHASE: JEV kısmi / guard kademeli azaltması TP1 dolumu DEĞİLDİR. 29.09 MARSCOIN:
+    // 0,13R'deki JEV kısmisi fazı TRAILING yapıp stopu başabaşa çekiyordu. Faz yalnız borsa TP dolumlarıyla ilerler.
+    const phase=claudeV111.runnerPhase({initialQty:row.initialQty,tpQty:row.tpQty,remainingQty:snap.qty+(finite(row.mgmtReducedQty)||0),stepSize:snap.stepSize,tpPlaced:row.tpPlaced||2});
     if(phase!==row.phase){runnerEvent(row,'PHASE',{from:row.phase,to:phase,remainingQty:snap.qty});row.phase=phase;}
     // CLAUDE_R2544_POSITION_GUARD: runner'dan ÖNCE koruma (likidasyon + scalp/trade kuralları).
     const guarded=await applyPositionGuard(row,snap,phase,creds);
@@ -2212,6 +2238,24 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       runnerEvent(row,'GUARD_CLOSE',{reason:ev.reason,ok:r?.ok===true,executedQty:r?.executedQty??null,remainingQty:r?.remainingQty??null,error:r?.ok===true?null:(r?.reason||null),metrics:m});
       leaderHealthEvent('POSITION_GUARD',{symbol:row.symbol,stage:'CLOSE',reason:ev.reason,ok:r?.ok===true});
       return {symbol:row.symbol,ok:r?.ok===true,phase,action:'GUARD_CLOSE',reason:ev.reason};
+    }
+    if(ev.action==='SCALE_OUT'){
+      // CLAUDE_R2544_4_SCALE_OUT: 0,5R'de bir kez kısmi azaltma (reduce-only MARKET). Başabaş stopu sonraki turda.
+      if(now-Number(row.scaleOutAttemptAt||0)<10000)return {symbol:row.symbol,ok:true,phase,action:'GUARD_SCALE_OUT_PENDING',reason:ev.reason};
+      row.scaleOutAttemptAt=now;
+      const r=await transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:ev.fraction,credentials:creds,reason:'GUARD_SCALE_OUT'});
+      const okR=r?.ok===true&&r?.orderPlaced!==false;
+      if(okR){
+        row.scaleOutDone=true;row.scaleOutAt=now;
+        row.mgmtReducedQty=(finite(row.mgmtReducedQty)||0)+(finite(r?.executedQty)||0);
+      }else{
+        row.scaleOutFailures=Number(row.scaleOutFailures||0)+1;
+        if(row.scaleOutFailures>=3){row.scaleOutDone=true;row.scaleOutSkipped=true;} // döngü yok: başabaş kuralı devralır
+      }
+      runnerEvent(row,'GUARD_SCALE_OUT',{reason:ev.reason,ok:okR,fraction:ev.fraction,executedQty:r?.executedQty??null,remainingQty:r?.remainingQty??null,error:okR?null:(r?.reason||null),metrics:m});
+      leaderHealthEvent('POSITION_GUARD',{symbol:row.symbol,stage:'SCALE_OUT',reason:ev.reason,ok:okR});
+      writeRunnerState();
+      return {symbol:row.symbol,ok:okR,phase,action:'GUARD_SCALE_OUT',reason:ev.reason};
     }
     if(now-Number(row.guardLastActionAt||0)<gcfg.tightenCooldownSec*1000)return {symbol:row.symbol,ok:true,phase,action:'GUARD_COOLDOWN',reason:ev.reason};
     row.guardLastActionAt=now;
@@ -2616,6 +2660,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       consecutiveBlocked:suppressStaleDisabled ? 0 : leaderAutoConsecutiveBlocked,
       candidateCursor:leaderAutoCandidateCursor,
       diagnostics:leaderAutoLastDiagnostics,
+      pipelinePolicy:{gpuMainline:false,mainline:'DETERMINISTIC_CPU_PACKET',visionMode:'AUDIT_ON_DEMAND',finalAuthority:'JEV'},
       analysisLifecycle:leaderLifecycleSummary(),
       health:leaderAutoHealthSnapshot(),
       planWorkers:{

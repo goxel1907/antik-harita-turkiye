@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.1.1-R2543';
+const OFFICE_VERSION = '2.1.1-R2543+R2544.4';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -137,6 +137,21 @@ function tailFile(file, maxBytes = 96 * 1024) {
   } catch (e) {
     return { ok: false, error: clip(e?.code || e?.message, 80), lines: [] };
   }
+}
+
+// CLAUDE_R2544_4_PACKET_HEALTH: JEV istek boyutu günlüğü (yalnız metadata; piyasa verisi/anahtar yok).
+function readPacketHealth() {
+  const t = tailFile(path.join(BRAIN_ROOT, 'logs', 'jev-request-size.log'), 256 * 1024);
+  if (!t.ok) return { ok: false, error: t.error };
+  const rows = [];
+  for (const l of t.lines) { try { rows.push(JSON.parse(l)); } catch {} }
+  const last = rows[rows.length - 1] || null;
+  const since = Date.now() - 3600000;
+  const recent = rows.filter(r => Date.parse(r.at) >= since);
+  const byPass = {};
+  for (const r of recent) { const k = String(r.pass); byPass[k] = byPass[k] || { calls: 0, blocked: 0, maxBytes: 0 }; byPass[k].calls++; if (r.blocked) byPass[k].blocked++; byPass[k].maxBytes = Math.max(byPass[k].maxBytes, Number(r.bytes) || 0); }
+  return { ok: true, at: last?.at || null, pass: last?.pass ?? null, bytes: last?.bytes ?? null, beforeBytes: last?.beforeBytes ?? null, maxBytes: last?.maxBytes ?? 52000,
+    blocked: last?.blocked === true, trimSteps: (last?.trimStepsApplied || []).slice(-4), last60: { calls: recent.length, blocked: recent.filter(r => r.blocked).length, byPass } };
 }
 
 function listBackups() {
@@ -278,6 +293,22 @@ function summarizeJournal(items) {
       events.push({ ...base, desk: 'positions', title: `${it.symbol || ''} pozisyon: ${p.actionTr || p.action || ''}`, detail: clip(p.reasonTr || '', 160) });
     } else if (it.kind === 'POSITION_CLOSED') {
       events.push({ ...base, desk: 'positions', title: `${it.symbol || ''} pozisyon kapandı`, detail: `PnL ${finite(p.realizedPnl) ?? '?'} USDT` });
+    } else if (it.kind === 'R2542_OFFICE_EVENT') {
+      // CLAUDE_R2544_4_EVENT_FEED: 30 sn'lik TICK_RESULT telemetrisi akışı boğuyordu (2 saatte 289 satır, içeriksiz).
+      // Emir yoksa akışa yazılmaz; diğer ofis olayları türü + nedeniyle okunur hale gelir.
+      if (p.kind === 'TICK_RESULT' && p.orderPlaced !== true) continue;
+      const rs = (p.reasons || p.blockedReasons || []).slice(0, 4).join(', ');
+      events.push({ ...base, desk: 'brain', title: `Ofis olayı ${it.symbol || p.symbol || ''}: ${p.kind || p.stage || p.event || '?'}`, detail: clip(rs || p.execution || p.stage || '', 160) });
+    } else if (it.kind === 'JEV_POSITION_EXECUTION') {
+      const r = p.result || {};
+      events.push({ ...base, desk: 'positions', title: `JEV pozisyon emri ${it.symbol || ''}: ${p.action || '?'}${p.fraction && p.fraction < 1 ? ' %' + Math.round(p.fraction * 100) : ''}`, detail: clip(`${r.orderPlaced ? 'gönderildi' : 'gönderilmedi'} • kalan ${r.remainingQty ?? '?'}`, 160) });
+    } else if (it.kind === 'JEV_PARTIAL_DEFERRED') {
+      const c = p.contract || {};
+      events.push({ ...base, desk: 'positions', title: `JEV kısmi kâr ertelendi ${it.symbol || ''}`, detail: clip(`${c.reason || ''} • ilerleme ${c.progressR ?? '?'}R • alınan ${c.reviewPartialsTaken ?? 0}/${c.maxReviewPartials ?? '?'}`, 160) });
+    } else if (it.kind === 'CLAUDE_R2544_PREMOVE_ATTENTION') {
+      events.push({ ...base, desk: 'workers', title: `Ön-hareket radarı ${it.symbol || ''}: ${p.state || '?'} ${p.direction || ''}`, detail: clip(`${p.frame || ''} • ${(p.reasons || []).join(', ')}`, 160) });
+    } else if (it.kind === 'JEV_LESSON') {
+      events.push({ ...base, desk: 'learning', title: `JEV gölge dersi ${it.symbol || ''}: ${p.lessonFocus || ''}`, detail: clip(`${p.setupFamily || ''} • ${finite(p.rMultiple) === null ? '' : Number(p.rMultiple).toFixed(2) + 'R'} • ${p.lessonAction || ''}`, 160) });
     } else {
       events.push({ ...base, desk: 'brain', title: `${it.kind} ${it.symbol || ''}`, detail: '' });
     }
@@ -458,6 +489,7 @@ async function buildSnapshot() {
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
   const backups = await cached('backups', 60000, async () => listBackups());
   const jevUsage = await cached('jevUsage', 15000, async () => readJsonFile(path.join(BRAIN_ROOT, 'data', 'jev-usage.json')));
+  const packetHealth = await cached('packetHealth', 10000, async () => readPacketHealth());
   const journalSummary = summarizeJournal(journal?.data?.items || []);
   const logEvents = parseLog(logTail?.lines || []);
   const events = [...journalSummary.events, ...logEvents]
@@ -479,6 +511,7 @@ async function buildSnapshot() {
     router,
     backups,
     jevUsage: scrub(jevUsage),
+    packetHealth,
     jevBudget: { ok: jevBudget?.ok === true, data: scrub(jevBudget?.data), error: jevBudget?.error || null },
     plans: journalSummary.plans.slice(0, 40),
     lastJev: journalSummary.lastJev,

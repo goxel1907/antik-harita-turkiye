@@ -2123,7 +2123,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544-CLAUDE-PANEL-GUARD-PREMOVE';
+const RUNTIME_RELEASE='R2544.4-CLAUDE-MGMT-CONTRACT';
 const RUNTIME_BUILT_BY='Claude (Anthropic) • Cowork • 2026-09-28 • R2544: panel risk otoritesi, pozisyon koruması, ön-hareket, kovalama R-kuralı';
 function fastLaneObsSuffix(result){
   try{
