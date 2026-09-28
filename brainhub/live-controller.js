@@ -345,6 +345,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   let fastLaneSymbol = null;
   let fastLaneJevCalls = [];
   const fastLaneSeen = new Map();
+  // CLAUDE_R2544_REENTRY_COOLDOWN: zararla kapanan coin → soğuma bitene kadar HİÇBİR yoldan (hızlı hat,
+  // ana OTO döngüsü, takip yenilemesi) yeni giriş yok. Açık pozisyon yönetimi etkilenmez.
+  const reentryCooldown = new Map();
+  function reentryBlock(symbol){
+    const sym=String(symbol||'').toUpperCase();
+    const row=reentryCooldown.get(sym);
+    if(!row)return null;
+    if(!(Number(row.until)>clock())){reentryCooldown.delete(sym);return null;}
+    return {...row,remainingMin:Math.ceil((Number(row.until)-clock())/60000)};
+  }
   // CLAUDE_R2544_CHASE_REQUEUE: fiyatı kaçan (kovalama engellenen) sembol, taze veriyle hemen yeniden JEV'e gider.
   const fastLanePriority = new Map();
   let fastLanePreMoveOffset = 0;
@@ -1583,8 +1593,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{store.recordLearning?.('POSITION_CLOSED',symbol,{...record,decision:'CLOSED_'+exitType});}catch{}
       await recordJevShadowLesson(symbol,record);
       // Stop olan coine hızlı hat hemen geri girmesin (intikam işlemi yok): veto soğuması kadar.
-      if(exitType==='STOP_LOSS'||exitType==='TP1_THEN_STOP'){
-        try{fastLaneSeen.set('VETO|'+symbol,closedAt+claudeV111.readConfig().fastLaneVetoCooldownMin*60000);}catch{}
+      // CLAUDE_R2544_REENTRY_COOLDOWN: yalnız stop değil, ZARARLA biten her kapanış (JEV EXIT_NOW dahil)
+      // aynı coine yeniden girişi soğutur. 28.09 00:00:16 JEV MARSCOIN'i -1.06 USDT ile kapattı,
+      // 00:01:08'de ana OTO döngüsü aynı coine aynı yönde, çıkıştan daha pahalıya yeniden girdi.
+      if(exitType==='STOP_LOSS'||exitType==='TP1_THEN_STOP'||(finite(netPnl)!==null&&netPnl<0)){
+        try{
+          const until=closedAt+claudeV111.readConfig().fastLaneVetoCooldownMin*60000;
+          fastLaneSeen.set('VETO|'+symbol,until);
+          reentryCooldown.set(String(symbol).toUpperCase(),{until,side:String(row.side||'').toUpperCase(),exitType,netPnl:finite(netPnl),closedAt});
+        }catch{}
       }
       leaderHealthEvent('POSITION_CLOSED',{symbol,side:row.side,netPnl,rMultiple,exitType});
       finalized.push({symbol,...record});
@@ -2282,6 +2299,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       lastResult:fastLaneState.lastResult,
       history:fastLaneState.history.slice(0,8),
       preMoveScan:fastLaneState.lastPreMoveScan||null,
+      reentryCooldown:[...reentryCooldown.entries()].filter(([,v])=>Number(v.until)>clock()).map(([symbol,v])=>({symbol,side:v.side,exitType:v.exitType,netPnl:v.netPnl,remainingMin:Math.ceil((Number(v.until)-clock())/60000)})).slice(0,8),
       chasePriority:[...fastLanePriority.entries()].map(([symbol,v])=>({symbol,reason:v.reason,untilMs:Number(v.until)||null,runs:Number(v.runs||0)})).slice(0,6)
     };
   }
@@ -2368,6 +2386,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{scan=await scanner.scan();}catch{return {ok:false,reason:'SCANNER_UNAVAILABLE'};}
         const candidates=selectDeepCandidates(scan,24)
           .filter(c=>/^[A-Z0-9]{1,28}USDT$/.test(String(c?.symbol||'').toUpperCase()))
+          .filter(c=>!reentryBlock(c?.symbol))
           .filter(c=>String(leaderAnalysisState.bySymbol?.[String(c?.symbol||'').toUpperCase()]?.state||'').toUpperCase()!=='ACTIVE');
         const cooldownMs=60000;
         const symOf=c=>String(c?.symbol||'').toUpperCase();
@@ -3708,6 +3727,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     reconcileLeaderEligibility(rawCandidates, allowLong, allowShort);
 
     const candidates = rawCandidates
+      .filter(x=>!reentryBlock(x?.symbol))
       .filter(x=>sovereignFlow
         ? /^[A-Z0-9]{1,28}USDT$/.test(String(x?.symbol||'').toUpperCase())
         : executionEligible(x))
@@ -4059,6 +4079,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const warning=chase.reason||'CLAUDE_V109_CHASE_INPUT_INVALID';
       finalAuthoritySoftWarnings.push(warning);
       leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'SOFT_WARNING',symbol:candidate.symbol,reason:warning,chase});
+    }
+    // CLAUDE_R2544_REENTRY_COOLDOWN (bağlayıcı, her yol için son kapı: takip yenilemesi dahil)
+    {
+      const rb=reentryBlock(candidate.symbol);
+      if(rb){
+        const rs=['REENTRY_COOLDOWN_AFTER_LOSS'];
+        annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{reentryCooldown:rb});
+        leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:rs,reentryCooldown:rb});
+        leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs,reentryCooldown:rb});
+        return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,reentryCooldown:rb};
+      }
     }
     // CLAUDE_R2544_CHASE_R_GUARD (bağlayıcı): risk tavanı kalktığı için kovalama stop mesafesini şişirir.
     // Analiz fiyatından giriş yönünde >chaseMaxRunR (varsayılan 0.5R) kaçtıysa veya stop zaten geçildiyse

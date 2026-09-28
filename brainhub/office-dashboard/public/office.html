@@ -414,6 +414,7 @@ const UI_TR = {
   DAILY_LOSS_CAP_REACHED:'GÜNLÜK ZARAR TAVANI DOLDU',
   TRADE_RISK_CAP_EXCEEDED:'İŞLEM RİSK TAVANI AŞILDI',
   CHASE_EXCEEDS_R_LIMIT:'FİYAT KAÇTI (>0.5R) — TAZE VERİYLE YENİDEN JEV',
+  REENTRY_COOLDOWN_AFTER_LOSS:'ZARARLI KAPANIŞ SONRASI SOĞUMA — AYNI COİNE YENİDEN GİRİŞ YOK',
   CHASE_STOP_ALREADY_BREACHED:'STOP SEVİYESİ ZATEN GEÇİLDİ — GİRİŞ YOK',
   STOP_BEYOND_LIQUIDATION:'STOP LİKİDASYONDAN SONRA — GİRİŞ YOK',
   GUARD_SCALP_BREAKEVEN:'SCALP BAŞABAŞ', GUARD_SCALP_PROFIT_LOCK:'SCALP KÂR KİLİDİ', GUARD_SCALP_FAST_FAIL:'SCALP ERKEN ZARAR KESME',
@@ -642,7 +643,7 @@ function renderGuardStrip(s){
   const st=s.status?.data||{}; const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})};
   const c111=h.claudeV111||{}; const c112=h.claudeV112||{}; const la=st.leaderAuto?.config||st.leaderAuto||{};
   const ra=st.policy?.riskAuthority||st.leaderAuto?.policy?.riskAuthority||'USER_PANEL_EXACT';
-  const g=c111.runner?.guard||null; const pm=c112.fastLane?.preMoveScan||null; const cq=c112.fastLane?.chasePriority||[];
+  const g=c111.runner?.guard||null; const pm=c112.fastLane?.preMoveScan||null; const cq=c112.fastLane?.chasePriority||[]; const rc=c112.fastLane?.reentryCooldown||[];
   const lb=s.derived?.execution?.lastBlock||st.leaderAuto?.activeBlocker||null;
   const card=(tone,title,v,sub,tags)=>`<div class="lane-card ${tone}"><div class="t">${esc(title)}</div><div class="v">${v}</div><div class="s">${sub}</div>${(tags||[]).length?`<div class="mini">${tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div>`:''}</div>`;
   const rows=(g?.rows||[]);
@@ -658,7 +659,7 @@ function renderGuardStrip(s){
       ['yapısal stop','likidasyon kapısı','kovalama 0.5R']),
     card(g&&g.mode==='BINDING'?'good':'warn','Pozisyon koruması',g?(g.mode==='BINDING'?'BAĞLAYICI • 10 sn':esc(trUi(g.mode))):'—',guardSub,['başabaş','kâr kilidi','zaman stopu','likidasyon bekçisi']),
     card(hits.length?'good':'info','Ön-hareket radarı',hits.length?`${hits.length} imza`:'bekliyor',pmSub,cq.length?cq.map(x=>`${x.symbol} yeniden JEV ×${x.runs}`):['kaçan sembol yok']),
-    card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,[])
+    card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,rc.length?rc.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])
   ].join('');
 }
 function renderKpis(s){

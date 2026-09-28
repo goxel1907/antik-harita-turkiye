@@ -573,9 +573,25 @@ function prepareDecisionRequest(input){
         const frames=targets.flatMap(t=>[t.frames,t.timingFrames,t.higherContext,t.coreFrames]).filter(x=>x&&typeof x==='object');
         for(const group of frames)for(const f of Object.values(group))
           if(f&&typeof f==='object'&&Array.isArray(f.patterns))f.patterns=f.patterns.slice(-2);
+      },
+      // CLAUDE_R2544_TRIM_HIGHER_CONTEXT: R2543+R2544 paketi büyüdü (28.09: PASS-2'nin 3/17'si tavanı aştı).
+      // 6) Üst bağlam (30m/45m/1h/4h/1d) özetlenir; 5m/15m çekirdeği ve 1m/3m zamanlaması dokunulmaz kalır.
+      ()=>{
+        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle'];
+        for(const t of targets){
+          const hc=t.higherContext;
+          if(!hc||typeof hc!=='object')continue;
+          for(const [tf,f] of Object.entries(hc)){
+            if(!f||typeof f!=='object')continue;
+            const o={};for(const k of keep)if(f[k]!==undefined)o[k]=f[k];
+            const sw=f.swingStructure;if(sw&&typeof sw==='object')o.swingState=sw.state||sw.structure||null;
+            o.compacted=true;hc[tf]=o;
+          }
+        }
       }
+      // Not: serbest metinler topluca KIRPILMAZ — kırpılamayan piyasa/veri gerçeği varsa istek fail-closed kalır.
     ];
-    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_LAST2_PER_TF'];
+    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_LAST2_PER_TF','HIGHER_CONTEXT_SUMMARY'];
     for(const [stepIndex,step] of secondarySteps.entries()){
       if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
       trimStepsApplied.push(secondaryStepNames[stepIndex]||('SECONDARY_'+stepIndex));
