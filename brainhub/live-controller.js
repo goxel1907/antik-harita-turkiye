@@ -355,6 +355,45 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!(Number(row.until)>clock())){reentryCooldown.delete(sym);return null;}
     return {...row,remainingMin:Math.ceil((Number(row.until)-clock())/60000)};
   }
+  // CLAUDE_R2544_4_LOSS_STREAK: art arda zararlı kapanışlar → hesap düzeyinde kısa mola (tüm giriş yolları).
+  let lossStreak={count:0,lastLossAt:null,pauseUntil:0,pauseStartedAt:null,symbols:[]};
+  function noteClosedForStreak(symbol,netPnl,closedAt){
+    const n=finite(netPnl);if(n===null)return;
+    const gcfg=positionGuard.readConfig(root);
+    if(n<0){
+      lossStreak.count+=1;lossStreak.lastLossAt=closedAt;lossStreak.symbols=[...lossStreak.symbols,String(symbol||'').toUpperCase()].slice(-4);
+      if(gcfg.lossStreakPauseCount>0&&gcfg.lossStreakPauseMin>0&&lossStreak.count>=gcfg.lossStreakPauseCount){
+        const until=Number(closedAt)+gcfg.lossStreakPauseMin*60000;
+        if(until>Number(lossStreak.pauseUntil||0)){lossStreak.pauseUntil=until;lossStreak.pauseStartedAt=closedAt;}
+      }
+    }else if(n>0){lossStreak.count=0;lossStreak.symbols=[];}
+  }
+  function lossStreakPause(){
+    if(!(Number(lossStreak.pauseUntil)>clock()))return null;
+    return {reason:'LOSS_STREAK_PAUSE',streak:lossStreak.count,symbols:lossStreak.symbols.slice(),until:new Date(Number(lossStreak.pauseUntil)).toISOString(),
+      remainingMin:Math.ceil((Number(lossStreak.pauseUntil)-clock())/60000)};
+  }
+  // Yeniden başlatmada soğumalar kaybolmasın: son kapanışlardan zararlı-kapanış soğuması + seri molası geri kurulur.
+  function restoreCooldownsFromJournal(){
+    try{
+      if(typeof store?.recentJournal!=='function')return;
+      const cooldownMin=Number(claudeV111.readConfig().fastLaneVetoCooldownMin)||30;
+      const since=clock()-6*3600000;
+      const rows=(store.recentJournal('POSITION_CLOSED',{limit:60,sinceTs:since})||[])
+        .map(x=>({symbol:String(x.symbol||'').toUpperCase(),p:x.payload||{},at:Date.parse(x.payload?.closedAt||'')||Number(x.ts)||0}))
+        .filter(x=>x.symbol&&x.at>0).sort((a,b)=>a.at-b.at);
+      const seenKeys=new Set();
+      for(const x of rows){
+        const key=x.p.closeBusinessKey||x.p.eventId||(x.symbol+'|'+x.at);if(seenKeys.has(key))continue;seenKeys.add(key);
+        const net=finite(x.p.netPnl);
+        noteClosedForStreak(x.symbol,net,x.at);
+        if((x.p.exitType==='STOP_LOSS'||x.p.exitType==='TP1_THEN_STOP'||(net!==null&&net<0))&&x.at+cooldownMin*60000>clock()){
+          reentryCooldown.set(x.symbol,{until:x.at+cooldownMin*60000,side:String(x.p.side||'').toUpperCase(),exitType:x.p.exitType||null,netPnl:net,closedAt:x.at,restored:true});
+          fastLaneSeen.set('VETO|'+x.symbol,x.at+cooldownMin*60000);
+        }
+      }
+    }catch{}
+  }
   // CLAUDE_R2544_CHASE_REQUEUE: fiyatı kaçan (kovalama engellenen) sembol, taze veriyle hemen yeniden JEV'e gider.
   const fastLanePriority = new Map();
   let fastLanePreMoveOffset = 0;
@@ -1603,6 +1642,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           reentryCooldown.set(String(symbol).toUpperCase(),{until,side:String(row.side||'').toUpperCase(),exitType,netPnl:finite(netPnl),closedAt});
         }catch{}
       }
+      try{
+        const wasPaused=Boolean(lossStreakPause());
+        noteClosedForStreak(symbol,netPnl,closedAt);
+        const lp=lossStreakPause();
+        if(lp&&!wasPaused){try{store.journal('LOSS_STREAK_PAUSE',symbol,lp);}catch{}leaderHealthEvent('LOSS_STREAK_PAUSE',lp);}
+      }catch{}
       leaderHealthEvent('POSITION_CLOSED',{symbol,side:row.side,netPnl,rMultiple,exitType});
       finalized.push({symbol,...record});
     }
@@ -2343,6 +2388,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       lastResult:fastLaneState.lastResult,
       history:fastLaneState.history.slice(0,8),
       preMoveScan:fastLaneState.lastPreMoveScan||null,
+      lossStreak:{count:lossStreak.count,symbols:lossStreak.symbols.slice(),pause:lossStreakPause()},
       reentryCooldown:[...reentryCooldown.entries()].filter(([,v])=>Number(v.until)>clock()).map(([symbol,v])=>({symbol,side:v.side,exitType:v.exitType,netPnl:v.netPnl,remainingMin:Math.ceil((Number(v.until)-clock())/60000)})).slice(0,8),
       chasePriority:[...fastLanePriority.entries()].map(([symbol,v])=>({symbol,reason:v.reason,untilMs:Number(v.until)||null,runs:Number(v.runs||0)})).slice(0,6)
     };
@@ -2399,6 +2445,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const la=readLeaderAutoConfig();
       if(!la.ok||la.config?.enabled!==true)return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};
       if(await positionSlotsFull(la.config.maxOpenPositions))return {ok:true,skipped:true,reason:'FAST_LANE_REST_POSITIONS_FULL',openPositions:slotRest.openPositions,maxOpenPositions:slotRest.maxOpenPositions};
+      if(lossStreakPause())return {ok:true,skipped:true,reason:'FAST_LANE_REST_LOSS_STREAK',lossStreak:lossStreakPause()};
       const generation=armGeneration;
       const now=clock();
       fastLaneState.lastTickAt=Number.isFinite(now)?new Date(now).toISOString():null;
@@ -2748,6 +2795,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_REST_POSITIONS_FULL', orderPlaced:false, liveAllowed:false,
         reasons:['CLAUDE_V112_POSITION_SLOTS_FULL'], openPositions:slotRest.openPositions, maxOpenPositions:slotRest.maxOpenPositions });
     }
+    { const lp=lossStreakPause();
+      if(lp)return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_REST_LOSS_STREAK', orderPlaced:false, liveAllowed:false, reasons:['LOSS_STREAK_PAUSE'], lossStreak:lp }); }
     const analysisOnly = !armedNow();
     leaderAutoBusy = true;
     try {
@@ -4127,6 +4176,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     // CLAUDE_R2544_REENTRY_COOLDOWN (bağlayıcı, her yol için son kapı: takip yenilemesi dahil)
     {
+      const lsp=lossStreakPause();
+      if(lsp){
+        const rs=['LOSS_STREAK_PAUSE'];
+        annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{lossStreak:lsp});
+        leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:rs,lossStreak:lsp});
+        leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs,lossStreak:lsp});
+        return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,lossStreak:lsp};
+      }
       const rb=reentryBlock(candidate.symbol);
       if(rb){
         const rs=['REENTRY_COOLDOWN_AFTER_LOSS'];
@@ -4711,7 +4768,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  return { status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)),
+  restoreCooldownsFromJournal();
+  return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

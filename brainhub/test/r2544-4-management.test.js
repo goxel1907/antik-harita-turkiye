@@ -140,3 +140,32 @@ test('Office: betik derlenir; görsel kat (masa/dinlenme/pano) ana render\'dan y
   assert.ok(sum.events.some(e=>/EXECUTION_BLOCK/.test(e.title)&&/REENTRY/.test(e.detail)));
   assert.ok(sum.events.some(e=>/ertelendi/.test(e.title)));
 });
+
+test('seri zarar molası: 2 zararlı kapanış → 30 dk tüm giriş yolları kapalı; kazanç seriyi sıfırlar; yeniden başlatmada geri kurulur',async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'r25444s-'));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const G2=require('../position-guard');
+  assert.equal(G2.DEFAULTS.lossStreakPauseCount,2);assert.equal(G2.DEFAULTS.lossStreakPauseMin,30);
+  let now=Date.parse('2026-09-28T22:46:02Z');
+  const closes=[{symbol:'PHAUSDT',payload:{side:'SHORT',netPnl:-3.95,exitType:'JEV_EXIT_NOW',closedAt:'2026-09-28T22:46:02Z',eventId:'a'}},
+                {symbol:'PENDLEUSDT',payload:{side:'SHORT',netPnl:-0.93,exitType:'JEV_EXIT_NOW',closedAt:'2026-09-28T22:51:02Z',eventId:'b'}}];
+  const mk=()=>require('../live-controller').createLiveController({root,credentials:{},fetchImpl:async()=>{throw new Error('net');},clock:()=>now,
+    store:{journal(){return 'id';},recentJournal:(k)=>k==='POSITION_CLOSED'?closes.map((c,i)=>({ts:Date.parse(c.payload.closedAt),...c})):[]},
+    scanner:{async scan(){throw new Error('unused');}},pipeline:{async run(){throw new Error('unused');}},committee:async()=>({})});
+  now=Date.parse('2026-09-28T23:02:12Z'); // COTI girişi anı (29.09 02:02 yerel)
+  const c=mk();
+  const p=c._testLossStreakPause();
+  assert.ok(p,'yeniden başlatma sonrası mola geri kuruldu');assert.equal(p.reason,'LOSS_STREAK_PAUSE');assert.equal(p.streak,2);
+  assert.ok(p.remainingMin>0&&p.remainingMin<=30);
+  assert.ok(c._testReentryBlock('PENDLEUSDT'),'zararlı kapanış soğuması da geri kuruldu');
+  now=Date.parse('2026-09-28T23:22:00Z');
+  assert.equal(c._testLossStreakPause(),null,'30 dk sonra biter');
+  c._testNoteClosedForStreak('XUSDT',1.2,now);
+  c._testNoteClosedForStreak('YUSDT',-1,now);
+  assert.equal(c._testLossStreakPause(),null,'kazanç seriyi sıfırladı; tek zarar mola açmaz');
+  c._testNoteClosedForStreak('ZUSDT',-1,now);
+  assert.ok(c._testLossStreakPause(),'yeniden 2 zarar → mola');
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  for(const m of ["execution:'LEADER_AUTO_REST_LOSS_STREAK'","reason:'FAST_LANE_REST_LOSS_STREAK'","const rs=['LOSS_STREAK_PAUSE'];"])assert.ok(lc.includes(m),m);
+  assert.ok(lc.indexOf("const rs=['LOSS_STREAK_PAUSE'];")<lc.indexOf('const intent = buildLeaderLiveIntent({'),'emir inşasından önce');
+});

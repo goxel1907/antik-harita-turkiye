@@ -34,7 +34,11 @@ const DEFAULTS=Object.freeze({
   scaleOutEnabled:1, scaleOutAtR:0.5, scaleOutFraction:0.3333, scaleOutMinMovePct:0.3, // ücret (~%0,1 gidiş-dönüş) üstünde anlamlı kâr
   // CLAUDE_R2544_4_PARTIAL_CONTRACT: JEV pozisyon incelemesinin KISMİ KÂR AL kararı için yürütme sözleşmesi.
   // AZTEC 29.09: 5 dk'da bir 6 kısmi (ilki 0,08R'de) → pozisyonun %97'si hareket gelmeden kapandı.
-  partialContractEnabled:1, partialMinR:0.5, partialMaxReviewCount:2, partialMinSpacingMin:10
+  partialContractEnabled:1, partialMinR:0.5, partialMaxReviewCount:2, partialMinSpacingMin:10,
+  // CLAUDE_R2544_4_LOSS_STREAK: art arda 2 zararlı kapanış → 30 dk yeni giriş yok (açık pozisyon yönetimi sürer).
+  // 68 kapanış: 2 zarar sonrası 30 dk içinde açılan 17 işlem toplam -5,48R / -55,8 USDT (ort. -0,32R; genel -0,22R).
+  // 29.09 01:45–02:14: PHA, PENDLE zararından sonra COTI (-2,79) ve SOON (-12,32) bu pencerede açıldı. 0 = kapalı.
+  lossStreakPauseCount:2, lossStreakPauseMin:30
 });
 
 function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}

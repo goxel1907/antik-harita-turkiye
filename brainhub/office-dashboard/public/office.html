@@ -426,6 +426,7 @@ const UI_TR = {
   TRADE_RISK_CAP_EXCEEDED:'İŞLEM RİSK TAVANI AŞILDI',
   CHASE_EXCEEDS_R_LIMIT:'FİYAT KAÇTI (>0.5R) — TAZE VERİYLE YENİDEN JEV',
   REENTRY_COOLDOWN_AFTER_LOSS:'ZARARLI KAPANIŞ SONRASI SOĞUMA — AYNI COİNE YENİDEN GİRİŞ YOK',
+  LOSS_STREAK_PAUSE:'ART ARDA 2 ZARAR — 30 DK YENİ GİRİŞ MOLASI', LEADER_AUTO_REST_LOSS_STREAK:'SERİ ZARAR MOLASI — AJANLAR DİNLENİYOR', FAST_LANE_REST_LOSS_STREAK:'SERİ ZARAR MOLASI',
   GUARD_SCALE_OUT:'KADEMELİ KÂR (0,5R) — 1/3 AZALTILDI', GUARD_SCALE_OUT_BREAKEVEN:'KADEMELİ KÂR SONRASI BAŞABAŞ STOP',
   PARTIAL_DEFERRED_BELOW_MIN_R:'JEV KISMİ ERTELENDİ — 0,5R ALTINDA', PARTIAL_DEFERRED_MAX_COUNT:'JEV KISMİ ERTELENDİ — EN ÇOK 2 KISMİ',
   PARTIAL_DEFERRED_SPACING:'JEV KISMİ ERTELENDİ — 10 DK ARA', JEV_PARTIAL_DEFERRED:'JEV KISMİ KÂR ERTELENDİ',
@@ -726,7 +727,7 @@ function renderGuardStrip(s){
       ['yapısal stop','likidasyon kapısı','kovalama 0.5R']),
     card(g&&g.mode==='BINDING'?'good':'warn','Pozisyon koruması',g?(g.mode==='BINDING'?'BAĞLAYICI • 10 sn':esc(trUi(g.mode))):'—',guardSub,['0,5R: 1/3 kâr + başabaş','JEV kısmi ≥0,5R • en çok 2','kâr kilidi','zaman stopu','likidasyon bekçisi']),
     card(hits.length?'good':'info','Ön-hareket radarı',hits.length?`${hits.length} imza`:'bekliyor',pmSub,cq.length?cq.map(x=>`${x.symbol} yeniden JEV ×${x.runs}`):['kaçan sembol yok']),
-    card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,rcd.length?rcd.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])
+    card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,[...(c112.fastLane?.lossStreak?.pause?[`SERİ ZARAR MOLASI ${c112.fastLane.lossStreak.pause.remainingMin} dk`]:[]),...(rcd.length?rcd.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])])
   ].join('');
 }
 function renderKpis(s){
@@ -1124,19 +1125,21 @@ function renderFloorShift(s, la, st){
   const open=(s.positions?.data?.open||[]).filter(p=>p&&p.symbol);
   const maxPos=Number(la.maxOpenPositions)||Number(la.effectiveMaxOpenPositions)||1;
   const full=open.length>0&&open.length>=maxPos;
+  const lsp=la.health?.claudeV112?.fastLane?.lossStreak?.pause||null;
+  const resting=full||!!lsp;
   for(const [id] of RESTERS){
     const g=document.getElementById('desk-'+id), r=document.getElementById('rest-'+id);
-    if(r) r.style.display=full?'':'none';
-    if(g&&full){ g.setAttribute('class','o-desk away'); const t=document.getElementById('deskTxt-'+id); if(t) t.textContent='molada • pozisyon sınırı dolu'; }
+    if(r) r.style.display=resting?'':'none';
+    if(g&&resting){ g.setAttribute('class','o-desk away'); const t=document.getElementById('deskTxt-'+id); if(t) t.textContent=lsp?`molada • seri zarar molası ${lsp.remainingMin} dk`:'molada • pozisyon sınırı dolu'; }
   }
-  if(full) for(const k of ['scanner-brain','workers-brain','orfree-workers','brain-vision','vision-brain']) setWalker('wk-'+k,false);
+  if(resting) for(const k of ['scanner-brain','workers-brain','orfree-workers','brain-vision','vision-brain']) setWalker('wk-'+k,false);
   for(const id of ['positions','jev','risk','exec']){
     const g=document.getElementById('desk-'+id); if(!g) continue;
     const c=(g.getAttribute('class')||'').replace(/\bwatch\b/g,'').trim();
     g.setAttribute('class', open.length ? c+' watch' : c);
   }
   const lt=document.getElementById('loungeTxt');
-  if(lt) lt.textContent = full ? `giriş ekibi molada • ${open.length}/${maxPos} pozisyon masada takipte` : (open.length ? `${open.length} pozisyon takipte • ekip masada` : 'boş — ekip masada, piyasa taranıyor');
+  if(lt) lt.textContent = lsp ? `seri zarar molası • ${lsp.remainingMin} dk yeni giriş yok (${(lsp.symbols||[]).map(shortSym).join(', ')})` : full ? `giriş ekibi molada • ${open.length}/${maxPos} pozisyon masada takipte` : (open.length ? `${open.length} pozisyon takipte • ekip masada` : 'boş — ekip masada, piyasa taranıyor');
   const fmtR=v=>v==null||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+'R';
   const lines=open.slice(0,2).map(p=>{
     const age=p.openedAt?Math.max(0,Math.round((Date.now()-Date.parse(p.openedAt))/60000)):null;
