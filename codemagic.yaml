@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.118-r2544-claude + PC R2544 PANEL RISK + POSITION GUARD + PREMOVE
+    name: Futures 15m Alarm PRO APK v9.5.118-r2544-claude PRO UI + PC R2544 PANEL RISK + POSITION GUARD + PREMOVE
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -481,6 +481,12 @@ workflows:
             exit 1
           fi
           echo 'V125_ANDROID_R2544_CLAUDE_OK'
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95126_r2544_pro_ui.py"
+          grep -q 'V95126_R2544_PRO_UI' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'public static CharSequence styled' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
+          grep -q 'ic_launcher_r2544' /tmp/futures15m-build/Futures15mAlarm/app/src/main/AndroidManifest.xml
+          test -f /tmp/futures15m-build/Futures15mAlarm/app/src/main/res/drawable/ic_launcher_foreground_r2544.xml
+          echo 'V126_ANDROID_R2544_PRO_UI_OK'
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
