@@ -97,3 +97,10 @@ test('R2543 devir bulguları: tek seçili aday + JEV_ATTENTION WATCH eski ARMED 
   assert.equal((sv.match(/runtimeRelease:RUNTIME_RELEASE/g)||[]).length,2,'/health ve /live/status');
   assert.match(sv,/\},10000\);\nif\(typeof claudeRunnerTimer\.unref/,'pozisyon takibi 10 sn');
 });
+
+test('R2544 deploy: manage.ps1 sağlık testi R2543 Vision AUDIT_ON_DEMAND plan-worker durumunu kabul eder (28.09 deploy hatası)',()=>{
+  const ps=fs.readFileSync(path.join(__dirname,'..','manage.ps1'),'utf8');
+  assert.match(ps,/\(-not \[bool\]\(Get-PropValue \$planWorkerStatus 'parallelWithVision' \$false\) -and \[string\]\(Get-PropValue \$planWorkerStatus 'visionMode' ''\) -ne 'AUDIT_ON_DEMAND'\)/);
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  assert.match(lc,/parallelWithVision:false,\n\s*visionMode:'AUDIT_ON_DEMAND',\n\s*routineRouter:'9ROUTER_FREE_TEXT'/,'canlı durum manage.ps1 beklentisiyle tutarlı');
+});

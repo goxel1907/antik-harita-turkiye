@@ -255,7 +255,8 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
     }
     $leaderAutoStatus = Get-PropValue $live 'leaderAuto' $null
     $planWorkerStatus = Get-PropValue $leaderAutoStatus 'planWorkers' $null
-    if ($null -eq $planWorkerStatus -or -not [bool](Get-PropValue $planWorkerStatus 'enabled' $false) -or -not [bool](Get-PropValue $planWorkerStatus 'parallelWithVision' $false) -or [string](Get-PropValue $planWorkerStatus 'routineRouter' '') -ne '9ROUTER_FREE_TEXT') {
+    if ($null -eq $planWorkerStatus -or -not [bool](Get-PropValue $planWorkerStatus 'enabled' $false) -or (-not [bool](Get-PropValue $planWorkerStatus 'parallelWithVision' $false) -and [string](Get-PropValue $planWorkerStatus 'visionMode' '') -ne 'AUDIT_ON_DEMAND') -or [string](Get-PropValue $planWorkerStatus 'routineRouter' '') -ne '9ROUTER_FREE_TEXT') {
+        # CLAUDE_R2544_DEPLOY_FIX: R2543'te Vision AUDIT_ON_DEMAND oldu (parallelWithVision=false); saglik testi bunu kabul eder.
         throw 'v9.5.108 plan worker runtime durumu etkin degil.'
     }
     Write-Host ("WORKER_POLICY routine={0} openRouterModel={1} freeOnly={2} configured={3}" -f (Get-PropValue $planWorkerStatus 'routineRouter' ''),(Get-PropValue $freeWorkerRoute 'model' ''),(Get-PropValue $freeWorkerRoute 'freeOnly' $false),(Get-PropValue $freeWorkerRoute 'configured' $false))
