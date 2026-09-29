@@ -97,6 +97,53 @@ function keyLevels(f){
   return Object.values(out).some(v=>v!==null)?out:null;
 }
 
+// CLAUDE_R2544_15_LEVEL_MAP: kullanıcı — "top 3/10/24, erken ilgi ve aday coinlerde geçmiş likidasyon noktaları, fibolar,
+// OB'ler, FVG'ler her şey LONG ve SHORT için çok önemli". Tek, kırpılmayan bir harita: fiyatın üstündeki ve altındaki en yakın
+// 7'şer seviye (15m–1d FVG/OB/breaker/fib .5-.618/OTE/aralık/önceki-20/eşit tepe-dip + 24 saatlik gözlenen likidasyon kümeleri).
+function levelMap(u){
+  const price=finite(u?.livePrice)??finite(u?.frames?.['5m']?.close)??finite(u?.frames?.['15m']?.close);
+  if(!(price>0))return null;
+  const sig=v=>{const n=finite(v);return n===null?null:Number(n.toPrecision(7));};
+  const items=[];
+  const add=(p,k)=>{const v=finite(p);if(v>0&&Math.abs(v-price)/price<=0.35)items.push({p:v,k});};
+  const edge=z=>{const lo=finite(z?.low),hi=finite(z?.high);if(lo===null||hi===null)return null;return lo>price?lo:hi<price?hi:(lo+hi)/2;};
+  for(const tf of ['15m','30m','1h','4h','1d']){
+    const f=u?.frames?.[tf];
+    if(!f||f.available===false)continue;
+    const smc=f.smcContext||{},dr=smc.dealingRange||{},fib=smc.fibLevels?.retracement||{},ote=smc.oteReference||{};
+    add(dr.high,tf+':RANGE_H');add(dr.low,tf+':RANGE_L');
+    add(fib['0.5'],tf+':FIB50');add(fib['0.618'],tf+':FIB618');
+    if(ote.longDiscountZone)add(edge(ote.longDiscountZone),tf+':OTE_LONG');
+    if(ote.shortPremiumZone)add(edge(ote.shortPremiumZone),tf+':OTE_SHORT');
+    const gaps=arr(f.recentFairValueGaps).length?arr(f.recentFairValueGaps):arr(f?.liquidity?.fairValueGaps);
+    for(const g of gaps)if(g&&g.filled!==true)add(edge(g),tf+':'+(String(g.side).toUpperCase()==='BULL'?'FVG_BULL':'FVG_BEAR'));
+    for(const [side,list] of [['BULL',f?.orderBlocks?.bullish],['BEAR',f?.orderBlocks?.bearish]])for(const o of arr(list)){
+      if(!o)continue;
+      if(o.broken!==true)add(edge(o),tf+':OB_'+side+(finite(o.volRel)!==null?'x'+Number(o.volRel).toFixed(1):''));
+      else if(o.breaker===true)add(edge(o),tf+':BREAKER_'+(side==='BULL'?'RES':'SUP'));
+    }
+    add(f.prior20High,tf+':P20H');add(f.prior20Low,tf+':P20L');
+    add(f?.liquidity?.equalHigh?.price,tf+':EQH');add(f?.liquidity?.equalLow?.price,tf+':EQL');
+  }
+  const lh=u?.microstructure?.liquidationHistory;
+  for(const c of arr(lh?.clusters))add(c.price,'24h:'+(c.side==='LONG_LIQUIDATED'?'LIQ_LONGS':'LIQ_SHORTS')+'_'+Math.max(1,Math.round((finite(c.quote)||0)/1000))+'k');
+  for(const z of arr(u?.liquidationContext?.zones||u?.microstructure?.observedLiquidations?.zones))add(z?.price,'15m:LIQ_'+String(z?.side||'').replace('_LIQUIDATED','S'));
+  const merge=list=>{const out=[];for(const x of list){const last=out[out.length-1];
+    if(last&&Math.abs(x.p-last.p)/price<0.001){if(!last.k.split('+').includes(x.k)&&last.k.length<70)last.k+='+'+x.k;}else out.push({p:x.p,k:x.k});}return out;};
+  const fmt=x=>({p:sig(x.p),d:Number(((x.p-price)/price*100).toFixed(2)),k:x.k});
+  const above=merge(items.filter(x=>x.p>price).sort((a,b)=>a.p-b.p)).slice(0,7).map(fmt);
+  const below=merge(items.filter(x=>x.p<price).sort((a,b)=>b.p-a.p)).slice(0,7).map(fmt);
+  if(!above.length&&!below.length)return null;
+  return {price:sig(price),above,below,semantics:'NEAREST_LEVELS_15M_TO_1D_PLUS_24H_OBSERVED_LIQUIDATIONS_CONTEXT_ONLY'};
+}
+function liquidationHistoryDigest(lh){
+  if(!lh||typeof lh!=='object'||lh.available!==true)return lh&&typeof lh==='object'?{available:false,count:finite(lh.count)||0,coverageH:finite(lh.coverageFromMs)!==null?Number((lh.coverageFromMs/3600000).toFixed(1)):null}:null;
+  return {available:true,windowH:finite(lh.windowH),count:finite(lh.count),coverageH:finite(lh.coverageFromMs)!==null?Number((lh.coverageFromMs/3600000).toFixed(1)):null,
+    longLiquidatedQuote:finite(lh.longLiquidatedQuote),shortLiquidatedQuote:finite(lh.shortLiquidatedQuote),
+    clusters:arr(lh.clusters).slice(0,6).map(c=>({price:c.price,side:c.side,quote:c.quote,count:c.count,hoursAgo:c.hoursAgo,distPct:c.distPct})),
+    note:'Binance all-market forceOrder sample (max one print per symbol per second); not a complete heatmap.'};
+}
+
 function marketPacket(u){
   const m=u?.microstructure||{};
   const stream=m?.streaming||{};
@@ -108,6 +155,9 @@ function marketPacket(u){
     symbol:u?.symbol||null,livePrice:finite(u?.livePrice),
     // CLAUDE_R2543: grafigin ne anlattigi HER TURDA, deterministik olarak pakete girer.
     chartNarrative:narrateChart(u),
+    // CLAUDE_R2544_15: tek seviye haritası + 24 saatlik likidasyon kümeleri (kırpma adımları dokunmaz).
+    levelMap:levelMap(u),
+    liquidationHistory:liquidationHistoryDigest(u?.microstructure?.liquidationHistory),
     coreFrames:{
       '5m':framePacket(u?.frames?.['5m'],{full:true}),
       '15m':framePacket(u?.frames?.['15m'],{full:true})
@@ -213,4 +263,4 @@ function mirrorDigest(packet){
   };
 }
 
-module.exports={framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,keyLevels};
+module.exports={levelMap,liquidationHistoryDigest,framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,keyLevels};

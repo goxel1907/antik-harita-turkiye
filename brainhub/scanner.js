@@ -8,7 +8,10 @@ const STATE_PATH = path.join(ROOT, 'data', 'scanner-state.json');
 const ATTENTION_PATH = path.join(ROOT, 'data', 'scanner-attention.json');
 const BASE = 'https://fapi.binance.com';
 const ATTENTION_MAX_AGE_MS = 15 * 60 * 1000;
-const TARGET_DETAIL_LIMIT = 24;
+// CLAUDE_R2544_15_GAINER_LADDER: ayrıntılı inceleme 24 → 30 (yükselenler ilk 24 + erken teşhis + erken ilgi sığsın).
+const TARGET_DETAIL_LIMIT = 30;
+const LADDER_HISTORY_MS = 30 * 60 * 1000;   // yükselenler sırası geçmişi (hız hesabı)
+const LADDER_TRACK_RANK = 80;               // geçmişi tutulan en kötü sıra
 const EXCHANGE_TTL_MS = 10 * 60 * 1000;
 
 let exchangeCache = { at: 0, data: null };
@@ -206,6 +209,57 @@ function lightweightAccelerationScore(x, prevRow = null) {
   ),3);
 }
 
+// CLAUDE_R2544_15_GAINER_LADDER: Binance USDT-M "en çok yükselenler" merdiveni (24 saatlik değişim, her taramada TAZE
+// /ticker/24hr ile yeniden sıralanır). Her sembolün sırası zaman damgasıyla saklanır; hız = son ~5 dk'daki sıra kazancı,
+// kısa pencere = son taramadan beri fiyat değişimi. Katmanlar: TOP3 (1–3), TOP10 (4–10), TOP24 (11–24) ve
+// ERKEN TEŞHİS (merdivende hızla tırmanan, 5 dk içinde ilk 3'e / ilk 10'a varması beklenen ya da kısa pencerede sert yükselen).
+function buildGainerLadder(universe, prevState = {}, now = Date.now()) {
+  const ranked = [...universe]
+    .filter(x => num(x.priceChangePercent) > 0)
+    .sort((a,b) => num(b.priceChangePercent) - num(a.priceChangePercent) || num(b.quoteVolume) - num(a.quoteVolume));
+  const prevLadder = prevState?.ladder || {};
+  const bySymbol = new Map();
+  ranked.forEach((x, i) => {
+    const rank = i + 1;
+    const hist = (Array.isArray(prevLadder[x.symbol]?.h) ? prevLadder[x.symbol].h : []).filter(e => Array.isArray(e) && now - num(e[0]) <= LADDER_HISTORY_MS && num(e[0]) < now);
+    const last = hist.length ? hist[hist.length - 1] : null;
+    // ~5 dk önceki kayıt (en az 2 dk eski); yoksa en eski kayıt
+    const older = hist.filter(e => now - num(e[0]) >= 2 * 60 * 1000);
+    const ref = older.length ? older.reduce((best, e) => Math.abs(now - num(e[0]) - 300000) < Math.abs(now - num(best[0]) - 300000) ? e : best, older[0]) : null;
+    const dtMin = ref ? (now - num(ref[0])) / 60000 : null;
+    const velocity = ref && dtMin > 0 ? round((num(ref[1]) - rank) / (dtMin / 5), 2) : 0;   // sıra/5 dk (+ = tırmanıyor)
+    const projected = Math.max(1, Math.round(rank - Math.max(0, velocity)));
+    const pl = prevState?.lightweight?.[x.symbol];
+    const shortDtMin = pl && num(pl.at) > 0 && now - num(pl.at) <= 20 * 60 * 1000 && now > num(pl.at) ? (now - num(pl.at)) / 60000 : null;
+    const shortChangePct = shortDtMin ? round(pct(pl.lastPrice, x.lastPrice), 3) : null;
+    const shortPer5m = shortDtMin ? round(shortChangePct / Math.max(1, shortDtMin) * 5, 3) : null;
+    const tier = rank <= 3 ? 'TOP3' : rank <= 10 ? 'TOP10' : rank <= 24 ? 'TOP24' : null;
+    const approach3 = rank > 3 && rank <= 60 && velocity >= 3 && projected <= 3;
+    const approach10 = rank > 10 && rank <= 60 && velocity >= 3 && projected <= 10;
+    const shortSurge = rank > 3 && rank <= 60 && shortPer5m !== null && shortPer5m >= 1.5;
+    bySymbol.set(x.symbol, {
+      symbol:x.symbol, gainerRank:rank, gainerRankPrev:last ? num(last[1]) : null, gainerRankVelocity:velocity,
+      projectedGainerRank:projected, ladderTier:tier, change24hPct:round(x.priceChangePercent, 3),
+      shortChangePct, shortWindowMin:shortDtMin ? round(shortDtMin, 1) : null, shortPer5mPct:shortPer5m,
+      approach:approach3 ? 'TOP3_CANDIDATE' : approach10 ? 'TOP10_CANDIDATE' : shortSurge ? 'SHORT_WINDOW_SURGE' : null
+    });
+  });
+  const rowsOf = list => list.map(x => ({ ...x, ...bySymbol.get(x.symbol) }));
+  const approach = rowsOf(ranked.filter(x => bySymbol.get(x.symbol)?.approach))
+    .sort((a,b) => ({TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2}[a.approach] - {TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2}[b.approach]) ||
+      a.projectedGainerRank - b.projectedGainerRank || b.gainerRankVelocity - a.gainerRankVelocity || num(b.shortPer5mPct) - num(a.shortPer5mPct));
+  const nextLadder = {};
+  for (const x of ranked.slice(0, LADDER_TRACK_RANK)) {
+    const hist = (Array.isArray(prevLadder[x.symbol]?.h) ? prevLadder[x.symbol].h : []).filter(e => Array.isArray(e) && now - num(e[0]) <= LADDER_HISTORY_MS);
+    nextLadder[x.symbol] = { h: [...hist, [now, bySymbol.get(x.symbol).gainerRank]].slice(-12) };
+  }
+  return {
+    bySymbol, rankedCount:ranked.length,
+    top3:rowsOf(ranked.slice(0,3)), top10:rowsOf(ranked.slice(3,10)), top24:rowsOf(ranked.slice(10,24)),
+    approach, nextLadder
+  };
+}
+
 function selectCandidates(universe, prevState = {}, attentionOrLimit = readAttention(), limit = TARGET_DETAIL_LIMIT) {
   let attention=attentionOrLimit;
   if(Number.isFinite(Number(attentionOrLimit)) && typeof attentionOrLimit!=='object'){
@@ -296,20 +350,24 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     }
   };
 
-  // Heavy detail budget remains capped at 24. Previous leaders decay with age,
-  // while eight slots are reserved for symbols outside the previous target set
-  // whenever enough fresh candidates exist.
-  const prevAgeMs=Math.max(0,Date.now()-Number(prevState?.ts||0));
-  const prevTop3Slots=prevAgeMs<=30*60*1000?3:1;
-  const prev4to10Slots=prevAgeMs<=10*60*1000?4:prevAgeMs<=30*60*1000?2:0;
-  add(previousTop3,'PREV_ATTACK_TOP3',prevTop3Slots);
-  add(previousTop4to10,'PREV_ATTACK_4_10',prev4to10Slots);
-  add(noveltyPool,'LIGHTWEIGHT_NEW_ACCELERATION',8);
-  add(top24Gainers,'BINANCE_TOP24_GAINER',3);
-  add(acceleratingPool,'LIGHTWEIGHT_ACCELERATION',3);
-  add(continuity,'APPROACH_CONTINUITY',2);
-  add(accumulationPool,'ACCUMULATION_PROXY',2);
-  add(attentionPool,'APP_EARLY_ATTENTION',2);
+  // CLAUDE_R2544_15_SLOT_POLICY (kullanıcı kararı 29.09): öncelik Binance yükselenler merdiveni.
+  //   1) ilk 3  2) ilk 3'e / ilk 10'a aday erken teşhis (en çok 4)  3) uygulamadaki erken ilgi (ayrılmış 4)
+  //   4) 4–10. sıralar (tamamı)  5) 11–24. sıralar  6) önceki turdan yaklaşma sürekliliği (1)  7) hızlananlar (kapsama)
+  // Eski kaynaklar (önceki saldırı sırası, yeni/hızlanan havuzu) 21.09'dan beri 57 işlemde ≈ −16,5R getirdi; yalnız boş slot doldurur.
+  const ladder=buildGainerLadder(universe,prevState,Date.now());
+  const tagLadder=(items)=>items.map(x=>({...x,...(ladder.bySymbol.get(x.symbol)||{})}));
+  add(tagLadder(ladder.top3),'GAINER_TOP3',3);
+  add(tagLadder(ladder.approach),'GAINER_APPROACH',4);
+  add(tagLadder(attentionPool),'APP_EARLY_ATTENTION',4);
+  add(tagLadder(ladder.top10),'GAINER_TOP10',7);
+  add(tagLadder(ladder.top24),'GAINER_TOP24',14);
+  add(tagLadder(continuity),'APPROACH_CONTINUITY',1);
+  add(tagLadder(acceleratingPool),'LIGHTWEIGHT_ACCELERATION',Math.max(0,limit-targetMap.size));
+  // Geriye uyum: merdivenin ilk 24'ündeki her aday ayrıca BINANCE_TOP24_GAINER etiketi taşır.
+  for(const x of targetMap.values()){
+    const l=ladder.bySymbol.get(x.symbol);
+    if(l){Object.assign(x,l);x.gainerRank24=l.gainerRank<=24?l.gainerRank:null;if(l.gainerRank<=24&&!x.targetSources.includes('BINANCE_TOP24_GAINER'))x.targetSources.push('BINANCE_TOP24_GAINER');}
+  }
 
   // Fill any unused slots with the strongest remaining candidates by a cheap
   // pre-score; this avoids an empty scanner after restart without returning to
@@ -333,6 +391,7 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     attentionPool,
     acceleratingPool,
     noveltyPool,
+    ladder,
     previousAgeMs:Math.max(0,Date.now()-Number(prevState?.ts||0)),
     newTargetCount:candidates.filter(x=>!Object.prototype.hasOwnProperty.call(prevState?.bySymbol||{},x.symbol)).length,
     attentionStatus:{
@@ -396,6 +455,12 @@ async function enrich(x, book, premium, prev) {
     volumeRank: x.volumeRank,
     targetSources:Array.isArray(x.targetSources)?x.targetSources.slice(0,6):[],
     gainerRank24:num(x.gainerRank24)||null,
+    // CLAUDE_R2544_15: merdiven alanları (JEV radar ve Office için)
+    gainerRank:num(x.gainerRank)||null, gainerRankPrev:num(x.gainerRankPrev)||null,
+    gainerRankVelocity:Number.isFinite(Number(x.gainerRankVelocity))?Number(x.gainerRankVelocity):null,
+    projectedGainerRank:num(x.projectedGainerRank)||null, ladderTier:x.ladderTier||null, ladderApproach:x.approach||null,
+    shortChangePct:Number.isFinite(Number(x.shortChangePct))?Number(x.shortChangePct):null,
+    shortWindowMin:Number.isFinite(Number(x.shortWindowMin))?Number(x.shortWindowMin):null,
     accumulationProxyScore:num(x.accumulationProxyScore)||0,
     attention:x.attention||null
   };
@@ -484,6 +549,7 @@ async function performScan() {
       const lastPrice=num(x.lastPrice), high=num(x.highPrice), low=num(x.lowPrice);
       return {
         symbol:x.symbol,
+        closeTime:num(x.closeTime),
         quoteVolume:num(x.quoteVolume),
         priceChangePercent:num(x.priceChangePercent),
         lastPrice,
@@ -503,14 +569,14 @@ async function performScan() {
 
   const attention=readAttention();
   const selection = selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
-  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, acceleratingPool, noveltyPool, attentionStatus, newTargetCount, candidates, targetSymbols } = selection;
+  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, acceleratingPool, noveltyPool, attentionStatus, newTargetCount, candidates, targetSymbols, ladder } = selection;
 
   const enriched = await mapLimit(candidates,8,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
   good.forEach((x,i)=>addLeaderHunterFields(x,i+1,prev.bySymbol?.[x.symbol]));
 
   const now=Date.now();
-  const next={ts:now,bySymbol:{},lightweight:{}};
+  const next={ts:now,bySymbol:{},lightweight:{},ladder:ladder.nextLadder};
   for(const x of universe){
     next.lightweight[x.symbol]={
       at:now,lastPrice:x.lastPrice,quoteVolume:x.quoteVolume,
@@ -543,6 +609,15 @@ async function performScan() {
   const gainerCandidates=leaderHunters.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('BINANCE_TOP24_GAINER'));
   const accumulationCandidates=leaderHunters.filter(x=>x.accumulationBreakoutCandidate===true || (Array.isArray(x.targetSources)&&x.targetSources.includes('ACCUMULATION_PROXY')));
   const attentionCandidates=leaderHunters.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('APP_EARLY_ATTENTION'));
+  // CLAUDE_R2544_15: ayrıntılı incelenen adaylar merdiven katmanına göre (sıra: yükselenler sırası).
+  const bySrc=src=>good.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes(src)).sort((a,b)=>num(a.gainerRank)-num(b.gainerRank)||0);
+  const ladderTop3=bySrc('GAINER_TOP3'), ladderTop10=bySrc('GAINER_TOP10'), ladderTop24=bySrc('GAINER_TOP24');
+  const ladderApproach=good.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('GAINER_APPROACH'))
+    .sort((a,b)=>({TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2}[a.ladderApproach]??3)-({TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2}[b.ladderApproach]??3)||num(a.projectedGainerRank)-num(b.projectedGainerRank));
+  const tickerAsOf=Math.max(0,...universe.map(x=>num(x.closeTime)));
+  const analyzedSet=new Set(good.map(x=>x.symbol));
+  const ladderRow=x=>({symbol:x.symbol,rank:x.gainerRank,prevRank:x.gainerRankPrev,velocity:x.gainerRankVelocity,projected:x.projectedGainerRank,
+    change24hPct:x.change24hPct,shortChangePct:x.shortChangePct,shortWindowMin:x.shortWindowMin,tier:x.ladderTier,approach:x.approach||null,detailed:analyzedSet.has(x.symbol)});
   return {
     ok:true,
     source:'Binance USDT-M public API; short-horizon stats use closed 1m/3m/5m candles only',
@@ -553,6 +628,16 @@ async function performScan() {
     targetUniverseCount:candidates.length,
     targetDetailLimit:TARGET_DETAIL_LIMIT,
     targetSymbols,
+    // CLAUDE_R2544_15_GAINER_LADDER: canlı merdiven (Office + JEV). tickerAgeMs: Binance 24s ticker verisinin yaşı.
+    gainerLadder:{
+      asOf:tickerAsOf?new Date(tickerAsOf).toISOString():null,
+      tickerAgeMs:tickerAsOf?Math.max(0,Date.now()-tickerAsOf):null,
+      rankedGainers:ladder.rankedCount,
+      rows:[...ladder.top3,...ladder.top10,...ladder.top24].map(ladderRow),
+      approach:ladder.approach.slice(0,10).map(ladderRow),
+      attention:attentionPool.map(x=>({symbol:x.symbol,rank:ladder.bySymbol.get(x.symbol)?.gainerRank||null,detailed:analyzedSet.has(x.symbol),earlyMoveScore:x.attention?.earlyMoveScore??null,direction:x.attention?.direction||null}))
+    },
+    ladderTop3,ladderTop10,ladderTop24,ladderApproach,
     priorityBuckets:{
       previousTop3:previousTop3.map(x=>x.symbol),
       previousTop4to10:previousTop4to10.map(x=>x.symbol),
@@ -591,7 +676,7 @@ async function performScan() {
     top5Confirmed:leaderHunters.filter(x=>x.top5Confirmed).slice(0,5),
     notes:[
       '523-symbol Binance ticker data is used only as a lightweight discovery snapshot; per-symbol 1m/3m/5m/OI detail work is capped to the 24-symbol priority target universe',
-      'Priority order is previous attack top3, previous attack ranks 4-10, selected members of Binance top24 gainers, objective accumulation/breakout proxies, and fresh app early-attention symbols',
+      'R2544.15 priority: Binance gainer ladder top3, early-diagnosis candidates climbing toward top3/top10, app early-attention symbols (reserved), ranks 4-10, ranks 11-24, then continuity/acceleration fill',
       'Accumulation is a public-data proxy only, not proof of hidden orders or market-maker intent',
       'TOP10_APPROACH and TOP3_APPROACH use attack-rank velocity, acceleration, 1m/3m/5m directional expansion, flow/OI support, spread and trade quality',
       'The same early-approach logic applies independently to LONG and SHORT hypotheses',
@@ -603,6 +688,8 @@ async function performScan() {
 
 let inFlight=null;
 let cache=null;
+// CLAUDE_R2544_15: Office için tarama TETİKLEMEDEN son sonuç.
+function lastScan(){return cache?{...cache.result,cacheAgeMs:Date.now()-cache.at}:null;}
 async function scan(){
   if(cache&&Date.now()-cache.at<15000)return {...cache.result,cacheAgeMs:Date.now()-cache.at};
   if(inFlight)return inFlight;
@@ -610,4 +697,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={scan,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT};
+module.exports={scan,lastScan,buildGainerLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT};

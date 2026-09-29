@@ -17,63 +17,42 @@ function row(i,change=0){
   };
 }
 
-test('priority target universe caps per-symbol detail work at 24 and preserves bucket order',()=>{
+// CLAUDE_R2544_15_SLOT_POLICY: öncelik Binance yükselenler merdiveni (ilk 3 → erken teşhis → erken ilgi → 4–10 → 11–24).
+test('R2544.15: ayrıntılı inceleme 30 coin; merdivenin ilk 24ü, erken teşhis ve erken ilgi önce gelir',()=>{
+  const now=Date.now();
   const universe=[];
   for(let i=1;i<=80;i++) universe.push(row(i, i<=30 ? 31-i : (i%9)-4));
-  const prev={ts:Date.now(),bySymbol:{},lightweight:{}};
-  for(let i=1;i<=10;i++) prev.bySymbol[row(i).symbol]={rank:i,rankVelocity:0,leaderHunterScore:50-i};
-
-  const attention={
-    available:true,updatedAt:Date.now(),ageMs:1000,
-    rows:[
-      {symbol:row(70).symbol,talkScore:90,earlyMoveScore:95,sourceConfidence:80,preMoveState:'ERKEN',direction:'YUKARI_Ä°LGÄ°'},
-      {symbol:row(71).symbol,talkScore:88,earlyMoveScore:92,sourceConfidence:75,preMoveState:'ERKEN',direction:'YUKARI_Ä°LGÄ°'}
-    ]
-  };
-
+  // C040: 5 dk önce merdivende 30. sıradaydı, şimdi 12. → ilk 3 adayı (erken teşhis)
+  universe[39].priceChangePercent=19.5;
+  const prev={ts:now-60000,bySymbol:{},lightweight:{},ladder:{[row(40).symbol]:{h:[[now-5*60000,30]]}}};
+  const attention={available:true,updatedAt:now,ageMs:1000,rows:[
+    {symbol:row(70).symbol,talkScore:90,earlyMoveScore:95,sourceConfidence:80,preMoveState:'ERKEN',direction:'YUKARI'},
+    {symbol:row(71).symbol,talkScore:88,earlyMoveScore:92,sourceConfidence:75,preMoveState:'ERKEN',direction:'YUKARI'}]};
+  assert.equal(TARGET_DETAIL_LIMIT,30);
   const out=selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
-  assert.equal(out.candidates.length,24);
-  assert.deepEqual(out.candidates.slice(0,3).map(x=>x.symbol),[row(1).symbol,row(2).symbol,row(3).symbol]);
-  assert.deepEqual(out.candidates.slice(3,7).map(x=>x.symbol),[row(4).symbol,row(5).symbol,row(6).symbol,row(7).symbol]);
-  assert.ok(out.newTargetCount>=8,'at least eight fresh symbols should enter a 24-target cycle when available');
-  assert.ok(out.noveltyPool.length>=8);
-  assert.ok(out.top24Gainers.length<=24);
-  assert.ok(out.candidates.some(x=>x.targetSources.includes('BINANCE_TOP24_GAINER')));
-  assert.ok(out.candidates.some(x=>x.targetSources.includes('ACCUMULATION_PROXY')));
-  assert.ok(out.candidates.some(x=>x.targetSources.includes('APP_EARLY_ATTENTION')));
+  assert.equal(out.candidates.length,30);
+  const src=s=>out.candidates.find(x=>x.symbol===s)?.targetSources||[];
+  assert.deepEqual(out.candidates.slice(0,3).map(x=>x.symbol),[row(1).symbol,row(2).symbol,row(3).symbol],'ilk 3 önce');
+  assert.ok(src(row(40).symbol).includes('GAINER_APPROACH'),'tırmanan coin erken teşhiste');
+  const c40=out.candidates.find(x=>x.symbol===row(40).symbol);
+  assert.equal(c40.approach,'TOP3_CANDIDATE','30→12 sıra/5 dk: 5 dk içinde ilk 3 bekleniyor');assert.equal(c40.gainerRank,12);assert.ok(c40.gainerRankVelocity>=3);
+  assert.ok(src(row(70).symbol).includes('APP_EARLY_ATTENTION')&&src(row(71).symbol).includes('APP_EARLY_ATTENTION'),'erken ilgi ayrılmış slotta');
+  for(let i=4;i<=10;i++)assert.ok(out.candidates.some(x=>x.gainerRank===i),'4–10 tamamı: '+i);
+  for(let i=11;i<=24;i++)assert.ok(out.candidates.some(x=>x.gainerRank===i),'11–24 tamamı: '+i);
+  assert.ok(out.candidates.filter(x=>x.gainerRank&&x.gainerRank<=24).every(x=>x.targetSources.includes('BINANCE_TOP24_GAINER')));
+  assert.ok(out.ladder.nextLadder[row(1).symbol].h.length>=1,'sıra geçmişi saklanır');
 });
 
-test('deep 9TF priority is top3, ranks4-10, early acceleration/accumulation/attention, then top24 fill',()=>{
-  const base=(symbol,rank)=>({
-    symbol,side:'LONG',attackRank:rank,projectedRank:rank,leaderState:'WATCH',
-    tradeQuality:80,spreadBps:1,directionSupport:2,longExpansionScore:60,shortExpansionScore:10,
-    expansionScore:60,leaderHunterScore:100-rank,movementPotential:70
-  });
+test('R2544.15: JEV sırası merdiveni izler: ilk 3 → erken teşhis → erken ilgi → 4–10 → 11–24 → eski havuzlar',()=>{
+  const base=(symbol,rank,extra={})=>({symbol,side:'LONG',attackRank:rank,projectedRank:rank,leaderState:'WATCH',tradeQuality:80,spreadBps:1,
+    directionSupport:2,longExpansionScore:60,shortExpansionScore:10,expansionScore:60,leaderHunterScore:100-rank,movementPotential:70,...extra});
   const scan={
-    leaders:[
-      base('TOP1USDT',1),
-      base('TOP2USDT',2),
-      base('TOP4USDT',4),
-      base('TOP7USDT',7)
-    ],
-    gainerCandidates:[base('GAINUSDT',14)],
-    acceleratingCandidates:[base('FASTUSDT',13)],
-    accumulationCandidates:[base('ACCUSDT',15)],
-    attentionCandidates:[base('ATTNUSDT',16)],
-    top3Approach:[],top10Approach:[],earlyTop5:[],earlyExpansion:[]
+    ladderTop3:[base('G1USDT',9,{gainerRank:1})],ladderApproach:[base('APPUSDT',8,{gainerRank:14,ladderApproach:'TOP3_CANDIDATE'})],
+    attentionCandidates:[base('ATTNUSDT',16)],ladderTop10:[base('G5USDT',3,{gainerRank:5})],ladderTop24:[base('G15USDT',2,{gainerRank:15})],
+    leaders:[base('ATK1USDT',1)],acceleratingCandidates:[base('FASTUSDT',13)],top3Approach:[],top10Approach:[],earlyTop5:[],earlyExpansion:[]
   };
-  const out=selectDeepCandidates(scan,16);
-  assert.deepEqual(
-    out.map(x=>[x.symbol,x.deepScanReason]),
-    [
-      ['TOP1USDT','CURRENT_ATTACK_TOP10'],
-      ['TOP2USDT','CURRENT_ATTACK_TOP10'],
-      ['TOP4USDT','CURRENT_ATTACK_TOP10'],
-      ['TOP7USDT','CURRENT_ATTACK_TOP10'],
-      ['FASTUSDT','LIGHTWEIGHT_ACCELERATION'],
-      ['ACCUSDT','ACCUMULATION_BREAKOUT_PROXY'],
-      ['ATTNUSDT','APP_EARLY_ATTENTION'],
-      ['GAINUSDT','BINANCE_TOP24_GAINER']
-    ]
-  );
+  const out=selectDeepCandidates(scan,24);
+  assert.deepEqual(out.map(x=>[x.symbol,x.deepScanReason]),[
+    ['G1USDT','GAINER_TOP3'],['APPUSDT','GAINER_APPROACH'],['ATTNUSDT','APP_EARLY_ATTENTION'],['G5USDT','GAINER_TOP10'],['G15USDT','GAINER_TOP24'],
+    ['ATK1USDT','CURRENT_ATTACK_TOP10'],['FASTUSDT','LIGHTWEIGHT_ACCELERATION']]);
 });

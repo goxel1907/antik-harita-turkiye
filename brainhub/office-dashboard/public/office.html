@@ -351,6 +351,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
   </section>
 
+  <!-- CLAUDE_R2544_15_GAINER_LADDER: canlı merdiven (ilk 3 / 4-10 / 11-24), erken teşhis ve erken ilgi -->
+  <section><div class="card"><h2>Yükselenler merdiveni (Binance 24s, canlı)</h2><div id="ladderMeta" class="muted"></div><div style="overflow:auto"><table id="ladderTable"></table></div><div id="ladderSide" class="muted" style="margin-top:6px"></div></div></section>
   <section><div class="card"><h2>Analiz yolu ve işlem engelleri</h2><div id="cpuPolicy"></div><div id="priorityQueue"></div><div style="overflow:auto"><table id="decisionChains"></table></div></div></section>
   <!-- CLAUDE_V113_POSITION_LEDGER: Binance açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, 30 sn) -->
   <section>
@@ -1048,6 +1050,23 @@ function renderFeed(s){
     : '<div class="muted">Henüz olay yok.</div>';
 }
 
+function renderLadder(s){
+  const L=s.ladder?.gainerLadder||null, lh=s.ladder?.liquidationHistory||null;
+  const meta=document.getElementById('ladderMeta'), tb=document.getElementById('ladderTable'), side=document.getElementById('ladderSide');
+  if(!meta||!tb)return;
+  if(!L){meta.textContent='Tarama sonucu henüz yok (core yeni başladıysa ilk tur bekleniyor).';tb.innerHTML='';if(side)side.textContent='';return;}
+  const age=Number.isFinite(Number(L.tickerAgeMs))?Math.round(L.tickerAgeMs/1000):null;
+  meta.innerHTML=`Veri zamanı ${esc(L.asOf?fmtTime(Date.parse(L.asOf)):'—')}${age!==null?` (${age} sn önce${age>90?' • <b>BAYAT</b>':''})`:''} • yükselen coin ${esc(L.rankedGainers??'—')} • tarama önbelleği ${esc(Math.round((s.ladder?.cacheAgeMs||0)/1000))} sn • ayrıntılı ${esc(s.ladder?.targetDetailLimit??'—')} coin`+
+    (lh?` • likidasyon kaydı ${lh.connected?'bağlı':'<b>bağlı değil</b>'} ${esc(lh.events??0)} olay / ${esc(lh.coverageH??0)} sa`:'');
+  const tierTr={TOP3:'İLK 3',TOP10:'4–10',TOP24:'11–24'};
+  const arrow=r=>{const v=Number(r.velocity);return !Number.isFinite(v)||v===0?'':v>0?`<span class="good">▲${v}</span>`:`<span class="bad">▼${Math.abs(v)}</span>`;};
+  const pc=v=>v===null||v===undefined?'—':(Number(v)>0?'+':'')+Number(v).toFixed(2)+'%';
+  tb.innerHTML='<tr><th>#</th><th>Coin</th><th>Katman</th><th>24s</th><th>Kısa pencere</th><th>Önceki sıra</th><th>Hız (5 dk)</th><th>Ayrıntılı</th></tr>'+
+    (L.rows||[]).map(r=>`<tr><td>${esc(r.rank)}</td><td><b>${esc(r.symbol)}</b></td><td>${esc(tierTr[r.tier]||'—')}</td><td>${pc(r.change24hPct)}</td><td>${pc(r.shortChangePct)}${r.shortWindowMin?` / ${esc(r.shortWindowMin)} dk`:''}</td><td>${esc(r.prevRank??'—')}</td><td>${arrow(r)}</td><td>${r.detailed?'✓':'—'}</td></tr>`).join('');
+  const ap=(L.approach||[]).map(r=>`${esc(r.symbol)} #${esc(r.rank)}→${esc(r.projected)} ${esc(({TOP3_CANDIDATE:'ilk 3 adayı',TOP10_CANDIDATE:'ilk 10 adayı',SHORT_WINDOW_SURGE:'kısa pencere sıçraması'})[r.approach]||'')}${r.detailed?' ✓':''}`).join(' • ')||'yok';
+  const at=(L.attention||[]).map(r=>`${esc(r.symbol)}${r.rank?' #'+esc(r.rank):''}${r.detailed?' ✓':''}`).join(' • ')||'yok (uygulama verisi 15 dk içinde gelmedi)';
+  if(side)side.innerHTML=`<b>Erken teşhis (ilk 3/ilk 10 adayları):</b> ${ap}<br><b>Erken ilgi (uygulama):</b> ${at}`;
+}
 function renderSources(s){
   const bk=s.backups||{};
   // CLAUDE_R2544_12_JEV_BRAIN: başlıktaki klasör satırı gerçek kökten.
@@ -1465,7 +1484,7 @@ async function tick(){
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
     renderKpis(s); try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
-    renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
+    renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yalnız GET`;
   }catch(e){

@@ -1910,6 +1910,12 @@ const server=http.createServer(async(req,res)=>{
         return send(res,500,{ok:false,error:'attention snapshot failed',detail:String(e.message||e).slice(0,180)});
       }
     }
+    // CLAUDE_R2544_15: Office merdiveni için son tarama (yeni tarama TETİKLEMEZ) + likidasyon kaydı sağlığı.
+    if(req.method==='GET'&&u.pathname==='/scanner/last'){
+      const last=scanner.lastScan();
+      return send(res,200,{ok:true,available:Boolean(last),cacheAgeMs:last?.cacheAgeMs??null,generatedAt:last?.generatedAt||null,
+        gainerLadder:last?.gainerLadder||null,targetDetailLimit:last?.targetDetailLimit??null,liquidationHistory:market.liquidationHistory.health()});
+    }
     if(req.method==='GET'&&u.pathname==='/scanner'){
       try{return send(res,200,await scanner.scan());}
       catch(e){log('SCANNER FAIL '+String(e.message||e));return send(res,503,{ok:false,error:'scanner failed',detail:String(e.message||e)});}
@@ -2084,7 +2090,11 @@ const server=http.createServer(async(req,res)=>{
   }
 });
 
-server.listen(PORT,HOST,()=>log('BrainHub listening on http://'+HOST+':'+PORT));
+server.listen(PORT,HOST,()=>{
+  log('BrainHub listening on http://'+HOST+':'+PORT);
+  // CLAUDE_R2544_15_LIQUIDATION_HISTORY: tüm piyasa likidasyon kaydı açılışta başlar (analiz beklemeden birikir).
+  try{if(process.env.BRAINHUB_LIQ_HISTORY!=='0'&&!process.env.NODE_TEST_CONTEXT){market.liquidationHistory.start();log('LIQUIDATION_HISTORY started '+JSON.stringify(market.liquidationHistory.health()));}}catch(e){log('LIQUIDATION_HISTORY FAIL '+String(e.message||e));}
+});
 
 const openRouterBillingTimer=setInterval(()=>{jev.billingStatus({force:true}).catch(()=>{});},300000);
 if(typeof openRouterBillingTimer.unref==='function')openRouterBillingTimer.unref();
@@ -2150,7 +2160,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.14-JEV-REQUEST-FIT';
+const RUNTIME_RELEASE='R2544.15-GAINER-LADDER';
 const RUNTIME_BUILT_BY='Claude (Anthropic) • Cowork • 2026-09-28 • R2544: panel risk otoritesi, pozisyon koruması, ön-hareket, kovalama R-kuralı';
 function fastLaneObsSuffix(result){
   try{

@@ -410,6 +410,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   let leaderAutoLastDiagnostics = { universeCount:0, shortlistCount:0, eligibleCount:0, candidates:[] };
   const LEADER_AUTO_HEALTH_WINDOW_MS = 60 * 60 * 1000;
   const LEADER_AUTO_REANALYSIS_COOLDOWN_MS = 5 * 60 * 1000;
+  let leaderAutoPickCount = 0;
   const WORKER_ESCALATION_COOLDOWN_MS = 15 * 60 * 1000;
   const leaderAutoHealthStartedAt = Number.isFinite(clock()) ? clock() : Date.now();
   let leaderAutoHealthEvents = [];
@@ -742,7 +743,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // or stale candidate is selected before repeating a recently analyzed one.
     // This avoids repeatedly spending 9TF Vision time on the same symbol while
     // keeping scanner ordering authoritative.
-    const coverageOrder=candidates.map((_,i)=>(leaderAutoCandidateCursor+i)%candidates.length);
+    // CLAUDE_R2544_15_PRIORITY_COVERAGE: 3 seçimin 2'si ÖNCELİK sırasında ilk bayat/yeni adayı alır (merdivenin ilk 3'ü,
+    // erken teşhis ve erken ilgi 5 dk'dan eski analizle beklemesin); 3'üncüsü imleçle bütün listeyi dolaşır (ilk 24 aç kalmaz).
+    leaderAutoPickCount=(leaderAutoPickCount+1)%3;
+    const priorityTurn=leaderAutoPickCount!==0;
+    const coverageOrder=candidates.map((_,i)=>priorityTurn?i:(leaderAutoCandidateCursor+i)%candidates.length);
     index=coverageOrder.find(i=>{
       const c=candidates[i];
       const row=leaderAnalysisState.bySymbol?.[String(c?.symbol || '').toUpperCase()];
@@ -750,13 +755,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return !last || now-last >= LEADER_AUTO_REANALYSIS_COOLDOWN_MS;
     });
     if(index===undefined)index=-1;
-    let reason='COVERAGE_STALE_OR_NEW';
+    let reason=priorityTurn?'PRIORITY_STALE_OR_NEW':'COVERAGE_STALE_OR_NEW';
     if (index < 0) {
       index=leaderAutoCandidateCursor % candidates.length;
       reason='ROUND_ROBIN_RECENT_SET';
     }
     const candidate=candidates[index];
-    leaderAutoCandidateCursor=(index+1)%candidates.length;
+    if(!priorityTurn||reason==='ROUND_ROBIN_RECENT_SET')leaderAutoCandidateCursor=(index+1)%candidates.length;
     return {candidate,index,reason};
   }
   let positionReviewBusy = false;

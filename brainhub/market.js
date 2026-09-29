@@ -560,6 +560,9 @@ class StreamingMarket {
 }
 
 const marketStream = new StreamingMarket();
+// CLAUDE_R2544_15_LIQUIDATION_HISTORY: tüm piyasa likidasyon akışı (24 saat, diske kalıcı). Testte başlatılmaz.
+const { LiquidationHistory } = require('./liquidation-history');
+const liquidationHistory = new LiquidationHistory();
 
 async function getJson(base, endpoint, timeout = 10000) {
   const res = await fetch(base + endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(timeout) });
@@ -712,6 +715,11 @@ async function symbolContext(symbol, options = {}) {
   micro.sourceQuality = 'REST_SNAPSHOT_APPROX';
   micro.derivatives = derivatives;
   micro.streaming = streaming;
+  try {
+    if (process.env.BRAINHUB_LIQ_HISTORY !== '0' && !process.env.NODE_TEST_CONTEXT) liquidationHistory.start();
+    const ref = finite(streaming?.bid) && finite(streaming?.ask) ? (streaming.bid + streaming.ask) / 2 : null;
+    micro.liquidationHistory = liquidationHistory.clusters(symbol, ref);
+  } catch (e) { micro.liquidationHistory = { available:false, reason:String(e.message || e).slice(0, 80) }; }
   micro.observedLiquidations = streaming.observedLiquidations || {
     available:false, count:0, longLiquidatedQuote:0, shortLiquidatedQuote:0, zones:[], semantics:'OBSERVED_BINANCE_FORCE_ORDER_ONLY'
   };
@@ -1363,4 +1371,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };
+module.exports = { liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };

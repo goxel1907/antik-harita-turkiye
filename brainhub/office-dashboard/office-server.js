@@ -30,7 +30,8 @@ if (!LOOPBACK && OFFICE_KEY.length < 24) {
 
 // Brain Hub tarafında yalnız bu GET yollarına izin var.
 const ALLOWED_BRAIN_PATHS = new Set([
-  '/health', '/live/status', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png'
+  '/health', '/live/status', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png',
+  '/scanner/last' // CLAUDE_R2544_15: yükselenler merdiveni (tarama tetiklemez)
 ]);
 
 const cache = new Map();
@@ -485,6 +486,7 @@ async function buildSnapshot() {
   ]);
   // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, salt-okunur).
   const positions = ACCOUNT_ENABLED ? await cached('positions', 10000, () => brainGet('/live/positions', 'limit=40')) : null;
+  const scannerLast = await cached('scannerLast', 5000, () => brainGet('/scanner/last'));
   const router = await cached('router', 30000, () => getJson(ROUTER_URL + '/', { timeoutMs: 3000 }).then(r => ({ ok: r.status > 0 && r.status < 500, status: r.status, ms: r.ms, error: r.error || null })));
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
   const backups = await cached('backups', 60000, async () => listBackups());
@@ -513,6 +515,8 @@ async function buildSnapshot() {
     jevUsage: scrub(jevUsage),
     packetHealth,
     jevBudget: { ok: jevBudget?.ok === true, data: scrub(jevBudget?.data), error: jevBudget?.error || null },
+    // CLAUDE_R2544_15: canlı Binance yükselenler merdiveni + 24 saatlik likidasyon kaydı sağlığı
+    ladder: scannerLast?.ok === true ? scrub(scannerLast.data) : null,
     plans: journalSummary.plans.slice(0, 40),
     lastJev: journalSummary.lastJev,
     lastRisk: journalSummary.lastRisk,

@@ -64,9 +64,15 @@ function selectDeepCandidates(scan, limit = 16, options = {}) {
     ...(Array.isArray(scan?.earlyTop5)?scan.earlyTop5:[]),
     ...(Array.isArray(scan?.earlyExpansion)?scan.earlyExpansion:[])
   ]);
-  // R2543_CPU_PRIORITY: top3 -> top3 yaklaşan -> current 4-10 -> diğer erken ilgi
-  // -> acceleration/accumulation/attention -> Binance top24 kalan kapasiteyi doldurur.
+  // CLAUDE_R2544_15_SLOT_POLICY: JEV sırası Binance yükselenler merdivenini izler:
+  // ilk 3 -> ilk 3'e/ilk 10'a aday erken teşhis -> uygulamadaki erken ilgi -> 4-10 -> 11-24 -> eski havuzlar (yalnız boş kapasite).
+  const arr=v=>Array.isArray(v)?v:[];
   const pools=[
+    ['GAINER_TOP3',arr(scan?.ladderTop3),false],
+    ['GAINER_APPROACH',arr(scan?.ladderApproach),false],
+    ['APP_EARLY_ATTENTION',arr(scan?.attentionCandidates),false],
+    ['GAINER_TOP10',arr(scan?.ladderTop10),false],
+    ['GAINER_TOP24',arr(scan?.ladderTop24),false],
     ['CURRENT_ATTACK_TOP10',top3,false],
     ['TOP3_APPROACH',top3Approach,true],
     ['CURRENT_ATTACK_TOP10',top4to10,false],
