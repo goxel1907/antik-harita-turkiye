@@ -6,6 +6,11 @@ function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number
 function arr(v){return Array.isArray(v)?v:[];}
 function clipArr(v,n){return arr(v).slice(-Math.max(0,n));}
 
+function cvdUsable(stream){
+  if(!stream||stream.cvdComplete===true)return true;
+  const cov=finite(stream.cvdCoverageMs);
+  return cov===null?true:cov>=60000; // eski runtime alanı yoksa önceki davranış
+}
 function formingDigest(x){
   if(!x||typeof x!=='object')return null;
   return {elapsedPct:finite(x.elapsedPct),direction:x.direction||null,changePct:finite(x.changePct),changeAtr:finite(x.changeAtr),
@@ -13,7 +18,7 @@ function formingDigest(x){
 }
 function rankPatterns(list,n){
   // CLAUDE_R2544_5_PATTERN_RANK: kırpmada son-N yerine önem sırası; iki yön de varsa karşı kanıt korunur.
-  const STRUCT=new Set(['DISPLACEMENT','SELL_SIDE_SWEEP_RECLAIM','BUY_SIDE_SWEEP_REJECT','RESISTANCE_FLIP_ACCEPTANCE','SUPPORT_FLIP_ACCEPTANCE',
+  const STRUCT=new Set(['DISPLACEMENT','SELL_SIDE_SWEEP_RECLAIM','BUY_SIDE_SWEEP_REJECT','RESISTANCE_FLIP_ACCEPTANCE','SUPPORT_FLIP_ACCEPTANCE','BREAKOUT_CLOSE','BREAKDOWN_CLOSE',
     'ASCENDING_TRIANGLE','DESCENDING_TRIANGLE','SYMMETRICAL_TRIANGLE','RISING_WEDGE','FALLING_WEDGE','BULL_FLAG_OR_PENNANT','BEAR_FLAG_OR_PENNANT',
     'DOUBLE_TOP','DOUBLE_BOTTOM','HEAD_AND_SHOULDERS','INVERSE_HEAD_AND_SHOULDERS','RISING_CHANNEL','FALLING_CHANNEL']);
   const xs=arr(list).map((p,i)=>({p,i,score:(String(p?.status).toUpperCase()==='CONFIRMED'?4:0)+(STRUCT.has(String(p?.type))?2:0)+(['LONG','SHORT'].includes(String(p?.side))?1:0)+i*0.001}));
@@ -94,9 +99,12 @@ function marketPacket(u){
       // (Bayrak metadata'dır; veri varsa gönderilir, yoksa null — uydurma yok.)
       // Ölçüm YOKSA (örnek işlem sayısı 0) sayı gönderilmez: boş pencere "ölçülmüş 0 CVD" gibi görünemez.
       // Ölçüm VARSA, availability bayrağı false olsa bile (ör. bayat) değer gönderilir ve nedeni metadata'da belirtilir.
-      cvdQuote120s:(finite(stream?.cvdTrades120s??flow?.sampleTrades)||0)>0?finite(stream?.cvdQuote120s??flow?.cvdQuote120s??flow?.cvd120s):null,
-      cvdTrades120s:(finite(stream?.cvdTrades120s??flow?.sampleTrades)||0)>0?finite(stream?.cvdTrades120s??flow?.sampleTrades):null,
-      orderFlowReason:flow?.available===true?null:(flow?.reason||null),
+      // CLAUDE_R2544_6_CVD_COVERAGE: pencerenin gerçekte kaç saniyeyi kapsadığı açıkça yazılır; <60 sn kapsama "120 sn CVD" diye gönderilmez.
+      cvdQuote120s:cvdUsable(stream)&&(finite(stream?.cvdTrades120s??flow?.sampleTrades)||0)>0?finite(stream?.cvdQuote120s??flow?.cvdQuote120s??flow?.cvd120s):null,
+      cvdTrades120s:cvdUsable(stream)&&(finite(stream?.cvdTrades120s??flow?.sampleTrades)||0)>0?finite(stream?.cvdTrades120s??flow?.sampleTrades):null,
+      cvdCoverageSec:finite(stream?.cvdCoverageMs)===null?null:Math.round(finite(stream.cvdCoverageMs)/1000),
+      cvdComplete:stream?.cvdComplete===true,cvdSource:stream?.cvdSource||null,
+      orderFlowReason:!cvdUsable(stream)?'CVD_WINDOW_INCOMPLETE_'+Math.round((finite(stream?.cvdCoverageMs)||0)/1000)+'S':(flow?.available===true?null:(flow?.reason||null)),
       orderFlowAsOf:flow?.asOf||null,orderFlowAgeMs:finite(flow?.ageMs),
       restTradeSample:{quote:finite(m?.cvdSampleQuote),trades:finite(m?.cvdSampleTrades),window:m?.cvdWindow||null,semantics:'SAMPLE_ONLY_NOT_CONTINUOUS_CVD'},
       orderFlowAvailable:flow?.available===true,
@@ -111,13 +119,18 @@ function marketPacket(u){
       fundingRate:finite(d?.fundingRate??d?.funding?.lastFundingRate),
       openInterest:d?.openInterest||null,
       oiDelta5mPct:finite(d?.openInterest?.delta5mPct??d?.oiDelta5mPct),
+      oiValueDelta5mPct:finite(d?.openInterest?.valueDelta5mPct),oiDeltaBasis:d?.openInterest?.deltaBasis||null,
       takerBuySellRatio:finite(d?.takerBuySellRatio??d?.taker?.buySellRatio),
       topTraderLongShortRatio:finite(d?.topTraderLongShortRatio??d?.topTraderPosition?.longShortRatio),
-      globalLongShortRatio:finite(d?.globalLongShortRatio??d?.globalAccount?.longShortRatio)
+      globalLongShortRatio:finite(d?.globalLongShortRatio??d?.globalAccount?.longShortRatio),
+      // CLAUDE_R2544_6: 5 dk kova oranları Binance'te gecikmeli yayınlanır (29.09: PENDLE 0,789 = 12 dk önceki kova;
+      // güncel kapalı kova 1,277). Kovanın yaşı açıkça verilir.
+      bucketAgeMin:(()=>{const ts=finite(d?.taker?.timestamp),at=finite(d?.asOf);return ts!==null&&at!==null?Math.round((at-(ts+300000))/6000)/10:null;})()
     },
     observedLiquidations:{
       available:liq?.available===true,source:liq?.source||null,
       count:finite(liq?.count),
+      observedForSec:finite(liq?.coverageMs??u?.microstructure?.observedLiquidations?.coverageMs)===null?null:Math.round(finite(liq?.coverageMs??u?.microstructure?.observedLiquidations?.coverageMs)/1000),
       longLiquidatedQuote:finite(liq?.longLiquidatedQuote),
       shortLiquidatedQuote:finite(liq?.shortLiquidatedQuote),
       zones:arr(liq?.zones).slice(0,6),

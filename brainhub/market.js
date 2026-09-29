@@ -330,7 +330,7 @@ class StreamingMarket {
       this.states.set(symbol, {
         symbol, lastEventAt:0, book:null, depth:null, depthAt:0,
         depthHistory:[], lastDepthHistoryAt:0,
-        trades:[], tradeAt:0, liquidations:[], liquidationAt:0
+        trades:[], tradeAt:0, liquidations:[], liquidationAt:0, createdAt:this.now()
       });
     }
     this.states.get(symbol).lastRequestedAt=this.now();
@@ -497,6 +497,10 @@ class StreamingMarket {
       depthSoftContext:softDepth,
       cvdQuote120s:state.trades.length ? round(cvdQuote, 2) : null,
       cvdTrades120s:state.trades.length,
+      // CLAUDE_R2544_6_CVD_COVERAGE: yeni abone olunan sembolde pencere 120 sn değil birkaç saniyedir.
+      cvdCoverageMs:state.createdAt > 0 && now >= state.createdAt ? Math.min(this.tradeWindowMs, now - state.createdAt) : null,
+      cvdComplete:state.createdAt > 0 && now - state.createdAt >= this.tradeWindowMs - 5000,
+      cvdSource:'BINANCE_WS_AGGTRADE',
       cvdAsOf:state.tradeAt || null,
       cvdAgeMs:state.tradeAt > 0 && now >= state.tradeAt ? now - state.tradeAt : null,
       orderFlow:{windows:{'10s':flow10,'30s':flow30,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
@@ -504,6 +508,8 @@ class StreamingMarket {
       observedLiquidations:{
         available:state.liquidations.length > 0,
         windowMs:this.liquidationWindowMs,
+        // CLAUDE_R2544_6: yeni abonelikte 15 dk'lık pencere dolmamıştır; "0 tasfiye" ile "gözlem yok" ayrılır.
+        coverageMs:state.createdAt > 0 && now >= state.createdAt ? Math.min(this.liquidationWindowMs, now - state.createdAt) : null,
         count:state.liquidations.length,
         asOf:state.liquidationAt || null,
         longLiquidatedQuote:round(longLiqQuote, 2),
@@ -561,6 +567,21 @@ async function getJson(base, endpoint, timeout = 10000) {
   return res.json();
 }
 
+async function restCvd120(symbol, now = Date.now()) {
+  const start = now - 120000;
+  let from = start, trades = 0, quote = 0, lastAt = null, pages = 0, complete = true;
+  while (pages < 3) {
+    const rows = await getJson(FUTURES, `/fapi/v1/aggTrades?symbol=${symbol}&startTime=${from}&endTime=${now}&limit=1000`, 7000);
+    pages++;
+    if (!Array.isArray(rows) || !rows.length) break;
+    for (const t of rows) { const p = Number(t.p), q = Number(t.q); if (!Number.isFinite(p) || !Number.isFinite(q)) continue; quote += (t.m ? -1 : 1) * p * q; trades++; lastAt = Number(t.T) || lastAt; }
+    if (rows.length < 1000) break;
+    from = Number(rows.at(-1).T) + 1;
+    if (pages >= 3) complete = false;
+  }
+  const coverageMs = complete ? 120000 : Math.max(0, (lastAt || start) - start);
+  return { cvdQuote:Math.round(quote * 100) / 100, trades, coverageMs, complete, lastTradeAt:lastAt };
+}
 async function derivativesContext(symbol) {
   if(!validSymbol(symbol))throw new Error('invalid USDT perpetual symbol');
   const now=Date.now();
@@ -579,9 +600,13 @@ async function derivativesContext(symbol) {
   const by={};
   settled.forEach((r,i)=>{by[endpoints[i][1]]=r.status==='fulfilled'?r.value:null;});
   const hist=Array.isArray(by.openInterestHist)?by.openInterestHist:[];
-  const prev=hist.length>=2?Number(hist.at(-2)?.sumOpenInterestValue||hist.at(-2)?.sumOpenInterest):null;
-  const last=hist.length?Number(hist.at(-1)?.sumOpenInterestValue||hist.at(-1)?.sumOpenInterest):null;
-  const oiDeltaPct=Number.isFinite(prev)&&prev!==0&&Number.isFinite(last)?(last-prev)/prev*100:null;
+  // CLAUDE_R2544_6_OI_CONTRACTS: OI değişimi SÖZLEŞME adedi üzerinden (standart). Önceden USD değeri kullanılıyordu;
+  // fiyat hareketi OI değişimi gibi görünüyordu (MARSCOIN: değer -%1,2 ↔ sözleşme -%0,10).
+  const prevQ=hist.length>=2?Number(hist.at(-2)?.sumOpenInterest):null, lastQ=hist.length?Number(hist.at(-1)?.sumOpenInterest):null;
+  const prev=hist.length>=2?Number(hist.at(-2)?.sumOpenInterestValue):null;
+  const last=hist.length?Number(hist.at(-1)?.sumOpenInterestValue):null;
+  const oiDeltaPct=Number.isFinite(prevQ)&&prevQ!==0&&Number.isFinite(lastQ)?(lastQ-prevQ)/prevQ*100:null;
+  const oiValueDeltaPct=Number.isFinite(prev)&&prev!==0&&Number.isFinite(last)?(last-prev)/prev*100:null;
   const lastRow=x=>Array.isArray(x)&&x.length?x.at(-1):null;
   const tak=lastRow(by.taker), tp=lastRow(by.topPosition), ta=lastRow(by.topAccount), ga=lastRow(by.globalAccount);
   const out={
@@ -592,6 +617,8 @@ async function derivativesContext(symbol) {
       current:finite(by.openInterest?.openInterest),
       time:finite(by.openInterest?.time),
       delta5mPct:oiDeltaPct===null?null:round(oiDeltaPct,4),
+      valueDelta5mPct:oiValueDeltaPct===null?null:round(oiValueDeltaPct,4),
+      deltaBasis:'CONTRACTS_LAST_TWO_5M_BUCKETS',
       valueLast:Number.isFinite(last)?round(last,2):null
     },
     funding:by.premium?{
@@ -668,6 +695,19 @@ async function symbolContext(symbol, options = {}) {
     delete micro.snapshot;
   }
   const streaming = marketStream.snapshot(symbol, now);
+  // CLAUDE_R2544_6_CVD_BACKFILL: 29.09 denetimi — 10 kararın 6'sında "120 sn CVD" 0–6 işlemden (WS yeni abone)
+  // ya da hiç yoktu; PONS -210 $ ↔ gerçek -37.372 $, W +24 $ ↔ -15.834 $ (işaret ters), SOON yok ↔ -105.229 $.
+  // Pencere eksikse son 120 sn Binance REST aggTrades ile doldurulur (en çok 3×1000 işlem; aşılırsa kısmi etiketlenir).
+  if (streaming && streaming.cvdComplete !== true) {
+    try {
+      const bf = await restCvd120(symbol, now);
+      if (bf) {
+        streaming.cvdQuote120s = bf.cvdQuote; streaming.cvdTrades120s = bf.trades;
+        streaming.cvdCoverageMs = bf.coverageMs; streaming.cvdComplete = bf.complete; streaming.cvdSource = 'BINANCE_REST_AGGTRADES_120S';
+        streaming.cvdAsOf = bf.lastTradeAt;
+      }
+    } catch (e) { streaming.cvdBackfillError = String(e.message || e).slice(0, 80); }
+  }
   const derivatives = derivativesResult.status==='fulfilled' ? derivativesResult.value : {available:false,reason:String(derivativesResult.reason?.message||derivativesResult.reason||'DERIVATIVES_UNAVAILABLE')};
   micro.sourceQuality = 'REST_SNAPSHOT_APPROX';
   micro.derivatives = derivatives;
@@ -1202,4 +1242,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { globalContext, symbolContext, preMoveProbe, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };
+module.exports = { restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };

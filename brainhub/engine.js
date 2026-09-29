@@ -40,14 +40,18 @@ function rsi(values, period = 14) {
   if (losses === 0) return gains === 0 ? 50 : 100;
   return 100 - 100 / (1 + gains / losses);
 }
+// CLAUDE_R2544_6_ATR_WILDER: standart Wilder ATR (RMA; Binance/TradingView ile aynı). Önceki son-14 basit ortalama
+// 29.09 denetiminde grafikten -%22…+%36 sapıyordu.
 function atr(candles, period = 14) {
   if (candles.length < period + 1) return null;
-  let total = 0;
-  for (let i = candles.length - period; i < candles.length; i++) {
+  const tr = [];
+  for (let i = 1; i < candles.length; i++) {
     const x = candles[i], prev = candles[i - 1];
-    total += Math.max(x.high - x.low, Math.abs(x.high - prev.close), Math.abs(x.low - prev.close));
+    tr.push(Math.max(x.high - x.low, Math.abs(x.high - prev.close), Math.abs(x.low - prev.close)));
   }
-  return total / period;
+  let value = tr.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < tr.length; i++) value = (value * (period - 1) + tr[i]) / period;
+  return value;
 }
 function parseKlines(raw, now = Date.now()) {
   if (!Array.isArray(raw)) throw new Error('klines must be an array');
@@ -359,8 +363,9 @@ function detectPatterns(c, a14, high = null, low = null, pv = null, tolerance = 
   const bearishEngulf = last.close < last.open && prev.close > prev.open && last.open >= prev.close && last.close <= prev.open;
   if (bullishEngulf) out.push({ type:'BULLISH_ENGULFING', side:'LONG', status:'CONFIRMED', at:last.closeTime });
   if (bearishEngulf) out.push({ type:'BEARISH_ENGULFING', side:'SHORT', status:'CONFIRMED', at:last.closeTime });
-  const bullishHarami = p2.close < p2.open && last.close > last.open && Math.max(last.open,last.close) < p2.open && Math.min(last.open,last.close) > p2.close;
-  const bearishHarami = p2.close > p2.open && last.close < last.open && Math.max(last.open,last.close) < p2.close && Math.min(last.open,last.close) > p2.open;
+  // CLAUDE_R2544_6_HARAMI: ana mum bir önceki mumdur (önceden 2 önceki mumla karşılaştırılıyordu).
+  const bullishHarami = prev.close < prev.open && last.close > last.open && Math.max(last.open,last.close) < prev.open && Math.min(last.open,last.close) > prev.close;
+  const bearishHarami = prev.close > prev.open && last.close < last.open && Math.max(last.open,last.close) < prev.close && Math.min(last.open,last.close) > prev.open;
   if (bullishHarami) out.push({ type:'BULLISH_HARAMI', side:'LONG', status:'CONFIRMED', at:last.closeTime });
   if (bearishHarami) out.push({ type:'BEARISH_HARAMI', side:'SHORT', status:'CONFIRMED', at:last.closeTime });
   if (ls.lowerWickPct >= 55 && ls.bodyPct <= 35 && last.close >= last.open) out.push({ type:'HAMMER_REJECTION', side:'LONG', status:'CONFIRMED', at:last.closeTime });
@@ -371,22 +376,41 @@ function detectPatterns(c, a14, high = null, low = null, pv = null, tolerance = 
   if (p2s.direction === 'BEAR' && p2s.bodyPct >= 55 && ps.bodyPct <= 30 && ls.direction === 'BULL' && last.close > midpoint2) out.push({ type:'MORNING_STAR', side:'LONG', status:'CONFIRMED', at:last.closeTime });
   if (p2s.direction === 'BULL' && p2s.bodyPct >= 55 && ps.bodyPct <= 30 && ls.direction === 'BEAR' && last.close < midpoint2) out.push({ type:'EVENING_STAR', side:'SHORT', status:'CONFIRMED', at:last.closeTime });
   const last3 = c.slice(-3);
-  if (last3.every(x => x.close > x.open) && last3[0].close < last3[1].close && last3[1].close < last3[2].close) out.push({ type:'THREE_WHITE_SOLDIERS', side:'LONG', status:'CONFIRMED', at:last.closeTime });
-  if (last3.every(x => x.close < x.open) && last3[0].close > last3[1].close && last3[1].close > last3[2].close) out.push({ type:'THREE_BLACK_CROWS', side:'SHORT', status:'CONFIRMED', at:last.closeTime });
+  // CLAUDE_R2544_6_THREE_SOLDIERS: standart tanım — üç GÖVDELİ mum (gövde ≥0,5 ATR ve ≥%50 aralık), kapanışlar uca yakın
+  // (ters fitil ≤%35) ve her açılış önceki gövdenin içinde. 29.09: 12 tespitin 11'i bu tanımı karşılamıyordu (PHA 5m: 3. mum doji).
+  const bodyOk = x => a14 > 0 && Math.abs(x.close - x.open) >= 0.5 * a14 && candleShape(x, a14).bodyPct >= 50;
+  const soldiers = last3.every(x => x.close > x.open && bodyOk(x) && candleShape(x, a14).upperWickPct <= 35) &&
+    last3[0].close < last3[1].close && last3[1].close < last3[2].close &&
+    last3[1].open >= last3[0].open && last3[1].open <= last3[0].close && last3[2].open >= last3[1].open && last3[2].open <= last3[1].close;
+  const crows = last3.every(x => x.close < x.open && bodyOk(x) && candleShape(x, a14).lowerWickPct <= 35) &&
+    last3[0].close > last3[1].close && last3[1].close > last3[2].close &&
+    last3[1].open <= last3[0].open && last3[1].open >= last3[0].close && last3[2].open <= last3[1].open && last3[2].open >= last3[1].close;
+  if (soldiers) out.push({ type:'THREE_WHITE_SOLDIERS', side:'LONG', status:'CONFIRMED', at:last.closeTime });
+  if (crows) out.push({ type:'THREE_BLACK_CROWS', side:'SHORT', status:'CONFIRMED', at:last.closeTime });
   const recent = c.slice(-8);
   const ranges = recent.map(x => x.high - x.low);
   const oldAvg = ranges.slice(0, 4).reduce((s, x) => s + x, 0) / 4;
   const newAvg = ranges.slice(-4).reduce((s, x) => s + x, 0) / 4;
   if (oldAvg > 0 && newAvg / oldAvg <= 0.65) out.push({ type:'VOLATILITY_COMPRESSION', side:'NEUTRAL', status:'FORMING', at:last.closeTime });
   if (a14 && (last.high - last.low) >= 1.5 * a14 && ls.bodyPct >= 65) out.push({ type:'DISPLACEMENT', side:ls.direction === 'BULL' ? 'LONG' : 'SHORT', status:'CONFIRMED', at:last.closeTime });
+  // CLAUDE_R2544_6_FLIP: seviyeyi ilk kez kıran mum "BREAKOUT_CLOSE/BREAKDOWN_CLOSE"dur; "FLIP_ACCEPTANCE" yalnız bir ÖNCEKİ
+  // mum seviyeyi kapanışla kırmış ve son mum seviyeyi yeniden test edip tutunmuşsa verilir (29.09: 9 tespitin 6'sı
+  // ilk kırılım mumuydu; SOON 1m/3m'de 3,5 ATR'lik çöküş mumu "destek dönüşümü kabulü" diye etiketlenmişti).
+  const tol = tolerance || 0;
+  const pre = c.length >= 23 ? c.slice(-22, -2) : null;
+  const lvlHi2 = pre ? Math.max(...pre.map(x => x.high)) : null, lvlLo2 = pre ? Math.min(...pre.map(x => x.low)) : null;
   if (Number.isFinite(high)) {
     if (last.high > high && last.close < high) out.push({ type:'BUY_SIDE_SWEEP_REJECT', side:'SHORT', status:'CONFIRMED', level:round(high), at:last.closeTime });
-    if (last.close > high && last.low <= high + (tolerance || 0)) out.push({ type:'RESISTANCE_FLIP_ACCEPTANCE', side:'LONG', status:'CONFIRMED', level:round(high), at:last.closeTime });
+    if (last.close > high) out.push({ type:'BREAKOUT_CLOSE', side:'LONG', status:'CONFIRMED', level:round(high), at:last.closeTime });
   }
+  if (Number.isFinite(lvlHi2) && prev.close > lvlHi2 && last.low <= lvlHi2 + tol && last.close > lvlHi2)
+    out.push({ type:'RESISTANCE_FLIP_ACCEPTANCE', side:'LONG', status:'CONFIRMED', level:round(lvlHi2), at:last.closeTime });
   if (Number.isFinite(low)) {
     if (last.low < low && last.close > low) out.push({ type:'SELL_SIDE_SWEEP_RECLAIM', side:'LONG', status:'CONFIRMED', level:round(low), at:last.closeTime });
-    if (last.close < low && last.high >= low - (tolerance || 0)) out.push({ type:'SUPPORT_FLIP_ACCEPTANCE', side:'SHORT', status:'CONFIRMED', level:round(low), at:last.closeTime });
+    if (last.close < low) out.push({ type:'BREAKDOWN_CLOSE', side:'SHORT', status:'CONFIRMED', level:round(low), at:last.closeTime });
   }
+  if (Number.isFinite(lvlLo2) && prev.close < lvlLo2 && last.high >= lvlLo2 - tol && last.close < lvlLo2)
+    out.push({ type:'SUPPORT_FLIP_ACCEPTANCE', side:'SHORT', status:'CONFIRMED', level:round(lvlLo2), at:last.closeTime });
   if (pv && tolerance) out.push(...geometryPatterns(c, pv, a14, tolerance));
   out.push(...continuationPatterns(c, a14));
   const unique = new Map();
@@ -408,7 +432,7 @@ function opportunity(c, frame, a14, context) {
   if (context.breakOfStructure === 'DOWN') shortScore += 20;
   for (const p of patterns) {
     let weight = p.status === 'CONFIRMED' ? 7 : 3;
-    if (['DISPLACEMENT','SELL_SIDE_SWEEP_RECLAIM','BUY_SIDE_SWEEP_REJECT','RESISTANCE_FLIP_ACCEPTANCE','SUPPORT_FLIP_ACCEPTANCE'].includes(p.type)) weight += 5;
+    if (['DISPLACEMENT','SELL_SIDE_SWEEP_RECLAIM','BUY_SIDE_SWEEP_REJECT','RESISTANCE_FLIP_ACCEPTANCE','SUPPORT_FLIP_ACCEPTANCE','BREAKOUT_CLOSE','BREAKDOWN_CLOSE'].includes(p.type)) weight += 5;
     if (['ASCENDING_TRIANGLE','DESCENDING_TRIANGLE','SYMMETRICAL_TRIANGLE','RISING_WEDGE','FALLING_WEDGE','BULL_FLAG_OR_PENNANT','BEAR_FLAG_OR_PENNANT','DOUBLE_TOP','DOUBLE_BOTTOM','HEAD_AND_SHOULDERS','INVERSE_HEAD_AND_SHOULDERS'].includes(p.type)) weight += p.status === 'CONFIRMED' ? 5 : 2;
     if (p.side === 'LONG') longScore += weight;
     if (p.side === 'SHORT') shortScore += weight;
@@ -480,7 +504,7 @@ function structure(c, frame = null) {
   if (c.length < 52) return { available:false, reason:'INSUFFICIENT_CLOSED_CANDLES', closedCandles:c.length };
   const close = c.map(x => x.close), last = c.at(-1);
   const e20 = ema(close, 20), e50 = ema(close, 50), a14 = atr(c);
-  const recent = c.slice(-20, -1);
+  const recent = c.slice(-21, -1); // CLAUDE_R2544_6: son kapalı mum HARİÇ 20 önceki mum (önceden 19)
   const high = Math.max(...recent.map(x => x.high));
   const low = Math.min(...recent.map(x => x.low));
   const direction = e20 > e50 && last.close > e20 ? 'UP' : e20 < e50 && last.close < e20 ? 'DOWN' : 'MIXED';
@@ -488,9 +512,12 @@ function structure(c, frame = null) {
   const gaps = [];
   for (let i = Math.max(2, c.length - 25); i < c.length; i++) {
     const a = c[i - 2], b = c[i];
-    if (b.low > a.high) gaps.push({ side:'BULL', low:a.high, high:b.low, at:b.closeTime });
-    if (b.high < a.low) gaps.push({ side:'BEAR', low:b.high, high:a.low, at:b.closeTime });
+    // CLAUDE_R2544_6_FVG_FILL: sonradan tamamen doldurulan boşluk "açık FVG" diye gönderilmez (29.09: 157 FVG'nin 67'si doluydu).
+    const after = c.slice(i + 1);
+    if (b.low > a.high) { const lo = a.high, hi = b.low; gaps.push({ side:'BULL', low:lo, high:hi, at:b.closeTime, filled:after.some(x => x.low <= lo), touched:after.some(x => x.low < hi) }); }
+    if (b.high < a.low) { const lo = b.high, hi = a.low; gaps.push({ side:'BEAR', low:lo, high:hi, at:b.closeTime, filled:after.some(x => x.high >= hi), touched:after.some(x => x.high > lo) }); }
   }
+  const openGaps = gaps.filter(g => !g.filled);
   const window = c.slice(-40);
   // R2541_PIVOT_ABSOLUTE_INDEX: pivots() window-relative indeks üretir.
   // Renderer/time-axis ve trend projection için bunları tekrar tam candle dizisi indeksine taşı.
@@ -516,14 +543,15 @@ function structure(c, frame = null) {
     trend:direction, prior20High:round(high), prior20Low:round(low),
     breakOfStructure:breaksHigh ? 'UP' : breaksLow ? 'DOWN' : null,
     buySideLiquidity:round(high), sellSideLiquidity:round(low),
-    recentFairValueGaps:gaps.slice(-3).map(g => ({ ...g, low:round(g.low), high:round(g.high), ce50:round((g.low+g.high)/2) })),
+    recentFairValueGaps:openGaps.slice(-3).map(g => ({ ...g, low:round(g.low), high:round(g.high), ce50:round((g.low+g.high)/2) })),
+    filledFairValueGapCount:gaps.length - openGaps.length,
     returnPct:round((last.close / c.at(-6).close - 1) * 100, 3),
     candle:candleShape(last, a14),
     patterns,
     swingStructure:swings,
     liquidity:{ equalHigh:eqHigh, equalLow:eqLow, lastSweep }
   };
-  base.smcContext = smcContext(swings, last.close, gaps);
+  base.smcContext = smcContext(swings, last.close, openGaps);
   base.orderBlocks = orderBlocks(c, a14);
   base.opportunity = opportunity(c, frame, a14, base);
   // CLAUDE_R2544_PREMOVE: kısa TF'lerde hareket başlamadan önceki imza (sıkışma/emilim/delta/seviye).

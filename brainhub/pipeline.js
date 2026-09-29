@@ -212,12 +212,14 @@ function liquidationContext(micro) {
       available:false,
       reason:'NO_RECENT_OBSERVED_FORCE_ORDER_PRINTS',
       source:'BINANCE_FORCEORDER_PUBLIC_STREAM_WHEN_AVAILABLE',
+      coverageMs:finite(obs?.coverageMs),
       note:'Absence of observed prints is not evidence that no liquidation levels exist. Do not fabricate a heatmap.'
     };
   }
   return {
     available:true,
     source:'OBSERVED_BINANCE_FORCEORDER_15M',
+    coverageMs:finite(obs.coverageMs),
     semantics:obs.semantics || 'OBSERVED_BINANCE_FORCE_ORDER_ONLY',
     count:Number(obs.count),
     asOf:obs.asOf || null,
