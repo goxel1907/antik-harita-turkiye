@@ -140,7 +140,13 @@ function summarizeFrame(frame, f, now, livePrice) {
       originEligible:f.opportunity.originEligible !== false,
       ownerEligible:f.opportunity.ownerEligible !== false
     } : { available:false, reason:f.opportunity?.reason || 'NO_OPPORTUNITY_CONTEXT' },
-    breakoutExecution:executionState
+    breakoutExecution:executionState,
+    // CLAUDE_R2544_8_FRAME_PASSTHROUGH: 29.09 TAKE denetimi — bu beyaz liste forming/preMove/atr14'ü düşürüyordu; R2544.5
+    // "kapanmamış mum" bağlamı, plan seçeneğindeki formingOwnerTF ve anlatıcının FORMING cümlesi canlıda hiç JEV'e ulaşmıyordu.
+    atr14:finite(f.atr14),
+    filledFairValueGapCount:finite(f.filledFairValueGapCount),
+    forming:f.forming || null,
+    preMove:f.preMove || null
   };
 }
 function sidePath(frames, side) {

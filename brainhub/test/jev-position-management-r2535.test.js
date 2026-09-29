@@ -17,7 +17,7 @@ test('R2535 binds JEV EXIT_NOW and PARTIAL_TAKE_PROFIT to BrainHub-owned reduce-
   assert.match(src,/reviewArmGeneration!==armGeneration/);
   assert.match(src,/transport\.reducePositionMarket\(/);
   assert.match(src,/bindingActions:\['EXIT_NOW','PARTIAL_TAKE_PROFIT'\]/);
-  assert.match(src,/const fraction=action==='EXIT_NOW'\?1:/);
+  assert.match(src,/(?:const|let) fraction=action==='EXIT_NOW'\?1:/);
   assert.match(src,/JEV_POSITION_EXECUTION/);
   assert.match(src,/managementExecution\.orderPlaced===true/);
 });

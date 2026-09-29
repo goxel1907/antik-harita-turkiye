@@ -38,6 +38,10 @@ const DEFAULTS=Object.freeze({
   // de engelliyordu (LINK: 0,19R/0,23R kısmi ertelenir, stop 02:50'de dolar). Alt sınır 0R (yalnız kârdayken); sayı/aralık sınırı kalır.
   // Kârda yürüyen JEV kısmisinden sonra stop başabaşa çekilir (jevPartialBreakeven).
   partialContractEnabled:1, partialMinR:0, partialMaxReviewCount:2, partialMinSpacingMin:10, jevPartialBreakeven:1,
+  // CLAUDE_R2544_8_PRE_TP1_CAP: 29.09 TAKE — JEV kısmi (1/3) + guard kademeli (1/3) + JEV kısmi, TP1'den önce pozisyonun ~%70'ini
+  // azalttı; borsadaki TP1 emri (ilk miktarın 1/3'ü) kalanın TAMAMINI kapattı, runner kalmadı. TP1 dolana kadar yönetim
+  // azaltmalarının toplamı ilk miktarın en çok 1/3'ü (kalan ≥ TP1 + runner). JEV kısmisi kademeli kârın yerine geçer.
+  preTp1MaxReduceFraction:0.3334,
   // CLAUDE_R2544_4_LOSS_STREAK: art arda 2 zararlı kapanış → 30 dk yeni giriş yok (açık pozisyon yönetimi sürer).
   // 68 kapanış: 2 zarar sonrası 30 dk içinde açılan 17 işlem toplam -5,48R / -55,8 USDT (ort. -0,32R; genel -0,22R).
   // 29.09 01:45–02:14: PHA, PENDLE zararından sonra COTI (-2,79) ve SOON (-12,32) bu pencerede açıldı. 0 = kapalı.
@@ -133,7 +137,7 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
   // 2) Kademeli kâr: 0,5R'de bir kez 1/3 azalt; ardından stop başabaşa (asla genişlemez).
   if(cfg.scaleOutEnabled>0){
     const movePct=dir*(mark-entry)/entry*100;
-    if(row?.scaleOutDone!==true&&progressR>=cfg.scaleOutAtR&&movePct>=cfg.scaleOutMinMovePct){
+    if(row?.scaleOutDone!==true&&row?.jevPartialBE!==true&&progressR>=cfg.scaleOutAtR&&movePct>=cfg.scaleOutMinMovePct){
       out.action='SCALE_OUT';out.reason='GUARD_SCALE_OUT_'+cfg.scaleOutAtR+'R';out.fraction=cfg.scaleOutFraction;return out;
     }
     if(row?.scaleOutDone===true){
@@ -170,7 +174,7 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
 }
 
 // JEV incelemesinden gelen KISMİ KÂR AL için yürütme sözleşmesi (saf fonksiyon). Tam çıkış (EXIT_NOW) buradan geçmez.
-function partialContract({side,entryPrice,initialStop,markPrice,partialEvents=[],now=Date.now(),config=DEFAULTS}={}){
+function partialContract({side,entryPrice,initialStop,markPrice,partialEvents=[],now=Date.now(),config=DEFAULTS,reducedFraction=null,phase=null}={}){
   const cfg={...DEFAULTS,...(config||{})};
   const s=String(side||'').toUpperCase(),e=finite(entryPrice),st=finite(initialStop),m=finite(markPrice);
   const events=(Array.isArray(partialEvents)?partialEvents:[]).filter(x=>String(x?.action||'')==='PARTIAL_TAKE_PROFIT');
@@ -184,6 +188,13 @@ function partialContract({side,entryPrice,initialStop,markPrice,partialEvents=[]
   if(events.length>=cfg.partialMaxReviewCount)return {...out,allow:false,reason:'PARTIAL_DEFERRED_MAX_COUNT'};
   if(lastAt&&now-lastAt<cfg.partialMinSpacingMin*60000)return {...out,allow:false,reason:'PARTIAL_DEFERRED_SPACING'};
   if(progressR<cfg.partialMinR)return {...out,allow:false,reason:'PARTIAL_DEFERRED_BELOW_MIN_R'};
+  // CLAUDE_R2544_8_PRE_TP1_CAP: TP1 dolmadan (faz INITIAL) toplam yönetim azaltması sınırı.
+  const rf=finite(reducedFraction),preTp1=String(phase||'INITIAL').toUpperCase()==='INITIAL',cap=finite(cfg.preTp1MaxReduceFraction);
+  if(preTp1&&cap!==null&&cap>0&&rf!==null){
+    const room=cap-rf;
+    if(room<=0.02)return {...out,reducedFraction:Number(rf.toFixed(4)),allow:false,reason:'PARTIAL_DEFERRED_PRE_TP1_CAP'};
+    return {...out,reducedFraction:Number(rf.toFixed(4)),maxFractionOfInitial:Number(room.toFixed(4)),allow:true,reason:'PARTIAL_CONTRACT_OK'};
+  }
   return {...out,allow:true,reason:'PARTIAL_CONTRACT_OK'};
 }
 

@@ -960,7 +960,8 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
   const candles = Array.isArray(chart?.candles) ? chart.candles : [];
   if (candles.length < 2) throw new Error('chart candles required');
   const width = 1280, height = 720;
-  const left = 24, right = width - 190, top = 22, priceBottom = 555, volumeTop = 585, bottom = 700;
+  // CLAUDE_R2544_8_LABEL_GUTTER: sağ etiket sütunu 190→270 px (fiyat büyük yazı + ad küçük yazı; Office'te okunabilirlik).
+  const left = 24, right = width - (String(mode||'').toLowerCase()==='annotated' ? 270 : 190), top = 22, priceBottom = 555, volumeTop = 585, bottom = 700;
   const pixels = Buffer.alloc(width * height * 4);
   const bg=[13,17,23,255], grid=[42,49,62,255], wick=[174,183,196,255];
   const bull=[46,204,113,255], bear=[231,76,60,255], volume=[76,106,146,255];
@@ -998,7 +999,8 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     'M':'101111111101101','N':'101111111111101','O':'010101101101010','P':'110101110100100','Q':'010101101111011','R':'110101110101101',
     'S':'011100010001110','T':'111010010010010','U':'101101101101111','V':'101101101101010','W':'101101111111101','X':'101101010101101',
     'Y':'101101010010010','Z':'111001010100111',
-    '0':'111101101101111','1':'010110010010111','2':'110001111100111','3':'110001111001110','4':'101101111001001','5':'111100110001110','6':'011100111101010','7':'111001010010010','8':'010101010101010','9':'010101111001110',
+    '0':'111101101101111','1':'010110010010111','2':'111001111100111','3':'111001111001111','4':'101101111001001','5':'111100111001111','6':'111100111101111','7':'111001010010010','8':'111101111101111','9':'111101111001111', // CLAUDE_R2544_8_DIGITS: 6/8/9 glifleri X/zikzak gibi okunuyordu
+   
     '-':'000000111000000','.':'000000000000010','/':'001001010100100',':':'000010000010000','%':'101001010100101','+':'000010111010000','(':'010100100100010',')':'010001001001010',' ':'000000000000000'
   };
   function asciiLabel(v){return String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9 .\-\/:+()%]/g,' ');}
@@ -1066,12 +1068,44 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     }
     const levelLabels=[];
     const fmtP=p=>{const n=Number(p);if(!Number.isFinite(n))return '';const d=Math.abs(n)>=100?2:Math.abs(n)>=1?4:6;return n.toFixed(d).replace(/0+$/,'').replace(/\.$/,'');};
-    const addLevel=(price,text,col)=>{const p=Number(price);if(Number.isFinite(p)&&p>=pmin&&p<=pmax)levelLabels.push({price:p,y:yPrice(p),text:`${text} ${fmtP(p)}`,col});};
+    const addLevel=(price,text,col)=>{const p=Number(price);if(Number.isFinite(p)&&p>=pmin&&p<=pmax)levelLabels.push({price:p,y:yPrice(p),name:String(text),text:`${text} ${fmtP(p)}`,col});};
     const addZoneLabel=(z,text,col)=>{const lo=Number(z?.low),hi=Number(z?.high);if(Number.isFinite(lo)&&Number.isFinite(hi))addLevel((lo+hi)/2,text,col);};
+    // CLAUDE_R2544_8_LABELS: 29.09 Office — sağ etiketler okunmuyordu (10 px yazı, üst üste binen/aynı fiyatta 3 etiket,
+    // 11 px'lik itmeyle fiyatından kopan ve alta taşınca SESSİZCE düşen satırlar). Yeni düzen: aynı fiyattaki seviyeler tek satırda
+    // birleşir (ARALIK UST/ONCEKI20 H/SWING H), fiyat 3x büyük yazılır, ad 2x; satırlar çakışmadan iki yönlü yerleşir, hiçbiri düşmez,
+    // kayan satır gerçek fiyatına kısa bir bağlantı çizgisiyle bağlanır; koyu renkler okunur tona açılır.
     const renderLabels=()=>{
-      const rows=levelLabels.sort((a,b)=>a.y-b.y);let lastY=-999;
-      for(const r of rows){let y=Math.max(top,Math.min(priceBottom-11,Math.round(r.y)-5));if(y-lastY<11)y=lastY+11;if(y>priceBottom-11)continue;lastY=y;
-        const w=Math.min(176,textWidth(r.text,2)+8);fillRect(right+4,y-2,right+4+w,y+10,[20,25,32,255]);drawText(right+8,y,r.text,r.col,2);
+      const lift=c=>{const l=0.299*c[0]+0.587*c[1]+0.114*c[2];if(l>=150)return c;const k=Math.min(0.6,(150-l)/150+0.2);return [Math.round(c[0]+(255-c[0])*k),Math.round(c[1]+(255-c[1])*k),Math.round(c[2]+(255-c[2])*k),255];};
+      const sorted=levelLabels.filter(r=>Number.isFinite(r.y)).sort((a,b)=>a.y-b.y);
+      const groups=[];
+      for(const r of sorted){
+        const g=groups[groups.length-1];
+        const same=g&&(Math.abs(g.y-r.y)<=2||Math.abs(g.price-r.price)<=Math.abs(g.price)*0.00015);
+        if(same){if(!g.names.includes(r.name))g.names.push(r.name);if(r.name==='FIYAT'){g.col=r.col;g.price=r.price;g.y=r.y;g.isPrice=true;}}
+        else groups.push({price:r.price,y:r.y,names:[r.name],col:r.col,isPrice:r.name==='FIYAT'});
+      }
+      const ROW=18,minY=top,maxY=priceBottom-ROW+2;
+      const pos=groups.map(g=>Math.max(minY,Math.min(maxY,Math.round(g.y)-8)));
+      for(let i=1;i<pos.length;i++)if(pos[i]-pos[i-1]<ROW)pos[i]=pos[i-1]+ROW;
+      if(pos.length&&pos[pos.length-1]>maxY){pos[pos.length-1]=maxY;for(let i=pos.length-2;i>=0;i--)if(pos[i+1]-pos[i]<ROW)pos[i]=pos[i+1]-ROW;}
+      const rowsFit=Math.floor((maxY-minY)/ROW)+1;
+      const keep=groups.map((g,i)=>i);
+      if(groups.length>rowsFit){ // yer yoksa fiyat satırı ve ona en yakın seviyeler kalır; kalanlar tek satırda özetlenir
+        const pi=groups.findIndex(g=>g.isPrice);const order=keep.slice().sort((a,b)=>(a===pi?-1:b===pi?1:Math.abs(groups[a].y-(pi>=0?groups[pi].y:0))-Math.abs(groups[b].y-(pi>=0?groups[pi].y:0))));
+        const chosen=new Set(order.slice(0,rowsFit));keep.splice(0,keep.length,...[...chosen].sort((a,b)=>a-b));
+        let y=minY;for(const i of keep){pos[i]=Math.max(y,Math.min(maxY,Math.round(groups[i].y)-8));y=pos[i]+ROW;}
+      }
+      for(const i of keep){
+        const g=groups[i],y=pos[i],col=lift(g.col);
+        const priceTxt=fmtP(g.price),pw=priceTxt.length*12;
+        const nameMax=Math.max(4,Math.floor((width-(right+10+pw+8)-6)/8));
+        let names=g.names.join('/');if(names.length>nameMax)names=names.slice(0,nameMax-1)+'+';
+        fillRect(right+4,y-2,width-2,y+ROW-3,g.isPrice?[48,54,66,255]:[20,25,32,255]);
+        fillRect(right+4,y-2,right+6,y+ROW-3,g.col);
+        drawText(right+10,y,priceTxt,col,3);
+        drawText(right+10+pw+6,y+3,names,col,2);
+        const ty=Math.round(g.y);
+        if(Math.abs(ty-(y+7))>2){line(right,ty,right+4,y+7,g.col);}
       }
     };
     path(emaSeries(20),[255,193,7,255]);

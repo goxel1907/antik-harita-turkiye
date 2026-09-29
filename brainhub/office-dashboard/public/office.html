@@ -78,6 +78,15 @@ header .sub{color:var(--text-muted);font-size:12px}
 .mirror-figure{margin:0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .mirror-figure .mh{display:flex;justify-content:space-between;gap:8px;padding:7px 10px;color:var(--text-secondary);font-size:12px}
 .mirror-figure img{width:100%;height:auto;display:block;aspect-ratio:16/9;object-fit:contain;background:#0d1117;min-height:320px}
+/* CLAUDE_R2544_8_MIRROR_VIEW: alt alta tam genişlik (varsayılan), tekerlek yakınlaştırma, sürükleyerek kaydırma, çift tık sıfırla */
+.mirror-charts.stacked{grid-template-columns:minmax(0,1fr)}
+.mirror-vp{position:relative;overflow:hidden;cursor:grab;touch-action:none;background:#0d1117}
+.mirror-vp.dragging{cursor:grabbing}
+.mirror-vp img{transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
+.mirror-zoom{display:flex;gap:6px;align-items:center;margin-left:auto}
+.mirror-zoom button{background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--line);border-radius:7px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer}
+.mirror-zoom .zl{font-size:12px;color:var(--text-muted);min-width:44px;text-align:right}
+.mirror-pos{font-size:11.5px;color:var(--good);font-weight:600}
 .mirror-parity{padding:8px 10px;border-radius:8px;background:var(--surface-2);border-left:4px solid var(--text-muted);font-size:12.5px;margin:10px 0}
 .mirror-parity.good{border-color:var(--good)} .mirror-parity.bad{border-color:var(--critical)} .mirror-parity.warn{border-color:var(--warning)}
 .mirror-narr{margin:10px 0;padding:10px 12px;border-radius:8px;background:var(--surface-2);border-left:4px solid var(--series-1)}
@@ -265,15 +274,21 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
         <select id="mirrorSymbol" aria-label="JEV aynası coin seçimi"></select>
         <button class="mirror-tf" id="mirrorTf5" data-mirror-tf="5m">5m</button>
         <button class="mirror-tf active" id="mirrorTf15" data-mirror-tf="15m">15m</button>
+        <span class="mirror-pos" id="mirrorPosBadge"></span>
+        <div class="mirror-zoom">
+          <button id="mirrorZoomOut" title="Uzaklaş">−</button><span class="zl" id="mirrorZoomLbl">1.0x</span><button id="mirrorZoomIn" title="Yakınlaş">+</button>
+          <button id="mirrorZoomReset" title="Sıfırla (çift tık)">⟲</button>
+          <button id="mirrorLayout" title="Yan yana / alt alta">⇅ Alt alta</button>
+        </div>
       </div>
-      <div class="mirror-charts">
+      <div class="mirror-charts stacked" id="mirrorCharts">
         <figure class="mirror-figure">
           <div class="mh"><b>Piyasa / TEMİZ</b><span id="mirrorCleanLabel">—</span></div>
-          <img id="mirrorClean" alt="Seçilen coinin temiz canlı grafiği">
+          <div class="mirror-vp"><img id="mirrorClean" alt="Seçilen coinin temiz canlı grafiği" draggable="false"></div>
         </figure>
         <figure class="mirror-figure">
           <div class="mh"><b>JEV + Vision / TAM AÇIKLAMALI</b><span id="mirrorAnnotatedLabel">—</span></div>
-          <img id="mirrorAnnotated" alt="OB FVG OTE Fib aralık trend likidite ve tasfiye katmanlı grafik">
+          <div class="mirror-vp"><img id="mirrorAnnotated" alt="OB FVG OTE Fib aralık trend likidite ve tasfiye katmanlı grafik" draggable="false"></div>
         </figure>
       </div>
       <div class="mirror-parity warn" id="mirrorParity">JEV paket/grafik uyumu bekleniyor…</div>
@@ -428,7 +443,7 @@ const UI_TR = {
   REENTRY_COOLDOWN_AFTER_LOSS:'ZARARLI KAPANIŞ SONRASI SOĞUMA — AYNI COİNE YENİDEN GİRİŞ YOK',
   LOSS_STREAK_PAUSE:'ART ARDA 2 ZARAR — 30 DK YENİ GİRİŞ MOLASI', LEADER_AUTO_REST_LOSS_STREAK:'SERİ ZARAR MOLASI — AJANLAR DİNLENİYOR', FAST_LANE_REST_LOSS_STREAK:'SERİ ZARAR MOLASI',
   GUARD_SCALE_OUT:'KADEMELİ KÂR (0,5R) — 1/3 AZALTILDI', GUARD_SCALE_OUT_BREAKEVEN:'KADEMELİ KÂR SONRASI BAŞABAŞ STOP',
-  PARTIAL_DEFERRED_BELOW_MIN_R:'JEV KISMİ ERTELENDİ — POZİSYON ZARARDA', GUARD_JEV_PARTIAL_BREAKEVEN:'JEV KISMİSİ SONRASI BAŞABAŞ STOP', PARTIAL_DEFERRED_MAX_COUNT:'JEV KISMİ ERTELENDİ — EN ÇOK 2 KISMİ',
+  PARTIAL_DEFERRED_BELOW_MIN_R:'JEV KISMİ ERTELENDİ — POZİSYON ZARARDA', GUARD_JEV_PARTIAL_BREAKEVEN:'JEV KISMİSİ SONRASI BAŞABAŞ STOP', PARTIAL_DEFERRED_MAX_COUNT:'JEV KISMİ ERTELENDİ — EN ÇOK 2 KISMİ', PARTIAL_DEFERRED_PRE_TP1_CAP:'JEV KISMİ ERTELENDİ — TP1 ÖNCESİ PAY DOLU (RUNNER KORUNUR)',
   PARTIAL_DEFERRED_SPACING:'JEV KISMİ ERTELENDİ — 10 DK ARA', JEV_PARTIAL_DEFERRED:'JEV KISMİ KÂR ERTELENDİ',
   CHASE_STOP_ALREADY_BREACHED:'STOP SEVİYESİ ZATEN GEÇİLDİ — GİRİŞ YOK',
   STOP_BEYOND_LIQUIDATION:'STOP LİKİDASYONDAN SONRA — GİRİŞ YOK',
@@ -1259,7 +1274,9 @@ function mirrorCandidates(s){
     if(!/^[A-Z0-9]{1,28}USDT$/.test(z)||seen.has(z))return;
     seen.add(z);out.push(z);
   };
-  // Önce şu an grafik/kanıt hattında okunan coin, sonra son JEV kararı.
+  // CLAUDE_R2544_8: AÇIK POZİSYONLAR her zaman listenin başında (Office'te açılan işlem aynada kendiliğinden görünür).
+  for(const p of s?.positions?.data?.open||[])add(p?.symbol);
+  // Sonra şu an grafik/kanıt hattında okunan coin, sonra son JEV kararı.
   add(s?.visionProgress?.data?.symbol);
   add(s?.status?.data?.leaderAuto?.currentSymbol);
   add(s?.lastJev?.symbol);
@@ -1269,15 +1286,25 @@ function mirrorCandidates(s){
   if(!out.length)add('BTCUSDT');
   return out;
 }
+let mirrorSeenOpen=null;
 function syncMirrorSymbol(s){
   const choices=mirrorCandidates(s);
+  // CLAUDE_R2544_8_AUTO_FOLLOW: yeni bir pozisyon açıldığında ayna o coine geçer (elle seçim, bir sonraki YENİ pozisyona kadar korunur).
+  const openNow=(s?.positions?.data?.open||[]).map(p=>String(p?.symbol||'').toUpperCase()).filter(Boolean);
+  if(mirrorSeenOpen===null){mirrorSeenOpen=new Set(openNow);if(openNow.length&&!openNow.includes(mirrorSymbol))mirrorSymbol=openNow[0];}
+  else{const fresh=openNow.filter(x=>!mirrorSeenOpen.has(x));if(fresh.length)mirrorSymbol=fresh[fresh.length-1];mirrorSeenOpen=new Set(openNow);}
+  const badge=$('#mirrorPosBadge');
+  if(badge){const op=(s?.positions?.data?.open||[]).find(p=>String(p?.symbol||'').toUpperCase()===mirrorSymbol);
+    badge.textContent=op?`● AÇIK POZİSYON ${String(op.side||'').toUpperCase()==='LONG'?'ALIŞ':'SATIŞ'} • giriş ${mirrorFmt(op.entryPrice)}${op.stopPrice!=null?` • stop ${mirrorFmt(op.stopPrice)}`:''}`:'';}
   if(!mirrorSymbol||!choices.includes(mirrorSymbol))mirrorSymbol=choices[0];
   const sel=$('#mirrorSymbol');
   if(sel){
     const sig=choices.join('|');
-    if(sel.dataset.sig!==sig){
-      sel.innerHTML=choices.map(x=>`<option value="${esc(x)}">${esc(x.replace(/USDT$/,''))}/USDT</option>`).join('');
-      sel.dataset.sig=sig;
+    const openSig=sig+'#'+(s?.positions?.data?.open||[]).map(p=>String(p?.symbol||'').toUpperCase()).join(',');
+    if(sel.dataset.sig!==openSig){
+      const openSet=new Set((s?.positions?.data?.open||[]).map(p=>String(p?.symbol||'').toUpperCase()));
+      sel.innerHTML=choices.map(x=>`<option value="${esc(x)}">${openSet.has(x)?'● ':''}${esc(x.replace(/USDT$/,''))}/USDT${openSet.has(x)?' — AÇIK POZİSYON':''}</option>`).join('');
+      sel.dataset.sig=sig+'#'+[...openSet].join(',');
     }
     sel.value=mirrorSymbol;
   }
@@ -1452,6 +1479,44 @@ document.querySelectorAll('[data-mirror-tf]').forEach(b=>b.addEventListener('cli
   try{localStorage.setItem('jev-mirror-tf',mirrorTf);}catch{}
   if(last)renderMirror(last);
 }));
+// CLAUDE_R2544_8_MIRROR_ZOOM: iki grafik aynı yakınlaştırma/kaydırma durumunu paylaşır (aynı atomik snapshot, aynı mum ekseni).
+const mirrorView={z:1,x:0,y:0};
+function applyMirrorView(){
+  document.querySelectorAll('.mirror-vp').forEach(vp=>{
+    const img=vp.querySelector('img');if(!img)return;
+    const w=vp.clientWidth,h=vp.clientHeight;
+    mirrorView.x=Math.min(0,Math.max(w-w*mirrorView.z,mirrorView.x));
+    mirrorView.y=Math.min(0,Math.max(h-h*mirrorView.z,mirrorView.y));
+    img.style.transform=`translate(${mirrorView.x}px,${mirrorView.y}px) scale(${mirrorView.z})`;
+  });
+  const l=$('#mirrorZoomLbl');if(l)l.textContent=mirrorView.z.toFixed(1)+'x';
+}
+function mirrorZoomAt(vp,factor,cx,cy){
+  const nz=Math.max(1,Math.min(6,mirrorView.z*factor));
+  if(cx==null){cx=vp.clientWidth/2;cy=vp.clientHeight/2;}
+  mirrorView.x=cx-(cx-mirrorView.x)*(nz/mirrorView.z);
+  mirrorView.y=cy-(cy-mirrorView.y)*(nz/mirrorView.z);
+  mirrorView.z=nz;applyMirrorView();
+}
+document.querySelectorAll('.mirror-vp').forEach(vp=>{
+  vp.addEventListener('wheel',e=>{e.preventDefault();const r=vp.getBoundingClientRect();mirrorZoomAt(vp,e.deltaY<0?1.2:1/1.2,e.clientX-r.left,e.clientY-r.top);},{passive:false});
+  let drag=null;
+  vp.addEventListener('pointerdown',e=>{if(mirrorView.z<=1)return;drag={x:e.clientX,y:e.clientY,ox:mirrorView.x,oy:mirrorView.y};vp.classList.add('dragging');vp.setPointerCapture(e.pointerId);});
+  vp.addEventListener('pointermove',e=>{if(!drag)return;mirrorView.x=drag.ox+(e.clientX-drag.x);mirrorView.y=drag.oy+(e.clientY-drag.y);applyMirrorView();});
+  const end=()=>{drag=null;vp.classList.remove('dragging');};
+  vp.addEventListener('pointerup',end);vp.addEventListener('pointercancel',end);
+  vp.addEventListener('dblclick',()=>{mirrorView.z=1;mirrorView.x=0;mirrorView.y=0;applyMirrorView();});
+});
+$('#mirrorZoomIn').addEventListener('click',()=>mirrorZoomAt(document.querySelector('.mirror-vp'),1.25));
+$('#mirrorZoomOut').addEventListener('click',()=>mirrorZoomAt(document.querySelector('.mirror-vp'),1/1.25));
+$('#mirrorZoomReset').addEventListener('click',()=>{mirrorView.z=1;mirrorView.x=0;mirrorView.y=0;applyMirrorView();});
+(function(){
+  const box=$('#mirrorCharts'),btn=$('#mirrorLayout');
+  let stacked=true;try{stacked=localStorage.getItem('jev-mirror-layout')!=='side';}catch{}
+  const set=v=>{stacked=v;box.classList.toggle('stacked',v);btn.textContent=v?'⇆ Yan yana':'⇅ Alt alta';try{localStorage.setItem('jev-mirror-layout',v?'stacked':'side');}catch{}applyMirrorView();};
+  btn.addEventListener('click',()=>set(!stacked));set(stacked);
+  window.addEventListener('resize',applyMirrorView);
+})();
 buildOffice(); tick(); setInterval(tick, 5000);
 </script>
 </body>

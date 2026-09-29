@@ -1936,9 +1936,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const partialGate=positionGuard.partialContract({side:position.side,
         entryPrice:finite(runnerRow?.entryPrice)??finite(lifecycle?.entryPlan?.entryPrice)??finite(position.entryPrice),
         initialStop:finite(runnerRow?.originalStopPrice)??finite(lifecycle?.entryPlan?.stopPrice),
-        markPrice:finite(position.markPrice),partialEvents:existing?.jevExitEvents||[],now:clock(),config:positionGuard.readConfig(root)});
+        markPrice:finite(position.markPrice),partialEvents:existing?.jevExitEvents||[],now:clock(),config:positionGuard.readConfig(root),
+        // CLAUDE_R2544_8_PRE_TP1_CAP: TP1 öncesi toplam azaltma (JEV kısmi + guard kademeli) ilk miktara oranla.
+        reducedFraction:finite(runnerRow?.initialQty)>0?(finite(runnerRow?.mgmtReducedQty)||0)/finite(runnerRow.initialQty):null,phase:runnerRow?.phase||null});
       lifecycle.managementContract={...partialGate,guardScaleOut:runnerRow?.scaleOutDone===true?'DONE':'ARMED_AT_'+positionGuard.readConfig(root).scaleOutAtR+'R',
-        rule:'PARTIAL_TAKE_PROFIT executes only if progressR >= minR (0 = only while in profit; after a profitable partial the stop moves to breakeven), reviewPartialsTaken < maxReviewPartials and minSpacingMin elapsed; otherwise it is recorded as HOLD. The position guard automatically scales out ~1/3 at 0.5R and moves the stop to breakeven; TP1 (1R) is an exchange order. EXIT_NOW is never restricted.'};
+        rule:'PARTIAL_TAKE_PROFIT executes only if progressR >= minR (0 = only while in profit; after a profitable partial the stop moves to breakeven and it replaces the guard scale-out; before TP1 fills, total management reductions are capped at 1/3 of the initial size so TP1 + a runner remain), reviewPartialsTaken < maxReviewPartials and minSpacingMin elapsed; otherwise it is recorded as HOLD. The position guard automatically scales out ~1/3 at 0.5R and moves the stop to breakeven; TP1 (1R) is an exchange order. EXIT_NOW is never restricted.'};
       let jevExit={ok:false,called:false,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi kullanılamadı.'};
       if(typeof exitJudge==='function'&&advisory?.unifiedContext){
         try{jevExit=await exitJudge({position,lifecycle,currentPlan:advisory.plan,unified:advisory.unifiedContext,evidence:advisory?.evidence||null});}
@@ -1980,7 +1982,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           }else if(reviewArmGeneration!==armGeneration||!armedNow()){
             managementExecution={ok:false,attempted:false,orderPlaced:false,execution:'JEV_POSITION_REDUCE_BLOCKED',reason:'LIVE_DISARMED_DURING_POSITION_REVIEW'};
           }else{
-            const fraction=action==='EXIT_NOW'?1:Math.max(0.01,Math.min(0.99,finite(jevExit?.partialFraction)??(1/3)));
+            let fraction=action==='EXIT_NOW'?1:Math.max(0.01,Math.min(0.99,finite(jevExit?.partialFraction)??(1/3)));
+            // CLAUDE_R2544_8_PRE_TP1_CAP: kısmi, TP1 öncesi azaltma payını aşmayacak şekilde kırpılır (kalan ≥ TP1 + runner).
+            if(action==='PARTIAL_TAKE_PROFIT'&&finite(partialGate?.maxFractionOfInitial)!==null){
+              const rr=runnerState.bySymbol?.[position.symbol],init=finite(rr?.initialQty),cur=finite(position.quantity);
+              if(init>0&&cur>0)fraction=Math.max(0.01,Math.min(fraction,partialGate.maxFractionOfInitial*init/cur));
+            }
             executionBusy=true;
             try{
               const result=await transport.reducePositionMarket({
