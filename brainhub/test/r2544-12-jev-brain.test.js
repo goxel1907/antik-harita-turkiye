@@ -40,3 +40,9 @@ test('R2544.13: PC ve APK kaynakları C:\\JEV-Brain içinde bağımsız klon; es
   assert.match(rd,/apk-source/);assert.match(rd,/Eski yer → yeni yer/);
   assert.doesNotMatch(R('jev-brain','LIVE-KAPAT.cmd'),/LiveArm/);
 });
+test('R2544.13: satır sonu kuralı — kod LF, .cmd CRLF (Windows autocrlf klonunda testler bozulmasın)',()=>{
+  const ga=fs.readFileSync(path.join(__dirname,'..','..','.gitattributes'),'utf8');
+  for(const ext of ['js','json','html','md','ps1'])assert.match(ga,new RegExp('brainhub/\\*\\*/\\*\\.'+ext+' text eol=lf'));
+  assert.match(ga,/brainhub\/\*\*\/\*\.cmd text eol=crlf/);
+  for(const f of ['manage.ps1','live-controller.js','server.js'])assert.doesNotMatch(R(f),/\r\n/,f+' LF olmalı');
+});

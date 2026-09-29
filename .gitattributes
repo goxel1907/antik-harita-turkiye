@@ -1,0 +1,9 @@
+# CLAUDE_R2544_13_EOL: PC kodunun testleri "\n" iceren desenler kullanir. Windows'ta core.autocrlf=true ile yapilan
+# temiz klonda bu dosyalar CRLF'e donusup manage.ps1 Update'in birim testlerini dusuruyordu (3 test).
+# Kod ve betikler depoda da calisma alaninda da LF; yalniz .cmd dosyalari CRLF (cmd.exe icin).
+brainhub/**/*.js text eol=lf
+brainhub/**/*.json text eol=lf
+brainhub/**/*.html text eol=lf
+brainhub/**/*.md text eol=lf
+brainhub/**/*.ps1 text eol=lf
+brainhub/**/*.cmd text eol=crlf
