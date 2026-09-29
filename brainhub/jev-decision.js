@@ -448,7 +448,9 @@ function usageCost(data,reserve,body){
 // Never trim core market truth, executable plans, requested evidence or questions.
 // A measured 55,057-byte request used 32,735 provider tokens. Leave headroom.
 const MAX_DECISION_REQUEST_BYTES=52000;
-function prepareDecisionRequest(input){
+function prepareDecisionRequest(input,opts={}){
+  // CLAUDE_R2544_7: bayt sınırı çağrı başına daraltılabilir (JEV servisinin max_tokens_exceeded 400 yanıtında tek yeniden deneme).
+  const CAP=Number.isFinite(Number(opts?.maxBytes))&&Number(opts.maxBytes)>0?Math.min(Number(opts.maxBytes),MAX_DECISION_REQUEST_BYTES):MAX_DECISION_REQUEST_BYTES;
   const body=JSON.parse(JSON.stringify(input));
   const beforeBytes=Buffer.byteLength(JSON.stringify(body),'utf8');
   const state=body.state||{};
@@ -456,7 +458,7 @@ function prepareDecisionRequest(input){
   // CLAUDE_R2543_OBS_TRIM_STEPS: hangi budama adımlarının gerçekten çalıştığı kaydedilir (salt gözlem).
   const trimStepsApplied=[];
   for(const limit of [6000,4000,2500,1600,900]){
-    if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
+    if(Buffer.byteLength(serialized,'utf8')<=CAP)break;
     trimStepsApplied.push('PRIMARY_CONTEXT_'+limit);
     const cortex=state.professionalTraderCortex;
     if(cortex&&typeof cortex.reference==='string'){
@@ -605,7 +607,7 @@ function prepareDecisionRequest(input){
     ];
     const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','EXPERIENCE_MEMORY_MIN'];
     for(const [stepIndex,step] of secondarySteps.entries()){
-      if(Buffer.byteLength(serialized,'utf8')<=MAX_DECISION_REQUEST_BYTES)break;
+      if(Buffer.byteLength(serialized,'utf8')<=CAP)break;
       trimStepsApplied.push(secondaryStepNames[stepIndex]||('SECONDARY_'+stepIndex));
       try{step();}catch{}
       if(recordObj)body.state.record=recordObj;
@@ -616,12 +618,12 @@ function prepareDecisionRequest(input){
   const bytes=Buffer.byteLength(serialized,'utf8');
   const measure=v=>Buffer.byteLength(JSON.stringify(v??null),'utf8');
   const diagnostics={pass:body.questions?.trade_plan?2:body.questions?.lane_focus?1:'OTHER',
-    chars:serialized.length,bytes,beforeBytes,maxBytes:MAX_DECISION_REQUEST_BYTES,
+    chars:serialized.length,bytes,beforeBytes,maxBytes:CAP,
     estimatedTokens:Math.ceil(bytes*0.6)+1024,estimateOnly:true,
-    stateBytes:measure(body.state),questionsBytes:measure(body.questions),secondaryTrimApplied:Boolean((recordObj||packetObj)&&beforeBytes>MAX_DECISION_REQUEST_BYTES),
+    stateBytes:measure(body.state),questionsBytes:measure(body.questions),secondaryTrimApplied:Boolean((recordObj||packetObj)&&beforeBytes>CAP),
     trimStepsApplied,marketTrimApplied:trimStepsApplied.some(x=>!x.startsWith('PRIMARY_CONTEXT_')&&x!=='DUP_RECORD_EXPERIENCE_MEMORY'),
     sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,measure(v)]))};
-  return {ok:bytes<=MAX_DECISION_REQUEST_BYTES,body,serialized,diagnostics};
+  return {ok:bytes<=CAP,body,serialized,diagnostics};
 }
 
 function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.fetch,clock=()=>Date.now()}={}){
@@ -744,8 +746,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   async function decisions(body,{reserve=true}={}){
     if(!configured)return {ok:false,configured:false,required:false,reason:'OPENROUTER_NOT_CONFIGURED'};
-    const prepared=prepareDecisionRequest(body);
-    const requestSize=prepared.diagnostics;
+    const originalBody=body;
+    let prepared=prepareDecisionRequest(body);
+    let requestSize=prepared.diagnostics;
     // Metadata only: no market payload, account details, keys or response text.
     try{fs.mkdirSync(path.join(root,'logs'),{recursive:true});
       fs.appendFileSync(path.join(root,'logs','jev-request-size.log'),JSON.stringify({at:new Date(clock()).toISOString(),...requestSize,blocked:!prepared.ok})+'\n','utf8');
@@ -775,6 +778,17 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       if(!r){
         if(lastError)throw lastError;
         throw new Error('JEV_DECISION_NO_RESPONSE');
+      }
+      // CLAUDE_R2544_7_CONTEXT_RETRY: 29.09 03:20 OP pozisyon incelemesi 51.635 baytta 400 max_tokens_exceeded aldı; JEV stoptan
+      // 1 dk önce karar veremedi. Bu yanıtta paket 44.000 bayta budanıp BİR kez yeniden gönderilir (emir değil, karar çağrısı).
+      if(!r.ok&&Number(r.status)===400&&JSON.stringify(r.data||'').includes('max_tokens_exceeded')){
+        const smaller=prepareDecisionRequest(originalBody,{maxBytes:44000});
+        if(smaller.ok&&smaller.diagnostics.bytes<requestSize.bytes){
+          try{fs.appendFileSync(path.join(root,'logs','jev-request-size.log'),JSON.stringify({at:new Date(clock()).toISOString(),...smaller.diagnostics,retryAfter:'MAX_TOKENS_EXCEEDED',blocked:false})+'\n','utf8');}catch{}
+          prepared=smaller;requestSize={...smaller.diagnostics,contextRetry:true};body=prepared.body;attempts+=1;
+          try{r=await fetchJson(fetchImpl,cfg.decisionsUrl,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:prepared.serialized},cfg.timeoutMs);}catch(e){lastError=e;}
+          if(!r)throw lastError||new Error('JEV_DECISION_NO_RESPONSE');
+        }
       }
       if(!r.ok){
         if(reserve)settleBudget(reservation,cfg.reservePerCallUsd);

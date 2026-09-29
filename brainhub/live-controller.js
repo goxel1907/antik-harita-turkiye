@@ -1938,7 +1938,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         initialStop:finite(runnerRow?.originalStopPrice)??finite(lifecycle?.entryPlan?.stopPrice),
         markPrice:finite(position.markPrice),partialEvents:existing?.jevExitEvents||[],now:clock(),config:positionGuard.readConfig(root)});
       lifecycle.managementContract={...partialGate,guardScaleOut:runnerRow?.scaleOutDone===true?'DONE':'ARMED_AT_'+positionGuard.readConfig(root).scaleOutAtR+'R',
-        rule:'PARTIAL_TAKE_PROFIT executes only if progressR >= minR, reviewPartialsTaken < maxReviewPartials and minSpacingMin elapsed; otherwise it is recorded as HOLD. The position guard automatically scales out ~1/3 at 0.5R and moves the stop to breakeven; TP1 (1R) is an exchange order. EXIT_NOW is never restricted.'};
+        rule:'PARTIAL_TAKE_PROFIT executes only if progressR >= minR (0 = only while in profit; after a profitable partial the stop moves to breakeven), reviewPartialsTaken < maxReviewPartials and minSpacingMin elapsed; otherwise it is recorded as HOLD. The position guard automatically scales out ~1/3 at 0.5R and moves the stop to breakeven; TP1 (1R) is an exchange order. EXIT_NOW is never restricted.'};
       let jevExit={ok:false,called:false,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi kullanılamadı.'};
       if(typeof exitJudge==='function'&&advisory?.unifiedContext){
         try{jevExit=await exitJudge({position,lifecycle,currentPlan:advisory.plan,unified:advisory.unifiedContext,evidence:advisory?.evidence||null});}
@@ -1948,7 +1948,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let action=jevExit?.finalAuthority===true
         ? (['HOLD','PROTECT_PROFIT','PARTIAL_TAKE_PROFIT','EXIT_NOW'].includes(requestedAction)?requestedAction:'HOLD_REVIEW')
         : positionManager.capJevExitAction(requestedAction,assessment);
-      // CLAUDE_R2544_4_PARTIAL_CONTRACT: JEV KISMİ KÂR AL yalnız sözleşme içinde yürür (≥0,5R, en çok 2, 10 dk ara).
+      // CLAUDE_R2544_4_PARTIAL_CONTRACT: JEV KISMİ KÂR AL yalnız sözleşme içinde yürür (R2544.7: kârdayken, en çok 2, 10 dk ara).
       // Sözleşme JEV'e pakette açıkça verilir; ihlal eden kısmi TUT olarak kaydedilir. EXIT_NOW etkilenmez.
       let partialDeferred=null;
       if(action==='PARTIAL_TAKE_PROFIT'&&!partialGate.allow){
@@ -1997,7 +1997,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
                   reason:action==='EXIT_NOW'?'JEV_EXIT_NOW':'JEV_PARTIAL_TAKE_PROFIT'};
                 if(result?.fullyClosed!==true&&runnerState.bySymbol?.[position.symbol]){
                   const rr0=runnerState.bySymbol[position.symbol];
-                  rr0.mgmtReducedQty=(finite(rr0.mgmtReducedQty)||0)+(finite(result?.executedQty)||0);writeRunnerState();
+                  rr0.mgmtReducedQty=(finite(rr0.mgmtReducedQty)||0)+(finite(result?.executedQty)||0);
+                  // CLAUDE_R2544_7_JEV_PARTIAL_BE: kârda yürüyen JEV kısmisi → guard kalan için stopu başabaşa çeker.
+                  if(action==='PARTIAL_TAKE_PROFIT'&&finite(partialGate?.progressR)!==null&&partialGate.progressR>0){rr0.jevPartialBE=true;rr0.jevPartialBEAt=clock();}
+                  writeRunnerState();
                 }
                 existing.jevExitEvents=[...(Array.isArray(existing.jevExitEvents)?existing.jevExitEvents:[]),
                   {action,at:clock(),fraction,executedQty:finite(result?.executedQty),remainingQty:finite(result?.remainingQty),fullyClosed:result?.fullyClosed===true}].slice(-8);

@@ -38,8 +38,8 @@ test('kademeli kâr: 0,5R ve ≥%0,3 harekette bir kez 1/3; sonra başabaş; asl
 test('JEV kısmi kâr sözleşmesi: ≥0,5R, en çok 2, 10 dk ara; kapalıyken serbest',()=>{
   const now=10*3600000;
   const c=(mark,events=[],cfg={})=>G.partialContract({side:'SHORT',entryPrice:0.01896,initialStop:0.01962,markPrice:mark,partialEvents:events,now,config:{...G.DEFAULTS,...cfg}});
-  // AZTEC 29.09 01:00: +0,08R'de kısmi → ertelenir
-  const a=c(0.01891); assert.equal(a.allow,false); assert.equal(a.reason,'PARTIAL_DEFERRED_BELOW_MIN_R'); assert.ok(a.progressR<0.1);
+  // AZTEC 29.09 01:00: +0,08R'de kısmi → 0,5R eşiğiyle ertelenir (R2544.7'den beri varsayılan eşik 0R; eşik burada açıkça veriliyor)
+  const a=c(0.01891,[],{partialMinR:0.5}); assert.equal(a.allow,false); assert.equal(a.reason,'PARTIAL_DEFERRED_BELOW_MIN_R'); assert.ok(a.progressR<0.1);
   const ok=c(0.01855); assert.equal(ok.allow,true,JSON.stringify(ok)); assert.ok(ok.progressR>=0.6);
   const ev=t=>({action:'PARTIAL_TAKE_PROFIT',at:t});
   assert.equal(c(0.01855,[ev(now-5*60000)]).reason,'PARTIAL_DEFERRED_SPACING');
@@ -47,6 +47,7 @@ test('JEV kısmi kâr sözleşmesi: ≥0,5R, en çok 2, 10 dk ara; kapalıyken s
   assert.equal(c(0.01855,[ev(now-90*60000),ev(now-60*60000)]).reason,'PARTIAL_DEFERRED_MAX_COUNT');
   assert.equal(c(0.01855,[{action:'EXIT_NOW',at:now-60000}]).allow,true,'EXIT olayları sayılmaz');
   assert.equal(c(0.01891,[],{partialContractEnabled:0}).allow,true);
+  assert.equal(c(0.01891).allow,true,'R2544.7 varsayılanı: kârdaki kısmi serbest');
   assert.equal(G.partialContract({side:'LONG',entryPrice:1,initialStop:null,markPrice:1.1}).allow,false,'eksik girdi: fail-closed (kısmi yok, TUT)');
 });
 
