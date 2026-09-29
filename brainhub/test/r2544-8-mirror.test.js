@@ -59,7 +59,8 @@ test('TP1 öncesi azaltma payı: JEV kısmi guard kademelisinin yerine geçer, t
   const first=G.partialContract({side:'LONG',entryPrice:0.05957,initialStop:0.05801,markPrice:0.06017,partialEvents:[],now:0,config:G.DEFAULTS,reducedFraction:0,phase:'INITIAL'});
   assert.equal(first.allow,true);assert.ok(Math.abs(first.maxFractionOfInitial-0.3334)<1e-6);
   assert.equal(c(0.3333).reason,'PARTIAL_DEFERRED_PRE_TP1_CAP','07:20 ikinci kısmi ertelenir → TP1 1/3 + runner 1/3 kalır');
-  assert.equal(c(0.3333,'TRAILING').allow,true,'TP1 dolduktan sonra runner üzerinde kısmi serbest');
+  // R2544.10: TP1 sonrası kısmi yalnız ≥1R'de (burada 0,77R → ertelenir).
+  assert.equal(c(0.3333,'TRAILING').reason,'PARTIAL_DEFERRED_POST_TP1_BELOW_TP1','TP1 sonrası TP1 fiyatının altında kısmi yok');
   assert.equal(c(null).allow,true,'runner satırı yoksa eski davranış');
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(lc,/fraction=Math\.max\(0\.01,Math\.min\(fraction,partialGate\.maxFractionOfInitial\*init\/cur\)\)/);

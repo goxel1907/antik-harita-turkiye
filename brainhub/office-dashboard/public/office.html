@@ -743,7 +743,7 @@ function renderGuardStrip(s){
     card(ra==='STRICT_POLICY_CAP'?'warn':'info','Risk otoritesi',ra==='STRICT_POLICY_CAP'?'SIKI TAVAN':'PANEL',
       ra==='STRICT_POLICY_CAP'?'live-policy işlem risk tavanı bağlayıcı.':`${esc(la.marginQuote??'?')} USDT × ${esc(la.leverage??'?')}x • en fazla ${esc(la.maxOpenPositions??'?')} pozisyon • işlem risk tavanı yok`,
       ['yapısal stop','likidasyon kapısı','kovalama 0.5R']),
-    card(g&&g.mode==='BINDING'?'good':'warn','Pozisyon koruması',g?(g.mode==='BINDING'?'BAĞLAYICI • 10 sn':esc(trUi(g.mode))):'—',guardSub,['0,5R: 1/3 kâr + başabaş','JEV kısmi kârda • en çok 2 • sonra başabaş','kâr kilidi','zaman stopu','likidasyon bekçisi']),
+    card(g&&g.mode==='BINDING'?'good':'warn','Pozisyon koruması',g?(g.mode==='BINDING'?'BAĞLAYICI • 10 sn':esc(trUi(g.mode))):'—',guardSub,['0,5R: 1/3 kâr + başabaş','JEV kısmi kârda • en çok 2 • sonra başabaş','TP1 sonrası: kısmi ≥1R • runner ≥%25','kâr kilidi','zaman stopu','likidasyon bekçisi']),
     card(hits.length?'good':'info','Ön-hareket radarı',hits.length?`${hits.length} imza`:'bekliyor',pmSub,cq.length?cq.map(x=>`${x.symbol} yeniden JEV ×${x.runs}`):['kaçan sembol yok']),
     card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,[...(c112.fastLane?.lossStreak?.pause?[`SERİ ZARAR MOLASI ${c112.fastLane.lossStreak.pause.remainingMin} dk`]:[]),...(rcd.length?rcd.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])])
   ].join('');

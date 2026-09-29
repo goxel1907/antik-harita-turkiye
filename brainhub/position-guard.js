@@ -42,6 +42,11 @@ const DEFAULTS=Object.freeze({
   // azalttı; borsadaki TP1 emri (ilk miktarın 1/3'ü) kalanın TAMAMINI kapattı, runner kalmadı. TP1 dolana kadar yönetim
   // azaltmalarının toplamı ilk miktarın en çok 1/3'ü (kalan ≥ TP1 + runner). JEV kısmisi kademeli kârın yerine geçer.
   preTp1MaxReduceFraction:0.3334,
+  // CLAUDE_R2544_10_RUNNER_FLOOR: 29.09 DRIFT — guard kademeli 1/3 (0,5R) + TP1 1/3 (1R) doldu; ardından JEV iki kısmiyi
+  // TP1 fiyatının ALTINDA (0,39R ve 0,60R) aldı, runner ilk miktarın %14,8'ine indi (plan: HALF_QUARTER_RUNNER, runner %25).
+  // TP1 dolduktan sonra JEV kısmisi yalnız fiyat TP1'in ötesindeyken (≥1R) ve kalan ≥ ilk miktarın %25'i olacak kadar yürür.
+  // Tersine dönüşte EXIT_NOW sınırsızdır; stop zaten başabaş/iz sürmede.
+  postTp1PartialMinR:1, postTp1RunnerFloorFraction:0.25,
   // CLAUDE_R2544_4_LOSS_STREAK: art arda 2 zararlı kapanış → 30 dk yeni giriş yok (açık pozisyon yönetimi sürer).
   // 68 kapanış: 2 zarar sonrası 30 dk içinde açılan 17 işlem toplam -5,48R / -55,8 USDT (ort. -0,32R; genel -0,22R).
   // 29.09 01:45–02:14: PHA, PENDLE zararından sonra COTI (-2,79) ve SOON (-12,32) bu pencerede açıldı. 0 = kapalı.
@@ -174,7 +179,7 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
 }
 
 // JEV incelemesinden gelen KISMİ KÂR AL için yürütme sözleşmesi (saf fonksiyon). Tam çıkış (EXIT_NOW) buradan geçmez.
-function partialContract({side,entryPrice,initialStop,markPrice,partialEvents=[],now=Date.now(),config=DEFAULTS,reducedFraction=null,phase=null}={}){
+function partialContract({side,entryPrice,initialStop,markPrice,partialEvents=[],now=Date.now(),config=DEFAULTS,reducedFraction=null,phase=null,remainingFraction=null}={}){
   const cfg={...DEFAULTS,...(config||{})};
   const s=String(side||'').toUpperCase(),e=finite(entryPrice),st=finite(initialStop),m=finite(markPrice);
   const events=(Array.isArray(partialEvents)?partialEvents:[]).filter(x=>String(x?.action||'')==='PARTIAL_TAKE_PROFIT');
@@ -194,6 +199,18 @@ function partialContract({side,entryPrice,initialStop,markPrice,partialEvents=[]
     const room=cap-rf;
     if(room<=0.02)return {...out,reducedFraction:Number(rf.toFixed(4)),allow:false,reason:'PARTIAL_DEFERRED_PRE_TP1_CAP'};
     return {...out,reducedFraction:Number(rf.toFixed(4)),maxFractionOfInitial:Number(room.toFixed(4)),allow:true,reason:'PARTIAL_CONTRACT_OK'};
+  }
+  // CLAUDE_R2544_10_RUNNER_FLOOR: TP1 dolduktan sonra (BREAKEVEN/TRAILING) runner korunur.
+  const postTp1=['BREAKEVEN','TRAILING'].includes(String(phase||'').toUpperCase());
+  if(postTp1){
+    const minR=finite(cfg.postTp1PartialMinR);
+    if(minR!==null&&progressR<minR)return {...out,phase:String(phase).toUpperCase(),allow:false,reason:'PARTIAL_DEFERRED_POST_TP1_BELOW_TP1'};
+    const rem=finite(remainingFraction),floor=finite(cfg.postTp1RunnerFloorFraction);
+    if(rem!==null&&floor!==null&&floor>0){
+      const room=rem-floor;
+      if(room<=0.02)return {...out,phase:String(phase).toUpperCase(),remainingFraction:Number(rem.toFixed(4)),allow:false,reason:'PARTIAL_DEFERRED_RUNNER_FLOOR'};
+      return {...out,phase:String(phase).toUpperCase(),remainingFraction:Number(rem.toFixed(4)),maxFractionOfInitial:Number(room.toFixed(4)),allow:true,reason:'PARTIAL_CONTRACT_OK'};
+    }
   }
   return {...out,allow:true,reason:'PARTIAL_CONTRACT_OK'};
 }
