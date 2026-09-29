@@ -1016,6 +1016,11 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       ox+=4*scale;
     }
   }
+    // CLAUDE_R2544_9_FONT5X7: 3x5 piksel yazı yerine 5x7 (klasik terminal) yazı — 2x ölçekte 10x14 px, rakamlar ayırt edilebilir.
+    const F57={A:'01110100011000111111100011000110001',B:'11110100011000111110100011000111110',C:'01110100011000010000100001000101110',D:'11110100011000110001100011000111110',E:'11111100001000011110100001000011111',F:'11111100001000011110100001000010000',G:'01110100011000010111100011000101111',H:'10001100011000111111100011000110001',I:'01110001000010000100001000010001110',J:'00111000100001000010000101001001100',K:'10001100101010011000101001001010001',L:'10000100001000010000100001000011111',M:'10001110111010110101100011000110001',N:'10001100011100110101100111000110001',O:'01110100011000110001100011000101110',P:'11110100011000111110100001000010000',Q:'01110100011000110001101011001001101',R:'11110100011000111110101001001010001',S:'01111100001000001110000010000111110',T:'11111001000010000100001000010000100',U:'10001100011000110001100011000101110',V:'10001100011000110001100010101000100',W:'10001100011000110101101011010101010',X:'10001100010101000100010101000110001',Y:'10001100010101000100001000010000100',Z:'11111000010001000100010001000011111',
+      '0':'01110100011001110101110011000101110','1':'00100011000010000100001000010001110','2':'01110100010000100010001000100011111','3':'11111000100010000010000011000101110','4':'00010001100101010010111110001000010','5':'11111100001111000001000011000101110','6':'00110010001000011110100011000101110','7':'11111000010001000100010000100001000','8':'01110100011000101110100011000101110','9':'01110100011000101111000010001001100',
+      '.':'00000000000000000000000000110001100','-':'00000000000000011111000000000000000','/':'00001000100001000100010000100010000',':':'00000011000110000000011000110000000','%':'11000110010001000100010001001100011','+':'00000001000010011111001000010000000','(':'00010001000100001000010000010000010',')':'01000001000001000010000100010001000',' ':'00000000000000000000000000000000000','=':'00000000001111100000111110000000000'};
+    const text57=(x,y,t,c,sc=2)=>{let ox=Math.round(x);for(const ch of asciiLabel(t)){const b=F57[ch]||F57[' '];for(let i=0;i<35;i++)if(b[i]==='1'){const gx=i%5,gy=Math.floor(i/5);fillRect(ox+gx*sc,y+gy*sc,ox+gx*sc+sc-1,y+gy*sc+sc-1,c);}ox+=6*sc;}};
   fillRect(0,0,width-1,height-1,bg);
   const rawMin=Math.min(...candles.map(x=>Number(x.low))), rawMax=Math.max(...candles.map(x=>Number(x.high)));
   const span=Math.max(1e-12,rawMax-rawMin), pad=span*0.06;
@@ -1080,11 +1085,6 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     const fromX=at=>{const x=at==null?null:(xForAt(at)??xAtTime(at));return x===null?left:Math.max(left,Math.round(x-step*0.5));};
     const hline=(price,col,x0=left,dashed=false)=>{const y=yPrice(price);if(!Number.isFinite(y))return;if(!dashed){line(x0,y,right,y,col);return;}for(let x=x0;x<right;x+=9)line(x,y,Math.min(right,x+5),y,col);};
     const idxOfExtreme=(n,hi)=>{const s=Math.max(0,candles.length-1-n),e=candles.length-1;let bi=-1,bv=hi?-Infinity:Infinity;for(let i=s;i<e;i++){const v=Number(hi?candles[i].high:candles[i].low);if(hi?v>bv:v<bv){bv=v;bi=i;}}return bi;};
-    // CLAUDE_R2544_9_FONT5X7: 3x5 piksel yazı yerine 5x7 (klasik terminal) yazı — 2x ölçekte 10x14 px, rakamlar ayırt edilebilir.
-    const F57={A:'01110100011000111111100011000110001',B:'11110100011000111110100011000111110',C:'01110100011000010000100001000101110',D:'11110100011000110001100011000111110',E:'11111100001000011110100001000011111',F:'11111100001000011110100001000010000',G:'01110100011000010111100011000101111',H:'10001100011000111111100011000110001',I:'01110001000010000100001000010001110',J:'00111000100001000010000101001001100',K:'10001100101010011000101001001010001',L:'10000100001000010000100001000011111',M:'10001110111010110101100011000110001',N:'10001100011100110101100111000110001',O:'01110100011000110001100011000101110',P:'11110100011000111110100001000010000',Q:'01110100011000110001101011001001101',R:'11110100011000111110101001001010001',S:'01111100001000001110000010000111110',T:'11111001000010000100001000010000100',U:'10001100011000110001100011000101110',V:'10001100011000110001100010101000100',W:'10001100011000110101101011010101010',X:'10001100010101000100010101000110001',Y:'10001100010101000100001000010000100',Z:'11111000010001000100010001000011111',
-      '0':'01110100011001110101110011000101110','1':'00100011000010000100001000010001110','2':'01110100010000100010001000100011111','3':'11111000100010000010000011000101110','4':'00010001100101010010111110001000010','5':'11111100001111000001000011000101110','6':'00110010001000011110100011000101110','7':'11111000010001000100010000100001000','8':'01110100011000101110100011000101110','9':'01110100011000101111000010001001100',
-      '.':'00000000000000000000000000110001100','-':'00000000000000011111000000000000000','/':'00001000100001000100010000100010000',':':'00000011000110000000011000110000000','%':'11000110010001000100010001001100011','+':'00000001000010011111001000010000000','(':'00010001000100001000010000010000010',')':'01000001000001000010000100010001000',' ':'00000000000000000000000000000000000','=':'00000000001111100000111110000000000'};
-    const text57=(x,y,t,c,sc=2)=>{let ox=Math.round(x);for(const ch of asciiLabel(t)){const b=F57[ch]||F57[' '];for(let i=0;i<35;i++)if(b[i]==='1'){const gx=i%5,gy=Math.floor(i/5);fillRect(ox+gx*sc,y+gy*sc,ox+gx*sc+sc-1,y+gy*sc+sc-1,c);}ox+=6*sc;}};
     const renderLabels=()=>{
       const lift=c=>{const l=0.299*c[0]+0.587*c[1]+0.114*c[2];if(l>=150)return c;const k=Math.min(0.6,(150-l)/150+0.2);return [Math.round(c[0]+(255-c[0])*k),Math.round(c[1]+(255-c[1])*k),Math.round(c[2]+(255-c[2])*k),255];};
       const sorted=levelLabels.filter(r=>Number.isFinite(r.y)).sort((a,b)=>a.y-b.y);
@@ -1123,7 +1123,7 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       // seçilen satırlar fiyat sırasıyla (ters dönme olmadan) yeniden yerleştirilir: ileri + geri geçiş
       keep.sort((a,b)=>groups[a].y-groups[b].y);
       const hidden=groups.length-keep.length;
-      if(hidden>0)text57(right+10,priceBottom+8,`+${hidden} SEVIYE: OFIS TABLOSUNDA`,[150,160,175,255],2);
+      if(hidden>0)text57(right+10,priceBottom+8,`+${hidden} SEVIYE TABLODA`,[150,160,175,255],2);
       {let yy=minY;for(const i of keep){const g=groups[i];const want=Math.max(minY,Math.min(maxY-g.h,Math.round(g.y)-Math.round(GH/2)-2));pos[i]=Math.max(yy,want);yy=pos[i]+g.h;}
        for(let k=keep.length-1;k>=0;k--){const i=keep[k],g=groups[i];const lim=k===keep.length-1?maxY:pos[keep[k+1]];if(pos[i]+g.h>lim)pos[i]=lim-g.h;}}
       for(const i of keep){
@@ -1219,15 +1219,27 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       const p=Number(h?.price);if(!Number.isFinite(p)||p<pmin||p>pmax)continue;
       const col=Array.isArray(h.col)?h.col:[186,104,200,255];
       const lo=Number(h?.low),hi=Number(h?.high);
-      if(Number.isFinite(lo)&&Number.isFinite(hi)&&hi>lo)blendRect(left,yPrice(hi),right,yPrice(lo),col.slice(0,3),0.05);
-      hline(p,col,left,true);addLevel(p,`${String(h.tf||'').toUpperCase()} ${h.name}`,col,Number(h.prio)||6);
+      // CLAUDE_R2544_9C_CLEAN: üst TF çizgileri mumların üstünü kaplamasın — yalnız grafiğin sağ %30'unda kısa kesikli
+      const hx0=Math.round(right-(right-left)*0.30);
+      if(Number.isFinite(lo)&&Number.isFinite(hi)&&hi>lo)blendRect(hx0,yPrice(hi),right,yPrice(lo),col.slice(0,3),0.07);
+      hline(p,col,hx0,true);addLevel(p,`${String(h.tf||'').toUpperCase()} ${h.name}`,col,Number(h.prio)||6);
     }
 
     // Observed Binance force-order liquidation clusters (historical prints only, not a future heatmap).
-    for(const z of Array.isArray(options?.observedLiquidations)?options.observedLiquidations:[]){
-      const price=Number(z?.price);if(!Number.isFinite(price)||price<pmin||price>pmax)continue;
-      const side=String(z?.side||'').toUpperCase();const col=side.includes('LONG')?[255,82,82,255]:side.includes('SHORT')?[0,230,118,255]:[255,255,255,255];
-      hline(price,col,left,true);addLevel(price,side.includes('LONG')?'LIKID LONG':'LIKID SHORT',col,3);
+    // CLAUDE_R2544_9C_LIQ_BANDS: 29.09 ZEC — 6 ayrı "LIKID LONG" kesikli çizgisi 1405–1414 arasını kırmızı çizgilerle dolduruyordu.
+    // Aynı taraftaki kümeler %0,4 içinde tek banda birleşir (adet + toplam USDT), yalnız grafiğin sağ %25'inde çizilir.
+    {
+      const liqs=(Array.isArray(options?.observedLiquidations)?options.observedLiquidations:[]).map(z=>({price:Number(z?.price),side:String(z?.side||'').toUpperCase(),quote:Number(z?.quote)||0,count:Number(z?.count)||1})).filter(z=>Number.isFinite(z.price)&&z.price>=pmin&&z.price<=pmax).sort((a,b)=>a.price-b.price);
+      const bands=[];
+      for(const z of liqs){const b=bands.find(x=>x.side===z.side&&z.price<=x.hi*1.004&&z.price>=x.lo*0.996);if(b){b.lo=Math.min(b.lo,z.price);b.hi=Math.max(b.hi,z.price);b.quote+=z.quote;b.count+=z.count;}else bands.push({side:z.side,lo:z.price,hi:z.price,quote:z.quote,count:z.count});}
+      const lx0=Math.round(right-(right-left)*0.25);
+      for(const b of bands){
+        const isLong=b.side.includes('LONG');const col=isLong?[255,82,82,255]:[0,230,118,255];
+        const y0=yPrice(b.hi),y1=yPrice(b.lo);blendRect(lx0,Math.min(y0,y1)-1,right,Math.max(y0,y1)+1,col.slice(0,3),0.22);
+        const mid=(b.lo+b.hi)/2;hline(mid,col,lx0,true);
+        const k=b.quote>=1e6?(b.quote/1e6).toFixed(1)+'M':b.quote>=1e3?Math.round(b.quote/1e3)+'K':String(Math.round(b.quote));
+        addLevel(mid,`LIKID ${isLong?'LONG':'SHORT'} X${b.count}${b.quote>0?' '+k:''}`,col,3);
+      }
     }
 
     // CLAUDE_R2544_9_POSITION_OVERLAY: açık pozisyon (TradingView uzun/kısa pozisyon aracı gibi): girişten sağa yeşil hedef ve
@@ -1256,6 +1268,16 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     const lastPx=Number(candles.at(-1)?.close);
     if(Number.isFinite(lastPx)){hline(lastPx,[255,255,255,255],left,true);addLevel(lastPx,'FIYAT',[255,255,255,255],0);}
     renderLabels();
+  }
+  // CLAUDE_R2544_9C_PRICE_AXIS: TEMİZ grafikte fiyat ekseni yoktu (fiyat okunamıyordu). Izgara fiyatları + son fiyat etiketi.
+  {
+    const gridCol=[120,132,150,255];
+    const fmtA=p=>{const n=Number(p);const d=Math.abs(n)>=100?2:Math.abs(n)>=1?4:6;return n.toFixed(d);};
+    for(let i=0;i<=6;i++){const y=Math.round(top+(priceBottom-top)*i/6);const pv=pmax-(pmax-pmin)*i/6;
+      if(mode==='annotated'){const t=fmtA(pv);fillRect(left+2,y+2,left+6+t.length*6,y+11,[13,17,23,255]);text57(left+4,y+3,t,gridCol,1);}
+      else{const lp0=Number(candles.at(-1)?.close);if(Number.isFinite(lp0)&&Math.abs(yPrice(lp0)-y)<16)continue;text57(right+10,Math.max(top,Math.min(priceBottom-14,y-7)),fmtA(pv),gridCol,2);}}
+    if(mode!=='annotated'){const lp=Number(candles.at(-1)?.close),lo=Number(candles.at(-1)?.open);if(Number.isFinite(lp)){const y=Math.round(yPrice(lp));const c=lp>=lo?[38,166,154,255]:[239,83,80,255];
+      for(let x=left;x<right;x+=6)line(x,y,Math.min(right,x+3),y,c);const t=fmtA(lp);fillRect(right+4,y-9,right+14+t.length*12,y+9,c);text57(right+9,y-6,t,[255,255,255,255],2);}}
   }
   line(left,volumeTop-8,right,volumeTop-8,grid);
 
