@@ -1,6 +1,6 @@
 ﻿# BrainHub Trade Office - başlatıcı (salt-okunur izleme ekranı)
 # Kullanım:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File C:\BrainHub\office-dashboard\START-OFFICE.ps1
+#   powershell -NoProfile -ExecutionPolicy Bypass -File C:\JEV-Brain\runtime\office-dashboard\START-OFFICE.ps1
 #   ... -Demo          -> Brain Hub'a bağlanmadan örnek veriyle açar (21 Eylül gerçek sayıları)
 #   ... -Sim           -> v9.5.109-CLAUDE panellerinin SİMÜLASYONU (uydurma sayılar, bantta yazar)
 #   ... -Tailnet       -> Tailscale üzerinden telefondan açmak için https://<pc>.ts.net:8790 yayını (anahtar zorunlu)
@@ -12,8 +12,8 @@ param(
     [switch]$Tailnet,
     [switch]$NoBrowser,
     [int]$Port = 8790,
-    [string]$BrainRoot = 'C:\BrainHub',
-    [string]$BackupRoot = 'C:\BrainHubBackups'
+    [string]$BrainRoot = 'C:\JEV-Brain\runtime',
+    [string]$BackupRoot = 'C:\JEV-Brain\BrainHubBackups'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest

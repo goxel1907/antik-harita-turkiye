@@ -1,6 +1,7 @@
 ﻿param(
     [ValidateSet('Install','Update','Start','Test','Backup','Restore','Pair','Unpair','VisionLocalSetup','VisionFreeSetup','VisionStatus','VisionBenchmark','OpenRouterSetup','OpenRouterCreditSetup','OpenRouterStatus','JevProbe','LiveSetup','LiveStatus','LiveReadiness','LiveArm','LiveDisarm')][string]$Action = 'Update',
-    [string]$Root = 'C:\BrainHub',
+    # CLAUDE_R2544_12_JEV_BRAIN: sistem klasörü artık C:\JEV-Brain (çalışma kökü runtime; yedekler C:\JEV-Brain\BrainHubBackups).
+    [string]$Root = 'C:\JEV-Brain\runtime',
     [string]$Source = '',
     [string]$BackupPath = '',
     [switch]$Deep

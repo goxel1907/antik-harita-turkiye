@@ -8,10 +8,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.1.1-R2543+R2544.9';
+const OFFICE_VERSION = '2.1.1-R2543+R2544.12-JEV-Brain';
 const HERE = __dirname;
-const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
-const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
+const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
+const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
 const BRAIN_URL = (process.env.BRAINHUB_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
 const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const ROUTER_URL = (process.env.ROUTER_URL || 'http://127.0.0.1:20128').replace(/\/+$/, '');

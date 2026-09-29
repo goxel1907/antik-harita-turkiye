@@ -237,7 +237,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   <header>
     <div>
       <h1>🧠 BrainHub İşlem Ofisi</h1>
-      <div class="sub">C:\BrainHub • C:\BrainHubBackups • salt-okunur izleme — emir göndermez, ayar değiştirmez</div>
+      <div class="sub"><span id="rootLine">C:\JEV-Brain</span> • salt-okunur izleme — emir göndermez, ayar değiştirmez</div>
     </div>
     <div class="spacer"></div>
     <span class="chip" id="chipVer"><span class="dot"></span><span>PC —</span></span>
@@ -1048,11 +1048,14 @@ function renderFeed(s){
 
 function renderSources(s){
   const bk=s.backups||{};
+  // CLAUDE_R2544_12_JEV_BRAIN: başlıktaki klasör satırı gerçek kökten.
+  const rl=document.getElementById('rootLine');
+  if(rl&&s.config?.brainRoot)rl.textContent=s.config.brainRoot+(bk.root?' • '+bk.root:'');
   $('#bkKv').innerHTML = [
-    ['Yedek klasörü', bk.root||'C:\\BrainHubBackups'],
+    ['Yedek klasörü', bk.root||'C:\\JEV-Brain\\BrainHubBackups'],
     ['Yedek sayısı', bk.ok?String(bk.count):'okunamadı'],
     ['Son yedekler', (bk.latest||[]).slice(0,4).map(x=>x.name).join(', ')||'—'],
-    ['Brain Hub kökü', s.config?.brainRoot||'C:\\BrainHub'],
+    ['Brain Hub kökü', s.config?.brainRoot||'C:\\JEV-Brain\\runtime'],
     ['Log', s.log?.ok?`brainpub.log • ${fmtTime(Date.parse(s.log.mtime))}`:'okunamadı']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   const src=[['Brain Hub',s.status?.ok,s.status?.ms],['Ollama GPU',s.ollama?.ok],['9Router',s.router?.ok,s.router?.ms],['Binance hesap',s.account?.ok],['Log',s.log?.ok],['Yedekler',s.backups?.ok]];
