@@ -146,7 +146,10 @@ function summarizeFrame(frame, f, now, livePrice) {
     atr14:finite(f.atr14),
     filledFairValueGapCount:finite(f.filledFairValueGapCount),
     forming:f.forming || null,
-    preMove:f.preMove || null
+    preMove:f.preMove || null,
+    // CLAUDE_R2544_11_INDICATORS: ani hareket / 3×ATR iz (yalnız bağlam) ve gürültü FVG sayısı.
+    volatility:f.volatility || null,
+    minorFairValueGapCount:finite(f.minorFairValueGapCount)
   };
 }
 function sidePath(frames, side) {
@@ -1270,7 +1273,8 @@ function compactEvidenceFrame(f){
     prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,
     candle:f.candle||null,patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[],
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,smcContext:withoutFib(f.smcContext),
-    preMove:f.preMove&&f.preMove.available?{state:f.preMove.state,score:f.preMove.score,direction:f.preMove.direction,triggers:f.preMove.triggers,reasons:(f.preMove.reasons||[]).slice(0,6)}:null
+    preMove:f.preMove&&f.preMove.available?{state:f.preMove.state,score:f.preMove.score,direction:f.preMove.direction,triggers:f.preMove.triggers,reasons:(f.preMove.reasons||[]).slice(0,6)}:null,
+    volatility:f.volatility||null
   };
 }
 async function buildSovereignEvidence({candidate,unified,pass1,committee,visionAudit=false}){

@@ -45,7 +45,9 @@ function framePacket(f,{full=false}={}){
     preMove:f.preMove&&f.preMove.available?{state:f.preMove.state,score:f.preMove.score,direction:f.preMove.direction,
       triggers:f.preMove.triggers,invalidation:f.preMove.invalidation,reasons:clipArr(f.preMove.reasons,6)}:null,
     // CLAUDE_R2544_5_FORMING_CANDLE: kapanmamış mum — yalnız bağlam (yapı/formasyon kapalı mumdan).
-    forming:formingDigest(f.forming)
+    forming:formingDigest(f.forming),
+    // CLAUDE_R2544_11_INDICATORS: son ani hareket (gövde ≥2 ATR), fiyatın onun ortasına uzaklığı (ATR) ve 3×ATR iz. ≈120 bayt; bağlam.
+    volatility:volDigest(f.volatility)
   };
   if(full){
     const fvgSource=arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps;
@@ -70,6 +72,13 @@ function framePacket(f,{full=false}={}){
   }
   return base;
 }
+function volDigest(v){
+  if(!v||typeof v!=='object')return null;
+  const sp=v.spike&&typeof v.spike==='object'?{dir:v.spike.dir||null,barsAgo:finite(v.spike.barsAgo),bodyAtr:finite(v.spike.bodyAtr),pct:finite(v.spike.pct),mid:finite(v.spike.mid)}:null;
+  const tr=v.trail&&typeof v.trail==='object'&&v.trail.state&&v.trail.state!=='NONE'?{state:v.trail.state,stop:finite(v.trail.stop),distAtr:finite(v.trail.distAtr),barsAgo:finite(v.trail.barsAgo)}:null;
+  if(!sp&&!tr)return null;
+  return {spike:sp,extAtr:finite(v.extAtr),trail:tr};
+}
 function keyLevels(f){
   if(!f||f.available===false)return null;
   const r=v=>{const n=finite(v);return n===null?null:Number(n.toPrecision(7));};
@@ -77,11 +86,14 @@ function keyLevels(f){
   const dist=z=>Math.abs(((finite(z.low)||0)+(finite(z.high)||0))/2-(close||0));
   const gaps=(arr(f.recentFairValueGaps).length?arr(f.recentFairValueGaps):arr(f?.liquidity?.fairValueGaps)).filter(g=>g&&g.filled!==true&&finite(g.low)!==null&&finite(g.high)!==null).sort((a,b)=>dist(a)-dist(b));
   const obs=[...arr(f?.orderBlocks?.bullish).map(x=>({...x,side:'BULL'})),...arr(f?.orderBlocks?.bearish).map(x=>({...x,side:'BEAR'}))].filter(x=>x&&x.broken!==true&&finite(x.low)!==null&&finite(x.high)!==null).sort((a,b)=>dist(a)-dist(b));
-  const z=x=>x?{side:x.side||null,low:r(x.low),high:r(x.high)}:null;
+  const brk=[...arr(f?.orderBlocks?.bullish).map(x=>({...x,side:'BULL_BREAKER_RESISTANCE'})),...arr(f?.orderBlocks?.bearish).map(x=>({...x,side:'BEAR_BREAKER_SUPPORT'}))].filter(x=>x&&x.broken===true&&x.breaker===true&&finite(x.low)!==null&&finite(x.high)!==null).sort((a,b)=>dist(a)-dist(b));
+  const z=x=>x?{side:x.side||null,low:r(x.low),high:r(x.high),...(finite(x.volRel)!==null?{volRel:finite(x.volRel)}:{})}:null;
   const out={rangeHigh:r(dr.high),rangeLow:r(dr.low),rangeZone:dr.zone||null,fib50:r(fib['0.5']),fib618:r(fib['0.618']),
     oteLong:ote.longDiscountZone?[r(ote.longDiscountZone.low),r(ote.longDiscountZone.high)]:null,
     oteShort:ote.shortPremiumZone?[r(ote.shortPremiumZone.low),r(ote.shortPremiumZone.high)]:null,
-    nearestFvg:z(gaps[0]),nearestOb:z(obs[0])};
+    nearestFvg:z(gaps[0]),nearestOb:z(obs[0]),
+    // CLAUDE_R2544_11_BREAKER: kırılıp geri alınmamış blok yön değiştirir (boğa bloğu → direnç, ayı bloğu → destek).
+    nearestBreaker:z(brk[0])};
   return Object.values(out).some(v=>v!==null)?out:null;
 }
 
@@ -201,4 +213,4 @@ function mirrorDigest(packet){
   };
 }
 
-module.exports={framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest};
+module.exports={framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,keyLevels};

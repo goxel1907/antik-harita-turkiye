@@ -1405,7 +1405,12 @@ async function renderMirror(s){
     const recordedPx=recorded?.livePrice;
     const ageSec=Number.isFinite(Number(d?.ageMs))?Math.round(Number(d.ageMs)/1000):null;
     const fmtRange=z=>z&&num(z.low)!==null&&num(z.high)!==null?`${mirrorFmt(z.low,4)}→${mirrorFmt(z.high,4)}`:'—';
-    const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.broken?' kırık':''}`).join(' • ')||'yok';
+    // CLAUDE_R2544_11: blok gücü (yer değiştirme hacmi / önceki 10 mum) ve breaker (kırılıp geri alınmamış, yön değiştirmiş).
+    const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.broken?(x?.breaker?' kırık → breaker':' kırık'):''}${Number.isFinite(Number(x?.volRel))&&x?.volRel!==null?' • hacim ×'+mirrorFmt(x.volRel,2):''}`).join(' • ')||'yok';
+    const vol=f?.volatility||null;
+    const fmtVol=v=>{if(!v)return 'son 30 mumda yok • iz yok';const s=v.spike,t=v.trail;
+      return (s?`${s.dir==='UP'?'YUKARI':'AŞAĞI'} ${mirrorFmt(s.bodyAtr,1)} ATR (${mirrorFmt(s.pct,2)}%) ${s.barsAgo} mum önce • orta ${mirrorFmt(s.mid,4)} • fiyat ortadan ${mirrorFmt(v.extAtr,2)} ATR${Number(v.extAtr)>=1.5?' (uzamış: kovalama riski)':''}`:'son 30 mumda yok')+
+        ' • '+(t?`3×ATR iz ${t.state==='UP'?'YUKARI':'AŞAĞI'} ${mirrorFmt(t.stop,4)} (${mirrorFmt(t.distAtr,1)} ATR)`:'iz yok');};
     const fmtFvg=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} ${fmtRange(x)} CE50 ${mirrorFmt(x?.ce50,4)}`).join(' • ')||'yok';
     const fmtLiq=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} @${mirrorFmt(x?.price,4)} ≈${mirrorFmt(x?.observedQuote,0)} USDT`).join(' • ')||'yok';
     const patterns=(f?.patterns||[]).slice(-6).map(x=>`${trUi(x?.type||x?.name||'FORMASYON')}${x?.status?' ('+trUi(x.status)+')':''}`).join(' • ')||'yok';
@@ -1424,6 +1429,7 @@ async function renderMirror(s){
       ['Fib geri çekilme', `.236 ${mirrorFmt(fib['0.236'],4)} • .382 ${mirrorFmt(fib['0.382'],4)} • .5 ${mirrorFmt(fib['0.5'],4)} • .618 ${mirrorFmt(fib['0.618'],4)} • .705 ${mirrorFmt(fib['0.705'],4)} • .786 ${mirrorFmt(fib['0.786'],4)}`],
       ['Fib uzatma', `1.272 ${mirrorFmt(fibExt['1.272'],4)} • 1.618 ${mirrorFmt(fibExt['1.618'],4)} • bacak ${trUi(smc?.fibLevels?.leg||'—')}`],
       ['Oluşumlar', patterns],
+      ['Ani hareket / ATR iz (JEV bağlamı)', fmtVol(vol)],
       ['Gözlenen tasfiye bölgeleri', fmtLiq(liq.zones)],
       ['Üst TF seviyeleri (grafikte kesikli)', (Array.isArray(j.htfLevels)&&j.htfLevels.length)?j.htfLevels.map(h=>`${String(h.tf).toUpperCase()} ${h.name} ${mirrorFmt(h.price)}`).join(' • '):'—'],
       ['Tasfiye akışı', `${liq.count??0} kayıt • ALIŞ ${mirrorFmt(liq.longLiquidatedQuote,0)} • SATIŞ ${mirrorFmt(liq.shortLiquidatedQuote,0)} • hız ${liq?.velocity?.state||liq?.velocity?.level||'—'} • zincirleme ${liq?.cascade?.state||liq?.cascade?.level||'—'}`],

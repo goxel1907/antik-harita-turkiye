@@ -1,6 +1,6 @@
 const fs=require('fs');
 const path=require('path');
-const {marketPacket,mirrorDigest,rankPatterns,formingDigest}=require('./jev-market-packet');
+const {marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest}=require('./jev-market-packet');
 
 const DEFAULTS={
   enabled:false,
@@ -67,7 +67,7 @@ function sovereignFrame(f){
     rsi14:finiteNumber(f.rsi14),atrPct:finiteNumber(f.atrPct),breakOfStructure:f.breakOfStructure||null,
     prior20High:finiteNumber(f.prior20High),prior20Low:finiteNumber(f.prior20Low),
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,patterns:Array.isArray(f.patterns)?rankPatterns(f.patterns,4):[],forming:formingDigest(f.forming),
-    candle:f.candle||null
+    candle:f.candle||null,volatility:volDigest(f.volatility)
   };
 }
 function sovereignAttentionRecord(candidate,unified){
@@ -306,8 +306,14 @@ function compactSwing(s){
 function compactOrderBlocks(ob){
   if(!ob||typeof ob!=='object')return null;
   const pick=list=>{const a=(Array.isArray(list)?list:[]);const x=a.find(o=>o&&o.broken!==true)||null;
-    return x?{low:x.low??null,high:x.high??null,mitigated:x.mitigated===true,distancePct:x.distancePct??null}:null;};
-  return {bullish:pick(ob.bullish),bearish:pick(ob.bearish)};
+    return x?{low:x.low??null,high:x.high??null,mitigated:x.mitigated===true,distancePct:x.distancePct??null,volRel:x.volRel??null}:null;};
+  // CLAUDE_R2544_11_BREAKER: kırılan ve geri alınmayan blok (yön değiştirmiş) ayrıca verilir.
+  const brk=list=>{const x=(Array.isArray(list)?list:[]).find(o=>o&&o.broken===true&&o.breaker===true)||null;return x?{low:x.low??null,high:x.high??null,volRel:x.volRel??null}:null;};
+  const out={bullish:pick(ob.bullish),bearish:pick(ob.bearish)};
+  const bb=brk(ob.bullish),sb=brk(ob.bearish);
+  if(bb)out.bullBreakerResistance=bb;
+  if(sb)out.bearBreakerSupport=sb;
+  return out;
 }
 function compactSmc(m){
   if(!m||typeof m!=='object')return null;
@@ -330,7 +336,7 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
       close:f.close??null, ema20:f.ema20??null, ema50:f.ema50??null, rsi14:f.rsi14??null, atrPct:f.atrPct??null,
       returnPct:f.returnPct??null, prior20High:f.prior20High??null, prior20Low:f.prior20Low??null,
       swing:compactSwing(f.swingStructure), orderBlocks:compactOrderBlocks(f.orderBlocks),
-      candle:f.candle||null, patterns:Array.isArray(f.patterns)?rankPatterns(f.patterns,4):[],forming:formingDigest(f.forming), smcContext:compactSmc(f.smcContext), liquidity:f.liquidity||null,
+      candle:f.candle||null, patterns:Array.isArray(f.patterns)?rankPatterns(f.patterns,4):[],forming:formingDigest(f.forming), volatility:volDigest(f.volatility), smcContext:compactSmc(f.smcContext), liquidity:f.liquidity||null,
       role:d.role||null,
       why:String(d.why||'').slice(0,240),
       waitFor:String(d.waitFor||'').slice(0,180),
@@ -579,7 +585,7 @@ function prepareDecisionRequest(input,opts={}){
       // CLAUDE_R2544_TRIM_HIGHER_CONTEXT: R2543+R2544 paketi büyüdü (28.09: PASS-2'nin 3/17'si tavanı aştı).
       // 6) Üst bağlam (30m/45m/1h/4h/1d) özetlenir; 5m/15m çekirdeği ve 1m/3m zamanlaması dokunulmaz kalır.
       ()=>{
-        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','keyLevels'];
+        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','keyLevels','volatility'];
         for(const t of targets){
           const hc=t.higherContext;
           if(!hc||typeof hc!=='object')continue;
@@ -918,7 +924,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT.',
+        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT. Each frame may also carry volatility (spike = latest displacement candle whose body exceeded 2 ATR, extAtr = how many ATR price already sits beyond that candle midpoint in the spike direction, mid = its 50% retrace level, trail = 3-ATR trailing reference started by a spike) and order-block volRel (displacement volume vs the previous 10 candles) plus breaker zones (broken, not reclaimed blocks that flipped role). They are soft context computed from the same closed candles: use them to judge chase risk, retrace entry location and block strength; they are never a checklist item, score threshold or veto.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1280,7 +1286,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it.',
+        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,

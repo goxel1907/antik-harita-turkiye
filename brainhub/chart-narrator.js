@@ -184,6 +184,19 @@ function formingText(fm, compact) {
     (atr !== null ? ' (' + sign(atr) + ' ATR)' : '') + (rg !== null ? ', range ' + pct(rg, 2) + ' ATR' : '') +
     (vs !== null ? ', live price ' + sign(vs) + '% vs last closed candle' : '') + '; closed-candle structure above does not include this move yet';
 }
+// CLAUDE_R2544_11_VOLATILITY: ani hareket ve 3×ATR iz cümlesi (kapalı mumdan; yalnız bağlam).
+function volText(v, compact) {
+  if (!v || typeof v !== 'object') return null;
+  const sp = v.spike, tr = v.trail, ext = finite(v.extAtr), bits = [];
+  if (sp && sp.dir) {
+    const sign = x => (x > 0 ? '+' : '') + pct(x, 2);
+    if (compact) bits.push('spike ' + sp.dir + ' ' + pct(finite(sp.bodyAtr), 1) + 'ATR ' + finite(sp.barsAgo) + 'b ago' + (ext !== null ? ' ext ' + sign(ext) + 'ATR' : ''));
+    else bits.push('last displacement candle ' + sp.dir + ' (body ' + pct(finite(sp.bodyAtr), 1) + ' ATR, ' + sign(finite(sp.pct)) + '%) ' + finite(sp.barsAgo) + ' candles ago, midpoint ' + px(finite(sp.mid)) +
+      (ext !== null ? '; price is ' + sign(ext) + ' ATR from that midpoint in the spike direction' + (ext >= 1.5 ? ' (extended: chasing risk, the midpoint is the retrace level)' : ext <= -0.5 ? ' (the spike has been retraced past its midpoint)' : '') : ''));
+  }
+  if (tr && tr.state && tr.state !== 'NONE') bits.push((compact ? 'ATR-trail ' : '3-ATR trail ') + tr.state + (compact ? '' : ' at ' + px(finite(tr.stop)) + ' (' + pct(finite(tr.distAtr), 1) + ' ATR away)'));
+  return bits.length ? bits.join(compact ? ', ' : '; ') : null;
+}
 function narrateFrame(tf, f, livePrice, opts) {
   const full = !opts || opts.full !== false;
   if (!f || f.available !== true) {
@@ -244,6 +257,8 @@ function narrateFrame(tf, f, livePrice, opts) {
     if (cPat) bits.push('patterns ' + cPat);
     const cForm = formingText(f.forming, true);
     if (cForm) bits.push(cForm);
+    const cVol = volText(f.volatility, true);
+    if (cVol) bits.push(cVol);
     return {
       tf, available: true, detail: 'COMPACT',
       flags: { fresh: flags.fresh, trend: flags.trend, zone: flags.zone, event: flags.event },
@@ -295,6 +310,7 @@ function narrateFrame(tf, f, livePrice, opts) {
   if (fFib) s.push('fib ' + fFib + '.');
   const pt = patternText(f.patterns); if (pt) s.push('closed-candle patterns: ' + pt + '.');
   const ft = formingText(f.forming, false); if (ft) s.push(ft + '.');
+  const vt = volText(f.volatility, false); if (vt) s.push(vt + '.');
 
   return {
     tf, available: true, detail: 'FULL',

@@ -462,6 +462,52 @@ function opportunity(c, frame, a14, context) {
     note:'Opportunity scores are advisory context; execution remains deterministic and DRY-RUN until explicitly enabled.'
   };
 }
+function volRel(k, prev) {
+  const q = (prev || []).map(x => finite(x && x.quoteVolume)).filter(x => x !== null && x > 0);
+  const v = finite(k && k.quoteVolume);
+  if (!q.length || v === null) return null;
+  return round(v / (q.reduce((s, x) => s + x, 0) / q.length), 2);
+}
+function atrSeries(c, period = 14) {
+  const out = new Array(c.length).fill(null);
+  if (c.length < period + 1) return out;
+  let sum = 0;
+  for (let i = 1; i < c.length; i++) {
+    const x = c[i], p = c[i - 1];
+    const tr = Math.max(x.high - x.low, Math.abs(x.high - p.close), Math.abs(x.low - p.close));
+    if (i <= period) { sum += tr; if (i === period) out[i] = sum / period; }
+    else out[i] = (out[i - 1] * (period - 1) + tr) / period;
+  }
+  return out;
+}
+// CLAUDE_R2544_11_VOLATILITY: "Auto-ATR Volatility Spike & Trend Tracker" fikrinin kapalı mumdan deterministik karşılığı
+// (kod kopyası değil). Ani hareket = gövdesi o mumdaki ATR14'ün 2 katını aşan mum. extAtr = fiyatın o mumun ortasından
+// hareket yönünde kaç ATR uzakta olduğu (büyükse kovalama riski; ortası geri çekilme/CE seviyesi). trail = ani hareketle
+// başlayan 3×ATR iz süren seviye (runner için referans). Yalnız bağlam: kapı, puan eşiği ya da veto DEĞİL.
+function volatilityContext(c, a14, { spikeAtr = 2, trailAtr = 3, lookback = 30 } = {}) {
+  if (!Array.isArray(c) || c.length < 30 || !(a14 > 0)) return null;
+  const A = atrSeries(c, 14), last = c.at(-1), n = c.length;
+  let state = 0, stop = null, since = null, spike = null;
+  for (let i = 15; i < n; i++) {
+    const k = c[i], a = A[i];
+    if (!(a > 0)) continue;
+    const body = Math.abs(k.close - k.open);
+    const up = body > a * spikeAtr && k.close > k.open, dn = body > a * spikeAtr && k.close < k.open;
+    if (up || dn) spike = { i, dir:up ? 'UP' : 'DOWN', bodyAtr:body / a };
+    if (up && state !== 1) { state = 1; stop = k.low - a * trailAtr; since = i; }
+    else if (dn && state !== -1) { state = -1; stop = k.high + a * trailAtr; since = i; }
+    else if (state === 1) { stop = Math.max(stop, k.low - a * trailAtr); if (k.close < stop) { state = 0; stop = null; since = null; } }
+    else if (state === -1) { stop = Math.min(stop, k.high + a * trailAtr); if (k.close > stop) { state = 0; stop = null; since = null; } }
+  }
+  const out = { spike:null, extAtr:null, trail:{ state:'NONE' } };
+  if (spike && n - 1 - spike.i <= lookback) {
+    const k = c[spike.i], mid = (k.open + k.close) / 2, sgn = spike.dir === 'UP' ? 1 : -1;
+    out.spike = { dir:spike.dir, barsAgo:n - 1 - spike.i, bodyAtr:round(spike.bodyAtr, 2), pct:round((k.close - k.open) / k.open * 100, 2), mid:round(mid) };
+    out.extAtr = round(sgn * (last.close - mid) / a14, 2);
+  }
+  if (state !== 0) out.trail = { state:state === 1 ? 'UP' : 'DOWN', stop:round(stop), distAtr:round(Math.abs(last.close - stop) / a14, 2), barsAgo:n - 1 - since };
+  return out;
+}
 // CLAUDE_V113_JEV_FULL_EVIDENCE: deterministik order block. Kural: gövdesi ≥1,2 ATR olan ve önceki
 // 10 mumun zirvesini/dibini kapanışla kıran yer değiştirme mumundan önceki (≤5 mum) son TERS renkli mum.
 // Boğa OB = [low, open] (ayı mumu), ayı OB = [open, high] (boğa mumu). Mitigated = fiyat bölgeye döndü;
@@ -481,16 +527,21 @@ function orderBlocks(c, a14) {
       if (upBreak && o.close < o.open && out.bullish.length < 4) {
         const zone = { low:o.low, high:o.open };
         const after = c.slice(i + 1);
+        const bi = after.findIndex(x => x.close < zone.low);
         out.bullish.push({ side:'BULL', low:round(zone.low), high:round(zone.high), at:o.closeTime, displacementAt:k.closeTime,
-          mitigated:after.some(x => x.low <= zone.high), broken:after.some(x => x.close < zone.low),
+          mitigated:after.some(x => x.low <= zone.high), broken:bi >= 0,
+          // CLAUDE_R2544_11_OB: yer değiştirme mumunun hacmi / önceki 10 mum ortalaması; kırılan blok breaker (direnç) olur.
+          volRel:volRel(k, prev), breaker:bi >= 0 ? !after.slice(bi + 1).some(x => x.close > zone.high) : false,
           distancePct:round((last.close - zone.high) / last.close * 100, 3) });
         break;
       }
       if (downBreak && o.close > o.open && out.bearish.length < 4) {
         const zone = { low:o.open, high:o.high };
         const after = c.slice(i + 1);
+        const bi = after.findIndex(x => x.close > zone.high);
         out.bearish.push({ side:'BEAR', low:round(zone.low), high:round(zone.high), at:o.closeTime, displacementAt:k.closeTime,
-          mitigated:after.some(x => x.high >= zone.low), broken:after.some(x => x.close > zone.high),
+          mitigated:after.some(x => x.high >= zone.low), broken:bi >= 0,
+          volRel:volRel(k, prev), breaker:bi >= 0 ? !after.slice(bi + 1).some(x => x.close < zone.low) : false,
           distancePct:round((zone.low - last.close) / last.close * 100, 3) });
         break;
       }
@@ -517,7 +568,9 @@ function structure(c, frame = null) {
     if (b.low > a.high) { const lo = a.high, hi = b.low; gaps.push({ side:'BULL', low:lo, high:hi, at:b.closeTime, filled:after.some(x => x.low <= lo), touched:after.some(x => x.low < hi) }); }
     if (b.high < a.low) { const lo = b.high, hi = a.low; gaps.push({ side:'BEAR', low:lo, high:hi, at:b.closeTime, filled:after.some(x => x.high >= hi), touched:after.some(x => x.high > lo) }); }
   }
-  const openGaps = gaps.filter(g => !g.filled);
+  // CLAUDE_R2544_11_FVG_SIZE: ATR14'ün %10'undan küçük boşluklar gürültüdür; JEV'e gönderilmez, yalnız sayısı yazılır.
+  const unfilled = gaps.filter(g => !g.filled);
+  const openGaps = a14 > 0 ? unfilled.filter(g => g.high - g.low >= 0.1 * a14) : unfilled;
   const window = c.slice(-40);
   // R2541_PIVOT_ABSOLUTE_INDEX: pivots() window-relative indeks üretir.
   // Renderer/time-axis ve trend projection için bunları tekrar tam candle dizisi indeksine taşı.
@@ -544,7 +597,7 @@ function structure(c, frame = null) {
     breakOfStructure:breaksHigh ? 'UP' : breaksLow ? 'DOWN' : null,
     buySideLiquidity:round(high), sellSideLiquidity:round(low),
     recentFairValueGaps:openGaps.slice(-3).map(g => ({ ...g, low:round(g.low), high:round(g.high), ce50:round((g.low+g.high)/2) })),
-    filledFairValueGapCount:gaps.length - openGaps.length,
+    filledFairValueGapCount:gaps.length - unfilled.length, minorFairValueGapCount:unfilled.length - openGaps.length,
     returnPct:round((last.close / c.at(-6).close - 1) * 100, 3),
     candle:candleShape(last, a14),
     patterns,
@@ -553,6 +606,7 @@ function structure(c, frame = null) {
   };
   base.smcContext = smcContext(swings, last.close, openGaps);
   base.orderBlocks = orderBlocks(c, a14);
+  try { base.volatility = volatilityContext(c, a14); } catch { base.volatility = null; }
   base.opportunity = opportunity(c, frame, a14, base);
   // CLAUDE_R2544_PREMOVE: kısa TF'lerde hareket başlamadan önceki imza (sıkışma/emilim/delta/seviye).
   if (['1m','3m','5m'].includes(frame)) {
@@ -686,4 +740,4 @@ function handoff(initialStop, candidateStop, side) {
   const safe = side === 'LONG' ? candidateStop >= initialStop : side === 'SHORT' ? candidateStop <= initialStop : false;
   return { allowed:safe, stop:safe ? candidateStop : initialStop, reason:safe ? 'RISK_NOT_WIDENED' : 'WOULD_WIDEN_RISK' };
 }
-module.exports = { rsi, formingCandle, FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, orderBlocks, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };
+module.exports = { rsi, formingCandle, FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, orderBlocks, volatilityContext, atrSeries, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };
