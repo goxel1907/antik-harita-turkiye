@@ -4726,7 +4726,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         plan:planResult?.plan || null,
         riskGate:planResult?.riskGate || null,
         executionReadiness:planResult?.executionReadiness || null,
-        reasons:grant.reasons || ['LIVE_GRANT_REJECTED']
+        // CLAUDE_R2544_14_ROOT_REASON: kök neden (ör. OPEN_POSITION_CAP_REACHED) önce gelir; Office "son yürütme engeli"
+        // 29.09 0GUSDT'de yalnız türev nedenleri (DRY_RUN_*) gösterdiği için asıl sebep (pozisyon sınırı) okunamıyordu.
+        reasons:[...new Set([...(Array.isArray(planResult?.riskGate?.reasons)?planResult.riskGate.reasons:[]),...(grant.reasons || ['LIVE_GRANT_REJECTED'])])]
       };
     }
 

@@ -738,14 +738,16 @@ function renderGuardStrip(s){
   const pmSub=pm?(hits.length?hits.slice(0,3).map(x=>`${esc(x.symbol)} ${x.state==='IGNITION'?'ATEŞLEME':'ÖN-HAREKET'} ${x.direction==='LONG'?'↑ LONG':x.direction==='SHORT'?'↓ SHORT':'↕'} (${esc(x.priority)})`).join('<br>'):`${esc(pm.checked??0)} aday tarandı • imza yok`):'Hızlı hat henüz tarama yapmadı.';
   const lbReasons=lb?[].concat(lb.reasons||lb.reason||[]).map(trUi).join(', '):'';
   const rc=lb?.riskContext||null, ch=lb?.chaseR||null;
-  const lbSub=lb?`${esc(lb.symbol||'')} • ${esc(lbReasons)}${rc?`<br>risk ${esc(rc.riskQuote??'—')} USDT • stop %${esc(rc.stopDistancePct?.toFixed?rc.stopDistancePct.toFixed(2):rc.stopDistancePct??'—')} • liq %${esc(rc.estimatedLiquidationDistancePct?.toFixed?rc.estimatedLiquidationDistancePct.toFixed(2):'—')}`:''}${ch?`<br>kaçış ${esc(ch.runR)}R / sınır ${esc(ch.limitR)}R`:''}`:'Kayıtlı zorunlu engel yok.';
+  // CLAUDE_R2544_14: engelin saati ve yaşı; 30 dk'dan eskiyse "ESKİ" olarak gösterilir.
+  const lbAt=lb?.at?Date.parse(lb.at):NaN, lbAge=Number.isFinite(lbAt)?Math.round((Date.now()-lbAt)/60000):null;
+  const lbSub=lb?`${esc(lb.symbol||'')}${lbAge!==null?` • ${esc(fmtTime(lbAt))} (${lbAge} dk önce)`:''} • ${esc(lbReasons)}${rc?`<br>risk ${esc(rc.riskQuote??'—')} USDT • stop %${esc(rc.stopDistancePct?.toFixed?rc.stopDistancePct.toFixed(2):rc.stopDistancePct??'—')} • liq %${esc(rc.estimatedLiquidationDistancePct?.toFixed?rc.estimatedLiquidationDistancePct.toFixed(2):'—')}`:''}${ch?`<br>kaçış ${esc(ch.runR)}R / sınır ${esc(ch.limitR)}R`:''}`:'Kayıtlı zorunlu engel yok.';
   el.innerHTML=[
     card(ra==='STRICT_POLICY_CAP'?'warn':'info','Risk otoritesi',ra==='STRICT_POLICY_CAP'?'SIKI TAVAN':'PANEL',
       ra==='STRICT_POLICY_CAP'?'live-policy işlem risk tavanı bağlayıcı.':`${esc(la.marginQuote??'?')} USDT × ${esc(la.leverage??'?')}x • en fazla ${esc(la.maxOpenPositions??'?')} pozisyon • işlem risk tavanı yok`,
       ['yapısal stop','likidasyon kapısı','kovalama 0.5R']),
     card(g&&g.mode==='BINDING'?'good':'warn','Pozisyon koruması',g?(g.mode==='BINDING'?'BAĞLAYICI • 10 sn':esc(trUi(g.mode))):'—',guardSub,['0,5R: 1/3 kâr + başabaş','JEV kısmi kârda • en çok 2 • sonra başabaş','TP1 sonrası: kısmi ≥1R • runner ≥%25','kâr kilidi','zaman stopu','likidasyon bekçisi']),
     card(hits.length?'good':'info','Ön-hareket radarı',hits.length?`${hits.length} imza`:'bekliyor',pmSub,cq.length?cq.map(x=>`${x.symbol} yeniden JEV ×${x.runs}`):['kaçan sembol yok']),
-    card(lb?'bad':'good','Son yürütme engeli',lb?'ENGEL':'temiz',lbSub,[...(c112.fastLane?.lossStreak?.pause?[`SERİ ZARAR MOLASI ${c112.fastLane.lossStreak.pause.remainingMin} dk`]:[]),...(rcd.length?rcd.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])])
+    card(lb?(lbAge!==null&&lbAge>30?'warn':'bad'):'good','Son yürütme engeli',lb?(lbAge!==null&&lbAge>30?'ESKİ ENGEL':'ENGEL'):'temiz',lbSub,[...(c112.fastLane?.lossStreak?.pause?[`SERİ ZARAR MOLASI ${c112.fastLane.lossStreak.pause.remainingMin} dk`]:[]),...(rcd.length?rcd.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])])
   ].join('');
 }
 function renderKpis(s){
@@ -1409,7 +1411,7 @@ async function renderMirror(s){
     const ageSec=Number.isFinite(Number(d?.ageMs))?Math.round(Number(d.ageMs)/1000):null;
     const fmtRange=z=>z&&num(z.low)!==null&&num(z.high)!==null?`${mirrorFmt(z.low,4)}→${mirrorFmt(z.high,4)}`:'—';
     // CLAUDE_R2544_11: blok gücü (yer değiştirme hacmi / önceki 10 mum) ve breaker (kırılıp geri alınmamış, yön değiştirmiş).
-    const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.broken?(x?.breaker?' kırık → breaker':' kırık'):''}${Number.isFinite(Number(x?.volRel))&&x?.volRel!==null?' • hacim ×'+mirrorFmt(x.volRel,2):''}`).join(' • ')||'yok';
+    const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.broken?(x?.breaker?' kırık → breaker':' kırık'):''}${x?.volRel!==null&&x?.volRel!==undefined&&Number.isFinite(Number(x.volRel))?' • hacim ×'+Number(x.volRel).toFixed(2):''}`).join(' • ')||'yok';
     const vol=f?.volatility||null;
     const fmtVol=v=>{if(!v)return 'son 30 mumda yok • iz yok';const s=v.spike,t=v.trail;
       return (s?`${s.dir==='UP'?'YUKARI':'AŞAĞI'} ${mirrorFmt(s.bodyAtr,1)} ATR (${mirrorFmt(s.pct,2)}%) ${s.barsAgo} mum önce • orta ${mirrorFmt(s.mid,4)} • fiyat ortadan ${mirrorFmt(v.extAtr,2)} ATR${Number(v.extAtr)>=1.5?' (uzamış: kovalama riski)':''}`:'son 30 mumda yok')+

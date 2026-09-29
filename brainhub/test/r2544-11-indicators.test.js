@@ -109,7 +109,7 @@ test('JEV\'e anlatı: kovalama riski ve orta seviye cümlesi; kural metni bağla
   const cmp=narrateFrame('1h',f,110,{full:false}).line;
   assert.match(cmp,/spike UP 2\.6ATR 2b ago ext \+1\.9ATR/);
   const src=fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8');
-  assert.match(src,/they are never a checklist item, score threshold or veto/);
+  assert.match(src,/soft closed-candle context for chase risk and location, never a checklist, threshold or veto/);
   assert.match(src,/soft context for runner management, not automatic exits/);
 });
 test('kısıtlama yok: yeni alanlar hiçbir kapı/eşik/veto kodunda kullanılmaz',()=>{

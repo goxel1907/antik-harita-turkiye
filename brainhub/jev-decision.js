@@ -197,6 +197,28 @@ function traderCortexReference(root){
   }
   return {loaded:false,version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY',text:'',file:null};
 }
+// CLAUDE_R2544_14_MEMORY_SIGNATURE: ölçülmüş sonuç kaydındaki marketSignature (formasyon geometrisi dahil) tek başına
+// 2,6–3,1 kB tutuyordu. 29.09: daha önce işlem açılmış coinlerde (ZEC, PUMP) deneyim hafızası 4,3 kB'a çıkıp PASS-2'yi
+// 52 kB tavanının üstüne itiyordu → JEV_REQUEST_CONTEXT_TOO_LARGE; JEV o coinleri hiç değerlendiremiyordu.
+// İmza, rejim başına trend/BOS/RSI/ATR/swing ve ilk 3 formasyon adına indirgenir (anlam korunur, geometri atılır).
+function compactSignature(sig){
+  if(!sig||typeof sig!=='object'||Array.isArray(sig))return sig??null;
+  const out={};
+  for(const [k,v] of Object.entries(sig)){
+    if(v&&typeof v==='object'&&!Array.isArray(v)){
+      const o={};
+      for(const f of ['trend','breakOfStructure','rsi14','atrPct','swingState','zone','returnPct'])if(v[f]!==undefined&&v[f]!==null)o[f]=v[f];
+      if(Array.isArray(v.patterns))o.patterns=v.patterns.slice(0,3).map(p=>p&&p.type?[p.type,p.side,p.status].filter(Boolean).join(':'):null).filter(Boolean);
+      out[k]=o;
+    }else if(v===null||typeof v!=='object')out[k]=v;
+  }
+  return out;
+}
+function compactOutcomeRecord(o){
+  if(!o||typeof o!=='object')return o;
+  const {marketSignature,entryContext,...rest}=o;
+  return {...rest,...(marketSignature!==undefined?{marketSignature:compactSignature(marketSignature)}:{})};
+}
 function compactExperienceMemory(learning,maxChars=6500){
   const src=learning&&typeof learning==='object'?learning:{};
   const out={
@@ -206,8 +228,8 @@ function compactExperienceMemory(learning,maxChars=6500){
     jevLessonCount:Number(src.jevLessonCount)||0,
     lifetime:src.lifetime&&typeof src.lifetime==='object'?src.lifetime:null,
     stats:Array.isArray(src.stats)?src.stats.slice(0,20):[],
-    measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,16):[],
-    jevLessons:Array.isArray(src.jevLessons)?src.jevLessons.slice(0,16):[],
+    measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,16).map(compactOutcomeRecord):[],
+    jevLessons:Array.isArray(src.jevLessons)?src.jevLessons.slice(0,16).map(compactOutcomeRecord):[],
     note:'Always-on soft context. Measured outcomes and JEV lessons inform interpretation but never create hard gates, change capital settings, or bypass deterministic safety.'
   };
   const limit=Math.max(2500,Math.min(9000,Number(maxChars)||6500));
@@ -523,6 +545,16 @@ function prepareDecisionRequest(input,opts={}){
     const secondarySteps=[
       // 1) state.experienceMemory zaten gönderiliyorsa record içindeki kopyası tekrardır.
       ()=>{ if(body?.state?.experienceMemory&&recordObj.experienceMemory)delete recordObj.experienceMemory; },
+      // 1b) CLAUDE_R2544_14: PASS-2'de record.attention.baseFrames (5m/15m), coreMarketPacket.coreFrames'in daha az
+      //     alanlı kopyasıdır. Kopya kimlik satırına iner; 5m/15m verisinin tamamı coreMarketPacket'te kalır.
+      ()=>{
+        const a=recordObj?.attention;
+        if(packetObj&&packetObj.coreFrames&&a&&a.baseFrames&&typeof a.baseFrames==='object'){
+          const bf={};
+          for(const [tf,f] of Object.entries(a.baseFrames))bf[tf]=f&&typeof f==='object'?{available:f.available,fresh:f.fresh,asOf:f.asOf,close:f.close,trend:f.trend}:f;
+          a.baseFrames=bf;a.baseFramesDetail='SEE_CORE_MARKET_PACKET';
+        }
+      },
       // 2) formasyon geometrisi (pivot/line dizileri) — formasyonun kendisi (tip/durum/neckline) kalır.
       ()=>{for(const t of targets)stripGeometry(t);},
       // 3) ham pivot/trend-çizgisi dizileri — yapı özeti (state/HH-LL/event/son teyitli swing) KALIR.
@@ -608,10 +640,25 @@ function prepareDecisionRequest(input,opts={}){
           }
           mem.memoryCompacted=true;
         }
+      },
+      // CLAUDE_R2544_14_TIMING_SUMMARY: son çare — 1m/3m zamanlama çerçeveleri üst bağlam gibi özetlenir (trend, fiyat,
+      // RSI/ATR, önceki-20, mum, kapanmamış mum, ön-hareket, volatilite). İstek hiç gönderilemeyeceğine bu tercih edilir.
+      ()=>{
+        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','preMove','volatility','keyLevels'];
+        for(const t of targets){
+          const tf=t.timingFrames;
+          if(!tf||typeof tf!=='object')continue;
+          for(const [k,f] of Object.entries(tf)){
+            if(!f||typeof f!=='object')continue;
+            const o={};for(const x of keep)if(f[x]!==undefined)o[x]=f[x];
+            const sw=f.swingStructure;if(sw&&typeof sw==='object')o.swingState=sw.state||sw.structure||null;
+            o.compacted=true;tf[k]=o;
+          }
+        }
       }
       // Not: serbest metinler topluca KIRPILMAZ — kırpılamayan piyasa/veri gerçeği varsa istek fail-closed kalır.
     ];
-    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','EXPERIENCE_MEMORY_MIN'];
+    const secondaryStepNames=['DUP_RECORD_EXPERIENCE_MEMORY','DUP_ATTENTION_BASEFRAMES','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','REQUESTED_EVIDENCE_TEXT_800','ENTRY_THESIS_TEXT_600','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','EXPERIENCE_MEMORY_MIN','TIMING_FRAMES_SUMMARY'];
     for(const [stepIndex,step] of secondarySteps.entries()){
       if(Buffer.byteLength(serialized,'utf8')<=CAP)break;
       trimStepsApplied.push(secondaryStepNames[stepIndex]||('SECONDARY_'+stepIndex));
@@ -924,7 +971,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT. Each frame may also carry volatility (spike = latest displacement candle whose body exceeded 2 ATR, extAtr = how many ATR price already sits beyond that candle midpoint in the spike direction, mid = its 50% retrace level, trail = 3-ATR trailing reference started by a spike) and order-block volRel (displacement volume vs the previous 10 candles) plus breaker zones (broken, not reclaimed blocks that flipped role). They are soft context computed from the same closed candles: use them to judge chase risk, retrace entry location and block strength; they are never a checklist item, score threshold or veto.',
+        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT. Frames may add volatility (spike, extAtr = ATR beyond its midpoint, trail = 3-ATR trail) and order-block volRel/breakers: soft closed-candle context for chase risk and location, never a checklist, threshold or veto.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1416,4 +1463,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
 }
-module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,dynamicKnowledgeReference,createJevClient};
+module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,createJevClient};
