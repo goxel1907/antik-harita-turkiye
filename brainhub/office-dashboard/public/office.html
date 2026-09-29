@@ -279,6 +279,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
           <button id="mirrorZoomOut" title="Uzaklaş">−</button><span class="zl" id="mirrorZoomLbl">1.0x</span><button id="mirrorZoomIn" title="Yakınlaş">+</button>
           <button id="mirrorZoomReset" title="Sıfırla (çift tık)">⟲</button>
           <button id="mirrorLayout" title="Yan yana / alt alta">⇅ Alt alta</button>
+          <button id="mirrorHtf" title="Üst zaman dilimi seviyeleri (kesikli, 1H/4H önekli)">Üst TF: AÇIK</button>
+          <button id="mirrorPos" title="Açık pozisyon kutusu (giriş/stop/TP1)">Pozisyon: AÇIK</button>
         </div>
       </div>
       <div class="mirror-charts stacked" id="mirrorCharts">
@@ -299,6 +301,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
         <span>OTE Alış/Satış</span><span>Fib .382/.5/.618/.705/.786</span>
         <span>Önceki20 + Eşit Tepe/Dip</span><span>Swing + BOS/CHoCH referansı</span>
         <span>Gözlenen tasfiye bölgeleri</span>
+        <span>Seviyeler oluştuğu mumdan sağa çizilir</span><span>Kesikli = üst TF / fiyat / tasfiye</span><span>Yeşil/kırmızı kutu = açık pozisyon hedef/risk</span>
       </div>
       <div class="mirror-details">
         <dl class="kv" id="mirrorKv"></dl>
@@ -1287,6 +1290,9 @@ function mirrorCandidates(s){
   return out;
 }
 let mirrorSeenOpen=null;
+// CLAUDE_R2544_9: Üst TF seviyeleri ve pozisyon kutusu aç/kapa (tarayıcıda hatırlanır).
+const mirrorOpts={htf:true,pos:true};
+try{mirrorOpts.htf=localStorage.getItem('jev-mirror-htf')!=='0';mirrorOpts.pos=localStorage.getItem('jev-mirror-pos')!=='0';}catch{}
 function syncMirrorSymbol(s){
   const choices=mirrorCandidates(s);
   // CLAUDE_R2544_8_AUTO_FOLLOW: yeni bir pozisyon açıldığında ayna o coine geçer (elle seçim, bir sonraki YENİ pozisyona kadar korunur).
@@ -1353,7 +1359,7 @@ async function renderMirror(s){
     if(!r.ok||!j?.ok)throw new Error(j?.error||'mirror unavailable');
     const snapshotId=String(j.snapshotId||'');
     const cleanUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'clean',bars:mirrorBars,snapshotId,_:stamp});
-    const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:mirrorBars,snapshotId,_:stamp});
+    const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:mirrorBars,snapshotId,_:stamp,...(mirrorOpts.htf?{}:{htf:'0'}),...(mirrorOpts.pos?{}:{pos:'0'})});
     await Promise.all([
       loadMirrorImage(clean,cleanUrl,seq),
       loadMirrorImage(annotated,annotatedUrl,seq)
@@ -1419,6 +1425,7 @@ async function renderMirror(s){
       ['Fib uzatma', `1.272 ${mirrorFmt(fibExt['1.272'],4)} • 1.618 ${mirrorFmt(fibExt['1.618'],4)} • bacak ${trUi(smc?.fibLevels?.leg||'—')}`],
       ['Oluşumlar', patterns],
       ['Gözlenen tasfiye bölgeleri', fmtLiq(liq.zones)],
+      ['Üst TF seviyeleri (grafikte kesikli)', (Array.isArray(j.htfLevels)&&j.htfLevels.length)?j.htfLevels.map(h=>`${String(h.tf).toUpperCase()} ${h.name} ${mirrorFmt(h.price)}`).join(' • '):'—'],
       ['Tasfiye akışı', `${liq.count??0} kayıt • ALIŞ ${mirrorFmt(liq.longLiquidatedQuote,0)} • SATIŞ ${mirrorFmt(liq.shortLiquidatedQuote,0)} • hız ${liq?.velocity?.state||liq?.velocity?.level||'—'} • zincirleme ${liq?.cascade?.state||liq?.cascade?.level||'—'}`],
       ['Emir akışı', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • derinlik ${mirrorFmt(ms.depth20Imbalance,3)} • mikro fiyat ${mirrorFmt(ms.microprice,4)} • makas ${mirrorFmt(ms.spreadBps,2)} bps`],
       ['Türevler', `OIΔ5dk ${mirrorFmt(der.oiDelta5mPct,2)}% • fonlama ${mirrorFmt(der.fundingRate,6)} • piyasa alıcı/satıcı ${mirrorFmt(der.takerBuySellRatio,3)} • üst trader ${mirrorFmt(der.topTraderLongShortRatio,3)} • genel ${mirrorFmt(der.globalLongShortRatio,3)}`],
@@ -1516,6 +1523,13 @@ $('#mirrorZoomReset').addEventListener('click',()=>{mirrorView.z=1;mirrorView.x=
   const set=v=>{stacked=v;box.classList.toggle('stacked',v);btn.textContent=v?'⇆ Yan yana':'⇅ Alt alta';try{localStorage.setItem('jev-mirror-layout',v?'stacked':'side');}catch{}applyMirrorView();};
   btn.addEventListener('click',()=>set(!stacked));set(stacked);
   window.addEventListener('resize',applyMirrorView);
+})();
+(function(){
+  const bh=$('#mirrorHtf'),bp=$('#mirrorPos');
+  const paint=()=>{bh.textContent='Üst TF: '+(mirrorOpts.htf?'AÇIK':'KAPALI');bp.textContent='Pozisyon: '+(mirrorOpts.pos?'AÇIK':'KAPALI');};
+  bh.addEventListener('click',()=>{mirrorOpts.htf=!mirrorOpts.htf;try{localStorage.setItem('jev-mirror-htf',mirrorOpts.htf?'1':'0');}catch{}paint();if(last)renderMirror(last);});
+  bp.addEventListener('click',()=>{mirrorOpts.pos=!mirrorOpts.pos;try{localStorage.setItem('jev-mirror-pos',mirrorOpts.pos?'1':'0');}catch{}paint();if(last)renderMirror(last);});
+  paint();
 })();
 buildOffice(); tick(); setInterval(tick, 5000);
 </script>

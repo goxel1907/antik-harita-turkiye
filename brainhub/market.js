@@ -961,7 +961,7 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
   if (candles.length < 2) throw new Error('chart candles required');
   const width = 1280, height = 720;
   // CLAUDE_R2544_8_LABEL_GUTTER: sağ etiket sütunu 190→270 px (fiyat büyük yazı + ad küçük yazı; Office'te okunabilirlik).
-  const left = 24, right = width - (String(mode||'').toLowerCase()==='annotated' ? 270 : 190), top = 22, priceBottom = 555, volumeTop = 585, bottom = 700;
+  const left = 24, right = width - (String(mode||'').toLowerCase()==='annotated' ? 330 : 190), top = 22, priceBottom = 555, volumeTop = 585, bottom = 700;
   const pixels = Buffer.alloc(width * height * 4);
   const bg=[13,17,23,255], grid=[42,49,62,255], wick=[174,183,196,255];
   const bull=[46,204,113,255], bear=[231,76,60,255], volume=[76,106,146,255];
@@ -1068,61 +1068,76 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     }
     const levelLabels=[];
     const fmtP=p=>{const n=Number(p);if(!Number.isFinite(n))return '';const d=Math.abs(n)>=100?2:Math.abs(n)>=1?4:6;return n.toFixed(d).replace(/0+$/,'').replace(/\.$/,'');};
-    const addLevel=(price,text,col)=>{const p=Number(price);if(Number.isFinite(p)&&p>=pmin&&p<=pmax)levelLabels.push({price:p,y:yPrice(p),name:String(text),text:`${text} ${fmtP(p)}`,col});};
-    const addZoneLabel=(z,text,col)=>{const lo=Number(z?.low),hi=Number(z?.high);if(Number.isFinite(lo)&&Number.isFinite(hi))addLevel((lo+hi)/2,text,col);};
-    // CLAUDE_R2544_8_LABELS: 29.09 Office — sağ etiketler okunmuyordu (10 px yazı, üst üste binen/aynı fiyatta 3 etiket,
-    // 11 px'lik itmeyle fiyatından kopan ve alta taşınca SESSİZCE düşen satırlar). Yeni düzen: aynı fiyattaki seviyeler tek satırda
-    // birleşir (ARALIK UST/ONCEKI20 H/SWING H), fiyat 3x büyük yazılır, ad 2x; satırlar çakışmadan iki yönlü yerleşir, hiçbiri düşmez,
-    // kayan satır gerçek fiyatına kısa bir bağlantı çizgisiyle bağlanır; koyu renkler okunur tona açılır.
+    // CLAUDE_R2544_9_SHORT_NAMES: sağ sütunda okunaklı kısa adlar.
+    const SHORT={'ONCEKI20 H':'ONC20 TEPE','ONCEKI20 L':'ONC20 DIP','ARALIK EQ':'DENGE','FVG BOGA CE50':'FVG BOGA','FVG AYI CE50':'FVG AYI','ESIT H':'ESIT TEPE','ESIT L':'ESIT DIP'};
+    const shortName=t=>{let s=String(t);for(const [k,v] of Object.entries(SHORT))s=s.replace(k,v);return s.replace(/FIB 0\./,'FIB .');};
+    const addLevel=(price,text,col,prio=5)=>{const p=Number(price);if(Number.isFinite(p)&&p>=pmin&&p<=pmax)levelLabels.push({price:p,y:yPrice(p),name:shortName(text),text:`${text} ${fmtP(p)}`,col,prio});};
+    const addZoneLabel=(z,text,col,prio)=>{const lo=Number(z?.low),hi=Number(z?.high);if(Number.isFinite(lo)&&Number.isFinite(hi))addLevel((lo+hi)/2,text,col,prio);};
+    // CLAUDE_R2544_9_LEVEL_ORIGIN: 29.09 — yatay seviyeler grafiğin EN SOLUNDAN çiziliyordu; seviyenin doğmadığı geçmişte de
+    // varmış gibi görünüyordu. Artık her seviye oluştuğu mumdan (swing pivotu, FVG/OB mumu, önceki-20 tepesi/dibi, Fib bacağının
+    // başlangıcı) sağa çizilir. Kaynağı bilinmeyen (fiyat, tasfiye kümesi) ve üst zaman dilimi seviyeleri tam genişlik ve kesikli.
+    const xAtTime=t=>{const v=Number(t);if(!Number.isFinite(v))return null;for(let i=0;i<candles.length;i++){const o=Number(candles[i].openTime),c=Number(candles[i].closeTime);if(Number.isFinite(o)&&Number.isFinite(c)&&v>=o&&v<=c)return xAt(i);}const f=Number(candles[0]?.openTime);if(Number.isFinite(f)&&v<f)return left;return xForAt(v);};
+    const fromX=at=>{const x=at==null?null:(xForAt(at)??xAtTime(at));return x===null?left:Math.max(left,Math.round(x-step*0.5));};
+    const hline=(price,col,x0=left,dashed=false)=>{const y=yPrice(price);if(!Number.isFinite(y))return;if(!dashed){line(x0,y,right,y,col);return;}for(let x=x0;x<right;x+=9)line(x,y,Math.min(right,x+5),y,col);};
+    const idxOfExtreme=(n,hi)=>{const s=Math.max(0,candles.length-1-n),e=candles.length-1;let bi=-1,bv=hi?-Infinity:Infinity;for(let i=s;i<e;i++){const v=Number(hi?candles[i].high:candles[i].low);if(hi?v>bv:v<bv){bv=v;bi=i;}}return bi;};
+    // CLAUDE_R2544_9_FONT5X7: 3x5 piksel yazı yerine 5x7 (klasik terminal) yazı — 2x ölçekte 10x14 px, rakamlar ayırt edilebilir.
+    const F57={A:'01110100011000111111100011000110001',B:'11110100011000111110100011000111110',C:'01110100011000010000100001000101110',D:'11110100011000110001100011000111110',E:'11111100001000011110100001000011111',F:'11111100001000011110100001000010000',G:'01110100011000010111100011000101111',H:'10001100011000111111100011000110001',I:'01110001000010000100001000010001110',J:'00111000100001000010000101001001100',K:'10001100101010011000101001001010001',L:'10000100001000010000100001000011111',M:'10001110111010110101100011000110001',N:'10001100011100110101100111000110001',O:'01110100011000110001100011000101110',P:'11110100011000111110100001000010000',Q:'01110100011000110001101011001001101',R:'11110100011000111110101001001010001',S:'01111100001000001110000010000111110',T:'11111001000010000100001000010000100',U:'10001100011000110001100011000101110',V:'10001100011000110001100010101000100',W:'10001100011000110101101011010101010',X:'10001100010101000100010101000110001',Y:'10001100010101000100001000010000100',Z:'11111000010001000100010001000011111',
+      '0':'01110100011001110101110011000101110','1':'00100011000010000100001000010001110','2':'01110100010000100010001000100011111','3':'11111000100010000010000011000101110','4':'00010001100101010010111110001000010','5':'11111100001111000001000011000101110','6':'00110010001000011110100011000101110','7':'11111000010001000100010000100001000','8':'01110100011000101110100011000101110','9':'01110100011000101111000010001001100',
+      '.':'00000000000000000000000000110001100','-':'00000000000000011111000000000000000','/':'00001000100001000100010000100010000',':':'00000011000110000000011000110000000','%':'11000110010001000100010001001100011','+':'00000001000010011111001000010000000','(':'00010001000100001000010000010000010',')':'01000001000001000010000100010001000',' ':'00000000000000000000000000000000000','=':'00000000001111100000111110000000000'};
+    const text57=(x,y,t,c,sc=2)=>{let ox=Math.round(x);for(const ch of asciiLabel(t)){const b=F57[ch]||F57[' '];for(let i=0;i<35;i++)if(b[i]==='1'){const gx=i%5,gy=Math.floor(i/5);fillRect(ox+gx*sc,y+gy*sc,ox+gx*sc+sc-1,y+gy*sc+sc-1,c);}ox+=6*sc;}};
     const renderLabels=()=>{
       const lift=c=>{const l=0.299*c[0]+0.587*c[1]+0.114*c[2];if(l>=150)return c;const k=Math.min(0.6,(150-l)/150+0.2);return [Math.round(c[0]+(255-c[0])*k),Math.round(c[1]+(255-c[1])*k),Math.round(c[2]+(255-c[2])*k),255];};
       const sorted=levelLabels.filter(r=>Number.isFinite(r.y)).sort((a,b)=>a.y-b.y);
       const groups=[];
       for(const r of sorted){
         const g=groups[groups.length-1];
-        const same=g&&(Math.abs(g.y-r.y)<=2||Math.abs(g.price-r.price)<=Math.abs(g.price)*0.00015);
-        if(same){if(!g.names.includes(r.name))g.names.push(r.name);if(r.name==='FIYAT'){g.col=r.col;g.price=r.price;g.y=r.y;g.isPrice=true;}}
-        else groups.push({price:r.price,y:r.y,names:[r.name],col:r.col,isPrice:r.name==='FIYAT'});
+        // fiyat ve pozisyon satırları (öncelik 0) başka seviyeyle birleşmez: kendi fiyatlarıyla ayrı satırda kalır
+        const same=g&&r.prio!==0&&g.prio!==0&&(Math.abs(g.y-r.y)<=2||Math.abs(g.price-r.price)<=Math.abs(g.price)*0.00015);
+        if(same){if(!g.names.includes(r.name))g.names.push(r.name);if(r.prio<g.prio){g.prio=r.prio;g.col=r.col;}}
+        else groups.push({price:r.price,y:r.y,names:[r.name],col:r.col,prio:r.prio,isPrice:r.name==='FIYAT'});
       }
-      const ROW=18,minY=top,maxY=priceBottom-ROW+2;
-      const pos=groups.map(g=>Math.max(minY,Math.min(maxY,Math.round(g.y)-8)));
-      for(let i=1;i<pos.length;i++)if(pos[i]-pos[i-1]<ROW)pos[i]=pos[i-1]+ROW;
-      if(pos.length&&pos[pos.length-1]>maxY){pos[pos.length-1]=maxY;for(let i=pos.length-2;i>=0;i--)if(pos[i+1]-pos[i]<ROW)pos[i]=pos[i+1]-ROW;}
-      const rowsFit=Math.floor((maxY-minY)/ROW)+1;
-      const keep=groups.map((g,i)=>i);
-      if(groups.length>rowsFit){ // yer yoksa fiyat satırı ve ona en yakın seviyeler kalır; kalanlar tek satırda özetlenir
-        const pi=groups.findIndex(g=>g.isPrice);const order=keep.slice().sort((a,b)=>(a===pi?-1:b===pi?1:Math.abs(groups[a].y-(pi>=0?groups[pi].y:0))-Math.abs(groups[b].y-(pi>=0?groups[pi].y:0))));
-        const chosen=new Set(order.slice(0,rowsFit));keep.splice(0,keep.length,...[...chosen].sort((a,b)=>a-b));
-        let y=minY;for(const i of keep){pos[i]=Math.max(y,Math.min(maxY,Math.round(groups[i].y)-8));y=pos[i]+ROW;}
+      const SC=2,CW=6*SC,GH=7*SC,x0=right+10;
+      for(const g of groups){
+        g.priceTxt=fmtP(g.price);const pw=g.priceTxt.length*CW;const room=Math.max(4,Math.floor((width-(x0+pw+8)-4)/CW));
+        const lines=[];let cur='';for(const n of g.names){const add=cur?cur+'/'+n:n;if(add.length<=room)cur=add;else{if(cur)lines.push(cur);cur=n.length>room?n.slice(0,room-1)+'+':n;}}if(cur)lines.push(cur);
+        g.lines=lines.slice(0,2);if(lines.length>2)g.lines[1]=(g.lines[1].slice(0,room-1))+'+';g.h=g.lines.length>1?GH*2+8:GH+5;g.pw=pw;
       }
+      const minY=top,maxY=priceBottom;
+      // yer yetmezse önce düşük öncelikli satırlar birleşik özet olmadan atlanır; fiyat ve pozisyon satırları asla atlanmaz
+      let keep=groups.map((_,i)=>i);
+      const total=()=>keep.reduce((s,i)=>s+groups[i].h,0);
+      while(total()>maxY-minY&&keep.length>1){let worst=-1,wp=-1;for(const i of keep){const g=groups[i];if(g.prio>wp&&!g.isPrice&&g.prio>0){wp=g.prio;worst=i;}}if(worst<0)break;keep=keep.filter(i=>i!==worst);}
+      const pos={};let yy=minY;
+      for(const i of keep){const g=groups[i];let y=Math.max(yy,Math.min(maxY-g.h,Math.round(g.y)-Math.round(GH/2)-2));pos[i]=y;yy=y+g.h;}
+      for(let k=keep.length-1;k>=0;k--){const i=keep[k],g=groups[i];const lim=k===keep.length-1?maxY:pos[keep[k+1]];if(pos[i]+g.h>lim)pos[i]=lim-g.h;}
       for(const i of keep){
         const g=groups[i],y=pos[i],col=lift(g.col);
-        const priceTxt=fmtP(g.price),pw=priceTxt.length*12;
-        const nameMax=Math.max(4,Math.floor((width-(right+10+pw+8)-6)/8));
-        let names=g.names.join('/');if(names.length>nameMax)names=names.slice(0,nameMax-1)+'+';
-        fillRect(right+4,y-2,width-2,y+ROW-3,g.isPrice?[48,54,66,255]:[20,25,32,255]);
-        fillRect(right+4,y-2,right+6,y+ROW-3,g.col);
-        drawText(right+10,y,priceTxt,col,3);
-        drawText(right+10+pw+6,y+3,names,col,2);
-        const ty=Math.round(g.y);
-        if(Math.abs(ty-(y+7))>2){line(right,ty,right+4,y+7,g.col);}
+        fillRect(right+4,y,width-2,y+g.h-2,g.isPrice?[48,54,66,255]:(g.prio===0?[40,34,20,255]:[20,25,32,255]));
+        fillRect(right+4,y,right+6,y+g.h-2,g.col);
+        text57(x0,y+2,g.priceTxt,col,SC);
+        text57(x0+g.pw+8,y+2,g.lines[0]||'',col,SC);
+        if(g.lines[1])text57(x0+g.pw+8,y+GH+6,g.lines[1],col,SC);
+        const ty=Math.round(g.y),my=y+Math.round(GH/2)+2;
+        if(Math.abs(ty-my)>2)line(right,ty,right+4,my,g.col);
       }
     };
     path(emaSeries(20),[255,193,7,255]);
     path(emaSeries(50),[156,92,204,255]);
     const a=chart.analysis||{};
 
+    const swHiAt=a?.swingStructure?.lastConfirmedSwingHigh?.at,swLoAt=a?.swingStructure?.lastConfirmedSwingLow?.at;
+    const legAt=[Number(swHiAt),Number(swLoAt)].filter(Number.isFinite);const legX=legAt.length?fromX(Math.min(...legAt)):left;
     // R2541: dealing range bands/levels. Outside-range state is supplied by engine.js.
     const dr=a?.smcContext?.dealingRange||{};
     const drLow=Number(dr.low),drHigh=Number(dr.high),drEq=Number(dr.equilibrium);
     if(Number.isFinite(drLow)&&Number.isFinite(drHigh)&&drHigh>drLow){
       if(Number.isFinite(drEq)){
-        blendRect(left,yPrice(drHigh),right,yPrice(drEq),[255,87,34],0.035);
-        blendRect(left,yPrice(drEq),right,yPrice(drLow),[33,150,243],0.035);
+        blendRect(legX,yPrice(drHigh),right,yPrice(drEq),[255,87,34],0.035);
+        blendRect(legX,yPrice(drEq),right,yPrice(drLow),[33,150,243],0.035);
       }
-      line(left,yPrice(drHigh),right,yPrice(drHigh),[255,112,67,255]);addLevel(drHigh,'ARALIK UST',[255,112,67,255]);
-      line(left,yPrice(drLow),right,yPrice(drLow),[66,165,245,255]);addLevel(drLow,'ARALIK ALT',[66,165,245,255]);
-      if(Number.isFinite(drEq)){line(left,yPrice(drEq),right,yPrice(drEq),[158,158,158,255]);addLevel(drEq,'ARALIK EQ',[200,200,200,255]);}
+      hline(drHigh,[255,112,67,255],legX);addLevel(drHigh,'ARALIK UST',[255,112,67,255],2);
+      hline(drLow,[66,165,245,255],legX);addLevel(drLow,'ARALIK ALT',[66,165,245,255],2);
+      if(Number.isFinite(drEq)){hline(drEq,[158,158,158,255],legX);addLevel(drEq,'ARALIK EQ',[200,200,200,255],4);}
     }
 
     // R2541_CONFIRMED_SWING_TRENDLINES: no close-regression pseudo trend line.
@@ -1133,44 +1148,46 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       const y0=Number(tl?.from?.price),y1=Number(tl?.projected?.price??tl?.to?.price);
       if(x0===null||x1===null||!Number.isFinite(y0)||!Number.isFinite(y1))return;
       line(x0,yPrice(y0),x1,yPrice(y1),col);line(x0,yPrice(y0)+1,x1,yPrice(y1)+1,col);
-      const ty=Math.max(top,Math.min(priceBottom-12,Math.round(yPrice(y1))-11));drawText(Math.min(right-120,x1+6),ty,label,col,2);
+      const ty=Math.max(top,Math.min(priceBottom-16,Math.round(yPrice(y1))-15));fillRect(Math.min(right-110,x1+4),ty-1,Math.min(right-110,x1+4)+textWidth(label,2)*1.5+4,ty+14,[13,17,23,255]);text57(Math.min(right-110,x1+6),ty,label,col,2);
     };
     drawTrend(trendLines.upSupport,[0,230,118,255],'TREND HL');
     drawTrend(trendLines.downResistance,[255,82,82,255],'TREND LH');
 
+    const i20h=idxOfExtreme(20,true),i20l=idxOfExtreme(20,false);
     const levels=[
-      [a.prior20High,'ONCEKI20 H',[0,188,212,255]],
-      [a.prior20Low,'ONCEKI20 L',[255,152,0,255]],
-      [a.liquidity?.equalHigh?.price,'ESIT H',[232,232,232,255]],
-      [a.liquidity?.equalLow?.price,'ESIT L',[232,232,232,255]]
+      [a.prior20High,'ONCEKI20 H',[0,188,212,255],i20h>=0?Math.max(left,xAt(i20h)-step*0.5):left,3],
+      [a.prior20Low,'ONCEKI20 L',[255,152,0,255],i20l>=0?Math.max(left,xAt(i20l)-step*0.5):left,3],
+      [a.liquidity?.equalHigh?.price,'ESIT H',[232,232,232,255],fromX(a.liquidity?.equalHigh?.at??a.liquidity?.equalHigh?.points?.[0]?.at),3],
+      [a.liquidity?.equalLow?.price,'ESIT L',[232,232,232,255],fromX(a.liquidity?.equalLow?.at??a.liquidity?.equalLow?.points?.[0]?.at),3]
     ];
-    for(const [price,name,col] of levels){if(Number.isFinite(Number(price))){line(left,yPrice(price),right,yPrice(price),col);addLevel(price,name,col);}}
+    for(const [price,name,col,x0,prio] of levels){if(Number.isFinite(Number(price))){hline(price,col,x0);addLevel(price,name,col,prio);}}
     for(const g of Array.isArray(a.recentFairValueGaps)?a.recentFairValueGaps:[]){
       const low=Number(g.low),high=Number(g.high),ce=Number(g.ce50),col=g.side==='BULL'?[76,255,145,255]:[255,112,96,255];
       if(Number.isFinite(low)&&Number.isFinite(high)){
-        blendRect(left,yPrice(high),right,yPrice(low),g.side==='BULL'?[46,204,113]:[231,76,60],0.10);
-        if(Number.isFinite(ce)){line(left,yPrice(ce),right,yPrice(ce),col);addLevel(ce,`FVG ${g.side==='BULL'?'BOGA':'AYI'} CE50`,col);}
+        const gx=Math.max(left,fromX(g.at)-2*step);
+        blendRect(gx,yPrice(high),right,yPrice(low),g.side==='BULL'?[46,204,113]:[231,76,60],0.10);
+        if(Number.isFinite(ce)){hline(ce,col,gx);addLevel(ce,`FVG ${g.side==='BULL'?'BOGA':'AYI'} CE50`,col,4);}
       }
     }
     for(const ob of Array.isArray(a?.orderBlocks?.bullish)?a.orderBlocks.bullish:[]){
-      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(left,yPrice(high),right,yPrice(low),[0,150,136],0.12);addZoneLabel(ob,'BOGA OB',[64,224,208,255]);}
+      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(fromX(ob.at),yPrice(high),right,yPrice(low),[0,150,136],0.12);addZoneLabel(ob,'BOGA OB',[64,224,208,255],3);}
     }
     for(const ob of Array.isArray(a?.orderBlocks?.bearish)?a.orderBlocks.bearish:[]){
-      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(left,yPrice(high),right,yPrice(low),[244,67,54],0.12);addZoneLabel(ob,'AYI OB',[255,110,100,255]);}
+      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(fromX(ob.at),yPrice(high),right,yPrice(low),[244,67,54],0.12);addZoneLabel(ob,'AYI OB',[255,110,100,255],3);}
     }
     const ote=a?.smcContext?.oteReference||{};
-    const drawZone=(z,col,alpha,label)=>{const low=Number(z?.low),high=Number(z?.high);if(Number.isFinite(low)&&Number.isFinite(high)){blendRect(left,yPrice(high),right,yPrice(low),col,alpha);addZoneLabel(z,label,[220,220,220,255]);}};
+    const drawZone=(z,col,alpha,label)=>{const low=Number(z?.low),high=Number(z?.high);if(Number.isFinite(low)&&Number.isFinite(high)){blendRect(legX,yPrice(high),right,yPrice(low),col,alpha);addZoneLabel(z,label,[220,220,220,255],5);}};
     drawZone(ote.longDiscountZone,[33,150,243],0.07,'OTE ALIS');
     drawZone(ote.shortPremiumZone,[255,87,34],0.07,'OTE SATIS');
     const fib=a?.smcContext?.fibLevels?.retracement||{};
     const fibCols={'0.382':[126,87,194,255],'0.5':[255,235,59,255],'0.618':[0,188,212,255],'0.705':[205,220,57,255],'0.786':[255,152,0,255]};
-    for(const key of Object.keys(fibCols)){const price=Number(fib[key]);if(Number.isFinite(price)){line(left,yPrice(price),right,yPrice(price),fibCols[key]);addLevel(price,`FIB ${key}`,fibCols[key]);}}
+    for(const key of Object.keys(fibCols)){const price=Number(fib[key]);if(Number.isFinite(price)){hline(price,fibCols[key],legX);addLevel(price,`FIB ${key}`,fibCols[key],key==='0.618'||key==='0.5'?4:6);}}
 
     // Swing/BOS/CHoCH reference levels.
     const swingHi=Number(a?.swingStructure?.lastConfirmedSwingHigh?.price);
     const swingLo=Number(a?.swingStructure?.lastConfirmedSwingLow?.price);
-    if(Number.isFinite(swingHi)){const c=['BOS_UP','CHOCH_UP'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255];line(left,yPrice(swingHi),right,yPrice(swingHi),c);addLevel(swingHi,a?.swingStructure?.event==='CHOCH_UP'?'CHOCH H':'SWING H',c);}
-    if(Number.isFinite(swingLo)){const c=['BOS_DOWN','CHOCH_DOWN'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255];line(left,yPrice(swingLo),right,yPrice(swingLo),c);addLevel(swingLo,a?.swingStructure?.event==='CHOCH_DOWN'?'CHOCH L':'SWING L',c);}
+    if(Number.isFinite(swingHi)){const c=['BOS_UP','CHOCH_UP'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255];hline(swingHi,c,fromX(swHiAt));addLevel(swingHi,a?.swingStructure?.event==='CHOCH_UP'?'CHOCH H':'SWING H',c,2);}
+    if(Number.isFinite(swingLo)){const c=['BOS_DOWN','CHOCH_DOWN'].includes(a?.swingStructure?.event)?[255,235,59,255]:[120,144,156,255];hline(swingLo,c,fromX(swLoAt));addLevel(swingLo,a?.swingStructure?.event==='CHOCH_DOWN'?'CHOCH L':'SWING L',c,2);}
 
     // R2541_PATTERN_GEOMETRY: only engine-produced confirmed-pivot coordinates are drawn.
     const patternName={ASCENDING_TRIANGLE:'YUKSELEN UCGEN',DESCENDING_TRIANGLE:'ALCALAN UCGEN',SYMMETRICAL_TRIANGLE:'SIMETRIK UCGEN',RISING_WEDGE:'YUKSELEN KAMA',FALLING_WEDGE:'ALCALAN KAMA',RISING_CHANNEL:'YUKSELEN KANAL',FALLING_CHANNEL:'ALCALAN KANAL',RANGE:'YATAY ARALIK'};
@@ -1178,18 +1195,50 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     for(const pat of (Array.isArray(a?.patterns)?a.patterns:[]).filter(x=>Array.isArray(x?.geometry?.lines)&&x.geometry.lines.length).slice(-3)){
       const col=String(pat.side||'').toUpperCase()==='LONG'?[74,222,128,255]:String(pat.side||'').toUpperCase()==='SHORT'?[255,99,99,255]:[180,180,220,255];
       for(const gl of pat.geometry.lines){const x0=xForAt(gl?.from?.at),x1=xForAt(gl?.to?.at);const p0=Number(gl?.from?.price),p1=Number(gl?.to?.price);if(x0!==null&&x1!==null&&Number.isFinite(p0)&&Number.isFinite(p1))line(x0,yPrice(p0),x1,yPrice(p1),col);}
-      const text=patternName[pat.type]||pat.type;if(text){drawText(left+8,top+6+patternLabelOffset,text,col,2);patternLabelOffset+=12;}
+      const text=patternName[pat.type]||pat.type;if(text){text57(left+8,top+6+patternLabelOffset,text,col,2);patternLabelOffset+=18;}
+    }
+
+    // CLAUDE_R2544_9_HTF_LEVELS: üst zaman dilimi (5m grafikte 15m/1h, 15m grafikte 1h/4h) ana seviyeleri — kesikli, "1H"/"4H" önekli.
+    for(const h of Array.isArray(options?.htfLevels)?options.htfLevels:[]){
+      const p=Number(h?.price);if(!Number.isFinite(p)||p<pmin||p>pmax)continue;
+      const col=Array.isArray(h.col)?h.col:[186,104,200,255];
+      const lo=Number(h?.low),hi=Number(h?.high);
+      if(Number.isFinite(lo)&&Number.isFinite(hi)&&hi>lo)blendRect(left,yPrice(hi),right,yPrice(lo),col.slice(0,3),0.05);
+      hline(p,col,left,true);addLevel(p,`${String(h.tf||'').toUpperCase()} ${h.name}`,col,Number(h.prio)||6);
     }
 
     // Observed Binance force-order liquidation clusters (historical prints only, not a future heatmap).
     for(const z of Array.isArray(options?.observedLiquidations)?options.observedLiquidations:[]){
       const price=Number(z?.price);if(!Number.isFinite(price)||price<pmin||price>pmax)continue;
       const side=String(z?.side||'').toUpperCase();const col=side.includes('LONG')?[255,82,82,255]:side.includes('SHORT')?[0,230,118,255]:[255,255,255,255];
-      line(left,yPrice(price),right,yPrice(price),col);line(left,yPrice(price)+1,right,yPrice(price)+1,col);addLevel(price,side.includes('LONG')?'LIKID LONG':'LIKID SHORT',col);
+      hline(price,col,left,true);addLevel(price,side.includes('LONG')?'LIKID LONG':'LIKID SHORT',col,3);
+    }
+
+    // CLAUDE_R2544_9_POSITION_OVERLAY: açık pozisyon (TradingView uzun/kısa pozisyon aracı gibi): girişten sağa yeşil hedef ve
+    // kırmızı risk kutusu, giriş/stop/TP çizgileri ve LONG/SHORT etiketi. Yalnız görselleştirme; emir veya karar üretmez.
+    const posn=options?.position;
+    if(posn&&['LONG','SHORT'].includes(String(posn.side||'').toUpperCase())){
+      const side=String(posn.side).toUpperCase(),e=Number(posn.entryPrice),st=Number(posn.stopPrice),tp=Number(posn.takeProfit1),mk=Number(posn.markPrice);
+      if(Number.isFinite(e)){
+        const px0=Math.max(left,Math.min(right-40,Math.round((xAtTime(Date.parse(posn.openedAt))??(right-40))-step*0.5)));
+        const clampY=p=>Math.max(top,Math.min(priceBottom,yPrice(p)));
+        if(Number.isFinite(tp))blendRect(px0,clampY(tp),right,clampY(e),[38,166,154],0.26);
+        if(Number.isFinite(st))blendRect(px0,clampY(e),right,clampY(st),[239,83,80],0.26);
+        const ey=clampY(e);line(px0,ey,right,ey,[255,255,255,255]);line(px0,ey+1,right,ey+1,[255,255,255,255]);
+        if(Number.isFinite(st))line(px0,clampY(st),right,clampY(st),[239,83,80,255]);
+        if(Number.isFinite(tp))line(px0,clampY(tp),right,clampY(tp),[38,166,154,255]);
+        const pct=Number.isFinite(mk)&&e>0?(side==='LONG'?(mk-e)/e:(e-mk)/e)*100:null;
+        const tag=`${side} ${pct===null?'':(pct>=0?'+':'')+pct.toFixed(2)+'%'}`.trim();
+        const tw=tag.length*12+10,ty=Math.max(top,Math.min(priceBottom-18,Math.round(ey)-20)),tx=Math.max(left,Math.min(px0,right-tw-2));
+        fillRect(tx,ty,tx+tw,ty+17,side==='LONG'?[27,120,90,255]:[170,45,45,255]);text57(tx+5,ty+2,tag,[255,255,255,255],2);
+        addLevel(e,`POZ ${side==='LONG'?'ALIS':'SATIS'} GIRIS`,[255,255,255,255],0);
+        if(Number.isFinite(st))addLevel(st,'POZ STOP',[239,83,80,255],0);
+        if(Number.isFinite(tp))addLevel(tp,'POZ TP1',[38,166,154,255],0);
+      }
     }
 
     const lastPx=Number(candles.at(-1)?.close);
-    if(Number.isFinite(lastPx)){line(left,yPrice(lastPx),right,yPrice(lastPx),[255,255,255,255]);addLevel(lastPx,'FIYAT',[255,255,255,255]);}
+    if(Number.isFinite(lastPx)){hline(lastPx,[255,255,255,255],left,true);addLevel(lastPx,'FIYAT',[255,255,255,255],0);}
     renderLabels();
   }
   line(left,volumeTop-8,right,volumeTop-8,grid);

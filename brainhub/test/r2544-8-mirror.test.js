@@ -32,8 +32,8 @@ test('gerçek hat: analyzeFrames → buildUnifiedContext → paket; kapanmamış
 
 test('grafik: etiket sütunu 270 px, aynı fiyattaki seviyeler tek satır, 6/8/9 glifleri düzgün; PNG boyutu değişmez',()=>{
   const src=fs.readFileSync(path.join(__dirname,'..','market.js'),'utf8');
-  assert.match(src,/CLAUDE_R2544_8_LABELS/);assert.match(src,/'8':'111101111101111'/);assert.match(src,/'9':'111101111001111'/);assert.match(src,/'6':'111100111101111'/);
-  assert.match(src,/if\(Math\.abs\(ty-\(y\+7\)\)>2\)\{line\(right,ty,right\+4,y\+7,g\.col\);\}/,'kayan etiket fiyatına bağlanır');
+  assert.match(src,/CLAUDE_R2544_9_FONT5X7/);assert.match(src,/fiyat ve pozisyon satırları \(öncelik 0\) başka seviyeyle birleşmez/);assert.match(src,/'8':'111101111101111'/);assert.match(src,/'9':'111101111001111'/);assert.match(src,/'6':'111100111101111'/);
+  assert.match(src,/if\(Math\.abs\(ty-my\)>2\)line\(right,ty,right\+4,my,g\.col\);/,'kayan etiket fiyatına bağlanır');
   const candles=Array.from({length:80},(_,i)=>({openTime:i*9e5,closeTime:i*9e5+899999,open:100+i*0.1,high:100.5+i*0.1,low:99.5+i*0.1,close:100.05+i*0.1,volume:10}));
   const hi=Math.max(...candles.map(x=>x.high)),lo=Math.min(...candles.map(x=>x.low));
   const png=renderChartPng({candles,analysis:{prior20High:hi,prior20Low:lo,smcContext:{dealingRange:{low:lo,high:hi,equilibrium:(hi+lo)/2},fibLevels:{retracement:{'0.5':(hi+lo)/2}}},swingStructure:{lastConfirmedSwingHigh:{price:hi},lastConfirmedSwingLow:{price:lo}}}},'annotated');

@@ -63,8 +63,26 @@ function framePacket(f,{full=false}={}){
       swingEvent:f.smcContext.swingEvent||null,swingState:f.smcContext.swingState||null,
       dealingRange:f.smcContext.dealingRange||null
     }:null;
+    // CLAUDE_R2544_9_HTF_KEY_LEVELS: üst zaman diliminin ANA seviyeleri tek küçük nesnede (≈200 bayt). 29.09 HYPE: paket 92 kB'dan
+    // budanırken üst bağlamın sayısal Fib/OTE/FVG/OB'u tamamen düşmüştü; JEV yalnız anlatı satırını görüyordu. Bu nesne
+    // "özet" budamasında da korunur.
+    base.keyLevels=keyLevels(f);
   }
   return base;
+}
+function keyLevels(f){
+  if(!f||f.available===false)return null;
+  const r=v=>{const n=finite(v);return n===null?null:Number(n.toPrecision(7));};
+  const close=finite(f.close),dr=f?.smcContext?.dealingRange||{},fib=f?.smcContext?.fibLevels?.retracement||{},ote=f?.smcContext?.oteReference||{};
+  const dist=z=>Math.abs(((finite(z.low)||0)+(finite(z.high)||0))/2-(close||0));
+  const gaps=(arr(f.recentFairValueGaps).length?arr(f.recentFairValueGaps):arr(f?.liquidity?.fairValueGaps)).filter(g=>g&&g.filled!==true&&finite(g.low)!==null&&finite(g.high)!==null).sort((a,b)=>dist(a)-dist(b));
+  const obs=[...arr(f?.orderBlocks?.bullish).map(x=>({...x,side:'BULL'})),...arr(f?.orderBlocks?.bearish).map(x=>({...x,side:'BEAR'}))].filter(x=>x&&x.broken!==true&&finite(x.low)!==null&&finite(x.high)!==null).sort((a,b)=>dist(a)-dist(b));
+  const z=x=>x?{side:x.side||null,low:r(x.low),high:r(x.high)}:null;
+  const out={rangeHigh:r(dr.high),rangeLow:r(dr.low),rangeZone:dr.zone||null,fib50:r(fib['0.5']),fib618:r(fib['0.618']),
+    oteLong:ote.longDiscountZone?[r(ote.longDiscountZone.low),r(ote.longDiscountZone.high)]:null,
+    oteShort:ote.shortPremiumZone?[r(ote.shortPremiumZone.low),r(ote.shortPremiumZone.high)]:null,
+    nearestFvg:z(gaps[0]),nearestOb:z(obs[0])};
+  return Object.values(out).some(v=>v!==null)?out:null;
 }
 
 function marketPacket(u){

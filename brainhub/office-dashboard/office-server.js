@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.1.1-R2543+R2544.4';
+const OFFICE_VERSION = '2.1.1-R2543+R2544.9';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\BrainHub';
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\BrainHubBackups';
@@ -569,7 +569,7 @@ const server = http.createServer(async (req, res) => {
       if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol)) return send(res,400,{ok:false,error:'invalid symbol'});
       if(!['5m','15m'].includes(tf)) return send(res,400,{ok:false,error:'invalid tf'});
       if(!['clean','annotated'].includes(mode)) return send(res,400,{ok:false,error:'invalid mode'});
-      const upstream=await brainBinary('/chart/png',new URLSearchParams({symbol,tf,mode,bars:String(bars),...(snapshotId?{snapshotId}:{})}).toString());
+      const upstream=await brainBinary('/chart/png',new URLSearchParams({symbol,tf,mode,bars:String(bars),...(snapshotId?{snapshotId}:{}),...(u.searchParams.get('htf')==='0'?{htf:'0'}:{}),...(u.searchParams.get('pos')==='0'?{pos:'0'}:{})}).toString());
       if(!upstream.ok)return send(res,upstream.status||503,{ok:false,error:upstream.error||'chart unavailable'});
       return send(res,200,upstream.data,'image/png');
     }

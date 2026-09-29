@@ -61,6 +61,27 @@ function rememberMirrorSnapshot(snapshotId,value){
   for(const [k,v] of mirrorSnapshots){if(now-Number(v?.at||0)>30000)mirrorSnapshots.delete(k);}
   mirrorSnapshots.set(snapshotId,{...value,at:now});
 }
+// CLAUDE_R2544_9_HTF_LEVELS: Office aynasında üst zaman dilimi ana seviyeleri (JEV'e giden paketle aynı snapshot'tan).
+// 5m grafikte 15m+1h, 15m grafikte 1h+4h: aralık tepe/dip, Fib .618, en yakın açık FVG, en yakın kırılmamış OB.
+function mirrorHtfLevels(sym,tf){
+  const tfs=tf==='5m'?['15m','1h']:['1h','4h'];
+  const cols={'15m':[77,208,225,255],'1h':[186,104,200,255],'4h':[255,202,40,255]};
+  const out=[];
+  for(const h of tfs){
+    const f=sym?.timeframes?.[h];if(!f||f.available===false)continue;
+    const col=cols[h],close=Number(f.close);
+    const dr=f?.smcContext?.dealingRange||{};
+    if(Number.isFinite(Number(dr.high)))out.push({tf:h,name:'ARALIK UST',price:Number(dr.high),col,prio:5});
+    if(Number.isFinite(Number(dr.low)))out.push({tf:h,name:'ARALIK ALT',price:Number(dr.low),col,prio:5});
+    const f618=Number(f?.smcContext?.fibLevels?.retracement?.['0.618']);if(Number.isFinite(f618))out.push({tf:h,name:'FIB .618',price:f618,col,prio:6});
+    const gaps=(Array.isArray(f.recentFairValueGaps)?f.recentFairValueGaps:[]).filter(g=>g&&g.filled!==true&&Number.isFinite(Number(g.low))&&Number.isFinite(Number(g.high)));
+    const near=(arr)=>arr.sort((a,b)=>Math.abs((Number(a.low)+Number(a.high))/2-close)-Math.abs((Number(b.low)+Number(b.high))/2-close))[0]||null;
+    const g=near(gaps.slice());if(g)out.push({tf:h,name:`FVG ${g.side==='BULL'?'BOGA':'AYI'}`,price:(Number(g.low)+Number(g.high))/2,low:Number(g.low),high:Number(g.high),col,prio:6});
+    const obs=[...(f?.orderBlocks?.bullish||[]).map(x=>({...x,side:'BULL'})),...(f?.orderBlocks?.bearish||[]).map(x=>({...x,side:'BEAR'}))].filter(x=>x&&x.broken!==true&&Number.isFinite(Number(x.low))&&Number.isFinite(Number(x.high)));
+    const ob=near(obs);if(ob)out.push({tf:h,name:`${ob.side==='BULL'?'BOGA':'AYI'} OB`,price:(Number(ob.low)+Number(ob.high))/2,low:Number(ob.low),high:Number(ob.high),col,prio:6});
+  }
+  return out;
+}
 function getMirrorSnapshot(snapshotId,symbol,tf){
   const v=mirrorSnapshots.get(String(snapshotId||''));
   if(!v||Date.now()-Number(v.at||0)>30000)return null;
@@ -1935,8 +1956,9 @@ const server=http.createServer(async(req,res)=>{
         const p2=store.latestJournal('PLAN_FAST',symbol);
         const latest=!p1?p2:!p2?p1:(Number(p1.ts)>=Number(p2.ts)?p1:p2);
         const jp=latest?.payload||null;
+        const htfLevels=mirrorHtfLevels(sym,tf);
         rememberMirrorSnapshot(mirror.snapshotId,{
-          symbol,tf,chart,
+          symbol,tf,chart,htfLevels,
           observedLiquidations:Array.isArray(sym?.microstructure?.observedLiquidations?.zones)
             ? sym.microstructure.observedLiquidations.zones : []
         });
@@ -1947,7 +1969,7 @@ const server=http.createServer(async(req,res)=>{
           snapshotAsOf:mirror.snapshotAsOf,
           packetSemantics:'ATOMIC_CURRENT_RECONSTRUCTED_JEV_DIRECT_NUMERIC_PACKET',
           visualSemantics:'CLEAN ve TAM AÇIKLAMALI grafik, bu yanıttaki packet/parity ile aynı atomik kapalı-mum snapshot kimliğini kullanır. Yapısal trend çizgileri yalnız teyitli swing pivotlarından; formasyon geometrisi yalnız engine tarafından üretilen koordinatlardan çizilir.',
-          mirrorBars,packet,parity,
+          mirrorBars,packet,parity,htfLevels,
           latestDecision:latest?{
             id:latest.id,ts:latest.ts,ageMs:Math.max(0,Date.now()-Number(latest.ts||0)),
             plan:jp?.plan||null,jevPass1:jp?.jevPass1||null,jevFinal:jp?.jevFinal||null,
@@ -1974,7 +1996,7 @@ const server=http.createServer(async(req,res)=>{
       const snapshotId=String(u.searchParams.get('snapshotId')||'');
       if(!market.validSymbol(symbol))return send(res,400,{ok:false,error:'invalid symbol'});
       try{
-        let chart,observedLiquidations=[],resolvedSnapshotId=snapshotId;
+        let chart,observedLiquidations=[],htfLevels=[],resolvedSnapshotId=snapshotId;
         const remembered=snapshotId?getMirrorSnapshot(snapshotId,symbol,tf):null;
         if(snapshotId&&!remembered){
           return send(res,409,{ok:false,error:'MIRROR_SNAPSHOT_EXPIRED_OR_UNKNOWN',snapshotId});
@@ -1982,6 +2004,7 @@ const server=http.createServer(async(req,res)=>{
         if(remembered){
           chart=remembered.chart;
           observedLiquidations=remembered.observedLiquidations||[];
+          htfLevels=Array.isArray(remembered.htfLevels)?remembered.htfLevels:[];
         }else{
           // Yalnız snapshotId verilmemiş bağımsız grafik isteğinde yeni atomik snapshot üret.
           const atomic=await market.atomicMirrorContext(symbol,tf,bars);
@@ -1989,9 +2012,13 @@ const server=http.createServer(async(req,res)=>{
           resolvedSnapshotId=atomic.snapshotId;
           observedLiquidations=Array.isArray(atomic.symbolContext?.microstructure?.observedLiquidations?.zones)
             ? atomic.symbolContext.microstructure.observedLiquidations.zones : [];
-          rememberMirrorSnapshot(resolvedSnapshotId,{symbol,tf,chart,observedLiquidations});
+          htfLevels=mirrorHtfLevels(atomic.symbolContext,tf);
+          rememberMirrorSnapshot(resolvedSnapshotId,{symbol,tf,chart,observedLiquidations,htfLevels});
         }
-        const png=market.renderChartPng(chart,mode,{observedLiquidations});
+        // CLAUDE_R2544_9_POSITION_OVERLAY: açık pozisyon grafikte (yalnız görsel). htf=0 / pos=0 ile kapatılabilir.
+        let position=null;
+        if(mode==='annotated'&&u.searchParams.get('pos')!=='0'){try{position=(live.positionsStatus({closedLimit:0})?.open||[]).find(p=>String(p?.symbol||'').toUpperCase()===symbol)||null;}catch{position=null;}}
+        const png=market.renderChartPng(chart,mode,{observedLiquidations,htfLevels:u.searchParams.get('htf')==='0'?[]:htfLevels,position});
         return sendBuffer(res,200,png,'image/png',{
           'x-brainhub-symbol':symbol,
           'x-brainhub-timeframe':tf,
@@ -2123,7 +2150,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.8-CLAUDE-MIRROR-FORMING';
+const RUNTIME_RELEASE='R2544.9-CLAUDE-CHART-HTF-POSITION';
 const RUNTIME_BUILT_BY='Claude (Anthropic) • Cowork • 2026-09-28 • R2544: panel risk otoritesi, pozisyon koruması, ön-hareket, kovalama R-kuralı';
 function fastLaneObsSuffix(result){
   try{

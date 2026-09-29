@@ -579,7 +579,7 @@ function prepareDecisionRequest(input,opts={}){
       // CLAUDE_R2544_TRIM_HIGHER_CONTEXT: R2543+R2544 paketi büyüdü (28.09: PASS-2'nin 3/17'si tavanı aştı).
       // 6) Üst bağlam (30m/45m/1h/4h/1d) özetlenir; 5m/15m çekirdeği ve 1m/3m zamanlaması dokunulmaz kalır.
       ()=>{
-        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming'];
+        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','keyLevels'];
         for(const t of targets){
           const hc=t.higherContext;
           if(!hc||typeof hc!=='object')continue;
