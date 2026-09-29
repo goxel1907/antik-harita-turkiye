@@ -3,7 +3,7 @@
 # Ne yapar:
 #   1) On kontrol: beklenen surum (BEKLENEN-SURUM.txt), temiz git, acik pozisyon yok
 #   2) GitHub push (PC dali + public dal)
-#   3) Kaynak: C:\JEV-Brain\source (git worktree, dal r2544-claude-panel-guard)
+#   3) Kaynaklar: C:\JEV-Brain\source (PC) ve C:\JEV-Brain\apk-source (APK) bagimsiz git klonlari
 #   4) Eski Office + core durur (C:\BrainHub)
 #   5) config / data / logs / docs kopyalanir (C:\BrainHub SILINMEZ, geri donus icin durur)
 #   6) manage.ps1 Update: syntax + tum testler + yedek + kopya + baslat + saglik testi (C:\JEV-Brain\runtime)
@@ -24,15 +24,18 @@ try {
   Write-Host '== 1) ON KONTROL'
   $exp = (Get-Content -LiteralPath (Join-Path $J 'BEKLENEN-SURUM.txt') -Raw).Trim()
   $expPub = (Get-Content -LiteralPath (Join-Path $J 'BEKLENEN-PUBLIC.txt') -Raw).Trim()
-  foreach ($p in "$OLD\server\server.js","$OLD\config","$OLD\data\brainhub.sqlite","$OLDWT\brainhub\manage.ps1") { if (-not (Test-Path -LiteralPath $p)) { throw "Bulunamadi: $p" } }
+  foreach ($p in "$OLD\server\server.js","$OLD\config","$OLD\data\brainhub.sqlite") { if (-not (Test-Path -LiteralPath $p)) { throw "Bulunamadi: $p" } }
+  Ensure-Clone $REPO $SRC $BRANCH 'codex-yerel'
+  Ensure-Clone $OLDPUB $APK $PUBBRANCH 'eski-yerel'
   if (Test-Path -LiteralPath (Join-Path $J 'GECIS-TAMAMLANDI.txt')) { throw 'Gecis daha once tamamlanmis. Guncelleme icin JEV-DEPLOY.cmd kullanin.' }
   if (Core-Pid $RT) { throw 'C:\JEV-Brain\runtime core zaten calisiyor; gecis gerekmez.' }
-  $h = Invoke-Git $OLDWT rev-parse HEAD; $s = Invoke-Git $OLDWT status --short
-  Write-Host "WT HEAD=$h status=[$s]"
-  if ($h -ne $exp) { throw "Calisma kopyasi beklenen surumde degil: $h (beklenen $exp)" }
-  if ($s) { throw 'Calisma kopyasi temiz degil; gecis durduruldu.' }
+  $h = Invoke-Git $SRC rev-parse HEAD; $s = Invoke-Git $SRC status --short
+  Write-Host "SOURCE HEAD=$h status=[$s]"
+  if ($h -ne $exp) { throw "C:\JEV-Brain\source beklenen surumde degil: $h (beklenen $exp)" }
+  if ($s) { throw 'C:\JEV-Brain\source temiz degil; gecis durduruldu.' }
+  if ((Invoke-Git $SRC remote get-url origin) -ne $GITHUB -or (Invoke-Git $APK remote get-url origin) -ne $GITHUB) { throw 'origin GitHub adresi beklenen degil.' }
   $hp = Invoke-Git $PUB rev-parse HEAD; $sp = Invoke-Git $PUB status --short
-  if ($hp -ne $expPub -or $sp) { throw "Public repo beklenen durumda degil: $hp [$sp]" }
+  if ($hp -ne $expPub -or $sp) { throw "APK kaynagi (C:\JEV-Brain\apk-source) beklenen durumda degil: $hp [$sp]" }
   $pos = Open-Positions $OLD
   if ($null -eq $pos) { Write-Warning 'Core yanit vermedi (kapali olabilir); pozisyon kontrolu yapilamadi.' }
   elseif ($pos.Count -gt 0) {
@@ -41,22 +44,14 @@ try {
   } else { Write-Host 'ACIK_POZISYON_YOK' }
 
   Write-Host '== 2) GITHUB PUSH'
-  Invoke-Git $OLDWT push origin "HEAD:refs/heads/$BRANCH" | Out-Host
+  Invoke-Git $SRC push origin "HEAD:refs/heads/$BRANCH" | Out-Host
   Invoke-Git $PUB push origin $PUBBRANCH | Out-Host
   Write-Host "PUSH_OK $BRANCH"
 
-  Write-Host '== 3) KAYNAK KLASORU'
-  if (-not (Test-Path -LiteralPath "$SRC\brainhub\server.js")) {
-    try { Invoke-Git $REPO worktree add $SRC $BRANCH | Out-Host }
-    catch {
-      Write-Warning "git worktree add olmadi ($($_.Exception.Message)); duz kopya aciliyor."
-      $zip = Join-Path $env:TEMP "jev-brain-src-$ts.zip"
-      Invoke-Git $OLDWT archive --format=zip -o $zip HEAD | Out-Null
-      Expand-Archive -LiteralPath $zip -DestinationPath $SRC -Force
-    }
-  }
-  if (Test-Path -LiteralPath "$SRC\.git") { $hs = Invoke-Git $SRC rev-parse HEAD; if ($hs -ne $exp) { throw "Kaynak beklenen surumde degil: $hs" } }
-  Write-Host "KAYNAK_OK $SRC"
+  Write-Host '== 3) KAYNAK KLASORLERI'
+  if (-not (Test-Path -LiteralPath "$SRC\brainhub\server.js")) { throw "Kaynak eksik: $SRC\brainhub\server.js" }
+  if (-not (Test-Path -LiteralPath "$APK\codemagic.yaml")) { throw "APK kaynagi eksik: $APK\codemagic.yaml" }
+  Write-Host "KAYNAK_OK $SRC • APK_KAYNAK_OK $APK"
 
   Write-Host '== 4) ESKI SISTEM DURUYOR (C:\BrainHub)'
   Stop-Office $OLD

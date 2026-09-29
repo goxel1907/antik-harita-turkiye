@@ -2,12 +2,16 @@
 $J      = 'C:\JEV-Brain'
 $RT     = "$J\runtime"
 $BK     = "$J\BrainHubBackups"
-$SRC    = "$J\source"
+$SRC    = "$J\source"        # PC kaynak kodu (bagimsiz git klonu, dal r2544-claude-panel-guard)
+$APK    = "$J\apk-source"    # Android/APK kaynagi (bagimsiz git klonu, dal futures15m-alarm-public-build; Codemagic bu daldan derler)
 $OLD    = 'C:\BrainHub'
 $OLDBK  = 'C:\BrainHubBackups'
-$OLDWT  = 'C:\BrainHub\_work_r2543_obs_20260928-211718'
+$OLDWT  = 'C:\BrainHub\_work_r2543_obs_20260928-211718'   # ESKI gelistirme kopyasi (arsiv, KULLANILMAZ)
+# ESKI yerler (CLAUDE_R2544_13): yalniz ilk klonlama yedegi icin; gunluk islerde KULLANILMAZ.
 $REPO   = 'C:\Users\adm\Documents\Codex\2026-09-26\referenced-chatgpt-conversation-this-is-an\work\repo'
-$PUB    = 'C:\Users\adm\Documents\Codex\2026-09-28\referenced-chatgpt-conversation-this-is-an\work\public-release'
+$OLDPUB = 'C:\Users\adm\Documents\Codex\2026-09-28\referenced-chatgpt-conversation-this-is-an\work\public-release'
+$PUB    = $APK
+$GITHUB = 'https://github.com/goxel1907/antik-harita-turkiye.git'
 $BRANCH = 'r2544-claude-panel-guard'
 $PUBBRANCH = 'futures15m-alarm-public-build'
 $env:GIT_REDIRECT_STDERR = '2>&1'
@@ -93,4 +97,13 @@ function Stop-Office([string]$Root) {
     if (Test-Path -LiteralPath $stop) {
         try { & powershell -NoProfile -ExecutionPolicy Bypass -File $stop } catch { Write-Warning "Office durdurma: $($_.Exception.Message)" }
     }
+}
+function Ensure-Clone([string]$From, [string]$To, [string]$Branch, [string]$OldRemote) {
+    # Bagimsiz klon: C:\JEV-Brain disindaki hicbir klasore (worktree yolu vb.) bagli degildir.
+    if (Test-Path -LiteralPath (Join-Path $To '.git')) { return }
+    Write-Warning "$To yok; $From klonlaniyor."
+    Invoke-Git $J -c core.autocrlf=true clone --branch $Branch $From $To | Out-Host
+    Invoke-Git $To config core.autocrlf true | Out-Null
+    Invoke-Git $To remote rename origin $OldRemote | Out-Null
+    Invoke-Git $To remote add origin $GITHUB | Out-Null
 }

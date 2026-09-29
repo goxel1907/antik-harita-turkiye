@@ -27,3 +27,16 @@ test('geçiş betiği: yönetici, beklenen sürüm, açık pozisyon kapısı, ge
   assert.match(c,/return ,@\(/,'boş pozisyon listesi \$null sayılmaz');
   assert.match(c,/function Invoke-Git/);assert.doesNotMatch(c,/function Git\b/);
 });
+test('R2544.13: PC ve APK kaynakları C:\\JEV-Brain içinde bağımsız klon; eski Codex yolları günlük işte kullanılmaz',()=>{
+  const c=R('jev-brain','common.ps1'),g=R('jev-brain','JEV-BRAIN-GECIS.ps1'),a=R('jev-brain','APK-PUSH.ps1'),d=R('jev-brain','JEV-DEPLOY.ps1');
+  assert.match(c,/\$APK    = "\$J\\apk-source"/);assert.match(c,/\$PUB    = \$APK/);
+  assert.match(c,/function Ensure-Clone/);assert.match(c,/remote rename origin \$OldRemote/);
+  for(const s of [c,g,a,d])assert.doesNotMatch(s,/worktree add/,'worktree yok: Windows yolları VM/başka klasöre bağlanmasın');
+  assert.match(g,/Invoke-Git \$SRC rev-parse HEAD/);assert.match(g,/Invoke-Git \$SRC push origin/);
+  assert.doesNotMatch(g,/Invoke-Git \$OLDWT/);
+  assert.match(a,/BEKLENEN-PUBLIC\.txt/);assert.match(a,/status --short/);assert.match(a,/push origin \$PUBBRANCH/);
+  assert.ok(a.charCodeAt(0)===0xFEFF);
+  const rd=R('jev-brain','README.md');
+  assert.match(rd,/apk-source/);assert.match(rd,/Eski yer → yeni yer/);
+  assert.doesNotMatch(R('jev-brain','LIVE-KAPAT.cmd'),/LiveArm/);
+});
