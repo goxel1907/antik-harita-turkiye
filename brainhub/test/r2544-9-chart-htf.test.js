@@ -64,3 +64,10 @@ test('Office: Üst TF ve Pozisyon aç/kapa düğmeleri, htf/pos parametreleri ge
   assert.match(os,/u\.searchParams\.get\('htf'\)==='0'\?\{htf:'0'\}/);
   for(const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(m[1]);
 });
+
+test('etiketler kendi fiyatının yakınında kalır (±54 px); sığmayanlar sayılır ve "+N SEVIYE" notu düşülür',()=>{
+  const src=fs.readFileSync(path.join(__dirname,'..','market.js'),'utf8');
+  assert.match(src,/CLAUDE_R2544_9B_NEAR_PLACEMENT/);assert.match(src,/const MAXD=54,occ=\[\];/);assert.match(src,/SEVIYE: OFIS TABLOSUNDA/);
+  const many={candles,analysis:{smcContext:{fibLevels:{retracement:{'0.382':101,'0.5':101.02,'0.618':101.04,'0.705':101.06,'0.786':101.08}}},recentFairValueGaps:[{side:'BULL',low:101,high:101.1,ce50:101.05,at:at(50)}]}};
+  const p=pixels(renderChartPng(many,'annotated'));assert.equal(p.w,1280);
+});

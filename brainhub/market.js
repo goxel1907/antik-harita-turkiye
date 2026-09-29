@@ -1103,13 +1103,29 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
         g.lines=lines.slice(0,2);if(lines.length>2)g.lines[1]=(g.lines[1].slice(0,room-1))+'+';g.h=g.lines.length>1?GH*2+8:GH+5;g.pw=pw;
       }
       const minY=top,maxY=priceBottom;
-      // yer yetmezse önce düşük öncelikli satırlar birleşik özet olmadan atlanır; fiyat ve pozisyon satırları asla atlanmaz
-      let keep=groups.map((_,i)=>i);
-      const total=()=>keep.reduce((s,i)=>s+groups[i].h,0);
-      while(total()>maxY-minY&&keep.length>1){let worst=-1,wp=-1;for(const i of keep){const g=groups[i];if(g.prio>wp&&!g.isPrice&&g.prio>0){wp=g.prio;worst=i;}}if(worst<0)break;keep=keep.filter(i=>i!==worst);}
-      const pos={};let yy=minY;
-      for(const i of keep){const g=groups[i];let y=Math.max(yy,Math.min(maxY-g.h,Math.round(g.y)-Math.round(GH/2)-2));pos[i]=y;yy=y+g.h;}
-      for(let k=keep.length-1;k>=0;k--){const i=keep[k],g=groups[i];const lim=k===keep.length-1?maxY:pos[keep[k+1]];if(pos[i]+g.h>lim)pos[i]=lim-g.h;}
+      // CLAUDE_R2544_9B_NEAR_PLACEMENT: 29.09 canlı HYPE — 27 etiket tüm sütunu doldurunca satırlar fiyatlarından 100+ px
+      // kayıyordu (POZ GIRIS 88.301 başka bir fiyatın hizasında). Yeni yerleşim: önce fiyat/pozisyon (öncelik 0), sonra öncelik
+      // sırasına ve fiyata yakınlığa göre her satır gerçek fiyatına EN YAKIN boş yere konur; ±MAXD px içinde yer yoksa
+      // (öncelik 0 hariç) o satır çizilmez. Böylece görünen her etiket kendi çizgisinin hizasında kalır.
+      const MAXD=54,occ=[];
+      const free=(y,h)=>y>=minY&&y+h<=maxY&&occ.every(o=>y+h<=o[0]||y>=o[1]);
+      const lastClose=Number(candles.at(-1)?.close);
+      const order=groups.map((g,i)=>i).sort((a,b)=>(groups[a].prio-groups[b].prio)||(Math.abs(groups[a].price-lastClose)-Math.abs(groups[b].price-lastClose)));
+      const pos={};const keep=[];
+      for(const i of order){
+        const g=groups[i],want=Math.max(minY,Math.min(maxY-g.h,Math.round(g.y)-Math.round(GH/2)-2));
+        let best=null;
+        const lim=g.prio===0?(maxY-minY):MAXD;
+        for(let d=0;d<=lim&&best===null;d++){for(const y of [want-d,want+d]){if(free(y,g.h)){best=y;break;}}}
+        if(best===null)continue;
+        pos[i]=best;occ.push([best,best+g.h]);keep.push(i);
+      }
+      // seçilen satırlar fiyat sırasıyla (ters dönme olmadan) yeniden yerleştirilir: ileri + geri geçiş
+      keep.sort((a,b)=>groups[a].y-groups[b].y);
+      const hidden=groups.length-keep.length;
+      if(hidden>0)text57(right+10,priceBottom+8,`+${hidden} SEVIYE: OFIS TABLOSUNDA`,[150,160,175,255],2);
+      {let yy=minY;for(const i of keep){const g=groups[i];const want=Math.max(minY,Math.min(maxY-g.h,Math.round(g.y)-Math.round(GH/2)-2));pos[i]=Math.max(yy,want);yy=pos[i]+g.h;}
+       for(let k=keep.length-1;k>=0;k--){const i=keep[k],g=groups[i];const lim=k===keep.length-1?maxY:pos[keep[k+1]];if(pos[i]+g.h>lim)pos[i]=lim-g.h;}}
       for(const i of keep){
         const g=groups[i],y=pos[i],col=lift(g.col);
         fillRect(right+4,y,width-2,y+g.h-2,g.isPrice?[48,54,66,255]:(g.prio===0?[40,34,20,255]:[20,25,32,255]));
