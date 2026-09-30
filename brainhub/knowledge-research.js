@@ -30,8 +30,22 @@ const CURATED_OPEN_SOURCE_REPOS=[
   {repo:'online-ml/river',url:'https://github.com/online-ml/river',license:'BSD-3-Clause',roles:['ONLINE_LEARNING','CONCEPT_DRIFT','STREAMING_STATS']},
   {repo:'nkaz001/hftbacktest',url:'https://github.com/nkaz001/hftbacktest',license:'MIT',roles:['ORDER_BOOK','MICROSTRUCTURE','LATENCY','BACKTEST']},
   {repo:'AgentJDrew/backtest-guard',url:'https://github.com/AgentJDrew/backtest-guard',license:'MIT',roles:['VALIDATION','OVERFITTING','PURGED_CV','BACKTEST']},
-  {repo:'landtml/purgedcv',url:'https://github.com/landtml/purgedcv',license:'MIT',roles:['VALIDATION','PURGED_CV','WALK_FORWARD']}
+  {repo:'landtml/purgedcv',url:'https://github.com/landtml/purgedcv',license:'MIT',roles:['VALIDATION','PURGED_CV','WALK_FORWARD']},
+  // R2544.19: data semantics, normalized feed/replay and offline-learning references.
+  {repo:'binance/binance-connector-python',url:'https://github.com/binance/binance-connector-python',license:'MIT',roles:['AUTHORITATIVE_API_REFERENCE','EXCHANGE','MARKET_DATA','DERIVATIVES','WEBSOCKET'],why:'Official Binance SDK reference for USDⓈ-M futures API/WebSocket field semantics, reconnect/error handling and market-data provenance.'},
+  {repo:'bmoscon/cryptofeed',url:'https://github.com/bmoscon/cryptofeed',license:'AGPL-3.0-or-later',roles:['MARKET_DATA','ORDER_BOOK','WEBSOCKET','NORMALIZATION','REPLAY'],why:'Reference architecture for normalized trades/L2 books/funding/OI/liquidations and capture/replay. AGPL means reference-only; code is not copied into BrainHub.'},
+  {repo:'AI4Finance-Foundation/FinRL',url:'https://github.com/AI4Finance-Foundation/FinRL',license:'MIT',roles:['ML_RESEARCH','OFFLINE_LEARNING','TRAIN_TEST_TRADE','ENVIRONMENT'],why:'Research-only reference for separating training/testing/trading and evaluating adaptive learning offline; it is not a live self-modifying authority.'}
 ];
+
+function repoTransparency(x){
+  const roles=Array.isArray(x?.roles)?x.roles:[];
+  let why=x?.why||'Curated engineering reference for '+roles.slice(0,3).join(', ').toLowerCase()+'.';
+  if(roles.includes('ORDER_BOOK')||roles.includes('MICROSTRUCTURE'))why=x?.why||'Market microstructure/order-book implementation and validation reference.';
+  else if(roles.includes('VALIDATION')||roles.includes('PURGED_CV'))why=x?.why||'Leakage/overfitting-resistant validation and walk-forward methodology reference.';
+  else if(roles.includes('ONLINE_LEARNING')||roles.includes('CONCEPT_DRIFT'))why=x?.why||'Streaming statistics and concept-drift methodology reference for non-stationary markets.';
+  return {...x,why,authority:'REFERENCE_ONLY',
+    howUsed:'Repo URL/license/roles are offered only to the optional knowledge-research desk as secondary engineering hints. Any usable note must be source-fetched/grounded, then explicitly accepted by JEV and stored as VERIFIED_REFERENCE before it appears in PASS-1/PASS-2 dynamicKnowledge. Repository code never becomes an order signal or hidden strategy authority.'};
+}
 
 function clip(v,n=1200){return String(v??'').replace(/\s+/g,' ').trim().slice(0,n);}
 function safeTopic(v){
@@ -108,7 +122,7 @@ function repoHints(family){
   return CURATED_OPEN_SOURCE_REPOS
     .filter(x=>x.roles.some(r=>wanted.includes(r)))
     .slice(0,5)
-    .map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles}));
+    .map(x=>repoTransparency(x));
 }
 function topicCandidates(unified,evidence=null){
   const out=[];
@@ -189,7 +203,7 @@ function createKnowledgeResearch({
       'TOPIC: '+topic,
       'FAMILY: '+family,
       sourceText?'VERIFIED_SOURCE_EXCERPTS:\n'+sourceText:'',
-      !sourceText&&hints.length?'CURATED_OPEN_SOURCE_ENGINEERING_REFERENCES (secondary only; never treat repo popularity as market evidence; do not copy code):\n'+hints.map(x=>x.repo+' | '+x.license+' | '+x.url+' | '+x.roles.join(',')).join('\n'):'',
+      !sourceText&&hints.length?'CURATED_OPEN_SOURCE_ENGINEERING_REFERENCES (secondary only; never treat repo popularity as market evidence; do not copy code):\n'+hints.map(x=>x.repo+' | '+x.license+' | '+x.url+' | '+x.roles.join(',')+' | WHY '+x.why).join('\n'):'',
       sourceText
         ? 'Using ONLY the verified source excerpts, return {"summary":"...","keyPoints":["..."],"sourceUrls":[]}. Do not add facts not present in the excerpts.'
         : 'Research the definition, mechanics, valid interpretation, failure modes and misuse risks. Return {"summary":"...","keyPoints":["..."],"sourceUrls":["https://..."]}. Prefer CME, Binance, CFTC, TradingView Support, or Investopedia for trading facts. Curated GitHub repos may support software/indicator/execution implementation details only. If uncertain, say so.'
@@ -323,7 +337,7 @@ function createKnowledgeResearch({
       latest:entries.slice(-5).reverse().map(x=>({topic:x.topic,family:x.family,verifiedAt:x.verifiedAt,sourceUrls:x.sourceUrls})),
       retryPolicy:{channelAttempts:Math.max(1,Math.min(4,Array.isArray(retryDelaysMs)?retryDelaysMs.length:1)),sourceFetchAttempts:2},
       openSourceRepoCount:CURATED_OPEN_SOURCE_REPOS.length,
-      openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles}))
+      openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>repoTransparency(x))
     };
   }
   return {research,researchFromContext,reference,status,detectGap};
