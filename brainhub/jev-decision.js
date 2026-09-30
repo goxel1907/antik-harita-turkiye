@@ -228,18 +228,18 @@ function compactEpisodeRow(x){
   return {
     symbol:x.symbol||null,side:x.side||null,family:x.family||null,lane:x.lane||null,timing:x.timing||null,
     net:x.net??null,r:x.r??null,exit:x.exit||null,score:x.score??null,
-    shared:Array.isArray(x.shared)?x.shared.slice(0,7):[],
-    different:Array.isArray(x.different)?x.different.slice(0,5):[],
-    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,10):[]
+    shared:Array.isArray(x.shared)?x.shared.slice(0,5):[],
+    different:Array.isArray(x.different)?x.different.slice(0,3):[],
+    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,6):[]
   };
 }
 function compactEpisodeBundle(v,{perOutcome=1}={}){
   if(!v||typeof v!=='object')return null;
   const cur=v.current&&typeof v.current==='object'?{
     side:v.current.side||null,
-    tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,24):[],
+    tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,18):[],
     mechanics:v.current.mechanics&&typeof v.current.mechanics==='object'?{
-      labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,12):[],
+      labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,8):[],
       participantIdentity:v.current.mechanics.participantIdentity||'NOT_IDENTIFIED',
       participantIntent:v.current.mechanics.participantIntent||'NOT_ASSERTED'
     }:null
@@ -249,7 +249,7 @@ function compactEpisodeBundle(v,{perOutcome=1}={}){
     wins:(Array.isArray(v.wins)?v.wins:[]).slice(0,perOutcome).map(compactEpisodeRow).filter(Boolean),
     losses:(Array.isArray(v.losses)?v.losses:[]).slice(0,perOutcome).map(compactEpisodeRow).filter(Boolean),
     mixedEvidence:v.mixedEvidence===true,
-    policy:String(v.policy||'').slice(0,420)
+    policy:String(v.policy||'').slice(0,260)
   };
 }
 function compactTradeLessons(tl){
@@ -257,20 +257,35 @@ function compactTradeLessons(tl){
   const bySide=tl.similarEpisodesBySide&&typeof tl.similarEpisodesBySide==='object'
     ? Object.fromEntries(['LONG','SHORT'].map(k=>[k,compactEpisodeBundle(tl.similarEpisodesBySide[k],{perOutcome:1})]))
     : null;
+  const clipLine=v=>String(v||'').slice(0,260);
+  const current=tl.current&&typeof tl.current==='object'?{
+    tier:tl.current.tier||null,tierTr:tl.current.tierTr||null,cols:Array.isArray(tl.current.cols)?tl.current.cols.slice(0,8):[],
+    LONG:Array.isArray(tl.current.LONG)?tl.current.LONG.slice(0,8):[],SHORT:Array.isArray(tl.current.SHORT)?tl.current.SHORT.slice(0,8):[]
+  }:null;
+  const symbol=tl.symbol&&typeof tl.symbol==='object'?{
+    symbol:tl.symbol.symbol||null,trades:tl.symbol.trades??null,net:tl.symbol.net??null,lastCloseMinAgo:tl.symbol.lastCloseMinAgo??null,
+    recent:Array.isArray(tl.symbol.recent)?tl.symbol.recent.slice(0,3):[]
+  }:null;
+  const seq=tl.sequence&&typeof tl.sequence==='object'?{
+    recent60:tl.sequence.recent60||null,lastClose:tl.sequence.lastClose||null,candidate:tl.sequence.candidate||null,
+    quickSwitchAfterLoss:tl.sequence.quickSwitchAfterLoss===true,returnToRecentSymbol:tl.sequence.returnToRecentSymbol===true,
+    sameSymbolRecent:tl.sequence.sameSymbolRecent||null,note:clipLine(tl.sequence.note)
+  }:null;
   return {
     version:tl.version||null,samples:Number(tl.samples)||0,lifetime:tl.lifetime||null,payoffRatio:tl.payoffRatio??null,
-    byTierSide:Array.isArray(tl.byTierSide)?tl.byTierSide.slice(0,6):[],
-    byFamilySide:Array.isArray(tl.byFamilySide)?tl.byFamilySide.slice(0,6):[],
-    byRegimeSide:Array.isArray(tl.byRegimeSide)?tl.byRegimeSide.slice(0,6):[],
-    byExit:Array.isArray(tl.byExit)?tl.byExit.slice(0,5):[],
-    worked:Array.isArray(tl.worked)?tl.worked.slice(0,3):[],
-    failed:Array.isArray(tl.failed)?tl.failed.slice(0,3):[],
-    repeatedMistakes:Array.isArray(tl.repeatedMistakes)?tl.repeatedMistakes.slice(0,3):[],
-    current:tl.current||null,symbol:tl.symbol||null,sequence:tl.sequence||null,
-    similarEpisodes:compactEpisodeBundle(tl.similarEpisodes,{perOutcome:1}),
+    byTierSide:Array.isArray(tl.byTierSide)?tl.byTierSide.slice(0,4):[],
+    byFamilySide:Array.isArray(tl.byFamilySide)?tl.byFamilySide.slice(0,4):[],
+    byRegimeSide:Array.isArray(tl.byRegimeSide)?tl.byRegimeSide.slice(0,4):[],
+    byExit:Array.isArray(tl.byExit)?tl.byExit.slice(0,4):[],
+    worked:Array.isArray(tl.worked)?tl.worked.slice(0,3).map(clipLine):[],
+    failed:Array.isArray(tl.failed)?tl.failed.slice(0,3).map(clipLine):[],
+    repeatedMistakes:Array.isArray(tl.repeatedMistakes)?tl.repeatedMistakes.slice(0,3).map(clipLine):[],
+    current,symbol,sequence:seq,
+    // bySide already contains the hinted direction, so avoid sending the same episode bundle twice.
+    similarEpisodes:bySide?null:compactEpisodeBundle(tl.similarEpisodes,{perOutcome:1}),
     similarEpisodesBySide:bySide,
-    episodePolicy:String(tl.episodePolicy||'').slice(0,520),
-    howToUse:String(tl.howToUse||'').slice(0,520),
+    episodePolicy:String(tl.episodePolicy||'').slice(0,300),
+    howToUse:String(tl.howToUse||'').slice(0,300),
     compactedForJev:true
   };
 }
