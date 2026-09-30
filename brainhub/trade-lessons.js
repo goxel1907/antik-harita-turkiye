@@ -218,7 +218,13 @@ function digest(cards,{symbol=null,candidate=null,currentSignature=null,now=Date
     episodePolicy:'Bağlamsal benzerlik sonuç garantisi değildir. JEV benzer kazanan ve kaybeden örnekleri birlikte görür; farkı güncel CVD/depth/OI/taker/likidasyon/stretch/formasyon kanıtında açıklamalıdır.'
   };
   if(currentSignature){
-    out.similarEpisodes=episodeMemory.nearestEpisodes(xs,currentSignature,{limitPerOutcome:3,minScore:0.18});
+    const longSig={...currentSignature,side:'LONG'},shortSig={...currentSignature,side:'SHORT'};
+    out.similarEpisodesBySide={
+      LONG:episodeMemory.nearestEpisodes(xs,longSig,{limitPerOutcome:2,minScore:0.18}),
+      SHORT:episodeMemory.nearestEpisodes(xs,shortSig,{limitPerOutcome:2,minScore:0.18})
+    };
+    const hinted=String(candidate?.side||'').toUpperCase();
+    out.similarEpisodes=['LONG','SHORT'].includes(hinted)?out.similarEpisodesBySide[hinted]:null;
   }
   if(candidate){
     const att=attentionFromCandidate(candidate),tier=tierOf(att);
