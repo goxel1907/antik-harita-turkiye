@@ -41,6 +41,30 @@ function attentionFromCandidate(c){
     preMove:c.preMove&&typeof c.preMove==='object'?{state:c.preMove.state||null,direction:c.preMove.direction||null}:null
   };
 }
+
+function normTrend(v){
+  const x=String(v||'').toUpperCase();
+  if(x.includes('UP'))return 'UP';
+  if(x.includes('DOWN'))return 'DOWN';
+  return x?'MIXED':'UNKNOWN';
+}
+function regimeKeyFromSignature(sig,side){
+  if(!sig||typeof sig!=='object')return 'REGIME_UNKNOWN';
+  const t5=normTrend(sig?.regime5m?.trend),t15=normTrend(sig?.regime15m?.trend);
+  let base='REGIME_MIXED';
+  if(t5==='UP'&&t15==='UP')base='TREND_UP_ALIGNED';
+  else if(t5==='DOWN'&&t15==='DOWN')base='TREND_DOWN_ALIGNED';
+  else if((t5==='UP'&&t15==='DOWN')||(t5==='DOWN'&&t15==='UP'))base='TREND_CONFLICT';
+  const sd=String(side||'').toUpperCase();
+  let relation='MIXED_SIDE';
+  if(base==='TREND_UP_ALIGNED')relation=sd==='LONG'?'WITH_TREND':'COUNTER_TREND';
+  else if(base==='TREND_DOWN_ALIGNED')relation=sd==='SHORT'?'WITH_TREND':'COUNTER_TREND';
+  const r5=sig?.regime5m?.readout||{},r15=sig?.regime15m?.readout||{};
+  const chase=sd==='LONG'?(r5.chaseLong||r15.chaseLong):(sd==='SHORT'?(r5.chaseShort||r15.chaseShort):null);
+  const stretched=[r5.stretchState,r15.stretchState].some(x=>['EXTENDED','EXTREME'].includes(String(x||'').toUpperCase()));
+  return [base,relation,chase&&String(chase).toUpperCase()!=='LOW'?'CHASE_'+String(chase).toUpperCase():null,stretched?'STRETCHED':null].filter(Boolean).join('|');
+}
+
 function canonicalR(p){
   const r=num(p?.rMultiple),risk=num(p?.riskQuote),qty=num(p?.initialQuantity??p?.quantity);
   if(risk===null||risk<=0||qty===null||qty<=0||r===null)return {r:null,status:'UNMEASURED'};
@@ -51,7 +75,7 @@ function canonicalR(p){
   return {r,status:'MEASURED'};
 }
 const WIN_EXITS=new Set(['TP1_RUNNER_TRAIL','TP1_BREAKEVEN','TAKE_PROFIT','JEV_PARTIAL_TAKE_PROFIT','JEV_PARTIAL_THEN_EXTERNAL_CLOSE']);
-function lessonCard(close,{attention=null,prev=null,avgWin=null}={}){
+function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],avgWin=null}={}){
   const p=close||{},ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
   const att=attention||ec.attention||null;
   const tier=tierOf(att);
@@ -61,6 +85,8 @@ function lessonCard(close,{attention=null,prev=null,avgWin=null}={}){
   const gapMin=prev&&Number.isFinite(opened)&&Number.isFinite(prev.closedMs)?r2((opened-prev.closedMs)/60000,1):null;
   const side=String(p.side||'').toUpperCase()||null;
   const exit=p.exitType||null;
+  const regime=regimeKeyFromSignature(ec.marketSignature||null,side);
+  const globalGapMin=prevGlobal&&Number.isFinite(opened)&&Number.isFinite(prevGlobal.closedMs)?r2((opened-prevGlobal.closedMs)/60000,1):null;
   const ch24=num(att?.change24hPct);
   const tags=[];
   if(exit==='TP1_RUNNER_TRAIL')tags.push('WIN_TP1_RUNNER');
@@ -70,6 +96,17 @@ function lessonCard(close,{attention=null,prev=null,avgWin=null}={}){
   if(exit==='JEV_EXIT_NOW'&&net!==null&&net<0)tags.push('LOSS_JEV_EXIT');
   if(exit==='TP1_THEN_STOP')tags.push('RUNNER_GAVE_BACK');
   if(gapMin!==null&&gapMin>=0&&gapMin<15)tags.push(num(prev?.net)!==null&&prev.net>0?'RAPID_REENTRY_AFTER_WIN':'RAPID_REENTRY_AFTER_LOSS');
+  if(globalGapMin!==null&&globalGapMin>=-2&&globalGapMin<20&&prevGlobal?.symbol&&String(prevGlobal.symbol)!==String(p.symbol)){
+    tags.push(num(prevGlobal?.net)!==null&&prevGlobal.net>0?'QUICK_SYMBOL_SWITCH_AFTER_WIN':'QUICK_SYMBOL_SWITCH_AFTER_LOSS');
+  }
+  if(gapMin!==null&&gapMin>=-2&&gapMin<30&&prev?.side&&side&&String(prev.side)!==side){
+    tags.push(num(prev?.net)!==null&&prev.net>0?'SAME_SYMBOL_DIRECTION_FLIP_AFTER_WIN':'SAME_SYMBOL_DIRECTION_FLIP_AFTER_LOSS');
+  }
+  if(prevGlobal&&num(prevGlobal.net)!==null&&prevGlobal.net>0&&net!==null&&net<0&&-net>Math.max(1,1.25*prevGlobal.net))tags.push('WIN_GIVEBACK_SEQUENCE');
+  if(Array.isArray(prevTwo)&&prevTwo.length>=2){
+    const a=prevTwo[prevTwo.length-2],b=prevTwo[prevTwo.length-1];
+    if(a?.symbol&&b?.symbol&&String(a.symbol)===String(p.symbol)&&String(b.symbol)!==String(p.symbol)&&globalGapMin!==null&&globalGapMin>=-2&&globalGapMin<30)tags.push('TWO_SYMBOL_PING_PONG');
+  }
   if(stopPct!==null&&stopPct>=3)tags.push('WIDE_STOP');
   if(stopPct!==null&&stopPct<0.6)tags.push('TIGHT_STOP');
   if(tier==='TOP3'&&side==='LONG')tags.push('LEADER_CHASE_LONG');
@@ -84,6 +121,12 @@ function lessonCard(close,{attention=null,prev=null,avgWin=null}={}){
   const L=[];
   if(tags.includes('RAPID_REENTRY_AFTER_WIN')&&net<0)L.push('kazançtan hemen sonra aynı coine yeniden giriş zararla bitti');
   if(tags.includes('RAPID_REENTRY_AFTER_LOSS')&&net<0)L.push('zarardan hemen sonra aynı coine intikam girişi');
+  if(tags.includes('QUICK_SYMBOL_SWITCH_AFTER_LOSS')&&net<0)L.push('başka coindeki zarardan hemen sonra sembol değişimi de zarar üretti');
+  if(tags.includes('QUICK_SYMBOL_SWITCH_AFTER_WIN')&&net<0)L.push('kazançtan hemen sonra hızlı sembol rotasyonu zararla bitti');
+  if(tags.includes('SAME_SYMBOL_DIRECTION_FLIP_AFTER_WIN')&&net<0)L.push('aynı coinde kazançtan sonra hızlı yön tersleme zararla bitti');
+  if(tags.includes('SAME_SYMBOL_DIRECTION_FLIP_AFTER_LOSS')&&net<0)L.push('aynı coinde kayıptan sonra hızlı yön tersleme zararla bitti');
+  if(tags.includes('WIN_GIVEBACK_SEQUENCE'))L.push('önceki kazançtan daha büyük sonraki kayıp seans kârını geri verdi');
+  if(tags.includes('TWO_SYMBOL_PING_PONG')&&net<0)L.push('iki coin arasında hızlı gidip gelme zarar üretti');
   if(tags.includes('LEADER_CHASE_LONG')&&net<0)L.push('ilk 3 yükselende LONG kovalama');
   if(tags.includes('EXTENDED_24H_LONG')&&net<0)L.push('24s +%'+Math.round(ch24)+' uzamış coinde LONG');
   if(tags.includes('LOSS_FAST_STOP'))L.push('stop '+(hold??'?')+' dk içinde vuruldu: giriş yeri/zamanlaması zayıf');
@@ -96,9 +139,9 @@ function lessonCard(close,{attention=null,prev=null,avgWin=null}={}){
     id:p.id||null,eventId:p.eventId||null,symbol:p.symbol||null,side,tier,
     source:att?(att.deepScanReason||att.attentionSource||(att.targetSources||[])[0]||null):null,
     rank:num(att?.gainerRank),ch24:ch24===null?null:r2(ch24,1),
-    family:ec.setupFamily||null,lane:p.tradeLane||ec.lane||null,timing:ec.entryTiming||null,
+    family:ec.setupFamily||null,lane:p.tradeLane||ec.lane||null,timing:ec.entryTiming||null,regime,
     exit,net:net===null?null:r2(net,2),r:cr.r===null?null:r2(cr.r,2),rStatus:cr.status,
-    holdMin:hold,stopPct:stopPct===null?null:r2(stopPct,2),gapMin,
+    holdMin:hold,stopPct:stopPct===null?null:r2(stopPct,2),gapMin,globalGapMin,
     openedAt:p.openedAt||null,closedMs:Number.isFinite(closed)?closed:null,
     tags,verdict,lesson:L.slice(0,3).join('; ')||null
   };
@@ -125,14 +168,18 @@ function rows(m,{minN=1,limit=10}={}){
 }
 function buildCards(closes,{attentionOf=null}={}){
   const sorted=[...closes].sort((a,b)=>(Date.parse(a.openedAt||a.closedAt||'')||0)-(Date.parse(b.openedAt||b.closedAt||'')||0));
-  const lastBySym=new Map(),cards=[];let wins=[];
+  const lastBySym=new Map(),cards=[],closedSeq=[];let wins=[];
   for(const p of sorted){
     const att=(p.entryContext&&p.entryContext.attention)||(typeof attentionOf==='function'?attentionOf(p):null);
     const avgWin=wins.length>=3?wins.slice(-30).reduce((a,x)=>a+x,0)/Math.min(30,wins.length):null;
-    const card=lessonCard(p,{attention:att,prev:lastBySym.get(p.symbol)||null,avgWin});
+    const prevGlobal=closedSeq.length?closedSeq[closedSeq.length-1]:null;
+    const card=lessonCard(p,{attention:att,prev:lastBySym.get(p.symbol)||null,prevGlobal,prevTwo:closedSeq.slice(-2),avgWin});
     cards.push(card);
     if(card.net!==null&&card.net>0)wins.push(card.net);
-    if(card.closedMs)lastBySym.set(p.symbol,{closedMs:card.closedMs,net:card.net});
+    if(card.closedMs){
+      const row={closedMs:card.closedMs,net:card.net,symbol:card.symbol,side:card.side};
+      lastBySym.set(p.symbol,row); closedSeq.push(row);
+    }
   }
   return cards;
 }
@@ -142,6 +189,7 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   const life=stats(xs);
   const tierSide=group(xs,c=>c.tier+'|'+c.side);
   const famSide=group(xs.filter(c=>c.family),c=>c.family+'|'+c.side);
+  const regimeSide=group(xs.filter(c=>c.regime&&c.regime!=='REGIME_UNKNOWN'),c=>c.regime+'|'+c.side);
   const tagG=new Map();for(const c of xs)for(const t of c.tags){if(!tagG.has(t))tagG.set(t,[]);tagG.get(t).push(c);}
   const tagRows=[...tagG.entries()].filter(([t])=>!t.startsWith('R_')).map(([t,v])=>{const s=stats(v);return [t,s.n,s.winPct,s.net];}).sort((a,b)=>a[3]-b[3]);
   // Ne çalıştı / ne çalışmadı: n≥4 grup; PF ve net ile sıralı.
@@ -153,12 +201,13 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   const failed=cand.filter(x=>x.s.pf!==null&&x.s.pf<0.8&&x.s.net<0).sort((a,b)=>a.s.net-b.s.net).slice(0,4).map(fmt);
   const tagFailed=tagRows.filter(r=>r[1]>=3&&r[3]<0).slice(0,5).map(r=>r[0]+': n'+r[1]+' net'+r[3]+'$ %'+Math.round(r[2]));
   const out={
-    version:'R2544.16',samples:xs.length,
+    version:'R2544.17',samples:xs.length,
     lifetime:life,
     payoffRatio:life.avgWin&&life.avgLoss?r2(life.avgWin/life.avgLoss,2):null,
     cols:['key','n','win%','netUSDT','PF','avgWin','avgLoss'],
     byTierSide:rows(tierSide,{minN:2,limit:12}),
     byFamilySide:rows(famSide,{minN:4,limit:8}),
+    byRegimeSide:rows(regimeSide,{minN:3,limit:10}),
     byExit:rows(group(xs,c=>c.exit||'UNKNOWN'),{minN:3,limit:6}).map(r=>r.slice(0,4)),
     worked,failed,repeatedMistakes:tagFailed,
     howToUse:'Kendi kâr/zarar geçmişin: çalışanı tekrarla, zarar üreten kalıbı tekrarlama. Yumuşak bağlam; veto değil, piyasa kanıtı önce gelir.'
@@ -168,6 +217,24 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
     const pick=side=>{const v=tierSide.get(tier+'|'+side)||[];const s=stats(v);const q=posterior(v);return [s.n,s.winPct,s.net,s.pf,s.avgWin,s.avgLoss,q.mean,q.p10];};
     out.current={tier,tierTr:TIER_TR[tier]||tier,cols:['n','win%','net','PF','avgWin','avgLoss','pMean','pP10'],LONG:pick('LONG'),SHORT:pick('SHORT')};
   }
+  const recent60=xs.filter(c=>c.closedMs&&now-c.closedMs<=60*60000).sort((a,b)=>a.closedMs-b.closedMs);
+  let switches=0;for(let i=1;i<recent60.length;i++)if(recent60[i-1].symbol!==recent60[i].symbol)switches++;
+  let lossStreak=0;for(let i=recent60.length-1;i>=0&&recent60[i].net<0;i--)lossStreak++;
+  let cum=0,peak=0;for(const c of recent60){cum+=c.net||0;peak=Math.max(peak,cum);}
+  const ordered=xs.slice().sort((a,b)=>(a.closedMs||0)-(b.closedMs||0));
+  const last=ordered.at(-1)||null,prior=ordered.at(-2)||null;
+  const candSym=String(candidate?.symbol||symbol||'').toUpperCase();
+  const lastMin=last?.closedMs?r2((now-last.closedMs)/60000,1):null;
+  const priorMin=prior?.closedMs?r2((now-prior.closedMs)/60000,1):null;
+  out.sequence={
+    recent60:{n:recent60.length,net:r2(recent60.reduce((a,c)=>a+(c.net||0),0),2),symbolSwitches:switches,lossStreak,peakToNowGiveback:r2(Math.max(0,peak-cum),2)},
+    lastClose:last?[last.symbol,last.side,last.net,last.exit,lastMin]:null,
+    candidate:candSym||null,
+    quickSwitchAfterLoss:!!(candSym&&last&&last.net<0&&lastMin!==null&&lastMin<=20&&String(last.symbol).toUpperCase()!==candSym),
+    returnToRecentSymbol:!!(candSym&&prior&&last&&priorMin!==null&&priorMin<=45&&String(prior.symbol).toUpperCase()===candSym&&String(last.symbol).toUpperCase()!==candSym),
+    sameSymbolRecent:last&&candSym&&String(last.symbol).toUpperCase()===candSym?{side:last.side,net:last.net,minAgo:lastMin}:null,
+    note:'Hızlı sembol rotasyonu/yön tersleme yalnız yumuşak risk bağlamıdır. Yeni giriş için mevcut piyasa kanıtının önceki kaybeden işlemden gerçekten farklı olup olmadığını JEV açıkça kontrol etsin; otomatik veto değildir.'
+  };
   const sym=String(symbol||'').toUpperCase();
   if(sym){
     const mine=xs.filter(c=>String(c.symbol||'').toUpperCase()===sym);
@@ -180,4 +247,4 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   }
   return out;
 }
-module.exports={tierOf,attentionFromCandidate,lessonCard,buildCards,digest,stats,posterior,canonicalR,TIER_OF_SOURCE};
+module.exports={tierOf,attentionFromCandidate,lessonCard,buildCards,digest,stats,posterior,canonicalR,regimeKeyFromSignature,TIER_OF_SOURCE};

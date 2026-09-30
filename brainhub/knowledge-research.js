@@ -24,7 +24,13 @@ const CURATED_OPEN_SOURCE_REPOS=[
   {repo:'freqtrade/freqtrade',url:'https://github.com/freqtrade/freqtrade',license:'GPL-3.0',roles:['CRYPTO_BOT','RISK','BACKTEST']},
   {repo:'mementum/backtrader',url:'https://github.com/mementum/backtrader',license:'GPL-3.0',roles:['BACKTEST','STRATEGY']},
   {repo:'pmorissette/bt',url:'https://github.com/pmorissette/bt',license:'MIT',roles:['BACKTEST','PORTFOLIO']},
-  {repo:'ranaroussi/quantstats',url:'https://github.com/ranaroussi/quantstats',license:'Apache-2.0',roles:['PERFORMANCE','RISK_ANALYTICS']}
+  {repo:'ranaroussi/quantstats',url:'https://github.com/ranaroussi/quantstats',license:'Apache-2.0',roles:['PERFORMANCE','RISK_ANALYTICS']},
+  // R2544.17 research additions: architecture/validation references only; never copied as live strategy authority.
+  {repo:'microsoft/qlib',url:'https://github.com/microsoft/qlib',license:'MIT',roles:['ML_RESEARCH','MARKET_DYNAMICS','REGIME','WALK_FORWARD']},
+  {repo:'online-ml/river',url:'https://github.com/online-ml/river',license:'BSD-3-Clause',roles:['ONLINE_LEARNING','CONCEPT_DRIFT','STREAMING_STATS']},
+  {repo:'nkaz001/hftbacktest',url:'https://github.com/nkaz001/hftbacktest',license:'MIT',roles:['ORDER_BOOK','MICROSTRUCTURE','LATENCY','BACKTEST']},
+  {repo:'AgentJDrew/backtest-guard',url:'https://github.com/AgentJDrew/backtest-guard',license:'MIT',roles:['VALIDATION','OVERFITTING','PURGED_CV','BACKTEST']},
+  {repo:'landtml/purgedcv',url:'https://github.com/landtml/purgedcv',license:'MIT',roles:['VALIDATION','PURGED_CV','WALK_FORWARD']}
 ];
 
 function clip(v,n=1200){return String(v??'').replace(/\s+/g,' ').trim().slice(0,n);}
@@ -94,10 +100,11 @@ function sourceLooksRelevant(topic,text){
 }
 function repoHints(family){
   const f=String(family||'OTHER').toUpperCase();
-  const wanted=f==='INDICATOR'||f==='PATTERN'?['INDICATOR','TECHNICAL_ANALYSIS','STRATEGY','BACKTEST']
-    : f==='MICROSTRUCTURE'?['MICROSTRUCTURE','ORDER_BOOK','EXECUTION','MARKET_DATA']
-    : f==='DERIVATIVES'||f==='EXECUTION'?['EXECUTION','EXCHANGE','MARKET_DATA','EVENT_DRIVEN']
-    : ['STRATEGY','RISK','BACKTEST','PERFORMANCE'];
+  const wanted=f==='INDICATOR'||f==='PATTERN'?['INDICATOR','TECHNICAL_ANALYSIS','STRATEGY','BACKTEST','VALIDATION']
+    : f==='MICROSTRUCTURE'?['MICROSTRUCTURE','ORDER_BOOK','EXECUTION','MARKET_DATA','LATENCY']
+    : f==='REGIME'?['REGIME','MARKET_DYNAMICS','ONLINE_LEARNING','CONCEPT_DRIFT','WALK_FORWARD']
+    : f==='DERIVATIVES'||f==='EXECUTION'?['EXECUTION','EXCHANGE','MARKET_DATA','EVENT_DRIVEN','LATENCY']
+    : ['STRATEGY','RISK','BACKTEST','PERFORMANCE','VALIDATION','OVERFITTING','ONLINE_LEARNING'];
   return CURATED_OPEN_SOURCE_REPOS
     .filter(x=>x.roles.some(r=>wanted.includes(r)))
     .slice(0,5)

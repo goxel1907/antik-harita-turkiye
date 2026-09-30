@@ -1710,11 +1710,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const depth=u?.microstructure||{};
     const d=u?.derivatives||{};
     const liq=u?.liquidationContext||{};
-    const pickFrame=f=>({
-      trend:f?.trend||null,breakOfStructure:f?.breakOfStructure||null,rsi14:finite(f?.rsi14),atrPct:finite(f?.atrPct),
-      swingState:f?.swingStructure?.state||null,patterns:Array.isArray(f?.patterns)?f.patterns.slice(-3):[],
-      sweep:f?.liquidity?.sweep||f?.liquidity?.lastSweep||null
-    });
+    const pickFrame=f=>{
+      const ro=f?.readout||{},st=ro?.stretch||{},sq=ro?.squeeze||{},dp=ro?.displacement||{},ef=ro?.effort||{};
+      return {
+        trend:f?.trend||null,breakOfStructure:f?.breakOfStructure||null,rsi14:finite(f?.rsi14),atrPct:finite(f?.atrPct),
+        swingState:f?.swingStructure?.state||null,patterns:Array.isArray(f?.patterns)?f.patterns.slice(-3):[],
+        sweep:f?.liquidity?.sweep||f?.liquidity?.lastSweep||null,
+        readout:{stretchState:st.state||null,zone:st.zone||null,chaseLong:st?.chaseRisk?.LONG||null,chaseShort:st?.chaseRisk?.SHORT||null,
+          squeeze:sq.state||null,displacement:dp.dir||null,effort:ef.state||null,divergence:ef.divergence||null}
+      };
+    };
     return {
       regime5m:pickFrame(f5),regime15m:pickFrame(f15),
       orderFlow:{available:flow?.available===true,source:flow?.source||null,cvd120s:finite(flow?.cvdQuote120s??flow?.cvd120s??depth?.streaming?.cvdQuote120s)},

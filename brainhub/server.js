@@ -54,6 +54,22 @@ jev.billingStatus({force:true}).catch(()=>{});
 fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
 const visionState=new Map();
+function markTextModel(model,{ok,error=null,durationMs=null}={}){
+  const prev=state.get(model)||{};
+  state.set(model,{
+    ok:ok===true,at:Date.now(),error:error?String(error).slice(0,400):null,durationMs:Number.isFinite(Number(durationMs))?Number(durationMs):prev.durationMs||null,
+    attempts:Number(prev.attempts||0)+1,
+    successes:Number(prev.successes||0)+(ok===true?1:0),
+    failures:Number(prev.failures||0)+(ok===true?0:1),
+    cooldownUntil:ok===true?null:(prev.cooldownUntil||null)
+  });
+}
+function textModelStatus(model){
+  if(!state.has(model))return 'untested';
+  const st=state.get(model);
+  if(st?.ok===true)return 'healthy';
+  return blocked(model)?'cooldown':'failed';
+}
 // R2541_ATOMIC_PACKET_CHART: Office mirror PNG'leri, packet/parity ile aynı snapshot'tan çizilir.
 const mirrorSnapshots=new Map();
 function rememberMirrorSnapshot(snapshotId,value){
@@ -203,6 +219,7 @@ function localVisionConfig(){
   return {enabled:raw.enabled===true&&!!baseUrl&&models.length>0,baseUrl,models,contextSize,timeoutMs,localOnly};
 }
 async function callModel(model,messages,timeoutMs=12000,requestOptions={}){
+  const started=Date.now();
   const local=localVisionConfig();
   const isLocal=String(model||'').startsWith('local/');
   if(isLocal&&(!local.enabled||!local.models.includes(model)))throw new Error('local vision model not enabled');
@@ -220,7 +237,7 @@ async function callModel(model,messages,timeoutMs=12000,requestOptions={}){
   if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
   const text=extract(raw);
   if(!text)throw new Error('empty response');
-  state.set(model,{ok:true,at:Date.now(),error:null});
+  markTextModel(model,{ok:true,durationMs:Date.now()-started});
   return {model,text};
 }
 function recentFailure(map,model){
@@ -1503,8 +1520,10 @@ const server=http.createServer(async(req,res)=>{
       const local=localVisionConfig();
       const models=[...(cfg.opencode||[]),...(cfg.kiro||[]),...(local.enabled?local.models:[])].map(model=>({
         model,
-        status:state.has(model)?(state.get(model).ok?'healthy':blocked(model)?'cooldown':'untested'):'untested',
+        status:textModelStatus(model),
         cooldownUntil:state.get(model)?.cooldownUntil||null,optionalEvidence:true,blocksJev:false,
+        attempts:Number(state.get(model)?.attempts||0),successes:Number(state.get(model)?.successes||0),failures:Number(state.get(model)?.failures||0),
+        lastLatencyMs:state.get(model)?.durationMs||null,
         last:state.get(model)?.at||null,
         error:state.get(model)?.error||null,
         visionStatus:visionState.has(model)?(visionState.get(model).ok?'healthy':'cooldown'):'untested',
@@ -1772,7 +1791,7 @@ const server=http.createServer(async(req,res)=>{
           const durationMs=Date.now()-started;
           const msg=String(e.message||e).slice(0,400);
           if(hasVision)visionState.set(model,{ok:false,at:Date.now(),error:msg,durationMs});
-          else state.set(model,{ok:false,at:Date.now(),error:msg});
+          else markTextModel(model,{ok:false,error:msg,durationMs});
           return {ok:false,model,error:msg,durationMs};
         }
       }
@@ -2167,7 +2186,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.16-PRIORITY-LEARNING';
+const RUNTIME_RELEASE='R2544.17-DECISION-QUALITY';
 const RUNTIME_BUILT_BY='Claude (Anthropic) • Cowork • 2026-09-28 • R2544: panel risk otoritesi, pozisyon koruması, ön-hareket, kovalama R-kuralı';
 function fastLaneObsSuffix(result){
   try{

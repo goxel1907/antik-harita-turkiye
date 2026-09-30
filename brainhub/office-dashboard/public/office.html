@@ -902,15 +902,16 @@ function renderWorkers(s){
   $('#wLegend').innerHTML = segs.map(([l,v,c])=>`<span><i style="background:${c}"></i>${l} ${v}</span>`).join('');
   const lr = pw.lastReview;
   const models = s.models?.data?.models||[];
-  const healthy = models.filter(m=>m.status==='healthy').length, cool=models.filter(m=>m.status==='cooldown').length;
+  const healthy=models.filter(m=>m.status==='healthy').length, cool=models.filter(m=>m.status==='cooldown').length;
+  const failed=models.filter(m=>m.status==='failed').length, untested=models.filter(m=>m.status==='untested').length;
   $('#wKv').innerHTML = [
     ['İnceleme (60 dk)', `${h.workerReviews??0} • tam 9TF tasarrufu ${h.fullVisionAvoided??0}`],
     ['Son inceleme', lr?`${lr.symbol} ${lr.side||''} → ${lr.state} (${lr.source||'—'})`:'—'],
     ['İşlem hattı', lr?`${lr.tradeLaneName||'—'} • ${lr.momentumStage||'—'} • alt TF uyum ${lr.scalpAlignedCount??0}`:'—'],
     ['Gerekçe', lr?.reason||'—'],
     ['Kanıt ajanı durumu', (cool>0||orf.last?.ok===false)?'Opsiyonel kanıt ajanı bozuldu / soğumada; JEV final kararını engellemez. Ücretli yedek kapalı.':'Opsiyonel kanıt; JEV final kararından bağımsız'],
-    ['9Router modelleri', models.length?`${healthy} sağlıklı • ${cool} soğumada • ${models.length-healthy-cool} denenmedi`:'okunamadı'],
-    ['OpenRouter free', orf.configured?`${orf.model||'openrouter/free'} • son: ${orf.last?.ok?'OK':(orf.last?.reason||'çağrılmadı')}`:'yapılandırılmamış'],
+    ['9Router modelleri', models.length?`${healthy} sağlıklı • ${cool} soğumada • ${failed} başarısız • ${untested} denenmedi`:'okunamadı'],
+    ['OpenRouter free', orf.configured?`${orf.model||'openrouter/free'} • son: ${orf.last?.ok?'OK':(orf.last?.reason||'çağrılmadı')}${orf.last?.detail?' • '+orf.last.detail:''}`:'yapılandırılmamış'],
     ['9Router panel', s.router?.ok?`erişilebilir${num(s.router.ms)!=null?' ('+s.router.ms+' ms)':''}`:'erişilemedi']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
 }
@@ -1010,7 +1011,14 @@ function renderLedger(s){
     $('#deskCards').innerHTML=perf.desks.filter(x=>['5M_SCALP','15M_TRADE'].includes(x.desk)).map(desk=>{
       const r=desk.recent;
       const rows=[...desk.cohorts].sort((a,b)=>(a.version==='R2542_JEV_TRADER_OFFICE'?-2:a.version==='R2541_ATOMIC_TURKISH_SAFE'?-1:0)-(b.version==='R2542_JEV_TRADER_OFFICE'?-2:b.version==='R2541_ATOMIC_TURKISH_SAFE'?-1:0));
-      return `<div class="card"><h2>${desk.desk==='5M_SCALP'?'5M SCALPER MASASI':'15M TRADER MASASI'}</h2><p class="hint">Son 60 dk • analiz ${r.analyses} • onay ${r.approved} → güvenlik ${r.safetyPassed} → emir ${r.orders}<br>Açık PnL ${n(r.openPnl)} USDT • benzersiz coin ${r.uniqueCoverage} • tekrar %${n(r.reanalysisRatePct)}</p><div style="overflow:auto"><table><tr><th>Sürüm</th><th>Kapanış K/Z</th><th>Net USDT</th><th>Ort R</th></tr>${rows.map(x=>`<tr><td>${esc(x.version==='LEGACY'?'Eski / etiketsiz':x.version.split('_')[0])}</td><td>${x.closed} (${x.wins}/${x.losses})</td><td>${n(x.netPnl)}</td><td>${n(x.avgR)}</td></tr>`).join('')}</table></div><p class="hint">Ayrıntılı zamanlama, nedenler ve dönüşüm oranları aşağıdaki masa tablosunda.</p></div>`;
+      return `<div class="card"><h2>${desk.desk==='5M_SCALP'?'5M SCALPER MASASI':'15M TRADER MASASI'}</h2>
+        <div class="hint" style="font-weight:700;margin:6px 0">CANLI — SON 60 DK</div>
+        <div style="overflow:auto"><table><tr><th>Analiz/P1/P2</th><th>Al/Sat/Bekle</th><th>Şimdi giriş</th><th>Onay/Güv./Emir</th><th>Kapanış</th><th>Açık PnL</th></tr>
+          <tr><td>${r.analyses}/${r.pass1}/${r.pass2}</td><td>${r.long}/${r.short}/${r.wait}</td><td>${r.marketNow}</td><td>${r.approved}/${r.safetyPassed}/${r.orders}</td><td>${r.closed} (${r.wins}/${r.losses}/${r.flats})</td><td>${n(r.openPnl)} USDT</td></tr></table></div>
+        <p class="hint">benzersiz coin ${r.uniqueCoverage} • tekrar %${n(r.reanalysisRatePct)}</p>
+        <div class="hint" style="font-weight:700;margin:10px 0 4px">KAPANMIŞ İŞLEMLER — TÜM GEÇMİŞ / İŞLEM SÖZLEŞMESİ</div>
+        <div style="overflow:auto"><table><tr><th>İşlem sözleşmesi</th><th>Kapanış K/Z</th><th>Net USDT</th><th>Ort R</th></tr>${rows.map(x=>`<tr><td>${esc(x.version==='LEGACY'?'Eski / etiketsiz':x.version.split('_')[0])}</td><td>${x.closed} (${x.wins}/${x.losses})</td><td>${n(x.netPnl)}</td><td>${n(x.avgR)}</td></tr>`).join('')}</table></div>
+        <p class="hint">Bu alt tablo yalnız kapanmış işlemlerde değişir; açık işlemin PnL'si sürüm toplamına eklenmez. R2542 etiketi runtime sürümü değil işlem telemetrisi sözleşmesidir.</p></div>`;
     }).join('');
     const dist=o=>Object.entries(o||{}).map(([k,v])=>`${trUi(k)}: ${v}`).join(' • ')||'—';
     $('#deskPerfHint').textContent=`Tüm defter • son 60 dk benzersiz coin ${f.uniqueCoverage} • tekrar analiz %${n(f.reanalysisRatePct)} • aynı kanıtla atlanan ${f.dedupeSkipped}. ${perf.historyNote}`;
