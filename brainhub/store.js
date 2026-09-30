@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { reconcileCloses } = require('./office-performance');
 const tradeLessonsLib = require('./trade-lessons');
+const caseMemoryLib = require('./case-memory');
 
 function openStore(root) {
   const dir = path.join(root, 'data');
@@ -117,7 +118,43 @@ function openStore(root) {
     // LEARNING_NULL_OUTCOME_GUARD: null is unknown, never a synthetic 0% result.
     const outcomePct=rawOutcome===null||rawOutcome===undefined||(typeof rawOutcome==='string'&&rawOutcome.trim()==='')
       ? null : Number(rawOutcome);
-    const safe=JSON.stringify(body).slice(0,32000);
+    // R2544.19: learning_events payload must stay valid JSON even when an immutable entryCase is attached.
+    // Never byte-slice JSON: that silently turns a rich close record into an unparsable object.
+    let learningBody=body;
+    let safe=JSON.stringify(learningBody);
+    if(safe.length>30000){
+      const ec=body.entryContext&&typeof body.entryContext==='object'?body.entryContext:{};
+      learningBody={
+        ...body,
+        entryContext:{...ec,entryCase:ec.entryCase?caseMemoryLib.compactEntryCase(ec.entryCase):null},
+        outcomePath:body.outcomePath&&typeof body.outcomePath==='object'?{
+          ...body.outcomePath,
+          events:Array.isArray(body.outcomePath.events)?body.outcomePath.events.slice(-24):[]
+        }:body.outcomePath
+      };
+      safe=JSON.stringify(learningBody);
+    }
+    if(safe.length>32000){
+      // Last resort is still structured/parseable and preserves the decision/outcome facts used by learning.
+      learningBody={
+        symbol:body.symbol||symbol||null,side:body.side||null,netPnl:body.netPnl??null,rMultiple:body.rMultiple??null,
+        riskQuote:body.riskQuote??null,initialQuantity:body.initialQuantity??body.quantity??null,exitType:body.exitType||null,
+        holdMinutes:body.holdMinutes??null,openedAt:body.openedAt||null,closedAt:body.closedAt||null,eventId:body.eventId||null,
+        tradeLane:body.tradeLane||null,originTF:body.originTF||null,ownerTF:body.ownerTF||null,
+        entryContext:body.entryContext?{
+          setupFamily:body.entryContext.setupFamily||null,lane:body.entryContext.lane||null,entryTiming:body.entryContext.entryTiming||null,
+          why:body.entryContext.why||null,attention:body.entryContext.attention||null,
+          entryCase:body.entryContext.entryCase?caseMemoryLib.compactEntryCase(body.entryContext.entryCase):null
+        }:null,
+        outcomePath:body.outcomePath?{
+          mfeR:body.outcomePath.mfeR??null,maeR:body.outcomePath.maeR??null,timeToMfeMin:body.outcomePath.timeToMfeMin??null,
+          timeToMaeMin:body.outcomePath.timeToMaeMin??null,netPnl:body.outcomePath.netPnl??body.netPnl??null,
+          rMultiple:body.outcomePath.rMultiple??body.rMultiple??null,exitType:body.outcomePath.exitType||body.exitType||null,
+          events:Array.isArray(body.outcomePath.events)?body.outcomePath.events.slice(-12):[]
+        }:null
+      };
+      safe=JSON.stringify(learningBody);
+    }
     const id=crypto.randomUUID();
     learnInsert.run(id,Date.now(),k,symbol||null,['LONG','SHORT'].includes(side)?side:null,setup,originTF,ownerTF,decision,Number.isFinite(confidence)?confidence:null,Number.isFinite(outcomePct)?outcomePct:null,safe);
     return id;
@@ -167,7 +204,19 @@ function openStore(root) {
       return {cards:cards.slice(-Math.max(1,Math.min(400,Number(limit)||40))),digest:tradeLessonsLib.digest(cards,{symbol,candidate}),total:cards.length};
     }catch(e){return {cards:[],digest:null,total:0,error:String(e?.message||e).slice(0,160)};}
   }
-  function learningContext({symbol=null,candidate=null}={}){
+  let caseTradeCache={key:null,trades:[]};
+  function caseTrades(){
+    const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
+    const ck=raw.length+':'+(raw.length?raw[raw.length-1].id:'');
+    if(caseTradeCache.key===ck)return caseTradeCache.trades;
+    const rows=raw.map(x=>{let q={};try{q=JSON.parse(x.payload)||{};}catch{q={};}return {...q,id:x.id,symbol:x.symbol};});
+    const trades=reconcileCloses(rows).trades;caseTradeCache={key:ck,trades};return trades;
+  }
+  function caseMemory({currentCase=null,symbol=null,limit=5}={}){
+    try{return caseMemoryLib.analogDigest(caseTrades(),{currentCase,limit});}
+    catch(e){return {version:'R2544.19',available:false,reason:'CASE_MEMORY_ERROR',detail:String(e?.message||e).slice(0,160),analogs:[],executionAuthority:false};}
+  }
+  function learningContext({symbol=null,candidate=null,unified=null}={}){
     const closes=db.prepare("SELECT id,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED'").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,symbol:x.symbol}));
     const excluded=reconcileCloses(closes).excluded;
     db.exec('DELETE FROM excluded_learning_close_ids');
@@ -217,9 +266,25 @@ function openStore(root) {
     });
     let tradeLessonDigest=null;
     try{tradeLessonDigest=tradeLessons({symbol:key,candidate}).digest;}catch{tradeLessonDigest=null;}
+    let caseMemoryDigest=null,caseMemoryByLane=null;
+    try{
+      const currentCase=unified?caseMemoryLib.buildCurrentCase({unified,candidate,side:null}):null;
+      caseMemoryDigest=caseMemory({currentCase,symbol:key,limit:5});
+      if(unified){
+        caseMemoryByLane={};
+        for(const [side,lane,ownerTF] of [['LONG','5M_SCALP','5m'],['SHORT','5M_SCALP','5m'],['LONG','15M_TRADE','15m'],['SHORT','15M_TRADE','15m']]){
+          const c=caseMemoryLib.buildCurrentCase({unified,candidate,side});
+          c.decision={side,lane,ownerTF,setupFamily:null,entryTiming:null,edgeBasis:null};
+          const d=caseMemory({currentCase:c,symbol:key,limit:3});
+          caseMemoryByLane[side+'_'+lane]=caseMemoryLib.compactAnalogDigest(d,1800);
+        }
+      }
+    }catch{caseMemoryDigest=null;caseMemoryByLane=null;}
     return {
       source:'BrainHub ölçülebilir işlem/karar geçmişi',
       tradeLessons:tradeLessonDigest,
+      caseMemory:caseMemoryDigest,
+      caseMemoryByLane,
       excludedDuplicateCloses:excluded.length,
       recent,
       lifetime,
@@ -231,7 +296,7 @@ function openStore(root) {
       jevLessonCount:jevLessons.length,
       changesAppliedToHardRisk:false,
       rMeasurementPolicy:'rMultiple yalnız geçerli ilk-miktar/ilk-stop tabanı varsa ölçülmüş sayılır; rStatus UNMEASURED_* veya REJECTED_OUTLIER_R olan satırlar R kanıtı olarak kullanılamaz (ham kayıt korunur, rawRMultiple alanında).',
-      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2537+ kayıtları setupFamily/entryTiming/edgeBasis/contractVersion ile ayrıştırılır; eski generic lane kayıtları karşılaştırılabilir setup kanıtı sayılmamalıdır. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez.'
+      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2544.19 caseMemory aynı isimli setupı otomatik kural yapmaz; entry-state benzerliğine göre kazanan ve kaybeden örnekleri birlikte gösterir. JEV_LESSON ve CASE_MEMORY yalnız yumuşak bağlamdır; hard risk/kill-switch/execution güvenliğini değiştiremez.'
     };
   }
   function lease(action, resource, owner, token, ttlMs = 30000) {
@@ -314,6 +379,6 @@ function openStore(root) {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 
-  return { db, officeRecords, journal, getJournal, latestJournal, recentJournal, label, learning, recordLearning, learningContext, tradeLessons, lease, claim, releaseClaim };
+  return { db, officeRecords, journal, getJournal, latestJournal, recentJournal, label, learning, recordLearning, learningContext, tradeLessons, caseMemory, lease, claim, releaseClaim };
 }
 module.exports = { openStore };

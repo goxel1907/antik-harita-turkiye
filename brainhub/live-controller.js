@@ -26,6 +26,7 @@ const claudeV112 = require('./claude-v112');
 const tradeLanesV111 = require('./trade-lanes');
 const positionGuard = require('./position-guard');
 const tradeLessonsLib = require('./trade-lessons');
+const caseMemoryLib = require('./case-memory');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -1508,9 +1509,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const cards=Array.isArray(tl?.cards)?tl.cards:[];
       const card=(record?.eventId&&cards.find(c=>c.eventId===record.eventId))||[...cards].reverse().find(c=>c.symbol===symbol)||null;
       const d=tl?.digest||{};
+      const caseAnalog=(record?.entryContext?.entryCase&&typeof store?.caseMemory==='function')?store.caseMemory({currentCase:record.entryContext.entryCase,symbol,limit:5}):null;
       const comparable={current:d.current||null,symbol:d.symbol||null,
         family:(d.byFamilySide||[]).find(r=>card&&r[0]===card.family+'|'+card.side)||null,
-        repeatedMistakes:(d.repeatedMistakes||[]).slice(0,4),worked:(d.worked||[]).slice(0,3),failed:(d.failed||[]).slice(0,3)};
+        repeatedMistakes:(d.repeatedMistakes||[]).slice(0,4),worked:(d.worked||[]).slice(0,3),failed:(d.failed||[]).slice(0,3),caseAnalog};
       if(card){try{store.journal('TRADE_LESSON_CARD',symbol,{...card,comparable});}catch{}}
       return {lessonCard:card,comparable};
     }catch{return {};}
@@ -1650,6 +1652,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         openedAt:activeAt>0?new Date(activeAt).toISOString():null,closedAt:new Date(closedAt).toISOString(),holdMinutes,
         runner:runner?{phase:runner.phase,tpPlaced:runner.tpPlaced,stopMoves:Math.max(Number(runner.stopMoveCount||0),(runner.events||[]).filter(e=>e?.kind==='STOP_MOVED').length)}:null,
         entryContext:row.entryContext||null,
+        outcomePath:caseMemoryLib.buildOutcomePath({row,runner,closedAt,netPnl,rMultiple,exitType,income:inc}),
         eventId:closeEventId,closeBusinessKey:closeEventId?('EVENT:'+closeEventId):null,
         incomeAvailable:inc!==null
       };
@@ -1797,6 +1800,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           openedAt:new Date(e.ts).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-e.ts)/60000),
           runner:ev.length?{events:ev.length}:null,
           entryContext:entryContextFromPlan(p.plan,p.plan?.jevDecision,p.sizing),
+          outcomePath:caseMemoryLib.buildOutcomePath({row:{openedAt:new Date(e.ts).toISOString()},runner:null,closedAt,netPnl,rMultiple,exitType,income:inc}),
           eventId,closeBusinessKey:'EVENT:'+eventId,backfilled:true,incomeAvailable:true
         };
         // R2542_CLOSE_LATE_RECHECK:
@@ -1839,6 +1843,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const initQty=finite(leaderAnalysisState.bySymbol?.[String(p.symbol||'').toUpperCase()]?.initialQuantity)??qty;
       const riskQuote=entry!==null&&firstStop!==null&&initQty!==null?Math.abs(entry-firstStop)*initQty:null;
       const own=String(row.state||'').toUpperCase()==='ACTIVE';
+      const entryCase=row.entryContext?.entryCase||null;
+      let caseAnalogs=null;try{caseAnalogs=entryCase&&typeof store?.caseMemory==='function'?caseMemoryLib.compactAnalogDigest(store.caseMemory({currentCase:entryCase,symbol:p.symbol,limit:5})):null;}catch{caseAnalogs=null;}
       return {
         symbol:p.symbol,side:p.side,quantity:qty,entryPrice:entry,markPrice:mark,unrealizedPnl:finite(p.unrealizedPnl),
         unrealizedR:riskQuote&&riskQuote>0&&finite(p.unrealizedPnl)!==null?Number((p.unrealizedPnl/riskQuote).toFixed(2)):null,
@@ -1850,7 +1856,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         strategyVersion:row.entryContext?.strategyVersion||null,
         releaseContract:row.entryContext?.releaseContract||null,
         mirrorContract:row.entryContext?.mirrorContract||null,
-        entryReason:row.entryContext?.why||null
+        entryReason:row.entryContext?.why||null,
+        entryCase:caseMemoryLib.compactEntryCase(entryCase),
+        caseMemory:caseAnalogs
       };
     });
     let closed=[];
@@ -2302,8 +2310,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const now=clock();
     const ev=positionGuard.evaluateGuard({row,snap,phase,now,config:gcfg});
     const m=ev.metrics||{};
-    if(Number.isFinite(m.mfeR))row.guardMfeR=m.mfeR;
-    if(Number.isFinite(m.progressR))row.guardMaeR=Math.min(finite(row.guardMaeR)??m.progressR,m.progressR);
+    if(Number.isFinite(m.mfeR)){
+      const prevMfe=finite(row.guardMfeR);
+      if(prevMfe===null||m.mfeR>prevMfe){row.guardMfeR=m.mfeR;row.guardMfeAt=now;}
+      else row.guardMfeR=m.mfeR;
+    }
+    if(Number.isFinite(m.progressR)){
+      const prevMae=finite(row.guardMaeR);
+      if(prevMae===null||m.progressR<prevMae){row.guardMaeR=m.progressR;row.guardMaeAt=now;}
+      else row.guardMaeR=Math.min(prevMae,m.progressR);
+    }
     row.guardLast={at:new Date(now).toISOString(),action:ev.action,reason:ev.reason,progressR:m.progressR??null,mfeR:m.mfeR??null,liquidationPrice:m.liquidationPrice??null,liquidationSource:m.liquidationSource||null};
     // Likidasyon tutarlılığı: tahmin (emir öncesi) vs Binance (açık pozisyon) bir kez kaydedilir.
     const exLiq=finite(snap?.liquidationPrice);
@@ -4468,7 +4484,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           marketSignature:marketSignatureFromAdvisory(advisory),
           // CLAUDE_R2544_16_TRADE_LESSONS: işlem hangi dikkat katmanından geldi (ilk 10 adayı / 4–10 / 11–24 / erken ilgi /
           // patlamaya yakın / ilk 3). Kapanışta ders kartı ve katman istatistiği buna göre öğrenilir.
-          attention:tradeLessonsLib.attentionFromCandidate(candidate)
+          attention:tradeLessonsLib.attentionFromCandidate(candidate),
+          // R2544.19: entry-time numeric truth is frozen once. Later chart changes never rewrite this case.
+          entryCase:caseMemoryLib.buildEntryCase({
+            unified:advisory?.unifiedContext,candidate,plan:pl,jevDecision:jd,sizing:result?.sizing,
+            entryPrice:intent.entryPrice,stopPrice:intent.stopPrice,takeProfit1:intent.takeProfit1,now:entryOrderAt
+          })
         };
       }catch{}
       leaderAnalysisState.bySymbol[String(candidate.symbol||'').toUpperCase()]=executionLifecycle;

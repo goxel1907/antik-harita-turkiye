@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.3.0-R2544.18-JEV-Brain';
+const OFFICE_VERSION = '2.4.0-R2544.19-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -32,7 +32,7 @@ if (!LOOPBACK && OFFICE_KEY.length < 24) {
 // Brain Hub tarafında yalnız bu GET yollarına izin var.
 const ALLOWED_BRAIN_PATHS = new Set([
   '/health', '/live/status', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png',
-  '/scanner/last' // CLAUDE_R2544_15: yükselenler merdiveni (tarama tetiklemez)
+  '/scanner/last', '/jev/knowledge', '/learning/case-memory' // R2544.19 read-only provenance/case memory
 ]);
 
 const cache = new Map();
@@ -153,7 +153,7 @@ function readPacketHealth() {
   const byPass = {};
   for (const r of recent) { const k = String(r.pass); byPass[k] = byPass[k] || { calls: 0, blocked: 0, maxBytes: 0 }; byPass[k].calls++; if (r.blocked) byPass[k].blocked++; byPass[k].maxBytes = Math.max(byPass[k].maxBytes, Number(r.bytes) || 0); }
   return { ok: true, at: last?.at || null, pass: last?.pass ?? null, bytes: last?.bytes ?? null, beforeBytes: last?.beforeBytes ?? null, maxBytes: last?.maxBytes ?? 52000,
-    blocked: last?.blocked === true, trimSteps: (last?.trimStepsApplied || []).slice(-4), last60: { calls: recent.length, blocked: recent.filter(r => r.blocked).length, byPass } };
+    blocked: last?.blocked === true, trimSteps: (last?.trimStepsApplied || []).slice(-8), contextBudget:last?.contextBudget||null, sections:last?.sections||null, last60: { calls: recent.length, blocked: recent.filter(r => r.blocked).length, byPass } };
 }
 
 function listBackups() {
@@ -491,6 +491,8 @@ async function buildSnapshot() {
   ]);
   // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, salt-okunur).
   const positions = ACCOUNT_ENABLED ? await cached('positions', 10000, () => brainGet('/live/positions', 'limit=40')) : null;
+  const caseMemory = await cached('caseMemory', 10000, () => brainGet('/learning/case-memory', 'limit=12'));
+  const knowledge = await cached('knowledge', 60000, () => brainGet('/jev/knowledge'));
   const scannerLast = await cached('scannerLast', 5000, () => brainGet('/scanner/last'));
   const router = await cached('router', 30000, () => getJson(ROUTER_URL + '/', { timeoutMs: 3000 }).then(r => ({ ok: r.status > 0 && r.status < 500, status: r.status, ms: r.ms, error: r.error || null })));
   const headroom = await cached('headroom', 15000, () => getJson(HEADROOM_URL + '/health', { timeoutMs: 2500 }).then(r => ({ ok: r.ok === true, status: r.status, ms: r.ms, data: scrub(r.data), error: r.error || (r.ok ? null : 'HTTP ' + r.status), url: HEADROOM_URL })));
@@ -521,6 +523,8 @@ async function buildSnapshot() {
     backups,
     jevUsage: scrub(jevUsage),
     packetHealth,
+    caseMemory: { ok: caseMemory?.ok === true, data: scrub(caseMemory?.data), error: caseMemory?.error || null },
+    knowledge: { ok: knowledge?.ok === true, data: scrub(knowledge?.data), error: knowledge?.error || null },
     jevBudget: { ok: jevBudget?.ok === true, data: scrub(jevBudget?.data), error: jevBudget?.error || null },
     // CLAUDE_R2544_15: canlı Binance yükselenler merdiveni + 24 saatlik likidasyon kaydı sağlığı
     ladder: scannerLast?.ok === true ? scrub(scannerLast.data) : null,

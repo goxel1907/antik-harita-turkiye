@@ -30,7 +30,14 @@ const CURATED_OPEN_SOURCE_REPOS=[
   {repo:'online-ml/river',url:'https://github.com/online-ml/river',license:'BSD-3-Clause',roles:['ONLINE_LEARNING','CONCEPT_DRIFT','STREAMING_STATS']},
   {repo:'nkaz001/hftbacktest',url:'https://github.com/nkaz001/hftbacktest',license:'MIT',roles:['ORDER_BOOK','MICROSTRUCTURE','LATENCY','BACKTEST']},
   {repo:'AgentJDrew/backtest-guard',url:'https://github.com/AgentJDrew/backtest-guard',license:'MIT',roles:['VALIDATION','OVERFITTING','PURGED_CV','BACKTEST']},
-  {repo:'landtml/purgedcv',url:'https://github.com/landtml/purgedcv',license:'MIT',roles:['VALIDATION','PURGED_CV','WALK_FORWARD']}
+  {repo:'landtml/purgedcv',url:'https://github.com/landtml/purgedcv',license:'MIT',roles:['VALIDATION','PURGED_CV','WALK_FORWARD']},
+  // R2544.19: verified-license microstructure/data-integrity references. Reference-only; no code is copied and
+  // repository claims never override Binance/BrainHub market truth or JEV authority.
+  {repo:'MarcoSalzer/crypto-microstructure',url:'https://github.com/MarcoSalzer/crypto-microstructure',license:'MIT',roles:['MICROSTRUCTURE','ORDER_BOOK','ORDER_FLOW','ABSORPTION','MARKET_DYNAMICS'],why:'Feature taxonomy for order-flow/depth continuation-vs-reversal research.',concepts:['OFI','TAKER_AGGRESSION','LIQUIDITY_WITHDRAWAL','ABSORPTION','PRICE_IMPACT']},
+  {repo:'mamonet/orderbook-heatmap',url:'https://github.com/mamonet/orderbook-heatmap',license:'MIT',roles:['MICROSTRUCTURE','ORDER_BOOK','CVD','ABSORPTION'],why:'Reference definitions for depth clusters, delta/CVD and absorption observations.',concepts:['DEPTH_CLUSTER','CVD','BOOK_IMBALANCE','ABSORPTION']},
+  {repo:'twowaymind/orderflow-metrics',url:'https://github.com/twowaymind/orderflow-metrics',license:'MIT',roles:['MICROSTRUCTURE','ORDER_FLOW','STREAMING_STATS'],why:'Compact dependency-light reference for deterministic order-flow metrics.',concepts:['DEPTH_IMBALANCE','TRADE_IMBALANCE','VPIN']},
+  {repo:'ml4t/engineer',url:'https://github.com/ml4t/engineer',license:'MIT',roles:['ML_RESEARCH','LABELING','VALIDATION','PURGED_CV'],why:'Outcome labeling and leakage-aware research reference for trade-case evaluation.',concepts:['TRIPLE_BARRIER','META_LABELING','PURGED_CV','EMBARGO']},
+  {repo:'juitindev/crypto-market-data-pipeline',url:'https://github.com/juitindev/crypto-market-data-pipeline',license:'MIT',roles:['MARKET_DATA','DATA_INTEGRITY','SCHEMA','VALIDATION'],why:'Typed market-data validation reference for timestamp/OHLC/order-book invariants.',concepts:['TIMESTAMP_INVARIANTS','OHLC_VALIDATION','ORDERBOOK_INVARIANTS','SCHEMA_VALIDATION']}
 ];
 
 function clip(v,n=1200){return String(v??'').replace(/\s+/g,' ').trim().slice(0,n);}
@@ -108,7 +115,7 @@ function repoHints(family){
   return CURATED_OPEN_SOURCE_REPOS
     .filter(x=>x.roles.some(r=>wanted.includes(r)))
     .slice(0,5)
-    .map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles}));
+    .map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],authority:'REFERENCE_ONLY'}));
 }
 function topicCandidates(unified,evidence=null){
   const out=[];
@@ -323,7 +330,7 @@ function createKnowledgeResearch({
       latest:entries.slice(-5).reverse().map(x=>({topic:x.topic,family:x.family,verifiedAt:x.verifiedAt,sourceUrls:x.sourceUrls})),
       retryPolicy:{channelAttempts:Math.max(1,Math.min(4,Array.isArray(retryDelaysMs)?retryDelaysMs.length:1)),sourceFetchAttempts:2},
       openSourceRepoCount:CURATED_OPEN_SOURCE_REPOS.length,
-      openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles}))
+      openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],authority:'REFERENCE_ONLY',executionAuthority:false}))
     };
   }
   return {research,researchFromContext,reference,status,detectGap};
