@@ -1,0 +1,38 @@
+name: R2544.19 contextual memory validation
+
+on:
+  push:
+    branches:
+      - r2544-19-contextual-episode-memory
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax
+        run: |
+          node --check brainhub/episode-memory.js
+          node --check brainhub/trade-lessons.js
+          node --check brainhub/store.js
+          node --check brainhub/pipeline.js
+          node --check brainhub/live-controller.js
+          node --check brainhub/jev-market-packet.js
+          node --check brainhub/jev-decision.js
+          node --check brainhub/knowledge-research.js
+          node --check brainhub/server.js
+          node --check brainhub/office-dashboard/office-server.js
+      - name: R2544.19 tests
+        run: node --test brainhub/test/r2544-19-contextual-memory.test.js
+      - name: Provider resilience regression
+        run: node --test brainhub/test/r2544-18-provider-resilience.test.js
+      - name: Decision quality regression
+        run: node --test brainhub/test/r2544-17-decision-quality.test.js
