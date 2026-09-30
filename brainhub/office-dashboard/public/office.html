@@ -328,6 +328,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <div class="bar" id="wBar" role="img" aria-label="worker kararları"></div>
       <div class="legend" id="wLegend"></div>
       <dl class="kv" id="wKv" style="margin-top:10px"></dl>
+      <details style="margin-top:10px"><summary>Model bazında sağlık / deneme ayrıntısı</summary><div style="overflow:auto"><table id="wModels"></table></div></details>
     </div>
     <details class="card v109"><summary>Uyumluluk ve geçmiş tanılama</summary>
       <h2>JEV SON KARAR → zorunlu güvenlik → emir</h2>
@@ -904,16 +905,31 @@ function renderWorkers(s){
   const models = s.models?.data?.models||[];
   const healthy=models.filter(m=>m.status==='healthy').length, cool=models.filter(m=>m.status==='cooldown').length;
   const failed=models.filter(m=>m.status==='failed').length, untested=models.filter(m=>m.status==='untested').length;
+  const groups=s.models?.data?.groups||{};
+  const grp=(k)=>groups[k]||{total:0,healthy:0,cooldown:0,failed:0,untested:0,attempts:0,successes:0,failures:0};
+  const goc=grp('9ROUTER_OPENCODE_FREE'), gki=grp('9ROUTER_KIRO_QUOTA'), glocal=grp('LOCAL_VISION');
+  const orPool=s.models?.data?.openRouterFree||orf;
+  const orRows=orPool?.perModel||[];
+  const orHealthy=orRows.filter(x=>x.status==='healthy').length,orCool=orRows.filter(x=>x.status==='cooldown').length,orFailed=orRows.filter(x=>x.status==='failed').length;
+  const hd=s.models?.data?.headroom||{};
+  const groupTxt=g=>`${g.healthy} sağlıklı • ${g.cooldown} soğumada • ${g.failed} başarısız • ${g.untested} denenmedi • ${g.successes}/${g.attempts} başarılı/deneme`;
   $('#wKv').innerHTML = [
     ['İnceleme (60 dk)', `${h.workerReviews??0} • tam 9TF tasarrufu ${h.fullVisionAvoided??0}`],
     ['Son inceleme', lr?`${lr.symbol} ${lr.side||''} → ${lr.state} (${lr.source||'—'})`:'—'],
     ['İşlem hattı', lr?`${lr.tradeLaneName||'—'} • ${lr.momentumStage||'—'} • alt TF uyum ${lr.scalpAlignedCount??0}`:'—'],
     ['Gerekçe', lr?.reason||'—'],
     ['Kanıt ajanı durumu', (cool>0||orf.last?.ok===false)?'Opsiyonel kanıt ajanı bozuldu / soğumada; JEV final kararını engellemez. Ücretli yedek kapalı.':'Opsiyonel kanıt; JEV final kararından bağımsız'],
-    ['9Router modelleri', models.length?`${healthy} sağlıklı • ${cool} soğumada • ${failed} başarısız • ${untested} denenmedi`:'okunamadı'],
-    ['OpenRouter free', orf.configured?`${orf.model||'openrouter/free'} • son: ${orf.last?.ok?'OK':(orf.last?.reason||'çağrılmadı')}${orf.last?.detail?' • '+orf.last.detail:''}`:'yapılandırılmamış'],
+    ['Model sağlık toplamı', models.length?`${healthy} sağlıklı • ${cool} soğumada • ${failed} başarısız • ${untested} denenmedi`:'okunamadı'],
+    ['9Router OpenCode Free', goc.total?groupTxt(goc):'model yok / keşif bekleniyor'],
+    ['9Router Kiro kotası', gki.total?groupTxt(gki):'yapılandırılmamış'],
+    ['Yerel Vision', glocal.total?groupTxt(glocal):'yapılandırılmamış'],
+    ['OpenRouter free havuzu', orPool?.configured?`${orHealthy} sağlıklı • ${orCool} soğumada • ${orFailed} başarısız • ${orRows.length} model • son: ${orPool.last?.ok?'OK':(orPool.last?.reason||'çağrılmadı')}${orPool.last?.detail?' • '+orPool.last.detail:''}`:'yapılandırılmamış'],
+    ['Headroom', s.headroom?.ok?`HAZIR • ${s.headroom.url||hd.recommendedUrl||'http://127.0.0.1:8788'} • ${s.headroom.ms??'—'} ms`:(hd.conflict?`8787 PORT ÇAKIŞI • BrainHub 8787 kullanıyor • 9Router Headroom URL → ${hd.recommendedUrl||'http://127.0.0.1:8788'}${s.headroom?.error?' • 8788: '+s.headroom.error:''}`:(hd.recommendedUrl?`opsiyonel • ${hd.recommendedUrl}${s.headroom?.error?' • '+s.headroom.error:''}`:'okunamadı'))],
     ['9Router panel', s.router?.ok?`erişilebilir${num(s.router.ms)!=null?' ('+s.router.ms+' ms)':''}`:'erişilemedi']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  const modelRows=[...models,...orRows.map(x=>({...x,providerGroup:'OPENROUTER_FREE',reason:x.lastErrorClass||x.status,error:x.lastError,last:x.lastAt,lastLatencyMs:x.lastLatencyMs}))];
+  $('#wModels').innerHTML = `<tr><th>Grup</th><th>Model</th><th>Durum</th><th>Deneme</th><th>Başarı</th><th>Hata</th><th>Gecikme</th><th>Son neden</th></tr>`+
+    (modelRows.length?modelRows.map(m=>`<tr><td>${esc(m.providerGroup||'—')}</td><td>${esc(m.model||'—')}</td><td>${esc(m.status||'—')}</td><td>${Number(m.attempts||0)}</td><td>${Number(m.successes||0)}</td><td>${Number(m.failures||0)}</td><td>${m.lastLatencyMs!=null?esc(m.lastLatencyMs+' ms'):'—'}</td><td>${esc((m.reason||m.error||'—').slice(0,120))}</td></tr>`).join(''):`<tr><td colspan="8" class="muted">Model telemetrisi yok.</td></tr>`);
 }
 
 function isFakeWait(w){ const z=String(w||'').trim().toUpperCase(); return !z || /^NONE\b/.test(z) || /^YOK\b/.test(z) || /SOMUT BEKLEME KOŞULU ÜRETMEDİ/i.test(String(w||'')); }

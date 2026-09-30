@@ -8,13 +8,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.2.1-R2544.17-JEV-Brain';
+const OFFICE_VERSION = '2.3.0-R2544.18-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
 const BRAIN_URL = (process.env.BRAINHUB_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
 const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const ROUTER_URL = (process.env.ROUTER_URL || 'http://127.0.0.1:20128').replace(/\/+$/, '');
+const HEADROOM_URL = (process.env.HEADROOM_URL || 'http://127.0.0.1:8788').replace(/\/+$/, '');
 const HOST = process.env.OFFICE_HOST || '127.0.0.1';
 const PORT = Number(process.env.OFFICE_PORT || 8790);
 const TOKEN = String(process.env.BRAINHUB_CLIENT_TOKEN || '').trim();
@@ -492,6 +493,7 @@ async function buildSnapshot() {
   const positions = ACCOUNT_ENABLED ? await cached('positions', 10000, () => brainGet('/live/positions', 'limit=40')) : null;
   const scannerLast = await cached('scannerLast', 5000, () => brainGet('/scanner/last'));
   const router = await cached('router', 30000, () => getJson(ROUTER_URL + '/', { timeoutMs: 3000 }).then(r => ({ ok: r.status > 0 && r.status < 500, status: r.status, ms: r.ms, error: r.error || null })));
+  const headroom = await cached('headroom', 15000, () => getJson(HEADROOM_URL + '/health', { timeoutMs: 2500 }).then(r => ({ ok: r.ok === true, status: r.status, ms: r.ms, data: scrub(r.data), error: r.error || (r.ok ? null : 'HTTP ' + r.status), url: HEADROOM_URL })));
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
   const backups = await cached('backups', 60000, async () => listBackups());
   const jevUsage = await cached('jevUsage', 15000, async () => readJsonFile(path.join(BRAIN_ROOT, 'data', 'jev-usage.json')));
@@ -515,6 +517,7 @@ async function buildSnapshot() {
     positions: positions ? { ok: positions.ok === true, data: positions.ok === true ? scrub(canonicalPositions(positions.data)) : null, error: positions.error || (positions.ok ? null : 'HTTP ' + positions.status) } : { ok: false, disabled: true },
     ollama: { ok: ollama?.ok === true, data: scrub(ollama?.data), error: ollama?.error || null },
     router,
+    headroom,
     backups,
     jevUsage: scrub(jevUsage),
     packetHealth,

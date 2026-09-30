@@ -69,7 +69,7 @@ test('R2544.17 9Router cooldown sonrası denenmiş başarısız modeli untested 
   const server=src('server.js');
   assert.match(server,/function textModelStatus\(model\)/);
   assert.match(server,/return blocked\(model\)\?'cooldown':'failed'/);
-  assert.match(server,/attempts:Number\(state\.get\(model\)\?\.attempts\|\|0\)/);
+  assert.match(server,/const attempts=Number\(st\.attempts\|\|\(\(text\|\|vision\)\?1:0\)\)/);
 });
 
 test('R2544.17 curated OSS registry karar kalitesi araştırma kaynaklarını içerir',()=>{
@@ -77,7 +77,7 @@ test('R2544.17 curated OSS registry karar kalitesi araştırma kaynaklarını i�
   for(const repo of ['microsoft/qlib','online-ml/river','nkaz001/hftbacktest','AgentJDrew/backtest-guard','landtml/purgedcv'])assert.ok(k.includes(repo),repo);
 });
 
-test('R2544.17 sürüm kimliği',()=>{
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.17-DECISION-QUALITY'/);
-  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2\.2\.1-R2544\.17-JEV-Brain'/);
+test('R2544.18 sürüm kimliği',()=>{
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.18-FREE-PROVIDER-RESILIENCE'/);
+  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2\.3\.0-R2544\.18-JEV-Brain'/);
 });

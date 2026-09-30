@@ -505,7 +505,7 @@ function Backup-Brain([string]$BrainRoot) {
     New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
     $target = Join-Path $targetRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
     New-Item -ItemType Directory -Force -Path $target | Out-Null
-    foreach ($name in @('server','config','data','docs','office-dashboard','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
+    foreach ($name in @('server','config','data','docs','office-dashboard','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1','HEADROOM-SETUP.ps1','HEADROOM-STATUS.ps1')) {
         $p = Join-Path $BrainRoot $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $target -Recurse -Force }
     }
@@ -957,7 +957,7 @@ if ($Action -eq 'Restore') {
     if (-not $resolved.StartsWith($backupRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore yolu BrainHubBackups icinde olmali.' }
     $key = Router-Key $rootFull
     Stop-Brain $rootFull
-    foreach ($name in @('server','config','data','docs','office-dashboard','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
+    foreach ($name in @('server','config','data','docs','office-dashboard','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1','HEADROOM-SETUP.ps1','HEADROOM-STATUS.ps1')) {
         $p = Join-Path $resolved $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }
@@ -970,7 +970,7 @@ if ($Action -eq 'Start') { Start-Brain $rootFull $node (Router-Key $rootFull); T
 $sourceDir = Get-Source $Source
 # CLAUDE_V109_UPDATER_FILESET: ChatGPT v9.5.109 wait-condition.js ve vision-benchmark.js eklemis ama bu listeye
 # koymamisti -> PC'de server.js MODULE_NOT_FOUND ile acilmaz, guncelleme geri alinirdi.
-$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','liquidation.js','position-guard.js','premove.js','engine.js','market.js','market-maker-evidence.js','pipeline.js','store.js','office-performance.js','capacity-accounting.js','close-idempotency.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','jev-market-packet.js','chart-narrator.js','attention-priority.js','execution-telemetry.js','knowledge-research.js','vision-contract-repair.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js','claude-v112.js','liquidation-history.js','chart-readout.js','trade-lessons.js')
+$files = @('server.js','scanner.js','leader-committee.js','leader-live-intent.js','liquidation.js','position-guard.js','premove.js','engine.js','market.js','market-maker-evidence.js','pipeline.js','store.js','office-performance.js','capacity-accounting.js','close-idempotency.js','risk-gate.js','binance-dry-run-executor.js','binance-account-context.js','live-authorization.js','binance-live-transport.js','live-controller.js','position-manager.js','jev-decision.js','jev-market-packet.js','chart-narrator.js','attention-priority.js','execution-telemetry.js','knowledge-research.js','vision-contract-repair.js','plan-workers.js','openrouter-free-worker.js','wait-condition.js','vision-benchmark.js','claude-v109.js','trade-lanes.js','v110.js','claude-v111.js','claude-v112.js','liquidation-history.js','chart-readout.js','trade-lessons.js','free-model-registry.js')
 $cortexDoc = Join-Path $sourceDir 'docs\JEV-PRO-TRADER-CORTEX-R2534.md'
 $ossReferenceDoc = Join-Path $sourceDir 'docs\JEV-OPEN-SOURCE-REFERENCE-R2536.md'
 if (-not (Test-Path -LiteralPath $cortexDoc)) { throw 'Eksik dosya: docs\JEV-PRO-TRADER-CORTEX-R2534.md' }
@@ -1007,7 +1007,7 @@ try {
         $dst = Join-Path (Join-Path $rootFull 'config') $cfg[1]
         if (-not (Test-Path -LiteralPath $dst)) { Copy-Item -LiteralPath (Join-Path $sourceDir $cfg[0]) -Destination $dst }
     }
-    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1','VISION-BENCHMARK.ps1','JEV-VISION-AUDIT.ps1')) {
+    foreach ($script in @('manage.ps1','START-BrainHub.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1','HEADROOM-SETUP.ps1','HEADROOM-STATUS.ps1','VISION-BENCHMARK.ps1','JEV-VISION-AUDIT.ps1')) {
         Copy-Item -LiteralPath (Join-Path $sourceDir $script) -Destination $rootFull -Force
     }
     # CLAUDE_V109_OFFICE_DASHBOARD: salt-okunur Trade Office ekrani (ayri surec; Brain Hub'a gomulu degil).
@@ -1026,7 +1026,7 @@ try {
     Write-Warning "Update dogrulanamadi: $($_.Exception.Message). Geri alma deneniyor."
     Stop-Brain $rootFull
     # Source rollback preserves the runtime ledger, reservations and user settings.
-    foreach ($name in @('server','docs','office-dashboard','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1')) {
+    foreach ($name in @('server','docs','office-dashboard','START-BrainHub.ps1','manage.ps1','INSTALL.ps1','UPDATE.ps1','START.ps1','TEST.ps1','BACKUP.ps1','RESTORE.ps1','PAIR.ps1','UNPAIR.ps1','VISION-FREE-SETUP.ps1','VISION-STATUS.ps1','OPENROUTER-SETUP.ps1','OPENROUTER-STATUS.ps1','OPENROUTER-CREDIT-SETUP.ps1','JEV-PROBE.ps1','HEADROOM-SETUP.ps1','HEADROOM-STATUS.ps1')) {
         $p = Join-Path $backup $name
         if (Test-Path -LiteralPath $p) { Copy-Item -LiteralPath $p -Destination $rootFull -Recurse -Force }
     }
