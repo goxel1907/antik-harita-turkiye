@@ -5,7 +5,7 @@ function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number
 function compactFlow(w){
   if(!w||typeof w!=='object')return null;
   return {
-    trades:Number(w.trades)||0,buyQuote:finite(w.buyQuote),sellQuote:finite(w.sellQuote),deltaQuote:finite(w.deltaQuote),
+    trades:Number(w.trades)||0,coverageMs:finite(w.coverageMs),buyQuote:finite(w.buyQuote),sellQuote:finite(w.sellQuote),deltaQuote:finite(w.deltaQuote),
     buyRatio:finite(w.buyRatio),sellRatio:finite(w.sellRatio),priceMoveBps:finite(w.priceMoveBps),
     largestTradeQuote:finite(w.largestTradeQuote),largeBuyCount:Number(w.largeBuyCount)||0,largeSellCount:Number(w.largeSellCount)||0,
     possibleTwapLike:w.possibleTwapLike||null
@@ -16,7 +16,7 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
   const flow=streaming?.orderFlow?.windows||{};
   const liq=streaming?.observedLiquidations||{};
   return {
-    version:'JEV_MARKET_MAKER_EVIDENCE_V2_R2544_20',
+    version:'JEV_MARKET_MAKER_EVIDENCE_V2_R2544_21',
     authority:'EVIDENCE_ONLY',
     canQualify:false,canVeto:false,canSize:false,canExecute:false,
     participantIdentity:'NOT_IDENTIFIED',
@@ -98,7 +98,7 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
       'Observed forceOrder prints are real observed liquidations; projected liquidation levels are not fabricated.',
       'Top-trader and long/short ratios are positioning context, not market-maker identity.',
       'No single microstructure signal may independently create LONG/SHORT, QUALIFIED, size, stop, target or execution.',
-      'R2544.20 pre-entry adverse-selection indices are evidence for JEV entry timing only; they are not probabilities and never hard-veto a JEV plan.',
+      'R2544.21 pre-entry adverse-selection indices confidence-downweight sparse windows; they are evidence for JEV entry timing only, not probabilities, and never hard-veto a JEV plan.',
       'Binance/BrainHub numeric truth outranks visual interpretation when evidence conflicts.'
     ]
   };

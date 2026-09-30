@@ -371,7 +371,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
   </section>
 
-  <!-- R2544.20 PRE-ENTRY ADVERSE-SELECTION MIRROR -->
+  <!-- R2544.21 PRE-ENTRY ADVERSE-SELECTION + SPARSE-FLOW CONFIDENCE -->
   <section>
     <div class="card">
       <h2>Giriş Öncesi Mikroyapı / Tuzak Riski <span class="hint">JEV'e MARKET_NOW öncesi gider • olasılık değil • hard veto değil</span></h2>
@@ -1160,20 +1160,21 @@ function renderOssProvenance(s){
 function renderPreEntryMicro(p){
   const pe=p?.microstructure?.preEntryAdverseSelection||null;
   const kv=$('#preEntryKv'), detail=$('#preEntryComponents'); if(!kv||!detail)return;
-  if(!pe){kv.innerHTML='<dt>Durum</dt><dd>Bu coin için R2544.20 pre-entry paketi yok / runtime eski.</dd>';detail.textContent='—';return;}
-  const rel=pe.reliability||{}, L=pe.long||{}, S=pe.short||{};
-  const idx=v=>v==null?'—':Math.round(Number(v)*100)+'/100'; const ofi=pe?.level1Ofi?.['30s']||{};
+  if(!pe){kv.innerHTML='<dt>Durum</dt><dd>Bu coin için R2544.21 pre-entry paketi yok / runtime eski.</dd>';detail.textContent='—';return;}
+  const rel=pe.reliability||{}, sc=pe.samplingConfidence||{}, L=pe.long||{}, S=pe.short||{};
+  const idx=v=>v==null?'—':Math.round(Number(v)*100)+'/100'; const ofi=pe?.level1Ofi?.['30s']||{}; const short=sc.shortWindow||{}, overall=sc.overall||{};
   kv.innerHTML=[
     ['Kaynak / yetki',`${pe.authority||'EVIDENCE_ONLY'} • ${pe.participantIdentity||'NOT_IDENTIFIED'} • aktör niyeti ${pe.participantIntent||'NOT_ASSERTED'}`],
-    ['Güvenilirlik',`${rel.quality||'—'} • endeks ${idx(rel.score)} • trade pencere ${rel.tradeCoverageSec??'—'} sn • depth örnek ${rel.depthSamples??'—'} • L1 OFI geçiş ${rel.l1OfiTransitions30s??'—'}`],
+    ['Güvenilirlik',`${rel.quality||'—'} • feed ${idx(rel.score)} • örnek güveni ${overall.quality||'—'} ${idx(overall.score)} • kısa pencere ${short.quality||'—'} ${idx(short.score)} • trade ${rel.tradeCoverageSec??'—'} sn • depth ${rel.depthSamples??'—'} • OFI30 ${rel.l1OfiTransitions30s??'—'}`],
     ['LONG',`tuzak endeksi ${idx(L.trapRiskIndex)} • devam desteği ${idx(L.supportIndex)} • timing ${trUi(pe?.entryTimingGuidance?.LONG||'—')} • ${trUi(L.state||'—')}`],
     ['SHORT',`tuzak endeksi ${idx(S.trapRiskIndex)} • devam desteği ${idx(S.supportIndex)} • timing ${trUi(pe?.entryTimingGuidance?.SHORT||'—')} • ${trUi(S.state||'—')}`],
-    ['L1 bookTicker OFI 30s',ofi.available?`OFI ${ofi.normalizedOfi??'—'} • fiyat ${ofi.priceMoveBps??'—'} bps • queue ${ofi.queueImbalanceCurrent??'—'} • Δqueue ${ofi.queueImbalanceDelta??'—'} • ${ofi.transitions??'—'} geçiş`:'ısınma / veri yok'],
+    ['L1 bookTicker OFI 30s',ofi.available?`OFI ${ofi.normalizedOfi??'—'} • fiyat ${ofi.priceMoveBps??'—'} bps • queue ${ofi.queueImbalanceCurrent??'—'} • Δqueue ${ofi.queueImbalanceDelta??'—'} • ${ofi.transitions??'—'} geçiş • güven ${ofi.confidenceQuality||'—'} ${idx(ofi.confidence)}`:'ısınma / veri yok'],
+    ['Seyrek pencere',Array.isArray(sc.sparseWindows)&&sc.sparseWindows.length?sc.sparseWindows.slice(0,6).join(', '):'yok / yeterli örnek'],
     ['Akış ipucu',`${trUi(pe.actionHint||'—')} • baskın ${trUi(pe.preferredEvidenceSide||'—')} • toxicity-proxy endeksi ${idx(pe.toxicityProxy)}`],
     ['Semantik','Risk endeksi / deterministik kamu verisi. Geleceği garanti etmez; tek başına AL/SAT/veto/emir üretemez.']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
-  const top=(side,label)=>((side?.components||[]).slice().sort((a,b)=>Math.abs(Number(b.value||0)*Number(b.weight||0))-Math.abs(Number(a.value||0)*Number(a.weight||0))).slice(0,5).map(x=>`${label}:${x.id}=${Number(x.value||0)>=0?'+':''}${Number(x.value||0).toFixed(2)} (${x.evidence||''})`));
-  detail.innerHTML='<b>En güçlü kanıt bileşenleri:</b><br>'+esc([...top(L,'LONG'),...top(S,'SHORT')].join(' • ')||'yok')+'<br><b>JEV kullanımı:</b> yön tezi geçerli olsa bile seçilen tarafta yüksek tuzak/adverse-selection varsa MARKET_NOW yerine akış normalizasyonu / yeni kanıt beklemeyi değerlendirsin. Endeksler olasılık değildir. Düşük güvenilirlikte bu katman karar kapısı değildir.';
+  const top=(side,label)=>((side?.components||[]).slice().sort((a,b)=>Math.abs(Number(b.value||0)*Number(b.weight||0))-Math.abs(Number(a.value||0)*Number(a.weight||0))).slice(0,5).map(x=>`${label}:${x.id}=${Number(x.value||0)>=0?'+':''}${Number(x.value||0).toFixed(2)} conf=${x.confidence==null?'—':Number(x.confidence).toFixed(2)} (${x.evidence||''})`));
+  detail.innerHTML='<b>En güçlü kanıt bileşenleri:</b><br>'+esc([...top(L,'LONG'),...top(S,'SHORT')].join(' • ')||'yok')+'<br><b>JEV kullanımı:</b> yön tezi geçerli olsa bile seçilen tarafta yüksek tuzak/adverse-selection varsa MARKET_NOW yerine akış normalizasyonu / yeni kanıt beklemeyi değerlendirsin. Endeksler olasılık değildir. Düşük güvenilirlikte veya seyrek 5s/15s örnekte bu katman karar kapısı değildir; 30s/60s dolu pencereler daha fazla ağırlık taşır.';
 }
 
 function renderSources(s){

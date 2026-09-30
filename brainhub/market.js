@@ -170,6 +170,7 @@ function flowWindowStats(trades, now, windowMs) {
   if(sellCv!==null&&sellCv<=0.45&&(!possibleTwapLike||largeSell.length>possibleTwapLike.samples))possibleTwapLike={side:'SELL',samples:largeSell.length,intervalCv:round(sellCv,4)};
   return {
     windowMs,
+    coverageMs:first&&last?Math.max(0,last.at-first.at):0,
     trades:rows.length,
     buyQuote:round(buyQuote,2),
     sellQuote:round(sellQuote,2),

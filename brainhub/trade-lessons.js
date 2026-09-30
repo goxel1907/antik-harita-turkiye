@@ -227,7 +227,7 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   const failed=cand.filter(x=>x.s.pf!==null&&x.s.pf<0.8&&x.s.net<0).sort((a,b)=>a.s.net-b.s.net).slice(0,4).map(fmt);
   const tagFailed=tagRows.filter(r=>r[1]>=3&&r[3]<0).slice(0,5).map(r=>r[0]+': n'+r[1]+' net'+r[3]+'$ %'+Math.round(r[2]));
   const out={
-    version:'R2544.20',samples:xs.length,
+    version:'R2544.21',samples:xs.length,
     lifetime:life,
     payoffRatio:life.avgWin&&life.avgLoss?r2(life.avgWin/life.avgLoss,2):null,
     cols:['key','n','win%','netUSDT','PF','avgWin','avgLoss'],
