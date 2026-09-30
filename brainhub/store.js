@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { reconcileCloses } = require('./office-performance');
 const tradeLessonsLib = require('./trade-lessons');
+const episodeMemory = require('./episode-memory');
 
 function openStore(root) {
   const dir = path.join(root, 'data');
@@ -161,13 +162,14 @@ function openStore(root) {
     lessonCache={key,cards};
     return cards;
   }
-  function tradeLessons({symbol=null,candidate=null,limit=40}={}){
+  function tradeLessons({symbol=null,candidate=null,currentSignature=null,currentContext=null,limit=40}={}){
     try{
       const cards=tradeLessonCards();
-      return {cards:cards.slice(-Math.max(1,Math.min(400,Number(limit)||40))),digest:tradeLessonsLib.digest(cards,{symbol,candidate}),total:cards.length};
+      const current=currentSignature||episodeMemory.signatureFromUnified(currentContext,candidate?.side||null);
+      return {cards:cards.slice(-Math.max(1,Math.min(400,Number(limit)||40))),digest:tradeLessonsLib.digest(cards,{symbol,candidate,currentSignature:current}),total:cards.length};
     }catch(e){return {cards:[],digest:null,total:0,error:String(e?.message||e).slice(0,160)};}
   }
-  function learningContext({symbol=null,candidate=null}={}){
+  function learningContext({symbol=null,candidate=null,currentContext=null}={}){
     const closes=db.prepare("SELECT id,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED'").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,symbol:x.symbol}));
     const excluded=reconcileCloses(closes).excluded;
     db.exec('DELETE FROM excluded_learning_close_ids');
@@ -216,7 +218,7 @@ function openStore(root) {
       };
     });
     let tradeLessonDigest=null;
-    try{tradeLessonDigest=tradeLessons({symbol:key,candidate}).digest;}catch{tradeLessonDigest=null;}
+    try{tradeLessonDigest=tradeLessons({symbol:key,candidate,currentContext}).digest;}catch{tradeLessonDigest=null;}
     return {
       source:'BrainHub ölçülebilir işlem/karar geçmişi',
       tradeLessons:tradeLessonDigest,
@@ -231,7 +233,8 @@ function openStore(root) {
       jevLessonCount:jevLessons.length,
       changesAppliedToHardRisk:false,
       rMeasurementPolicy:'rMultiple yalnız geçerli ilk-miktar/ilk-stop tabanı varsa ölçülmüş sayılır; rStatus UNMEASURED_* veya REJECTED_OUTLIER_R olan satırlar R kanıtı olarak kullanılamaz (ham kayıt korunur, rawRMultiple alanında).',
-      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2537+ kayıtları setupFamily/entryTiming/edgeBasis/contractVersion ile ayrıştırılır; eski generic lane kayıtları karşılaştırılabilir setup kanıtı sayılmamalıdır. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez.'
+      contextualEpisodeMemory:'R2544.19 contrastive nearest-context memory: current public market state is compared with both similar winners and similar losers using closed-candle pattern/structure/stretch plus observed flow/depth/OI/taker/liquidation evidence. It is soft context only.',
+      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2537+ kayıtları setupFamily/entryTiming/edgeBasis/contractVersion ile ayrıştırılır; eski generic lane kayıtları karşılaştırılabilir setup kanıtı sayılmamalıdır. JEV_LESSON aynı işlemi ikinci kez saymaz ve hard risk/kill-switch/execution güvenliğini değiştiremez. Market-maker kimliği/niyeti çıkarılmaz; yalnız gözlenen piyasa mekaniği karşılaştırılır.'
     };
   }
   function lease(action, resource, owner, token, ttlMs = 30000) {
