@@ -74,5 +74,5 @@ test('R2544.22 PASS-1 -> PASS-2 carries a compact audited handoff instead of rep
 
 test('R2544.22 runtime/Office expose hard context budget and protected-core telemetry',()=>{
   const root=path.join(__dirname,'..');const server=fs.readFileSync(path.join(root,'server.js'),'utf8');const off=fs.readFileSync(path.join(root,'office-dashboard','office-server.js'),'utf8');const html=fs.readFileSync(path.join(root,'office-dashboard','public','office.html'),'utf8');
-  assert.match(server,/R2544\.22-HARD-CONTEXT-BUDGET/);assert.match(server,/R2544_22_PASS_SPECIFIC_BUDGET/);assert.match(server,/R2544_22_CORE_MARKET_PROTECTED/);assert.match(off,/2\.5\.2-R2544\.22-JEV-Brain/);assert.match(off,/targetBytes/);assert.match(off,/coreTruthProtected/);assert.match(html,/CORE DEĞİŞTİ/);assert.match(html,/targetBytes/);
+  assert.match(server,/R2544\.23-PASS1-QUESTION-BUDGET/);assert.match(server,/R2544_22_PASS_SPECIFIC_BUDGET/);assert.match(server,/R2544_22_CORE_MARKET_PROTECTED/);assert.match(server,/R2544_23_PASS1_QUESTION_COMPACTION/);assert.match(off,/2\.5\.3-R2544\.23-JEV-Brain/);assert.match(off,/targetBytes/);assert.match(off,/coreTruthProtected/);assert.match(html,/CORE DEĞİŞTİ/);assert.match(html,/targetBytes/);
 });

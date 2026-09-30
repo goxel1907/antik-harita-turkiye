@@ -572,6 +572,67 @@ function compactMemoryForDecision(mem,pass){
   out.note='Measured experience is soft context; winners and counterexample losers remain represented. No self-modification or hard rule.';
   return out;
 }
+function compactPass1Questions(questions){
+  if(!questions||typeof questions!=='object'||Array.isArray(questions))return questions;
+  const out={};
+  const evidencePrefix='Decide whether this evidence should be requested for the current decision. ';
+  const evidenceSuffix=' Do not request it merely because a checklist exists; request it only if it can materially improve the decision.';
+  for(const [id,q] of Object.entries(questions)){
+    if(!q||typeof q!=='object'||Array.isArray(q)){out[id]=q;continue;}
+    const x={...q};
+    if(id==='lane_focus'){
+      x.instructions='Choose the evidence-routing lane from supplied market state; this is not trade approval.';
+      x.criteria={'5M_SCALP':'5m scalp deserves first evidence.','15M_TRADE':'15m trade deserves first evidence.','BOTH':'Both lanes deserve evidence.','UNDECIDED':'No lane preference yet.'};
+    }else if(id==='direction_focus'){
+      x.instructions='Choose which direction deserves evidence first; scanner side is attention-only.';
+      x.criteria={LONG:'LONG first.',SHORT:'SHORT first.',BOTH:'Both remain live.',UNDECIDED:'No direction preference yet.'};
+    }else if(id==='knowledge_research'){
+      x.instructions='Request research only for a material knowledge gap not covered by current Cortex/verified knowledge.';
+      x.criteria={SKIP:'Knowledge is adequate.',RESEARCH_IF_GAP:'Research the material gap before PASS-2.'};
+    }else if(id==='knowledge_family'){
+      x.instructions='If research is requested, route it to the closest family; this never approves a trade.';
+      x.criteria={AUTO:'Auto-detect.',PATTERN:'Pattern/candlestick.',INDICATOR:'Indicator/quant.',MICROSTRUCTURE:'Order flow/depth/tape.',DERIVATIVES:'OI/funding/liquidation/positioning.',EXECUTION:'Execution/risk mechanics.',OTHER:'Other.'};
+    }else if(id.startsWith('evidence_')){
+      let unique=String(q.instructions||'').trim();
+      if(unique.startsWith(evidencePrefix))unique=unique.slice(evidencePrefix.length);
+      if(unique.endsWith(evidenceSuffix))unique=unique.slice(0,-evidenceSuffix.length);
+      unique=unique.trim();
+      x.instructions=(unique?unique+' ':'')+'Request only if material to this decision.';
+      x.criteria={REQUEST:'Request now.',SKIP:'Skip.'};
+    }
+    out[id]=x;
+  }
+  return out;
+}
+function compactMemoryItemForRouting(v,max=180){
+  if(v==null||typeof v==='number'||typeof v==='boolean')return v;
+  if(typeof v==='string')return clipNatural(v,max);
+  if(Array.isArray(v))return v.slice(0,7).map(x=>compactMemoryItemForRouting(x,Math.max(70,Math.floor(max/2))));
+  if(typeof v==='object'){
+    const keys=['eventId','symbol','side','family','lane','netPnl','rMultiple','exitType','similarity','fidelity','quality','actionHint','trapRisk','support','state','samples','avgR'];
+    const out={};for(const k of keys)if(v[k]!==undefined)out[k]=compactMemoryItemForRouting(v[k],Math.max(70,Math.floor(max/2)));return Object.keys(out).length?out:null;
+  }
+  return null;
+}
+function compactMemoryForPass1Routing(mem){
+  if(!mem||typeof mem!=='object')return mem;
+  const out={alwaysOn:true,source:mem.source||null,measuredSampleCount:mem.measuredSampleCount??null,jevLessonCount:mem.jevLessonCount??null,lifetime:mem.lifetime||null};
+  const tl=mem.tradeLessons;
+  if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,current:tl.current||null,symbol:tl.symbol||null,
+    worked:(tl.worked||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,160)),failed:(tl.failed||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,160)),
+    repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,2).map(x=>compactMemoryItemForRouting(x,120)),byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,3),trimmedForPass1Routing:true};
+  const analogPair=xs=>{
+    const a=Array.isArray(xs)?xs:[];const win=a.find(x=>Number(x?.netPnl)>0);const loss=a.find(x=>Number(x?.netPnl)<0);const picked=[];
+    if(win)picked.push(win);if(loss&&loss!==win)picked.push(loss);if(!picked.length&&a[0])picked.push(a[0]);
+    return picked.slice(0,2).map(x=>compactMemoryItemForRouting(x,180)).filter(Boolean);
+  };
+  const compactDigest=(d,withAnalogs=true)=>d&&typeof d==='object'?{version:d.version,available:d.available,samples:d.samples,summary:d.summary,fidelity:d.fidelity,counterexamples:d.counterexamples,
+    ...(withAnalogs?{analogs:analogPair(d.analogs)}:{}),softContextOnly:true,contextProjected:true,executionAuthority:false}:d;
+  if(mem.caseMemory&&typeof mem.caseMemory==='object')out.caseMemory=compactDigest(mem.caseMemory,true);
+  if(mem.caseMemoryByLane&&typeof mem.caseMemoryByLane==='object')out.caseMemoryByLane=Object.fromEntries(Object.entries(mem.caseMemoryByLane).slice(0,4).map(([k,d])=>[k,compactDigest(d,false)]));
+  out.note='PASS-1 routing digest: measured aggregate + winner/loser counterexample context only; final-decision memory remains separate. No hard rule.';
+  return out;
+}
 function minimalEssentialEnvelope(body){
   const s=body?.state||{};return {model:body?.model,state:{coreMarketPacket:s.coreMarketPacket||null,record:s.record||null,pass1Handoff:s.pass1Handoff||null,decisionContract:s.decisionContract||null},questions:body?.questions||null};
 }
@@ -612,6 +673,16 @@ function prepareDecisionRequest(input,opts={}){
     }
     trimStepsApplied.push('OPTIONAL_CONTEXT_TIGHT');serialized=refresh();
   }
+  // PASS-1 question schemas carry repeated static routing prose. Compact only prose, never question IDs,
+  // choice keys, evidence descriptions or the current market packet. This is deliberately before market compaction.
+  if(pass===1&&byteSize(body)>targetCap&&body.questions&&typeof body.questions==='object'){
+    body.questions=compactPass1Questions(body.questions);trimStepsApplied.push('PASS1_QUESTION_SCHEMA_COMPACT');serialized=refresh();
+  }
+  // PASS-1 only routes evidence. If still over target, keep measured outcome aggregates and winner/loser
+  // counterexamples while removing verbose lesson prose; PASS-2/final memory semantics are untouched.
+  if(pass===1&&byteSize(body)>targetCap&&state.experienceMemory&&typeof state.experienceMemory==='object'){
+    state.experienceMemory=compactMemoryForPass1Routing(state.experienceMemory);trimStepsApplied.push('PASS1_ROUTING_MEMORY_TIGHT');serialized=refresh();
+  }
   if(byteSize(body)>targetCap&&packetObj?.chartNarrative){packetObj.chartNarrative=compactChartNarrative(packetObj.chartNarrative);trimStepsApplied.push('CHART_NARRATIVE_DEDUP');serialized=refresh();}
   if(recordObj||packetObj){
     const stripGeometry=node=>{if(Array.isArray(node)){for(const x of node)stripGeometry(x);return;}if(!node||typeof node!=='object')return;if(Array.isArray(node.patterns))node.patterns=node.patterns.map(p=>{if(!p||typeof p!=='object')return p;const {geometry,...rest}=p;return geometry?{...rest,geometryTrimmed:true}:rest;});for(const v of Object.values(node))stripGeometry(v);};
@@ -638,8 +709,8 @@ function prepareDecisionRequest(input,opts={}){
     stateBytes:byteSize(body.state),questionsBytes:byteSize(body.questions),essentialBytes,secondaryTrimApplied:trimStepsApplied.length>0,trimStepsApplied,
     marketTrimApplied:trimStepsApplied.some(x=>['PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),
     sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,byteSize(v)])),coreTruthProtected,coreTruthHash:coreHashAfter,blockReason,
-    contextBudget:{policy:'R2544.22_PASS_SPECIFIC_CORE_FIRST',targetBytes:targetCap,hardMaxBytes:hardCap,usedBytes:bytes,remainingToTarget:Math.max(0,targetCap-bytes),remainingToHard:Math.max(0,hardCap-bytes),coreTruthProtected,
-      optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),coreMarketPriority:true}};
+    contextBudget:{policy:'R2544.23_PASS1_SCHEMA_CORE_FIRST',targetBytes:targetCap,hardMaxBytes:hardCap,usedBytes:bytes,remainingToTarget:Math.max(0,targetCap-bytes),remainingToHard:Math.max(0,hardCap-bytes),coreTruthProtected,
+      optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT','PASS1_QUESTION_SCHEMA_COMPACT','PASS1_ROUTING_MEMORY_TIGHT'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),coreMarketPriority:true}};
   return {ok:bytes<=hardCap,body,serialized,diagnostics};
 }
 
@@ -921,7 +992,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       model:cfg.model,
       state:{
         description:'JEV PASS-1 is the sole strategic evidence director. Radar is ATTENTION_ONLY; JEV chooses lane, direction and only material extra evidence. Chart evidence is fulfilled in the mainline by deterministic closed-candle chartNarrative without GPU/VLM; Vision is audit-on-demand only and never overrides numeric truth. coreMarketPacket.levelMap lists the nearest levels for location/path reasoning. Frame readout (closed candles, compact) is context, not a vote. experienceMemory.tradeLessons is YOUR OWN measured P&L and remains soft context with winners and losses. Numeric Binance/BrainHub truth outranks visual interpretation. Missing optional evidence is not negative evidence.',
-        decisionContract:{version:'R2544.22',authority:'JEV_FINAL',phase:'PASS1_EVIDENCE_ROUTING',lanes:['5M_SCALP','15M_TRADE'],rules:['NO_FIXED_SCORE','NO_2_OF_3','NO_HARD_15M_VETO','FORMING_CANDLE_CONTEXT_ONLY'],microstructure:'R2544.21 PREENTRY EVIDENCE_ONLY; samplingConfidence downweights SPARSE/VERY_SPARSE 5s/15s and favors better-sampled 30s/60s; never infer participant identity/intent.',memory:'MEASURED_SOFT_CONTEXT_WINNERS_PLUS_COUNTEREXAMPLES_NO_HARD_RULE',frameLegend:'st=stretch/location; ch=side chase risk; sq=squeeze; dp=displacement/retrace; pl=liquidity clusters; ef=exhaustion. Use by relevance, never as vote counting.'},
+        decisionContract:{version:'R2544.23',authority:'JEV_FINAL',phase:'PASS1_EVIDENCE_ROUTING',lanes:['5M_SCALP','15M_TRADE'],rules:['NO_FIXED_SCORE','NO_2_OF_3','NO_HARD_15M_VETO','FORMING_CANDLE_CONTEXT_ONLY'],microstructure:'R2544.21 PREENTRY EVIDENCE_ONLY; samplingConfidence downweights SPARSE/VERY_SPARSE 5s/15s and favors better-sampled 30s/60s; never infer participant identity/intent.',memory:'MEASURED_SOFT_CONTEXT_WINNERS_PLUS_COUNTEREXAMPLES_NO_HARD_RULE',frameLegend:'st=stretch/location; ch=side chase risk; sq=squeeze; dp=displacement/retrace; pl=liquidity clusters; ef=exhaustion. Use by relevance, never as vote counting.'},
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -980,7 +1051,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       model:cfg.model,
       state:{
         description:'JEV PASS-2 final strategic choice. 5M_SCALP is a professional scalper desk; 15M_TRADE is a professional trader desk. Choose one supplied executable plan or WAIT. WAIT is an active strategic decision that requires a concrete market reason, not generic uncertainty. Weight evidence by freshness, independence, reliability and relevance; disagreement is normal. MARKET_NOW requires coherent direction, location, invalidation, execution quality and remaining path; when those are already sound, do not demand textbook confirmation before MARKET_NOW. coreMarketPacket.levelMap lists the nearest levels for location, stop and remaining path. Frame readout (closed candles, compact), volatility spike/extAtr/trail and order-block context are soft closed-candle context for chase risk and location, never a checklist, threshold or veto. experienceMemory.tradeLessons is YOUR OWN measured P&L and remains soft context with winners and losses.',
-        decisionContract:{version:'R2544.22',authority:'JEV_FINAL',phase:'PASS2_FINAL',lanes:{'5M_SCALP':'prioritize immediate execution,1m/3m timing,5m structure,spread/flow/depth,near liquidity','15M_TRADE':'prioritize 15m structure/location/invalidation/liquidity path; lower-TF noise alone is not a veto'},rules:['NO_MANDATORY_CHECKLIST','NO_FIXED_SCORE','NO_2_OF_3','NO_HARD_15M_VETO','NUMERIC_TRUTH_OVER_VISUAL','OPTIONAL_MISSING_NOT_NEGATIVE'],microstructure:'R2544.21 PREENTRY is timing evidence only; SPARSE/VERY_SPARSE short windows are downweighted; high adverse selection may justify WAIT_NEW_EVIDENCE without invalidating the higher-level thesis.',memory:'MEASURED_SOFT_CONTEXT_WINNERS_PLUS_COUNTEREXAMPLES; explain material differences before repeating/rotating after recent outcomes.',knowledge:'Do not invent unfamiliar concepts; choose WAIT when a material knowledge gap remains.'},
+        decisionContract:{version:'R2544.23',authority:'JEV_FINAL',phase:'PASS2_FINAL',lanes:{'5M_SCALP':'prioritize immediate execution,1m/3m timing,5m structure,spread/flow/depth,near liquidity','15M_TRADE':'prioritize 15m structure/location/invalidation/liquidity path; lower-TF noise alone is not a veto'},rules:['NO_MANDATORY_CHECKLIST','NO_FIXED_SCORE','NO_2_OF_3','NO_HARD_15M_VETO','NUMERIC_TRUTH_OVER_VISUAL','OPTIONAL_MISSING_NOT_NEGATIVE'],microstructure:'R2544.21 PREENTRY is timing evidence only; SPARSE/VERY_SPARSE short windows are downweighted; high adverse selection may justify WAIT_NEW_EVIDENCE without invalidating the higher-level thesis.',memory:'MEASURED_SOFT_CONTEXT_WINNERS_PLUS_COUNTEREXAMPLES; explain material differences before repeating/rotating after recent outcomes.',knowledge:'Do not invent unfamiliar concepts; choose WAIT when a material knowledge gap remains.'},
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1488,4 +1559,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
 }
-module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,createJevClient};
+module.exports={prepareDecisionRequest,compactPass1Questions,compactMemoryForPass1Routing,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,createJevClient};
