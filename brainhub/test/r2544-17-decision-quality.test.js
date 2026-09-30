@@ -77,7 +77,7 @@ test('R2544.17 curated OSS registry karar kalitesi araştırma kaynaklarını i�
   for(const repo of ['microsoft/qlib','online-ml/river','nkaz001/hftbacktest','AgentJDrew/backtest-guard','landtml/purgedcv'])assert.ok(k.includes(repo),repo);
 });
 
-test('R2544.23 sürüm kimliği',()=>{
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.23-PASS1-QUESTION-BUDGET'/);
-  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2\.5\.3-R2544\.23-JEV-Brain'/);
+test('R2544.24 sürüm kimliği',()=>{
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.24-PASS2-FINAL-BUDGET'/);
+  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2\.5\.4-R2544\.24-JEV-Brain'/);
 });
