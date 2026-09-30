@@ -1,6 +1,7 @@
 'use strict';
 
 const {narrateChart}=require('./chart-narrator');
+const {readoutDigest}=require('./chart-readout');
 
 function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function arr(v){return Array.isArray(v)?v:[];}
@@ -47,7 +48,9 @@ function framePacket(f,{full=false}={}){
     // CLAUDE_R2544_5_FORMING_CANDLE: kapanmamış mum — yalnız bağlam (yapı/formasyon kapalı mumdan).
     forming:formingDigest(f.forming),
     // CLAUDE_R2544_11_INDICATORS: son ani hareket (gövde ≥2 ATR), fiyatın onun ortasına uzaklığı (ATR) ve 3×ATR iz. ≈120 bayt; bağlam.
-    volatility:volDigest(f.volatility)
+    volatility:volDigest(f.volatility),
+    // CLAUDE_R2544_16_CHART_READOUT: uzama/çapalı VWAP/konum, sıkışma, yer değiştirme+OTE, likidite havuzu durumu, çaba-sonuç/uyumsuzluk.
+    readout:readoutDigest(f.readout)
   };
   if(full){
     const fvgSource=arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps;
@@ -263,4 +266,4 @@ function mirrorDigest(packet){
   };
 }
 
-module.exports={levelMap,liquidationHistoryDigest,framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,keyLevels};
+module.exports={levelMap,liquidationHistoryDigest,framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest,keyLevels};

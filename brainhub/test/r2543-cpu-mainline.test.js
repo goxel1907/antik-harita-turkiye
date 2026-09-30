@@ -70,8 +70,12 @@ test('priority preserves both directions, approaching and early pools; coverage 
  const leaders=Array.from({length:24},(_,i)=>({symbol:'C'+i+'USDT',attackRank:i+1,side:i%2?'SHORT':'LONG'}));
  const scan={leaders,top3Approach:[{symbol:'APPUSDT',side:'SHORT'}],acceleratingCandidates:[{symbol:'EARLYUSDT',side:'LONG'}]};
  const pool=selectDeterministicCandidates(scan,24);
- assert.deepEqual(pool.slice(0,3).map(x=>x.symbol),leaders.slice(0,3).map(x=>x.symbol));
- assert.equal(pool[3].symbol,'APPUSDT');assert.ok(pool.some(x=>x.symbol==='EARLYUSDT'));assert.equal(pool.length,24);
+ assert.equal(pool[0].symbol,'APPUSDT','approach comes before current leaders');
+ assert.equal(pool[1].attackRank,4,'ranks 4-10 are next');
+ assert.ok(pool.some(x=>x.symbol==='EARLYUSDT'));assert.equal(pool.length,24);
+ const top3Indexes=leaders.slice(0,3).map(x=>pool.findIndex(p=>p.symbol===x.symbol));
+ assert.ok(top3Indexes.every(i=>i>=0));
+ assert.ok(Math.min(...top3Indexes)>pool.findIndex(x=>x.attackRank===11),'Top3 is scheduled after 11-24 discovery');
  const history={},seen=new Set();
  for(let i=0;i<200;i++){const p=pickPriorityCandidate(pool,history,i);assert.ok(p.candidate);seen.add(p.candidate.symbol);history[p.candidate.symbol]={lastAnalyzedAt:i+1};}
  assert.equal(seen.size,pool.length);assert.ok(pool.some(x=>x.side==='SHORT'));

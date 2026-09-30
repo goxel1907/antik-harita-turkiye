@@ -861,8 +861,12 @@ function renderJev(s){
     const selectivity=sel.code==='NO_WAIT_OBSERVED_INFO_ONLY'
       ? `bilgi: son ${h.sovereignFinalTotal??0} son kararda BEKLE yok • BLOK YOK`
       : `BEKLE oranı ${h.sovereignWaitRatePct==null?'—':h.sovereignWaitRatePct+'%'} • BLOK YOK`;
+    const pe=j.provider?.lastError||null; const providerBlocked=[401,403].includes(Number(pe?.httpStatus));
+    const providerText=providerBlocked?`ERİŞİM REDDİ HTTP ${pe.httpStatus} • ${pe.category||'AUTH'}${pe.message?' • '+pe.message:''}`:
+      (j.provider?.authCooldownActive?'kimlik doğrulama yeniden deneme beklemesinde':'bağlantı hatası yok');
     $('#jevKv').innerHTML = [
-      ['Durum', s.derived?.budgetBlocked?'JEV günlük çağrı bütçesi tükendi - UTC reset bekleniyor':j.configured?`hazır • ${j.model||''} • JEV PATRON`:'yapılandırılmamış'],
+      ['Durum', s.derived?.budgetBlocked?'JEV günlük çağrı bütçesi tükendi - UTC reset bekleniyor':providerBlocked?providerText:j.configured?`hazır • ${j.model||''} • JEV PATRON`:'yapılandırılmamış'],
+      ['Sağlayıcı', providerText],
       ['Akış', `PASS-1 ${h.sovereignPass1Calls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0} • PASS-2 ${h.sovereignFinalCalls??0}`],
       ['Son karar', `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • BEKLE ${h.sovereignWait??0}`],
       ['Seçicilik', selectivity],

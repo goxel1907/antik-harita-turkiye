@@ -94,7 +94,7 @@ test('paket: her TF\'de kompakt volatility (≤200 bayt), üst bağlam özetleme
   assert.ok(fp.volatility&&hp.volatility!==undefined);
   assert.ok(Buffer.byteLength(JSON.stringify(P.volDigest(s.volatility)))<=200);
   const src=fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8');
-  assert.match(src,/'ema20','ema50','candle','forming','keyLevels','volatility'\];/);
+  assert.match(src,/'ema20','ema50','candle','forming','keyLevels','volatility','readout'\];/);
   const big=tf=>({available:true,fresh:true,trend:'UP',volatility:{spike:{dir:'UP',barsAgo:2,bodyAtr:2.4,pct:1.1,mid:1},extAtr:1.8,trail:null},liquidity:{notes:'y'.repeat(9000)}});
   const input={state:{coreMarketPacket:{coreFrames:{'5m':big(),'15m':big()},higherContext:Object.fromEntries(['30m','45m','1h','4h','1d'].map(tf=>[tf,big()]))},record:{entryThesis:'t'.repeat(3000)},professionalTraderCortex:{reference:'r'.repeat(20000)}},questions:{trade_plan:{}}};
   const out=prepareDecisionRequest(input);

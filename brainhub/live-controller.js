@@ -25,6 +25,7 @@ const claudeV111 = require('./claude-v111');
 const claudeV112 = require('./claude-v112');
 const tradeLanesV111 = require('./trade-lanes');
 const positionGuard = require('./position-guard');
+const tradeLessonsLib = require('./trade-lessons');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -1497,6 +1498,23 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return { realized, commission, funding, net:realized + commission + funding, rows:income.length, lastPnlAt:pnlTimes.length ? Math.max(...pnlTimes) : null, pnlRows:pnlTimes.length };
     } catch { return null; }
   }
+  // CLAUDE_R2544_16_TRADE_LESSONS: kapanışın deterministik ders kartı (journal TRADE_LESSON_CARD) + karşılaştırılabilir geçmiş.
+  // Ders öğretmenine (JEV) bu kart ve geçmiş verilir; kart ayrıca Office'te ve deneyim hafızasında görünür.
+  function closeLessonContext(symbol,record){
+    try{
+      if(typeof store?.tradeLessons!=='function')return {};
+      const cand=record?.entryContext?.attention||null;
+      const tl=store.tradeLessons({symbol,candidate:cand?{symbol,...cand}:null,limit:400});
+      const cards=Array.isArray(tl?.cards)?tl.cards:[];
+      const card=(record?.eventId&&cards.find(c=>c.eventId===record.eventId))||[...cards].reverse().find(c=>c.symbol===symbol)||null;
+      const d=tl?.digest||{};
+      const comparable={current:d.current||null,symbol:d.symbol||null,
+        family:(d.byFamilySide||[]).find(r=>card&&r[0]===card.family+'|'+card.side)||null,
+        repeatedMistakes:(d.repeatedMistakes||[]).slice(0,4),worked:(d.worked||[]).slice(0,3),failed:(d.failed||[]).slice(0,3)};
+      if(card){try{store.journal('TRADE_LESSON_CARD',symbol,{...card,comparable});}catch{}}
+      return {lessonCard:card,comparable};
+    }catch{return {};}
+  }
   async function recordJevShadowLesson(symbol,record){
     if(typeof lessonJudge!=='function')return null;
     try{
@@ -1509,7 +1527,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         outcomePct:record?.outcomePct??null,rMultiple:record?.rMultiple??null,
         decision:'SHADOW_LESSON',
         teacher:'JEV',application:'SHADOW_ONLY',selfModify:false,autoPromotion:false,
-        lessonFocus:lesson.lessonFocus,evidenceFocus:lesson.evidenceFocus,lessonAction:lesson.lessonAction,scope:lesson.scope
+        lessonFocus:lesson.lessonFocus,evidenceFocus:lesson.evidenceFocus,lessonAction:lesson.lessonAction,scope:lesson.scope,
+        // R2544.16: deterministik kartın özeti derse eklenir (JEV'in dersi somut etikete bağlanır)
+        lessonTags:Array.isArray(record?.lessonCard?.tags)?record.lessonCard.tags.slice(0,8):null,
+        lessonVerdict:record?.lessonCard?.verdict||null,lessonText:record?.lessonCard?.lesson||null,attentionTier:record?.lessonCard?.tier||null
       };
       try{store.recordLearning?.('JEV_LESSON',symbol,payload);}catch{}
       try{store.journal('JEV_LESSON',symbol,payload);}catch{}
@@ -1635,7 +1656,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       writeLeaderAnalysisState();
       if(!appendClosedOnce(symbol,record))continue;
       try{store.recordLearning?.('POSITION_CLOSED',symbol,{...record,decision:'CLOSED_'+exitType});}catch{}
-      await recordJevShadowLesson(symbol,record);
+      await recordJevShadowLesson(symbol,{...record,...closeLessonContext(symbol,record)});
       // Stop olan coine hızlı hat hemen geri girmesin (intikam işlemi yok): veto soğuması kadar.
       // CLAUDE_R2544_REENTRY_COOLDOWN: yalnız stop değil, ZARARLA biten her kapanış (JEV EXIT_NOW dahil)
       // aynı coine yeniden girişi soğutur. 28.09 00:00:16 JEV MARSCOIN'i -1.06 USDT ile kapattı,
@@ -1791,7 +1812,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         }
         if(!appendClosedOnce(sym,record)){done[eventId]='EXISTING_LEDGER_ENTRY_AT_APPEND';continue;}
         try{store.recordLearning?.('POSITION_CLOSED',sym,{...record,decision:'CLOSED_'+exitType});}catch{}
-        await recordJevShadowLesson(sym,record);
+        await recordJevShadowLesson(sym,{...record,...closeLessonContext(sym,record)});
         done[eventId]=new Date(clock()).toISOString();
         written.push({symbol:sym,netPnl,rMultiple,exitType});
       }
@@ -2525,6 +2546,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           fastLaneState.lastPreMoveScan={at:new Date(now).toISOString(),checked:pool.length,
             hits:ranked.slice(0,5).map(x=>({symbol:symOf(x.c),state:x.p.state,direction:x.p.direction,priority:x.p.priority,frame:x.p.frame}))};
           if(ranked.length){chosen=ranked[0].c;preMove=ranked[0].p;selection='PRE_MOVE_'+ranked[0].p.state;}
+          // CLAUDE_R2544_16_NEAR_EXPLOSION: hızlı hattın bulduğu ön-hareket imzaları tarayıcının 'patlamaya yakın' havuzuna yazılır.
+          try{if(ranked.length&&typeof scanner?.recordPreMoveHits==='function')scanner.recordPreMoveHits(ranked.slice(0,5).map(x=>({symbol:symOf(x.c),state:x.p.state,direction:x.p.direction,priority:x.p.priority,frame:x.p.frame})),'FAST_LANE');}catch{}
         }
         if(!chosen)chosen=eligible[0]||null;
         if(!chosen)return {ok:true,skipped:true,reason:'JEV_SOVEREIGN_FAST_ATTENTION_NO_SYMBOL',checked:candidates.length};
@@ -4437,7 +4460,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           extension:fl?.extension||null,riskGeometry:fl?.riskGeometry||null,
           jev:jd?{veto:jd.veto===true,summaryTr:String(jd.summaryTr||'').slice(0,200),probabilities:jd.probabilities||null}:null,
           riskPctOfEquity:finite(result?.sizing?.riskPctOfEquity),
-          marketSignature:marketSignatureFromAdvisory(advisory)
+          marketSignature:marketSignatureFromAdvisory(advisory),
+          // CLAUDE_R2544_16_TRADE_LESSONS: işlem hangi dikkat katmanından geldi (ilk 10 adayı / 4–10 / 11–24 / erken ilgi /
+          // patlamaya yakın / ilk 3). Kapanışta ders kartı ve katman istatistiği buna göre öğrenilir.
+          attention:tradeLessonsLib.attentionFromCandidate(candidate)
         };
       }catch{}
       leaderAnalysisState.bySymbol[String(candidate.symbol||'').toUpperCase()]=executionLifecycle;

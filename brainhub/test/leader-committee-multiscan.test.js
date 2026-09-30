@@ -53,11 +53,12 @@ test('current attack top10 is deep-scanned and approaching candidates are append
     earlyExpansion:[early]
   }, 16);
 
-  assert.deepEqual(picked.map(x => x.symbol), ['TOP1USDT','TOP2USDT','APPROACHUSDT','TOP10USDT','EARLYUSDT']);
+  // R2544.16 (kullanıcı kararı): eski saldırı sırasında da ilk 3 EN SON; 4–10 ve yaklaşanlar önce.
+  assert.deepEqual(picked.map(x => x.symbol), ['TOP10USDT','TOP2USDT','APPROACHUSDT','EARLYUSDT','TOP1USDT']);
   assert.equal(picked[0].deepScanReason, 'CURRENT_ATTACK_TOP10');
-  assert.equal(picked[1].deepScanReason, 'CURRENT_ATTACK_TOP10');
+  assert.equal(picked[1].deepScanReason, 'TOP3_APPROACH');
   assert.equal(picked[2].deepScanReason, 'TOP3_APPROACH');
-  assert.equal(picked[3].deepScanReason, 'CURRENT_ATTACK_TOP10');
+  assert.equal(picked[4].deepScanReason, 'CURRENT_ATTACK_TOP10');
   assert.equal(new Set(picked.map(x => x.symbol)).size, picked.length);
 });
 
@@ -137,8 +138,9 @@ test('deep-scan prompt explicitly requires independent LONG and SHORT review for
   });
   const prompt = buildPrompt([longRow, shortRow]);
   assert.match(prompt, /Her sembolde LONG ve SHORT hipotezlerini AYRI değerlendir/);
-  assert.match(prompt, /TOP3_APPROACH/);
-  assert.match(prompt, /BINANCE_TOP24_GAINER kalan derin-tarama kapasitesini dolduran/);
+  assert.match(prompt, /GAINER_APPROACH/);
+  assert.match(prompt, /GAINER_TOP24/);
+  assert.match(prompt, /GAINER_TOP3 EN SON/);
   assert.match(prompt, /LONG_STATUS: WATCH \| QUALIFIED \| REJECT/);
   assert.match(prompt, /SHORT_STATUS: WATCH \| QUALIFIED \| REJECT/);
   assert.match(prompt, /LONGUSDT/);
@@ -153,6 +155,6 @@ test('top3 approach and early-interest candidates cannot be starved by a full to
   const accel=row('ACCELUSDT',40,'RISING',{rankVelocity:6});
   const gainers=Array.from({length:24},(_,i)=>row('GAIN'+i+'USDT',50+i,'WATCH'));
   const picked=selectDeepCandidates({leaders:[top1],top3Approach:[approach],acceleratingCandidates:[accel],gainerCandidates:gainers},6);
-  assert.deepEqual(picked.slice(0,3).map(x=>x.symbol),['TOP1USDT','APPROACHUSDT','ACCELUSDT']);
+  assert.deepEqual(picked.slice(0,3).map(x=>x.symbol),['APPROACHUSDT','ACCELUSDT','TOP1USDT']); // R2544.16: ilk 3 en son
   assert.ok(picked.some(x=>x.deepScanReason==='BINANCE_TOP24_GAINER'));
 });

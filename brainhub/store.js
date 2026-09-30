@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { reconcileCloses } = require('./office-performance');
+const tradeLessonsLib = require('./trade-lessons');
 
 function openStore(root) {
   const dir = path.join(root, 'data');
@@ -127,7 +128,46 @@ function openStore(root) {
       return x&&typeof x==='object'&&!Array.isArray(x)?x:{};
     }catch{return {};}
   }
-  function learningContext({symbol=null}={}){
+  // CLAUDE_R2544_16_TRADE_LESSONS: kapanan her işlem için deterministik ders kartı + bütün geçmişin özeti.
+  // Dikkat katmanı (ilk 3 / 4–10 / aday …) yeni kayıtlarda entryContext.attention'dan, eskilerde giriş anındaki PLAN /
+  // LEADER_AUTO_ATTEMPT adayından (±20 dk) bulunur. Kartlar kapanış sayısı değişmedikçe önbellekten gelir.
+  const attnNear=db.prepare("SELECT kind,ts,payload FROM journal WHERE kind IN ('PLAN','LEADER_AUTO_ATTEMPT') AND symbol=? AND ts<=? AND ts>=? ORDER BY ts DESC LIMIT 4");
+  const attnCache=new Map();
+  let lessonCache={key:null,cards:[]};
+  function attentionForClose(p){
+    const key=p.id||p.eventId||(p.symbol+'|'+p.openedAt);
+    if(attnCache.has(key))return attnCache.get(key);
+    let att=null;
+    const o=Date.parse(p.openedAt||'');
+    if(p.symbol&&Number.isFinite(o)){
+      try{
+        for(const row of attnNear.all(p.symbol,o+10000,o-20*60000)){
+          let q=null;try{q=JSON.parse(row.payload);}catch{q=null;}
+          const c=q&&q.candidate;
+          if(c&&typeof c==='object'&&(c.attentionSource||Array.isArray(c.targetSources))){att=tradeLessonsLib.attentionFromCandidate(c);break;}
+        }
+      }catch{att=null;}
+    }
+    attnCache.set(key,att);
+    return att;
+  }
+  function tradeLessonCards(){
+    const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
+    const key=raw.length+':'+(raw.length?raw[raw.length-1].id:'');
+    if(lessonCache.key===key)return lessonCache.cards;
+    const rows=raw.map(x=>{let p={};try{p=JSON.parse(x.payload)||{};}catch{p={};}return {...p,id:x.id,symbol:x.symbol};});
+    const trades=reconcileCloses(rows).trades;
+    const cards=tradeLessonsLib.buildCards(trades,{attentionOf:attentionForClose});
+    lessonCache={key,cards};
+    return cards;
+  }
+  function tradeLessons({symbol=null,candidate=null,limit=40}={}){
+    try{
+      const cards=tradeLessonCards();
+      return {cards:cards.slice(-Math.max(1,Math.min(400,Number(limit)||40))),digest:tradeLessonsLib.digest(cards,{symbol,candidate}),total:cards.length};
+    }catch(e){return {cards:[],digest:null,total:0,error:String(e?.message||e).slice(0,160)};}
+  }
+  function learningContext({symbol=null,candidate=null}={}){
     const closes=db.prepare("SELECT id,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED'").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,symbol:x.symbol}));
     const excluded=reconcileCloses(closes).excluded;
     db.exec('DELETE FROM excluded_learning_close_ids');
@@ -175,8 +215,11 @@ function openStore(root) {
         marketSignature:p.marketSignature||null
       };
     });
+    let tradeLessonDigest=null;
+    try{tradeLessonDigest=tradeLessons({symbol:key,candidate}).digest;}catch{tradeLessonDigest=null;}
     return {
       source:'BrainHub ölçülebilir işlem/karar geçmişi',
+      tradeLessons:tradeLessonDigest,
       excludedDuplicateCloses:excluded.length,
       recent,
       lifetime,
@@ -271,6 +314,6 @@ function openStore(root) {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
 
-  return { db, officeRecords, journal, getJournal, latestJournal, recentJournal, label, learning, recordLearning, learningContext, lease, claim, releaseClaim };
+  return { db, officeRecords, journal, getJournal, latestJournal, recentJournal, label, learning, recordLearning, learningContext, tradeLessons, lease, claim, releaseClaim };
 }
 module.exports = { openStore };

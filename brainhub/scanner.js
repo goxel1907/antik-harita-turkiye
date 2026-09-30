@@ -2,14 +2,19 @@
 
 const fs = require('fs');
 const path = require('path');
+const { preMoveSignal, combinePreMove } = require('./premove');
 
 const ROOT = process.env.BRAINHUB_ROOT || path.resolve(__dirname, '..');
 const STATE_PATH = path.join(ROOT, 'data', 'scanner-state.json');
 const ATTENTION_PATH = path.join(ROOT, 'data', 'scanner-attention.json');
+// CLAUDE_R2544_16_NEAR_EXPLOSION: hareket başlamadan imza veren (PRE_MOVE/IGNITION) semboller 20 dk saklanır;
+// tarayıcı ve hızlı hat yazar, tarayıcı 'patlamaya yakın' havuzunda okur (LONG ve SHORT).
+const PREMOVE_HITS_PATH = path.join(ROOT, 'data', 'premove-hits.json');
+const PREMOVE_HIT_TTL_MS = 20 * 60 * 1000;
 const BASE = 'https://fapi.binance.com';
 const ATTENTION_MAX_AGE_MS = 15 * 60 * 1000;
 // CLAUDE_R2544_15_GAINER_LADDER: ayrıntılı inceleme 24 → 30 (yükselenler ilk 24 + erken teşhis + erken ilgi sığsın).
-const TARGET_DETAIL_LIMIT = 30;
+const TARGET_DETAIL_LIMIT = 36;   // R2544.16: 30→36 (yeni öncelik sırasında her katman temsil edilsin)
 const LADDER_HISTORY_MS = 30 * 60 * 1000;   // yükselenler sırası geçmişi (hız hesabı)
 const LADDER_TRACK_RANK = 80;               // geçmişi tutulan en kötü sıra
 const EXCHANGE_TTL_MS = 10 * 60 * 1000;
@@ -99,6 +104,42 @@ function writeAttentionSnapshot(body = {}) {
   fs.writeFileSync(tmp,JSON.stringify(out,null,2),'utf8');
   fs.renameSync(tmp,ATTENTION_PATH);
   return {ok:true,received:clean.length,updatedAt:out.updatedAt};
+}
+
+function readPreMoveHits(now = Date.now()) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(PREMOVE_HITS_PATH, 'utf8').replace(/^﻿/, ''));
+    const rows = raw && typeof raw.bySymbol === 'object' && raw.bySymbol ? raw.bySymbol : {};
+    const out = {};
+    for (const [sym, h] of Object.entries(rows)) {
+      if (!validUsdtSymbol(sym) || !h || !(now - num(h.at) <= PREMOVE_HIT_TTL_MS) || num(h.at) > now + 60000) continue;
+      out[sym] = { at:num(h.at), state:String(h.state || ''), direction:String(h.direction || 'BOTH'), priority:num(h.priority), frame:h.frame || null, source:String(h.source || '') };
+    }
+    return out;
+  } catch { return {}; }
+}
+function recordPreMoveHits(hits = [], source = 'SCANNER', now = Date.now()) {
+  const cur = readPreMoveHits(now);
+  let changed = 0;
+  for (const h of Array.isArray(hits) ? hits : []) {
+    const sym = String(h?.symbol || '').toUpperCase();
+    if (!validUsdtSymbol(sym) || !['IGNITION', 'PRE_MOVE'].includes(String(h?.state || ''))) continue;
+    cur[sym] = { at:now, state:h.state, direction:['LONG', 'SHORT'].includes(h.direction) ? h.direction : 'BOTH', priority:num(h.priority), frame:h.frame || null, source };
+    changed++;
+  }
+  if (!changed) return { ok:true, recorded:0 };
+  try {
+    fs.mkdirSync(path.dirname(PREMOVE_HITS_PATH), { recursive:true });
+    const tmp = PREMOVE_HITS_PATH + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ updatedAt:now, bySymbol:cur }), 'utf8');
+    fs.renameSync(tmp, PREMOVE_HITS_PATH);
+  } catch { return { ok:false, recorded:0 }; }
+  return { ok:true, recorded:changed };
+}
+function klineObjects(k, now = Date.now()) {
+  return (Array.isArray(k) ? k : []).filter(x => Number(x?.[6]) > 0 && Number(x[6]) < now).map(x => ({
+    openTime:num(x[0]), open:num(x[1]), high:num(x[2]), low:num(x[3]), close:num(x[4]), volume:num(x[5]), closeTime:num(x[6]), quoteVolume:num(x[7]), takerBuyQuote:num(x[10])
+  })).filter(x => x.high >= x.low && x.close > 0);
 }
 
 function accumulationProxyScore(x) {
@@ -350,17 +391,55 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     }
   };
 
-  // CLAUDE_R2544_15_SLOT_POLICY (kullanıcı kararı 29.09): öncelik Binance yükselenler merdiveni.
-  //   1) ilk 3  2) ilk 3'e / ilk 10'a aday erken teşhis (en çok 4)  3) uygulamadaki erken ilgi (ayrılmış 4)
-  //   4) 4–10. sıralar (tamamı)  5) 11–24. sıralar  6) önceki turdan yaklaşma sürekliliği (1)  7) hızlananlar (kapsama)
-  // Eski kaynaklar (önceki saldırı sırası, yeni/hızlanan havuzu) 21.09'dan beri 57 işlemde ≈ −16,5R getirdi; yalnız boş slot doldurur.
+  // CLAUDE_R2544_16_SLOT_POLICY (kullanıcı kararı 29.09 akşam; kayıt analizi: ilk 3 = 42 işlem, net −60,8 USDT, ortalama
+  // kayıp ortalama kazancın 1,6 katı; 4–10 SHORT PF 3,0). Yeni öncelik sırası:
+  //   1) ilk 10'a ADAY (merdivende 10. sıranın dışından hızla tırmanan / kısa pencerede sert yükselen)
+  //   2) 4–10. sıralar   3) 11–24. sıralar (tırmanma hızına göre)   4) uygulamadaki erken ilgi
+  //   5) patlamaya yakın (ön-hareket imzası, kısa pencerede sert yükselen/DÜŞEN, sıkışmış birikim) — LONG ve SHORT
+  //   6) ilk 3 EN SON (kapsama korunur, öncelik yok)   7) süreklilik/hızlanan (boş kapasite)
+  // Her katmana en az bir taban kontenjan ayrılır; öncelik sırası bozulmaz.
   const ladder=buildGainerLadder(universe,prevState,Date.now());
   const tagLadder=(items)=>items.map(x=>({...x,...(ladder.bySymbol.get(x.symbol)||{})}));
-  add(tagLadder(ladder.top3),'GAINER_TOP3',3);
-  add(tagLadder(ladder.approach),'GAINER_APPROACH',4);
-  add(tagLadder(attentionPool),'APP_EARLY_ATTENTION',4);
-  add(tagLadder(ladder.top10),'GAINER_TOP10',7);
-  add(tagLadder(ladder.top24),'GAINER_TOP24',14);
+  const nowTs=Date.now();
+  const approachPool=tagLadder(ladder.approach.filter(x=>num(ladder.bySymbol.get(x.symbol)?.gainerRank)>10));
+  const ord={TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2};
+  const top10Pool=tagLadder(ladder.top10).sort((a,b)=>(ord[a.approach]??3)-(ord[b.approach]??3)||num(a.gainerRank)-num(b.gainerRank));
+  const top24Pool=tagLadder(ladder.top24).sort((a,b)=>num(b.gainerRankVelocity)-num(a.gainerRankVelocity)||num(a.gainerRank)-num(b.gainerRank));
+  // Patlamaya yakın havuzu: (a) saklı ön-hareket imzaları (b) kısa pencerede ±sert hareket (merdiven dışı, SHORT dahil) (c) sıkışmış birikim
+  const hits=readPreMoveHits(nowTs);
+  const inTop24=sym=>num(ladder.bySymbol.get(sym)?.gainerRank)>=1&&num(ladder.bySymbol.get(sym)?.gainerRank)<=24;
+  const nearHits=Object.entries(hits).filter(([sym])=>universeMap.has(sym))
+    .sort((a,b)=>b[1].priority-a[1].priority)
+    .map(([sym,h])=>({...universeMap.get(sym),nearExplosion:{source:'PRE_MOVE_'+h.state,direction:h.direction,priority:h.priority,frame:h.frame,ageMin:round((nowTs-h.at)/60000,1)}}));
+  const surgePool=[...universe].filter(x=>x.volumeRank<=220&&!inTop24(x.symbol)).map(x=>{
+    const pl=prevState?.lightweight?.[x.symbol];
+    const dt=pl&&num(pl.at)>0&&nowTs>num(pl.at)&&nowTs-num(pl.at)<=20*60*1000?(nowTs-num(pl.at))/60000:null;
+    const ch=dt?pct(pl.lastPrice,x.lastPrice):null, per5=dt?ch/Math.max(1,dt)*5:null;
+    return {x,per5,ch,dt};
+  }).filter(z=>z.per5!==null&&Math.abs(z.per5)>=1.2).sort((a,b)=>Math.abs(b.per5)-Math.abs(a.per5)).slice(0,6)
+    .map(z=>({...z.x,nearExplosion:{source:z.per5>0?'SURGE_UP':'SURGE_DOWN',direction:z.per5>0?'LONG':'SHORT',shortPer5mPct:round(z.per5,3),shortWindowMin:round(z.dt,1)}}));
+  const squeezePool=accumulationPool.slice(0,3).map(x=>({...x,nearExplosion:{source:'COMPRESSION_ACCUMULATION',direction:'BOTH',accumulationProxyScore:x.accumulationProxyScore}}));
+  const nearPool=[...nearHits,...surgePool,...squeezePool];
+  const pools=[
+    {items:approachPool,source:'GAINER_APPROACH',cap:6,floor:2},
+    {items:top10Pool,source:'GAINER_TOP10',cap:7,floor:2},
+    {items:top24Pool,source:'GAINER_TOP24',cap:14,floor:2},
+    {items:attentionPool,source:'APP_EARLY_ATTENTION',cap:4,floor:2},
+    {items:nearPool,source:'NEAR_EXPLOSION',cap:5,floor:2},
+    {items:tagLadder(ladder.top3),source:'GAINER_TOP3',cap:3,floor:3}
+  ];
+  const planned=new Set();
+  const distinctAvail=(p)=>new Set(p.items.map(x=>x.symbol).filter(sym=>sym&&!planned.has(sym))).size;
+  pools.forEach((p,i)=>{
+    const reserve=pools.slice(i+1).reduce((acc,q)=>acc+Math.min(q.floor,q.cap,distinctAvail(q)),0);
+    const allowed=Math.max(0,Math.min(p.cap,limit-planned.size-reserve));
+    let n=0;
+    for(const x of p.items){if(n>=allowed)break;if(!x?.symbol||planned.has(x.symbol))continue;planned.add(x.symbol);n++;}
+    p.allowed=n;
+  });
+  for(const p of pools)add(p.items,p.source,p.allowed);
+  // Aynı sembol başka katmanlarda da görünüyorsa etiketleri eklenir (öncelik ilk katmandan).
+  for(const p of pools)for(const x of p.items.slice(0,p.cap)){const e=targetMap.get(x.symbol);if(e){if(!e.targetSources.includes(p.source))e.targetSources.push(p.source);if(x.nearExplosion&&!e.nearExplosion)e.nearExplosion=x.nearExplosion;}}
   add(tagLadder(continuity),'APPROACH_CONTINUITY',1);
   add(tagLadder(acceleratingPool),'LIGHTWEIGHT_ACCELERATION',Math.max(0,limit-targetMap.size));
   // Geriye uyum: merdivenin ilk 24'ündeki her aday ayrıca BINANCE_TOP24_GAINER etiketi taşır.
@@ -368,6 +447,7 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     const l=ladder.bySymbol.get(x.symbol);
     if(l){Object.assign(x,l);x.gainerRank24=l.gainerRank<=24?l.gainerRank:null;if(l.gainerRank<=24&&!x.targetSources.includes('BINANCE_TOP24_GAINER'))x.targetSources.push('BINANCE_TOP24_GAINER');}
   }
+  const slotPlan=pools.map(p=>({source:p.source,available:p.items.length,selected:p.allowed}));
 
   // Fill any unused slots with the strongest remaining candidates by a cheap
   // pre-score; this avoids an empty scanner after restart without returning to
@@ -392,6 +472,8 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     acceleratingPool,
     noveltyPool,
     ladder,
+    nearPool,
+    slotPlan,
     previousAgeMs:Math.max(0,Date.now()-Number(prevState?.ts||0)),
     newTargetCount:candidates.filter(x=>!Object.prototype.hasOwnProperty.call(prevState?.bySymbol||{},x.symbol)).length,
     attentionStatus:{
@@ -409,12 +491,17 @@ async function enrich(x, book, premium, prev) {
   const s = encodeURIComponent(x.symbol);
   const now = Date.now();
   const [k1, k3, k5, oi] = await Promise.all([
-    jget(`/fapi/v1/klines?symbol=${s}&interval=1m&limit=7`, 9000),
-    jget(`/fapi/v1/klines?symbol=${s}&interval=3m&limit=7`, 9000),
+    jget(`/fapi/v1/klines?symbol=${s}&interval=1m&limit=40`, 9000),   // R2544.16: 7→40 (aynı ağırlık); son 7 ile istatistik, 40 ile ön-hareket
+    jget(`/fapi/v1/klines?symbol=${s}&interval=3m&limit=40`, 9000),
     jget(`/fapi/v1/klines?symbol=${s}&interval=5m&limit=7`, 9000),
     jget(`/fapi/v1/openInterest?symbol=${s}`, 9000)
   ]);
-  const a = tfStats(k1, now), b = tfStats(k3, now), c = tfStats(k5, now);
+  const a = tfStats(Array.isArray(k1) ? k1.slice(-7) : k1, now), b = tfStats(Array.isArray(k3) ? k3.slice(-7) : k3, now), c = tfStats(k5, now);
+  let preMove = null;
+  try {
+    const pm = combinePreMove({ '1m':preMoveSignal(klineObjects(k1, now), { frame:'1m' }), '3m':preMoveSignal(klineObjects(k3, now), { frame:'3m' }) });
+    if (pm && pm.available) preMove = { state:pm.state, direction:pm.direction, score:pm.score, priority:pm.priority, frame:pm.frame, reasons:(pm.reasons || []).slice(0, 6) };
+  } catch { preMove = null; }
   const bid = num(book?.bidPrice), ask = num(book?.askPrice);
   const mid = (bid + ask) / 2;
   const spreadBps = mid > 0 ? ((ask - bid) / mid) * 10000 : 999;
@@ -462,7 +549,10 @@ async function enrich(x, book, premium, prev) {
     shortChangePct:Number.isFinite(Number(x.shortChangePct))?Number(x.shortChangePct):null,
     shortWindowMin:Number.isFinite(Number(x.shortWindowMin))?Number(x.shortWindowMin):null,
     accumulationProxyScore:num(x.accumulationProxyScore)||0,
-    attention:x.attention||null
+    attention:x.attention||null,
+    // CLAUDE_R2544_16: 1m+3m ön-hareket imzası (her ayrıntılı aday) ve patlamaya-yakın havuz etiketi
+    preMove,
+    nearExplosion:x.nearExplosion||null
   };
 }
 
@@ -569,11 +659,13 @@ async function performScan() {
 
   const attention=readAttention();
   const selection = selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
-  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, acceleratingPool, noveltyPool, attentionStatus, newTargetCount, candidates, targetSymbols, ladder } = selection;
+  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, acceleratingPool, noveltyPool, attentionStatus, newTargetCount, candidates, targetSymbols, ladder, nearPool, slotPlan } = selection;
 
   const enriched = await mapLimit(candidates,8,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
   good.forEach((x,i)=>addLeaderHunterFields(x,i+1,prev.bySymbol?.[x.symbol]));
+  // CLAUDE_R2544_16: ayrıntılı adaylarda bulunan ön-hareket imzaları 20 dk saklanır (bir sonraki taramada patlamaya-yakın havuzu).
+  try{recordPreMoveHits(good.filter(x=>x.preMove&&['IGNITION','PRE_MOVE'].includes(x.preMove.state)).map(x=>({symbol:x.symbol,...x.preMove})),'SCANNER');}catch{}
 
   const now=Date.now();
   const next={ts:now,bySymbol:{},lightweight:{},ladder:ladder.nextLadder};
@@ -611,7 +703,11 @@ async function performScan() {
   const attentionCandidates=leaderHunters.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('APP_EARLY_ATTENTION'));
   // CLAUDE_R2544_15: ayrıntılı incelenen adaylar merdiven katmanına göre (sıra: yükselenler sırası).
   const bySrc=src=>good.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes(src)).sort((a,b)=>num(a.gainerRank)-num(b.gainerRank)||0);
-  const ladderTop3=bySrc('GAINER_TOP3'), ladderTop10=bySrc('GAINER_TOP10'), ladderTop24=bySrc('GAINER_TOP24');
+  const ladderTop3=bySrc('GAINER_TOP3'), ladderTop10=bySrc('GAINER_TOP10').sort((a,b)=>({TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2}[a.ladderApproach]??3)-({TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2}[b.ladderApproach]??3)||num(a.gainerRank)-num(b.gainerRank)), ladderTop24=bySrc('GAINER_TOP24').sort((a,b)=>num(b.gainerRankVelocity)-num(a.gainerRankVelocity)||num(a.gainerRank)-num(b.gainerRank));
+  // CLAUDE_R2544_16: patlamaya yakın adaylar (ön-hareket önceliği → kısa pencere hızı).
+  const pmRank={IGNITION:0,PRE_MOVE:1,WATCH:2};
+  const nearExplosionCandidates=good.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('NEAR_EXPLOSION'))
+    .sort((a,b)=>(pmRank[a.preMove?.state]??3)-(pmRank[b.preMove?.state]??3)||num(b.preMove?.priority)-num(a.preMove?.priority)||Math.abs(num(b.nearExplosion?.shortPer5mPct))-Math.abs(num(a.nearExplosion?.shortPer5mPct)));
   const ladderApproach=good.filter(x=>Array.isArray(x.targetSources)&&x.targetSources.includes('GAINER_APPROACH'))
     .sort((a,b)=>({TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2}[a.ladderApproach]??3)-({TOP3_CANDIDATE:0,TOP10_CANDIDATE:1,SHORT_WINDOW_SURGE:2}[b.ladderApproach]??3)||num(a.projectedGainerRank)-num(b.projectedGainerRank));
   const tickerAsOf=Math.max(0,...universe.map(x=>num(x.closeTime)));
@@ -637,7 +733,11 @@ async function performScan() {
       approach:ladder.approach.slice(0,10).map(ladderRow),
       attention:attentionPool.map(x=>({symbol:x.symbol,rank:ladder.bySymbol.get(x.symbol)?.gainerRank||null,detailed:analyzedSet.has(x.symbol),earlyMoveScore:x.attention?.earlyMoveScore??null,direction:x.attention?.direction||null}))
     },
-    ladderTop3,ladderTop10,ladderTop24,ladderApproach,
+    ladderTop3,ladderTop10,ladderTop24,ladderApproach,nearExplosionCandidates,
+    // CLAUDE_R2544_16_SLOT_POLICY: katman başına aday/seçilen (Office ve devir raporu için)
+    slotPlan,
+    priorityOrder:['GAINER_APPROACH','GAINER_TOP10','GAINER_TOP24','APP_EARLY_ATTENTION','NEAR_EXPLOSION','GAINER_TOP3'],
+    nearExplosion:(nearPool||[]).slice(0,10).map(x=>({symbol:x.symbol,detailed:analyzedSet.has(x.symbol),...(x.nearExplosion||{})})),
     priorityBuckets:{
       previousTop3:previousTop3.map(x=>x.symbol),
       previousTop4to10:previousTop4to10.map(x=>x.symbol),
@@ -645,6 +745,7 @@ async function performScan() {
       top24Gainers:top24Gainers.map(x=>x.symbol),
       accumulationProxy:accumulationPool.map(x=>x.symbol),
       appEarlyAttention:attentionPool.map(x=>x.symbol),
+      nearExplosion:(nearPool||[]).map(x=>x.symbol),
       lightweightAcceleration:acceleratingPool.map(x=>x.symbol),
       newAcceleration:noveltyPool.map(x=>x.symbol)
     },
@@ -676,7 +777,7 @@ async function performScan() {
     top5Confirmed:leaderHunters.filter(x=>x.top5Confirmed).slice(0,5),
     notes:[
       '523-symbol Binance ticker data is used only as a lightweight discovery snapshot; per-symbol 1m/3m/5m/OI detail work is capped to the 24-symbol priority target universe',
-      'R2544.15 priority: Binance gainer ladder top3, early-diagnosis candidates climbing toward top3/top10, app early-attention symbols (reserved), ranks 4-10, ranks 11-24, then continuity/acceleration fill',
+      'R2544.16 priority: candidates climbing into the top10 from outside it, ranks 4-10, ranks 11-24 (by climb velocity), app early-attention, near-explosion (pre-move signature, sharp short-window up/down move, compression) LONG and SHORT, top3 last; continuity/acceleration only fill spare capacity',
       'Accumulation is a public-data proxy only, not proof of hidden orders or market-maker intent',
       'TOP10_APPROACH and TOP3_APPROACH use attack-rank velocity, acceleration, 1m/3m/5m directional expansion, flow/OI support, spread and trade quality',
       'The same early-approach logic applies independently to LONG and SHORT hypotheses',
@@ -697,4 +798,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={scan,lastScan,buildGainerLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT};
+module.exports={readPreMoveHits,recordPreMoveHits,PREMOVE_HITS_PATH,scan,lastScan,buildGainerLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT};

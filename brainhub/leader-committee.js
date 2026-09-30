@@ -64,29 +64,48 @@ function selectDeepCandidates(scan, limit = 16, options = {}) {
     ...(Array.isArray(scan?.earlyTop5)?scan.earlyTop5:[]),
     ...(Array.isArray(scan?.earlyExpansion)?scan.earlyExpansion:[])
   ]);
-  // CLAUDE_R2544_15_SLOT_POLICY: JEV sırası Binance yükselenler merdivenini izler:
-  // ilk 3 -> ilk 3'e/ilk 10'a aday erken teşhis -> uygulamadaki erken ilgi -> 4-10 -> 11-24 -> eski havuzlar (yalnız boş kapasite).
+  // CLAUDE_R2544_16_SLOT_POLICY (kullanıcı kararı 29.09 akşam): JEV sırası
+  //   ilk 10'a aday -> 4-10 -> 11-24 (tırmanma hızı) -> uygulamadaki erken ilgi -> patlamaya yakın (LONG/SHORT) -> ilk 3 EN SON
+  //   -> eski havuzlar yalnız boş kapasite. Her ladder katmanına taban kontenjan ayrılır (liste kısa olsa da hepsi görünür).
   const arr=v=>Array.isArray(v)?v:[];
-  const pools=[
-    ['GAINER_TOP3',arr(scan?.ladderTop3),false],
-    ['GAINER_APPROACH',arr(scan?.ladderApproach),false],
-    ['APP_EARLY_ATTENTION',arr(scan?.attentionCandidates),false],
-    ['GAINER_TOP10',arr(scan?.ladderTop10),false],
-    ['GAINER_TOP24',arr(scan?.ladderTop24),false],
-    ['CURRENT_ATTACK_TOP10',top3,false],
-    ['TOP3_APPROACH',top3Approach,true],
+  const ladderPools=[
+    {reason:'GAINER_APPROACH',rows:arr(scan?.ladderApproach),cap:5,floor:2},
+    {reason:'GAINER_TOP10',rows:arr(scan?.ladderTop10),cap:7,floor:2},
+    {reason:'GAINER_TOP24',rows:arr(scan?.ladderTop24),cap:14,floor:2},
+    {reason:'APP_EARLY_ATTENTION',rows:arr(scan?.attentionCandidates),cap:3,floor:2},
+    {reason:'NEAR_EXPLOSION',rows:arr(scan?.nearExplosionCandidates),cap:4,floor:2},
+    {reason:'GAINER_TOP3',rows:arr(scan?.ladderTop3),cap:3,floor:3}
+  ];
+  const legacy=[
     ['CURRENT_ATTACK_TOP10',top4to10,false],
+    ['TOP3_APPROACH',top3Approach,true],
     ['APPROACHING',otherApproach,true],
     ['LIGHTWEIGHT_ACCELERATION',Array.isArray(scan?.acceleratingCandidates)?scan.acceleratingCandidates:[],false],
     ['ACCUMULATION_BREAKOUT_PROXY',Array.isArray(scan?.accumulationCandidates)?scan.accumulationCandidates:[],false],
-    ['APP_EARLY_ATTENTION',Array.isArray(scan?.attentionCandidates)?scan.attentionCandidates:[],false],
+    ['CURRENT_ATTACK_TOP10',top3,false],
     ['BINANCE_TOP24_GAINER',Array.isArray(scan?.gainerCandidates)?scan.gainerCandidates:[],false]
   ];
   const seen=new Set(),out=[];
-  for(const [reason,rows,leaderReason] of pools){
+  const symOf=c=>String(c?.symbol||'').trim().toUpperCase();
+  const avail=p=>new Set(p.rows.map(symOf).filter(x=>x&&!seen.has(x))).size;
+  // Kısa listede (limit<20) her katmana 1 taban; aksi halde tanımlı taban (ilk 3 için 3).
+  if(limit<20)for(const p of ladderPools)p.floor=1;
+  ladderPools.forEach((p,i)=>{
+    const reserve=ladderPools.slice(i+1).reduce((acc,q)=>acc+Math.min(q.floor,q.cap,avail(q)),0);
+    const allowed=Math.max(0,Math.min(p.cap,limit-out.length-reserve));
+    let n=0;
+    for(const c of p.rows){
+      if(n>=allowed||out.length>=limit)break;
+      const symbol=symOf(c);
+      if(!symbol||seen.has(symbol))continue;
+      seen.add(symbol);n++;
+      out.push({...c,symbol,deepScanReason:p.reason});
+    }
+  });
+  for(const [reason,rows,leaderReason] of legacy){
     for(const c of rows){
       if(out.length>=limit)break;
-      const symbol=String(c?.symbol||'').trim().toUpperCase();
+      const symbol=symOf(c);
       if(!symbol||seen.has(symbol))continue;
       seen.add(symbol);
       out.push({...c,symbol,deepScanReason:leaderReason?(c.leaderState||reason):reason});
@@ -143,14 +162,9 @@ function executionEligible(c) {
 }
 
 function pickCandidate(scan) {
-  const eligible = selectDeepCandidates(scan, 16)
-    .filter(executionEligible)
-    .sort((a,b) =>
-      (STATE_PRIORITY[b.leaderState] || 0) - (STATE_PRIORITY[a.leaderState] || 0) ||
-      num(b.leaderHunterScore) - num(a.leaderHunterScore) ||
-      num(b.movementPotential) - num(a.movementPotential) ||
-      num(b.expansionScore) - num(a.expansionScore) ||
-      num(b.tradeQuality) - num(a.tradeQuality));
+  // Preserve scanner/JEV discovery order. Re-sorting here used to silently put legacy
+  // leaderState/Top3-style priorities back in front of the R2544.16 ladder.
+  const eligible = selectDeepCandidates(scan, 16).filter(executionEligible);
   return eligible[0] || null;
 }
 
@@ -173,7 +187,7 @@ function buildPrompt(candidates) {
   const rows = candidates.map(compactCandidate);
   return [
     'Leader Hunter derin tarama paketi.',
-    'Öncelik sırası: CURRENT_ATTACK_TOP3, TOP3_APPROACH, CURRENT_ATTACK_4_10, diğer APPROACHING/erken ilgi, LIGHTWEIGHT_ACCELERATION, ACCUMULATION_BREAKOUT_PROXY, APP_EARLY_ATTENTION; BINANCE_TOP24_GAINER kalan derin-tarama kapasitesini dolduran keşif havuzudur.',
+    "Öncelik sırası: GAINER_APPROACH (ilk 10'a yaklaşan/hızlanan) → GAINER_TOP10 (4-10) → GAINER_TOP24 (11-24, tırmanma hızı) → APP_EARLY_ATTENTION → NEAR_EXPLOSION (LONG/SHORT sıkışma/ivme) → GAINER_TOP3 EN SON. Katmanlar yalnız dikkat sırasıdır; işlem kararı değildir.",
     'Attack rank uygulamanın iç fırsat sıralamasıdır. BINANCE_TOP24_GAINER ayrı bir keşif kovasıdır ve tek başına işlem sinyali değildir.',
     'Her sembolde LONG ve SHORT hipotezlerini AYRI değerlendir. Scanner preferred side yalnız başlangıç hipotezidir, karar değildir.',
     'LONG_EXPANSION ve SHORT_EXPANSION ayrı sinyallerdir. movementPotential yönsüz hareket potansiyelidir; hiçbiri işlem garantisi değildir.',

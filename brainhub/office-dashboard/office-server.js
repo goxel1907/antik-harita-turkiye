@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.1.1-R2543+R2544.12-JEV-Brain';
+const OFFICE_VERSION = '2.2.0-R2544.16-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -339,6 +339,8 @@ function derive(snap) {
   // Operational budget truth wins over historical failure counters (including after UTC rollover).
   const budget = snap.jevBudget?.ok === true ? snap.jevBudget.data : st.jev?.budget;
   const budgetBlocked = budget?.budgetCallBlocked === true || budget?.canReserveNextCall === false;
+  const providerError = st.jev?.provider?.lastError || null;
+  const providerAccessBlocked = [401,403].includes(Number(providerError?.httpStatus));
   const blockers = [];
   const add = (level, code, title, detail) => blockers.push({ level, code, title, detail });
   const activeBlocker = execution.lastBlock || la.activeBlocker;
@@ -355,6 +357,8 @@ function derive(snap) {
     if (st.armed !== true) add('critical', 'LIVE_DISARMED', 'LIVE kapalı (analiz modu)', 'Plan QUALIFIED olsa bile emir gönderilmez. PC yeniden başlarsa LIVE otomatik kapanır.');
     if (budgetBlocked) add('serious', 'JEV_DAILY_BUDGET_EXHAUSTED', 'JEV günlük çağrı bütçesi tükendi - UTC reset bekleniyor',
       `Kalan ${Number(budget.remainingUsd).toFixed(6)} USD • çağrı rezervi ${Number(budget.reservePerCallUsd).toFixed(6)} USD • günlük sınır ${budget.dailyCapUsd} USD • sıfırlanma ${budget.nextResetAt || 'bilinmiyor'}. Tarama devam eder; yeni JEV ağ çağrısı yapılmaz.`);
+    if (providerAccessBlocked) add('critical','JEV_PROVIDER_ACCESS',`JEV sağlayıcı erişimi reddedildi (HTTP ${providerError.httpStatus})`,
+      `${providerError.category || 'AUTH'}${providerError.code?' • '+providerError.code:''}${providerError.message?' • '+providerError.message:''}. Bu stratejik BEKLE veya yürütme engeli değildir; JEV PASS-1/PASS-2 ağ hattı yetkilendirilemediği için yeni karar oluşmaz.`);
     const fv = String(snap.health?.data?.featureVersion || st.featureVersion || '');
     const v109 = /9\.5\.(109-CLAUDE|11\d)/.test(fv); // CLAUDE_V112: 9.5.110+ (9.5.112-CLAUDE dahil)
     const cv = h.claudeV109 || {};
@@ -385,7 +389,7 @@ function derive(snap) {
     if (intentBuilt > 0 && hardSafetyReady === 0) add('warning', 'NO_SAFETY', 'Emir niyeti var, zorunlu güvenlik geçmedi', 'Stop/likidasyon geometrisi, bakiye/pozisyon limitleri, Binance filtreleri, taze fiyat, kill-switch, lease/lineage veya execution claim engeli olabilir.');
     if (hardSafetyReady > 0 && Number(h.ordersPlaced || 0) === 0) add('warning', 'NO_ORDER', 'Zorunlu güvenlik geçti, emir yok', 'Yürütme katmanı (LIVE yürütme yetkisi, Binance kural doğrulaması veya ağ) engelliyor olabilir.');
     if (sovereign && !budgetBlocked && deep >= 1 && pass1 === 0) add('serious','JEV_PASS1_MISSING','Radar/analiz JEV PASS-1’e ulaşmıyor',`${deep} değerlendirme var ama PASS-1 çağrısı yok. Scanner yalnız ATTENTION_ONLY olmalı ve stratejik kapı JEV’den önce çalışmamalı.`);
-    if (sovereign && !budgetBlocked && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • kanıt isteği ${evidenceRequests} • PASS-2/son karar 0. Kanıt ajanı veya JEV son karar çağrısı kontrol edilmeli.`);
+    if (sovereign && !budgetBlocked && !providerAccessBlocked && pass1 >= 2 && finalCalls === 0) add('warning','JEV_FINAL_MISSING','JEV kanıt istedi ama final karar oluşmadı',`PASS-1 ${pass1} • kanıt isteği ${evidenceRequests} • PASS-2/son karar 0. Kanıt ajanı veya JEV son karar çağrısı kontrol edilmeli.`);
 
     if (!sovereign && Number(h.jevCalled || 0) >= 3 && Number(h.jevVetoed || 0) / Math.max(1, Number(h.jevCalled)) >= 0.7) add('warning', 'JEV_VETO', 'Jev çoğu planı veto ediyor', `${h.jevVetoed}/${h.jevCalled} veto.`);
     if (!sovereign && Number(h.jevShadowCalled || 0) > 0 && Number(h.jevCalled || 0) === 0) add('info','JEV_SHADOW_ONLY','Jev WATCH planlarını gölgede inceliyor',`${h.jevShadowCalled} gölge inceleme var; bağlayıcı Jev yalnız QUALIFIED plan geldikten sonra devreye girer.`);

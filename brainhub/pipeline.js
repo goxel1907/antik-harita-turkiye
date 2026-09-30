@@ -1,6 +1,7 @@
 'use strict';
 
 const { pickCandidate, selectDeepCandidates, executionEligible } = require('./leader-committee');
+const { readoutDigest } = require('./chart-readout');
 const { symbolContext, globalContext, chartContext, renderChartPng } = require('./market');
 const { buildMarketMakerEvidence } = require('./market-maker-evidence');
 const { breakoutExecution, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached } = require('./engine');
@@ -149,6 +150,7 @@ function summarizeFrame(frame, f, now, livePrice) {
     preMove:f.preMove || null,
     // CLAUDE_R2544_11_INDICATORS: ani hareket / 3×ATR iz (yalnız bağlam) ve gürültü FVG sayısı.
     volatility:f.volatility || null,
+    readout:f.readout || null, // CLAUDE_R2544_16_CHART_READOUT
     minorFairValueGapCount:finite(f.minorFairValueGapCount)
   };
 }
@@ -1274,7 +1276,8 @@ function compactEvidenceFrame(f){
     candle:f.candle||null,patterns:Array.isArray(f.patterns)?f.patterns.slice(-4):[],
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,smcContext:withoutFib(f.smcContext),
     preMove:f.preMove&&f.preMove.available?{state:f.preMove.state,score:f.preMove.score,direction:f.preMove.direction,triggers:f.preMove.triggers,reasons:(f.preMove.reasons||[]).slice(0,6)}:null,
-    volatility:f.volatility||null
+    volatility:f.volatility||null,
+    readout:readoutDigest(f.readout)
   };
 }
 async function buildSovereignEvidence({candidate,unified,pass1,committee,visionAudit=false}){
@@ -1367,7 +1370,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   const [symbol,global]=await Promise.all([symbolContext(candidate.symbol),globalContext()]);
   const unified=buildUnifiedContext({symbol,global,candidate});
   if(typeof store?.learningContext==='function'){
-    try{unified.learning=store.learningContext({symbol:candidate.symbol});}catch{unified.learning=null;}
+    try{unified.learning=store.learningContext({symbol:candidate.symbol,candidate});}catch{unified.learning=null;}
   }
   if(!unified?.dataQuality?.advisoryUsable||finite(unified?.livePrice)===null){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:'SOVEREIGN_BASE_CONTEXT_UNUSABLE',execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
@@ -1520,7 +1523,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   const [symbol, global] = await Promise.all([symbolContext(candidate.symbol), globalContext()]);
   const unified = buildUnifiedContext({ symbol, global, candidate });
   if(typeof store?.learningContext==='function'){
-    try{unified.learning=store.learningContext({symbol:candidate.symbol});}catch{unified.learning=null;}
+    try{unified.learning=store.learningContext({symbol:candidate.symbol,candidate});}catch{unified.learning=null;}
   }
   if (!unified.dataQuality.advisoryUsable) {
     const out = { ok:true, candidateFound:true, symbol:candidate.symbol, status:'REVIEW_REQUIRED', reason:'NO_FRESH_TIMEFRAME_CONTEXT', committeeCalled:false, execution:'ADVISORY_ONLY', orderPlaced:false };

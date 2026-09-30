@@ -197,6 +197,29 @@ function volText(v, compact) {
   if (tr && tr.state && tr.state !== 'NONE') bits.push((compact ? 'ATR-trail ' : '3-ATR trail ') + tr.state + (compact ? '' : ' at ' + px(finite(tr.stop)) + ' (' + pct(finite(tr.distAtr), 1) + ' ATR away)'));
   return bits.length ? bits.join(compact ? ', ' : '; ') : null;
 }
+// CLAUDE_R2544_16_CHART_READOUT: uzama / sıkışma / yer değiştirme / havuz / çaba cümlesi (ham veya özet readout).
+function readoutText(r, compact) {
+  if (!r || typeof r !== 'object') return null;
+  const bits = [];
+  const st = r.stretch;
+  if (st && st.state) {
+    const av = st.avwap || (st.leg === 'UP' ? st.avwapLow : st.avwapHigh);
+    const ext = av ? finite(av.ext !== undefined ? av.ext : av.extAtr) : null;
+    const pos = finite(st.pos !== undefined ? st.pos : st.rangePosPct);
+    const chase = st.chase || st.chaseRisk || {};
+    if (compact) bits.push('stretch ' + st.leg + ' ' + st.state + (ext !== null ? ' ' + pct(ext, 1) + 'ATR>AVWAP' : '') + (pos !== null ? ' pos ' + pct(pos, 0) + '%' : ''));
+    else bits.push(st.leg + '-leg stretch ' + st.state + (ext !== null ? ' (' + pct(ext, 1) + ' ATR from the anchored VWAP of the leg)' : '') + (pos !== null ? ', price at ' + pct(pos, 0) + '% of the window range (' + (st.zone || '') + ')' : '') +
+      ((chase.LONG === 'HIGH' || chase.SHORT === 'HIGH') ? '; chasing risk HIGH for ' + (chase.LONG === 'HIGH' ? 'LONG' : 'SHORT') : ''));
+  }
+  const sq = r.squeeze;
+  if (sq && sq.state && (sq.state !== 'OFF' || sq.released)) bits.push(compact ? 'squeeze ' + sq.state + (sq.released ? ' released' : '') : 'volatility squeeze ' + sq.state + (sq.bars ? ' for ' + sq.bars + ' candles' : '') + (sq.released ? ', just released (' + (typeof sq.released === 'object' ? sq.released.barsAgo : sq.released) + ' bars ago)' : '') + ', momentum ' + (sq.mom || sq.momentum || 'FLAT'));
+  const d = r.displacement;
+  if (d && d.dir) { const retr = finite(d.retr !== undefined ? d.retr : d.retracePct); const ote = d.ote !== undefined ? d.ote : d.inOte;
+    bits.push(compact ? 'displacement ' + d.dir + ' ' + d.barsAgo + 'b' + (retr !== null ? ' retr ' + pct(retr, 0) + '%' : '') + (ote ? ' in OTE' : '') : 'last displacement leg ' + d.dir + ' ' + d.barsAgo + ' candles ago (body ' + pct(finite(d.bodyAtr), 1) + ' ATR)' + (retr !== null ? ', retraced ' + pct(retr, 0) + '%' : '') + (ote ? ' — inside the 62-79% OTE of that leg' : '')); }
+  const e = r.effort;
+  if (e && ((e.state && e.state !== 'NONE') || e.div || e.divergence)) bits.push((compact ? '' : 'effort vs result: ') + (e.state && e.state !== 'NONE' ? e.state : '') + ((e.div || e.divergence) ? ' ' + (e.div || e.divergence) : ''));
+  return bits.length ? bits.join(compact ? ', ' : '; ') : null;
+}
 function narrateFrame(tf, f, livePrice, opts) {
   const full = !opts || opts.full !== false;
   if (!f || f.available !== true) {
@@ -259,6 +282,8 @@ function narrateFrame(tf, f, livePrice, opts) {
     if (cForm) bits.push(cForm);
     const cVol = volText(f.volatility, true);
     if (cVol) bits.push(cVol);
+    const cRo = readoutText(f.readout, true);
+    if (cRo) bits.push(cRo);
     return {
       tf, available: true, detail: 'COMPACT',
       flags: { fresh: flags.fresh, trend: flags.trend, zone: flags.zone, event: flags.event },
@@ -311,6 +336,7 @@ function narrateFrame(tf, f, livePrice, opts) {
   const pt = patternText(f.patterns); if (pt) s.push('closed-candle patterns: ' + pt + '.');
   const ft = formingText(f.forming, false); if (ft) s.push(ft + '.');
   const vt = volText(f.volatility, false); if (vt) s.push(vt + '.');
+  const rt = readoutText(f.readout, false); if (rt) s.push(rt + '.');
 
   return {
     tf, available: true, detail: 'FULL',

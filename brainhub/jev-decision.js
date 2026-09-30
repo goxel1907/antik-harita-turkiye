@@ -1,6 +1,6 @@
 const fs=require('fs');
 const path=require('path');
-const {marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest}=require('./jev-market-packet');
+const {marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest}=require('./jev-market-packet');
 
 const DEFAULTS={
   enabled:false,
@@ -67,7 +67,7 @@ function sovereignFrame(f){
     rsi14:finiteNumber(f.rsi14),atrPct:finiteNumber(f.atrPct),breakOfStructure:f.breakOfStructure||null,
     prior20High:finiteNumber(f.prior20High),prior20Low:finiteNumber(f.prior20Low),
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,patterns:Array.isArray(f.patterns)?rankPatterns(f.patterns,4):[],forming:formingDigest(f.forming),
-    candle:f.candle||null,volatility:volDigest(f.volatility)
+    candle:f.candle||null,volatility:volDigest(f.volatility),readout:readoutDigest(f.readout)
   };
 }
 function sovereignAttentionRecord(candidate,unified){
@@ -227,13 +227,15 @@ function compactExperienceMemory(learning,maxChars=6500){
   const src=learning&&typeof learning==='object'?learning:{};
   const out={
     alwaysOn:true,
+    // CLAUDE_R2544_16_TRADE_LESSONS: kendi kâr/zarar derslerin (katman×yön, kurulum×yön, çıkış, tekrarlanan hata, bu coin).
+    tradeLessons:src.tradeLessons&&typeof src.tradeLessons==='object'?src.tradeLessons:null,
     source:src.source||'BrainHub measured experience memory',
     measuredSampleCount:Number(src.measuredSampleCount)||0,
     jevLessonCount:Number(src.jevLessonCount)||0,
     lifetime:src.lifetime&&typeof src.lifetime==='object'?src.lifetime:null,
-    stats:Array.isArray(src.stats)?src.stats.slice(0,20):[],
-    measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,16).map(compactOutcomeRecord):[],
-    jevLessons:Array.isArray(src.jevLessons)?src.jevLessons.slice(0,16).map(compactOutcomeRecord):[],
+    stats:Array.isArray(src.stats)?src.stats.slice(0,8):[],
+    measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,8).map(compactOutcomeRecord):[],
+    jevLessons:Array.isArray(src.jevLessons)?src.jevLessons.slice(0,6).map(compactOutcomeRecord):[],
     note:'Always-on soft context. Measured outcomes and JEV lessons inform interpretation but never create hard gates, change capital settings, or bypass deterministic safety.'
   };
   const limit=Math.max(2500,Math.min(9000,Number(maxChars)||6500));
@@ -242,7 +244,7 @@ function compactExperienceMemory(learning,maxChars=6500){
   if(raw.length>limit){out.stats=out.stats.slice(0,5);out.measuredOutcomes=out.measuredOutcomes.slice(0,3);out.jevLessons=out.jevLessons.slice(0,3);raw=JSON.stringify(out);}
   if(raw.length>limit){
     return {
-      alwaysOn:true,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
+      alwaysOn:true,tradeLessons:out.tradeLessons,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
       stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),
       memoryTrimmed:true,note:out.note
     };
@@ -362,7 +364,7 @@ function compactDecisionRecord({candidate,plan,unified},maxChars){
       close:f.close??null, ema20:f.ema20??null, ema50:f.ema50??null, rsi14:f.rsi14??null, atrPct:f.atrPct??null,
       returnPct:f.returnPct??null, prior20High:f.prior20High??null, prior20Low:f.prior20Low??null,
       swing:compactSwing(f.swingStructure), orderBlocks:compactOrderBlocks(f.orderBlocks),
-      candle:f.candle||null, patterns:Array.isArray(f.patterns)?rankPatterns(f.patterns,4):[],forming:formingDigest(f.forming), volatility:volDigest(f.volatility), smcContext:compactSmc(f.smcContext), liquidity:f.liquidity||null,
+      candle:f.candle||null, patterns:Array.isArray(f.patterns)?rankPatterns(f.patterns,4):[],forming:formingDigest(f.forming), volatility:volDigest(f.volatility), readout:readoutDigest(f.readout), smcContext:compactSmc(f.smcContext), liquidity:f.liquidity||null,
       role:d.role||null,
       why:String(d.why||'').slice(0,240),
       waitFor:String(d.waitFor||'').slice(0,180),
@@ -621,7 +623,7 @@ function prepareDecisionRequest(input,opts={}){
       // CLAUDE_R2544_TRIM_HIGHER_CONTEXT: R2543+R2544 paketi büyüdü (28.09: PASS-2'nin 3/17'si tavanı aştı).
       // 6) Üst bağlam (30m/45m/1h/4h/1d) özetlenir; 5m/15m çekirdeği ve 1m/3m zamanlaması dokunulmaz kalır.
       ()=>{
-        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','keyLevels','volatility'];
+        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','keyLevels','volatility','readout'];
         for(const t of targets){
           const hc=t.higherContext;
           if(!hc||typeof hc!=='object')continue;
@@ -638,7 +640,11 @@ function prepareDecisionRequest(input,opts={}){
       ()=>{
         const mem=body?.state?.experienceMemory;
         if(mem&&typeof mem==='object'){
+          // R2544.16: kâr/zarar dersleri en son kırpılır; yalnız başlık satırları (ne çalıştı/çalışmadı, bu katman, bu coin) kalır.
+          const tl=mem.tradeLessons;
+          if(tl&&typeof tl==='object')mem.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,worked:(tl.worked||[]).slice(0,3),failed:(tl.failed||[]).slice(0,3),repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,3),current:tl.current||null,symbol:tl.symbol||null,trimmed:true};
           for(const key of Object.keys(mem)){
+            if(key==='tradeLessons')continue;
             if(Array.isArray(mem[key]))mem[key]=mem[key].slice(0,1);
             else if(typeof mem[key]==='string'&&mem[key].length>400)mem[key]=mem[key].slice(0,400);
           }
@@ -648,7 +654,7 @@ function prepareDecisionRequest(input,opts={}){
       // CLAUDE_R2544_14_TIMING_SUMMARY: son çare — 1m/3m zamanlama çerçeveleri üst bağlam gibi özetlenir (trend, fiyat,
       // RSI/ATR, önceki-20, mum, kapanmamış mum, ön-hareket, volatilite). İstek hiç gönderilemeyeceğine bu tercih edilir.
       ()=>{
-        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','preMove','volatility','keyLevels'];
+        const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','preMove','volatility','keyLevels','readout'];
         for(const t of targets){
           const tf=t.timingFrames;
           if(!tf||typeof tf!=='object')continue;
@@ -693,6 +699,42 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   const managementConfigured=management.length>=20&&!/\s/.test(management);
   const usageFile=path.join(root,'data','jev-usage.json');
   let billingCache={at:0,value:null};
+  // Provider access failures are operational state, not a trading verdict. Keep a tiny,
+  // sanitized status so Office can distinguish an upstream 401/403 from a strategic WAIT.
+  let providerState={lastError:null,lastOkAt:null,consecutiveAuthFailures:0,blockedUntil:0};
+  const AUTH_COOLDOWN_MS=60000;
+  function providerMessage(data){
+    const e=data&&typeof data==='object'?data.error:null;
+    const raw=typeof e==='string'?e:(e&&typeof e==='object'?(e.message||e.code):null) ||
+      (data&&typeof data==='object'?(data.message||data.code):null) || '';
+    return String(raw).replace(/\s+/g,' ').trim().slice(0,240);
+  }
+  function providerCode(data){
+    const e=data&&typeof data==='object'?data.error:null;
+    const raw=(e&&typeof e==='object'&&e.code)||(data&&typeof data==='object'&&data.code)||null;
+    return raw==null?null:String(raw).slice(0,80);
+  }
+  function providerStatus(){
+    const now=clock();
+    return {lastError:providerState.lastError,lastOkAt:providerState.lastOkAt,
+      consecutiveAuthFailures:providerState.consecutiveAuthFailures,
+      authCooldownActive:providerState.blockedUntil>now,
+      retryAfterMs:Math.max(0,providerState.blockedUntil-now)};
+  }
+  function noteProviderError(status,data){
+    const httpStatus=Number(status)||0;
+    const authFailure=httpStatus===401||httpStatus===403;
+    if(authFailure){providerState.consecutiveAuthFailures+=1;providerState.blockedUntil=clock()+AUTH_COOLDOWN_MS;}
+    else {providerState.consecutiveAuthFailures=0;providerState.blockedUntil=0;}
+    providerState.lastError={at:new Date(clock()).toISOString(),httpStatus,
+      category:httpStatus===401?'UNAUTHORIZED':httpStatus===403?'FORBIDDEN':httpStatus===429?'RATE_LIMITED':'HTTP_ERROR',
+      code:providerCode(data),message:providerMessage(data)};
+    return providerState.lastError;
+  }
+  function noteProviderOk(){
+    providerState.lastOkAt=new Date(clock()).toISOString();providerState.lastError=null;
+    providerState.consecutiveAuthFailures=0;providerState.blockedUntil=0;
+  }
 
   function readUsage(){
     const day=utcDay(clock());
@@ -749,7 +791,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       lanes:{scalp:'5m',trade:'15m',longShortSymmetric:true},
       passLimit:2,
       traderCortex:(()=>{const t=traderCortexReference(root);return {loaded:t.loaded,version:t.version,mode:t.mode};})(),
-      paidFallbackEnabled:false,budget:budgetStatus()
+      paidFallbackEnabled:false,provider:providerStatus(),budget:budgetStatus()
     };
   }
   function billingSnapshot(){
@@ -803,6 +845,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   async function decisions(body,{reserve=true}={}){
     if(!configured)return {ok:false,configured:false,required:false,reason:'OPENROUTER_NOT_CONFIGURED'};
+    if(providerState.blockedUntil>clock())return {ok:false,configured:true,required:true,called:false,attempted:false,
+      reason:'JEV_PROVIDER_AUTH_COOLDOWN',httpStatus:providerState.lastError?.httpStatus||null,
+      provider:providerStatus(),budget:budgetStatus()};
     const originalBody=body;
     let prepared=prepareDecisionRequest(body);
     let requestSize=prepared.diagnostics;
@@ -849,11 +894,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
       if(!r.ok){
         if(reserve)settleBudget(reservation,cfg.reservePerCallUsd);
+        const pe=noteProviderError(r.status,r.data);
         try{fs.appendFileSync(path.join(root,'logs','jev-http-error.log'),JSON.stringify({
-          at:new Date(clock()).toISOString(),reason:'JEV_HTTP_ERROR',httpStatus:r.status,requestSize,
-          contextExceeded:JSON.stringify(r.data).includes('max_tokens_exceeded')})+'\n','utf8');}catch{}
-        return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,requestSize,attempts,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus()};
+          at:new Date(clock()).toISOString(),reason:'JEV_HTTP_ERROR',httpStatus:r.status,providerCategory:pe.category,
+          providerCode:pe.code,providerMessage:pe.message,consecutiveAuthFailures:providerState.consecutiveAuthFailures,
+          requestSize,contextExceeded:JSON.stringify(r.data).includes('max_tokens_exceeded')})+'\n','utf8');}catch{}
+        return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,provider:providerStatus(),requestSize,attempts,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus()};
       }
+      noteProviderOk();
       const cost=reserve?usageCost(r.data,cfg.reservePerCallUsd,body):0;
       try{fs.appendFileSync(path.join(root,'logs','jev-request-result.log'),JSON.stringify({
         at:new Date(clock()).toISOString(),pass:requestSize.pass,bytes:requestSize.bytes,
@@ -917,7 +965,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-1 is the sole strategic evidence director. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON and must be used as read-only reasoning context; JEV never needs to request HISTORY_OUTCOME merely to remember its own measured past. Radar only raises attention. Decide which evidence workers should fetch. Chart evidence (TRADINGVIEW_5M / TRADINGVIEW_15M) is fulfilled in the mainline by deterministic closed-candle chartNarrative from the same numeric packet, without GPU/VLM. Image/Vision is audit-on-demand only, optional, and never overrides numeric truth. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies. If a material concept is not understood from the supplied Cortex/evidence, do not invent it; prefer WAIT until verified knowledge is available.',
+        description:'JEV PASS-1 is the sole strategic evidence director. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON and must be used as read-only reasoning context; JEV never needs to request HISTORY_OUTCOME merely to remember its own measured past. Radar only raises attention. Decide which evidence workers should fetch. Chart evidence (TRADINGVIEW_5M / TRADINGVIEW_15M) is fulfilled in the mainline by deterministic closed-candle chartNarrative from the same numeric packet, without GPU/VLM. Image/Vision is audit-on-demand only, optional, and never overrides numeric truth. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies. If a material concept is not understood from the supplied Cortex/evidence, do not invent it; prefer WAIT until verified knowledge is available. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin. Learn from it: repeat what worked, do not repeat the pattern that lost unless the current evidence clearly differs, and say so in your reasoning. It is soft experience, never a veto. Frame readout (closed candles, compact): st=[leg UP/DOWN, stretch NORMAL/STRETCHED/EXTENDED/EXTREME, zone PREMIUM/DISCOUNT/EQUILIBRIUM, range position %, EMA20 distance in ATR, anchored VWAP of the leg, price minus that VWAP in ATR, z-score]; ch=chase risk per side (LONG_HIGH means a LONG here chases an extended leg); sq=[Bollinger-inside-Keltner squeeze state, candles in squeeze, released N candles ago, momentum]; dp=[last displacement direction, candles ago, body in ATR, retrace % of that leg, 1 if inside the 62-79% OTE]; pl={b:buy-side,s:sell-side} clustered swing liquidity [price, touches, SWEPT_RECLAIMED/SWEPT_THEN_BROKEN/BROKEN_ACCEPTED/UNSWEPT, distance in ATR]; ef=[wave exhaustion state, RSI divergence, wave volume vs previous same-direction wave]. Use them for location, chase risk and trap detection on LONG and SHORT; they are not gates.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -975,7 +1023,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT. Frames may add volatility (spike, extAtr = ATR beyond its midpoint, trail = 3-ATR trail) and order-block volRel/breakers: soft closed-candle context for chase risk and location, never a checklist, threshold or veto. coreMarketPacket.levelMap lists the nearest levels above/below price (15m-1d FVG, OB, breaker, fib .5/.618, OTE, range, prior-20, equal highs/lows, 24h observed liquidation clusters) and radar.ladder shows the coin on the live Binance gainer ladder: use them for entry location, stop and targets on LONG and SHORT.',
+        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT. Frames may add volatility (spike, extAtr = ATR beyond its midpoint, trail = 3-ATR trail) and order-block volRel/breakers: soft closed-candle context for chase risk and location, never a checklist, threshold or veto. coreMarketPacket.levelMap lists the nearest levels above/below price (15m-1d FVG, OB, breaker, fib .5/.618, OTE, range, prior-20, equal highs/lows, 24h observed liquidation clusters) and radar.ladder shows the coin on the live Binance gainer ladder: use them for entry location, stop and targets on LONG and SHORT. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin. Learn from it: repeat what worked, do not repeat the pattern that lost unless the current evidence clearly differs, and say so in your reasoning. It is soft experience, never a veto. Frame readout (closed candles, compact): st=[leg UP/DOWN, stretch NORMAL/STRETCHED/EXTENDED/EXTREME, zone PREMIUM/DISCOUNT/EQUILIBRIUM, range position %, EMA20 distance in ATR, anchored VWAP of the leg, price minus that VWAP in ATR, z-score]; ch=chase risk per side (LONG_HIGH means a LONG here chases an extended leg); sq=[Bollinger-inside-Keltner squeeze state, candles in squeeze, released N candles ago, momentum]; dp=[last displacement direction, candles ago, body in ATR, retrace % of that leg, 1 if inside the 62-79% OTE]; pl={b:buy-side,s:sell-side} clustered swing liquidity [price, touches, SWEPT_RECLAIMED/SWEPT_THEN_BROKEN/BROKEN_ACCEPTED/UNSWEPT, distance in ATR]; ef=[wave exhaustion state, RSI divergence, wave volume vs previous same-direction wave]. Use them for location, chase risk and trap detection on LONG and SHORT; they are not gates.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1158,14 +1206,17 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         holdMinutes:finiteNumber(src.holdMinutes),
         entryWhy:String(src.entryContext?.why||'').slice(0,400),
         managementStyle:src.entryContext?.managementStyle||src.managementStyle||null
-      }
+      },
+      // CLAUDE_R2544_16_TRADE_LESSONS: deterministik ders kartı (etiketler + karar) ve karşılaştırılabilir geçmiş.
+      lessonCard:src.lessonCard&&typeof src.lessonCard==='object'?src.lessonCard:null,
+      comparable:src.comparable&&typeof src.comparable==='object'?src.comparable:null
     };
     const cortex=traderCortexReference(root);
     const dynamic=dynamicKnowledgeReference(root);
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the BrainHub teacher for closed-trade learning. Use the professional trader/scalper Cortex plus only JEV-verified dynamic knowledge when interpreting the measured outcome, but keep the result SHADOW-only. Do not create hard rules, scores, vetoes, automatic code changes, or auto-promotion. A single trade must not become a mandatory rule.',
+        description:'JEV is the BrainHub teacher for closed-trade learning. Use the professional trader/scalper Cortex plus only JEV-verified dynamic knowledge when interpreting the measured outcome, but keep the result SHADOW-only. Do not create hard rules, scores, vetoes, automatic code changes, or auto-promotion. A single trade must not become a mandatory rule. record.lessonCard carries deterministic tags of this trade (attention tier, re-entry gap, stop width, exit type, oversized loss, leader chase) and record.comparable carries the measured history of comparable trades (same attention tier and side, same setup family and side, and the tags that repeat). When comparable history has at least 5 samples that point the same way, do not answer OBSERVE_MORE: choose UPWEIGHT_SOFT or DOWNWEIGHT_SOFT for the focus that the evidence supports. OBSERVE_MORE is only for thin or contradictory history.',
         professionalTraderCortex:cortex.loaded?{version:cortex.version,mode:cortex.mode,reference:cortex.text}:null,
         dynamicKnowledge:dynamic.loaded?{mode:dynamic.mode,entries:dynamic.entries}:null,
         record
@@ -1337,7 +1388,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it.',
+        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin. Learn from it: repeat what worked, do not repeat the pattern that lost unless the current evidence clearly differs, and say so in your reasoning. It is soft experience, never a veto.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,

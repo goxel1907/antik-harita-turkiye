@@ -1,31 +1,70 @@
 'use strict';
 const rows=v=>Array.isArray(v)?v:[];
-function selectDeterministicCandidates(scan,limit=24){
- const leaders=rows(scan?.leaders);
- const rank=c=>Number(c.attackRank)>0?Number(c.attackRank):999;
- const top=leaders.filter(c=>rank(c)<=3).sort((a,b)=>rank(a)-rank(b));
- const approach=rows(scan?.top3Approach).concat(leaders.filter(c=>c.leaderState==='TOP3_APPROACH'));
- const early=rows(scan?.acceleratingCandidates).concat(rows(scan?.accumulationCandidates),rows(scan?.attentionCandidates),rows(scan?.top10Approach),rows(scan?.earlyTop5),rows(scan?.earlyExpansion));
- const main=leaders.filter(c=>rank(c)>3).sort((a,b)=>rank(a)-rank(b)).concat(rows(scan?.gainerCandidates));
- const pools=[{rows:top,tier:'TOP3',reason:'CURRENT_ATTACK_TOP10'},{rows:approach,tier:'APPROACH',reason:'TOP3_APPROACH'},
-  {rows:main,tier:'TOP24',reason:'BINANCE_TOP24_GAINER'},{rows:early,tier:'EARLY',reason:'EARLY_ATTENTION'}];
+const num=v=>Number.isFinite(Number(v))?Number(v):0;
+const sym=c=>String(c?.symbol||'').trim().toUpperCase();
+const rank=c=>num(c?.gainerRank||c?.attackRank)||999;
+const velocity=c=>num(c?.gainerRankVelocity??c?.rankVelocity);
+
+function uniquePool(items){
  const seen=new Set(),out=[];
- const add=(c,p)=>{if(!c?.symbol||seen.has(c.symbol)||out.length>=limit)return;seen.add(c.symbol);out.push({...c,priorityTier:p.tier,deepScanReason:p.reason});};
- top.forEach(c=>add(c,pools[0]));
- approach.slice(0,4).forEach(c=>add(c,pools[1]));
- // Reserve early-discovery capacity instead of filling every slot with the Top24 pool first.
- early.slice(0,4).forEach(c=>add(c,pools[3]));
- for(let i=0;i<Math.max(main.length,approach.length,early.length)&&out.length<limit;i++)for(const p of [pools[2],pools[1],pools[3]])if(p.rows[i])add(p.rows[i],p);
- return out.sort((a,b)=>({TOP3:0,APPROACH:1,TOP24:2,EARLY:3}[a.priorityTier]-{TOP3:0,APPROACH:1,TOP24:2,EARLY:3}[b.priorityTier]));
+ for(const c of rows(items)){
+  const s=sym(c); if(!s||seen.has(s))continue; seen.add(s); out.push(c);
+ }
+ return out;
+}
+function velocitySort(a,b){
+ return velocity(b)-velocity(a) || num(a?.projectedGainerRank??a?.projectedRank)-num(b?.projectedGainerRank??b?.projectedRank) || rank(a)-rank(b);
+}
+function selectDeterministicCandidates(scan,limit=24){
+ // R2544.16: discovery-first ordering. Top3 is intentionally LAST: by the time a coin is
+ // already Top3, much of the move may be extended. Each earlier tier gets a reserved floor
+ // so coverage cannot be starved by current leaders.
+ const leaders=rows(scan?.leaders);
+ const approach=uniquePool([
+  ...rows(scan?.ladderApproach), ...rows(scan?.top10Approach), ...rows(scan?.top3Approach),
+  ...leaders.filter(c=>['TOP10_APPROACH','TOP3_APPROACH'].includes(String(c?.leaderState||'')))
+ ]).filter(c=>rank(c)>10 || velocity(c)>0).sort(velocitySort);
+ const top4to10=uniquePool(rows(scan?.ladderTop10).length?scan.ladderTop10:leaders.filter(c=>rank(c)>=4&&rank(c)<=10)).sort((a,b)=>rank(a)-rank(b)||velocitySort(a,b));
+ const top11to24=uniquePool(rows(scan?.ladderTop24).length?scan.ladderTop24:leaders.filter(c=>rank(c)>=11&&rank(c)<=24)).sort(velocitySort);
+ const early=uniquePool([
+  ...rows(scan?.attentionCandidates), ...rows(scan?.earlyTop5), ...rows(scan?.earlyExpansion),
+  ...rows(scan?.acceleratingCandidates), ...rows(scan?.accumulationCandidates)
+ ]).sort(velocitySort);
+ const near=uniquePool(rows(scan?.nearExplosionCandidates)).sort((a,b)=>
+  num(b?.nearExplosionScore??b?.preMoveScore??b?.expansionScore)-num(a?.nearExplosionScore??a?.preMoveScore??a?.expansionScore) || velocitySort(a,b));
+ const top3=uniquePool(rows(scan?.ladderTop3).length?scan.ladderTop3:leaders.filter(c=>rank(c)>=1&&rank(c)<=3)).sort((a,b)=>rank(a)-rank(b));
+ const fallback=uniquePool(rows(scan?.gainerCandidates).concat(leaders));
+ const pools=[
+  {tier:'APPROACH',reason:'GAINER_APPROACH',rows:approach,cap:5,floor:2},
+  {tier:'TOP4_10',reason:'GAINER_TOP10',rows:top4to10,cap:7,floor:2},
+  {tier:'TOP11_24',reason:'GAINER_TOP24',rows:top11to24,cap:14,floor:2},
+  {tier:'EARLY',reason:'APP_EARLY_ATTENTION',rows:early,cap:4,floor:2},
+  {tier:'NEAR_EXPLOSION',reason:'NEAR_EXPLOSION',rows:near,cap:5,floor:2},
+  {tier:'TOP3',reason:'GAINER_TOP3',rows:top3,cap:3,floor:Math.min(3,top3.length)},
+  {tier:'COVERAGE',reason:'LIGHTWEIGHT_ACCELERATION',rows:fallback,cap:limit,floor:0}
+ ];
+ const seen=new Set(),out=[];
+ const available=p=>new Set(p.rows.map(sym).filter(s=>s&&!seen.has(s))).size;
+ const add=(c,p)=>{const s=sym(c);if(!s||seen.has(s)||out.length>=limit)return false;seen.add(s);out.push({...c,symbol:s,priorityTier:p.tier,deepScanReason:p.reason});return true;};
+ if(limit<12)for(const p of pools.slice(0,6))p.floor=Math.min(1,p.floor);
+ for(let i=0;i<pools.length;i++){
+  const p=pools[i];
+  const reserve=pools.slice(i+1,6).reduce((acc,q)=>acc+Math.min(q.floor,q.cap,available(q)),0);
+  const allowed=Math.max(0,Math.min(p.cap,limit-out.length-reserve));
+  let n=0;for(const c of p.rows){if(n>=allowed||out.length>=limit)break;if(add(c,p))n++;}
+ }
+ return out;
 }
 function pickPriorityCandidate(candidates,history={},cursor=0){
  if(!candidates?.length)return {candidate:null,index:-1,reason:'NO_CANDIDATE'};
- // Priority slots alternate with whole-pool coverage; Top24/early symbols cannot starve.
- const slot=['TOP3','APPROACH','TOP3','COVERAGE'][cursor%4];
- let pool=candidates.map((candidate,index)=>({candidate,index,last:Number(history[candidate.symbol]?.lastAnalyzedAt||0)}));
+ // One deterministic fairness cycle; every discovery tier gets a turn before Top3 repeats.
+ const schedule=['APPROACH','TOP4_10','TOP11_24','EARLY','NEAR_EXPLOSION','TOP3','COVERAGE'];
+ const slot=schedule[cursor%schedule.length];
+ let pool=candidates.map((candidate,index)=>({candidate,index,last:num(history[candidate.symbol]?.lastAnalyzedAt)}));
  const preferred=pool.filter(x=>x.candidate.priorityTier===slot);
- if(slot!=='COVERAGE'&&preferred.length)pool=preferred;
+ if(preferred.length)pool=preferred;
+ // Least-recently analyzed wins inside the tier: prevents a hot symbol from monopolizing JEV calls.
  pool.sort((a,b)=>a.last-b.last||a.index-b.index);
- return {...pool[0],reason:'DETERMINISTIC_'+slot};
+ return {...pool[0],reason:'R2544_16_'+slot};
 }
 module.exports={selectDeterministicCandidates,pickPriorityCandidate};

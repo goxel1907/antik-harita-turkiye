@@ -1914,7 +1914,14 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/scanner/last'){
       const last=scanner.lastScan();
       return send(res,200,{ok:true,available:Boolean(last),cacheAgeMs:last?.cacheAgeMs??null,generatedAt:last?.generatedAt||null,
-        gainerLadder:last?.gainerLadder||null,targetDetailLimit:last?.targetDetailLimit??null,liquidationHistory:market.liquidationHistory.health()});
+        gainerLadder:last?.gainerLadder||null,targetDetailLimit:last?.targetDetailLimit??null,
+        slotPlan:last?.slotPlan||null,priorityOrder:last?.priorityOrder||null,nearExplosion:last?.nearExplosion||null,liquidationHistory:market.liquidationHistory.health()});
+    }
+    // CLAUDE_R2544_16_TRADE_LESSONS: kâr/zarar ders kartları + özet (Office "Beyin dersleri" paneli). Salt okuma.
+    if(req.method==='GET'&&u.pathname==='/learning/trade-lessons'){
+      const lim=Math.max(1,Math.min(200,Number(u.searchParams.get('limit'))||40));
+      const tl=typeof store.tradeLessons==='function'?store.tradeLessons({limit:lim}):{cards:[],digest:null,total:0};
+      return send(res,200,{ok:true,total:tl.total,digest:tl.digest,cards:[...(tl.cards||[])].reverse()});
     }
     if(req.method==='GET'&&u.pathname==='/scanner'){
       try{return send(res,200,await scanner.scan());}
@@ -2160,7 +2167,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.15-GAINER-LADDER';
+const RUNTIME_RELEASE='R2544.16-PRIORITY-LEARNING';
 const RUNTIME_BUILT_BY='Claude (Anthropic) • Cowork • 2026-09-28 • R2544: panel risk otoritesi, pozisyon koruması, ön-hareket, kovalama R-kuralı';
 function fastLaneObsSuffix(result){
   try{
