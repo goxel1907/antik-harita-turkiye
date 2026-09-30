@@ -193,6 +193,7 @@ function marketPacket(u){
       orderFlowAvailable:flow?.available===true,
       orderFlowSource:flow?.source||null,
       bookBehavior:u?.marketMakerEvidence?.bookBehavior||null,
+      preEntryAdverseSelection:u?.marketMakerEvidence?.preEntryAdverseSelection||null,
       participantIdentity:u?.marketMakerEvidence?.participantIdentity||'NOT_IDENTIFIED',
       participantIntent:u?.marketMakerEvidence?.participantIntent||'NOT_ASSERTED'
     },

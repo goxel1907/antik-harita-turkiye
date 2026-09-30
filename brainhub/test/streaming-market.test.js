@@ -29,7 +29,7 @@ test('streaming market keeps rolling CVD, partial depth and observed liquidation
   assert.equal(snapshot.observedLiquidations.count, 1);
   assert.equal(snapshot.observedLiquidations.zones[0].side, 'LONG_LIQUIDATED');
   assert.match(snapshot.observedLiquidations.note, /not a complete liquidation heatmap/);
-  assert.match(snapshot.limitations.join(' '), /not true OFI/);
+  assert.match(snapshot.limitations.join(' '), /not true multi-level OFI/);
 
   now += 121000;
   const aged = stream.snapshot('BTCUSDT', now);

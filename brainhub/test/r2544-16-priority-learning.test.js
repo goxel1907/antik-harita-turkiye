@@ -113,7 +113,7 @@ test('canlı akış: girişte dikkat katmanı, kapanışta TRADE_LESSON_CARD ve 
   assert.match(lc,/store\.journal\('TRADE_LESSON_CARD'/);
   assert.match(lc,/scanner\.recordPreMoveHits\(/);
   const sv=src('server.js');assert.match(sv,/u\.pathname==='\/learning\/trade-lessons'/);
-  assert.match(src('manage.ps1'),/'chart-readout\.js','trade-lessons\.js','case-memory\.js','free-model-registry\.js'\)/);
+  assert.match(src('manage.ps1'),/'chart-readout\.js','trade-lessons\.js','case-memory\.js','preentry-microstructure\.js','free-model-registry\.js'\)/);
 });
 test('ön-hareket kayıtları 20 dk saklanır, yalnız PRE_MOVE/IGNITION yazılır',()=>{
   const now=Date.now();
@@ -129,7 +129,7 @@ test('ön-hareket kayıtları 20 dk saklanır, yalnız PRE_MOVE/IGNITION yazıl�
   assert.ok(a&&a.targetSources.includes('NEAR_EXPLOSION'),'saklı ön-hareket imzası havuzda');assert.equal(a.nearExplosion.direction,'SHORT');
 });
 test('R2544.16 sürüm kimliği',()=>{
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.19-CASE-MEMORY-PROVENANCE';/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.20-PREENTRY-MICROSTRUCTURE';/);
   assert.match(src('scanner.js'),/const TARGET_DETAIL_LIMIT = 36;/);
 });
 

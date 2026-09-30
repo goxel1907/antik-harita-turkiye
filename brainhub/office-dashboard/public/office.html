@@ -352,7 +352,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
   </section>
 
-  <!-- R2544.19 CASE MEMORY / DATA QUALITY / OSS PROVENANCE -->
+  <!-- R2544.19+ CASE MEMORY / DATA QUALITY / OSS PROVENANCE -->
   <section class="row3">
     <div class="card">
       <h2>Vaka Hafızası <span class="hint">giriş anı → yol → sonuç • kazanan + kaybeden karşı örnek</span></h2>
@@ -368,6 +368,15 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <h2>Açık Kaynak Bilgi Provenance <span class="hint">REFERENCE_ONLY • emir/strateji otoritesi yok</span></h2>
       <div id="ossMeta" class="muted"></div>
       <div style="overflow:auto;max-height:360px"><table id="ossTable"></table></div>
+    </div>
+  </section>
+
+  <!-- R2544.20 PRE-ENTRY ADVERSE-SELECTION MIRROR -->
+  <section>
+    <div class="card">
+      <h2>Giriş Öncesi Mikroyapı / Tuzak Riski <span class="hint">JEV'e MARKET_NOW öncesi gider • olasılık değil • hard veto değil</span></h2>
+      <dl class="kv" id="preEntryKv"><dt>Durum</dt><dd>JEV canlı aynası bekleniyor.</dd></dl>
+      <div id="preEntryComponents" class="muted"></div>
     </div>
   </section>
 
@@ -1119,7 +1128,7 @@ function renderCaseMemory(s){
   const active=open[0]||null; const ec=active?.entryCase||null; const an=active?.caseMemory||null;
   const totalCases=closed.length+(active?1:0);
   $('#caseKv').innerHTML=[
-    ['Durum',cm.ok===false?'okunamadı':(totalCases?`${totalCases} R2544.19 vaka görünür`:'yeni sürüm vakası bekleniyor')],
+    ['Durum',cm.ok===false?'okunamadı':(totalCases?`${totalCases} immutable vaka görünür`:'yeni sürüm vakası bekleniyor')],
     ['Açık vaka',active?`${active.symbol} ${trUi(active.side||'')} • hash ${String(ec?.snapshotHash||'').slice(0,10)}`:'—'],
     ['Benzer geçmiş',an?.available?`${an.samples||0} vaka • kazanan ${an.counterexamples?.winnerCount??0} / kaybeden ${an.counterexamples?.loserCount??0}`:'henüz yeterli immutable vaka yok'],
     ['Öğrenme yetkisi','YUMUŞAK BAĞLAM • kendi kendini değiştirme/otomatik terfi YOK']
@@ -1127,13 +1136,13 @@ function renderCaseMemory(s){
   const rows=[];
   if(active)rows.push({symbol:active.symbol,side:active.side,state:'AÇIK',net:active.unrealizedPnl,r:null,exit:'—',hash:ec?.snapshotHash,events:(ec?.microstructureEvents||[]).map(x=>x.type).slice(0,3).join(', ')});
   for(const x of closed.slice(0,5))rows.push({symbol:x.symbol,side:x.side,state:'KAPANDI',net:x.netPnl,r:x.rMultiple,exit:x.exitType,hash:x.entryCase?.snapshotHash,events:(x.entryCase?.microstructureEvents||[]).map(e=>e.type).slice(0,3).join(', ')});
-  $('#caseTable').innerHTML='<tr><th>Coin</th><th>Yön</th><th>Durum</th><th>PnL</th><th>R</th><th>Çıkış</th><th>Entry hash</th><th>Mikroyapı</th></tr>'+ (rows.length?rows.map(x=>`<tr><td><b>${esc(x.symbol)}</b></td><td>${esc(trUi(x.side||'—'))}</td><td>${esc(x.state)}</td><td>${x.net==null?'—':(Number(x.net)>=0?'+':'')+Number(x.net).toFixed(2)}</td><td>${x.r==null?'—':Number(x.r).toFixed(2)}</td><td>${esc(x.exit||'—')}</td><td>${esc(String(x.hash||'—').slice(0,12))}</td><td>${esc(x.events||'—')}</td></tr>`).join(''):'<tr><td colspan="8" class="muted">R2544.19 sonrası ilk işlem vakası bekleniyor.</td></tr>');
+  $('#caseTable').innerHTML='<tr><th>Coin</th><th>Yön</th><th>Durum</th><th>PnL</th><th>R</th><th>Çıkış</th><th>Entry hash</th><th>Mikroyapı</th></tr>'+ (rows.length?rows.map(x=>`<tr><td><b>${esc(x.symbol)}</b></td><td>${esc(trUi(x.side||'—'))}</td><td>${esc(x.state)}</td><td>${x.net==null?'—':(Number(x.net)>=0?'+':'')+Number(x.net).toFixed(2)}</td><td>${x.r==null?'—':Number(x.r).toFixed(2)}</td><td>${esc(x.exit||'—')}</td><td>${esc(String(x.hash||'—').slice(0,12))}</td><td>${esc(x.events||'—')}</td></tr>`).join(''):'<tr><td colspan="8" class="muted">İlk immutable işlem vakası bekleniyor.</td></tr>');
 }
 function renderDataQualityAndBudget(s){
   const cm=s.caseMemory?.data||{}; const active=(cm.open||[])[0]||null; const dq=active?.entryCase?.dataQuality||null; const ph=s.packetHealth||{}; const cb=ph.contextBudget||{};
   const flags=Array.isArray(dq?.flags)?dq.flags:[];
   $('#dataQualityKv').innerHTML=[
-    ['Entry veri kalitesi',dq?(dq.advisoryUsable!==false?(flags.length?'UYARI • '+flags.join(', '):'TEMİZ'):'KULLANILAMAZ'):'aktif R2544.19 entry snapshot yok'],
+    ['Entry veri kalitesi',dq?(dq.advisoryUsable!==false?(flags.length?'UYARI • '+flags.join(', '):'TEMİZ'):'KULLANILAMAZ'):'aktif immutable entry snapshot yok'],
     ['TF zaman farkı',dq?.timestampSkewMs==null?'—':`${Math.round(Number(dq.timestampSkewMs)/1000)} sn`],
     ['Context',ph.bytes==null?'—':`${ph.bytes} / ${ph.maxBytes??52000} bayt${ph.blocked?' • TAVAN ENGELİ':''}`],
     ['Kalan bütçe',cb.remainingBytes==null?'—':`${cb.remainingBytes} bayt`],
@@ -1146,6 +1155,25 @@ function renderOssProvenance(s){
   const k=s.knowledge?.data||{}; const repos=Array.isArray(k.openSourceRepos)?k.openSourceRepos:[];
   $('#ossMeta').textContent=`doğrulanmış dinamik bilgi ${k.verifiedCount??0} • kayıtlı OSS ${k.openSourceRepoCount??repos.length} • repository bilgisi yalnız araştırma/uygulama referansıdır; piyasa kanıtı değildir.`;
   $('#ossTable').innerHTML='<tr><th>Repo</th><th>Lisans</th><th>Rol</th><th>Neden JEV</th><th>Kavramlar</th><th>Yetki</th></tr>'+(repos.length?repos.map(r=>`<tr><td><b>${esc(r.repo)}</b></td><td>${esc(r.license||'—')}</td><td>${esc((r.roles||[]).join(', '))}</td><td>${esc(r.why||'genel mühendislik/araştırma referansı')}</td><td>${esc((r.concepts||[]).join(', ')||'—')}</td><td>${esc(r.authority||'REFERENCE_ONLY')}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">OSS provenance alınamadı.</td></tr>');
+}
+
+function renderPreEntryMicro(p){
+  const pe=p?.microstructure?.preEntryAdverseSelection||null;
+  const kv=$('#preEntryKv'), detail=$('#preEntryComponents'); if(!kv||!detail)return;
+  if(!pe){kv.innerHTML='<dt>Durum</dt><dd>Bu coin için R2544.20 pre-entry paketi yok / runtime eski.</dd>';detail.textContent='—';return;}
+  const rel=pe.reliability||{}, L=pe.long||{}, S=pe.short||{};
+  const idx=v=>v==null?'—':Math.round(Number(v)*100)+'/100'; const ofi=pe?.level1Ofi?.['30s']||{};
+  kv.innerHTML=[
+    ['Kaynak / yetki',`${pe.authority||'EVIDENCE_ONLY'} • ${pe.participantIdentity||'NOT_IDENTIFIED'} • aktör niyeti ${pe.participantIntent||'NOT_ASSERTED'}`],
+    ['Güvenilirlik',`${rel.quality||'—'} • endeks ${idx(rel.score)} • trade pencere ${rel.tradeCoverageSec??'—'} sn • depth örnek ${rel.depthSamples??'—'} • L1 OFI geçiş ${rel.l1OfiTransitions30s??'—'}`],
+    ['LONG',`tuzak endeksi ${idx(L.trapRiskIndex)} • devam desteği ${idx(L.supportIndex)} • timing ${trUi(pe?.entryTimingGuidance?.LONG||'—')} • ${trUi(L.state||'—')}`],
+    ['SHORT',`tuzak endeksi ${idx(S.trapRiskIndex)} • devam desteği ${idx(S.supportIndex)} • timing ${trUi(pe?.entryTimingGuidance?.SHORT||'—')} • ${trUi(S.state||'—')}`],
+    ['L1 bookTicker OFI 30s',ofi.available?`OFI ${ofi.normalizedOfi??'—'} • fiyat ${ofi.priceMoveBps??'—'} bps • queue ${ofi.queueImbalanceCurrent??'—'} • Δqueue ${ofi.queueImbalanceDelta??'—'} • ${ofi.transitions??'—'} geçiş`:'ısınma / veri yok'],
+    ['Akış ipucu',`${trUi(pe.actionHint||'—')} • baskın ${trUi(pe.preferredEvidenceSide||'—')} • toxicity-proxy endeksi ${idx(pe.toxicityProxy)}`],
+    ['Semantik','Risk endeksi / deterministik kamu verisi. Geleceği garanti etmez; tek başına AL/SAT/veto/emir üretemez.']
+  ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  const top=(side,label)=>((side?.components||[]).slice().sort((a,b)=>Math.abs(Number(b.value||0)*Number(b.weight||0))-Math.abs(Number(a.value||0)*Number(a.weight||0))).slice(0,5).map(x=>`${label}:${x.id}=${Number(x.value||0)>=0?'+':''}${Number(x.value||0).toFixed(2)} (${x.evidence||''})`));
+  detail.innerHTML='<b>En güçlü kanıt bileşenleri:</b><br>'+esc([...top(L,'LONG'),...top(S,'SHORT')].join(' • ')||'yok')+'<br><b>JEV kullanımı:</b> yön tezi geçerli olsa bile seçilen tarafta yüksek tuzak/adverse-selection varsa MARKET_NOW yerine akış normalizasyonu / yeni kanıt beklemeyi değerlendirsin. Endeksler olasılık değildir. Düşük güvenilirlikte bu katman karar kapısı değildir.';
 }
 
 function renderSources(s){
@@ -1472,6 +1500,7 @@ async function renderMirror(s){
     if(seq!==mirrorSeq)return;
     const p=j.packet||{}, f=p?.coreFrames?.[mirrorTf]||{}, smc=f?.smcContext||{};
     const ob=f?.orderBlocks||{}, ms=p?.microstructure||{}, der=p?.derivatives||{}, liq=p?.observedLiquidations||{};
+    renderPreEntryMicro(p);
     const d=j.latestDecision||{}, p1=d.jevPass1||{}, p2=d.jevFinal||{}, pl=d.plan||{};
     const parity=j.parity||{};
     const parityEl=$('#mirrorParity');
@@ -1539,6 +1568,7 @@ async function renderMirror(s){
       ['Üst TF seviyeleri (grafikte kesikli)', (Array.isArray(j.htfLevels)&&j.htfLevels.length)?j.htfLevels.map(h=>`${String(h.tf).toUpperCase()} ${h.name} ${mirrorFmt(h.price)}`).join(' • '):'—'],
       ['Tasfiye akışı', `${liq.count??0} kayıt • ALIŞ ${mirrorFmt(liq.longLiquidatedQuote,0)} • SATIŞ ${mirrorFmt(liq.shortLiquidatedQuote,0)} • hız ${liq?.velocity?.state||liq?.velocity?.level||'—'} • zincirleme ${liq?.cascade?.state||liq?.cascade?.level||'—'}`],
       ['Emir akışı', `CVD120 ${mirrorFmt(ms.cvdQuote120s,0)} • derinlik ${mirrorFmt(ms.depth20Imbalance,3)} • mikro fiyat ${mirrorFmt(ms.microprice,4)} • makas ${mirrorFmt(ms.spreadBps,2)} bps`],
+      ['Pre-entry tuzak', ms?.preEntryAdverseSelection?`güven ${trUi(ms.preEntryAdverseSelection?.reliability?.quality||'—')} • LONG risk ${Math.round(Number(ms.preEntryAdverseSelection?.long?.trapRiskIndex||0)*100)}/100 / destek ${Math.round(Number(ms.preEntryAdverseSelection?.long?.supportIndex||0)*100)}/100 • SHORT risk ${Math.round(Number(ms.preEntryAdverseSelection?.short?.trapRiskIndex||0)*100)}/100 / destek ${Math.round(Number(ms.preEntryAdverseSelection?.short?.supportIndex||0)*100)}/100 • ${trUi(ms.preEntryAdverseSelection?.actionHint||'—')}`:'runtime eski / veri yok'],
       ['Türevler', `OIΔ5dk ${mirrorFmt(der.oiDelta5mPct,2)}% • fonlama ${mirrorFmt(der.fundingRate,6)} • piyasa alıcı/satıcı ${mirrorFmt(der.takerBuySellRatio,3)} • üst trader ${mirrorFmt(der.topTraderLongShortRatio,3)} • genel ${mirrorFmt(der.globalLongShortRatio,3)}`],
       ['PASS-1', d.ts?`${trUi(p1.laneFocus||'—')} • yön ${trUi(p1.directionFocus||'—')} • istek ${(p1.requestedEvidence||[]).map(trUi).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
       ['PASS-2', d.ts?`${trUi(p2.action||pl.side||'WAIT')} • ${trUi(p2.setupFamily||pl.setupFamily||'—')} • giriş ${trUi(p2.entryTiming||pl.entryTiming||'—')} • avantaj ${trUi(p2.edgeBasis||pl.edgeBasis||'—')}`:'henüz son karar kaydı yok'],

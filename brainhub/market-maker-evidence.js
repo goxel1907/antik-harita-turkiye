@@ -1,4 +1,5 @@
 'use strict';
+const {buildPreEntryAdverseSelection}=require('./preentry-microstructure');
 
 function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function compactFlow(w){
@@ -15,7 +16,7 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
   const flow=streaming?.orderFlow?.windows||{};
   const liq=streaming?.observedLiquidations||{};
   return {
-    version:'JEV_MARKET_MAKER_EVIDENCE_V1',
+    version:'JEV_MARKET_MAKER_EVIDENCE_V2_R2544_20',
     authority:'EVIDENCE_ONLY',
     canQualify:false,canVeto:false,canSize:false,canExecute:false,
     participantIdentity:'NOT_IDENTIFIED',
@@ -41,8 +42,11 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
         asOf:streaming?.cvdAsOf||streaming?.asOf||null,
         ageMs,
         sampleTrades:Number.isFinite(trades)?trades:null,
+        '5s':compactFlow(flow['5s']),
         '10s':compactFlow(flow['10s']),
+        '15s':compactFlow(flow['15s']),
         '30s':compactFlow(flow['30s']),
+        '60s':compactFlow(flow['60s']),
         '120s':compactFlow(flow['120s']),
         cvdQuote120s:cvd,
         depth20Imbalance:finite(streaming?.depth20Imbalance),
@@ -83,13 +87,18 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
       sourceQuality:microstructure?.sourceQuality||null,
       depthSoftContext:microstructure?.depthSoftContext||null,
       ofiProxyQuote:finite(microstructure?.ofiProxyQuote),
-      trueOfiClaimed:false
+      level1OfiAvailable:streaming?.level1Ofi?.windows?.['15s']?.available===true||streaming?.level1Ofi?.windows?.['30s']?.available===true,
+      level1OfiSemantics:streaming?.level1Ofi?.semantics||null,
+      fullMultiLevelOfiClaimed:false
     },
+    preEntryAdverseSelection:buildPreEntryAdverseSelection({streaming,derivatives,microstructure}),
     interpretationRules:[
       'Absorption/replenishment/liquidity-pull/TWAP-like labels are probabilistic public-data footprints, not participant identity.',
+      'Level-1 OFI is computed only from sequenced public bookTicker best bid/ask price+size observations; partial depth20 is not claimed as true multi-level OFI.',
       'Observed forceOrder prints are real observed liquidations; projected liquidation levels are not fabricated.',
       'Top-trader and long/short ratios are positioning context, not market-maker identity.',
       'No single microstructure signal may independently create LONG/SHORT, QUALIFIED, size, stop, target or execution.',
+      'R2544.20 pre-entry adverse-selection indices are evidence for JEV entry timing only; they are not probabilities and never hard-veto a JEV plan.',
       'Binance/BrainHub numeric truth outranks visual interpretation when evidence conflicts.'
     ]
   };

@@ -74,6 +74,12 @@ function canonicalR(p){
   if(sd!==null&&sd<=0.05)return {r:null,status:'OUTLIER_R'};
   return {r,status:'MEASURED'};
 }
+function preEntryForSide(ec,side){
+  const pe=ec?.entryCase?.flow?.preEntryAdverseSelection||ec?.preEntryAdverseSelection||null;
+  if(!pe||typeof pe!=='object')return {available:false,state:'NO_PREENTRY_DATA',quality:null,trapRisk:null,support:null,assessment:ec?.preEntryFlowAssessment||ec?.entryCase?.decision?.preEntryFlowAssessment||null};
+  const s=String(side||'').toUpperCase()==='SHORT'?pe.short:pe.long;
+  return {available:!!s,state:s?.state||'NO_PREENTRY_STATE',quality:pe?.reliability?.quality||null,trapRisk:num(s?.trapRiskIndex),support:num(s?.supportIndex),assessment:ec?.preEntryFlowAssessment||ec?.entryCase?.decision?.preEntryFlowAssessment||null,actionHint:pe?.actionHint||null};
+}
 const WIN_EXITS=new Set(['TP1_RUNNER_TRAIL','TP1_BREAKEVEN','TAKE_PROFIT','JEV_PARTIAL_TAKE_PROFIT','JEV_PARTIAL_THEN_EXTERNAL_CLOSE']);
 function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],avgWin=null}={}){
   const p=close||{},ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
@@ -85,6 +91,7 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   const gapMin=prev&&Number.isFinite(opened)&&Number.isFinite(prev.closedMs)?r2((opened-prev.closedMs)/60000,1):null;
   const side=String(p.side||'').toUpperCase()||null;
   const exit=p.exitType||null;
+  const preEntry=preEntryForSide(ec,side);
   const regime=regimeKeyFromSignature(ec.marketSignature||null,side);
   const globalGapMin=prevGlobal&&Number.isFinite(opened)&&Number.isFinite(prevGlobal.closedMs)?r2((opened-prevGlobal.closedMs)/60000,1):null;
   const ch24=num(att?.change24hPct);
@@ -112,6 +119,19 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   if(tier==='TOP3'&&side==='LONG')tags.push('LEADER_CHASE_LONG');
   if(tier==='TOP3'&&side==='SHORT')tags.push('LEADER_FADE_SHORT');
   if(ch24!==null&&ch24>=25&&side==='LONG')tags.push('EXTENDED_24H_LONG');
+  if(preEntry.available){
+    if(preEntry.quality==='INSUFFICIENT')tags.push('PREENTRY_DATA_INSUFFICIENT');
+    if(preEntry.state==='TRAP_RISK_HIGH'||preEntry.state==='TRAP_RISK_ELEVATED'){
+      tags.push('PREENTRY_TRAP_RISK');
+      if(net!==null&&net<0)tags.push('LOSS_AFTER_PREENTRY_TRAP_RISK');
+      if(net!==null&&net>0)tags.push('WIN_DESPITE_PREENTRY_TRAP_RISK');
+    }
+    if(preEntry.state==='CONTINUATION_SUPPORT'||preEntry.state==='CONTINUATION_SUPPORT_STRONG'){
+      tags.push('PREENTRY_FLOW_SUPPORT');
+      if(net!==null&&net>0)tags.push('WIN_WITH_PREENTRY_FLOW_SUPPORT');
+      if(net!==null&&net<0)tags.push('LOSS_DESPITE_PREENTRY_FLOW_SUPPORT');
+    }
+  }
   if(net!==null&&net<0&&avgWin!==null&&avgWin>0&&-net>1.5*avgWin)tags.push('OVERSIZED_LOSS');
   if(net!==null&&net<0&&hold!==null&&hold>=90)tags.push('LONG_HOLD_LOSS');
   if(cr.status!=='MEASURED')tags.push('R_'+cr.status);
@@ -133,6 +153,10 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   if(tags.includes('WIDE_STOP')&&net<0)L.push('%'+r2(stopPct,1)+' geniş stop büyük kayıp üretti');
   if(tags.includes('OVERSIZED_LOSS'))L.push('kayıp ortalama kazancın '+r2(-net/avgWin,1)+' katı');
   if(tags.includes('WIN_TP1_RUNNER'))L.push('TP1 + iz süren stop: kârı büyüten çıkış');
+  if(tags.includes('LOSS_AFTER_PREENTRY_TRAP_RISK'))L.push('giriş öncesi akış/depth tuzak riski yüksekken MARKET_NOW zarar üretti; aynı durumda karşı örnekleri de kontrol et');
+  if(tags.includes('WIN_DESPITE_PREENTRY_TRAP_RISK'))L.push('giriş öncesi tuzak riski yüksek görünmesine rağmen işlem kazandı; tuzak sinyalini tek başına veto yapma');
+  if(tags.includes('WIN_WITH_PREENTRY_FLOW_SUPPORT'))L.push('giriş öncesi mikroyapı plan yönünü destekledi ve işlem kazandı');
+  if(tags.includes('LOSS_DESPITE_PREENTRY_FLOW_SUPPORT'))L.push('giriş öncesi akış planı destekledi ama işlem kaybetti; mikroyapı tek başına yeterli değil');
   if(verdict==='SUCCESS'&&ec.setupFamily)L.push(ec.setupFamily+' '+side+' çalıştı');
   if(verdict==='MISTAKE'&&!L.length&&ec.setupFamily)L.push(ec.setupFamily+' '+side+' stop oldu');
   return {
@@ -140,6 +164,7 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
     source:att?(att.deepScanReason||att.attentionSource||(att.targetSources||[])[0]||null):null,
     rank:num(att?.gainerRank),ch24:ch24===null?null:r2(ch24,1),
     family:ec.setupFamily||null,lane:p.tradeLane||ec.lane||null,timing:ec.entryTiming||null,regime,
+    preEntry:{state:preEntry.state,quality:preEntry.quality,trapRisk:preEntry.trapRisk===null?null:r2(preEntry.trapRisk,3),support:preEntry.support===null?null:r2(preEntry.support,3),assessment:preEntry.assessment||null},
     exit,net:net===null?null:r2(net,2),r:cr.r===null?null:r2(cr.r,2),rStatus:cr.status,
     holdMin:hold,stopPct:stopPct===null?null:r2(stopPct,2),gapMin,globalGapMin,
     openedAt:p.openedAt||null,closedMs:Number.isFinite(closed)?closed:null,
@@ -190,6 +215,7 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   const tierSide=group(xs,c=>c.tier+'|'+c.side);
   const famSide=group(xs.filter(c=>c.family),c=>c.family+'|'+c.side);
   const regimeSide=group(xs.filter(c=>c.regime&&c.regime!=='REGIME_UNKNOWN'),c=>c.regime+'|'+c.side);
+  const preEntrySide=group(xs.filter(c=>c.preEntry&&c.preEntry.state&&c.preEntry.state!=='NO_PREENTRY_DATA'),c=>c.preEntry.state+'|'+c.side);
   const tagG=new Map();for(const c of xs)for(const t of c.tags){if(!tagG.has(t))tagG.set(t,[]);tagG.get(t).push(c);}
   const tagRows=[...tagG.entries()].filter(([t])=>!t.startsWith('R_')).map(([t,v])=>{const s=stats(v);return [t,s.n,s.winPct,s.net];}).sort((a,b)=>a[3]-b[3]);
   // Ne çalıştı / ne çalışmadı: n≥4 grup; PF ve net ile sıralı.
@@ -201,16 +227,17 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   const failed=cand.filter(x=>x.s.pf!==null&&x.s.pf<0.8&&x.s.net<0).sort((a,b)=>a.s.net-b.s.net).slice(0,4).map(fmt);
   const tagFailed=tagRows.filter(r=>r[1]>=3&&r[3]<0).slice(0,5).map(r=>r[0]+': n'+r[1]+' net'+r[3]+'$ %'+Math.round(r[2]));
   const out={
-    version:'R2544.17',samples:xs.length,
+    version:'R2544.20',samples:xs.length,
     lifetime:life,
     payoffRatio:life.avgWin&&life.avgLoss?r2(life.avgWin/life.avgLoss,2):null,
     cols:['key','n','win%','netUSDT','PF','avgWin','avgLoss'],
     byTierSide:rows(tierSide,{minN:2,limit:12}),
     byFamilySide:rows(famSide,{minN:4,limit:8}),
     byRegimeSide:rows(regimeSide,{minN:3,limit:10}),
+    byPreEntryFlow:rows(preEntrySide,{minN:2,limit:10}),
     byExit:rows(group(xs,c=>c.exit||'UNKNOWN'),{minN:3,limit:6}).map(r=>r.slice(0,4)),
     worked,failed,repeatedMistakes:tagFailed,
-    howToUse:'Kendi kâr/zarar geçmişin: çalışanı tekrarla, zarar üreten kalıbı tekrarlama. Yumuşak bağlam; veto değil, piyasa kanıtı önce gelir.'
+    howToUse:'Kendi kâr/zarar geçmişin: çalışanı tekrarla, zarar üreten kalıbı tekrarlama. byPreEntryFlow aynı giriş-öncesi tuzak/destek durumunun hem kazanan hem kaybeden sonuçlarını kalibre eder. Yumuşak bağlam; veto değil, piyasa kanıtı önce gelir.'
   };
   if(candidate){
     const att=attentionFromCandidate(candidate),tier=tierOf(att);
@@ -247,4 +274,4 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   }
   return out;
 }
-module.exports={tierOf,attentionFromCandidate,lessonCard,buildCards,digest,stats,posterior,canonicalR,regimeKeyFromSignature,TIER_OF_SOURCE};
+module.exports={tierOf,attentionFromCandidate,lessonCard,buildCards,digest,stats,posterior,canonicalR,regimeKeyFromSignature,preEntryForSide,TIER_OF_SOURCE};

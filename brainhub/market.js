@@ -185,6 +185,46 @@ function flowWindowStats(trades, now, windowMs) {
     semantics:'PUBLIC_AGGTRADE_FLOW_EVIDENCE_ONLY'
   };
 }
+// R2544.20: Level-1 Order Flow Imbalance (Cont-Kukanov-Stoikov style) from the
+// sequenced public Binance bookTicker observations that BrainHub already receives.
+// This is materially different from the partial-depth20 pressure heuristic below:
+// bookTicker carries best bid/ask prices AND sizes, so consecutive observations can
+// support an event-level L1 OFI contribution. It still does NOT reconstruct hidden
+// orders, participant identity, or a full Level-2/Level-3 book.
+function bookTickerFlowStats(history, now, windowMs) {
+  const rows=(Array.isArray(history)?history:[])
+    .filter(x=>now>=x.at&&now-x.at<=windowMs&&x.bid>0&&x.ask>x.bid&&x.bidQty>=0&&x.askQty>=0)
+    .sort((a,b)=>a.at-b.at||Number(a.updateId||0)-Number(b.updateId||0));
+  if(rows.length<2)return {available:false,windowMs,samples:rows.length,reason:'BOOKTICKER_HISTORY_WARMING'};
+  let ofi=0,gross=0,validTransitions=0;
+  for(let i=1;i<rows.length;i++){
+    const p=rows[i-1],c=rows[i];
+    if(!(c.at>=p.at))continue;
+    // CKS L1 OFI contribution. Sizes are base-asset quantities; normalization
+    // by gross absolute event flow below makes the directional index comparable.
+    const e=(c.bidQty*(c.bid>=p.bid?1:0))-(p.bidQty*(c.bid<=p.bid?1:0))
+      -(c.askQty*(c.ask<=p.ask?1:0))+(p.askQty*(c.ask>=p.ask?1:0));
+    if(!Number.isFinite(e))continue;
+    ofi+=e;gross+=Math.abs(e);validTransitions++;
+  }
+  const first=rows[0],last=rows.at(-1),firstMid=(first.bid+first.ask)/2,lastMid=(last.bid+last.ask)/2;
+  const qImb=x=>{const d=x.bidQty+x.askQty;return d>0?(x.bidQty-x.askQty)/d:null;};
+  const qVals=rows.map(qImb).filter(Number.isFinite);
+  const queueCurrent=qImb(last),queueMean=qVals.length?qVals.reduce((a,b)=>a+b,0)/qVals.length:null;
+  const micro=x=>{const d=x.bidQty+x.askQty;return d>0?(x.ask*x.bidQty+x.bid*x.askQty)/d:null;};
+  const microLast=micro(last),microBps=microLast&&lastMid>0?(microLast-lastMid)/lastMid*10000:null;
+  const normalized=gross>0?Math.max(-1,Math.min(1,ofi/gross)):0;
+  return {
+    available:validTransitions>0,windowMs,samples:rows.length,transitions:validTransitions,
+    coverageMs:last.at-first.at,rawOfi:round(ofi,6),grossAbsOfi:round(gross,6),normalizedOfi:round(normalized,4),
+    priceMoveBps:firstMid>0?round((lastMid-firstMid)/firstMid*10000,3):null,
+    queueImbalanceCurrent:round(queueCurrent,4),queueImbalanceMean:round(queueMean,4),
+    queueImbalanceDelta:queueCurrent!==null&&qImb(first)!==null?round(queueCurrent-qImb(first),4):null,
+    micropriceBps:round(microBps,4),
+    semantics:'SEQUENCED_PUBLIC_BOOKTICKER_LEVEL1_OFI',
+    note:'Level-1 OFI from consecutive public best-bid/ask price+size observations; not full L2/L3 reconstruction and not participant identity.'
+  };
+}
 function depthDynamics(history, trades, now, mid) {
   if(!(mid>0))return {available:false,reason:'MID_UNAVAILABLE'};
   const rows=(Array.isArray(history)?history:[]).filter(x=>now>=x.at&&now-x.at<=45000);
@@ -203,6 +243,25 @@ function depthDynamics(history, trades, now, mid) {
   };
   const snapshots=rows.map(r=>({at:r.at,bids:mapSide(r.bids),asks:mapSide(r.asks)}));
   const last=snapshots.at(-1);
+  // R2544.20: multi-window partial-L2 pressure. This is NOT true sequenced OFI; it is a
+  // deterministic descriptor of how displayed depth imbalance and spread changed in retained snapshots.
+  const snapStats=snapshots.map(s=>{
+    const b=[...s.bids.values()],a=[...s.asks.values()];
+    const bq=b.reduce((z,x)=>z+(Number(x.quote)||0),0),aq=a.reduce((z,x)=>z+(Number(x.quote)||0),0),tot=bq+aq;
+    const bb=b.length?Math.max(...b.map(x=>Number(x.priceSum)/Math.max(Number(x.quote),Number.EPSILON))):null;
+    const aa=a.length?Math.min(...a.map(x=>Number(x.priceSum)/Math.max(Number(x.quote),Number.EPSILON))):null;
+    const md=bb>0&&aa>0?(bb+aa)/2:null;
+    return {at:s.at,imbalance:tot>0?(bq-aq)/tot:null,spreadBps:md>0?(aa-bb)/md*10000:null};
+  }).filter(x=>x.imbalance!==null);
+  const pressure={};
+  for(const [key,ms] of [['5s',5000],['15s',15000],['30s',30000],['45s',45000]]){
+    const q=snapStats.filter(x=>now>=x.at&&now-x.at<=ms);
+    if(!q.length)continue;
+    const mean=q.reduce((z,x)=>z+x.imbalance,0)/q.length,first=q[0].imbalance,lastImb=q.at(-1).imbalance;
+    pressure[key]={samples:q.length,current:round(lastImb,4),mean:round(mean,4),delta:round(lastImb-first,4)};
+  }
+  const spreadVals=snapStats.map(x=>x.spreadBps).filter(Number.isFinite).sort((a,b)=>a-b);
+  const spreadBaseline=spreadVals.length?median(spreadVals):null;
   const currentLevels=(side)=>{
     const m=last[side], vals=[...m.entries()].map(([k,v])=>({k,price:v.quote>0?v.priceSum/v.quote:null,quote:v.quote}));
     const med=median(vals.map(x=>x.quote));
@@ -275,6 +334,8 @@ function depthDynamics(history, trades, now, mid) {
     possibleLiquidityPulls:pulls.slice(0,6),
     replenishment:replenishment.slice(0,6),
     absorption,
+    pressure,
+    spread:{currentBps:snapStats.length?round(snapStats.at(-1).spreadBps,3):null,baselineBps:spreadBaseline===null?null:round(spreadBaseline,3),expansionRatio:spreadBaseline>0&&snapStats.length?round(snapStats.at(-1).spreadBps/spreadBaseline,3):null},
     semantics:'HEURISTIC_PUBLIC_L2_PLUS_AGGTRADE_EVIDENCE_ONLY',
     note:'Top-of-book persistence, pull, replenishment and absorption are heuristics from public partial L2 plus aggTrade. They do not identify an exchange participant or prove spoofing/iceberg intent.'
   };
@@ -329,6 +390,7 @@ class StreamingMarket {
       }
       this.states.set(symbol, {
         symbol, lastEventAt:0, book:null, depth:null, depthAt:0,
+        bookHistory:[], lastBookHistoryAt:0,
         depthHistory:[], lastDepthHistoryAt:0,
         trades:[], tradeAt:0, liquidations:[], liquidationAt:0, createdAt:this.now()
       });
@@ -407,6 +469,7 @@ class StreamingMarket {
   cleanup(state, now = this.now()) {
     state.trades = state.trades.filter(x => now - x.at <= this.tradeWindowMs && now >= x.at);
     state.liquidations = state.liquidations.filter(x => now - x.at <= this.liquidationWindowMs && now >= x.at);
+    state.bookHistory = (Array.isArray(state.bookHistory)?state.bookHistory:[]).filter(x => now - x.at <= 130000 && now >= x.at).slice(-1400);
     state.depthHistory = (Array.isArray(state.depthHistory)?state.depthHistory:[]).filter(x => now - x.at <= 90000 && now >= x.at).slice(-180);
   }
   ingest(message) {
@@ -422,7 +485,14 @@ class StreamingMarket {
     state.lastEventAt = Math.max(state.lastEventAt, eventAt || now);
     if (eventType === 'bookTicker') {
       const bid = finite(data.b), ask = finite(data.a), bidQty = finite(data.B), askQty = finite(data.A);
-      if (bid > 0 && ask > bid) state.book = { bid, ask, bidQty, askQty, at:eventAt || now };
+      if (bid > 0 && ask > bid) {
+        state.book = { bid, ask, bidQty, askQty, at:eventAt || now, updateId:finite(data.u) };
+        if(!state.lastBookHistoryAt || (eventAt||now)-state.lastBookHistoryAt>=100){
+          state.bookHistory.push({at:eventAt||now,updateId:finite(data.u),bid,ask,bidQty:Math.max(0,bidQty||0),askQty:Math.max(0,askQty||0)});
+          state.lastBookHistoryAt=eventAt||now;
+          if(state.bookHistory.length>1400)state.bookHistory.splice(0,state.bookHistory.length-1400);
+        }
+      }
     } else if (eventType === 'depthUpdate') {
       const imbalance = depthImbalance(data.b, data.a);
       state.depth = { bids:Array.isArray(data.b) ? data.b.slice(0,20) : [], asks:Array.isArray(data.a) ? data.a.slice(0,20) : [], imbalance, at:eventAt || now };
@@ -474,7 +544,8 @@ class StreamingMarket {
     const longLiqQuote = state.liquidations.filter(x => x.side === 'LONG_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
     const shortLiqQuote = state.liquidations.filter(x => x.side === 'SHORT_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
     const zones = liquidationZones(state.liquidations, mid || state.book?.bid || state.book?.ask || 0);
-    const flow10=flowWindowStats(state.trades,now,10000), flow30=flowWindowStats(state.trades,now,30000), flow120=flowWindowStats(state.trades,now,120000);
+    const flow5=flowWindowStats(state.trades,now,5000), flow10=flowWindowStats(state.trades,now,10000), flow15=flowWindowStats(state.trades,now,15000), flow30=flowWindowStats(state.trades,now,30000), flow60=flowWindowStats(state.trades,now,60000), flow120=flowWindowStats(state.trades,now,120000);
+    const l1Ofi5=bookTickerFlowStats(state.bookHistory,now,5000),l1Ofi15=bookTickerFlowStats(state.bookHistory,now,15000),l1Ofi30=bookTickerFlowStats(state.bookHistory,now,30000),l1Ofi60=bookTickerFlowStats(state.bookHistory,now,60000),l1Ofi120=bookTickerFlowStats(state.bookHistory,now,120000);
     const dynamics=depthDynamics(state.depthHistory,state.trades,now,mid || state.book?.bid || state.book?.ask || 0);
     const liqVelocity=liquidationVelocity(state.liquidations,now);
     const depthFresh = Boolean(state.depth && now >= state.depth.at && now - state.depth.at <= this.staleMs);
@@ -503,7 +574,8 @@ class StreamingMarket {
       cvdSource:'BINANCE_WS_AGGTRADE',
       cvdAsOf:state.tradeAt || null,
       cvdAgeMs:state.tradeAt > 0 && now >= state.tradeAt ? now - state.tradeAt : null,
-      orderFlow:{windows:{'10s':flow10,'30s':flow30,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
+      orderFlow:{windows:{'5s':flow5,'10s':flow10,'15s':flow15,'30s':flow30,'60s':flow60,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
+      level1Ofi:{windows:{'5s':l1Ofi5,'15s':l1Ofi15,'30s':l1Ofi30,'60s':l1Ofi60,'120s':l1Ofi120},semantics:'SEQUENCED_PUBLIC_BOOKTICKER_LEVEL1_OFI_ONLY'},
       depthDynamics:dynamics,
       observedLiquidations:{
         available:state.liquidations.length > 0,
@@ -521,7 +593,8 @@ class StreamingMarket {
         note:'Observed liquidation prints only; not a complete liquidation heatmap, future cluster map, or proof of market-maker intent.'
       },
       limitations:[
-        'Partial depth20 stream is not a locally sequenced full order book and is not true OFI.',
+        'bookTicker supports sequenced Level-1 OFI, but it is not a full Level-2/Level-3 reconstruction and cannot reveal hidden orders.',
+        'Partial depth20 stream is not a locally sequenced full order book and is not true multi-level OFI.',
         'Depth entropy, wall concentration and microprice are soft descriptors; no spoofing/hidden-liquidity claim is made.',
         'CVD covers the retained public aggTrade window only.',
         'Force-order records are observed liquidation prints, not all future liquidation levels.'
@@ -1371,4 +1444,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats };
+module.exports = { liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats, bookTickerFlowStats };

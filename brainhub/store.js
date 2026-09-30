@@ -214,7 +214,7 @@ function openStore(root) {
   }
   function caseMemory({currentCase=null,symbol=null,limit=5}={}){
     try{return caseMemoryLib.analogDigest(caseTrades(),{currentCase,limit});}
-    catch(e){return {version:'R2544.19',available:false,reason:'CASE_MEMORY_ERROR',detail:String(e?.message||e).slice(0,160),analogs:[],executionAuthority:false};}
+    catch(e){return {version:'R2544.20',available:false,reason:'CASE_MEMORY_ERROR',detail:String(e?.message||e).slice(0,160),analogs:[],executionAuthority:false};}
   }
   function learningContext({symbol=null,candidate=null,unified=null}={}){
     const closes=db.prepare("SELECT id,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED'").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,symbol:x.symbol}));
@@ -296,7 +296,7 @@ function openStore(root) {
       jevLessonCount:jevLessons.length,
       changesAppliedToHardRisk:false,
       rMeasurementPolicy:'rMultiple yalnız geçerli ilk-miktar/ilk-stop tabanı varsa ölçülmüş sayılır; rStatus UNMEASURED_* veya REJECTED_OUTLIER_R olan satırlar R kanıtı olarak kullanılamaz (ham kayıt korunur, rawRMultiple alanında).',
-      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2544.19 caseMemory aynı isimli setupı otomatik kural yapmaz; entry-state benzerliğine göre kazanan ve kaybeden örnekleri birlikte gösterir. JEV_LESSON ve CASE_MEMORY yalnız yumuşak bağlamdır; hard risk/kill-switch/execution güvenliğini değiştiremez.'
+      note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2544.19+ caseMemory aynı isimli setupı otomatik kural yapmaz; R2544.20 ayrıca giriş-öncesi mikroyapı durumunu sonuçlarla kalibre eder; entry-state benzerliğine göre kazanan ve kaybeden örnekleri birlikte gösterir. JEV_LESSON ve CASE_MEMORY yalnız yumuşak bağlamdır; hard risk/kill-switch/execution güvenliğini değiştiremez.'
     };
   }
   function lease(action, resource, owner, token, ttlMs = 30000) {
