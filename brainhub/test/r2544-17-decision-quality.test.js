@@ -79,5 +79,5 @@ test('R2544.17 curated OSS registry karar kalitesi araştırma kaynaklarını i�
 
 test('R2544.18 sürüm kimliği',()=>{
   assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.18-FREE-PROVIDER-RESILIENCE'/);
-  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2\.3\.0-R2544\.18-JEV-Brain'/);
+  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2\.4\.0-R2544\.19-JEV-Brain'/);
 });
