@@ -223,12 +223,63 @@ function compactOutcomeRecord(o){
   const {marketSignature,entryContext,...rest}=o;
   return {...rest,...(marketSignature!==undefined?{marketSignature:compactSignature(marketSignature)}:{})};
 }
+function compactEpisodeRow(x){
+  if(!x||typeof x!=='object')return null;
+  return {
+    symbol:x.symbol||null,side:x.side||null,family:x.family||null,lane:x.lane||null,timing:x.timing||null,
+    net:x.net??null,r:x.r??null,exit:x.exit||null,score:x.score??null,
+    shared:Array.isArray(x.shared)?x.shared.slice(0,7):[],
+    different:Array.isArray(x.different)?x.different.slice(0,5):[],
+    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,10):[]
+  };
+}
+function compactEpisodeBundle(v,{perOutcome=1}={}){
+  if(!v||typeof v!=='object')return null;
+  const cur=v.current&&typeof v.current==='object'?{
+    side:v.current.side||null,
+    tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,24):[],
+    mechanics:v.current.mechanics&&typeof v.current.mechanics==='object'?{
+      labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,12):[],
+      participantIdentity:v.current.mechanics.participantIdentity||'NOT_IDENTIFIED',
+      participantIntent:v.current.mechanics.participantIntent||'NOT_ASSERTED'
+    }:null
+  }:null;
+  return {
+    current:cur,
+    wins:(Array.isArray(v.wins)?v.wins:[]).slice(0,perOutcome).map(compactEpisodeRow).filter(Boolean),
+    losses:(Array.isArray(v.losses)?v.losses:[]).slice(0,perOutcome).map(compactEpisodeRow).filter(Boolean),
+    mixedEvidence:v.mixedEvidence===true,
+    policy:String(v.policy||'').slice(0,420)
+  };
+}
+function compactTradeLessons(tl){
+  if(!tl||typeof tl!=='object')return null;
+  const bySide=tl.similarEpisodesBySide&&typeof tl.similarEpisodesBySide==='object'
+    ? Object.fromEntries(['LONG','SHORT'].map(k=>[k,compactEpisodeBundle(tl.similarEpisodesBySide[k],{perOutcome:1})]))
+    : null;
+  return {
+    version:tl.version||null,samples:Number(tl.samples)||0,lifetime:tl.lifetime||null,payoffRatio:tl.payoffRatio??null,
+    byTierSide:Array.isArray(tl.byTierSide)?tl.byTierSide.slice(0,6):[],
+    byFamilySide:Array.isArray(tl.byFamilySide)?tl.byFamilySide.slice(0,6):[],
+    byRegimeSide:Array.isArray(tl.byRegimeSide)?tl.byRegimeSide.slice(0,6):[],
+    byExit:Array.isArray(tl.byExit)?tl.byExit.slice(0,5):[],
+    worked:Array.isArray(tl.worked)?tl.worked.slice(0,3):[],
+    failed:Array.isArray(tl.failed)?tl.failed.slice(0,3):[],
+    repeatedMistakes:Array.isArray(tl.repeatedMistakes)?tl.repeatedMistakes.slice(0,3):[],
+    current:tl.current||null,symbol:tl.symbol||null,sequence:tl.sequence||null,
+    similarEpisodes:compactEpisodeBundle(tl.similarEpisodes,{perOutcome:1}),
+    similarEpisodesBySide:bySide,
+    episodePolicy:String(tl.episodePolicy||'').slice(0,520),
+    howToUse:String(tl.howToUse||'').slice(0,520),
+    compactedForJev:true
+  };
+}
 function compactExperienceMemory(learning,maxChars=6500){
   const src=learning&&typeof learning==='object'?learning:{};
   const out={
     alwaysOn:true,
-    // CLAUDE_R2544_16_TRADE_LESSONS: kendi kâr/zarar derslerin (katman×yön, kurulum×yön, çıkış, tekrarlanan hata, bu coin).
-    tradeLessons:src.tradeLessons&&typeof src.tradeLessons==='object'?src.tradeLessons:null,
+    // R2544.19: episodic memory stays specific but bounded; history must never crowd current market truth out of the request.
+    tradeLessons:compactTradeLessons(src.tradeLessons),
     source:src.source||'BrainHub measured experience memory',
     measuredSampleCount:Number(src.measuredSampleCount)||0,
     jevLessonCount:Number(src.jevLessonCount)||0,
@@ -1518,4 +1569,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
 }
-module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,createJevClient};
+module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactTradeLessons,compactEpisodeBundle,compactSignature,dynamicKnowledgeReference,createJevClient};
