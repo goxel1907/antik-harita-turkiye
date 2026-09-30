@@ -289,6 +289,44 @@ function compactTradeLessons(tl){
     compactedForJev:true
   };
 }
+function compactTradeLessonsMinimal(tl){
+  if(!tl||typeof tl!=='object')return null;
+  const miniRow=x=>x&&typeof x==='object'?{
+    symbol:x.symbol||null,side:x.side||null,family:x.family||null,net:x.net??null,r:x.r??null,exit:x.exit||null,score:x.score??null,
+    shared:Array.isArray(x.shared)?x.shared.slice(0,4):[],
+    different:Array.isArray(x.different)?x.different.slice(0,2):[],
+    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,4):[]
+  }:null;
+  const miniBundle=v=>v&&typeof v==='object'?{
+    current:v.current&&typeof v.current==='object'?{
+      side:v.current.side||null,
+      tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,10):[],
+      mechanics:v.current.mechanics&&typeof v.current.mechanics==='object'?{
+        labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,6):[],
+        participantIdentity:v.current.mechanics.participantIdentity||'NOT_IDENTIFIED',
+        participantIntent:v.current.mechanics.participantIntent||'NOT_ASSERTED'
+      }:null
+    }:null,
+    wins:(Array.isArray(v.wins)?v.wins:[]).slice(0,1).map(miniRow).filter(Boolean),
+    losses:(Array.isArray(v.losses)?v.losses:[]).slice(0,1).map(miniRow).filter(Boolean),
+    mixedEvidence:v.mixedEvidence===true,
+    policy:String(v.policy||'').slice(0,180)
+  }:null;
+  const bySide=tl.similarEpisodesBySide&&typeof tl.similarEpisodesBySide==='object'
+    ? {LONG:miniBundle(tl.similarEpisodesBySide.LONG),SHORT:miniBundle(tl.similarEpisodesBySide.SHORT)}
+    : null;
+  return {
+    version:tl.version||null,samples:Number(tl.samples)||0,lifetime:tl.lifetime||null,payoffRatio:tl.payoffRatio??null,
+    worked:Array.isArray(tl.worked)?tl.worked.slice(0,2).map(x=>String(x||'').slice(0,180)):[],
+    failed:Array.isArray(tl.failed)?tl.failed.slice(0,2).map(x=>String(x||'').slice(0,180)):[],
+    repeatedMistakes:Array.isArray(tl.repeatedMistakes)?tl.repeatedMistakes.slice(0,2).map(x=>String(x||'').slice(0,180)):[],
+    current:tl.current||null,symbol:tl.symbol||null,
+    similarEpisodesBySide:bySide,
+    similarEpisodes:bySide?null:miniBundle(tl.similarEpisodes),
+    episodePolicy:String(tl.episodePolicy||'').slice(0,220),
+    compactedForJev:true,minimal:true
+  };
+}
 function compactExperienceMemory(learning,maxChars=6500){
   const src=learning&&typeof learning==='object'?learning:{};
   const out={
@@ -308,11 +346,13 @@ function compactExperienceMemory(learning,maxChars=6500){
   let raw=JSON.stringify(out);
   if(raw.length>limit){out.measuredOutcomes=out.measuredOutcomes.slice(0,5);out.jevLessons=out.jevLessons.slice(0,5);raw=JSON.stringify(out);}
   if(raw.length>limit){out.stats=out.stats.slice(0,5);out.measuredOutcomes=out.measuredOutcomes.slice(0,3);out.jevLessons=out.jevLessons.slice(0,3);raw=JSON.stringify(out);}
+  if(raw.length>limit){out.tradeLessons=compactTradeLessonsMinimal(out.tradeLessons);raw=JSON.stringify(out);}
+  if(raw.length>limit){out.stats=out.stats.slice(0,2);out.measuredOutcomes=out.measuredOutcomes.slice(0,1);out.jevLessons=out.jevLessons.slice(0,1);raw=JSON.stringify(out);}
   if(raw.length>limit){
     return {
-      alwaysOn:true,tradeLessons:out.tradeLessons,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
-      stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),
-      memoryTrimmed:true,note:out.note
+      alwaysOn:true,tradeLessons:compactTradeLessonsMinimal(out.tradeLessons),source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
+      stats:[],measuredOutcomes:[],jevLessons:[],
+      memoryTrimmed:true,note:String(out.note||'').slice(0,280)
     };
   }
   return out;
@@ -1584,4 +1624,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
 }
-module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactTradeLessons,compactEpisodeBundle,compactSignature,dynamicKnowledgeReference,createJevClient};
+module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactTradeLessons,compactTradeLessonsMinimal,compactEpisodeBundle,compactSignature,dynamicKnowledgeReference,createJevClient};
