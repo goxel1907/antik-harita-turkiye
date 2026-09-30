@@ -8,6 +8,7 @@ const episode=require('../episode-memory');
 const lessons=require('../trade-lessons');
 const {CURATED_OPEN_SOURCE_REPOS,createKnowledgeResearch}=require('../knowledge-research');
 const {marketPacket}=require('../jev-market-packet');
+const {compactExperienceMemory}=require('../jev-decision');
 
 const root=path.resolve(__dirname,'..');
 const src=f=>fs.readFileSync(path.join(root,f),'utf8');
@@ -58,6 +59,19 @@ test('R2544.19 contrastive memory shows similar winners and losers instead of a 
   assert.equal(d.similarEpisodes.losses.length,1);
   assert.equal(d.similarEpisodes.mixedEvidence,true);
   assert.match(d.similarEpisodes.policy,/not a prediction/i);
+});
+
+test('R2544.19 episodic memory is bounded so current market truth keeps payload priority',()=>{
+  const big='X'.repeat(400);
+  const row={symbol:'X',side:'SHORT',family:'TREND_PULLBACK',net:-4,r:-0.6,exit:'JEV_EXIT_NOW',score:0.8,shared:Array(20).fill(big),different:Array(20).fill(big),mechanics:Array(20).fill(big)};
+  const bundle={current:{side:'SHORT',tokens:Array(60).fill(big),mechanics:{labels:Array(40).fill(big),participantIdentity:'NOT_IDENTIFIED',participantIntent:'NOT_ASSERTED'}},wins:Array(8).fill(row),losses:Array(8).fill(row),mixedEvidence:true,policy:big};
+  const memory=compactExperienceMemory({
+    tradeLessons:{version:'R2544.19',samples:500,lifetime:{n:500},worked:Array(10).fill(big),failed:Array(10).fill(big),repeatedMistakes:Array(10).fill(big),similarEpisodesBySide:{LONG:bundle,SHORT:bundle},episodePolicy:big,howToUse:big},
+    measuredOutcomes:Array(20).fill({x:big}),jevLessons:Array(20).fill({x:big}),stats:Array(20).fill({x:big})
+  },8500);
+  assert.ok(JSON.stringify(memory).length<=8500);
+  assert.equal(memory.tradeLessons.similarEpisodesBySide.SHORT.wins.length,1);
+  assert.equal(memory.tradeLessons.similarEpisodesBySide.SHORT.losses.length,1);
 });
 
 test('R2544.19 pipeline supplies current market to persistent learning memory',()=>{
