@@ -1724,8 +1724,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       regime5m:pickFrame(f5),regime15m:pickFrame(f15),
       orderFlow:{available:flow?.available===true,source:flow?.source||null,cvd120s:finite(flow?.cvdQuote120s??flow?.cvd120s??depth?.streaming?.cvdQuote120s)},
       depth:{imbalance:finite(depth?.depth20Imbalance??depth?.streaming?.depth20Imbalance),spreadBps:finite(depth?.spreadBps)},
-      derivatives:{oiDeltaPct:finite(d?.openInterest?.delta5mPct??d?.oiDelta5mPct),fundingRate:finite(d?.fundingRate??d?.funding?.lastFundingRate),takerBuySellRatio:finite(d?.takerBuySellRatio??d?.taker?.buySellRatio)},
-      observedLiquidations:{available:liq?.available===true,count:finite(liq?.count),source:liq?.source||null}
+      derivatives:{oiDeltaPct:finite(d?.openInterest?.delta5mPct??d?.oiDelta5mPct),fundingRate:finite(d?.fundingRate??d?.funding?.lastFundingRate),
+        takerBuySellRatio:finite(d?.takerBuySellRatio??d?.taker?.buySellRatio),
+        topTraderRatio:finite(d?.topTraderLongShortRatio??d?.topTraderPosition?.longShortRatio),
+        globalRatio:finite(d?.globalLongShortRatio??d?.globalAccount?.longShortRatio)},
+      observedLiquidations:{available:liq?.available===true,count:finite(liq?.count),source:liq?.source||null,
+        longQuote:finite(liq?.longLiquidatedQuote),shortQuote:finite(liq?.shortLiquidatedQuote),
+        zones:Array.isArray(liq?.zones)?liq.zones.slice(0,4).map(z=>({price:finite(z?.price),side:z?.side||null,quote:finite(z?.quote||z?.notional||z?.amountQuote)})):[]}
     };
   }
 
