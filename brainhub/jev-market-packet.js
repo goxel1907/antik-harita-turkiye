@@ -221,6 +221,24 @@ function marketPacket(u){
       cascade:liq?.cascade||null,
       note:'Observed exchange force-order/liquidation evidence only; no synthetic heatmap.'
     },
+    provenance:{
+      graph:{
+        source:'DETERMINISTIC_NUMERIC_CLOSED_CANDLES',
+        formingCandle:'CONTEXT_ONLY_NOT_CONFIRMED',
+        synthetic45m:true,
+        numericTruthOutranksVisual:true
+      },
+      microstructure:{
+        source:m?.sourceQuality||stream?.source||flow?.source||null,
+        orderFlowAsOf:flow?.asOf||null,
+        cvdCoverageSec:finite(stream?.cvdCoverageMs)===null?null:Math.round(finite(stream.cvdCoverageMs)/1000),
+        websocketConnected:u?.dataQuality?.websocketConnected??null
+      },
+      derivatives:{source:d?.source||null,asOf:d?.asOf||null,bucketAgeMin:(()=>{const ts=finite(d?.taker?.timestamp),at=finite(d?.asOf);return ts!==null&&at!==null?Math.round((at-(ts+300000))/6000)/10:null;})()},
+      liquidations:{source:liq?.source||u?.microstructure?.liquidationHistory?.source||null,semantics:'OBSERVED_FORCE_ORDER_ONLY_NO_HIDDEN_HEATMAP'},
+      participantIdentity:'NOT_IDENTIFIED',
+      participantIntent:'NOT_ASSERTED'
+    },
     dataQuality:u?.dataQuality||null,
     global:u?.global?{
       btc:u.global.btc||null,marketBreadth:u.global.marketBreadth||null,riskState:u.global.riskState||null
@@ -262,7 +280,7 @@ function mirrorDigest(packet){
     // CLAUDE_R2543: JEV'e giden grafik okumasi aynaya da girer; aksi halde ne gonderildigi denetlenemez.
     chartNarrative:p.chartNarrative||null,
     microstructure:p.microstructure||null,derivatives:p.derivatives||null,
-    observedLiquidations:p.observedLiquidations||null,dataQuality:p.dataQuality||null
+    observedLiquidations:p.observedLiquidations||null,provenance:p.provenance||null,dataQuality:p.dataQuality||null
   };
 }
 
