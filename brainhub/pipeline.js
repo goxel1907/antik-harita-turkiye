@@ -1370,7 +1370,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   const [symbol,global]=await Promise.all([symbolContext(candidate.symbol),globalContext()]);
   const unified=buildUnifiedContext({symbol,global,candidate});
   if(typeof store?.learningContext==='function'){
-    try{unified.learning=store.learningContext({symbol:candidate.symbol,candidate});}catch{unified.learning=null;}
+    try{unified.learning=store.learningContext({symbol:candidate.symbol,candidate,currentContext:unified});}catch{unified.learning=null;}
   }
   if(!unified?.dataQuality?.advisoryUsable||finite(unified?.livePrice)===null){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:'SOVEREIGN_BASE_CONTEXT_UNUSABLE',execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
@@ -1523,7 +1523,7 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   const [symbol, global] = await Promise.all([symbolContext(candidate.symbol), globalContext()]);
   const unified = buildUnifiedContext({ symbol, global, candidate });
   if(typeof store?.learningContext==='function'){
-    try{unified.learning=store.learningContext({symbol:candidate.symbol,candidate});}catch{unified.learning=null;}
+    try{unified.learning=store.learningContext({symbol:candidate.symbol,candidate,currentContext:unified});}catch{unified.learning=null;}
   }
   if (!unified.dataQuality.advisoryUsable) {
     const out = { ok:true, candidateFound:true, symbol:candidate.symbol, status:'REVIEW_REQUIRED', reason:'NO_FRESH_TIMEFRAME_CONTEXT', committeeCalled:false, execution:'ADVISORY_ONLY', orderPlaced:false };
