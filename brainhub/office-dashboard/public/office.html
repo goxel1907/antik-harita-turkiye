@@ -1144,7 +1144,7 @@ function renderDataQualityAndBudget(s){
   $('#dataQualityKv').innerHTML=[
     ['Entry veri kalitesi',dq?(dq.advisoryUsable!==false?(flags.length?'UYARI • '+flags.join(', '):'TEMİZ'):'KULLANILAMAZ'):'aktif immutable entry snapshot yok'],
     ['TF zaman farkı',dq?.timestampSkewMs==null?'—':`${Math.round(Number(dq.timestampSkewMs)/1000)} sn`],
-    ['Context',ph.bytes==null?'—':`${ph.bytes} / ${ph.maxBytes??52000} bayt${ph.blocked?' • TAVAN ENGELİ':''}`],
+    ['Context',ph.bytes==null?'—':`${ph.bytes} / ${ph.maxBytes??48000} bayt${ph.targetBytes?` • hedef ${ph.targetBytes}`:''}${ph.coreTruthProtected===false?' • CORE DEĞİŞTİ':''}${ph.blocked?' • TAVAN ENGELİ':''}`],
     ['Kalan bütçe',cb.remainingBytes==null?'—':`${cb.remainingBytes} bayt`],
     ['Politika',cb.policy||'CORE_MARKET_FIRST']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
@@ -1323,7 +1323,7 @@ function renderCpuPolicy(s){
   $('#priorityQueue').textContent=`Top 3: ${names(top)} • Yaklaşan: ${names(b.approachContinuity)} • Top 24: ${names(b.top24Gainers)} • Erken ilgi: ${names(b.newAcceleration)} • Seçim: ${la.diagnostics?.selectionReason||'—'}`;
   const ph=s.packetHealth||{},vp=s.visionProgress?.data||{};
   const l60=ph.last60||{};
-  $('#cpuPolicy').textContent+=` • Son JEV isteği: ${ph.bytes??'—'} / ${ph.maxBytes??52000} bayt (PASS ${ph.pass??'—'}${ph.blocked?' • TAVAN AŞILDI':''}, ${ph.at?fmtDayTime(Date.parse(ph.at)):'kayıt yok'}) • 60 dk: ${l60.calls??0} istek, ${l60.blocked??0} tavan engeli • Ana GPU kuyruğu: ${policy.gpuMainline===false?'0 (kullanılmaz)':'bilinmiyor'} • Son görsel inceleme: ${vp.stage||vp.status||'kayıt yok'}`;
+  $('#cpuPolicy').textContent+=` • Son JEV isteği: ${ph.bytes??'—'} / ${ph.maxBytes??48000} bayt${ph.targetBytes?` • hedef ${ph.targetBytes}`:''} (PASS ${ph.pass??'—'}${ph.targetExceeded?' • HEDEF AŞILDI':''}${ph.blocked?' • TAVAN AŞILDI':''}${ph.coreTruthProtected===false?' • CORE DEĞİŞTİ':''}, ${ph.at?fmtDayTime(Date.parse(ph.at)):'kayıt yok'}) • 60 dk: ${l60.calls??0} istek, ${l60.blocked??0} tavan engeli • P1 ${l60.byPass?.['1']?.calls??0} çağrı/${l60.byPass?.['1']?.blocked??0} blok/${l60.byPass?.['1']?.targetExceeded??0} hedef aşım • P2 ${l60.byPass?.['2']?.calls??0} çağrı/${l60.byPass?.['2']?.blocked??0} blok/${l60.byPass?.['2']?.targetExceeded??0} hedef aşım • Ana GPU kuyruğu: ${policy.gpuMainline===false?'0 (kullanılmaz)':'bilinmiyor'} • Son görsel inceleme: ${vp.stage||vp.status||'kayıt yok'}`;
   const e=s.derived?.execution||{},chains=(e.chains||[]).slice(0,12);
   $('#priorityQueue').textContent+=' • Engel sayıları: '+(Object.entries(e.reasonCounts||{}).map(([k,v])=>trUi(k)+': '+v).join(', ')||'yok');
   $('#decisionChains').innerHTML='<thead><tr><th>Karar / coin</th><th>Aşamalar</th><th>Son neden</th></tr></thead><tbody>'+chains.map(c=>`<tr><td>${esc(c.symbol||'')}<br><small>${esc(c.decisionId)}</small></td><td>${esc((c.stages||[]).map(x=>trUi(x.stage)).join(' → '))}</td><td>${esc((c.reasons||[]).map(trUi).join(', ')||'—')}</td></tr>`).join('')+'</tbody>';

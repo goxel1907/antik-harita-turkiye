@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.1-R2544.21-JEV-Brain';
+const OFFICE_VERSION = '2.5.2-R2544.22-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -151,8 +151,8 @@ function readPacketHealth() {
   const since = Date.now() - 3600000;
   const recent = rows.filter(r => Date.parse(r.at) >= since);
   const byPass = {};
-  for (const r of recent) { const k = String(r.pass); byPass[k] = byPass[k] || { calls: 0, blocked: 0, maxBytes: 0 }; byPass[k].calls++; if (r.blocked) byPass[k].blocked++; byPass[k].maxBytes = Math.max(byPass[k].maxBytes, Number(r.bytes) || 0); }
-  return { ok: true, at: last?.at || null, pass: last?.pass ?? null, bytes: last?.bytes ?? null, beforeBytes: last?.beforeBytes ?? null, maxBytes: last?.maxBytes ?? 52000,
+  for (const r of recent) { const k = String(r.pass); byPass[k] = byPass[k] || { calls: 0, blocked: 0, targetExceeded:0, maxBytes: 0, targetBytes:r.targetBytes??null }; byPass[k].calls++; if (r.blocked) byPass[k].blocked++; if(r.targetExceeded)byPass[k].targetExceeded++; byPass[k].maxBytes = Math.max(byPass[k].maxBytes, Number(r.bytes) || 0); if(r.targetBytes!=null)byPass[k].targetBytes=r.targetBytes; }
+  return { ok: true, at: last?.at || null, pass: last?.pass ?? null, bytes: last?.bytes ?? null, beforeBytes: last?.beforeBytes ?? null, maxBytes: last?.maxBytes ?? 48000, targetBytes:last?.targetBytes??null, targetExceeded:last?.targetExceeded===true, coreTruthProtected:last?.coreTruthProtected!==false,
     blocked: last?.blocked === true, trimSteps: (last?.trimStepsApplied || []).slice(-8), contextBudget:last?.contextBudget||null, sections:last?.sections||null, last60: { calls: recent.length, blocked: recent.filter(r => r.blocked).length, byPass } };
 }
 

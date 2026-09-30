@@ -101,7 +101,7 @@ test('deneyim hafızası: tradeLessons korunur, son çare kırpmada bile başlı
   const s=src('jev-decision.js');
   assert.match(s,/tradeLessons:src\.tradeLessons&&typeof src\.tradeLessons==='object'\?src\.tradeLessons:null/);
   assert.match(s,/alwaysOn:true,tradeLessons:out\.tradeLessons/);
-  assert.match(s,/if\(key==='tradeLessons'\|\|key==='caseMemory'\|\|key==='caseMemoryByLane'\)continue;/);
+  assert.match(s,/out\.tradeLessons=\{version:tl\.version/);
   assert.match(s,/experienceMemory\.tradeLessons is YOUR OWN measured P&L/);
   assert.equal((s.match(/experienceMemory\.tradeLessons is YOUR OWN measured P&L/g)||[]).length,3,'PASS-1, PASS-2, pozisyon yöneticisi');
   assert.match(s,/lessonCard:src\.lessonCard/);assert.match(s,/do not answer OBSERVE_MORE/);
@@ -129,7 +129,7 @@ test('ön-hareket kayıtları 20 dk saklanır, yalnız PRE_MOVE/IGNITION yazıl�
   assert.ok(a&&a.targetSources.includes('NEAR_EXPLOSION'),'saklı ön-hareket imzası havuzda');assert.equal(a.nearExplosion.direction,'SHORT');
 });
 test('R2544.16 sürüm kimliği',()=>{
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.21-SPARSE-FLOW-CONFIDENCE';/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.22-HARD-CONTEXT-BUDGET';/);
   assert.match(src('scanner.js'),/const TARGET_DETAIL_LIMIT = 36;/);
 });
 

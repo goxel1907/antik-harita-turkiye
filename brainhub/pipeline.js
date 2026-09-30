@@ -1422,7 +1422,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     };
   }
   const planOptions=buildSovereignPlanOptions(unified);
-  const final=await decisionFinal({candidate,unified,evidence,planOptions});
+  const final=await decisionFinal({candidate,unified,evidence,planOptions,pass1});
   if(final?.ok){sovereignEvidenceCache.set(candidate.symbol,{key:evidenceKey,at:Date.now(),wait:final.action==='WAIT',lane:pass1.laneFocus});if(sovereignEvidenceCache.size>600)sovereignEvidenceCache.delete(sovereignEvidenceCache.keys().next().value);}
   if(final)final.materialChangeReason=materialChangeReason;
   if(!final?.ok){

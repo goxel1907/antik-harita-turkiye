@@ -27,7 +27,7 @@ test('UTF-8 byte guard rejects untrimmable truth before any network call or budg
   const unified={symbol:'TESTUSDT',dataQuality:{detail:'界'.repeat(30000)}};
   for(const fn of ['sovereignPass1','sovereignFinal']){
     const out=await client[fn]({unified,planOptions:[]});
-    assert.equal(out.reason,'JEV_REQUEST_CONTEXT_TOO_LARGE');assert.equal(out.called,false);assert.equal(out.attempted,false);
+    assert.equal(out.reason,'JEV_CORE_CONTEXT_TOO_LARGE');assert.equal(out.called,false);assert.equal(out.attempted,false);
   }
   assert.equal(calls,0);assert.equal(fs.existsSync(path.join(root,'data/jev-usage.json')),false);
 });

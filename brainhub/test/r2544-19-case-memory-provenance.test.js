@@ -74,7 +74,7 @@ test('R2544.19 context budget trims optional case/OSS before rejecting core mark
   const huge='X'.repeat(12000);
   const state={professionalTraderCortex:{reference:huge},dynamicKnowledge:{entries:Array.from({length:12},(_,i)=>({topic:'T'+i,summary:huge,keyPoints:[huge],sourceUrls:['https://example.com']}))},experienceMemory:{caseMemory:{version:'R2544.19',available:true,analogs:Array.from({length:8},(_,i)=>({symbol:'C'+i,lesson:huge}))},measuredOutcomes:Array.from({length:20},()=>({why:huge})),jevLessons:Array.from({length:20},()=>({why:huge}))},coreMarketPacket:{coreFrames:{'5m':frame(),'15m':frame()},timingFrames:{'1m':frame(),'3m':frame()},higherContext:{'1h':frame(),'4h':frame()},microstructure:{available:true,depth20Imbalance:0.2},derivatives:{fundingRate:0.001},liquidationContext:{available:true}},record:{entryThesis:{why:'core thesis'}}};
   const r=prepareDecisionRequest({model:'x',state,questions:{trade_plan:{type:'x'}}});
-  assert.equal(r.ok,true);assert.ok(r.diagnostics.bytes<=MAX_DECISION_REQUEST_BYTES);assert.equal(r.diagnostics.contextBudget.coreMarketPriority,true);assert.ok(r.diagnostics.trimStepsApplied.some(x=>x==='OPTIONAL_CONTEXT_BUDGET_MIN'||x.startsWith('PRIMARY_CONTEXT_')));assert.ok(r.body.state.coreMarketPacket.coreFrames['5m']);
+  assert.equal(r.ok,true);assert.ok(r.diagnostics.bytes<=MAX_DECISION_REQUEST_BYTES);assert.equal(r.diagnostics.contextBudget.coreMarketPriority,true);assert.ok(r.diagnostics.trimStepsApplied.some(x=>x==='SEMANTIC_OPTIONAL_CONTEXT_PROJECTION'||x==='OPTIONAL_CONTEXT_TIGHT'));assert.equal(r.diagnostics.coreTruthProtected,true);assert.ok(r.body.state.coreMarketPacket.coreFrames['5m']);
 });
 
 test('R2544.19 OSS provenance adds only verified-license requested references',()=>{
@@ -101,10 +101,10 @@ test('R2544.19 oversized learning close stays parseable JSON and preserves compa
   const row=st.db.prepare('SELECT payload FROM learning_events WHERE id=?').get(id);assert.ok(row?.payload);const parsed=JSON.parse(row.payload);assert.equal(parsed.symbol,'TESTUSDT');assert.ok(parsed.entryContext?.entryCase?.snapshotHash);assert.ok(row.payload.length<=32000);
 });
 
-test('R2544.21 runtime/Office preserve case memory, provenance and read-only authority',()=>{
-  assert.match(src('server.js'),/R2544\.21-SPARSE-FLOW-CONFIDENCE/);
+test('R2544.22 runtime/Office preserve case memory, provenance and read-only authority',()=>{
+  assert.match(src('server.js'),/R2544\.22-HARD-CONTEXT-BUDGET/);
   assert.match(src('server.js'),/\/learning\/case-memory/);
-  assert.match(src('office-dashboard/office-server.js'),/2\.5\.1-R2544\.21-JEV-Brain/);
+  assert.match(src('office-dashboard/office-server.js'),/2\.5\.2-R2544\.22-JEV-Brain/);
   assert.match(src('office-dashboard/public/office.html'),/Vaka Hafızası/);
   assert.match(src('office-dashboard/public/office.html'),/Açık Kaynak Bilgi Provenance/);
   assert.match(src('manage.ps1'),/case-memory\.js/);

@@ -26,10 +26,10 @@ test('R2543 OBS: tavan aşılınca çalışan budama adımları sırayla kaydedi
   const out=prepareDecisionRequest(input);
   const steps=out.diagnostics.trimStepsApplied;
   assert.ok(Array.isArray(steps)&&steps.length>0);
-  assert.equal(steps[0],'PRIMARY_CONTEXT_6000');
+  assert.equal(steps[0],'SEMANTIC_OPTIONAL_CONTEXT_PROJECTION');
   assert.ok(out.diagnostics.bytes<=MAX_DECISION_REQUEST_BYTES);
   assert.equal(out.ok,true);
-  assert.equal(out.diagnostics.marketTrimApplied,steps.some(x=>!x.startsWith('PRIMARY_CONTEXT_')&&x!=='DUP_RECORD_EXPERIENCE_MEMORY'));
+  assert.equal(out.diagnostics.marketTrimApplied,steps.some(x=>['PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)));assert.equal(out.diagnostics.coreTruthProtected,true);
 });
 
 test('R2543 OBS: HARD_BLOCK olayı ve sonucu risk sayılarını taşır; fast-lane logu nedenleri yazar',()=>{

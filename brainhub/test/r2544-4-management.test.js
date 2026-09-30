@@ -114,7 +114,7 @@ test('paket: deneyim hafızası son çare olarak özetlenir; piyasa gerçeği k�
     record:{truth:'p'.repeat(MAX_DECISION_REQUEST_BYTES-20000)}},questions:{trade_plan:{}}};
   const out=prepareDecisionRequest(input);
   assert.equal(out.ok,true,JSON.stringify(out.diagnostics.trimStepsApplied)+' '+out.diagnostics.bytes);
-  assert.ok(out.diagnostics.trimStepsApplied.includes('EXPERIENCE_MEMORY_MIN'));
+  assert.ok(out.diagnostics.trimStepsApplied.includes('SEMANTIC_OPTIONAL_CONTEXT_PROJECTION'));assert.equal(out.diagnostics.coreTruthProtected,true);
   assert.equal(out.body.state.coreMarketPacket.coreFrames['5m'].notes.length,3000,'5m çekirdek aynen');
   assert.equal(out.body.state.record.truth.length,MAX_DECISION_REQUEST_BYTES-20000,'kayıt gerçeği aynen');
   const huge=prepareDecisionRequest({state:{record:{truth:'q'.repeat(MAX_DECISION_REQUEST_BYTES+100)}},questions:{}});
