@@ -228,18 +228,18 @@ function compactEpisodeRow(x){
   return {
     symbol:x.symbol||null,side:x.side||null,family:x.family||null,lane:x.lane||null,timing:x.timing||null,
     net:x.net??null,r:x.r??null,exit:x.exit||null,score:x.score??null,
-    shared:Array.isArray(x.shared)?x.shared.slice(0,5):[],
-    different:Array.isArray(x.different)?x.different.slice(0,3):[],
-    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,6):[]
+    shared:Array.isArray(x.shared)?x.shared.slice(0,5).map(v=>String(v||'').slice(0,100)):[],
+    different:Array.isArray(x.different)?x.different.slice(0,3).map(v=>String(v||'').slice(0,100)):[],
+    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,6).map(v=>String(v||'').slice(0,100)):[]
   };
 }
 function compactEpisodeBundle(v,{perOutcome=1}={}){
   if(!v||typeof v!=='object')return null;
   const cur=v.current&&typeof v.current==='object'?{
     side:v.current.side||null,
-    tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,18):[],
+    tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,18).map(x=>String(x||'').slice(0,100)):[],
     mechanics:v.current.mechanics&&typeof v.current.mechanics==='object'?{
-      labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,8):[],
+      labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,8).map(x=>String(x||'').slice(0,100)):[],
       participantIdentity:v.current.mechanics.participantIdentity||'NOT_IDENTIFIED',
       participantIntent:v.current.mechanics.participantIntent||'NOT_ASSERTED'
     }:null
@@ -293,16 +293,16 @@ function compactTradeLessonsMinimal(tl){
   if(!tl||typeof tl!=='object')return null;
   const miniRow=x=>x&&typeof x==='object'?{
     symbol:x.symbol||null,side:x.side||null,family:x.family||null,net:x.net??null,r:x.r??null,exit:x.exit||null,score:x.score??null,
-    shared:Array.isArray(x.shared)?x.shared.slice(0,4):[],
-    different:Array.isArray(x.different)?x.different.slice(0,2):[],
-    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,4):[]
+    shared:Array.isArray(x.shared)?x.shared.slice(0,4).map(v=>String(v||'').slice(0,80)):[],
+    different:Array.isArray(x.different)?x.different.slice(0,2).map(v=>String(v||'').slice(0,80)):[],
+    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,4).map(v=>String(v||'').slice(0,80)):[]
   }:null;
   const miniBundle=v=>v&&typeof v==='object'?{
     current:v.current&&typeof v.current==='object'?{
       side:v.current.side||null,
-      tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,10):[],
+      tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,10).map(x=>String(x||'').slice(0,80)):[],
       mechanics:v.current.mechanics&&typeof v.current.mechanics==='object'?{
-        labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,6):[],
+        labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,6).map(x=>String(x||'').slice(0,80)):[],
         participantIdentity:v.current.mechanics.participantIdentity||'NOT_IDENTIFIED',
         participantIntent:v.current.mechanics.participantIntent||'NOT_ASSERTED'
       }:null
