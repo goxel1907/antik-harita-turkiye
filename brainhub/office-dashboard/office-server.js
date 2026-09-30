@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.3.0-R2544.18-JEV-Brain';
+const OFFICE_VERSION = '2.4.0-R2544.19-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -479,7 +479,7 @@ async function buildSnapshot() {
       return snap;
     }
   }
-  const [health, status, visionProgress, journal, models, ollama, account, jevBudget] = await Promise.all([
+  const [health, status, visionProgress, journal, models, ollama, account, jevBudget, knowledge] = await Promise.all([
     cached('health', 15000, () => brainGet('/health')),
     cached('status', 4000, () => brainGet('/live/status')),
     cached('vision', 2500, () => brainGet('/vision/progress')),
@@ -487,7 +487,8 @@ async function buildSnapshot() {
     cached('models', 20000, () => brainGet('/models/healthy')),
     cached('ollama', 10000, () => getJson(OLLAMA_URL + '/api/ps', { timeoutMs: 3000 })),
     ACCOUNT_ENABLED ? cached('account', 30000, () => brainGet('/live/account')) : Promise.resolve(null),
-    cached('jevBudget', 4000, () => brainGet('/jev/budget'))
+    cached('jevBudget', 4000, () => brainGet('/jev/budget')),
+    cached('knowledge', 30000, () => brainGet('/jev/knowledge'))
   ]);
   // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, salt-okunur).
   const positions = ACCOUNT_ENABLED ? await cached('positions', 10000, () => brainGet('/live/positions', 'limit=40')) : null;
@@ -522,6 +523,7 @@ async function buildSnapshot() {
     jevUsage: scrub(jevUsage),
     packetHealth,
     jevBudget: { ok: jevBudget?.ok === true, data: scrub(jevBudget?.data), error: jevBudget?.error || null },
+    knowledge: { ok: knowledge?.ok === true, data: scrub(knowledge?.data), error: knowledge?.error || null },
     // CLAUDE_R2544_15: canlı Binance yükselenler merdiveni + 24 saatlik likidasyon kaydı sağlığı
     ladder: scannerLast?.ok === true ? scrub(scannerLast.data) : null,
     plans: journalSummary.plans.slice(0, 40),

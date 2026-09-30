@@ -1,4 +1,5 @@
 'use strict';
+const episodeMemory=require('./episode-memory');
 // CLAUDE_R2544_16_TRADE_LESSONS (Claude Work, 2026-09-29) — beynin kâr/zarardan KESİN öğrenmesi.
 // Önceki durum: JEV_LESSON'lar tek işlemden genel "OBSERVE_MORE" üretiyordu; deneyim hafızası kurulumu hangi
 // dikkat katmanından (ilk 3 / 4–10 / 11–24 / aday / erken ilgi / patlamaya yakın) geldiğini hiç bilmiyordu.
@@ -86,6 +87,8 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   const side=String(p.side||'').toUpperCase()||null;
   const exit=p.exitType||null;
   const regime=regimeKeyFromSignature(ec.marketSignature||null,side);
+  const episodeSignature=episodeMemory.signatureFromMarketSignature(ec.marketSignature||null,side);
+  const mechanics=episodeMemory.mechanics(episodeSignature);
   const globalGapMin=prevGlobal&&Number.isFinite(opened)&&Number.isFinite(prevGlobal.closedMs)?r2((opened-prevGlobal.closedMs)/60000,1):null;
   const ch24=num(att?.change24hPct);
   const tags=[];
@@ -143,7 +146,8 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
     exit,net:net===null?null:r2(net,2),r:cr.r===null?null:r2(cr.r,2),rStatus:cr.status,
     holdMin:hold,stopPct:stopPct===null?null:r2(stopPct,2),gapMin,globalGapMin,
     openedAt:p.openedAt||null,closedMs:Number.isFinite(closed)?closed:null,
-    tags,verdict,lesson:L.slice(0,3).join('; ')||null
+    tags,verdict,lesson:L.slice(0,3).join('; ')||null,
+    episodeSignature,mechanics
   };
 }
 function stats(cards){
@@ -184,7 +188,7 @@ function buildCards(closes,{attentionOf=null}={}){
   return cards;
 }
 const TIER_TR={APPROACH:'ilk 10 adayı',TOP4_10:'4–10',TOP11_24:'11–24',EARLY_ATTN:'erken ilgi',NEAR_EXPLOSION:'patlamaya yakın',TOP3:'ilk 3',ACCEL_OTHER:'hızlanan/eski havuz',UNKNOWN:'bilinmiyor'};
-function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
+function digest(cards,{symbol=null,candidate=null,currentSignature=null,now=Date.now()}={}){
   const xs=cards.filter(c=>c.net!==null);
   const life=stats(xs);
   const tierSide=group(xs,c=>c.tier+'|'+c.side);
@@ -201,7 +205,7 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   const failed=cand.filter(x=>x.s.pf!==null&&x.s.pf<0.8&&x.s.net<0).sort((a,b)=>a.s.net-b.s.net).slice(0,4).map(fmt);
   const tagFailed=tagRows.filter(r=>r[1]>=3&&r[3]<0).slice(0,5).map(r=>r[0]+': n'+r[1]+' net'+r[3]+'$ %'+Math.round(r[2]));
   const out={
-    version:'R2544.17',samples:xs.length,
+    version:'R2544.19',samples:xs.length,
     lifetime:life,
     payoffRatio:life.avgWin&&life.avgLoss?r2(life.avgWin/life.avgLoss,2):null,
     cols:['key','n','win%','netUSDT','PF','avgWin','avgLoss'],
@@ -210,8 +214,18 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
     byRegimeSide:rows(regimeSide,{minN:3,limit:10}),
     byExit:rows(group(xs,c=>c.exit||'UNKNOWN'),{minN:3,limit:6}).map(r=>r.slice(0,4)),
     worked,failed,repeatedMistakes:tagFailed,
-    howToUse:'Kendi kâr/zarar geçmişin: çalışanı tekrarla, zarar üreten kalıbı tekrarlama. Yumuşak bağlam; veto değil, piyasa kanıtı önce gelir.'
+    howToUse:'Kendi kâr/zarar geçmişin: benzer bağlamlardaki hem kazananı hem kaybedeni karşılaştır. Aynı setup farklı akış/likidasyon/uzama koşullarında farklı sonuç verebilir. Yumuşak bağlam; veto değil, güncel piyasa kanıtı önce gelir.',
+    episodePolicy:'Bağlamsal benzerlik sonuç garantisi değildir. JEV benzer kazanan ve kaybeden örnekleri birlikte görür; farkı güncel CVD/depth/OI/taker/likidasyon/stretch/formasyon kanıtında açıklamalıdır.'
   };
+  if(currentSignature){
+    const longSig={...currentSignature,side:'LONG'},shortSig={...currentSignature,side:'SHORT'};
+    out.similarEpisodesBySide={
+      LONG:episodeMemory.nearestEpisodes(xs,longSig,{limitPerOutcome:2,minScore:0.18}),
+      SHORT:episodeMemory.nearestEpisodes(xs,shortSig,{limitPerOutcome:2,minScore:0.18})
+    };
+    const hinted=String(candidate?.side||'').toUpperCase();
+    out.similarEpisodes=['LONG','SHORT'].includes(hinted)?out.similarEpisodesBySide[hinted]:null;
+  }
   if(candidate){
     const att=attentionFromCandidate(candidate),tier=tierOf(att);
     const pick=side=>{const v=tierSide.get(tier+'|'+side)||[];const s=stats(v);const q=posterior(v);return [s.n,s.winPct,s.net,s.pf,s.avgWin,s.avgLoss,q.mean,q.p10];};

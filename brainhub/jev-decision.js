@@ -223,12 +223,116 @@ function compactOutcomeRecord(o){
   const {marketSignature,entryContext,...rest}=o;
   return {...rest,...(marketSignature!==undefined?{marketSignature:compactSignature(marketSignature)}:{})};
 }
+function compactEpisodeRow(x){
+  if(!x||typeof x!=='object')return null;
+  return {
+    symbol:x.symbol||null,side:x.side||null,family:x.family||null,lane:x.lane||null,timing:x.timing||null,
+    net:x.net??null,r:x.r??null,exit:x.exit||null,score:x.score??null,
+    shared:Array.isArray(x.shared)?x.shared.slice(0,5).map(v=>String(v||'').slice(0,100)):[],
+    different:Array.isArray(x.different)?x.different.slice(0,3).map(v=>String(v||'').slice(0,100)):[],
+    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,6).map(v=>String(v||'').slice(0,100)):[]
+  };
+}
+function compactEpisodeBundle(v,{perOutcome=1}={}){
+  if(!v||typeof v!=='object')return null;
+  const cur=v.current&&typeof v.current==='object'?{
+    side:v.current.side||null,
+    tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,18).map(x=>String(x||'').slice(0,100)):[],
+    mechanics:v.current.mechanics&&typeof v.current.mechanics==='object'?{
+      labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,8).map(x=>String(x||'').slice(0,100)):[],
+      participantIdentity:v.current.mechanics.participantIdentity||'NOT_IDENTIFIED',
+      participantIntent:v.current.mechanics.participantIntent||'NOT_ASSERTED'
+    }:null
+  }:null;
+  return {
+    current:cur,
+    wins:(Array.isArray(v.wins)?v.wins:[]).slice(0,perOutcome).map(compactEpisodeRow).filter(Boolean),
+    losses:(Array.isArray(v.losses)?v.losses:[]).slice(0,perOutcome).map(compactEpisodeRow).filter(Boolean),
+    mixedEvidence:v.mixedEvidence===true,
+    policy:String(v.policy||'').slice(0,260)
+  };
+}
+function compactTradeLessons(tl){
+  if(!tl||typeof tl!=='object')return null;
+  const bySide=tl.similarEpisodesBySide&&typeof tl.similarEpisodesBySide==='object'
+    ? Object.fromEntries(['LONG','SHORT'].map(k=>[k,compactEpisodeBundle(tl.similarEpisodesBySide[k],{perOutcome:1})]))
+    : null;
+  const clipLine=v=>String(v||'').slice(0,260);
+  const current=tl.current&&typeof tl.current==='object'?{
+    tier:tl.current.tier||null,tierTr:tl.current.tierTr||null,cols:Array.isArray(tl.current.cols)?tl.current.cols.slice(0,8):[],
+    LONG:Array.isArray(tl.current.LONG)?tl.current.LONG.slice(0,8):[],SHORT:Array.isArray(tl.current.SHORT)?tl.current.SHORT.slice(0,8):[]
+  }:null;
+  const symbol=tl.symbol&&typeof tl.symbol==='object'?{
+    symbol:tl.symbol.symbol||null,trades:tl.symbol.trades??null,net:tl.symbol.net??null,lastCloseMinAgo:tl.symbol.lastCloseMinAgo??null,
+    recent:Array.isArray(tl.symbol.recent)?tl.symbol.recent.slice(0,3):[]
+  }:null;
+  const seq=tl.sequence&&typeof tl.sequence==='object'?{
+    recent60:tl.sequence.recent60||null,lastClose:tl.sequence.lastClose||null,candidate:tl.sequence.candidate||null,
+    quickSwitchAfterLoss:tl.sequence.quickSwitchAfterLoss===true,returnToRecentSymbol:tl.sequence.returnToRecentSymbol===true,
+    sameSymbolRecent:tl.sequence.sameSymbolRecent||null,note:clipLine(tl.sequence.note)
+  }:null;
+  return {
+    version:tl.version||null,samples:Number(tl.samples)||0,lifetime:tl.lifetime||null,payoffRatio:tl.payoffRatio??null,
+    byTierSide:Array.isArray(tl.byTierSide)?tl.byTierSide.slice(0,4):[],
+    byFamilySide:Array.isArray(tl.byFamilySide)?tl.byFamilySide.slice(0,4):[],
+    byRegimeSide:Array.isArray(tl.byRegimeSide)?tl.byRegimeSide.slice(0,4):[],
+    byExit:Array.isArray(tl.byExit)?tl.byExit.slice(0,4):[],
+    worked:Array.isArray(tl.worked)?tl.worked.slice(0,3).map(clipLine):[],
+    failed:Array.isArray(tl.failed)?tl.failed.slice(0,3).map(clipLine):[],
+    repeatedMistakes:Array.isArray(tl.repeatedMistakes)?tl.repeatedMistakes.slice(0,3).map(clipLine):[],
+    current,symbol,sequence:seq,
+    // bySide already contains the hinted direction, so avoid sending the same episode bundle twice.
+    similarEpisodes:bySide?null:compactEpisodeBundle(tl.similarEpisodes,{perOutcome:1}),
+    similarEpisodesBySide:bySide,
+    episodePolicy:String(tl.episodePolicy||'').slice(0,300),
+    howToUse:String(tl.howToUse||'').slice(0,300),
+    compactedForJev:true
+  };
+}
+function compactTradeLessonsMinimal(tl){
+  if(!tl||typeof tl!=='object')return null;
+  const miniRow=x=>x&&typeof x==='object'?{
+    symbol:x.symbol||null,side:x.side||null,family:x.family||null,net:x.net??null,r:x.r??null,exit:x.exit||null,score:x.score??null,
+    shared:Array.isArray(x.shared)?x.shared.slice(0,3).map(v=>String(v||'').slice(0,48)):[],
+    different:Array.isArray(x.different)?x.different.slice(0,1).map(v=>String(v||'').slice(0,48)):[],
+    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,3).map(v=>String(v||'').slice(0,48)):[]
+  }:null;
+  const miniBundle=v=>v&&typeof v==='object'?{
+    current:v.current&&typeof v.current==='object'?{
+      side:v.current.side||null,
+      tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,6).map(x=>String(x||'').slice(0,48)):[],
+      mechanics:v.current.mechanics&&typeof v.current.mechanics==='object'?{
+        labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,4).map(x=>String(x||'').slice(0,48)):[],
+        participantIdentity:v.current.mechanics.participantIdentity||'NOT_IDENTIFIED',
+        participantIntent:v.current.mechanics.participantIntent||'NOT_ASSERTED'
+      }:null
+    }:null,
+    wins:(Array.isArray(v.wins)?v.wins:[]).slice(0,1).map(miniRow).filter(Boolean),
+    losses:(Array.isArray(v.losses)?v.losses:[]).slice(0,1).map(miniRow).filter(Boolean),
+    mixedEvidence:v.mixedEvidence===true,
+    policy:String(v.policy||'').slice(0,120)
+  }:null;
+  const bySide=tl.similarEpisodesBySide&&typeof tl.similarEpisodesBySide==='object'
+    ? {LONG:miniBundle(tl.similarEpisodesBySide.LONG),SHORT:miniBundle(tl.similarEpisodesBySide.SHORT)}
+    : null;
+  return {
+    version:tl.version||null,samples:Number(tl.samples)||0,lifetime:tl.lifetime||null,payoffRatio:tl.payoffRatio??null,
+    worked:Array.isArray(tl.worked)?tl.worked.slice(0,2).map(x=>String(x||'').slice(0,120)):[],
+    failed:Array.isArray(tl.failed)?tl.failed.slice(0,2).map(x=>String(x||'').slice(0,120)):[],
+    repeatedMistakes:Array.isArray(tl.repeatedMistakes)?tl.repeatedMistakes.slice(0,2).map(x=>String(x||'').slice(0,120)):[],
+    current:tl.current||null,symbol:tl.symbol||null,
+    similarEpisodesBySide:bySide,
+    similarEpisodes:bySide?null:miniBundle(tl.similarEpisodes),
+    episodePolicy:String(tl.episodePolicy||'').slice(0,140),
+    compactedForJev:true,minimal:true
+  };
+}
 function compactExperienceMemory(learning,maxChars=6500){
   const src=learning&&typeof learning==='object'?learning:{};
   const out={
     alwaysOn:true,
-    // CLAUDE_R2544_16_TRADE_LESSONS: kendi kâr/zarar derslerin (katman×yön, kurulum×yön, çıkış, tekrarlanan hata, bu coin).
-    tradeLessons:src.tradeLessons&&typeof src.tradeLessons==='object'?src.tradeLessons:null,
+    // R2544.19: episodic memory stays specific but bounded; history must never crowd current market truth out of the request.
+    tradeLessons:compactTradeLessons(src.tradeLessons),
     source:src.source||'BrainHub measured experience memory',
     measuredSampleCount:Number(src.measuredSampleCount)||0,
     jevLessonCount:Number(src.jevLessonCount)||0,
@@ -236,17 +340,19 @@ function compactExperienceMemory(learning,maxChars=6500){
     stats:Array.isArray(src.stats)?src.stats.slice(0,8):[],
     measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,8).map(compactOutcomeRecord):[],
     jevLessons:Array.isArray(src.jevLessons)?src.jevLessons.slice(0,6).map(compactOutcomeRecord):[],
-    note:'Always-on soft context. Measured outcomes and JEV lessons inform interpretation but never create hard gates, change capital settings, or bypass deterministic safety.'
+    note:'Always-on soft context. Measured outcomes, contrastive similar episodes and JEV lessons inform interpretation but never create hard gates, change capital settings, or bypass deterministic safety. Similarity is not causality or a prediction.'
   };
   const limit=Math.max(2500,Math.min(9000,Number(maxChars)||6500));
   let raw=JSON.stringify(out);
   if(raw.length>limit){out.measuredOutcomes=out.measuredOutcomes.slice(0,5);out.jevLessons=out.jevLessons.slice(0,5);raw=JSON.stringify(out);}
   if(raw.length>limit){out.stats=out.stats.slice(0,5);out.measuredOutcomes=out.measuredOutcomes.slice(0,3);out.jevLessons=out.jevLessons.slice(0,3);raw=JSON.stringify(out);}
+  if(raw.length>limit){out.tradeLessons=compactTradeLessonsMinimal(out.tradeLessons);raw=JSON.stringify(out);}
+  if(raw.length>limit){out.stats=out.stats.slice(0,2);out.measuredOutcomes=out.measuredOutcomes.slice(0,1);out.jevLessons=out.jevLessons.slice(0,1);raw=JSON.stringify(out);}
   if(raw.length>limit){
     return {
-      alwaysOn:true,tradeLessons:out.tradeLessons,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
-      stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),
-      memoryTrimmed:true,note:out.note
+      alwaysOn:true,tradeLessons:compactTradeLessonsMinimal(out.tradeLessons),source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
+      stats:[],measuredOutcomes:[],jevLessons:[],
+      memoryTrimmed:true,note:String(out.note||'').slice(0,280)
     };
   }
   return out;
@@ -642,7 +748,7 @@ function prepareDecisionRequest(input,opts={}){
         if(mem&&typeof mem==='object'){
           // R2544.16: kâr/zarar dersleri en son kırpılır; yalnız başlık satırları (ne çalıştı/çalışmadı, bu katman, bu coin) kalır.
           const tl=mem.tradeLessons;
-          if(tl&&typeof tl==='object')mem.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,worked:(tl.worked||[]).slice(0,3),failed:(tl.failed||[]).slice(0,3),repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,3),current:tl.current||null,symbol:tl.symbol||null,trimmed:true};
+          if(tl&&typeof tl==='object')mem.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,worked:(tl.worked||[]).slice(0,3),failed:(tl.failed||[]).slice(0,3),repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,3),current:tl.current||null,symbol:tl.symbol||null,similarEpisodes:tl.similarEpisodes?{current:tl.similarEpisodes.current,wins:(tl.similarEpisodes.wins||[]).slice(0,2),losses:(tl.similarEpisodes.losses||[]).slice(0,2),mixedEvidence:tl.similarEpisodes.mixedEvidence,policy:tl.similarEpisodes.policy}:null,similarEpisodesBySide:tl.similarEpisodesBySide?Object.fromEntries(Object.entries(tl.similarEpisodesBySide).map(([k,v])=>[k,v?{current:v.current,wins:(v.wins||[]).slice(0,1),losses:(v.losses||[]).slice(0,1),mixedEvidence:v.mixedEvidence,policy:v.policy}:null])):null,episodePolicy:tl.episodePolicy||null,trimmed:true};
           for(const key of Object.keys(mem)){
             if(key==='tradeLessons')continue;
             if(Array.isArray(mem[key]))mem[key]=mem[key].slice(0,1);
@@ -965,7 +1071,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-1 is the sole strategic evidence director. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON and must be used as read-only reasoning context; JEV never needs to request HISTORY_OUTCOME merely to remember its own measured past. Radar only raises attention. Decide which evidence workers should fetch. Chart evidence (TRADINGVIEW_5M / TRADINGVIEW_15M) is fulfilled in the mainline by deterministic closed-candle chartNarrative from the same numeric packet, without GPU/VLM. Image/Vision is audit-on-demand only, optional, and never overrides numeric truth. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies. If a material concept is not understood from the supplied Cortex/evidence, do not invent it; prefer WAIT until verified knowledge is available. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. It is soft experience, never a veto. Frame readout (closed candles, compact): st=[leg UP/DOWN, stretch NORMAL/STRETCHED/EXTENDED/EXTREME, zone PREMIUM/DISCOUNT/EQUILIBRIUM, range position %, EMA20 distance in ATR, anchored VWAP of the leg, price minus that VWAP in ATR, z-score]; ch=chase risk per side (LONG_HIGH means a LONG here chases an extended leg); sq=[Bollinger-inside-Keltner squeeze state, candles in squeeze, released N candles ago, momentum]; dp=[last displacement direction, candles ago, body in ATR, retrace % of that leg, 1 if inside the 62-79% OTE]; pl={b:buy-side,s:sell-side} clustered swing liquidity [price, touches, SWEPT_RECLAIMED/SWEPT_THEN_BROKEN/BROKEN_ACCEPTED/UNSWEPT, distance in ATR]; ef=[wave exhaustion state, RSI divergence, wave volume vs previous same-direction wave]. Use them for location, chase risk and trap detection on LONG and SHORT; they are not gates.',
+        description:'JEV PASS-1 is the sole strategic evidence director. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON and must be used as read-only reasoning context; JEV never needs to request HISTORY_OUTCOME merely to remember its own measured past. Radar only raises attention. Decide which evidence workers should fetch. Chart evidence (TRADINGVIEW_5M / TRADINGVIEW_15M) is fulfilled in the mainline by deterministic closed-candle chartNarrative from the same numeric packet, without GPU/VLM. Image/Vision is audit-on-demand only, optional, and never overrides numeric truth. There are two trading lanes: 5m LONG/SHORT scalp and 15m LONG/SHORT trade. Do not require every indicator, timeframe or condition to align. No score threshold, 2-of-3 confirmation rule or hard 15m strategic veto applies. If a material concept is not understood from the supplied Cortex/evidence, do not invent it; prefer WAIT until verified knowledge is available. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. It is soft experience, never a veto. experienceMemory.tradeLessons.similarEpisodesBySide (and hinted similarEpisodes when available) is contrastive episode memory: it shows the CURRENT public-market fingerprint beside nearest historical winners AND losers. Never infer that a similar setup must repeat its old result. Compare shared and different features (closed-candle structure/patterns/stretch, CVD/depth/spread, OI/funding/taker positioning and observed liquidation pressure) and explicitly state what is materially different now. Participant identity is NOT_IDENTIFIED and intent is NOT_ASSERTED; "market maker trapped me" may only be described as observed trap/liquidity mechanics, never as a hidden actor claim. Frame readout (closed candles, compact): st=[leg UP/DOWN, stretch NORMAL/STRETCHED/EXTENDED/EXTREME, zone PREMIUM/DISCOUNT/EQUILIBRIUM, range position %, EMA20 distance in ATR, anchored VWAP of the leg, price minus that VWAP in ATR, z-score]; ch=chase risk per side (LONG_HIGH means a LONG here chases an extended leg); sq=[Bollinger-inside-Keltner squeeze state, candles in squeeze, released N candles ago, momentum]; dp=[last displacement direction, candles ago, body in ATR, retrace % of that leg, 1 if inside the 62-79% OTE]; pl={b:buy-side,s:sell-side} clustered swing liquidity [price, touches, SWEPT_RECLAIMED/SWEPT_THEN_BROKEN/BROKEN_ACCEPTED/UNSWEPT, distance in ATR]; ef=[wave exhaustion state, RSI divergence, wave volume vs previous same-direction wave]. Use them for location, chase risk and trap detection on LONG and SHORT; they are not gates.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1023,7 +1129,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT. Frames may add volatility (spike, extAtr = ATR beyond its midpoint, trail = 3-ATR trail) and order-block volRel/breakers: soft closed-candle context for chase risk and location, never a checklist, threshold or veto. coreMarketPacket.levelMap lists the nearest levels above/below price (15m-1d FVG, OB, breaker, fib .5/.618, OTE, range, prior-20, equal highs/lows, 24h observed liquidation clusters) and radar.ladder shows the coin on the live Binance gainer ladder: use them for entry location, stop and targets on LONG and SHORT. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. It is soft experience, never a veto. Frame readout (closed candles, compact): st=[leg UP/DOWN, stretch NORMAL/STRETCHED/EXTENDED/EXTREME, zone PREMIUM/DISCOUNT/EQUILIBRIUM, range position %, EMA20 distance in ATR, anchored VWAP of the leg, price minus that VWAP in ATR, z-score]; ch=chase risk per side (LONG_HIGH means a LONG here chases an extended leg); sq=[Bollinger-inside-Keltner squeeze state, candles in squeeze, released N candles ago, momentum]; dp=[last displacement direction, candles ago, body in ATR, retrace % of that leg, 1 if inside the 62-79% OTE]; pl={b:buy-side,s:sell-side} clustered swing liquidity [price, touches, SWEPT_RECLAIMED/SWEPT_THEN_BROKEN/BROKEN_ACCEPTED/UNSWEPT, distance in ATR]; ef=[wave exhaustion state, RSI divergence, wave volume vs previous same-direction wave]. Use them for location, chase risk and trap detection on LONG and SHORT; they are not gates.',
+        description:'JEV PASS-2 is the final strategic decision. Operate as two professional desks sharing one evidence room: 5M_SCALP is a professional scalper desk and 15M_TRADE is a professional trader desk. The professional trader/scalper Cortex and compact measured experience memory are ALWAYS ON read-only context. Choose one concrete executable LONG/SHORT plan or WAIT. You own the importance ordering of all supplied evidence. Conflicting evidence is normal: do not wait for every signal to agree. WAIT is an active strategic decision that requires a concrete market reason; it is not the default response to ordinary uncertainty. For 5M_SCALP, prioritize immediate execution quality, 1m/3m timing, 5m structure, spread/order-flow/depth, nearby liquidity and remaining room; higher timeframes are context and must not be demanded as full alignment. For 15M_TRADE, prioritize 15m structure, location, invalidation, liquidity path and relevant higher-timeframe context; 1m/3m noise alone must not block a sound 15m setup. There is no mandatory evidence checklist; missing optional evidence is not a negative score. Scanner and workers have no qualification or veto authority. Numeric Binance/BrainHub truth outranks visual interpretation. Use measured winners/losses and JEV lessons as soft experience, never as an automatic veto. If an executable plan already has coherent direction, acceptable current location, a defensible stop/invalidation and sufficient remaining path, do not demand textbook confirmation before MARKET_NOW. Choose a WAIT_* timing only when current location, structure, execution quality, knowledge, or missing material evidence specifically makes entry now inferior. If required knowledge is genuinely missing or unfamiliar, do not fabricate an interpretation; choose WAIT. Frames may add volatility (spike, extAtr = ATR beyond its midpoint, trail = 3-ATR trail) and order-block volRel/breakers: soft closed-candle context for chase risk and location, never a checklist, threshold or veto. coreMarketPacket.levelMap lists the nearest levels above/below price (15m-1d FVG, OB, breaker, fib .5/.618, OTE, range, prior-20, equal highs/lows, 24h observed liquidation clusters) and radar.ladder shows the coin on the live Binance gainer ladder: use them for entry location, stop and targets on LONG and SHORT. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. It is soft experience, never a veto. experienceMemory.tradeLessons.similarEpisodesBySide (and hinted similarEpisodes when available) is contrastive episode memory: it shows the CURRENT public-market fingerprint beside nearest historical winners AND losers. Never infer that a similar setup must repeat its old result. Compare shared and different features (closed-candle structure/patterns/stretch, CVD/depth/spread, OI/funding/taker positioning and observed liquidation pressure) and explicitly state what is materially different now. Participant identity is NOT_IDENTIFIED and intent is NOT_ASSERTED; "market maker trapped me" may only be described as observed trap/liquidity mechanics, never as a hidden actor claim. Frame readout (closed candles, compact): st=[leg UP/DOWN, stretch NORMAL/STRETCHED/EXTENDED/EXTREME, zone PREMIUM/DISCOUNT/EQUILIBRIUM, range position %, EMA20 distance in ATR, anchored VWAP of the leg, price minus that VWAP in ATR, z-score]; ch=chase risk per side (LONG_HIGH means a LONG here chases an extended leg); sq=[Bollinger-inside-Keltner squeeze state, candles in squeeze, released N candles ago, momentum]; dp=[last displacement direction, candles ago, body in ATR, retrace % of that leg, 1 if inside the 62-79% OTE]; pl={b:buy-side,s:sell-side} clustered swing liquidity [price, touches, SWEPT_RECLAIMED/SWEPT_THEN_BROKEN/BROKEN_ACCEPTED/UNSWEPT, distance in ATR]; ef=[wave exhaustion state, RSI divergence, wave volume vs previous same-direction wave]. Use them for location, chase risk and trap detection on LONG and SHORT; they are not gates.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1388,7 +1494,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. It is soft experience, never a veto.',
+        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. It is soft experience, never a veto. experienceMemory.tradeLessons.similarEpisodesBySide (and hinted similarEpisodes when available) is contrastive episode memory: it shows the CURRENT public-market fingerprint beside nearest historical winners AND losers. Never infer that a similar setup must repeat its old result. Compare shared and different features (closed-candle structure/patterns/stretch, CVD/depth/spread, OI/funding/taker positioning and observed liquidation pressure) and explicitly state what is materially different now. Participant identity is NOT_IDENTIFIED and intent is NOT_ASSERTED; "market maker trapped me" may only be described as observed trap/liquidity mechanics, never as a hidden actor claim.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1518,4 +1624,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
 }
-module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,createJevClient};
+module.exports={prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactTradeLessons,compactTradeLessonsMinimal,compactEpisodeBundle,compactSignature,dynamicKnowledgeReference,createJevClient};
