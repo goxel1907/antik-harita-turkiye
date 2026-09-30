@@ -110,10 +110,11 @@ test('R2544.19 Office exposes the OSS-to-JEV chain and deployment includes episo
 
 test('R2544.19 JEV prompt explicitly compares similar winners and losers',()=>{
   const jev=src('jev-decision.js');
-  assert.match(jev,/similarEpisodes is contrastive episode memory/);
+  assert.match(jev,/similarEpisodesBySide.*contrastive episode memory/);
   assert.match(jev,/nearest historical winners AND losers/);
   assert.match(jev,/Participant identity is NOT_IDENTIFIED/);
   assert.match(jev,/similarEpisodes:tl\.similarEpisodes/);
+  assert.match(jev,/similarEpisodesBySide:tl\.similarEpisodesBySide/);
 });
 
 test('R2544.19 future entry signatures persist positioning and liquidation-side context',()=>{
