@@ -293,16 +293,16 @@ function compactTradeLessonsMinimal(tl){
   if(!tl||typeof tl!=='object')return null;
   const miniRow=x=>x&&typeof x==='object'?{
     symbol:x.symbol||null,side:x.side||null,family:x.family||null,net:x.net??null,r:x.r??null,exit:x.exit||null,score:x.score??null,
-    shared:Array.isArray(x.shared)?x.shared.slice(0,4).map(v=>String(v||'').slice(0,80)):[],
-    different:Array.isArray(x.different)?x.different.slice(0,2).map(v=>String(v||'').slice(0,80)):[],
-    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,4).map(v=>String(v||'').slice(0,80)):[]
+    shared:Array.isArray(x.shared)?x.shared.slice(0,3).map(v=>String(v||'').slice(0,48)):[],
+    different:Array.isArray(x.different)?x.different.slice(0,1).map(v=>String(v||'').slice(0,48)):[],
+    mechanics:Array.isArray(x.mechanics)?x.mechanics.slice(0,3).map(v=>String(v||'').slice(0,48)):[]
   }:null;
   const miniBundle=v=>v&&typeof v==='object'?{
     current:v.current&&typeof v.current==='object'?{
       side:v.current.side||null,
-      tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,10).map(x=>String(x||'').slice(0,80)):[],
+      tokens:Array.isArray(v.current.tokens)?v.current.tokens.slice(0,6).map(x=>String(x||'').slice(0,48)):[],
       mechanics:v.current.mechanics&&typeof v.current.mechanics==='object'?{
-        labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,6).map(x=>String(x||'').slice(0,80)):[],
+        labels:Array.isArray(v.current.mechanics.labels)?v.current.mechanics.labels.slice(0,4).map(x=>String(x||'').slice(0,48)):[],
         participantIdentity:v.current.mechanics.participantIdentity||'NOT_IDENTIFIED',
         participantIntent:v.current.mechanics.participantIntent||'NOT_ASSERTED'
       }:null
@@ -310,20 +310,20 @@ function compactTradeLessonsMinimal(tl){
     wins:(Array.isArray(v.wins)?v.wins:[]).slice(0,1).map(miniRow).filter(Boolean),
     losses:(Array.isArray(v.losses)?v.losses:[]).slice(0,1).map(miniRow).filter(Boolean),
     mixedEvidence:v.mixedEvidence===true,
-    policy:String(v.policy||'').slice(0,180)
+    policy:String(v.policy||'').slice(0,120)
   }:null;
   const bySide=tl.similarEpisodesBySide&&typeof tl.similarEpisodesBySide==='object'
     ? {LONG:miniBundle(tl.similarEpisodesBySide.LONG),SHORT:miniBundle(tl.similarEpisodesBySide.SHORT)}
     : null;
   return {
     version:tl.version||null,samples:Number(tl.samples)||0,lifetime:tl.lifetime||null,payoffRatio:tl.payoffRatio??null,
-    worked:Array.isArray(tl.worked)?tl.worked.slice(0,2).map(x=>String(x||'').slice(0,180)):[],
-    failed:Array.isArray(tl.failed)?tl.failed.slice(0,2).map(x=>String(x||'').slice(0,180)):[],
-    repeatedMistakes:Array.isArray(tl.repeatedMistakes)?tl.repeatedMistakes.slice(0,2).map(x=>String(x||'').slice(0,180)):[],
+    worked:Array.isArray(tl.worked)?tl.worked.slice(0,2).map(x=>String(x||'').slice(0,120)):[],
+    failed:Array.isArray(tl.failed)?tl.failed.slice(0,2).map(x=>String(x||'').slice(0,120)):[],
+    repeatedMistakes:Array.isArray(tl.repeatedMistakes)?tl.repeatedMistakes.slice(0,2).map(x=>String(x||'').slice(0,120)):[],
     current:tl.current||null,symbol:tl.symbol||null,
     similarEpisodesBySide:bySide,
     similarEpisodes:bySide?null:miniBundle(tl.similarEpisodes),
-    episodePolicy:String(tl.episodePolicy||'').slice(0,220),
+    episodePolicy:String(tl.episodePolicy||'').slice(0,140),
     compactedForJev:true,minimal:true
   };
 }
