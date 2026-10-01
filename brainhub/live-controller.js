@@ -13,6 +13,7 @@ const { LiveAuthorizationRegistry } = require('./live-authorization');
 const { BinanceLiveTransport } = require('./binance-live-transport');
 const { assessApiPermissionDeclaration, containsSecretLikeKey } = require('./binance-account-context');
 const { selectDeepCandidates, executionEligibility, executionEligible } = require('./leader-committee');
+const SCAN_PREMOVE_REUSE_MS = 35000;
 const { buildLeaderLiveIntent } = require('./leader-live-intent');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
@@ -2560,7 +2561,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           const pool=[...eligible.slice(start),...eligible.slice(0,start)].slice(0,8);
           fastLanePreMoveOffset+=8;
           const timeout=(pr,ms)=>Promise.race([pr,new Promise(r=>setTimeout(()=>r(null),ms))]);
-          const probes=await Promise.all(pool.map(c=>timeout(market.preMoveProbe(symOf(c)),5000).catch(()=>null)));
+          // R2544.27e: reuse the scanner's already-computed 1m/3m closed-candle preMove evidence
+          // while the scan is fresh; only fall back to a new REST probe if the scan is stale.
+          const scanFresh=Number(scan?.cacheAgeMs||0)<=SCAN_PREMOVE_REUSE_MS;
+          const probes=await Promise.all(pool.map(c=>{
+            if(scanFresh){
+              const p=c?.preMove||null;
+              return Promise.resolve({combined:p?{available:true,...p}:{available:false,state:'NONE'},source:'SCANNER_PREMOVE'});
+            }
+            return timeout(market.preMoveProbe(symOf(c)),5000).catch(()=>null);
+          }));
           const ranked=pool.map((c,i)=>({c,p:probes[i]?.combined||null,i}))
             .filter(x=>x.p&&x.p.available&&['IGNITION','PRE_MOVE'].includes(x.p.state))
             .sort((a,b)=>b.p.priority-a.p.priority||a.i-b.i);

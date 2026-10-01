@@ -25,6 +25,28 @@ const SCAN_CACHE_MS = envInt('BINANCE_SCANNER_CACHE_MS',30000,15000,60000);
 const DETAIL_ENRICH_CONCURRENCY = envInt('BINANCE_SCANNER_DETAIL_CONCURRENCY',2,1,4);
 
 let exchangeCache = { at: 0, data: null };
+const detailKlineCache = new Map();
+const TF_MS = { '1m':60000, '3m':180000, '5m':300000 };
+
+async function scannerKlines(symbol, tf, limit, timeoutMs = 9000) {
+  const key = `${symbol}|${tf}|${limit}`;
+  const now = Date.now();
+  const cached = detailKlineCache.get(key);
+  if (cached) {
+    const intervalMs = TF_MS[tf] || 60000;
+    const rows = Array.isArray(cached.data) ? cached.data : [];
+    const lastClosed = rows.reduce((m,x)=>{
+      const t=Number(x?.[6]);
+      return Number.isFinite(t) && t < cached.at ? Math.max(m,t) : m;
+    },0);
+    const validUntil = lastClosed > 0 ? lastClosed + intervalMs + 1500 : cached.at + 30000;
+    if (now < validUntil) return cached.data;
+  }
+  const data = await jget(`/fapi/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${tf}&limit=${limit}`, timeoutMs);
+  detailKlineCache.set(key,{at:Date.now(),data});
+  if(detailKlineCache.size>300){for(const k of [...detailKlineCache.keys()].slice(0,60))detailKlineCache.delete(k);}
+  return data;
+}
 
 function num(v) {
   const n = Number(v);
@@ -504,9 +526,9 @@ async function enrich(x, book, premium, prev) {
   const s = encodeURIComponent(x.symbol);
   const now = Date.now();
   const [k1, k3, k5, oi] = await Promise.all([
-    jget(`/fapi/v1/klines?symbol=${s}&interval=1m&limit=40`, 9000),   // R2544.16: 7→40 (aynı ağırlık); son 7 ile istatistik, 40 ile ön-hareket
-    jget(`/fapi/v1/klines?symbol=${s}&interval=3m&limit=40`, 9000),
-    jget(`/fapi/v1/klines?symbol=${s}&interval=5m&limit=7`, 9000),
+    scannerKlines(x.symbol,'1m',40,9000),
+    scannerKlines(x.symbol,'3m',40,9000),
+    scannerKlines(x.symbol,'5m',7,9000),
     jget(`/fapi/v1/openInterest?symbol=${s}`, 9000)
   ]);
   const a = tfStats(Array.isArray(k1) ? k1.slice(-7) : k1, now), b = tfStats(Array.isArray(k3) ? k3.slice(-7) : k3, now), c = tfStats(k5, now);
@@ -811,4 +833,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={readPreMoveHits,recordPreMoveHits,PREMOVE_HITS_PATH,scan,lastScan,buildGainerLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT,SCAN_CACHE_MS,DETAIL_ENRICH_CONCURRENCY};
+module.exports={readPreMoveHits,recordPreMoveHits,PREMOVE_HITS_PATH,scan,lastScan,buildGainerLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT,SCAN_CACHE_MS,DETAIL_ENRICH_CONCURRENCY,scannerKlines};

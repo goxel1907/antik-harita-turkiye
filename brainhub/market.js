@@ -14,6 +14,8 @@ const FUTURES_MARKET_WS = 'wss://fstream.binance.com/ws';
 const frameCache = new Map();
 const depthCache = new Map();
 const derivativesCache = new Map();
+const publicGetInFlight = new Map();
+const restCvdCache = new Map();
 let globalCache = { at: 0, result: null };
 
 function finite(v) {
@@ -657,20 +659,28 @@ const liquidationHistory = new LiquidationHistory();
 
 async function getJson(base, endpoint, timeout = 10000) {
   const isBinance=/\.binance\.com$/i.test(new URL(base).hostname);
-  const permit=isBinance ? await binanceRate.acquire({path:endpoint,kind:'PUBLIC',maxWaitMs:Math.min(5000,Math.max(1000,timeout-250))}) : null;
-  try {
-    const res = await fetch(base + endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(timeout) });
-    if (!res.ok) {
-      let body=null; try{body=await res.json();}catch{}
-      if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers,body,path:endpoint,kind:'PUBLIC'});
-      const e=new Error(`${new URL(base).hostname} HTTP ${res.status}`);e.status=res.status;e.body=body;throw e;
-    }
-    if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers,path:endpoint,kind:'PUBLIC'});
-    return res.json();
-  } finally { permit?.release?.(); }
+  const key=isBinance?`${base}${endpoint}`:null;
+  if(key&&publicGetInFlight.has(key))return publicGetInFlight.get(key);
+  const task=(async()=>{
+    const permit=isBinance ? await binanceRate.acquire({path:endpoint,kind:'PUBLIC',maxWaitMs:Math.min(5000,Math.max(1000,timeout-250))}) : null;
+    try {
+      const res = await fetch(base + endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(timeout) });
+      if (!res.ok) {
+        let body=null; try{body=await res.json();}catch{}
+        if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers,body,path:endpoint,kind:'PUBLIC'});
+        const e=new Error(`${new URL(base).hostname} HTTP ${res.status}`);e.status=res.status;e.body=body;throw e;
+      }
+      if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers,path:endpoint,kind:'PUBLIC'});
+      return res.json();
+    } finally { permit?.release?.(); }
+  })();
+  if(key)publicGetInFlight.set(key,task);
+  try{return await task;}finally{if(key&&publicGetInFlight.get(key)===task)publicGetInFlight.delete(key);}
 }
 
 async function restCvd120(symbol, now = Date.now()) {
+  const cached=restCvdCache.get(symbol);
+  if(cached&&now-cached.at<30000)return cached.result;
   const start = now - 120000;
   let from = start, trades = 0, quote = 0, lastAt = null, pages = 0, complete = true;
   while (pages < 3) {
@@ -683,7 +693,10 @@ async function restCvd120(symbol, now = Date.now()) {
     if (pages >= 3) complete = false;
   }
   const coverageMs = complete ? 120000 : Math.max(0, (lastAt || start) - start);
-  return { cvdQuote:Math.round(quote * 100) / 100, trades, coverageMs, complete, lastTradeAt:lastAt };
+  const result={ cvdQuote:Math.round(quote * 100) / 100, trades, coverageMs, complete, lastTradeAt:lastAt };
+  restCvdCache.set(symbol,{at:Date.now(),result});
+  if(restCvdCache.size>200){for(const k of [...restCvdCache.keys()].slice(0,40))restCvdCache.delete(k);}
+  return result;
 }
 
 function modeledLiquidationDensityFromOi(rows, markPrice){
@@ -809,29 +822,33 @@ async function symbolContext(symbol, options = {}) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
   marketStream.ensureSymbol(symbol);
   marketStream.ensureLocalL2(symbol);
-  const [frames, depthResult, tradeResult, derivativesResult] = await Promise.allSettled([
+  const seedNow=Date.now();
+  const streamSeed=marketStream.snapshot(symbol,seedNow);
+  const streamDepthFresh=streamSeed?.available===true&&streamSeed?.depth20Imbalance!==null&&streamSeed?.depthSoftContext;
+  const [frames, depthResult, derivativesResult] = await Promise.allSettled([
     options?.frameSnapshot ? Promise.resolve(options.frameSnapshot) : frameSet(symbol),
-    getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=20`, 9000),
-    getJson(FUTURES, `/fapi/v1/aggTrades?symbol=${symbol}&limit=100`, 9000),
+    streamDepthFresh ? Promise.resolve(null) : getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=20`, 9000),
     derivativesContext(symbol)
   ]);
   if (frames.status !== 'fulfilled') throw frames.reason;
   const now = Date.now();
-  const micro = depthResult.status === 'fulfilled'
-    ? microstructure(depthResult.value, tradeResult.status === 'fulfilled' ? tradeResult.value : [], depthCache.get(symbol), now)
-    : { available: false, reason: String(depthResult.reason?.message || depthResult.reason) };
+  const micro = depthResult.status === 'fulfilled' && depthResult.value
+    ? microstructure(depthResult.value, [], depthCache.get(symbol), now)
+    : { available:false, reason:streamDepthFresh?'REST_DEPTH_SKIPPED_STREAM_FRESH':String(depthResult.reason?.message || depthResult.reason || 'NO_DEPTH') };
   if (micro.snapshot) {
     depthCache.set(symbol, micro.snapshot);
     delete micro.snapshot;
   }
   const streaming = marketStream.snapshot(symbol, now);
-  // CLAUDE_R2544_6_CVD_BACKFILL: 29.09 denetimi — 10 kararın 6'sında "120 sn CVD" 0–6 işlemden (WS yeni abone)
-  // ya da hiç yoktu; PONS -210 $ ↔ gerçek -37.372 $, W +24 $ ↔ -15.834 $ (işaret ters), SOON yok ↔ -105.229 $.
-  // Pencere eksikse son 120 sn Binance REST aggTrades ile doldurulur (en çok 3×1000 işlem; aşılırsa kısmi etiketlenir).
+  let restCvdBackfill=null;
+  // R2544.27e: WebSocket aggTrade is primary. The old extra /aggTrades?limit=100 snapshot
+  // duplicated CVD evidence on every symbolContext call. REST is now only a 120s warm-up/stale
+  // fallback and is cached for 30s; once WS coverage is complete, zero REST aggTrades is needed.
   if (streaming && streaming.cvdComplete !== true) {
     try {
       const bf = await restCvd120(symbol, now);
       if (bf) {
+        restCvdBackfill=bf;
         streaming.cvdQuote120s = bf.cvdQuote; streaming.cvdTrades120s = bf.trades;
         streaming.cvdCoverageMs = bf.coverageMs; streaming.cvdComplete = bf.complete; streaming.cvdSource = 'BINANCE_REST_AGGTRADES_120S';
         streaming.cvdAsOf = bf.lastTradeAt;
@@ -850,6 +867,12 @@ async function symbolContext(symbol, options = {}) {
   micro.observedLiquidations = streaming.observedLiquidations || {
     available:false, count:0, longLiquidatedQuote:0, shortLiquidatedQuote:0, zones:[], semantics:'OBSERVED_BINANCE_FORCE_ORDER_ONLY'
   };
+  if(restCvdBackfill&&streaming?.cvdQuote120s!==null){
+    micro.cvdSampleQuote=streaming.cvdQuote120s;
+    micro.cvdSampleTrades=streaming.cvdTrades120s;
+    micro.cvdWindow='REST backfill of the last 120s while WebSocket warms';
+    micro.cvdSource='BINANCE_REST_AGGTRADES_120S';
+  }
   if (streaming.available) {
     micro.available = true;
     micro.sourceQuality = 'STREAMING_PARTIAL_BOOK';
@@ -862,7 +885,7 @@ async function symbolContext(symbol, options = {}) {
       micro.cvdSampleQuote = streaming.cvdQuote120s;
       micro.cvdSampleTrades = streaming.cvdTrades120s;
       micro.cvdWindow = 'continuous retained public aggTrade window, at most 120s';
-      micro.cvdSource = 'BINANCE_WS_AGGTRADE_120S';
+      micro.cvdSource = streaming.cvdSource || 'BINANCE_WS_AGGTRADE_120S';
     }
     micro.ofiNote = streaming.localL2?.available===true?'Sequence-safe local L2 is available as separate evidence; REST/depth20 remain fallback context.':'REST two-snapshot OFI proxy may be present as fallback context; partial depth20 streaming is not true sequenced local-book OFI.';
   }

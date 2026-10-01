@@ -79,6 +79,14 @@ function header(headers,name){ try{return headers&&typeof headers.get==='functio
 function prune(now){ state.events=state.events.filter(x=>now-x.at<60000); }
 function estimatedWeight1m(now=Date.now()){ prune(now); return state.events.reduce((s,x)=>s+x.weight,0); }
 
+function routeKey(path=''){
+  try{
+    const u=new URL(String(path),'https://fapi.binance.com');
+    const keep=['interval','limit','period'].map(k=>[k,u.searchParams.get(k)]).filter(([,v])=>v!==null);
+    return u.pathname+(keep.length?'?'+keep.map(([k,v])=>`${k}=${v}`).join('&'):'');
+  }catch{return String(path||'UNKNOWN').slice(0,96)||'UNKNOWN';}
+}
+
 function endpointWeight(path=''){
   let u; try{u=new URL(String(path),'https://fapi.binance.com');}catch{return 5;}
   const p=u.pathname, lim=Number(u.searchParams.get('limit')||0), hasSymbol=Boolean(u.searchParams.get('symbol'));
@@ -182,7 +190,7 @@ async function acquire({path='',kind='PUBLIC',weight=null,maxWaitMs=5000,nowFn=D
     const wait=Math.max(0,state.lastStartAt+minGap-after);
     if(wait>maxWaitMs)throw new BinanceRateLimitError('BINANCE_REST_PACE_TIMEOUT');
     await sleep(wait);
-    const started=nowFn(); state.lastStartAt=started; state.events.push({at:started,weight:w,kind}); state.requests++;
+    const started=nowFn(); state.lastStartAt=started; state.events.push({at:started,weight:w,kind,route:routeKey(path)}); state.requests++;
     state.lastRequestAt=started;state.lastRequestPath=String(path||'').slice(0,180)||null;state.lastRequestKind=kind;
     if(kind==='RECOVERY_PROBE')state.recoveryProbeAttempts++; prune(started);
     return {release:releaseSlot,weight:w};
@@ -193,8 +201,11 @@ function status(now=Date.now()){
   prune(now);
   const req1m=state.events.length;
   const countKind=kind=>state.events.reduce((n,x)=>n+(x.kind===kind?1:0),0);
+  const routes=new Map();
+  for(const e of state.events){const k=e.route||'UNKNOWN',r=routes.get(k)||{route:k,count:0,weight:0};r.count++;r.weight+=Number(e.weight)||0;routes.set(k,r);}
+  const topRoutes1m=[...routes.values()].sort((a,b)=>b.weight-a.weight||b.count-a.count).slice(0,8);
   return {
-    active:state.active,queued:state.waiters.length,requests1m:req1m,publicRequests1m:countKind('PUBLIC'),liveReadRequests1m:countKind('LIVE_READ'),liveWriteRequests1m:countKind('LIVE_WRITE'),recoveryProbeRequests1m:countKind('RECOVERY_PROBE'),estimatedWeight1m:estimatedWeight1m(now),usedWeight1m:state.usedWeight1m,
+    active:state.active,queued:state.waiters.length,requests1m:req1m,publicRequests1m:countKind('PUBLIC'),liveReadRequests1m:countKind('LIVE_READ'),liveWriteRequests1m:countKind('LIVE_WRITE'),recoveryProbeRequests1m:countKind('RECOVERY_PROBE'),estimatedWeight1m:estimatedWeight1m(now),topRoutes1m,usedWeight1m:state.usedWeight1m,
     usedWeightAgeMs:state.usedWeightAt?Math.max(0,now-state.usedWeightAt):null,cooldownUntil:state.cooldownUntil||null,
     cooldownMs:state.cooldownUntil>now?state.cooldownUntil-now:0,cooldownReason:state.cooldownReason,lastStatus:state.lastStatus,
     last429At:state.last429At||null,last418At:state.last418At||null,requests:state.requests,locallyBlocked:state.locallyBlocked,
