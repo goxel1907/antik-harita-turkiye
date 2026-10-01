@@ -81,6 +81,13 @@ function preEntryForSide(ec,side){
   return {available:!!s,state:s?.state||'NO_PREENTRY_STATE',quality:pe?.reliability?.quality||null,trapRisk:num(s?.trapRiskIndex),support:num(s?.supportIndex),assessment:ec?.preEntryFlowAssessment||ec?.entryCase?.decision?.preEntryFlowAssessment||null,actionHint:pe?.actionHint||null};
 }
 const WIN_EXITS=new Set(['TP1_RUNNER_TRAIL','TP1_BREAKEVEN','TAKE_PROFIT','JEV_PARTIAL_TAKE_PROFIT','JEV_PARTIAL_THEN_EXTERNAL_CLOSE']);
+function exitAuthorityOf(exit){
+  const x=String(exit||'').toUpperCase();
+  if(x==='JEV_EXIT_NOW'||x==='JEV_PARTIAL_TAKE_PROFIT')return 'JEV';
+  if(x==='STOP_LOSS'||x==='TP1_THEN_STOP'||x==='TP1_RUNNER_TRAIL'||x==='TP1_BREAKEVEN'||x==='TAKE_PROFIT')return 'SYSTEM';
+  if(x.includes('EXTERNAL'))return x.includes('JEV_PARTIAL')?'JEV_PARTIAL_THEN_EXTERNAL':'EXTERNAL';
+  return x?'OTHER':'UNKNOWN';
+}
 function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],avgWin=null}={}){
   const p=close||{},ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
   const att=attention||ec.attention||null;
@@ -91,6 +98,11 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   const gapMin=prev&&Number.isFinite(opened)&&Number.isFinite(prev.closedMs)?r2((opened-prev.closedMs)/60000,1):null;
   const side=String(p.side||'').toUpperCase()||null;
   const exit=p.exitType||null;
+  const exitAuthority=exitAuthorityOf(exit);
+  const op=p.outcomePath&&typeof p.outcomePath==='object'?p.outcomePath:{};
+  const mfeR=num(op.mfeR),maeR=num(op.maeR),timeToMfeMin=num(op.timeToMfeMin),timeToMaeMin=num(op.timeToMaeMin);
+  const realizedR=cr.r!==null?cr.r:num(op.rMultiple);
+  const mfeGivebackR=mfeR!==null&&realizedR!==null?Math.max(0,mfeR-realizedR):null;
   const preEntry=preEntryForSide(ec,side);
   const regime=regimeKeyFromSignature(ec.marketSignature||null,side);
   const globalGapMin=prevGlobal&&Number.isFinite(opened)&&Number.isFinite(prevGlobal.closedMs)?r2((opened-prevGlobal.closedMs)/60000,1):null;
@@ -134,6 +146,9 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   }
   if(net!==null&&net<0&&avgWin!==null&&avgWin>0&&-net>1.5*avgWin)tags.push('OVERSIZED_LOSS');
   if(net!==null&&net<0&&hold!==null&&hold>=90)tags.push('LONG_HOLD_LOSS');
+  if(String(ec.entryTiming||'').toUpperCase()==='NONE_WAIT')tags.push(net!==null&&net<0?'NONE_WAIT_LOSS':'NONE_WAIT_USED');
+  if(mfeGivebackR!==null&&mfeGivebackR>=1)tags.push('MFE_GIVEBACK_GE_1R');
+  if(maeR!==null&&maeR<=-0.5&&hold!==null&&hold<=10)tags.push('FAST_ADVERSE_MOVE');
   if(cr.status!=='MEASURED')tags.push('R_'+cr.status);
   let verdict='NEUTRAL';
   if(net!==null&&net>0&&(WIN_EXITS.has(exit)||(cr.r!==null&&cr.r>=0.5)))verdict='SUCCESS';
@@ -157,6 +172,9 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   if(tags.includes('WIN_DESPITE_PREENTRY_TRAP_RISK'))L.push('giriş öncesi tuzak riski yüksek görünmesine rağmen işlem kazandı; tuzak sinyalini tek başına veto yapma');
   if(tags.includes('WIN_WITH_PREENTRY_FLOW_SUPPORT'))L.push('giriş öncesi mikroyapı plan yönünü destekledi ve işlem kazandı');
   if(tags.includes('LOSS_DESPITE_PREENTRY_FLOW_SUPPORT'))L.push('giriş öncesi akış planı destekledi ama işlem kaybetti; mikroyapı tek başına yeterli değil');
+  if(tags.includes('NONE_WAIT_LOSS'))L.push('NONE_WAIT girişi zarar üretti; bu yalnız yumuşak zamanlama uyarısıdır, otomatik veto değildir');
+  if(tags.includes('MFE_GIVEBACK_GE_1R'))L.push('işlem '+r2(mfeR,2)+'R MFE görüp '+r2(mfeGivebackR,2)+'R geri verdi; mevcut yapı/akış yeniden doğrulansın');
+  if(tags.includes('FAST_ADVERSE_MOVE'))L.push('ilk '+(hold??'?')+' dk içinde belirgin adverse hareket: giriş zamanlaması yeniden değerlendirilsin');
   if(verdict==='SUCCESS'&&ec.setupFamily)L.push(ec.setupFamily+' '+side+' çalıştı');
   if(verdict==='MISTAKE'&&!L.length&&ec.setupFamily)L.push(ec.setupFamily+' '+side+' stop oldu');
   return {
@@ -165,7 +183,8 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
     rank:num(att?.gainerRank),ch24:ch24===null?null:r2(ch24,1),
     family:ec.setupFamily||null,lane:p.tradeLane||ec.lane||null,timing:ec.entryTiming||null,regime,
     preEntry:{state:preEntry.state,quality:preEntry.quality,trapRisk:preEntry.trapRisk===null?null:r2(preEntry.trapRisk,3),support:preEntry.support===null?null:r2(preEntry.support,3),assessment:preEntry.assessment||null},
-    exit,net:net===null?null:r2(net,2),r:cr.r===null?null:r2(cr.r,2),rStatus:cr.status,
+    exit,exitAuthority,net:net===null?null:r2(net,2),r:cr.r===null?null:r2(cr.r,2),rStatus:cr.status,
+    outcome:{mfeR:mfeR===null?null:r2(mfeR,2),maeR:maeR===null?null:r2(maeR,2),mfeGivebackR:mfeGivebackR===null?null:r2(mfeGivebackR,2),timeToMfeMin:timeToMfeMin===null?null:r2(timeToMfeMin,1),timeToMaeMin:timeToMaeMin===null?null:r2(timeToMaeMin,1)},
     holdMin:hold,stopPct:stopPct===null?null:r2(stopPct,2),gapMin,globalGapMin,
     openedAt:p.openedAt||null,closedMs:Number.isFinite(closed)?closed:null,
     tags,verdict,lesson:L.slice(0,3).join('; ')||null
@@ -237,7 +256,7 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
     byPreEntryFlow:rows(preEntrySide,{minN:2,limit:10}),
     byExit:rows(group(xs,c=>c.exit||'UNKNOWN'),{minN:3,limit:6}).map(r=>r.slice(0,4)),
     worked,failed,repeatedMistakes:tagFailed,
-    howToUse:'Kendi kâr/zarar geçmişin: çalışanı tekrarla, zarar üreten kalıbı tekrarlama. byPreEntryFlow aynı giriş-öncesi tuzak/destek durumunun hem kazanan hem kaybeden sonuçlarını kalibre eder. Yumuşak bağlam; veto değil, piyasa kanıtı önce gelir.'
+    howToUse:'Geçmiş sonuçlar yalnız yumuşak bağlamdır; kazanan hem kaybeden karşı örnekleri birlikte değerlendirilir. MFE/MAE, NONE_WAIT, hızlı adverse hareket, yeniden giriş ve yön tersleme benzer vakaları açıklar; otomatik veto/onay üretmez. Mevcut piyasa kanıtı önce gelir.'
   };
   if(candidate){
     const att=attentionFromCandidate(candidate),tier=tierOf(att);
@@ -274,4 +293,4 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   }
   return out;
 }
-module.exports={tierOf,attentionFromCandidate,lessonCard,buildCards,digest,stats,posterior,canonicalR,regimeKeyFromSignature,preEntryForSide,TIER_OF_SOURCE};
+module.exports={tierOf,attentionFromCandidate,lessonCard,buildCards,digest,stats,posterior,canonicalR,regimeKeyFromSignature,preEntryForSide,exitAuthorityOf,TIER_OF_SOURCE};

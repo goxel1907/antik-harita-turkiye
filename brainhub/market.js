@@ -3,6 +3,7 @@
 const zlib = require('zlib');
 const { FRAMES, NATIVE_FRAMES, analyzeFrames, microstructure, parseKlines, aggregate45m, structure } = require('./engine');
 const { combinePreMove } = require('./premove');
+const { LocalL2Manager } = require('./local-l2');
 
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
@@ -377,6 +378,17 @@ class StreamingMarket {
     this.tradeWindowMs = 120000;
     this.liquidationWindowMs = 15 * 60 * 1000;
     this.staleMs = 15000;
+    this.localL2 = new LocalL2Manager({
+      WebSocketImpl:this.WebSocketImpl,
+      now:this.now,
+      maxSymbols:6,
+      staleMs:3000,
+      snapshotLoader:async symbol=>getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=1000`, 7000)
+    });
+  }
+  ensureLocalL2(symbol){
+    if(process.env.BRAINHUB_LOCAL_L2==='0')return null;
+    return this.localL2.ensureSymbol(symbol);
   }
   ensureSymbol(symbol) {
     symbol = String(symbol || '').toUpperCase();
@@ -548,6 +560,7 @@ class StreamingMarket {
     const flow5=flowWindowStats(state.trades,now,5000), flow10=flowWindowStats(state.trades,now,10000), flow15=flowWindowStats(state.trades,now,15000), flow30=flowWindowStats(state.trades,now,30000), flow60=flowWindowStats(state.trades,now,60000), flow120=flowWindowStats(state.trades,now,120000);
     const l1Ofi5=bookTickerFlowStats(state.bookHistory,now,5000),l1Ofi15=bookTickerFlowStats(state.bookHistory,now,15000),l1Ofi30=bookTickerFlowStats(state.bookHistory,now,30000),l1Ofi60=bookTickerFlowStats(state.bookHistory,now,60000),l1Ofi120=bookTickerFlowStats(state.bookHistory,now,120000);
     const dynamics=depthDynamics(state.depthHistory,state.trades,now,mid || state.book?.bid || state.book?.ask || 0);
+    const localL2=this.localL2.snapshot(symbol,now,state.trades);
     const liqVelocity=liquidationVelocity(state.liquidations,now);
     const depthFresh = Boolean(state.depth && now >= state.depth.at && now - state.depth.at <= this.staleMs);
     const softDepth = depthFresh ? depthSoftContext(state.depth.bids, state.depth.asks) : null;
@@ -578,6 +591,7 @@ class StreamingMarket {
       orderFlow:{windows:{'5s':flow5,'10s':flow10,'15s':flow15,'30s':flow30,'60s':flow60,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
       level1Ofi:{windows:{'5s':l1Ofi5,'15s':l1Ofi15,'30s':l1Ofi30,'60s':l1Ofi60,'120s':l1Ofi120},semantics:'SEQUENCED_PUBLIC_BOOKTICKER_LEVEL1_OFI_ONLY'},
       depthDynamics:dynamics,
+      localL2,
       observedLiquidations:{
         available:state.liquidations.length > 0,
         windowMs:this.liquidationWindowMs,
@@ -617,11 +631,13 @@ class StreamingMarket {
       warmingOrStaleSymbols:warming,
       endpoint:FUTURES_WS,
       channels:Object.fromEntries(Object.entries(this.channels).map(([name,c]) => [name,{endpoint:c.endpoint,connected:c.ws?.readyState===1}])),
+      localL2:this.localL2.health(),
       publicOnly:true
     };
   }
   shutdown() {
     this.stopped = true;
+    this.localL2.shutdown();
     for (const channel of Object.values(this.channels)) {
       if (channel.timer) clearTimeout(channel.timer);
       channel.timer = null;
@@ -659,6 +675,29 @@ async function restCvd120(symbol, now = Date.now()) {
   const coverageMs = complete ? 120000 : Math.max(0, (lastAt || start) - start);
   return { cvdQuote:Math.round(quote * 100) / 100, trades, coverageMs, complete, lastTradeAt:lastAt };
 }
+
+function modeledLiquidationDensityFromOi(rows, markPrice){
+  const xs=Array.isArray(rows)?rows:[];const mark=finite(markPrice);
+  const baseBars=240; // 60h on 15m public OI history
+  const base={available:false,observed:false,estimated:true,authority:'SHADOW_EVIDENCE_ONLY',canQualify:false,canVeto:false,canSize:false,canExecute:false,executionAuthority:false,source:'BINANCE_USDM_PUBLIC_OI_MODEL'};
+  if(xs.length<baseBars+8||!(mark>0))return {...base,reason:'INSUFFICIENT_60H_OI_HISTORY'};
+  const pts=xs.map(x=>{const q=finite(x?.sumOpenInterest),v=finite(x?.sumOpenInterestValue);return {q,v,p:q&&v&&q>0?v/q:null,t:finite(x?.timestamp)};}).filter(x=>x.q!==null&&x.p!==null);
+  if(pts.length<baseBars+8)return {...base,reason:'INSUFFICIENT_VALID_OI_HISTORY'};
+  const changes=[];for(let i=1;i<pts.length;i++)changes.push(Math.abs(pts[i].q-pts[i-1].q));
+  const zones=[];let events=0;
+  for(let i=baseBars+1;i<pts.length;i++){
+    const dq=pts[i].q-pts[i-1].q;if(!(dq>0))continue;
+    const a=Math.max(0,i-baseBars-1),b=i-1;const hist=changes.slice(a,b).filter(Number.isFinite);const ma=hist.length?hist.reduce((z,x)=>z+x,0)/hist.length:0;if(!(ma>0))continue;
+    const ratio=dq/ma;if(ratio<1.2)continue;const tier=ratio>=3?'H3':ratio>=2?'H2':'H1';const levs=tier==='H3'?[100,50,25,10,5]:tier==='H2'?[100,50,25,10]:[100,50,25];const side=pts[i].p>=pts[i-1].p?'LONG':'SHORT';const tierW=tier==='H3'?3:tier==='H2'?2:1.2;events++;
+    for(const lev of levs){const liq=side==='LONG'?pts[i].p*(1-1/lev):pts[i].p*(1+1/lev);if(!(liq>0))continue;zones.push({side,liq,weight:dq*pts[i].p*tierW/levs.length});}
+  }
+  if(!zones.length)return {...base,available:true,events:0,lookbackHours:round(pts.length*.25,1),baselineHours:60,density:{aboveNear:0,aboveMid:0,aboveFar:0,belowNear:0,belowMid:0,belowFar:0},note:'No qualifying positive OI anomaly in the modeled window; zero is model output, not observed liquidation absence.'};
+  const bucket={aboveNear:0,aboveMid:0,aboveFar:0,belowNear:0,belowMid:0,belowFar:0};let total=0;
+  for(const z of zones){const d=(z.liq-mark)/mark*10000,ad=Math.abs(d);const side=d>=0?'above':'below';const band=ad<=150?'Near':ad<=500?'Mid':'Far';bucket[side+band]+=z.weight;total+=z.weight;}
+  for(const k of Object.keys(bucket))bucket[k]=total>0?round(bucket[k]/total,4):0;
+  return {...base,available:true,events,lookbackHours:round(pts.length*.25,1),baselineHours:60,density:bucket,semantics:'MODELED_OI_LIQUIDATION_DENSITY_NOT_OBSERVED_FORCEORDER',note:'OI-anomaly/leverage zones are modeled research only. Entry/leverage distribution is unknown; observed Binance forceOrder remains separate and authoritative only as observed prints.'};
+}
+
 async function derivativesContext(symbol) {
   if(!validSymbol(symbol))throw new Error('invalid USDT perpetual symbol');
   const now=Date.now();
@@ -667,6 +706,7 @@ async function derivativesContext(symbol) {
   const endpoints=[
     ['/fapi/v1/openInterest?symbol='+symbol,'openInterest'],
     ['/futures/data/openInterestHist?symbol='+symbol+'&period=5m&limit=3','openInterestHist'],
+    ['/futures/data/openInterestHist?symbol='+symbol+'&period=15m&limit=360','openInterestModelHist'],
     ['/fapi/v1/premiumIndex?symbol='+symbol,'premium'],
     ['/futures/data/takerlongshortRatio?symbol='+symbol+'&period=5m&limit=3','taker'],
     ['/futures/data/topLongShortPositionRatio?symbol='+symbol+'&period=5m&limit=3','topPosition'],
@@ -686,6 +726,7 @@ async function derivativesContext(symbol) {
   const oiValueDeltaPct=Number.isFinite(prev)&&prev!==0&&Number.isFinite(last)?(last-prev)/prev*100:null;
   const lastRow=x=>Array.isArray(x)&&x.length?x.at(-1):null;
   const tak=lastRow(by.taker), tp=lastRow(by.topPosition), ta=lastRow(by.topAccount), ga=lastRow(by.globalAccount);
+  const modeledLiquidation=modeledLiquidationDensityFromOi(by.openInterestModelHist,finite(by.premium?.markPrice));
   const out={
     available:Boolean(by.openInterest||by.premium||tak||tp||ta||ga),
     source:'Binance USD-M public REST',
@@ -707,8 +748,9 @@ async function derivativesContext(symbol) {
     topTraderPosition:tp?{longShortRatio:finite(tp.longShortRatio),longAccount:finite(tp.longAccount),shortAccount:finite(tp.shortAccount),timestamp:finite(tp.timestamp)}:null,
     topTraderAccount:ta?{longShortRatio:finite(ta.longShortRatio),longAccount:finite(ta.longAccount),shortAccount:finite(ta.shortAccount),timestamp:finite(ta.timestamp)}:null,
     globalAccount:ga?{longShortRatio:finite(ga.longShortRatio),longAccount:finite(ga.longAccount),shortAccount:finite(ga.shortAccount),timestamp:finite(ga.timestamp)}:null,
+    modeledLiquidation,
     semantics:'DERIVATIVES_POSITIONING_CONTEXT_ONLY',
-    note:'Open interest, funding, taker flow and long/short ratios are contextual evidence. Top-trader ratios do not identify market makers and do not independently qualify a trade.'
+    note:'Open interest, funding, taker flow and long/short ratios are contextual evidence. modeledLiquidation is SHADOW_EVIDENCE_ONLY and never mixed with observed forceOrder. Top-trader ratios do not identify market makers and do not independently qualify a trade.'
   };
   derivativesCache.set(symbol,{at:now,result:out});
   return out;
@@ -756,6 +798,7 @@ async function preMoveProbe(symbol) {
 async function symbolContext(symbol, options = {}) {
   if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
   marketStream.ensureSymbol(symbol);
+  marketStream.ensureLocalL2(symbol);
   const [frames, depthResult, tradeResult, derivativesResult] = await Promise.allSettled([
     options?.frameSnapshot ? Promise.resolve(options.frameSnapshot) : frameSet(symbol),
     getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=20`, 9000),
@@ -811,7 +854,7 @@ async function symbolContext(symbol, options = {}) {
       micro.cvdWindow = 'continuous retained public aggTrade window, at most 120s';
       micro.cvdSource = 'BINANCE_WS_AGGTRADE_120S';
     }
-    micro.ofiNote = 'REST two-snapshot OFI proxy may be present as fallback context; partial depth20 streaming is not true sequenced local-book OFI.';
+    micro.ofiNote = streaming.localL2?.available===true?'Sequence-safe local L2 is available as separate evidence; REST/depth20 remain fallback context.':'REST two-snapshot OFI proxy may be present as fallback context; partial depth20 streaming is not true sequenced local-book OFI.';
   }
   return {
     ok: true, symbol, generatedAt: new Date(now).toISOString(),
@@ -821,7 +864,7 @@ async function symbolContext(symbol, options = {}) {
     derivatives,
     streamHealth: marketStream.health(),
     limitations: [
-      'Streaming depth20 is a partial book and does not prove resting-liquidity persistence or true sequenced OFI',
+      'Streaming depth20 is a partial-book fallback; active-symbol localL2 uses Binance USD-M snapshot + diff-depth U/u/pu continuity when healthy',
       'Streaming CVD covers the retained public aggTrade window, not a complete session',
       'Observed forceOrder prints are not a complete liquidation heatmap or future liquidation map',
       'FVG, wick sweeps and liquidity levels are structural context, not executable prices',
@@ -1445,4 +1488,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats, bookTickerFlowStats };
+module.exports = { liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, modeledLiquidationDensityFromOi, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats, bookTickerFlowStats };

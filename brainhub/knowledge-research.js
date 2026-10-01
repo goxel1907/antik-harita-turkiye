@@ -40,7 +40,14 @@ const CURATED_OPEN_SOURCE_REPOS=[
   {repo:'juitindev/crypto-market-data-pipeline',url:'https://github.com/juitindev/crypto-market-data-pipeline',license:'MIT',roles:['MARKET_DATA','DATA_INTEGRITY','SCHEMA','VALIDATION'],why:'Typed market-data validation reference for timestamp/OHLC/order-book invariants.',concepts:['TIMESTAMP_INVARIANTS','OHLC_VALIDATION','ORDERBOOK_INVARIANTS','SCHEMA_VALIDATION']},
   // R2544.20: low-star / focused references found during a second microstructure pass. GitHub metadata exposed MIT.
   {repo:'armaansg/orderbook-microstructure',url:'https://github.com/armaansg/orderbook-microstructure',license:'MIT',roles:['MICROSTRUCTURE','ORDER_FLOW','ORDER_BOOK','VALIDATION'],why:'Binance USD-M 100ms bookTicker study with leakage-aware OFI/microprice/queue-imbalance evaluation; useful to keep predictive claims separate from executable edge.',concepts:['OFI','MICROPRICE','QUEUE_IMBALANCE','HORIZON_DECAY','OOS_EMBARGO']},
-  {repo:'S-razmi/DeepLOB',url:'https://github.com/S-razmi/DeepLOB',license:'MIT',roles:['ML_RESEARCH','ORDER_BOOK','MICROSTRUCTURE','SHADOW_PREDICTOR'],why:'BTC perpetual DeepLOB/TCN reference for future shadow-only short-horizon direction research; never a live decision authority.',concepts:['DEEPLOB','LOB_TENSOR','SHORT_HORIZON_DIRECTION','OOS_VALIDATION']}
+  {repo:'S-razmi/DeepLOB',url:'https://github.com/S-razmi/DeepLOB',license:'MIT',roles:['ML_RESEARCH','ORDER_BOOK','MICROSTRUCTURE','SHADOW_PREDICTOR'],why:'BTC perpetual DeepLOB/TCN reference for future shadow-only short-horizon direction research; never a live decision authority.',concepts:['DEEPLOB','LOB_TENSOR','SHORT_HORIZON_DIRECTION','OOS_VALIDATION']},
+  // R2544.26: verified/adopted research provenance. Registry status describes how the idea is used;
+  // it never grants strategy/execution authority and repo prose is not injected into JEV market truth.
+  {repo:'Khaymat/pyvsmc',url:'https://github.com/Khaymat/pyvsmc',license:'MIT',roles:['SMC','STRUCTURE','FVG','BOS_CHOCH','OTE','LIQUIDITY'],why:'Offline golden-oracle reference for deterministic SMC semantics; never a live dependency.',concepts:['FVG','CE50','IFVG','SWINGS','BOS_CHOCH','ORDER_BLOCK','LIQUIDITY_SWEEP','OTE'],integrationStatus:'OFFLINE_ORACLE',authority:'REFERENCE_ONLY'},
+  {repo:'JWHaan/quant.term',url:'https://github.com/JWHaan/quant.term',license:'MIT',roles:['ORDER_FLOW','OFI','CVD','DATA_PROVENANCE','GAP_VALIDATION'],why:'Reference for deterministic market-data provenance, checksums, gap reporting and order-flow research panels.',concepts:['DATASET_PROVENANCE','GAP_REPORTING','CHECKSUM','OFI','CVD'],integrationStatus:'REFERENCE_ADOPTED',authority:'REFERENCE_ONLY'},
+  {repo:'crisari666/liquidity-scanner',url:'https://github.com/crisari666/liquidity-scanner',license:'UNVERIFIED_CURRENT',roles:['MICROSTRUCTURE','ORDER_BOOK','LIQUIDITY'],why:'Historical reviewed concept source; current BrainHub already implements persistence/pull/replenishment/absorption concepts independently.',concepts:['WALL_PERSISTENCE','LIQUIDITY_PULL','REPLENISHMENT','ABSORPTION'],integrationStatus:'HISTORICAL_CONCEPT_ADOPTED',authority:'REFERENCE_ONLY'},
+  {repo:'AIUngated/crypto-liquidity-terminal',url:'https://github.com/AIUngated/crypto-liquidity-terminal',license:'MIT',roles:['ORDER_BOOK','MARKET_DATA','MICROSTRUCTURE'],why:'Architecture reference for sequence-safe local order-book reconstruction; USD-M implementation follows Binance U/u/pu rules rather than copying spot assumptions.',concepts:['LOCAL_L2','SEQUENCE_HEALTH','RESYNC','MULTILEVEL_OFI'],integrationStatus:'ARCHITECTURE_ADAPTED',authority:'REFERENCE_ONLY'},
+  {repo:'minchillo4/btc-liquidation-heatmap',url:'https://github.com/minchillo4/btc-liquidation-heatmap',license:'MIT',roles:['OPEN_INTEREST','LIQUIDATION_MODEL','SHADOW_RESEARCH'],why:'Reference for OI anomaly and modeled liquidation-density research; modeled zones remain explicitly estimated and separate from observed Binance forceOrder.',concepts:['OI_ANOMALY','MODELED_LIQUIDATION_DENSITY','POSITION_FLOW_REGIME'],integrationStatus:'SHADOW_MODEL_REFERENCE',authority:'SHADOW_EVIDENCE_ONLY'}
 ];
 
 function clip(v,n=1200){return String(v??'').replace(/\s+/g,' ').trim().slice(0,n);}
@@ -118,7 +125,7 @@ function repoHints(family){
   return CURATED_OPEN_SOURCE_REPOS
     .filter(x=>x.roles.some(r=>wanted.includes(r)))
     .slice(0,5)
-    .map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],authority:'REFERENCE_ONLY'}));
+    .map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],integrationStatus:x.integrationStatus||'REFERENCE_ONLY',authority:x.authority||'REFERENCE_ONLY'}));
 }
 function topicCandidates(unified,evidence=null){
   const out=[];
@@ -333,7 +340,7 @@ function createKnowledgeResearch({
       latest:entries.slice(-5).reverse().map(x=>({topic:x.topic,family:x.family,verifiedAt:x.verifiedAt,sourceUrls:x.sourceUrls})),
       retryPolicy:{channelAttempts:Math.max(1,Math.min(4,Array.isArray(retryDelaysMs)?retryDelaysMs.length:1)),sourceFetchAttempts:2},
       openSourceRepoCount:CURATED_OPEN_SOURCE_REPOS.length,
-      openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],authority:'REFERENCE_ONLY',executionAuthority:false}))
+      openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],integrationStatus:x.integrationStatus||'REFERENCE_ONLY',authority:x.authority||'REFERENCE_ONLY',executionAuthority:false}))
     };
   }
   return {research,researchFromContext,reference,status,detectGap};

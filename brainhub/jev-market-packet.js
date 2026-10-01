@@ -207,6 +207,12 @@ function marketPacket(u){
       takerBuySellRatio:finite(d?.takerBuySellRatio??d?.taker?.buySellRatio),
       topTraderLongShortRatio:finite(d?.topTraderLongShortRatio??d?.topTraderPosition?.longShortRatio),
       globalLongShortRatio:finite(d?.globalLongShortRatio??d?.globalAccount?.longShortRatio),
+      modeledLiquidation:d?.modeledLiquidation?{
+        available:d.modeledLiquidation.available===true,
+        authority:d.modeledLiquidation.authority||'SHADOW_EVIDENCE_ONLY',observed:false,estimated:true,
+        events:finite(d.modeledLiquidation.events),baselineHours:finite(d.modeledLiquidation.baselineHours),
+        density:d.modeledLiquidation.density||null,canVeto:false,executionAuthority:false
+      }:null,
       // CLAUDE_R2544_6: 5 dk kova oranları Binance'te gecikmeli yayınlanır (29.09: PENDLE 0,789 = 12 dk önceki kova;
       // güncel kapalı kova 1,277). Kovanın yaşı açıkça verilir.
       bucketAgeMin:(()=>{const ts=finite(d?.taker?.timestamp),at=finite(d?.asOf);return ts!==null&&at!==null?Math.round((at-(ts+300000))/6000)/10:null;})()

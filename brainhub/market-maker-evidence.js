@@ -16,12 +16,12 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
   const flow=streaming?.orderFlow?.windows||{};
   const liq=streaming?.observedLiquidations||{};
   return {
-    version:'JEV_MARKET_MAKER_EVIDENCE_V2_R2544_21',
+    version:'JEV_MARKET_MAKER_EVIDENCE_V3_R2544_26',
     authority:'EVIDENCE_ONLY',
     canQualify:false,canVeto:false,canSize:false,canExecute:false,
     participantIdentity:'NOT_IDENTIFIED',
     participantIntent:'NOT_ASSERTED',
-    source:'Binance public L2/aggTrade/forceOrder + public derivatives REST; BrainHub heuristics',
+    source:'Binance public bookTicker/depth20/aggTrade/forceOrder + active-symbol sequence-safe local L2 + public derivatives REST; BrainHub deterministic heuristics',
     asOf:streaming?.asOf||derivatives?.asOf||null,
     orderFlow:(()=>{
       // CLAUDE_R2543_ORDER_FLOW_AVAILABILITY: bu nesnede `available` HİÇ üretilmiyordu; JEV paketi
@@ -54,6 +54,7 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
         semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY_NOT_EXCHANGE_CVD'
       };
     })(),
+    localL2:(()=>{const x=streaming?.localL2||{};return {available:x.available===true,state:x.state||null,sequenceHealthy:x.sequenceHealthy===true,ageMs:finite(x.ageMs),resyncCount5m:Number(x.resyncCount5m)||0,confidence:finite(x.confidence),confidenceQuality:x.confidenceQuality||null,multiLevelOfi:finite(x.multiLevelOfi),depthImbalance:finite(x.depthImbalance),wallPersistence:x.wallPersistence||null,liquidityPull:x.liquidityPull?{side:x.liquidityPull.side||'NONE'}:null,replenishment:x.replenishment?{side:x.replenishment.side||'NONE'}:null,absorption:x.absorption||null,authority:'EVIDENCE_ONLY_JEV_FINAL',canVeto:false,executionAuthority:false};})(),
     bookBehavior:{
       available:dyn.available===true,
       bidWalls:Array.isArray(dyn.bidWalls)?dyn.bidWalls.slice(0,4):[],
@@ -75,6 +76,7 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
     },
     derivatives:{
       available:derivatives?.available===true,
+      modeledLiquidation:derivatives?.modeledLiquidation?{available:derivatives.modeledLiquidation.available===true,authority:derivatives.modeledLiquidation.authority||'SHADOW_EVIDENCE_ONLY',observed:false,estimated:true,events:Number(derivatives.modeledLiquidation.events)||0,baselineHours:finite(derivatives.modeledLiquidation.baselineHours),density:derivatives.modeledLiquidation.density||null,canVeto:false,executionAuthority:false}:null,
       openInterest:derivatives?.openInterest||null,
       funding:derivatives?.funding||null,
       taker:derivatives?.taker||null,
@@ -94,11 +96,11 @@ function buildMarketMakerEvidence({streaming={},derivatives={},microstructure={}
     preEntryAdverseSelection:buildPreEntryAdverseSelection({streaming,derivatives,microstructure}),
     interpretationRules:[
       'Absorption/replenishment/liquidity-pull/TWAP-like labels are probabilistic public-data footprints, not participant identity.',
-      'Level-1 OFI is computed only from sequenced public bookTicker best bid/ask price+size observations; partial depth20 is not claimed as true multi-level OFI.',
-      'Observed forceOrder prints are real observed liquidations; projected liquidation levels are not fabricated.',
+      'Level-1 OFI uses sequenced public bookTicker; true multi-level OFI is used only when active-symbol local L2 U/u/pu continuity is healthy. Partial depth20 remains fallback context.',
+      'Observed forceOrder prints remain separate from MODELED_OI_LIQUIDATION_DENSITY; the modeled layer is estimated SHADOW_EVIDENCE_ONLY and never a veto.',
       'Top-trader and long/short ratios are positioning context, not market-maker identity.',
       'No single microstructure signal may independently create LONG/SHORT, QUALIFIED, size, stop, target or execution.',
-      'R2544.21 pre-entry adverse-selection indices confidence-downweight sparse windows; they are evidence for JEV entry timing only, not probabilities, and never hard-veto a JEV plan.',
+      'R2544.26 pre-entry evidence confidence-downweights sparse or unhealthy L2 windows; it is timing evidence only, not probability, and never hard-vetoes a JEV plan.',
       'Binance/BrainHub numeric truth outranks visual interpretation when evidence conflicts.'
     ]
   };

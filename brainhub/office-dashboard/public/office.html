@@ -1154,27 +1154,30 @@ function renderDataQualityAndBudget(s){
 function renderOssProvenance(s){
   const k=s.knowledge?.data||{}; const repos=Array.isArray(k.openSourceRepos)?k.openSourceRepos:[];
   $('#ossMeta').textContent=`doğrulanmış dinamik bilgi ${k.verifiedCount??0} • kayıtlı OSS ${k.openSourceRepoCount??repos.length} • repository bilgisi yalnız araştırma/uygulama referansıdır; piyasa kanıtı değildir.`;
-  $('#ossTable').innerHTML='<tr><th>Repo</th><th>Lisans</th><th>Rol</th><th>Neden JEV</th><th>Kavramlar</th><th>Yetki</th></tr>'+(repos.length?repos.map(r=>`<tr><td><b>${esc(r.repo)}</b></td><td>${esc(r.license||'—')}</td><td>${esc((r.roles||[]).join(', '))}</td><td>${esc(r.why||'genel mühendislik/araştırma referansı')}</td><td>${esc((r.concepts||[]).join(', ')||'—')}</td><td>${esc(r.authority||'REFERENCE_ONLY')}</td></tr>`).join(''):'<tr><td colspan="6" class="muted">OSS provenance alınamadı.</td></tr>');
+  $('#ossTable').innerHTML='<tr><th>Repo</th><th>Lisans</th><th>Rol</th><th>Neden JEV</th><th>Kavramlar</th><th>Entegrasyon</th><th>Yetki</th></tr>'+(repos.length?repos.map(r=>`<tr><td><b>${esc(r.repo)}</b></td><td>${esc(r.license||'—')}</td><td>${esc((r.roles||[]).join(', '))}</td><td>${esc(r.why||'genel mühendislik/araştırma referansı')}</td><td>${esc((r.concepts||[]).join(', ')||'—')}</td><td>${esc(r.integrationStatus||'REFERENCE_ONLY')}</td><td>${esc(r.authority||'REFERENCE_ONLY')}</td></tr>`).join(''):'<tr><td colspan="7" class="muted">OSS provenance alınamadı.</td></tr>');
 }
 
 function renderPreEntryMicro(p){
   const pe=p?.microstructure?.preEntryAdverseSelection||null;
   const kv=$('#preEntryKv'), detail=$('#preEntryComponents'); if(!kv||!detail)return;
-  if(!pe){kv.innerHTML='<dt>Durum</dt><dd>Bu coin için R2544.21 pre-entry paketi yok / runtime eski.</dd>';detail.textContent='—';return;}
+  if(!pe){kv.innerHTML='<dt>Durum</dt><dd>Bu coin için R2544.26 pre-entry paketi yok / runtime eski.</dd>';detail.textContent='—';return;}
   const rel=pe.reliability||{}, sc=pe.samplingConfidence||{}, L=pe.long||{}, S=pe.short||{};
   const idx=v=>v==null?'—':Math.round(Number(v)*100)+'/100'; const ofi=pe?.level1Ofi?.['30s']||{}; const short=sc.shortWindow||{}, overall=sc.overall||{};
+  const l2=pe?.localL2||{}; const mdl=p?.derivatives?.modeledLiquidation||{};
   kv.innerHTML=[
     ['Kaynak / yetki',`${pe.authority||'EVIDENCE_ONLY'} • ${pe.participantIdentity||'NOT_IDENTIFIED'} • aktör niyeti ${pe.participantIntent||'NOT_ASSERTED'}`],
     ['Güvenilirlik',`${rel.quality||'—'} • feed ${idx(rel.score)} • örnek güveni ${overall.quality||'—'} ${idx(overall.score)} • kısa pencere ${short.quality||'—'} ${idx(short.score)} • trade ${rel.tradeCoverageSec??'—'} sn • depth ${rel.depthSamples??'—'} • OFI30 ${rel.l1OfiTransitions30s??'—'}`],
     ['LONG',`tuzak endeksi ${idx(L.trapRiskIndex)} • devam desteği ${idx(L.supportIndex)} • timing ${trUi(pe?.entryTimingGuidance?.LONG||'—')} • ${trUi(L.state||'—')}`],
     ['SHORT',`tuzak endeksi ${idx(S.trapRiskIndex)} • devam desteği ${idx(S.supportIndex)} • timing ${trUi(pe?.entryTimingGuidance?.SHORT||'—')} • ${trUi(S.state||'—')}`],
     ['L1 bookTicker OFI 30s',ofi.available?`OFI ${ofi.normalizedOfi??'—'} • fiyat ${ofi.priceMoveBps??'—'} bps • queue ${ofi.queueImbalanceCurrent??'—'} • Δqueue ${ofi.queueImbalanceDelta??'—'} • ${ofi.transitions??'—'} geçiş • güven ${ofi.confidenceQuality||'—'} ${idx(ofi.confidence)}`:'ısınma / veri yok'],
+    ['Yerel L2',l2.available?`SEQUENCE OK • ${l2.confidenceQuality||'—'} ${idx(l2.confidence)} • yaş ${l2.ageMs??'—'} ms • resync5m ${l2.resyncCount5m??0} • multi-OFI ${l2.multiLevelOfi??'—'} • depth ${l2.depthImbalance??'—'}`:`${l2.state||'UNAVAILABLE'} • karar kapısı değil`],
+    ['Modeled likidasyon',mdl.available?`SHADOW • observed=false • events ${mdl.events??0} • 60s baseline ${mdl.baselineHours??'—'}h • density ${Object.entries(mdl.density||{}).map(([k,v])=>k+'='+v).join(' ')}`:'yok / yetersiz OI geçmişi'],
     ['Seyrek pencere',Array.isArray(sc.sparseWindows)&&sc.sparseWindows.length?sc.sparseWindows.slice(0,6).join(', '):'yok / yeterli örnek'],
     ['Akış ipucu',`${trUi(pe.actionHint||'—')} • baskın ${trUi(pe.preferredEvidenceSide||'—')} • toxicity-proxy endeksi ${idx(pe.toxicityProxy)}`],
     ['Semantik','Risk endeksi / deterministik kamu verisi. Geleceği garanti etmez; tek başına AL/SAT/veto/emir üretemez.']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   const top=(side,label)=>((side?.components||[]).slice().sort((a,b)=>Math.abs(Number(b.value||0)*Number(b.weight||0))-Math.abs(Number(a.value||0)*Number(a.weight||0))).slice(0,5).map(x=>`${label}:${x.id}=${Number(x.value||0)>=0?'+':''}${Number(x.value||0).toFixed(2)} conf=${x.confidence==null?'—':Number(x.confidence).toFixed(2)} (${x.evidence||''})`));
-  detail.innerHTML='<b>En güçlü kanıt bileşenleri:</b><br>'+esc([...top(L,'LONG'),...top(S,'SHORT')].join(' • ')||'yok')+'<br><b>JEV kullanımı:</b> yön tezi geçerli olsa bile seçilen tarafta yüksek tuzak/adverse-selection varsa MARKET_NOW yerine akış normalizasyonu / yeni kanıt beklemeyi değerlendirsin. Endeksler olasılık değildir. Düşük güvenilirlikte veya seyrek 5s/15s örnekte bu katman karar kapısı değildir; 30s/60s dolu pencereler daha fazla ağırlık taşır.';
+  detail.innerHTML='<b>En güçlü kanıt bileşenleri:</b><br>'+esc([...top(L,'LONG'),...top(S,'SHORT')].join(' • ')||'yok')+'<br><b>JEV kullanımı:</b> yön tezi geçerli olsa bile seçilen tarafta yüksek adverse-selection varsa zamanlamayı yeniden değerlendirebilir. Yerel L2 düşük güven/RESYNC durumunda yalnız düşürülür veya yok sayılır; veto değildir. Modeled liquidation SHADOW_EVIDENCE_ONLY ve observed forceOrder ile karışmaz. Endeksler olasılık değildir.';
 }
 
 function renderSources(s){

@@ -121,7 +121,15 @@ function buildSide(side,{streaming={},microstructure={},derivatives={},sampling=
   if(qCur!==null)comps.push(component('TOP_QUEUE_IMBALANCE',0.85,dir*clamp(qCur/0.6,-1,1),`bookTicker queue imbalance=${r(qCur,3)}`));
   if(qDelta!==null)comps.push(component('TOP_QUEUE_SHIFT',0.65,dir*clamp(qDelta/0.45,-1,1),`30s queue imbalance delta=${r(qDelta,3)} conf=${r(sc?.ofi?.['30s']?.score,2)}`,sc?.ofi?.['30s']?.score||0));
   const microBps=finite(ofiWindowOf(streaming,'5s')?.micropriceBps??streaming?.depthSoftContext?.micropriceBps??microstructure?.depthSoftContext?.micropriceBps);if(microBps!==null)comps.push(component('MICROPRICE_LEAD',1.15,dir*clamp(microBps/4,-1,1),`microprice lead ${r(microBps,3)} bps`));
-  const imb=finite(streaming?.depth20Imbalance??microstructure?.depth20Imbalance);if(imb!==null)comps.push(component('DEPTH_IMBALANCE',0.85,dir*clamp(imb/0.45,-1,1),`depth20 imbalance ${r(imb,3)}`));
+  const l2=streaming?.localL2||{};const l2c=finite(l2?.confidence)||0;
+  if(l2?.available===true&&l2c>0){
+    const ml=finite(l2.multiLevelOfi);if(ml!==null)comps.push(component('LOCAL_L2_MULTILEVEL_OFI',1.20,dir*clamp(ml,-1,1),`sequence-safe L2 OFI=${r(ml,3)} conf=${r(l2c,2)}`,l2c));
+    const li=finite(l2.depthImbalance);if(li!==null)comps.push(component('LOCAL_L2_DEPTH_IMBALANCE',0.95,dir*clamp(li/0.5,-1,1),`sequence-safe L2 depth=${r(li,3)} conf=${r(l2c,2)}`,l2c));
+    const bp=finite(l2?.liquidityPull?.bidQuote)||0,ap=finite(l2?.liquidityPull?.askQuote)||0;if(bp+ap>0){const bias=(ap-bp)/(ap+bp);comps.push(component('LOCAL_L2_PULL_BIAS',0.75,dir*clamp(bias,-1,1),`L2 pull-proxy ask=${r(ap,0)} bid=${r(bp,0)}`,l2c));}
+    const br=finite(l2?.replenishment?.bidQuote)||0,ar=finite(l2?.replenishment?.askQuote)||0;if(br+ar>0){const bias=(br-ar)/(br+ar);comps.push(component('LOCAL_L2_REPLENISHMENT',0.90,dir*clamp(bias,-1,1),`L2 replenishment bid=${r(br,0)} ask=${r(ar,0)}`,l2c));}
+    const ab=String(l2?.absorption?.side||'NONE');const ac=finite(l2?.absorption?.confidence)||0;if(ab!=='NONE'&&ac>0){const raw=ab==='BID'?1:-1;comps.push(component('LOCAL_L2_ABSORPTION',1.10,dir*raw,`L2 ${ab} absorption proxy conf=${r(ac,2)}`,Math.min(l2c,ac)));}
+  }
+  const imb=finite(streaming?.depth20Imbalance??microstructure?.depth20Imbalance);if(imb!==null)comps.push(component('DEPTH_IMBALANCE',0.70,dir*clamp(imb/0.45,-1,1),`depth20 fallback imbalance ${r(imb,3)}`));
   const pd=streaming?.depthDynamics?.pressure||{};const p15=finite(pd?.['15s']?.delta),p30=finite(pd?.['30s']?.delta);if(p15!==null||p30!==null){const x=((p15||0)*0.6+(p30||0)*0.4);comps.push(component('PARTIAL_DEPTH_PRESSURE_ACCEL',0.75,dir*clamp(x/0.35,-1,1),`partial-L2 imbalance delta 15s=${r(p15,3)} 30s=${r(p30,3)}`));}
   const dyn=streaming?.depthDynamics||{};const abs=dyn?.absorption||{};
   if(abs?.available===true){
@@ -157,13 +165,14 @@ function buildPreEntryAdverseSelection({streaming={},derivatives={},microstructu
     short.state==='TRAP_RISK_HIGH'?'SHORT_WAIT_FLOW_NORMALIZATION':
     winner==='LONG'&&long.netEvidence>=0.25?'FLOW_SUPPORTS_LONG':winner==='SHORT'&&short.netEvidence>=0.25?'FLOW_SUPPORTS_SHORT':'FLOW_MIXED';
   return {
-    version:'R2544.21',authority:'EVIDENCE_ONLY_JEV_FINAL',source:'Binance public depth20/bookTicker/aggTrade + derivatives; deterministic BrainHub features',
+    version:'R2544.26',authority:'EVIDENCE_ONLY_JEV_FINAL',source:'Binance public bookTicker/aggTrade + depth20 fallback + sequence-safe active-symbol local L2 + derivatives; deterministic BrainHub features',
     participantIdentity:'NOT_IDENTIFIED',participantIntent:'NOT_ASSERTED',notProbability:true,canQualify:false,canVeto:false,canSize:false,canExecute:false,executionAuthority:false,
     reliability:rel,samplingConfidence:sampling,signalUsable,toxicityProxy:tox,toxicityProxyMethod:'CONFIDENCE_WEIGHTED_MEAN_ABS_TRADE_IMBALANCE_PLUS_L1_OFI_NOT_TRUE_VPIN',flowPersistence:flowPersistence(streaming),
     level1Ofi:{'5s':compactOfiWindow(ofiWindowOf(streaming,'5s'),sampling.ofi['5s']),'15s':compactOfiWindow(ofiWindowOf(streaming,'15s'),sampling.ofi['15s']),'30s':compactOfiWindow(ofiWindowOf(streaming,'30s'),sampling.ofi['30s']),'60s':compactOfiWindow(ofiWindowOf(streaming,'60s'),sampling.ofi['60s'])},
+    localL2:streaming?.localL2?{available:streaming.localL2.available===true,state:streaming.localL2.state||null,sequenceHealthy:streaming.localL2.sequenceHealthy===true,ageMs:finite(streaming.localL2.ageMs),resyncCount5m:finite(streaming.localL2.resyncCount5m),confidence:r(streaming.localL2.confidence,3),confidenceQuality:streaming.localL2.confidenceQuality||null,multiLevelOfi:r(streaming.localL2.multiLevelOfi,4),depthImbalance:r(streaming.localL2.depthImbalance,4),wallPersistence:streaming.localL2.wallPersistence?{side:streaming.localL2.wallPersistence.side||null,share:r(streaming.localL2.wallPersistence.share,3),ageMs:finite(streaming.localL2.wallPersistence.ageMs)}:null,liquidityPull:streaming.localL2.liquidityPull?{side:streaming.localL2.liquidityPull.side||'NONE'}:null,replenishment:streaming.localL2.replenishment?{side:streaming.localL2.replenishment.side||'NONE'}:null,absorption:streaming.localL2.absorption?{side:streaming.localL2.absorption.side||'NONE',confidence:r(streaming.localL2.absorption.confidence,3)}:null,authority:'EVIDENCE_ONLY',canVeto:false}:null,
     long,short,entryTimingGuidance:{LONG:guidanceForSide(long,rel,sampling),SHORT:guidanceForSide(short,rel,sampling)},preferredEvidenceSide:winner,asymmetryIndex:r(asym,3),actionHint,
     semantics:'ADVERSE_SELECTION_RISK_INDEX_NOT_RETURN_PROBABILITY',
-    note:'High trap-risk means public flow/depth behavior is adverse to immediate entry. Sparse windows are confidence-downweighted. JEV remains final; this layer never infers hidden actors or future certainty.'
+    note:'Public flow/depth is evidence only. Sequence-safe local L2 is confidence-weighted; unavailable/low-confidence L2 is omitted/down-weighted, never a veto. Sparse windows are confidence-downweighted. JEV remains final; no hidden-actor or future-certainty claim.'
   };
 }
 module.exports={buildPreEntryAdverseSelection,reliability,flowPersistence,signedRatio,guidanceForSide,sampleConfidence,samplingConfidence,confidenceQuality};
