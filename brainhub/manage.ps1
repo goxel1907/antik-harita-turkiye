@@ -474,7 +474,11 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep, [switch]$SkipExter
         }
         Write-Host "VISION model=$($vision.model) mode=$($vision.mode) charts=$($vision.vision.attached)/9 degraded=$($vision.degraded) pixel=$($vision.visualVerification.matched)/9 threshold=$($vision.visualVerification.threshold)"
     }
-    Write-Host "BRAINHUB_TEST_OK feature=$($h.featureVersion) models=$($h.configured.total) universe=$($scan.activeUsdtPerpetuals) tf45=$($symbol.timeframes.'45m'.available) unified=$($unified.dataQuality.advisoryUsable) chart=$($chart.bars) sqlite=$($learn.ok) liveArmed=$($live.armed)"
+    if ($SkipExternalBinanceSmoke) {
+        Write-Host "BRAINHUB_TEST_OK feature=$($h.featureVersion) models=$($h.configured.total) externalBinanceSmoke=SKIPPED sqlite=$($learn.ok) liveArmed=$($live.armed)"
+    } else {
+        Write-Host "BRAINHUB_TEST_OK feature=$($h.featureVersion) models=$($h.configured.total) universe=$($scan.activeUsdtPerpetuals) tf45=$($symbol.timeframes.'45m'.available) unified=$($unified.dataQuality.advisoryUsable) chart=$($chart.bars) sqlite=$($learn.ok) liveArmed=$($live.armed)"
+    }
 }
 function Get-Source([string]$Given) {
     if ($Given) {

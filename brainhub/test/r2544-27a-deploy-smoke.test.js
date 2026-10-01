@@ -12,4 +12,6 @@ test('R2544.27a deploy smoke does not require fresh Binance REST while guard is 
   assert.match(p,/Test-Brain \$rootFull -IncludeDeep:\$Deep -SkipExternalBinanceSmoke/);
   assert.match(p,/maxConcurrent' 99\) -gt 4/);
   assert.match(p,/publicSoftWeight1m' 99999\) -gt 1600/);
+  assert.match(p,/if \(\$SkipExternalBinanceSmoke\) \{[\s\S]*externalBinanceSmoke=SKIPPED[\s\S]*\} else \{[\s\S]*\$scan\.activeUsdtPerpetuals/);
+  assert.doesNotMatch(p,/BINANCE_EXTERNAL_SMOKE_SKIPPED[\s\S]*Write-Host "BRAINHUB_TEST_OK[^"\n]*\$scan\.activeUsdtPerpetuals[^"\n]*"\n\}/);
 });
