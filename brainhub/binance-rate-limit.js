@@ -8,7 +8,7 @@ const pathMod = require('node:path');
 // This is transport safety, not trade/strategy authority.
 
 const DEFAULT_MAX_CONCURRENT = 4;
-const DEFAULT_MIN_GAP_MS = 25;
+const DEFAULT_MIN_GAP_MS = 50;
 const DEFAULT_PUBLIC_SOFT_WEIGHT_1M = 1600;
 const DEFAULT_LIVE_READ_SOFT_WEIGHT_1M = 1900;
 
@@ -72,7 +72,7 @@ function hydrateState(){
 }
 hydrateState();
 
-function n(v){ const x=Number(v); return Number.isFinite(x)?x:null; }
+function n(v){ if(v===null||v===undefined||v==='')return null; const x=Number(v); return Number.isFinite(x)?x:null; }
 function clampInt(v,lo,hi,fallback){ const x=Math.round(Number(v)); return Number.isFinite(x)?Math.max(lo,Math.min(hi,x)):fallback; }
 function sleep(ms){ return ms>0?new Promise(r=>setTimeout(r,ms)):Promise.resolve(); }
 function header(headers,name){ try{return headers&&typeof headers.get==='function'?headers.get(name):null;}catch{return null;} }
@@ -190,8 +190,11 @@ async function acquire({path='',kind='PUBLIC',weight=null,maxWaitMs=5000,nowFn=D
 }
 
 function status(now=Date.now()){
+  prune(now);
+  const req1m=state.events.length;
+  const countKind=kind=>state.events.reduce((n,x)=>n+(x.kind===kind?1:0),0);
   return {
-    active:state.active,queued:state.waiters.length,estimatedWeight1m:estimatedWeight1m(now),usedWeight1m:state.usedWeight1m,
+    active:state.active,queued:state.waiters.length,requests1m:req1m,publicRequests1m:countKind('PUBLIC'),liveReadRequests1m:countKind('LIVE_READ'),liveWriteRequests1m:countKind('LIVE_WRITE'),recoveryProbeRequests1m:countKind('RECOVERY_PROBE'),estimatedWeight1m:estimatedWeight1m(now),usedWeight1m:state.usedWeight1m,
     usedWeightAgeMs:state.usedWeightAt?Math.max(0,now-state.usedWeightAt):null,cooldownUntil:state.cooldownUntil||null,
     cooldownMs:state.cooldownUntil>now?state.cooldownUntil-now:0,cooldownReason:state.cooldownReason,lastStatus:state.lastStatus,
     last429At:state.last429At||null,last418At:state.last418At||null,requests:state.requests,locallyBlocked:state.locallyBlocked,

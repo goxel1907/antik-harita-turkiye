@@ -1146,7 +1146,7 @@ function renderDataQualityAndBudget(s){
     ['TF zaman farkı',dq?.timestampSkewMs==null?'—':`${Math.round(Number(dq.timestampSkewMs)/1000)} sn`],
     ['Context',ph.bytes==null?'—':`${ph.bytes} / ${ph.maxBytes??48000} bayt${ph.targetBytes?` • hedef ${ph.targetBytes}`:''}${ph.coreTruthProtected===false?' • CORE DEĞİŞTİ':''}${ph.blocked?' • TAVAN ENGELİ':''}`],
     ['Kalan bütçe',cb.remainingBytes==null?'—':`${cb.remainingBytes} bayt`],
-    ['Binance REST koruması',br.quarantined?`KARANTİNA • ${br.cooldownMs>0?Math.ceil(br.cooldownMs/1000)+' sn':'süre doldu'} • manual recovery gerekli • son ${br.lastRequestKind||'—'} ${br.lastRequestPath||''}`:(br.cooldownMs>0?`COOLDOWN ${Math.ceil(br.cooldownMs/1000)} sn • ${br.cooldownReason||'RATE_LIMIT'}`:`AKTİF • est ${br.estimatedWeight1m??0}/dk • remote ${br.usedWeight1m??'—'} • paralel ${br.active??0}/${br.maxConcurrent??4}`)],
+    ['Binance REST koruması',br.quarantined?`KARANTİNA • ${br.cooldownMs>0?Math.ceil(br.cooldownMs/1000)+' sn':'süre doldu'} • manual recovery gerekli • son ${br.lastRequestKind||'—'} ${br.lastRequestPath||''}`:(br.cooldownMs>0?`COOLDOWN ${Math.ceil(br.cooldownMs/1000)} sn • ${br.cooldownReason||'RATE_LIMIT'}`:`AKTİF • req ${br.requests1m??'—'}/dk • est ${br.estimatedWeight1m??0}/dk • remote ${br.usedWeight1m??'—'} • paralel ${br.active??0}/${br.maxConcurrent??4} • kuyruk ${br.queued??0}`)],
     ['Politika',cb.policy||'CORE_MARKET_FIRST']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   const opt=(cb.optionalSectionsCompacted||[]).join(' → '); const mk=(cb.marketCompactionSteps||[]).join(' → ');

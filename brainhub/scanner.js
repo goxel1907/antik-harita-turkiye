@@ -19,6 +19,10 @@ const TARGET_DETAIL_LIMIT = 36;   // R2544.16: 30→36 (yeni öncelik sırasınd
 const LADDER_HISTORY_MS = 30 * 60 * 1000;   // yükselenler sırası geçmişi (hız hesabı)
 const LADDER_TRACK_RANK = 80;               // geçmişi tutulan en kötü sıra
 const EXCHANGE_TTL_MS = 10 * 60 * 1000;
+function envInt(name,fallback,lo,hi){const x=Math.round(Number(process.env[name]));return Number.isFinite(x)?Math.max(lo,Math.min(hi,x)):fallback;}
+// R2544.27d: preserve all 36 detailed candidates but avoid redundant full REST rescans from 20s/30s schedulers.
+const SCAN_CACHE_MS = envInt('BINANCE_SCANNER_CACHE_MS',30000,15000,60000);
+const DETAIL_ENRICH_CONCURRENCY = envInt('BINANCE_SCANNER_DETAIL_CONCURRENCY',2,1,4);
 
 let exchangeCache = { at: 0, data: null };
 
@@ -670,7 +674,7 @@ async function performScan() {
   const selection = selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
   const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, acceleratingPool, noveltyPool, attentionStatus, newTargetCount, candidates, targetSymbols, ladder, nearPool, slotPlan } = selection;
 
-  const enriched = await mapLimit(candidates,8,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
+  const enriched = await mapLimit(candidates,DETAIL_ENRICH_CONCURRENCY,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
   good.forEach((x,i)=>addLeaderHunterFields(x,i+1,prev.bySymbol?.[x.symbol]));
   // CLAUDE_R2544_16: ayrıntılı adaylarda bulunan ön-hareket imzaları 20 dk saklanır (bir sonraki taramada patlamaya-yakın havuzu).
@@ -801,10 +805,10 @@ let cache=null;
 // CLAUDE_R2544_15: Office için tarama TETİKLEMEDEN son sonuç.
 function lastScan(){return cache?{...cache.result,cacheAgeMs:Date.now()-cache.at}:null;}
 async function scan(){
-  if(cache&&Date.now()-cache.at<15000)return {...cache.result,cacheAgeMs:Date.now()-cache.at};
+  if(cache&&Date.now()-cache.at<SCAN_CACHE_MS)return {...cache.result,cacheAgeMs:Date.now()-cache.at};
   if(inFlight)return inFlight;
   inFlight=performScan().then(result=>{cache={at:Date.now(),result};return result;}).finally(()=>{inFlight=null;});
   return inFlight;
 }
 
-module.exports={readPreMoveHits,recordPreMoveHits,PREMOVE_HITS_PATH,scan,lastScan,buildGainerLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT};
+module.exports={readPreMoveHits,recordPreMoveHits,PREMOVE_HITS_PATH,scan,lastScan,buildGainerLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT,SCAN_CACHE_MS,DETAIL_ENRICH_CONCURRENCY};

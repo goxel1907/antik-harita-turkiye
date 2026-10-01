@@ -95,3 +95,24 @@ test('R2544.27c 418 quarantine persists across BrainHub restart',()=>{
   const st=JSON.parse(b.stdout); assert.equal(st.quarantined,true); assert.equal(st.cooldownUntil,ban); assert.equal(st.lastStatus,418);
   fs.rmSync(root,{recursive:true,force:true});
 });
+
+
+test('R2544.27d missing used-weight header never erases the last valid remote weight',()=>{
+  rl.resetForTests();
+  rl.observeResponse({status:200,headers:headers({'x-mbx-used-weight-1m':'321'}),now:5000000});
+  assert.equal(rl.status(5000000).usedWeight1m,321);
+  rl.observeResponse({status:200,headers:headers({}),now:5000100});
+  const st=rl.status(5000100);
+  assert.equal(st.usedWeight1m,321);
+  assert.equal(st.usedWeightAgeMs,100);
+});
+
+test('R2544.27d exposes rolling one-minute request telemetry by traffic kind',async()=>{
+  rl.resetForTests();
+  const p1=await rl.acquire({path:'/fapi/v1/time',kind:'PUBLIC',nowFn:()=>6000000});p1.release();
+  const p2=await rl.acquire({path:'/fapi/v3/account',kind:'LIVE_READ',nowFn:()=>6000100});p2.release();
+  const st=rl.status(6000200);
+  assert.equal(st.requests1m,2);
+  assert.equal(st.publicRequests1m,1);
+  assert.equal(st.liveReadRequests1m,1);
+});
