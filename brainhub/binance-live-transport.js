@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const { canonicalOrder } = require('./live-authorization');
+const binanceRate = require('./binance-rate-limit');
 
 const DEFAULT_BASE_URL = 'https://fapi.binance.com';
 const DEFAULT_RECV_WINDOW_MS = 5000;
@@ -139,8 +140,11 @@ class BinanceLiveTransport {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-      let response;
+      let response, permit = null;
       try {
+        const kind=signed ? (method==='GET'?'LIVE_READ':'LIVE_WRITE') : 'PUBLIC';
+        try{permit=await binanceRate.acquire({path:path+(query?`?${query}`:''),kind,maxWaitMs:Math.min(5000,Math.max(1000,this.timeoutMs-250))});}
+        catch(e){throw new TransportError(e?.code||'BINANCE_RATE_LIMIT_GUARD',{endpoint:path,requestSent:false,body:{cooldownUntil:e?.cooldownUntil||null,reason:e?.reason||null}});}
         response = await this.fetchImpl(url, {
           method,
           signal:controller.signal,
@@ -167,6 +171,7 @@ class BinanceLiveTransport {
           try { body = JSON.parse(raw); }
           catch { body = { msg:raw.slice(0,240) }; }
         }
+        binanceRate.observeResponse({status:response.status,headers:response.headers,body});
         if (!response.ok) {
           throw new TransportError(`BINANCE_HTTP_${response.status}`, {
             endpoint:path,
@@ -192,6 +197,7 @@ class BinanceLiveTransport {
             });
       } finally {
         clearTimeout(timer);
+        permit?.release?.();
       }
 
       if (attempt < maxAttempts) {

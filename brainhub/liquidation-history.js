@@ -10,7 +10,7 @@ const path = require('path');
 
 // Birincil: mevcut forceOrder akışıyla aynı "market" uç noktası + SUBSCRIBE. Yedek: klasik doğrudan akış yolu.
 const ENDPOINTS = [
-  { url: 'wss://fstream.binance.com/market/ws', subscribe: true },
+  { url: 'wss://fstream.binance.com/ws', subscribe: true },
   { url: 'wss://fstream.binance.com/ws/!forceOrder@arr', subscribe: false }
 ];
 const SILENT_SWITCH_MS = 3 * 60 * 1000;   // bağlı ama bu süre hiç olay yoksa diğer uç noktaya geç

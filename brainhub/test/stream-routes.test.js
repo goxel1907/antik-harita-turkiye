@@ -18,7 +18,7 @@ test('public books and market trades route independently, including eviction and
   stream.maxSymbols=1;
   stream.ensureSymbol('BTCUSDT');
   const [book,market]=Socket.instances;
-  assert.match(book.url,/\/public\/ws$/);assert.match(market.url,/\/market\/ws$/);
+  assert.match(book.url,/\/ws$/);assert.match(market.url,/\/ws$/);
   book.open();market.open();
   assert.deepEqual(book.sent[0].params,['btcusdt@bookTicker','btcusdt@depth20@100ms']);
   assert.deepEqual(market.sent[0].params,['btcusdt@aggTrade','btcusdt@forceOrder']);
@@ -33,7 +33,7 @@ test('public books and market trades route independently, including eviction and
   await new Promise(resolve=>setTimeout(resolve,20));
   assert.equal(Socket.instances.length,3);
   const replacement=Socket.instances[2];replacement.open();
-  assert.match(replacement.url,/\/market\/ws$/);
+  assert.match(replacement.url,/\/ws$/);
   assert.ok(replacement.sent[0].params.every(x=>x.startsWith('ethusdt@')));
   assert.equal(stream.ws,book);
   const now=Date.now();

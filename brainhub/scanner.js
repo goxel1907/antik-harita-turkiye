@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { preMoveSignal, combinePreMove } = require('./premove');
+const binanceRate = require('./binance-rate-limit');
 
 const ROOT = process.env.BRAINHUB_ROOT || path.resolve(__dirname, '..');
 const STATE_PATH = path.join(ROOT, 'data', 'scanner-state.json');
@@ -37,9 +38,17 @@ function cap100(v) { return Math.max(0, Math.min(100, num(v))); }
 function validUsdtSymbol(s) { return typeof s === 'string' && /^[A-Z0-9]{1,28}USDT$/.test(s); }
 
 async function jget(endpoint, timeoutMs = 10000) {
-  const r = await fetch(BASE + endpoint, { signal: AbortSignal.timeout(timeoutMs) });
-  if (!r.ok) throw new Error(`Binance HTTP ${r.status} ${endpoint}`);
-  return r.json();
+  const permit=await binanceRate.acquire({path:endpoint,kind:'PUBLIC',maxWaitMs:Math.min(5000,Math.max(1000,timeoutMs-250))});
+  try{
+    const r = await fetch(BASE + endpoint, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!r.ok) {
+      let body=null;try{body=await r.json();}catch{}
+      binanceRate.observeResponse({status:r.status,headers:r.headers,body});
+      const e=new Error(`Binance HTTP ${r.status} ${endpoint}`);e.status=r.status;e.body=body;throw e;
+    }
+    binanceRate.observeResponse({status:r.status,headers:r.headers});
+    return r.json();
+  }finally{permit.release();}
 }
 async function exchangeInfo() {
   if (exchangeCache.data && Date.now() - exchangeCache.at < EXCHANGE_TTL_MS) return exchangeCache.data;

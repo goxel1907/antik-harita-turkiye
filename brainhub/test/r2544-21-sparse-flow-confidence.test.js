@@ -102,7 +102,7 @@ test('R2544.21 JEV prompt, Office and deployment list expose pre-entry timing ev
   const j=src('jev-decision.js'),html=src('office-dashboard/public/office.html'),srv=src('server.js'),off=src('office-dashboard/office-server.js'),manage=src('manage.ps1');
   assert.match(j,/preEntryAdverseSelection/);assert.match(j,/ADVERSE_SELECTION_RISK/);assert.match(j,/TRAP_RISK_WAIT/);
   assert.match(html,/Giriş Öncesi Mikroyapı \/ Tuzak Riski/);assert.match(html,/Pre-entry tuzak/);
-  assert.match(srv,/R2544\.26-RESEARCH-HARDENING/);assert.match(off,/2\.5\.6-R2544\.26-JEV-Brain/);assert.match(manage,/preentry-microstructure\.js/);
+  assert.match(srv,/R2544\.27-BINANCE-RATE-LIMIT-HARDENING/);assert.match(off,/2\.5\.7-R2544\.27-JEV-Brain/);assert.match(manage,/preentry-microstructure\.js/);
 });
 
 
@@ -138,7 +138,7 @@ test('R2544.21 aggTrade windows expose coverageMs for honest sample confidence',
 
 test('R2544.22 runtime and Office preserve R2544.21 sparse-flow confidence hardening',()=>{
   const srv=src('server.js'),off=src('office-dashboard/office-server.js'),html=src('office-dashboard/public/office.html'),jev=src('jev-decision.js');
-  assert.match(srv,/R2544\.26-RESEARCH-HARDENING/);assert.match(srv,/R2544_21_SPARSE_FLOW_CONFIDENCE/);assert.match(off,/2\.5\.6-R2544\.26-JEV-Brain/);
+  assert.match(srv,/R2544\.27-BINANCE-RATE-LIMIT-HARDENING/);assert.match(srv,/R2544_21_SPARSE_FLOW_CONFIDENCE/);assert.match(off,/2\.5\.7-R2544\.27-JEV-Brain/);
   assert.match(html,/kısa pencere/);assert.match(html,/Seyrek pencere/);assert.match(jev,/samplingConfidence/);assert.match(jev,/SPARSE\/VERY_SPARSE/);
 });
 

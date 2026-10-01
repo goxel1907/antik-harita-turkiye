@@ -4,12 +4,13 @@ const zlib = require('zlib');
 const { FRAMES, NATIVE_FRAMES, analyzeFrames, microstructure, parseKlines, aggregate45m, structure } = require('./engine');
 const { combinePreMove } = require('./premove');
 const { LocalL2Manager } = require('./local-l2');
+const binanceRate = require('./binance-rate-limit');
 
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
 const GECKO = 'https://api.coingecko.com/api/v3';
-const FUTURES_WS = 'wss://fstream.binance.com/public/ws';
-const FUTURES_MARKET_WS = 'wss://fstream.binance.com/market/ws';
+const FUTURES_WS = 'wss://fstream.binance.com/ws';
+const FUTURES_MARKET_WS = 'wss://fstream.binance.com/ws';
 const frameCache = new Map();
 const depthCache = new Map();
 const derivativesCache = new Map();
@@ -655,9 +656,18 @@ const { LiquidationHistory } = require('./liquidation-history');
 const liquidationHistory = new LiquidationHistory();
 
 async function getJson(base, endpoint, timeout = 10000) {
-  const res = await fetch(base + endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(timeout) });
-  if (!res.ok) throw new Error(`${new URL(base).hostname} HTTP ${res.status}`);
-  return res.json();
+  const isBinance=/\.binance\.com$/i.test(new URL(base).hostname);
+  const permit=isBinance ? await binanceRate.acquire({path:endpoint,kind:'PUBLIC',maxWaitMs:Math.min(5000,Math.max(1000,timeout-250))}) : null;
+  try {
+    const res = await fetch(base + endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(timeout) });
+    if (!res.ok) {
+      let body=null; try{body=await res.json();}catch{}
+      if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers,body});
+      const e=new Error(`${new URL(base).hostname} HTTP ${res.status}`);e.status=res.status;e.body=body;throw e;
+    }
+    if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers});
+    return res.json();
+  } finally { permit?.release?.(); }
 }
 
 async function restCvd120(symbol, now = Date.now()) {

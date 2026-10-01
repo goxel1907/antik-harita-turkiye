@@ -10,7 +10,7 @@ function parseRows(rows){return Array.isArray(rows)?rows.map(x=>[n(x?.[0]),n(x?.
 function quality(score){const x=n(score)||0;return x>=0.8?'FULL':x>=0.5?'MODERATE':x>=0.2?'SPARSE':x>0?'VERY_SPARSE':'UNAVAILABLE';}
 
 class LocalL2Manager{
-  constructor({WebSocketImpl=null,snapshotLoader=null,endpoint='wss://fstream.binance.com/public/ws',now=()=>Date.now(),maxSymbols=6,staleMs=3000}={}){
+  constructor({WebSocketImpl=null,snapshotLoader=null,endpoint='wss://fstream.binance.com/ws',now=()=>Date.now(),maxSymbols=6,staleMs=3000}={}){
     this.WebSocketImpl=WebSocketImpl;this.snapshotLoader=snapshotLoader;this.endpoint=endpoint;this.now=now;
     this.maxSymbols=maxSymbols;this.staleMs=staleMs;this.states=new Map();this.subscribed=new Set();this.ws=null;this.connecting=false;this.retryMs=1000;this.timer=null;this.id=1;this.stopped=false;this.evictions=0;
   }

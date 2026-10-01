@@ -1139,13 +1139,14 @@ function renderCaseMemory(s){
   $('#caseTable').innerHTML='<tr><th>Coin</th><th>Yön</th><th>Durum</th><th>PnL</th><th>R</th><th>Çıkış</th><th>Entry hash</th><th>Mikroyapı</th></tr>'+ (rows.length?rows.map(x=>`<tr><td><b>${esc(x.symbol)}</b></td><td>${esc(trUi(x.side||'—'))}</td><td>${esc(x.state)}</td><td>${x.net==null?'—':(Number(x.net)>=0?'+':'')+Number(x.net).toFixed(2)}</td><td>${x.r==null?'—':Number(x.r).toFixed(2)}</td><td>${esc(x.exit||'—')}</td><td>${esc(String(x.hash||'—').slice(0,12))}</td><td>${esc(x.events||'—')}</td></tr>`).join(''):'<tr><td colspan="8" class="muted">İlk immutable işlem vakası bekleniyor.</td></tr>');
 }
 function renderDataQualityAndBudget(s){
-  const cm=s.caseMemory?.data||{}; const active=(cm.open||[])[0]||null; const dq=active?.entryCase?.dataQuality||null; const ph=s.packetHealth||{}; const cb=ph.contextBudget||{};
+  const cm=s.caseMemory?.data||{}; const active=(cm.open||[])[0]||null; const dq=active?.entryCase?.dataQuality||null; const ph=s.packetHealth||{}; const cb=ph.contextBudget||{}; const br=s.health?.data?.binanceRateLimit||{};
   const flags=Array.isArray(dq?.flags)?dq.flags:[];
   $('#dataQualityKv').innerHTML=[
     ['Entry veri kalitesi',dq?(dq.advisoryUsable!==false?(flags.length?'UYARI • '+flags.join(', '):'TEMİZ'):'KULLANILAMAZ'):'aktif immutable entry snapshot yok'],
     ['TF zaman farkı',dq?.timestampSkewMs==null?'—':`${Math.round(Number(dq.timestampSkewMs)/1000)} sn`],
     ['Context',ph.bytes==null?'—':`${ph.bytes} / ${ph.maxBytes??48000} bayt${ph.targetBytes?` • hedef ${ph.targetBytes}`:''}${ph.coreTruthProtected===false?' • CORE DEĞİŞTİ':''}${ph.blocked?' • TAVAN ENGELİ':''}`],
     ['Kalan bütçe',cb.remainingBytes==null?'—':`${cb.remainingBytes} bayt`],
+    ['Binance REST koruması',br.cooldownMs>0?`COOLDOWN ${Math.ceil(br.cooldownMs/1000)} sn • ${br.cooldownReason||'RATE_LIMIT'}`:`AKTİF • est ${br.estimatedWeight1m??0}/dk • remote ${br.usedWeight1m??'—'} • paralel ${br.active??0}/${br.maxConcurrent??4}`],
     ['Politika',cb.policy||'CORE_MARKET_FIRST']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   const opt=(cb.optionalSectionsCompacted||[]).join(' → '); const mk=(cb.marketCompactionSteps||[]).join(' → ');
