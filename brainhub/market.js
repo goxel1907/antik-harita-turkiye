@@ -662,10 +662,10 @@ async function getJson(base, endpoint, timeout = 10000) {
     const res = await fetch(base + endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(timeout) });
     if (!res.ok) {
       let body=null; try{body=await res.json();}catch{}
-      if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers,body});
+      if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers,body,path:endpoint,kind:'PUBLIC'});
       const e=new Error(`${new URL(base).hostname} HTTP ${res.status}`);e.status=res.status;e.body=body;throw e;
     }
-    if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers});
+    if(isBinance)binanceRate.observeResponse({status:res.status,headers:res.headers,path:endpoint,kind:'PUBLIC'});
     return res.json();
   } finally { permit?.release?.(); }
 }

@@ -2905,6 +2905,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
+  async function binanceRecoveryProbe() {
+    try {
+      const out = await transport.recoveryProbe();
+      return { ok:true, requestSent:true, serverTime:out?.serverTime ?? null };
+    } catch (e) {
+      return {
+        ok:false,
+        requestSent:e?.requestSent === true,
+        status:Number.isFinite(Number(e?.status)) ? Number(e.status) : null,
+        exchangeError:e?.body || null,
+        reasons:[String(e?.message || 'BINANCE_RECOVERY_PROBE_FAILED').slice(0,160)]
+      };
+    }
+  }
+
   async function accountSummary({ maxAgeMs = 5000 } = {}) {
     const now = clock();
     if (accountSummaryCache.value && Number.isFinite(now) && now - accountSummaryCache.at >= 0 && now - accountSummaryCache.at <= maxAgeMs) {
@@ -4840,7 +4855,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
 
   restoreCooldownsFromJournal();
-  return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

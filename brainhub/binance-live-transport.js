@@ -108,7 +108,7 @@ class BinanceLiveTransport {
     this.exchangeInfoCache = { at:0, value:null };
   }
 
-  async _fetchJson(method, path, { params = {}, credentials = null, signed = false } = {}) {
+  async _fetchJson(method, path, { params = {}, credentials = null, signed = false, rateLimitKind = null } = {}) {
     const apiKey = text(credentials?.apiKey);
     const apiSecret = text(credentials?.apiSecret);
     if (signed && (!apiKey || !apiSecret)) throw new TransportError('BINANCE_CREDENTIALS_REQUIRED', { endpoint:path, requestSent:false });
@@ -142,7 +142,7 @@ class BinanceLiveTransport {
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       let response, permit = null;
       try {
-        const kind=signed ? (method==='GET'?'LIVE_READ':'LIVE_WRITE') : 'PUBLIC';
+        const kind=rateLimitKind || (signed ? (method==='GET'?'LIVE_READ':'LIVE_WRITE') : 'PUBLIC');
         try{permit=await binanceRate.acquire({path:path+(query?`?${query}`:''),kind,maxWaitMs:Math.min(5000,Math.max(1000,this.timeoutMs-250))});}
         catch(e){throw new TransportError(e?.code||'BINANCE_RATE_LIMIT_GUARD',{endpoint:path,requestSent:false,body:{cooldownUntil:e?.cooldownUntil||null,reason:e?.reason||null}});}
         response = await this.fetchImpl(url, {
@@ -171,7 +171,7 @@ class BinanceLiveTransport {
           try { body = JSON.parse(raw); }
           catch { body = { msg:raw.slice(0,240) }; }
         }
-        binanceRate.observeResponse({status:response.status,headers:response.headers,body});
+        binanceRate.observeResponse({status:response.status,headers:response.headers,body,path,kind});
         if (!response.ok) {
           throw new TransportError(`BINANCE_HTTP_${response.status}`, {
             endpoint:path,
@@ -212,6 +212,16 @@ class BinanceLiveTransport {
       }
     }
     throw lastError || new TransportError('BINANCE_NETWORK_ERROR', { endpoint:path, requestSent:true });
+  }
+
+
+
+  async recoveryProbe() {
+    const body = await this._fetchJson('GET', '/fapi/v1/time', { rateLimitKind:'RECOVERY_PROBE' });
+    const serverTime = finite(body?.serverTime);
+    if (serverTime === null) throw new TransportError('BINANCE_RECOVERY_PROBE_INVALID', { endpoint:'/fapi/v1/time', requestSent:true });
+    this.serverOffsetMs = serverTime - this.clock();
+    return { ok:true, serverTime };
   }
 
   async _syncServerTime() {

@@ -15,3 +15,11 @@ test('R2544.27a deploy smoke does not require fresh Binance REST while guard is 
   assert.match(p,/if \(\$SkipExternalBinanceSmoke\) \{[\s\S]*externalBinanceSmoke=SKIPPED[\s\S]*\} else \{[\s\S]*\$scan\.activeUsdtPerpetuals/);
   assert.doesNotMatch(p,/BINANCE_EXTERNAL_SMOKE_SKIPPED[\s\S]*Write-Host "BRAINHUB_TEST_OK[^"\n]*\$scan\.activeUsdtPerpetuals[^"\n]*"\n\}/);
 });
+
+test('R2544.27c deploy preserves an active 418 quarantine across restart',()=>{
+  const deploy=fs.readFileSync(path.join(__dirname,'..','..','..','JEV-DEPLOY.ps1'),'utf8');
+  assert.match(deploy,/BINANCE_418_STATE_PRESERVED/);
+  assert.match(deploy,/binance-rate-limit-state\.json/);
+  assert.match(deploy,/quarantined=\$true/);
+  assert.match(deploy,/cooldownUntil=\$untilMs/);
+});

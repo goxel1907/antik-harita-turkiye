@@ -43,10 +43,10 @@ async function jget(endpoint, timeoutMs = 10000) {
     const r = await fetch(BASE + endpoint, { signal: AbortSignal.timeout(timeoutMs) });
     if (!r.ok) {
       let body=null;try{body=await r.json();}catch{}
-      binanceRate.observeResponse({status:r.status,headers:r.headers,body});
+      binanceRate.observeResponse({status:r.status,headers:r.headers,body,path:endpoint,kind:'PUBLIC'});
       const e=new Error(`Binance HTTP ${r.status} ${endpoint}`);e.status=r.status;e.body=body;throw e;
     }
-    binanceRate.observeResponse({status:r.status,headers:r.headers});
+    binanceRate.observeResponse({status:r.status,headers:r.headers,path:endpoint,kind:'PUBLIC'});
     return r.json();
   }finally{permit.release();}
 }
