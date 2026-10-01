@@ -65,7 +65,7 @@ test('likidasyon kaydı: WebSocket açılınca !forceOrder@arr aboneliği gönde
   class FakeWS{constructor(url){this.url=url;this.readyState=1;inst=this;this.h={};}addEventListener(n,f){this.h[n]=f;}send(m){sent.push(JSON.parse(m));}close(){}}
   const h=new LiquidationHistory({root:fs.mkdtempSync(path.join(os.tmpdir(),'liq2-')),WebSocketImpl:FakeWS,persist:false});
   h.start();
-  assert.equal(inst.url,'wss://fstream.binance.com/ws');
+  assert.equal(inst.url,'wss://fstream.binance.com/market/ws');
   inst.h.open();
   assert.deepEqual(sent[0],{method:'SUBSCRIBE',params:['!forceOrder@arr'],id:1});
   await inst.h.message({data:JSON.stringify({e:'forceOrder',E:1,o:{s:'PUMPUSDT',S:'BUY',ap:'0.005',z:'100000',T:Date.now()}})});

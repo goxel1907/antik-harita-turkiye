@@ -35,15 +35,15 @@ test('R2544.27 remote used-weight header protects public headroom without becomi
   }finally{if(old===undefined)delete process.env.BINANCE_PUBLIC_SOFT_WEIGHT_1M;else process.env.BINANCE_PUBLIC_SOFT_WEIGHT_1M=old;rl.resetForTests();}
 });
 
-test('R2544.27 WebSocket market endpoints use supported /ws path',()=>{
+test('R2544.27f WebSocket streams use Binance 2026 split public/market paths',()=>{
   const fs=require('node:fs'),path=require('node:path');
   const market=fs.readFileSync(path.join(__dirname,'..','market.js'),'utf8');
   const l2=fs.readFileSync(path.join(__dirname,'..','local-l2.js'),'utf8');
   const liq=fs.readFileSync(path.join(__dirname,'..','liquidation-history.js'),'utf8');
-  assert.doesNotMatch(market,/fstream\.binance\.com\/(?:public|market)\/ws/);
-  assert.match(market,/wss:\/\/fstream\.binance\.com\/ws/);
-  assert.match(l2,/wss:\/\/fstream\.binance\.com\/ws/);
-  assert.doesNotMatch(liq,/fstream\.binance\.com\/market\/ws/);
+  assert.match(market,/wss:\/\/fstream\.binance\.com\/public\/ws/);
+  assert.match(market,/wss:\/\/fstream\.binance\.com\/market\/ws/);
+  assert.match(l2,/wss:\/\/fstream\.binance\.com\/public\/ws/);
+  assert.match(liq,/wss:\/\/fstream\.binance\.com\/market\/ws/);
 });
 
 test('R2544.27c 418 quarantine remains closed after timer expiry until explicit recovery probe',async()=>{
