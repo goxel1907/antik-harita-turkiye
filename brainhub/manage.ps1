@@ -191,7 +191,7 @@ function Start-Brain([string]$BrainRoot, [string]$Node, [string]$Key, [switch]$A
     $detail = Startup-Detail $outLog $errLog
     throw "BrainHub health timeout pid=$($proc.Id) lastHealth=$lastHealth. $detail"
 }
-function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
+function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep, [switch]$SkipExternalBinanceSmoke) {
     $headers = Auth-Headers $BrainRoot
     $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers $headers -TimeoutSec 5
     if (-not $h.ok -or $h.version -ne 'brainhub-pro-1') { throw 'Yeni BrainHub health testi gecmedi.' }
@@ -261,23 +261,36 @@ function Test-Brain([string]$BrainRoot, [switch]$IncludeDeep) {
         throw 'v9.5.108 plan worker runtime durumu etkin degil.'
     }
     Write-Host ("WORKER_POLICY routine={0} openRouterModel={1} freeOnly={2} configured={3}" -f (Get-PropValue $planWorkerStatus 'routineRouter' ''),(Get-PropValue $freeWorkerRoute 'model' ''),(Get-PropValue $freeWorkerRoute 'freeOnly' $false),(Get-PropValue $freeWorkerRoute 'configured' $false))
-    $scan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/scanner' -Headers $headers -TimeoutSec 90
-    if (-not $scan.ok -or $scan.activeUsdtPerpetuals -lt 1) { throw 'Scanner testi gecmedi.' }
-    if ($null -eq $scan.longExpansion -or $null -eq $scan.shortExpansion -or $null -eq $scan.earlyExpansion) { throw 'Cift yonlu expansion radar alanlari eksik.' }
-    $symbol = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/symbol?symbol=BTCUSDT' -Headers $headers -TimeoutSec 60
-    if (-not $symbol.ok -or -not $symbol.timeframes.'15m'.available -or -not $symbol.timeframes.'45m'.available) { throw '9TF sembol baglami testi gecmedi.' }
-    $unified = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/unified?symbol=BTCUSDT' -Headers $headers -TimeoutSec 90
-    if (-not $unified.ok -or -not $unified.dataQuality.advisoryUsable -or -not $unified.policy.unifiedEngineDoesNotWaitFor15m) { throw 'Unified Brain Context testi gecmedi.' }
-    $chart = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/chart/data?symbol=BTCUSDT&tf=45m&bars=64' -Headers $headers -TimeoutSec 60
-    if (-not $chart.ok -or -not $chart.synthetic -or $chart.bars -lt 52) { throw '45m causal chart data testi gecmedi.' }
-    $pngPath = Join-Path $env:TEMP ("brainhub-chart-" + [guid]::NewGuid().ToString('N') + '.png')
-    try {
-        Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8787/chart/png?symbol=BTCUSDT&tf=15m&mode=annotated&bars=64' -Headers $headers -TimeoutSec 60 -OutFile $pngPath | Out-Null
-        $bytes = [IO.File]::ReadAllBytes($pngPath)
-        if ($bytes.Length -lt 1000 -or $bytes[0] -ne 137 -or $bytes[1] -ne 80 -or $bytes[2] -ne 78 -or $bytes[3] -ne 71) { throw 'PNG imza veya boyut testi gecmedi.' }
-    } finally { Remove-Item -LiteralPath $pngPath -Force -ErrorAction SilentlyContinue }
-    $global = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/global' -Headers $headers -TimeoutSec 90
-    if (-not $global.ok -or -not $global.btc.available -or -not $global.eth.available) { throw 'BTC/ETH global baglam testi gecmedi.' }
+    if ($SkipExternalBinanceSmoke) {
+        # R2544.27a: Update/deploy smoke must not require fresh Binance REST. This is critical when
+        # the hotfix itself is being deployed during an active 429/418 cooldown/ban. We still verify
+        # that the guard is loaded and scanner's read-only cache endpoint is alive.
+        $rate = Get-PropValue $h 'binanceRateLimit' $null
+        if ($null -eq $rate) { throw 'Binance REST guard health telemetrisi eksik.' }
+        if ([int](Get-PropValue $rate 'maxConcurrent' 99) -gt 4) { throw 'Binance REST maxConcurrent guvenlik siniri >4.' }
+        if ([int](Get-PropValue $rate 'publicSoftWeight1m' 99999) -gt 1600) { throw 'Binance public soft-weight guvenlik siniri >1600.' }
+        $scanLast = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/scanner/last' -Headers $headers -TimeoutSec 5
+        if (-not $scanLast.ok) { throw 'Scanner read-only cache endpoint testi gecmedi.' }
+        Write-Host ("BINANCE_EXTERNAL_SMOKE_SKIPPED updateSafe=True cooldownMs={0} reason={1} maxConcurrent={2} publicSoftWeight1m={3}" -f (Get-PropValue $rate 'cooldownMs' 0),(Get-PropValue $rate 'cooldownReason' ''),(Get-PropValue $rate 'maxConcurrent' 0),(Get-PropValue $rate 'publicSoftWeight1m' 0))
+    } else {
+        $scan = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/scanner' -Headers $headers -TimeoutSec 90
+        if (-not $scan.ok -or $scan.activeUsdtPerpetuals -lt 1) { throw 'Scanner testi gecmedi.' }
+        if ($null -eq $scan.longExpansion -or $null -eq $scan.shortExpansion -or $null -eq $scan.earlyExpansion) { throw 'Cift yonlu expansion radar alanlari eksik.' }
+        $symbol = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/symbol?symbol=BTCUSDT' -Headers $headers -TimeoutSec 60
+        if (-not $symbol.ok -or -not $symbol.timeframes.'15m'.available -or -not $symbol.timeframes.'45m'.available) { throw '9TF sembol baglami testi gecmedi.' }
+        $unified = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/unified?symbol=BTCUSDT' -Headers $headers -TimeoutSec 90
+        if (-not $unified.ok -or -not $unified.dataQuality.advisoryUsable -or -not $unified.policy.unifiedEngineDoesNotWaitFor15m) { throw 'Unified Brain Context testi gecmedi.' }
+        $chart = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/chart/data?symbol=BTCUSDT&tf=45m&bars=64' -Headers $headers -TimeoutSec 60
+        if (-not $chart.ok -or -not $chart.synthetic -or $chart.bars -lt 52) { throw '45m causal chart data testi gecmedi.' }
+        $pngPath = Join-Path $env:TEMP ("brainhub-chart-" + [guid]::NewGuid().ToString('N') + '.png')
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8787/chart/png?symbol=BTCUSDT&tf=15m&mode=annotated&bars=64' -Headers $headers -TimeoutSec 60 -OutFile $pngPath | Out-Null
+            $bytes = [IO.File]::ReadAllBytes($pngPath)
+            if ($bytes.Length -lt 1000 -or $bytes[0] -ne 137 -or $bytes[1] -ne 80 -or $bytes[2] -ne 78 -or $bytes[3] -ne 71) { throw 'PNG imza veya boyut testi gecmedi.' }
+        } finally { Remove-Item -LiteralPath $pngPath -Force -ErrorAction SilentlyContinue }
+        $global = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/context/global' -Headers $headers -TimeoutSec 90
+        if (-not $global.ok -or -not $global.btc.available -or -not $global.eth.available) { throw 'BTC/ETH global baglam testi gecmedi.' }
+    }
     $learn = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/learning' -Headers $headers -TimeoutSec 5
     if (-not $learn.ok) { throw 'SQLite learning testi gecmedi.' }
     if ($IncludeDeep) {
@@ -1020,7 +1033,7 @@ try {
     }
     Migrate-JevBudgetPolicy $rootFull
     Start-Brain $rootFull $node $key
-    Test-Brain $rootFull -IncludeDeep:$Deep
+    Test-Brain $rootFull -IncludeDeep:$Deep -SkipExternalBinanceSmoke
     Write-Host "BRAINHUB_$($Action.ToUpperInvariant())_OK backup=$backup"
 } catch {
     Write-Warning "Update dogrulanamadi: $($_.Exception.Message). Geri alma deneniyor."
