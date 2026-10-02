@@ -28,6 +28,12 @@ function buildDryRunOrder({ intent, riskGate } = {}) {
   const limitPrice = finite(intent?.limitPrice);
   const clientOrderId = typeof intent?.clientOrderId === 'string' ? intent.clientOrderId.trim() : '';
   const lineageId = typeof intent?.lineageId === 'string' ? intent.lineageId.trim() : '';
+  const managementStyle = typeof intent?.managementStyle === 'string' ? intent.managementStyle.trim() : null;
+  const targetProfile = typeof intent?.targetProfile === 'string' ? intent.targetProfile.trim() : null;
+  const partialProfile = typeof intent?.partialProfile === 'string' ? intent.partialProfile.trim() : null;
+  const partialFractions = Array.isArray(intent?.partialFractions) ? intent.partialFractions.slice(0,3).map(finite) : null;
+  const breakevenRule = typeof intent?.breakevenRule === 'string' ? intent.breakevenRule.trim() : null;
+  const trailRule = typeof intent?.trailRule === 'string' ? intent.trailRule.trim() : null;
 
   if (mode !== 'DRY_RUN') reasons.push('DRY_RUN_MODE_REQUIRED');
   if (intent?.live === true) reasons.push('LIVE_EXECUTION_DISABLED');
@@ -102,7 +108,8 @@ function buildDryRunOrder({ intent, riskGate } = {}) {
       takeProfit3,
       limitPrice:orderType === 'LIMIT' ? limitPrice : null,
       clientOrderId,
-      lineageId
+      lineageId,
+      managementStyle,targetProfile,partialProfile,partialFractions,breakevenRule,trailRule
     },
     transport:{ attempted:false, requestSent:false },
     reasons:[]

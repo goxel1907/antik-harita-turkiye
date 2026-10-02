@@ -43,12 +43,23 @@ function floorToStep(value, step) {
   return Number(out.toPrecision(15));
 }
 
-function splitTakeProfitQty(totalQty, step) {
+function normalizePartialFractions(v) {
+  if (!Array.isArray(v) || v.length !== 3) return [1/3,1/3,1/3];
+  const a=v.map(finite);
+  if (a.some(x => x === null || x <= 0)) return [1/3,1/3,1/3];
+  const sum=a.reduce((x,y)=>x+y,0);
+  if (!(sum > 0) || Math.abs(sum-1)>0.02) return [1/3,1/3,1/3];
+  return a.map(x=>x/sum);
+}
+
+function splitTakeProfitQty(totalQty, step, partialFractions = null) {
   const total = finite(totalQty), s = finite(step);
   if (total === null || s === null || total <= 0 || s <= 0) return null;
-  const q1 = floorToStep(total / 3, s);
-  const q2 = floorToStep(total / 3, s);
+  const f=normalizePartialFractions(partialFractions);
+  const q1 = floorToStep(total * f[0], s);
+  const q2 = floorToStep(total * f[1], s);
   if (q1 === null || q2 === null) return null;
+  // Last bucket absorbs exchange-step rounding so the executable quantity still sums to the fill.
   const q3 = floorToStep(total - q1 - q2, s);
   if (q3 === null) return null;
   return [q1,q2,q3];
@@ -283,7 +294,7 @@ class BinanceLiveTransport {
     }
 
     if (lot && qty !== null && step !== null) {
-      const split = splitTakeProfitQty(qty, step);
+      const split = splitTakeProfitQty(qty, step, order.partialFractions);
       if (!split || split.some(x => x < minQty || x <= 0)) reasons.push('TAKE_PROFIT_SPLIT_BELOW_MIN_QTY');
       if (minNotional !== null && split) {
         const tps = [finite(order.takeProfit1), finite(order.takeProfit2), finite(order.takeProfit3)];
@@ -560,7 +571,7 @@ class BinanceLiveTransport {
       const lot = filterOf(symbolInfo, 'MARKET_LOT_SIZE') || filterOf(symbolInfo, 'LOT_SIZE');
       const step = finite(lot?.stepSize);
       const minQty = finite(lot?.minQty);
-      const tpQty = splitTakeProfitQty(executedQty, step);
+      const tpQty = splitTakeProfitQty(executedQty, step, normalized.partialFractions);
       if (!tpQty || minQty === null || tpQty.some(x => x < minQty || x <= 0)) {
         return {
           ok:false,
@@ -589,7 +600,10 @@ class BinanceLiveTransport {
       const runnerEnabled = String(livePolicy?.runnerMode || '').toUpperCase() === 'BINDING';
       // CLAUDE_V112_RUNNER_TWO_THIRDS: varsayılan yalnız TP1 (1/3) konur; kalan 2/3 runner.
       const runnerShare = String(livePolicy?.runnerShare || 'ONE_THIRD').toUpperCase() === 'TWO_THIRDS' ? 'TWO_THIRDS' : 'ONE_THIRD';
-      const tpCount = runnerEnabled ? (runnerShare === 'ONE_THIRD' ? 2 : 1) : 3;
+      // R2544.28: when JEV supplied an explicit partial profile, place TP1+TP2 and preserve bucket 3
+      // as the runner. Legacy runnerShare is only a fallback for old/no-profile entries.
+      const hasJevFractions=Array.isArray(normalized.partialFractions)&&normalized.partialFractions.length===3;
+      const tpCount = runnerEnabled ? (hasJevFractions ? 2 : (runnerShare === 'ONE_THIRD' ? 2 : 1)) : 3;
       try {
         for (let i = 0; i < tpCount; i++) {
           const params = {
@@ -662,7 +676,7 @@ class BinanceLiveTransport {
         stopStatus:text(stop?.algoStatus) || 'NEW',
         tpAlgoIds,
         tpQuantities:tpQty,
-        runner:{ enabled:runnerEnabled, share:runnerEnabled ? runnerShare : null, tpPlaced:tpCount, quantity:runnerEnabled ? Number(tpQty.slice(tpCount).reduce((a,b)=>a+b,0).toPrecision(15)) : null, takeProfit2:tpLevels[1], takeProfit3:tpLevels[2], mode:runnerEnabled ? 'BINDING' : 'TP3_FIXED' },
+        runner:{ enabled:runnerEnabled, share:runnerEnabled ? runnerShare : null, managementProfile:normalized.partialProfile||null, partialFractions:normalized.partialFractions||null, tpPlaced:tpCount, quantity:runnerEnabled ? Number(tpQty.slice(tpCount).reduce((a,b)=>a+b,0).toPrecision(15)) : null, takeProfit2:tpLevels[1], takeProfit3:tpLevels[2], mode:runnerEnabled ? 'BINDING' : 'TP3_FIXED' },
         transport:{ attempted:true, requestSent:true },
         reasons:[]
       };
@@ -869,6 +883,7 @@ module.exports = {
   DEFAULT_RECV_WINDOW_MS,
   approxMultiple,
   floorToStep,
+  normalizePartialFractions,
   splitTakeProfitQty,
   BinanceLiveTransport
 };

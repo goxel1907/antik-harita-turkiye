@@ -81,8 +81,8 @@ test('R2535 free research uses 9Router + OpenRouter, fetched sources, then JEV v
 
 test('R2535 controller binds BrainHub-owned JEV EXIT/PARTIAL without requiring Leader AUTO to stay enabled',()=>{
   const src=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
-  assert.match(src,/bindingActions:\['EXIT_NOW','PARTIAL_TAKE_PROFIT'\]/);
-  assert.match(src,/bindingReduceAction=.*\['EXIT_NOW','PARTIAL_TAKE_PROFIT'\]/);
+  assert.match(src,/bindingActions:\['EXIT_NOW','PARTIAL_TAKE_PROFIT','REDUCE_RISK'\]/);
+  assert.match(src,/bindingReduceAction=.*\['EXIT_NOW','PARTIAL_TAKE_PROFIT','REDUCE_RISK'\]/);
   assert.match(src,/reducePositionMarket/);
   assert.equal(src.includes("execution:'JEV_EXIT_WAIT_AUTO_ENABLE'"),false);
   assert.match(src,/POSITION_NOT_BRAINHUB_OWNED/);

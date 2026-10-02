@@ -54,6 +54,15 @@ function buildLeaderLiveIntent({
   const status = String(plan?.status || '').trim().toUpperCase();
   const originTF = String(plan?.originTF || '').trim().toLowerCase();
 
+  const managementMeta={
+    managementStyle:plan?.managementStyle||null,
+    targetProfile:plan?.targetProfile||null,
+    partialProfile:plan?.partialProfile||null,
+    partialFractions:Array.isArray(plan?.partialFractions)?plan.partialFractions.slice(0,3).map(finite):null,
+    breakevenRule:plan?.breakevenRule||null,
+    trailRule:plan?.trailRule||null
+  };
+
   if (!/^[A-Z0-9]{1,24}USDT$/.test(symbol)) reasons.push('INTENT_SYMBOL_INVALID');
   if (!['LONG','SHORT'].includes(side)) reasons.push('INTENT_SIDE_INVALID');
   if (candidateSide && candidateSide !== side) {
@@ -284,6 +293,7 @@ function buildLeaderLiveIntent({
     liquidationModel:liq.ok?liq.model:null,
     liquidationSafetyBufferPct:liquidationBufferPct,
     costModel,
+    ...managementMeta,
     jevFinalAuthority:Boolean(jevFinalAuthority),
     softWarnings:[...new Set(softWarnings)],
     reasons:[...new Set(reasons)]
@@ -315,6 +325,7 @@ function buildLeaderLiveIntent({
     liquidationModel:liq.ok?liq.model:null,
     liquidationSafetyBufferPct:liquidationBufferPct,
     costModel,
+    ...managementMeta,
     jevFinalAuthority:Boolean(jevFinalAuthority),
     softWarnings:[...new Set(softWarnings)],
     reasons:[]

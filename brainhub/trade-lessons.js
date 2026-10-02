@@ -102,7 +102,8 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   const op=p.outcomePath&&typeof p.outcomePath==='object'?p.outcomePath:{};
   const mfeR=num(op.mfeR),maeR=num(op.maeR),timeToMfeMin=num(op.timeToMfeMin),timeToMaeMin=num(op.timeToMaeMin);
   const realizedR=cr.r!==null?cr.r:num(op.rMultiple);
-  const mfeGivebackR=mfeR!==null&&realizedR!==null?Math.max(0,mfeR-realizedR):null;
+  const mfeGivebackR=num(op.mfeGivebackR)??(mfeR!==null&&realizedR!==null?Math.max(0,mfeR-realizedR):null);
+  const captureEfficiency=num(op.captureEfficiency)??(mfeR!==null&&mfeR>0&&realizedR!==null&&realizedR>0?Math.max(0,Math.min(2,realizedR/mfeR)):null);
   const preEntry=preEntryForSide(ec,side);
   const regime=regimeKeyFromSignature(ec.marketSignature||null,side);
   const globalGapMin=prevGlobal&&Number.isFinite(opened)&&Number.isFinite(prevGlobal.closedMs)?r2((opened-prevGlobal.closedMs)/60000,1):null;
@@ -148,7 +149,13 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   if(net!==null&&net<0&&hold!==null&&hold>=90)tags.push('LONG_HOLD_LOSS');
   if(String(ec.entryTiming||'').toUpperCase()==='NONE_WAIT')tags.push(net!==null&&net<0?'NONE_WAIT_LOSS':'NONE_WAIT_USED');
   if(mfeGivebackR!==null&&mfeGivebackR>=1)tags.push('MFE_GIVEBACK_GE_1R');
+  if(net!==null&&net>0&&mfeR!==null&&mfeR>=0.75&&captureEfficiency!==null&&captureEfficiency<0.65)tags.push('LOW_PROFIT_CAPTURE');
+  if(net!==null&&net>0&&mfeGivebackR!==null&&mfeGivebackR>=0.35)tags.push('WINNER_GAVE_BACK_PROFIT');
   if(maeR!==null&&maeR<=-0.5&&hold!==null&&hold<=10)tags.push('FAST_ADVERSE_MOVE');
+  const entryTiming=String(ec.entryTiming||'').toUpperCase();
+  const flowAssessment=String(preEntry.assessment||'').toUpperCase();
+  if(net!==null&&net<0&&hold!==null&&hold<=10&&entryTiming==='MARKET_NOW'&&['NEUTRAL_OR_MIXED','TRAP_RISK_WAIT'].includes(flowAssessment))tags.push('MARKET_NOW_MIXED_FLOW_FAST_LOSS');
+  if(net!==null&&net<0&&String(ec.edgeBasis||'').toUpperCase()==='ORDER_FLOW_DEPTH'&&['TRAP_RISK_HIGH','TRAP_RISK_ELEVATED'].includes(String(preEntry.state||'').toUpperCase()))tags.push('ORDER_FLOW_EDGE_CONTRADICTION_LOSS');
   if(cr.status!=='MEASURED')tags.push('R_'+cr.status);
   let verdict='NEUTRAL';
   if(net!==null&&net>0&&(WIN_EXITS.has(exit)||(cr.r!==null&&cr.r>=0.5)))verdict='SUCCESS';
@@ -175,6 +182,10 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   if(tags.includes('NONE_WAIT_LOSS'))L.push('NONE_WAIT girişi zarar üretti; bu yalnız yumuşak zamanlama uyarısıdır, otomatik veto değildir');
   if(tags.includes('MFE_GIVEBACK_GE_1R'))L.push('işlem '+r2(mfeR,2)+'R MFE görüp '+r2(mfeGivebackR,2)+'R geri verdi; mevcut yapı/akış yeniden doğrulansın');
   if(tags.includes('FAST_ADVERSE_MOVE'))L.push('ilk '+(hold??'?')+' dk içinde belirgin adverse hareket: giriş zamanlaması yeniden değerlendirilsin');
+  if(tags.includes('LOW_PROFIT_CAPTURE'))L.push('kazanan işlem MFE potansiyelinin yalnız %'+Math.round(captureEfficiency*100)+' kadarını realize etti; erken azaltma/runner yönetimi fırsat maliyeti üretti');
+  if(tags.includes('WINNER_GAVE_BACK_PROFIT'))L.push('kazanan runner tepe MFE’den '+r2(mfeGivebackR,2)+'R geri verdi; trend bozulmasında kâr koruma daha erken olabilirdi');
+  if(tags.includes('MARKET_NOW_MIXED_FLOW_FAST_LOSS'))L.push('MARKET_NOW girişi karışık/adverse akışta ilk '+(hold??'?')+' dk içinde kaybetti; location iyi olsa bile timing teyidi yetersizdi');
+  if(tags.includes('ORDER_FLOW_EDGE_CONTRADICTION_LOSS'))L.push('ORDER_FLOW_DEPTH edge seçildi ama seçilen yönün pre-entry akışı tuzak riski gösteriyordu; edge-kanıt tutarlılığı kontrol edilmeli');
   if(verdict==='SUCCESS'&&ec.setupFamily)L.push(ec.setupFamily+' '+side+' çalıştı');
   if(verdict==='MISTAKE'&&!L.length&&ec.setupFamily)L.push(ec.setupFamily+' '+side+' stop oldu');
   return {
@@ -184,7 +195,7 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
     family:ec.setupFamily||null,lane:p.tradeLane||ec.lane||null,timing:ec.entryTiming||null,regime,
     preEntry:{state:preEntry.state,quality:preEntry.quality,trapRisk:preEntry.trapRisk===null?null:r2(preEntry.trapRisk,3),support:preEntry.support===null?null:r2(preEntry.support,3),assessment:preEntry.assessment||null},
     exit,exitAuthority,net:net===null?null:r2(net,2),r:cr.r===null?null:r2(cr.r,2),rStatus:cr.status,
-    outcome:{mfeR:mfeR===null?null:r2(mfeR,2),maeR:maeR===null?null:r2(maeR,2),mfeGivebackR:mfeGivebackR===null?null:r2(mfeGivebackR,2),timeToMfeMin:timeToMfeMin===null?null:r2(timeToMfeMin,1),timeToMaeMin:timeToMaeMin===null?null:r2(timeToMaeMin,1)},
+    outcome:{mfeR:mfeR===null?null:r2(mfeR,2),maeR:maeR===null?null:r2(maeR,2),mfeGivebackR:mfeGivebackR===null?null:r2(mfeGivebackR,2),captureEfficiency:captureEfficiency===null?null:r2(captureEfficiency,3),timeToMfeMin:timeToMfeMin===null?null:r2(timeToMfeMin,1),timeToMaeMin:timeToMaeMin===null?null:r2(timeToMaeMin,1)},
     holdMin:hold,stopPct:stopPct===null?null:r2(stopPct,2),gapMin,globalGapMin,
     openedAt:p.openedAt||null,closedMs:Number.isFinite(closed)?closed:null,
     tags,verdict,lesson:L.slice(0,3).join('; ')||null

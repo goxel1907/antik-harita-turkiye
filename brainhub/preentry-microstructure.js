@@ -154,12 +154,24 @@ function toxicityProxy(streaming,sampling=null){
   }
   const den=vals.reduce((a,x)=>a+x.w,0);if(!den)return null;return r(vals.reduce((a,x)=>a+x.v*x.w,0)/den,3);
 }
-function guidanceForSide(score,rel,sampling){if(!rel?.usable||sampling?.overall?.usable===false)return 'DATA_INSUFFICIENT';if(['TRAP_RISK_HIGH','TRAP_RISK_ELEVATED'].includes(score?.state))return 'WAIT_FLOW_NORMALIZATION';if(['CONTINUATION_SUPPORT_STRONG','CONTINUATION_SUPPORT'].includes(score?.state))return 'FLOW_SUPPORTS_ENTRY';return 'FLOW_MIXED';}
+function localL2Usable(localL2){
+  const c=finite(localL2?.confidence),age=finite(localL2?.ageMs),state=String(localL2?.state||'').toUpperCase();
+  return localL2?.available===true&&localL2?.sequenceHealthy===true&&state==='HEALTHY'&&c!==null&&c>=0.5&&(age===null||age<=5000);
+}
+function guidanceForSide(score,rel,sampling,localL2=null){
+  // R2544.28: healthy sequence-safe local L2 must not be erased by sparse aggTrade/L1 sampling.
+  // It remains evidence-only; this changes DATA_INSUFFICIENT labelling, not execution authority.
+  const usable=(rel?.usable&&sampling?.overall?.usable!==false)||localL2Usable(localL2);
+  if(!usable)return 'DATA_INSUFFICIENT';
+  if(['TRAP_RISK_HIGH','TRAP_RISK_ELEVATED'].includes(score?.state))return 'WAIT_FLOW_NORMALIZATION';
+  if(['CONTINUATION_SUPPORT_STRONG','CONTINUATION_SUPPORT'].includes(score?.state))return 'FLOW_SUPPORTS_ENTRY';
+  return 'FLOW_MIXED';
+}
 function compactOfiWindow(w,conf){return w?.available===true?{available:true,transitions:finite(w.transitions),coverageMs:finite(w.coverageMs),normalizedOfi:r(w.normalizedOfi,4),priceMoveBps:r(w.priceMoveBps,3),queueImbalanceCurrent:r(w.queueImbalanceCurrent,4),queueImbalanceDelta:r(w.queueImbalanceDelta,4),micropriceBps:r(w.micropriceBps,4),confidence:conf?.score??null,confidenceQuality:conf?.quality||null}:{available:false,transitions:finite(w?.transitions),confidence:conf?.score??0,confidenceQuality:conf?.quality||'UNAVAILABLE',reason:w?.reason||'UNAVAILABLE'};}
 function buildPreEntryAdverseSelection({streaming={},derivatives={},microstructure={}}={}){
   const rel=reliability(streaming,microstructure),sampling=samplingConfidence(streaming);const long=buildSide('LONG',{streaming,microstructure,derivatives,sampling});const short=buildSide('SHORT',{streaming,microstructure,derivatives,sampling});
   const tox=toxicityProxy(streaming,sampling);const winner=long.netEvidence>short.netEvidence?'LONG':short.netEvidence>long.netEvidence?'SHORT':'NEUTRAL';
-  const asym=Math.abs((finite(long.netEvidence)||0)-(finite(short.netEvidence)||0));const signalUsable=rel.usable&&sampling.overall.usable;
+  const asym=Math.abs((finite(long.netEvidence)||0)-(finite(short.netEvidence)||0));const l2Usable=localL2Usable(streaming?.localL2);const signalUsable=(rel.usable&&sampling.overall.usable)||l2Usable;
   const actionHint=!signalUsable?'DATA_INSUFFICIENT':
     long.state==='TRAP_RISK_HIGH'?'LONG_WAIT_FLOW_NORMALIZATION':
     short.state==='TRAP_RISK_HIGH'?'SHORT_WAIT_FLOW_NORMALIZATION':
@@ -170,9 +182,9 @@ function buildPreEntryAdverseSelection({streaming={},derivatives={},microstructu
     reliability:rel,samplingConfidence:sampling,signalUsable,toxicityProxy:tox,toxicityProxyMethod:'CONFIDENCE_WEIGHTED_MEAN_ABS_TRADE_IMBALANCE_PLUS_L1_OFI_NOT_TRUE_VPIN',flowPersistence:flowPersistence(streaming),
     level1Ofi:{'5s':compactOfiWindow(ofiWindowOf(streaming,'5s'),sampling.ofi['5s']),'15s':compactOfiWindow(ofiWindowOf(streaming,'15s'),sampling.ofi['15s']),'30s':compactOfiWindow(ofiWindowOf(streaming,'30s'),sampling.ofi['30s']),'60s':compactOfiWindow(ofiWindowOf(streaming,'60s'),sampling.ofi['60s'])},
     localL2:streaming?.localL2?{available:streaming.localL2.available===true,state:streaming.localL2.state||null,sequenceHealthy:streaming.localL2.sequenceHealthy===true,ageMs:finite(streaming.localL2.ageMs),resyncCount5m:finite(streaming.localL2.resyncCount5m),confidence:r(streaming.localL2.confidence,3),confidenceQuality:streaming.localL2.confidenceQuality||null,multiLevelOfi:r(streaming.localL2.multiLevelOfi,4),depthImbalance:r(streaming.localL2.depthImbalance,4),wallPersistence:streaming.localL2.wallPersistence?{side:streaming.localL2.wallPersistence.side||null,share:r(streaming.localL2.wallPersistence.share,3),ageMs:finite(streaming.localL2.wallPersistence.ageMs)}:null,liquidityPull:streaming.localL2.liquidityPull?{side:streaming.localL2.liquidityPull.side||'NONE'}:null,replenishment:streaming.localL2.replenishment?{side:streaming.localL2.replenishment.side||'NONE'}:null,absorption:streaming.localL2.absorption?{side:streaming.localL2.absorption.side||'NONE',confidence:r(streaming.localL2.absorption.confidence,3)}:null,authority:'EVIDENCE_ONLY',canVeto:false}:null,
-    long,short,entryTimingGuidance:{LONG:guidanceForSide(long,rel,sampling),SHORT:guidanceForSide(short,rel,sampling)},preferredEvidenceSide:winner,asymmetryIndex:r(asym,3),actionHint,
+    long,short,entryTimingGuidance:{LONG:guidanceForSide(long,rel,sampling,streaming?.localL2),SHORT:guidanceForSide(short,rel,sampling,streaming?.localL2)},preferredEvidenceSide:winner,asymmetryIndex:r(asym,3),actionHint,
     semantics:'ADVERSE_SELECTION_RISK_INDEX_NOT_RETURN_PROBABILITY',
     note:'Public flow/depth is evidence only. Sequence-safe local L2 is confidence-weighted; unavailable/low-confidence L2 is omitted/down-weighted, never a veto. Sparse windows are confidence-downweighted. JEV remains final; no hidden-actor or future-certainty claim.'
   };
 }
-module.exports={buildPreEntryAdverseSelection,reliability,flowPersistence,signedRatio,guidanceForSide,sampleConfidence,samplingConfidence,confidenceQuality};
+module.exports={buildPreEntryAdverseSelection,reliability,flowPersistence,signedRatio,guidanceForSide,localL2Usable,sampleConfidence,samplingConfidence,confidenceQuality};

@@ -61,6 +61,33 @@ function choiceValue(answer){
   const v=String(answer.choice||'').trim();
   return v||null;
 }
+// R2544.28: schema-valid does not mean semantically coherent. This validator never chooses
+// LONG/SHORT itself; it only rejects a JEV answer whose own fields contradict each other
+// or whose declared primary ORDER_FLOW_DEPTH edge contradicts the supplied selected-side flow state.
+function sovereignFinalConsistency({selectedId,selectedPlan,setupFamily,entryTiming,waitReasonRaw,edgeBasis,preEntryFlowAssessment,coreMarket}={}){
+  const issues=[];
+  const hasPlan=selectedId&&selectedId!=='WAIT'&&selectedPlan;
+  const timing=String(entryTiming||'').toUpperCase();
+  const family=String(setupFamily||'').toUpperCase();
+  const wait=String(waitReasonRaw||'').toUpperCase();
+  const edge=String(edgeBasis||'').toUpperCase();
+  const flowAssessment=String(preEntryFlowAssessment||'').toUpperCase();
+  if(selectedId==='WAIT'&&timing==='MARKET_NOW')issues.push('WAIT_WITH_MARKET_NOW');
+  if(hasPlan&&family==='NONE_WAIT')issues.push('EXECUTABLE_PLAN_WITH_NONE_WAIT');
+  if(hasPlan&&timing==='MARKET_NOW'&&wait&&wait!=='NONE_MARKET_NOW')issues.push('MARKET_NOW_WITH_WAIT_REASON');
+  if(hasPlan&&timing==='MARKET_NOW'&&edge==='NO_EDGE')issues.push('MARKET_NOW_WITH_NO_EDGE');
+  if(hasPlan&&timing==='MARKET_NOW'&&flowAssessment==='TRAP_RISK_WAIT')issues.push('MARKET_NOW_WITH_TRAP_RISK_WAIT');
+  if(hasPlan&&timing==='MARKET_NOW'&&edge==='ORDER_FLOW_DEPTH'){
+    const pe=coreMarket?.microstructure?.preEntryAdverseSelection||null;
+    const side=String(selectedPlan?.side||'').toUpperCase();
+    const sideRow=side==='SHORT'?pe?.short:pe?.long;
+    const guidance=pe?.entryTimingGuidance?.[side]||null;
+    if(guidance==='DATA_INSUFFICIENT')issues.push('ORDER_FLOW_EDGE_WITH_INSUFFICIENT_FLOW_DATA');
+    if(guidance==='WAIT_FLOW_NORMALIZATION')issues.push('ORDER_FLOW_EDGE_AGAINST_WAIT_GUIDANCE');
+    if(['TRAP_RISK_HIGH','TRAP_RISK_ELEVATED'].includes(String(sideRow?.state||'').toUpperCase()))issues.push('ORDER_FLOW_EDGE_ON_TRAP_RISK_SIDE');
+  }
+  return {ok:issues.length===0,issues:[...new Set(issues)]};
+}
 function sovereignFrame(f){
   if(!f?.available)return {available:false,reason:f?.reason||'UNAVAILABLE'};
   return {
@@ -1431,6 +1458,10 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     }
     const selectedPlan=selectedId==='WAIT'?null:plans.find(x=>x.id===selectedId)||null;
     if(selectedId!=='WAIT'&&!selectedPlan)return {ok:false,configured:true,required:true,called:true,pass:2,reason:'JEV_SOVEREIGN_PLAN_NOT_FOUND',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
+    const consistency=sovereignFinalConsistency({selectedId,selectedPlan,setupFamily,entryTiming,waitReasonRaw,edgeBasis,preEntryFlowAssessment,coreMarket});
+    if(!consistency.ok){
+      return {ok:false,configured:true,required:true,called:true,pass:2,finalAuthority:false,reason:'JEV_SOVEREIGN_FINAL_SEMANTIC_CONTRADICTION',consistencyIssues:consistency.issues,selectedPlanId:selectedId,setupFamily:setupFamily||null,entryTiming:entryTiming||null,waitReasonRaw:waitReasonRaw||null,edgeBasis:edgeBasis||null,preEntryFlowAssessment,mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
+    }
     return {
       ok:true,configured:true,required:true,called:true,pass:2,finalAuthority:true,veto:false,
       action:selectedId==='WAIT'?'WAIT':selectedPlan.side,
@@ -1632,11 +1663,36 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
           note:'currentR = mevcut açık K/Z ÷ PLANLANAN risk (ilk miktar × ilk stop mesafesi). movedShareOfStopDistance 1,0 = fiyat ilk stop mesafesi kadar aleyhte hareket etti. Bunlar ölçüdür; karar JEV\'indir.'
         };
       })(),
+      positionProgress:(()=>{
+        const initStop=finiteNumber(lifecycle?.initialStopPrice??lifecycle?.originalStopPrice??original.stopPrice);
+        const initEntry=finiteNumber(lifecycle?.initialEntryPrice??lifecycle?.entryPrice??entry);
+        const initQty=finiteNumber(lifecycle?.initialQuantity);
+        const remQty=finiteNumber(position?.quantity);
+        const R=initEntry!==null&&initStop!==null?Math.abs(initEntry-initStop):null;
+        const dir=side==='LONG'?1:side==='SHORT'?-1:0;
+        const priceProgressR=R!==null&&R>0&&mark!==null&&initEntry!==null?dir*(mark-initEntry)/R:null;
+        const planned=R!==null&&initQty!==null?R*Math.abs(initQty):null;
+        const open=finiteNumber(position?.unrealizedPnl);
+        const ms=lifecycle?.managementState||{};
+        return {
+          priceProgressR:priceProgressR===null?null:Number(priceProgressR.toFixed(3)),
+          openPositionR:planned!==null&&planned>0&&open!==null?Number((open/planned).toFixed(3)):null,
+          mfeR:finiteNumber(ms.mfeR),maeR:finiteNumber(ms.maeR),
+          initialQuantity:initQty,remainingQuantity:remQty,remainingFraction:initQty!==null&&initQty>0&&remQty!==null?Number((Math.abs(remQty)/Math.abs(initQty)).toFixed(4)):null,
+          reducedFraction:finiteNumber(ms.reducedFraction),phase:ms.phase||null,
+          managementStyle:ms.managementStyle||original.managementStyle||null,partialProfile:ms.partialProfile||original.partialProfile||null,
+          partialFractions:ms.partialFractions||original.partialFractions||null,breakevenRule:ms.breakevenRule||original.breakevenRule||null,trailRule:ms.trailRule||original.trailRule||null,
+          recentManagementEvents:Array.isArray(ms.recentManagementEvents)?ms.recentManagementEvents.slice(-12):[],
+          recentJevActions:Array.isArray(ms.recentJevActions)?ms.recentJevActions.slice(-8):[],
+          note:'priceProgressR measures market movement from original entry in units of original stop distance; openPositionR measures only remaining unrealized PnL versus original planned risk. After partial exits these are intentionally different.'
+        };
+      })(),
       entryThesis:{why:entryContext.why||original.why||null,setupFamily:entryContext.setupFamily||original.setupFamily||null,entryTiming:entryContext.entryTiming||original.entryTiming||null,edgeBasis:entryContext.edgeBasis||original.edgeBasis||null,lane:entryContext.lane||original.lane||null,source:lifecycle?.entryPlanSource||null,marketSignature:entryContext.marketSignature||null},
       frames:coreMarket.coreFrames,timingFrames:coreMarket.timingFrames,higherContext:coreMarket.higherContext,
       noisePolicy:'Lower-timeframe noise is evidence, not by itself proof that the original owner-timeframe thesis failed. Evaluate the supplied original thesis against current owner and higher context; JEV retains final strategic authority.',
       orderFlow:unified?.marketMakerEvidence?.orderFlow||null,
       depth:unified?.marketMakerEvidence?.bookBehavior||null,
+      currentAdverseSelection:coreMarket?.microstructure?.preEntryAdverseSelection||unified?.marketMakerEvidence?.preEntryAdverseSelection||null,
       derivatives:unified?.derivatives||null,
       observedLiquidations:unified?.liquidationContext||null,
       experienceMemory:liveContext.experienceMemory,
@@ -1647,7 +1703,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, protect profit, take a partial, or exit now from the supplied evidence. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it. experienceMemory.caseMemory, when available, contains the most similar ENTRY-STATE cases and deliberately includes both winners and losers/counterexamples; experienceMemory.caseMemoryByLane provides LONG/SHORT × 5M_SCALP/15M_TRADE analogs so direction/lane differences are explicit. Similarity is soft context only, legacy partial signatures are discounted, and a single case never becomes a rule. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byPreEntryFlow/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. byPreEntryFlow calibrates whether the same pre-entry trap/support state historically produced winners AND losers; treat it as measured timing evidence, never a hard rule. It is soft experience, never a veto.',
+        description:'JEV is the sole strategic position manager. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, REDUCE_RISK, protect profit, take a partial, or exit now from the supplied evidence. REDUCE_RISK is for a losing/adverse position whose thesis is not fully invalidated but full exposure is no longer justified; it is not profit taking. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it. experienceMemory.caseMemory, when available, contains the most similar ENTRY-STATE cases and deliberately includes both winners and losers/counterexamples; experienceMemory.caseMemoryByLane provides LONG/SHORT × 5M_SCALP/15M_TRADE analogs so direction/lane differences are explicit. Similarity is soft context only, legacy partial signatures are discounted, and a single case never becomes a rule. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byPreEntryFlow/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. byPreEntryFlow calibrates whether the same pre-entry trap/support state historically produced winners AND losers; treat it as measured timing evidence, never a hard rule. It is soft experience, never a veto.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1660,13 +1716,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
           criteria:{
             HOLD:'Keep the position open; current evidence does not justify changing the strategy.',
             PROTECT_PROFIT:'Keep exposure but protect accumulated profit more aggressively, for example by tightening protective management.',
+            REDUCE_RISK:'Reduce 25-50% of current exposure while the position is losing/adverse because entry quality or short-horizon execution evidence deteriorated, but the strategic thesis is not yet invalidated. Do not use this as profit taking.',
             PARTIAL_TAKE_PROFIT:'Reduce part of the position while keeping a runner because reward remains but some profit should be secured.',
             EXIT_NOW:'Close the position because the JEV thesis, invalidation, or current opportunity has materially failed or been replaced.'
           }
         },
         partial_fraction:{
           type:'choice',
-          instructions:'Used only when PARTIAL_TAKE_PROFIT is selected. Choose how much of the current remaining position to reduce. Otherwise this answer is ignored.',
+          instructions:'Used only when PARTIAL_TAKE_PROFIT or REDUCE_RISK is selected. Choose how much of the current remaining position to reduce. Otherwise this answer is ignored.',
           criteria:{P25:'Reduce 25% and keep 75% runner.',P33:'Reduce about one third and keep about two thirds.',P50:'Reduce 50% and keep 50% runner.'}
         }
       }
@@ -1676,13 +1733,13 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const action=choiceValue(out.data?.answers?.position_action);
     const partialChoice=choiceValue(out.data?.answers?.partial_fraction)||'P33';
     const partialFraction={P25:0.25,P33:1/3,P50:0.5}[partialChoice]||1/3;
-    if(!['HOLD','PROTECT_PROFIT','PARTIAL_TAKE_PROFIT','EXIT_NOW'].includes(action)){
+    if(!['HOLD','PROTECT_PROFIT','REDUCE_RISK','PARTIAL_TAKE_PROFIT','EXIT_NOW'].includes(action)){
       return {ok:false,configured:true,required:true,called:true,finalAuthority:false,action:'HOLD_REVIEW',reason:'JEV_SOVEREIGN_EXIT_SCHEMA_MISMATCH',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
     }
-    const actionTr={HOLD:'TUT',PROTECT_PROFIT:'KÂRI KORU',PARTIAL_TAKE_PROFIT:'KISMİ KÂR AL',EXIT_NOW:'ÇIK'}[action];
+    const actionTr={HOLD:'TUT',PROTECT_PROFIT:'KÂRI KORU',REDUCE_RISK:'RİSKİ AZALT',PARTIAL_TAKE_PROFIT:'KISMİ KÂR AL',EXIT_NOW:'ÇIK'}[action];
     return {
       ok:true,configured:true,required:true,called:true,finalAuthority:true,action,actionTr,
-      partialFraction:action==='PARTIAL_TAKE_PROFIT'?partialFraction:null,
+      partialFraction:['PARTIAL_TAKE_PROFIT','REDUCE_RISK'].includes(action)?partialFraction:null,
       summaryTr:'JEV FINAL position action: '+actionTr+'.',model:cfg.model,mode:'SOVEREIGN_CHOICE',
       durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };
@@ -1777,4 +1834,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
 }
-module.exports={prepareDecisionRequest,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,createJevClient};
+module.exports={prepareDecisionRequest,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,sovereignFinalConsistency,createJevClient};

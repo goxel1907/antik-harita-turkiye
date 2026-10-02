@@ -412,7 +412,10 @@ function roundToTick(price, tick, side, kind = 'STOP') {
   return Number((units * t).toPrecision(12));
 }
 
-function trailTimeframe({ originTF, lane }) {
+function trailTimeframe({ originTF, lane, preferredRule = null }) {
+  const rule=String(preferredRule||'').toUpperCase();
+  if(rule==='5M_STRUCTURE')return {tf:'5m',reason:'JEV_TRAIL_RULE_5M_STRUCTURE'};
+  if(rule==='15M_STRUCTURE')return {tf:'15m',reason:'JEV_TRAIL_RULE_15M_STRUCTURE'};
   const origin = lc(originTF);
   if (lane?.exhausted === true) return { tf:'1m', reason:'MOMENTUM_EXHAUSTED_TIGHTEN' };
   const ladder = (Array.isArray(lane?.momentumLadder) ? lane.momentumLadder : []).map(lc).filter(x => TRAIL_TFS.includes(x));
@@ -427,7 +430,7 @@ function trailTimeframe({ originTF, lane }) {
   return { tf:best, reason: best === TRAIL_TFS[floorIdx] ? 'ORIGIN_TF' : 'MOMENTUM_LADDER_EXTENDED' };
 }
 
-function desiredRunnerStop({ side, phase, entryPrice, markPrice, currentStop, frames = {}, lane = null, originTF, tickSize = null, config = readConfig() } = {}) {
+function desiredRunnerStop({ side, phase, entryPrice, markPrice, currentStop, frames = {}, lane = null, originTF, preferredTrailRule = null, tickSize = null, config = readConfig() } = {}) {
   const s = String(side || '').toUpperCase();
   const entry = finite(entryPrice), mark = finite(markPrice), cur = finite(currentStop);
   if (!['LONG','SHORT'].includes(s) || entry === null || mark === null || entry <= 0 || mark <= 0) return { ok:false, reason:'RUNNER_INPUT_INVALID' };
@@ -436,7 +439,7 @@ function desiredRunnerStop({ side, phase, entryPrice, markPrice, currentStop, fr
   const be = entry * (1 + dirSign * config.runnerBreakevenBufferPct / 100);
   let target = be, basis = 'BREAKEVEN_PLUS_FEES', trail = null;
   if (phase === 'TRAILING') {
-    trail = trailTimeframe({ originTF, lane });
+    trail = trailTimeframe({ originTF, lane, preferredRule:preferredTrailRule });
     const f = frames?.[trail.tf];
     const swing = s === 'LONG' ? finite(f?.swingStructure?.lastConfirmedSwingLow?.price) : finite(f?.swingStructure?.lastConfirmedSwingHigh?.price);
     const atrPct = finite(f?.atrPct);

@@ -189,7 +189,7 @@ test('JEV sovereign position manager chooses HOLD/PROTECT/PARTIAL/EXIT directly 
     fetchImpl:async(_url,opt={})=>{
       const body=JSON.parse(opt.body);
       assert.equal(body.questions.position_action.type,'choice');
-      assert.deepEqual(Object.keys(body.questions.position_action.criteria).sort(),['EXIT_NOW','HOLD','PARTIAL_TAKE_PROFIT','PROTECT_PROFIT'].sort());
+      assert.deepEqual(Object.keys(body.questions.position_action.criteria).sort(),['EXIT_NOW','HOLD','PARTIAL_TAKE_PROFIT','PROTECT_PROFIT','REDUCE_RISK'].sort());
       return response({answers:{position_action:{type:'choice',choice:'EXIT_NOW'}},usage:{cost:0.00001}});
     }
   });

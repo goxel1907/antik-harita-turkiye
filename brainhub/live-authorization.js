@@ -16,6 +16,16 @@ function text(v) {
   return typeof v === 'string' && v.trim() ? v.trim() : null;
 }
 
+
+function fractions(v){
+  if(!Array.isArray(v)||v.length!==3)return null;
+  const a=v.map(finite);
+  if(a.some(x=>x===null||x<=0))return null;
+  const sum=a.reduce((x,y)=>x+y,0);
+  if(Math.abs(sum-1)>0.02)return null;
+  return a.map(x=>Number((x/sum).toFixed(6)));
+}
+
 function canonicalOrder(order = {}) {
   const side = String(order.side || '').toUpperCase();
   const orderType = String(order.orderType || '').toUpperCase();
@@ -33,7 +43,13 @@ function canonicalOrder(order = {}) {
     takeProfit3:finite(order.takeProfit3),
     limitPrice:orderType === 'LIMIT' ? finite(order.limitPrice) : null,
     clientOrderId:text(order.clientOrderId),
-    lineageId:text(order.lineageId)
+    lineageId:text(order.lineageId),
+    managementStyle:text(order.managementStyle),
+    targetProfile:text(order.targetProfile),
+    partialProfile:text(order.partialProfile),
+    partialFractions:fractions(order.partialFractions),
+    breakevenRule:text(order.breakevenRule),
+    trailRule:text(order.trailRule)
   };
 }
 

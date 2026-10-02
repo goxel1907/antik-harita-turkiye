@@ -75,6 +75,20 @@ function laneOf(row){
   return ['1m','3m','5m'].includes(tf)?'5M_SCALP':'15M_TRADE';
 }
 
+
+function managementPolicy(row){
+  const lane=laneOf(row);
+  const style=String(row?.managementStyle||'').toUpperCase();
+  const partial=String(row?.partialProfile||'').toUpperCase();
+  const be=String(row?.breakevenRule||'').toUpperCase();
+  // R2544.28: HUMA lesson — a fixed +0.5R one-third sale must not override a 15M winner
+  // or a JEV runner-heavy/structure-hold plan. JEV still chooses the strategic profile.
+  const explicitLane=Boolean(String(row?.lane||'').trim()||String(row?.originTF||'').trim());
+  const allowMechanicalScaleOut=(!explicitLane||lane==='5M_SCALP')&&partial!=='RUNNER_HEAVY'&&!['HOLD_TO_INVALIDATION','STRUCTURE_TRAIL'].includes(style);
+  const allowInitialBreakeven=!['STRUCTURE_ONLY','AFTER_TP1'].includes(be);
+  return {lane,style,partialProfile:partial,breakevenRule:be,allowMechanicalScaleOut,allowInitialBreakeven};
+}
+
 function roundStop(price,side,tick){
   const t=finite(tick);
   if(!(t>0))return price;
@@ -102,7 +116,8 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
   const progressR=dir*(mark-entry)/R;
   const mfeR=Math.max(finite(row?.guardMfeR)??progressR,progressR);
   const ageMin=Math.max(0,(now-(finite(row?.createdAt)??now))/60000);
-  const lane=laneOf(row);
+  const management=managementPolicy(row);
+  const lane=management.lane;
   const exLiq=finite(snap?.liquidationPrice);
   const liqPrice=exLiq!==null&&exLiq>0?exLiq:finite(estimatedLiquidationPrice??row?.estimatedLiquidationPrice);
   const liqSource=exLiq!==null&&exLiq>0?'BINANCE_POSITION_RISK':liqPrice!==null?'ESTIMATE_ISOLATED':'UNKNOWN';
@@ -140,7 +155,7 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
   if(String(phase||'INITIAL').toUpperCase()!=='INITIAL')return out;
 
   // 2) Kademeli kâr: 0,5R'de bir kez 1/3 azalt; ardından stop başabaşa (asla genişlemez).
-  if(cfg.scaleOutEnabled>0){
+  if(cfg.scaleOutEnabled>0&&management.allowMechanicalScaleOut){
     const movePct=dir*(mark-entry)/entry*100;
     if(row?.scaleOutDone!==true&&row?.jevPartialBE!==true&&progressR>=cfg.scaleOutAtR&&movePct>=cfg.scaleOutMinMovePct){
       out.action='SCALE_OUT';out.reason='GUARD_SCALE_OUT_'+cfg.scaleOutAtR+'R';out.fraction=cfg.scaleOutFraction;return out;
@@ -161,14 +176,14 @@ function evaluateGuard({row,snap,phase='INITIAL',now=Date.now(),config=DEFAULTS,
     if(mfeR>=cfg.scalpLockAtR){
       const d=propose(entry+dir*cfg.scalpLockR*R,'GUARD_SCALP_PROFIT_LOCK');if(d)return decide(d);
     }
-    if(mfeR>=cfg.scalpBreakevenAtR){
+    if(management.allowInitialBreakeven&&mfeR>=cfg.scalpBreakevenAtR){
       const d=propose(entry*(1+dir*cfg.breakevenBufferPct/100),'GUARD_SCALP_BREAKEVEN');if(d)return decide(d);
     }
     if(ageMin>=cfg.scalpTimeStopMin&&mfeR<cfg.scalpTimeStopMaxMfeR&&progressR<cfg.scalpTimeStopMaxProgressR){
       return decide({action:'CLOSE',reason:'GUARD_SCALP_TIME_STOP',target:null});
     }
   }else{
-    if(mfeR>=cfg.tradeBreakevenAtR){
+    if(management.allowInitialBreakeven&&mfeR>=cfg.tradeBreakevenAtR){
       const d=propose(entry*(1+dir*cfg.breakevenBufferPct/100),'GUARD_TRADE_BREAKEVEN');if(d)return decide(d);
     }
     if(ageMin>=cfg.tradeTimeStopMin&&mfeR<cfg.tradeTimeStopMaxMfeR&&progressR<cfg.tradeTimeStopMaxProgressR){
@@ -215,4 +230,4 @@ function partialContract({side,entryPrice,initialStop,markPrice,partialEvents=[]
   return {...out,allow:true,reason:'PARTIAL_CONTRACT_OK'};
 }
 
-module.exports={DEFAULTS,readConfig,evaluateGuard,partialContract,laneOf,roundStop};
+module.exports={DEFAULTS,readConfig,evaluateGuard,partialContract,laneOf,managementPolicy,roundStop};

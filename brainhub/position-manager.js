@@ -6,6 +6,7 @@ const ACTION_TR={
   HOLD:'TUT',
   HOLD_REVIEW:'TUT • VERİYİ YENİDEN KONTROL ET',
   PROTECT_PROFIT:'KÂRI KORU',
+  REDUCE_RISK:'RİSKİ AZALT',
   PARTIAL_TAKE_PROFIT:'KISMİ KÂR AL',
   EXIT_NOW:'ÇIKIŞI DEĞERLENDİR'
 };
@@ -91,6 +92,7 @@ function capJevExitAction(requested,assessment){
     if(assessment.protectEvidence)return 'PROTECT_PROFIT';
     return 'HOLD';
   }
+  if(a==='REDUCE_RISK')return 'HOLD';
   if(a==='PARTIAL_TAKE_PROFIT'&&!assessment.partialEvidence){
     return assessment.protectEvidence?'PROTECT_PROFIT':'HOLD';
   }

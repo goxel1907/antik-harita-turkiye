@@ -12,7 +12,7 @@ const G=require('../position-guard');
 const V111=require('../claude-v111');
 const {prepareDecisionRequest,MAX_DECISION_REQUEST_BYTES}=require('../jev-decision');
 
-const base=(o={})=>({row:{symbol:'ABCUSDT',side:'LONG',entryPrice:100,originalStopPrice:98,currentStop:98,originTF:'15m',lane:'15M_TRADE',createdAt:0,...(o.row||{})},
+const base=(o={})=>({row:{symbol:'ABCUSDT',side:'LONG',entryPrice:100,originalStopPrice:98,currentStop:98,originTF:'5m',lane:'5M_SCALP',createdAt:0,...(o.row||{})},
   snap:{qty:30,entryPrice:100,markPrice:100,tickSize:0.01,...(o.snap||{})},phase:o.phase||'INITIAL',now:o.now??60000,config:{...G.DEFAULTS,...(o.config||{})}});
 
 test('kademeli kâr: 0,5R ve ≥%0,3 harekette bir kez 1/3; sonra başabaş; asla genişletmez',()=>{
@@ -90,8 +90,8 @@ test('controller: 0,5R kademeli kâr reduce-only MARKET 1/3, faz INITIAL kalır,
   const controller=createLiveController({root,credentials:{apiKey:'test-api-key',apiSecret:'test-api-secret'},fetchImpl,clock:()=>state.now,
     store:{journal:(k,s,p)=>{journal.push({k,p});return 'id';}},scanner:{async scan(){throw new Error('unused');}},
     pipeline:{async run(){throw new Error('unused');}},committee:async()=>({})});
-  controller._testRegisterRunner({intent:{symbol:'ABCUSDT',side:'LONG',entryPrice:100,stopPrice:98,takeProfit3:106,originTF:'15m',estimatedLiquidationPrice:80},
-    result:{symbol:'ABCUSDT',side:'LONG',executedQty:30,tpQuantities:[10,10,10],stopAlgoId:'S1',tpAlgoIds:['T1'],runner:{enabled:true,tpPlaced:1},stopProtected:true},mode:'BINDING',lane:'15M_TRADE'});
+  controller._testRegisterRunner({intent:{symbol:'ABCUSDT',side:'LONG',entryPrice:100,stopPrice:98,takeProfit3:106,originTF:'5m',estimatedLiquidationPrice:80},
+    result:{symbol:'ABCUSDT',side:'LONG',executedQty:30,tpQuantities:[10,10,10],stopAlgoId:'S1',tpAlgoIds:['T1'],runner:{enabled:true,tpPlaced:1},stopProtected:true},mode:'BINDING',lane:'5M_SCALP'});
   const r1=await controller.runnerTick();
   assert.equal(r1.results[0].action,'GUARD_SCALE_OUT',JSON.stringify(r1));
   const m=writes.find(x=>x.op==='MARKET'); assert.equal(m.qty,9); assert.equal(m.side,'SELL'); assert.equal(m.reduceOnly,'true');
