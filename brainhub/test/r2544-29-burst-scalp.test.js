@@ -58,13 +58,27 @@ test('R2544.29 source contract keeps burst separate from normal slots and PC-onl
   const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.match(live,/maxActive:1/);
   assert.match(live,/BURST_OPPOSITE_POSITION_BLOCKED/);
-  assert.match(live,/margin=.*availableBalance.*0\.50/);
+  assert.match(live,/burstFreeMarginFraction/);
+  assert.match(live,/availableBalance.*freeFraction/);
   assert.match(live,/pauseExceptionAllowed&&veryStrict/);
   assert.doesNotMatch(live.slice(live.indexOf('async function burstScalpTick'),live.indexOf('function burstStatus')),/positionSlotsFull\(/);
   assert.match(server,/\/live\/burst/);assert.match(server,/burstScalpTick\(\)/);assert.match(server,/1000\);/);
 });
 
-test('R2544.29 JEV owns burst preauthorization',()=>{
+test('R2544.29 JEV owns burst preauthorization with LONG/SHORT radar parity and preMove direction consistency',()=>{
   const j=fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8');
   assert.match(j,/sovereignBurstArm/);assert.match(j,/ARM_LONG/);assert.match(j,/ARM_SHORT/);assert.match(j,/DO_NOT_ARM/);
+  assert.match(j,/loserRank/);assert.match(j,/projectedLoserRank/);assert.match(j,/gainerRank/);assert.match(j,/projectedGainerRank/);
+  assert.match(j,/JEV_BURST_DIRECTION_CONTRADICTS_PREMOVE/);
+});
+
+test('R2544.29 burst has separate margin/user leverage cap and never changes core-symbol leverage for addon',()=>{
+  const live=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  assert.match(live,/burstMarginQuote/);
+  assert.match(live,/burstFreeMarginFraction/);
+  assert.match(live,/burstMaxLeverage/);
+  assert.match(live,/sameSymbolCore/);
+  assert.match(live,/BURST_CORE_LEVERAGE_EXCEEDS_SAFE_MAX/);
+  assert.match(live,/if\(sz\.changeLeverage!==false\)/);
+  assert.match(live,/userBurstMaxLeverage/);
 });

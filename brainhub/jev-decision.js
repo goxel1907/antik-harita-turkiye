@@ -1613,7 +1613,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))return {ok:false,called:false,decision:'DO_NOT_ARM',reason:'BURST_SYMBOL_INVALID'};
     const compact={
       contract:'R2544.29_BURST_PREAUTH',symbol,
-      radar:{source:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[],gainerRank:finiteNumber(candidate?.gainerRank),projectedRank:finiteNumber(candidate?.projectedGainerRank??candidate?.projectedRank),rankVelocity:finiteNumber(candidate?.gainerRankVelocity??candidate?.rankVelocity)},
+      radar:{source:candidate?.deepScanReason||candidate?.burstReason||null,sideHint:candidate?.burstSideHint||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[],gainerRank:finiteNumber(candidate?.gainerRank),projectedGainerRank:finiteNumber(candidate?.projectedGainerRank),gainerRankVelocity:finiteNumber(candidate?.gainerRankVelocity),loserRank:finiteNumber(candidate?.loserRank),projectedLoserRank:finiteNumber(candidate?.projectedLoserRank),loserRankVelocity:finiteNumber(candidate?.loserRankVelocity),change24hPct:finiteNumber(candidate?.change24hPct??candidate?.priceChangePercent),shortChangePct:finiteNumber(candidate?.shortChangePct),shortPer5mPct:finiteNumber(candidate?.shortPer5mPct)},
       preMove:preMove&&typeof preMove==='object'?{state:preMove.state||null,direction:preMove.direction||null,priority:finiteNumber(preMove.priority),frame:preMove.frame||null,triggers:preMove.triggers||null,reasons:Array.isArray(preMove.reasons)?preMove.reasons.slice(0,8):[]}:null,
       stream:stream&&typeof stream==='object'?{
         available:stream.available===true,ageMs:finiteNumber(stream.ageMs),spreadBps:finiteNumber(stream.spreadBps),
@@ -1640,7 +1640,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const a=out.data?.answers||{};
     const decision=choiceValue(a.burst_decision),ttl=choiceValue(a.ttl),strict=choiceValue(a.trigger_strictness),lev=choiceValue(a.leverage_mode),pex=choiceValue(a.pause_exception);
     if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!['TTL_30S','TTL_60S','TTL_120S'].includes(ttl)||!['STRICT_090','VERY_STRICT_094'].includes(strict)||!['MAX_SAFE','HALF_MAX','PANEL'].includes(lev)||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,side:decision==='ARM_LONG'?'LONG':decision==='ARM_SHORT'?'SHORT':null,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    const chosenSide=decision==='ARM_LONG'?'LONG':decision==='ARM_SHORT'?'SHORT':null,pmDir=String(preMove?.direction||'').toUpperCase();
+    if(chosenSide&&['LONG','SHORT'].includes(pmDir)&&chosenSide!==pmDir)return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_DIRECTION_CONTRADICTS_PREMOVE',budget:out.budget,costUsd:out.costUsd};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,side:chosenSide,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
 
   async function sovereignExit({position,lifecycle,currentPlan,unified,evidence=null}={}){

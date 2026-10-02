@@ -2734,6 +2734,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const marginQuote = finite(current.marginQuote);
     const leverage = finite(current.leverage);
     const maxOpenPositions = finite(current.maxOpenPositions);
+    const burstMarginQuote = finite(current.burstMarginQuote) ?? marginQuote;
+    const burstFreeMarginFraction = finite(current.burstFreeMarginFraction) ?? 0.50;
+    const burstMaxLeverage = finite(current.burstMaxLeverage) ?? 125;
     const allowLong = current.allowLong === true;
     const allowShort = current.allowShort === true;
     const reasons = [];
@@ -2741,6 +2744,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if (marginQuote === null || marginQuote <= 0) reasons.push('LEADER_AUTO_MARGIN_INVALID');
       if (leverage === null || !Number.isInteger(leverage) || leverage < 1 || leverage > 125) reasons.push('LEADER_AUTO_LEVERAGE_INVALID');
       if (maxOpenPositions === null || !Number.isInteger(maxOpenPositions) || maxOpenPositions < 1 || maxOpenPositions > 5) reasons.push('LEADER_AUTO_MAX_POSITIONS_INVALID');
+      if (burstMarginQuote === null || burstMarginQuote <= 0) reasons.push('BURST_MARGIN_INVALID');
+      if (burstFreeMarginFraction === null || burstFreeMarginFraction < 0.10 || burstFreeMarginFraction > 0.50) reasons.push('BURST_FREE_MARGIN_FRACTION_INVALID');
+      if (burstMaxLeverage === null || !Number.isInteger(burstMaxLeverage) || burstMaxLeverage < 1 || burstMaxLeverage > 125) reasons.push('BURST_MAX_LEVERAGE_INVALID');
       if (!allowLong && !allowShort) reasons.push('LEADER_AUTO_DIRECTION_DISABLED');
     }
     return {
@@ -2750,6 +2756,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         marginQuote,
         leverage,
         maxOpenPositions,
+        burstMarginQuote,
+        burstFreeMarginFraction,
+        burstMaxLeverage,
         allowLong,
         allowShort,
         intervalSec:30
@@ -2763,7 +2772,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try {
       if (fs.existsSync(leaderAutoFile)) raw = JSON.parse(fs.readFileSync(leaderAutoFile, 'utf8'));
     } catch {
-      return { ok:false, config:{ enabled:false, marginQuote:null, leverage:null, maxOpenPositions:null, allowLong:false, allowShort:false, intervalSec:30 }, reasons:['LEADER_AUTO_CONFIG_INVALID'] };
+      return { ok:false, config:{ enabled:false, marginQuote:null, leverage:null, maxOpenPositions:null, burstMarginQuote:null, burstFreeMarginFraction:0.50, burstMaxLeverage:125, allowLong:false, allowShort:false, intervalSec:30 }, reasons:['LEADER_AUTO_CONFIG_INVALID'] };
     }
     return normalizeLeaderAuto(raw, readPolicy(root));
   }
@@ -2813,6 +2822,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       marginQuote:c.marginQuote,
       leverage:c.leverage,
       maxOpenPositions:c.maxOpenPositions,
+      burstMarginQuote:c.burstMarginQuote,
+      burstFreeMarginFraction:c.burstFreeMarginFraction,
+      burstMaxLeverage:c.burstMaxLeverage,
+      burstSlots:1,
       effectiveLeverage:effective?.leverage ?? c.leverage ?? null,
       effectiveMaxOpenPositions:effective?.maxOpenPositions ?? c.maxOpenPositions ?? null,
       capacity:{...capacity({open:ledgerState.open||[],pending:pendingOrders,max:c.maxOpenPositions||2,now:clock()}),known:ledgerState.ok&&clock()-Date.parse(ledgerState.at)<=90000},
@@ -4981,21 +4994,35 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {ok:true,checked:chosen.length,results};
     }finally{burstArmBusy=false;}
   }
-  async function burstLeverageAndSizing(symbol,side,mode,price,stopPct,flat){
+  async function burstLeverageAndSizing(symbol,side,mode,price,stopPct,flat,currentPosition=null){
     const creds=currentCredentials(),policy=readPolicy(root),la=readLeaderAutoConfig();
     if(!credentialsReady(creds)||!policy.ok||!la.ok)return {ok:false,reason:'BURST_CONFIG_OR_CREDENTIALS_UNAVAILABLE'};
     const acct=await accountSummary({maxAgeMs:3000});if(!acct?.ok||!(finite(acct.availableBalance)>0))return {ok:false,reason:'BURST_ACCOUNT_UNAVAILABLE'};
-    const margin=flat?Math.min(finite(la.config.marginQuote)||0,finite(acct.availableBalance)||0):(finite(acct.availableBalance)||0)*0.50;
+    const burstMargin=finite(la.config.burstMarginQuote)??finite(la.config.marginQuote);
+    const freeFraction=Math.max(0.10,Math.min(0.50,finite(la.config.burstFreeMarginFraction)??0.50));
+    const userCap=Math.max(1,Math.min(125,Math.floor(finite(la.config.burstMaxLeverage)??125)));
+    const margin=flat?Math.min(burstMargin||0,finite(acct.availableBalance)||0):(finite(acct.availableBalance)||0)*freeFraction;
     if(!(margin>0))return {ok:false,reason:'BURST_MARGIN_UNAVAILABLE'};
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'BURST_LEVERAGE_BRACKET_UNAVAILABLE'};}
     if(!(exchangeMax>=1))return {ok:false,reason:'BURST_EXCHANGE_MAX_LEVERAGE_INVALID'};
     const stopDec=stopPct/100,safeMax=Math.max(1,Math.floor(1/Math.max(0.008,2*stopDec+0.005)));
-    let leverage=String(mode||'MAX_SAFE')==='PANEL'?Number(la.config.leverage)||1:String(mode||'MAX_SAFE')==='HALF_MAX'?Math.floor(exchangeMax/2):exchangeMax;
-    leverage=Math.max(1,Math.min(125,exchangeMax,safeMax,leverage));
-    // Reconcile with notional bracket at chosen size.
-    for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);const cap=Number(br?.initialLeverage)||exchangeMax;leverage=Math.max(1,Math.min(leverage,cap,safeMax));}
-    return {ok:true,marginQuote:Number(margin.toFixed(8)),leverage,exchangeMaxLeverage:exchangeMax,safeMaxLeverage:safeMax,availableBalance:acct.availableBalance};
+    const sameSymbolCore=!!currentPosition;
+    let leverage,changeLeverage=true;
+    if(sameSymbolCore){
+      // Binance leverage is symbol-wide in one-way mode. Never raise/lower the core trade's leverage just for a synthetic addon.
+      const coreLev=Math.floor(finite(currentPosition?.leverage)??finite(la.config.leverage)??1);
+      if(!(coreLev>=1))return {ok:false,reason:'BURST_CORE_LEVERAGE_UNKNOWN'};
+      if(coreLev>safeMax)return {ok:false,reason:'BURST_CORE_LEVERAGE_EXCEEDS_SAFE_MAX',coreLeverage:coreLev,safeMaxLeverage:safeMax};
+      if(coreLev>userCap)return {ok:false,reason:'BURST_CORE_LEVERAGE_EXCEEDS_USER_CAP',coreLeverage:coreLev,userBurstMaxLeverage:userCap};
+      leverage=Math.min(exchangeMax,coreLev);changeLeverage=false;
+    }else{
+      leverage=String(mode||'MAX_SAFE')==='PANEL'?Number(la.config.leverage)||1:String(mode||'MAX_SAFE')==='HALF_MAX'?Math.floor(exchangeMax/2):exchangeMax;
+      leverage=Math.max(1,Math.min(125,userCap,exchangeMax,safeMax,leverage));
+      // Reconcile with notional bracket at chosen size.
+      for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);const cap=Number(br?.initialLeverage)||exchangeMax;leverage=Math.max(1,Math.min(leverage,cap,safeMax,userCap));}
+    }
+    return {ok:true,marginQuote:Number(margin.toFixed(8)),leverage,exchangeMaxLeverage:exchangeMax,userBurstMaxLeverage:userCap,safeMaxLeverage:safeMax,availableBalance:acct.availableBalance,freeMarginFraction:freeFraction,burstMarginQuote:burstMargin,changeLeverage,sameSymbolCore};
   }
   async function burstReduceExact(active,reason){
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
@@ -5010,7 +5037,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const stopPct=Math.max(0.32,Math.min(0.75,0.38+Math.max(0,finite(snap?.spreadBps)||0)*0.006));
     const tpPct=Math.max(0.50,Math.min(1.10,stopPct*1.65));
     const hasAnyOpen=Array.isArray(ledgerState.open)&&ledgerState.open.length>0;
-    const sz=await burstLeverageAndSizing(symbol,side,auth.leverageMode,price,stopPct,!hasAnyOpen);if(!sz.ok)return sz;
+    const sz=await burstLeverageAndSizing(symbol,side,auth.leverageMode,price,stopPct,!hasAnyOpen,current);if(!sz.ok)return sz;
     await transport._syncServerTime();
     const info=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');const si=Array.isArray(info?.symbols)?info.symbols.find(x=>x?.symbol===symbol):null;if(!si)return {ok:false,reason:'BURST_SYMBOL_INFO_MISSING'};
     const f=exchangeFiltersFor(si);if(!(f.lotStep>0&&f.tickSize>0))return {ok:false,reason:'BURST_FILTERS_MISSING'};
@@ -5020,7 +5047,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const stopPrice=burstTickPrice(stopRaw,f.tickSize,side==='LONG'?'down':'up'),takeProfitPrice=burstTickPrice(tpRaw,f.tickSize,side==='LONG'?'up':'down');
     const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;const positionSide=hedge?side:'BOTH';
     // One-way mode: same-side addon is permitted; opposite is blocked above. Hedge mode must match side.
-    const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(sz.leverage)}});if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==sz.leverage)return {ok:false,reason:'BURST_LEVERAGE_REJECTED'};
+    if(sz.changeLeverage!==false){const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(sz.leverage)}});if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==sz.leverage)return {ok:false,reason:'BURST_LEVERAGE_REJECTED'};}
     const burstId='burst_'+crypto.randomBytes(8).toString('hex'),clientId=('BE'+burstId.replace('_','')).slice(0,36);
     let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide,type:'MARKET',quantity:String(quantity),newClientOrderId:clientId,newOrderRespType:'RESULT'}});}catch(e){return {ok:false,reason:String(e?.message||'BURST_ENTRY_FAILED'),exchangeError:e?.body||null};}
     const executed=finite(entry?.executedQty),entryPrice=finite(entry?.avgPrice)??price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
