@@ -28,6 +28,7 @@ const tradeLanesV111 = require('./trade-lanes');
 const positionGuard = require('./position-guard');
 const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
+const { BurstScalpManager } = require('./burst-scalp');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -311,10 +312,12 @@ function jevFinalAuthorityPreflight({ plan, unified } = {}) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
+  const burst = new BurstScalpManager({marketStream:market?.marketStream||marketStream,now:clock,maxArmed:4,maxActive:1});
+  let burstArmBusy=false, burstTickBusy=false, burstArmCursor=0;
   const leaseToken = crypto.randomBytes(32).toString('base64url');
   let armState = { armed:false, armedAt:null, expiresAt:null };
   let armGeneration = 0;
@@ -4928,8 +4931,139 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
+  // =====================================================================
+  // R2544.29 BURST_SCALP — JEV-preauthorized, PC-only, WebSocket-triggered fast lane.
+  // Normal maxOpenPositions is intentionally separate; burstSlots=1 is the independent cap.
+  // 2-loss/30m pause remains binding except one VERY-STRICT JEV-preauthorized ignition per pause.
+  // =====================================================================
+  function burstFloor(v,step){const n=finite(v),s=finite(step);if(n===null||s===null||s<=0)return null;return Number((Math.floor((n/s)+1e-10)*s).toPrecision(15));}
+  function burstTickPrice(v,tick,mode='round'){const n=finite(v),t=finite(tick);if(n===null||t===null||t<=0)return null;const q=mode==='down'?Math.floor(n/t+1e-10):mode==='up'?Math.ceil(n/t-1e-10):Math.round(n/t);return Number((q*t).toPrecision(15));}
+  function burstCurrentPosition(symbol){const s=String(symbol||'').toUpperCase();return (ledgerState.open||[]).find(x=>String(x?.symbol||'').toUpperCase()===s)||null;}
+  function burstCandidatePool(scan){
+    const out=[],seen=new Set(),push=(x,side=null,reason=null,preMove=null)=>{const symbol=String(x?.symbol||'').toUpperCase();if(!symbol||seen.has(symbol))return;seen.add(symbol);out.push({...x,symbol,burstSideHint:side,burstReason:reason,burstPreMove:preMove||x?.preMove||null});};
+    for(const x of scan?.nearExplosionCandidates||[])push(x,String(x?.preMove?.direction||x?.nearExplosion?.direction||'').toUpperCase()||null,'NEAR_EXPLOSION',x?.preMove||x?.nearExplosion||null);
+    for(const x of scan?.nearExplosion||[])push(x,String(x?.direction||'').toUpperCase()||null,'NEAR_EXPLOSION_LIGHT',x?.source?{state:String(x.source).includes('IGNITION')?'IGNITION':'PRE_MOVE',direction:x.direction,priority:x.priority||55,frame:x.frame||'1m',reasons:[x.source]}:null);
+    for(const x of scan?.gainerLadder?.approach||[])push(x,'LONG','GAINER_APPROACH',null);
+    for(const x of scan?.loserLadder?.approach||[])push(x,'SHORT','LOSER_APPROACH',null);
+    for(const x of (scan?.loserLadder?.rows||[]).slice(0,6))push(x,'SHORT','LOSER_TOP',null);
+    for(const x of (scan?.gainerLadder?.rows||[]).slice(0,6))push(x,'LONG','GAINER_TOP',null);
+    return out.slice(0,24);
+  }
+  async function burstArmTick(){
+    if(burstArmBusy)return {ok:true,skipped:true,reason:'BURST_ARM_BUSY'};burstArmBusy=true;
+    try{
+      if(typeof burstJudge!=='function')return {ok:true,skipped:true,reason:'BURST_JEV_PREAUTH_UNAVAILABLE'};
+      const la=readLeaderAutoConfig();if(!la.ok||la.config?.enabled!==true)return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};
+      let scan;try{scan=await scanner.scan();}catch{return {ok:false,reason:'SCANNER_UNAVAILABLE'};}
+      const pool=burstCandidatePool(scan);if(!pool.length)return {ok:true,skipped:true,reason:'BURST_NO_CANDIDATES'};
+      const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return {ok:true,skipped:true,reason:'BURST_ARM_FULL'};
+      const start=burstArmCursor%pool.length;burstArmCursor=(burstArmCursor+Math.max(1,vacancies))%Math.max(1,pool.length);
+      const chosen=[...pool.slice(start),...pool.slice(0,start)].filter(x=>!burst.status().armed.some(a=>a.symbol===x.symbol)).slice(0,Math.min(4,vacancies));
+      const results=[];
+      for(const c of chosen){
+        let pm=c.burstPreMove||c.preMove||null;
+        if(!pm&&market&&typeof market.preMoveProbe==='function'){
+          // Only a few JEV burst candidates use this closed-candle probe; normal 1s watcher remains pure WebSocket.
+          try{const pr=await Promise.race([market.preMoveProbe(c.symbol),new Promise(r=>setTimeout(()=>r(null),3500))]);pm=pr?.combined||null;}catch{}
+        }
+        if(!pm||!['PRE_MOVE','IGNITION'].includes(String(pm.state||'').toUpperCase())){results.push({symbol:c.symbol,armed:false,reason:'NO_PREMOVE'});continue;}
+        const stream=(market?.marketStream||marketStream).snapshot(c.symbol,clock());
+        const pos=burstCurrentPosition(c.symbol);
+        let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,position:pos,pause:lossStreakPause()});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
+        if(j?.ok&&['LONG','SHORT'].includes(j.side)){
+          // Existing opposite position is never hedged by burst v1.
+          if(pos&&String(pos.side||'').toUpperCase()!==j.side){results.push({symbol:c.symbol,armed:false,reason:'OPPOSITE_CORE_POSITION'});continue;}
+          const a=burst.arm({symbol:c.symbol,side:j.side,ttlMs:j.ttlMs,triggerThreshold:j.triggerThreshold,leverageMode:j.leverageMode,pauseExceptionAllowed:j.pauseExceptionAllowed,preMove:pm,jevReason:`${c.burstReason||''}|${j.mode||''}`});
+          try{store.journal('BURST_ARM',c.symbol,{candidate:{reason:c.burstReason||null,sideHint:c.burstSideHint||null},preMove:pm,jev:j,authorization:a.authorization||null});}catch{}
+          results.push({symbol:c.symbol,armed:a.ok===true,side:j.side,decision:j.decision});
+        } else results.push({symbol:c.symbol,armed:false,reason:j?.reason||j?.decision||'JEV_DO_NOT_ARM'});
+      }
+      return {ok:true,checked:chosen.length,results};
+    }finally{burstArmBusy=false;}
+  }
+  async function burstLeverageAndSizing(symbol,side,mode,price,stopPct,flat){
+    const creds=currentCredentials(),policy=readPolicy(root),la=readLeaderAutoConfig();
+    if(!credentialsReady(creds)||!policy.ok||!la.ok)return {ok:false,reason:'BURST_CONFIG_OR_CREDENTIALS_UNAVAILABLE'};
+    const acct=await accountSummary({maxAgeMs:3000});if(!acct?.ok||!(finite(acct.availableBalance)>0))return {ok:false,reason:'BURST_ACCOUNT_UNAVAILABLE'};
+    const margin=flat?Math.min(finite(la.config.marginQuote)||0,finite(acct.availableBalance)||0):(finite(acct.availableBalance)||0)*0.50;
+    if(!(margin>0))return {ok:false,reason:'BURST_MARGIN_UNAVAILABLE'};
+    let exchangeMax=null,brackets=[];
+    try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'BURST_LEVERAGE_BRACKET_UNAVAILABLE'};}
+    if(!(exchangeMax>=1))return {ok:false,reason:'BURST_EXCHANGE_MAX_LEVERAGE_INVALID'};
+    const stopDec=stopPct/100,safeMax=Math.max(1,Math.floor(1/Math.max(0.008,2*stopDec+0.005)));
+    let leverage=String(mode||'MAX_SAFE')==='PANEL'?Number(la.config.leverage)||1:String(mode||'MAX_SAFE')==='HALF_MAX'?Math.floor(exchangeMax/2):exchangeMax;
+    leverage=Math.max(1,Math.min(125,exchangeMax,safeMax,leverage));
+    // Reconcile with notional bracket at chosen size.
+    for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);const cap=Number(br?.initialLeverage)||exchangeMax;leverage=Math.max(1,Math.min(leverage,cap,safeMax));}
+    return {ok:true,marginQuote:Number(margin.toFixed(8)),leverage,exchangeMaxLeverage:exchangeMax,safeMaxLeverage:safeMax,availableBalance:acct.availableBalance};
+  }
+  async function burstReduceExact(active,reason){
+    const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    try{await transport._syncServerTime();const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;const ack=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol:active.symbol,side:active.side==='LONG'?'SELL':'BUY',positionSide:hedge?active.side:'BOTH',type:'MARKET',quantity:String(active.quantity),...(hedge?{}:{reduceOnly:'true'}),newClientOrderId:('BX'+active.burstId.replace(/[^A-Za-z0-9]/g,'').slice(-28)).slice(0,36),newOrderRespType:'RESULT'}});return {ok:true,reason,orderId:ack?.orderId??null,avgPrice:finite(ack?.avgPrice),executedQty:finite(ack?.executedQty)};}catch(e){return {ok:false,reason:String(e?.message||'BURST_REDUCE_FAILED').slice(0,140),exchangeError:e?.body||null};}
+  }
+  async function burstOpen(auth,ev){
+    if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
+    const creds=currentCredentials(),symbol=auth.symbol,side=auth.side,snap=(market?.marketStream||marketStream).snapshot(symbol,clock());
+    const price=finite(side==='LONG'?snap?.ask:snap?.bid)??finite((finite(snap?.ask)+finite(snap?.bid))/2);if(!(price>0))return {ok:false,reason:'BURST_PRICE_UNAVAILABLE'};
+    const current=burstCurrentPosition(symbol),sameAddon=!!current;
+    if(current&&String(current.side||'').toUpperCase()!==side)return {ok:false,reason:'BURST_OPPOSITE_POSITION_BLOCKED'};
+    const stopPct=Math.max(0.32,Math.min(0.75,0.38+Math.max(0,finite(snap?.spreadBps)||0)*0.006));
+    const tpPct=Math.max(0.50,Math.min(1.10,stopPct*1.65));
+    const hasAnyOpen=Array.isArray(ledgerState.open)&&ledgerState.open.length>0;
+    const sz=await burstLeverageAndSizing(symbol,side,auth.leverageMode,price,stopPct,!hasAnyOpen);if(!sz.ok)return sz;
+    await transport._syncServerTime();
+    const info=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');const si=Array.isArray(info?.symbols)?info.symbols.find(x=>x?.symbol===symbol):null;if(!si)return {ok:false,reason:'BURST_SYMBOL_INFO_MISSING'};
+    const f=exchangeFiltersFor(si);if(!(f.lotStep>0&&f.tickSize>0))return {ok:false,reason:'BURST_FILTERS_MISSING'};
+    const quantity=burstFloor(sz.marginQuote*sz.leverage/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||quantity>f.maxQty)return {ok:false,reason:'BURST_QUANTITY_INVALID'};
+    if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'BURST_MIN_NOTIONAL_NOT_MET'};
+    const stopRaw=side==='LONG'?price*(1-stopPct/100):price*(1+stopPct/100),tpRaw=side==='LONG'?price*(1+tpPct/100):price*(1-tpPct/100);
+    const stopPrice=burstTickPrice(stopRaw,f.tickSize,side==='LONG'?'down':'up'),takeProfitPrice=burstTickPrice(tpRaw,f.tickSize,side==='LONG'?'up':'down');
+    const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;const positionSide=hedge?side:'BOTH';
+    // One-way mode: same-side addon is permitted; opposite is blocked above. Hedge mode must match side.
+    const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(sz.leverage)}});if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==sz.leverage)return {ok:false,reason:'BURST_LEVERAGE_REJECTED'};
+    const burstId='burst_'+crypto.randomBytes(8).toString('hex'),clientId=('BE'+burstId.replace('_','')).slice(0,36);
+    let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide,type:'MARKET',quantity:String(quantity),newClientOrderId:clientId,newOrderRespType:'RESULT'}});}catch(e){return {ok:false,reason:String(e?.message||'BURST_ENTRY_FAILED'),exchangeError:e?.body||null};}
+    const executed=finite(entry?.executedQty),entryPrice=finite(entry?.avgPrice)??price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
+    // Quantity-specific protective stop so a synthetic addon can never close the core position.
+    const stop=await transport.placeRunnerStop({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:stopPrice,clientAlgoId:('BS'+burstId.replace('_','')).slice(0,36),credentials:creds});
+    if(!stop.ok){const emergency=await burstReduceExact({symbol,side,quantity:executed,burstId},'BURST_STOP_PROTECTION_FAILED');return {ok:false,orderPlaced:true,emergencyClose:emergency,reason:'BURST_STOP_PROTECTION_FAILED'};}
+    const started=burst.start({burstId,authorizationId:auth.authorizationId,symbol,side,quantity:executed,entryPrice,stopPrice,takeProfitPrice,leverage:sz.leverage,marginQuote:sz.marginQuote,syntheticAddon:sameAddon,pauseExceptionUsed:false});
+    if(started.ok){started.active.stopAlgoId=stop.algoId;started.active.coreQtyBefore=finite(current?.quantity)||0;started.active.exchangeMaxLeverage=sz.exchangeMaxLeverage;started.active.triggerScore=ev.score;}
+    try{store.journal('BURST_ENTRY',symbol,{burstId,authorizationId:auth.authorizationId,side,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,marginQuote:sz.marginQuote,leverage:sz.leverage,exchangeMaxLeverage:sz.exchangeMaxLeverage,safeMaxLeverage:sz.safeMaxLeverage,entryPrice,quantity:executed,stopPrice,takeProfitPrice,trigger:ev});store.recordLearning?.('BURST_OPENED',symbol,{burstId,side,entryPrice,quantity:executed,leverage:sz.leverage,triggerScore:ev.score,syntheticAddon:sameAddon});}catch{}
+    return {ok:true,orderPlaced:true,active:started.active,sizing:sz};
+  }
+  async function burstScalpTick(){
+    if(burstTickBusy)return {ok:true,skipped:true,reason:'BURST_TICK_BUSY'};burstTickBusy=true;
+    try{
+      // Manage active burst first. Watcher exits are exact-quantity reduce-only; the core lot is untouched.
+      for(const a of [...burst.active.values()]){
+        const checked=burst.evaluateActive(a.burstId);if(!checked.ok)continue;
+        // 0.8R is a deliberate fast-profit objective; flow reversal/giveback/fast-fail can exit earlier.
+        if(checked.exit.progressR!==null&&checked.exit.progressR>=0.80){checked.exit.exit=true;checked.exit.reason='BURST_PROFIT_HIT';}
+        // Ledger reconciliation for protective-stop fills (no 1s signed REST polling).
+        const led=burstCurrentPosition(a.symbol),ledgerFresh=ledgerState.ok&&ledgerState.at&&clock()-Date.parse(ledgerState.at)<=90000;
+        const addonGone=ledgerFresh&&a.syntheticAddon&&led&&finite(led.quantity)!==null&&finite(led.quantity)<=Math.max(0,(finite(a.coreQtyBefore)||0)+(finite(a.quantity)||0)*0.10);
+        const flatGone=ledgerFresh&&!a.syntheticAddon&&!led;
+        if(addonGone||flatGone){const closed=burst.finish(a.burstId,{exitReason:'EXCHANGE_PROTECTIVE_EXIT_DETECTED',exitPrice:finite(checked.snapshot?.bid)??finite(checked.snapshot?.ask),mfeR:checked.exit.mfeR,maeR:checked.exit.maeR});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,captureEfficiency:null,authority:'EXCHANGE_PROTECTIVE'});}catch{};continue;}
+        if(checked.exit.exit){const r=await burstReduceExact(a,checked.exit.reason);if(r.ok){if(a.stopAlgoId)try{await transport.cancelAlgoOrder({algoId:a.stopAlgoId,credentials:currentCredentials()});}catch{}const exitPrice=finite(r.avgPrice)??finite(checked.snapshot?.bid)??finite(checked.snapshot?.ask),oneR=Math.abs((finite(a.entryPrice)||0)-(finite(a.stopPrice)||0)),gross=oneR>0&&exitPrice!==null?(exitPrice-a.entryPrice)*(a.side==='LONG'?1:-1)*a.quantity:null,realizedR=oneR>0&&gross!==null?gross/(oneR*a.quantity):null,capture=checked.exit.mfeR>0&&realizedR!==null?Math.max(-2,Math.min(2,realizedR/checked.exit.mfeR)):null;const closed=burst.finish(a.burstId,{exitReason:checked.exit.reason,exitPrice,mfeR:checked.exit.mfeR,maeR:checked.exit.maeR,realizedR,captureEfficiency:capture});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,authority:'BURST_WATCHER'});}catch{}}}
+      }
+      if(!burst.canStart())return {ok:true,active:true};
+      const pause=lossStreakPause();
+      for(const auth of [...burst.armed.values()]){
+        const chk=burst.evaluateArmed(auth.symbol);if(!chk.ok||!chk.trigger)continue;
+        if(pause){const key=String(pause.pauseStartedAt||pause.until||'');const veryStrict=chk.evidence.score>=Math.max(0.94,auth.triggerThreshold)&&String(auth.preMove?.state||'').toUpperCase()==='IGNITION';if(!(auth.pauseExceptionAllowed&&veryStrict&&burst.pauseExceptionAvailable(key))){continue;}}
+        const opened=await burstOpen(auth,chk.evidence);
+        if(opened?.ok&&pause){burst.consumePauseException(String(pause.pauseStartedAt||pause.until||''));if(opened.active)opened.active.pauseExceptionUsed=true;}
+        if(opened?.ok)return {ok:true,triggered:true,symbol:auth.symbol,opened};
+        try{store.journal('BURST_BLOCKED',auth.symbol,{authorization:auth,evidence:chk.evidence,result:opened});}catch{}
+      }
+      return {ok:true,triggered:false};
+    }finally{burstTickBusy=false;}
+  }
+  function burstStatus(){return burst.status(lossStreakPause());}
+
   restoreCooldownsFromJournal();
-  return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.8-R2544.28-JEV-Brain';
+const OFFICE_VERSION = '2.5.9-R2544.29-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -31,7 +31,7 @@ if (!LOOPBACK && OFFICE_KEY.length < 24) {
 
 // Brain Hub tarafında yalnız bu GET yollarına izin var.
 const ALLOWED_BRAIN_PATHS = new Set([
-  '/health', '/live/status', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png',
+  '/health', '/live/status', '/live/burst', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png',
   '/scanner/last', '/jev/knowledge', '/learning/case-memory' // R2544.19 read-only provenance/case memory
 ]);
 
@@ -494,6 +494,7 @@ async function buildSnapshot() {
   const caseMemory = await cached('caseMemory', 10000, () => brainGet('/learning/case-memory', 'limit=12'));
   const knowledge = await cached('knowledge', 60000, () => brainGet('/jev/knowledge'));
   const scannerLast = await cached('scannerLast', 5000, () => brainGet('/scanner/last'));
+  const burst = await cached('burst', 1000, () => brainGet('/live/burst'));
   const router = await cached('router', 30000, () => getJson(ROUTER_URL + '/', { timeoutMs: 3000 }).then(r => ({ ok: r.status > 0 && r.status < 500, status: r.status, ms: r.ms, error: r.error || null })));
   const headroom = await cached('headroom', 15000, () => getJson(HEADROOM_URL + '/health', { timeoutMs: 2500 }).then(r => ({ ok: r.ok === true, status: r.status, ms: r.ms, data: scrub(r.data), error: r.error || (r.ok ? null : 'HTTP ' + r.status), url: HEADROOM_URL })));
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
@@ -528,6 +529,7 @@ async function buildSnapshot() {
     jevBudget: { ok: jevBudget?.ok === true, data: scrub(jevBudget?.data), error: jevBudget?.error || null },
     // CLAUDE_R2544_15: canlı Binance yükselenler merdiveni + 24 saatlik likidasyon kaydı sağlığı
     ladder: scannerLast?.ok === true ? scrub(scannerLast.data) : null,
+    burst: burst?.ok === true ? scrub(burst.data) : null,
     plans: journalSummary.plans.slice(0, 40),
     lastJev: journalSummary.lastJev,
     lastRisk: journalSummary.lastRisk,

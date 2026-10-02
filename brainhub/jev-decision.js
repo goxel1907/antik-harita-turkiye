@@ -1604,6 +1604,45 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     return {ok:true,called:true,verdict,model:cfg.model,mode:'SOVEREIGN_KNOWLEDGE_REVIEW',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
 
+  // R2544.29 BURST_SCALP: JEV pre-authorizes only a short-lived conditional watch.
+  // This call never places an order. A later deterministic WebSocket ignition must independently
+  // satisfy direction/TTL/strictness before the PC-only burst executor may act.
+  async function sovereignBurstArm({candidate,preMove,stream,position=null,pause=null}={}){
+    if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,decision:'DO_NOT_ARM',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
+    const symbol=String(candidate?.symbol||stream?.symbol||'').toUpperCase();
+    if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))return {ok:false,called:false,decision:'DO_NOT_ARM',reason:'BURST_SYMBOL_INVALID'};
+    const compact={
+      contract:'R2544.29_BURST_PREAUTH',symbol,
+      radar:{source:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[],gainerRank:finiteNumber(candidate?.gainerRank),projectedRank:finiteNumber(candidate?.projectedGainerRank??candidate?.projectedRank),rankVelocity:finiteNumber(candidate?.gainerRankVelocity??candidate?.rankVelocity)},
+      preMove:preMove&&typeof preMove==='object'?{state:preMove.state||null,direction:preMove.direction||null,priority:finiteNumber(preMove.priority),frame:preMove.frame||null,triggers:preMove.triggers||null,reasons:Array.isArray(preMove.reasons)?preMove.reasons.slice(0,8):[]}:null,
+      stream:stream&&typeof stream==='object'?{
+        available:stream.available===true,ageMs:finiteNumber(stream.ageMs),spreadBps:finiteNumber(stream.spreadBps),
+        orderFlow:{oneSec:stream?.orderFlow?.windows?.['1s']||null,threeSec:stream?.orderFlow?.windows?.['3s']||null,fiveSec:stream?.orderFlow?.windows?.['5s']||null},
+        level1Ofi:{oneSec:stream?.level1Ofi?.windows?.['1s']||null,threeSec:stream?.level1Ofi?.windows?.['3s']||null},
+        localL2:stream?.localL2?{available:stream.localL2.available===true,sequenceHealthy:stream.localL2.sequenceHealthy===true,ageMs:finiteNumber(stream.localL2.ageMs),confidence:finiteNumber(stream.localL2.confidence),multiLevelOfi:finiteNumber(stream.localL2.multiLevelOfi),depthImbalance:finiteNumber(stream.localL2.depthImalance??stream.localL2.depthImbalance),wallPersistence:stream.localL2.wallPersistence||null,liquidityPull:stream.localL2.liquidityPull||null,replenishment:stream.localL2.replenishment||null,absorption:stream.localL2.absorption||null}:null
+      }:null,
+      existingPosition:position?{symbol:String(position.symbol||'').toUpperCase(),side:String(position.side||'').toUpperCase(),quantity:finiteNumber(position.quantity),ownerTF:position.ownerTF||null}:null,
+      lossStreakPause:pause?{active:true,streak:Number(pause.streak)||0,remainingMin:Number(pause.remainingMin)||null}:null
+    };
+    const body={
+      model:cfg.model,
+      state:{description:'JEV BURST pre-authorization. Choose whether ONE symbol may be ARMED for a very short PC-only burst scalp watcher. This is not an entry order. LONG and SHORT are symmetric. Only arm when the supplied pre-move/location plus current public WebSocket microstructure can plausibly support an imminent expansion. A later deterministic ignition must independently pass strict freshness, spread, sequence-safe local-L2, 1s/3s flow and OFI conditions. During a 2-loss/30m pause, allow an exception only for an unusually clear ignition; at most one exception can execute in that pause. Never infer participant identity. Do not bypass exchange safety.',record:compact},
+      questions:{
+        burst_decision:{type:'choice',instructions:'Pre-authorize a conditional burst direction or do not arm.',criteria:{ARM_LONG:'Arm LONG only; later trigger may execute LONG.',ARM_SHORT:'Arm SHORT only; later trigger may execute SHORT.',DO_NOT_ARM:'Do not arm this symbol now.'}},
+        ttl:{type:'choice',instructions:'How long may this pre-authorization remain valid?',criteria:{TTL_30S:'30 seconds',TTL_60S:'60 seconds',TTL_120S:'120 seconds'}},
+        trigger_strictness:{type:'choice',instructions:'Choose deterministic ignition strictness.',criteria:{STRICT_090:'Require trigger score >=0.90.',VERY_STRICT_094:'Require trigger score >=0.94.'}},
+        leverage_mode:{type:'choice',instructions:'Choose leverage policy if a burst later triggers.',criteria:{MAX_SAFE:'Use the highest exchange-allowed leverage that still passes burst liquidation/stop safety.',HALF_MAX:'Use at most half of exchange maximum, still subject to safety.',PANEL:'Use configured panel leverage.'}},
+        pause_exception:{type:'choice',instructions:'If the account is currently in the 2-loss/30m entry pause, may this authorization use the single strict burst exception?',criteria:{ALLOW_ONE_STRICT_EXCEPTION:'Allow the one-per-pause strict burst exception.',NO_PAUSE_EXCEPTION:'Do not allow burst execution during the pause.'}}
+      }
+    };
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:out.called!==false,decision:'DO_NOT_ARM',mode:'BURST_PREAUTH'};
+    const a=out.data?.answers||{};
+    const decision=choiceValue(a.burst_decision),ttl=choiceValue(a.ttl),strict=choiceValue(a.trigger_strictness),lev=choiceValue(a.leverage_mode),pex=choiceValue(a.pause_exception);
+    if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!['TTL_30S','TTL_60S','TTL_120S'].includes(ttl)||!['STRICT_090','VERY_STRICT_094'].includes(strict)||!['MAX_SAFE','HALF_MAX','PANEL'].includes(lev)||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,side:decision==='ARM_LONG'?'LONG':decision==='ARM_SHORT'?'SHORT':null,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+  }
+
   async function sovereignExit({position,lifecycle,currentPlan,unified,evidence=null}={}){
     if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,finalAuthority:false,action:'HOLD_REVIEW',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     if(unified?.dataQuality?.advisoryUsable!==true)return {ok:false,configured:true,required:true,called:false,finalAuthority:false,action:'HOLD_REVIEW',reason:'JEV_EXIT_CONTEXT_NOT_USABLE'};
@@ -1832,6 +1871,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignExit,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignExit,budgetStatus};
 }
 module.exports={prepareDecisionRequest,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,sovereignFinalConsistency,createJevClient};

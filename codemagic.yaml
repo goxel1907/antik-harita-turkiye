@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.116-r2543 + PC R2543 JEV CHART NARRATOR + ANDROID PC-ONLY FAIL-CLOSED
+    name: Futures 15m Alarm PRO APK v9.5.117-r2544.29-burst + PC R2544.29 JEV BURST MONITOR + ANDROID PC-ONLY
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -206,6 +206,19 @@ workflows:
             exit 1
           fi
           echo 'V123_ANDROID_R2543_CONTRACT_OK'
+
+          # R2544.29: separate read-only BURST monitor build. PC/JEV remains the only order executor.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95124_r2544_29_burst_monitor.py"
+          grep -q 'V95124_ANDROID_R2544_29_BURST_MONITOR' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "versionName '9.5.117-r2544.29-burst'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'liveBurst(Context c)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q 'get(c, "/live/burst")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q 'BURST SCALP' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/AutoDecisionCard.java
+          if grep -q 'post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_29_ANDROID_BURST_POST_FORBIDDEN'
+            exit 1
+          fi
+          echo 'V124_ANDROID_R2544_29_BURST_MONITOR_OK'
 
           APP=/tmp/futures15m-build/Futures15mAlarm
           MAIN="$APP/app/src/main/java/com/futuresalarm/app/MainActivity.java"
@@ -639,9 +652,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.117-R2544.29-BURST.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.115-R2541.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.117-R2544.29-BURST.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -652,5 +665,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.115-R2541.apk
+      - Futures15mAlarm-PRO-v9.5.117-R2544.29-BURST.apk
       - v9595-gradle.log

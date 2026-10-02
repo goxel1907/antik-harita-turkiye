@@ -336,6 +336,35 @@ function buildGainerLadder(universe, prevState = {}, now = Date.now()) {
   };
 }
 
+
+// R2544.29 BURST_SCALP: symmetric downside ladder for SHORT pre-arming.
+// This is lightweight 24h ticker/rank history only; it does not add detailed REST enrichment.
+function buildLoserLadder(universe, prevState = {}, now = Date.now()) {
+  const ranked=[...universe].filter(x=>num(x.priceChangePercent)<0)
+    .sort((a,b)=>num(a.priceChangePercent)-num(b.priceChangePercent)||num(b.quoteVolume)-num(a.quoteVolume));
+  const prev=prevState?.loserLadder||{},bySymbol=new Map(),nextLoserLadder={};
+  ranked.forEach((x,i)=>{
+    const rank=i+1,hist=(Array.isArray(prev[x.symbol]?.h)?prev[x.symbol].h:[]).filter(e=>Array.isArray(e)&&now-num(e[0])<=LADDER_HISTORY_MS&&num(e[0])<now);
+    const last=hist.length?hist.at(-1):null,older=hist.filter(e=>now-num(e[0])>=2*60*1000);
+    const ref=older.length?older.reduce((best,e)=>Math.abs(now-num(e[0])-300000)<Math.abs(now-num(best[0])-300000)?e:best,older[0]):null;
+    const dtMin=ref?(now-num(ref[0]))/60000:null,velocity=ref&&dtMin>0?round((num(ref[1])-rank)/(dtMin/5),2):0;
+    const projected=Math.max(1,Math.round(rank-Math.max(0,velocity)));
+    const pl=prevState?.lightweight?.[x.symbol];
+    const shortDtMin=pl&&num(pl.at)>0&&now-num(pl.at)<=20*60*1000&&now>num(pl.at)?(now-num(pl.at))/60000:null;
+    const shortChangePct=shortDtMin?round(pct(pl.lastPrice,x.lastPrice),3):null;
+    const shortPer5m=shortDtMin?round(shortChangePct/Math.max(1,shortDtMin)*5,3):null;
+    const tier=rank<=3?'BOTTOM3':rank<=10?'BOTTOM10':rank<=24?'BOTTOM24':null;
+    const approach3=rank>3&&rank<=60&&velocity>=3&&projected<=3;
+    const approach10=rank>10&&rank<=60&&velocity>=3&&projected<=10;
+    const shortSurge=rank>3&&rank<=60&&shortPer5m!==null&&shortPer5m<=-1.5;
+    bySymbol.set(x.symbol,{symbol:x.symbol,loserRank:rank,loserRankPrev:last?num(last[1]):null,loserRankVelocity:velocity,projectedLoserRank:projected,loserTier:tier,change24hPct:round(x.priceChangePercent,3),shortChangePct,shortWindowMin:shortDtMin?round(shortDtMin,1):null,shortPer5mPct:shortPer5m,approach:approach3?'BOTTOM3_CANDIDATE':approach10?'BOTTOM10_CANDIDATE':shortSurge?'SHORT_WINDOW_DUMP':null});
+  });
+  const rowsOf=list=>list.map(x=>({...x,...bySymbol.get(x.symbol)}));
+  const approach=rowsOf(ranked.filter(x=>bySymbol.get(x.symbol)?.approach)).sort((a,b)=>a.projectedLoserRank-b.projectedLoserRank||b.loserRankVelocity-a.loserRankVelocity||num(a.shortPer5mPct)-num(b.shortPer5mPct));
+  for(const x of ranked.slice(0,LADDER_TRACK_RANK)){const hist=(Array.isArray(prev[x.symbol]?.h)?prev[x.symbol].h:[]).filter(e=>Array.isArray(e)&&now-num(e[0])<=LADDER_HISTORY_MS);nextLoserLadder[x.symbol]={h:[...hist,[now,bySymbol.get(x.symbol).loserRank]].slice(-12)};}
+  return {bySymbol,rankedCount:ranked.length,top3:rowsOf(ranked.slice(0,3)),top10:rowsOf(ranked.slice(3,10)),top24:rowsOf(ranked.slice(10,24)),approach,nextLoserLadder};
+}
+
 function selectCandidates(universe, prevState = {}, attentionOrLimit = readAttention(), limit = TARGET_DETAIL_LIMIT) {
   let attention=attentionOrLimit;
   if(Number.isFinite(Number(attentionOrLimit)) && typeof attentionOrLimit!=='object'){
@@ -434,6 +463,7 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
   //   6) ilk 3 EN SON (kapsama korunur, öncelik yok)   7) süreklilik/hızlanan (boş kapasite)
   // Her katmana en az bir taban kontenjan ayrılır; öncelik sırası bozulmaz.
   const ladder=buildGainerLadder(universe,prevState,Date.now());
+  const loserLadder=buildLoserLadder(universe,prevState,Date.now());
   const tagLadder=(items)=>items.map(x=>({...x,...(ladder.bySymbol.get(x.symbol)||{})}));
   const nowTs=Date.now();
   const approachPool=tagLadder(ladder.approach.filter(x=>num(ladder.bySymbol.get(x.symbol)?.gainerRank)>10));
@@ -507,6 +537,7 @@ function selectCandidates(universe, prevState = {}, attentionOrLimit = readAtten
     acceleratingPool,
     noveltyPool,
     ladder,
+    loserLadder,
     nearPool,
     slotPlan,
     previousAgeMs:Math.max(0,Date.now()-Number(prevState?.ts||0)),
@@ -694,7 +725,7 @@ async function performScan() {
 
   const attention=readAttention();
   const selection = selectCandidates(universe,prev,attention,TARGET_DETAIL_LIMIT);
-  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, acceleratingPool, noveltyPool, attentionStatus, newTargetCount, candidates, targetSymbols, ladder, nearPool, slotPlan } = selection;
+  const { previousTop3, previousTop4to10, continuity, top24Gainers, accumulationPool, attentionPool, acceleratingPool, noveltyPool, attentionStatus, newTargetCount, candidates, targetSymbols, ladder, loserLadder, nearPool, slotPlan } = selection;
 
   const enriched = await mapLimit(candidates,DETAIL_ENRICH_CONCURRENCY,x=>enrich(x,bookMap.get(x.symbol),premiumMap.get(x.symbol),prev.bySymbol?.[x.symbol]));
   const good = enriched.filter(x=>!x.error).sort((a,b)=>b.attackScore-a.attackScore);
@@ -703,7 +734,7 @@ async function performScan() {
   try{recordPreMoveHits(good.filter(x=>x.preMove&&['IGNITION','PRE_MOVE'].includes(x.preMove.state)).map(x=>({symbol:x.symbol,...x.preMove})),'SCANNER');}catch{}
 
   const now=Date.now();
-  const next={ts:now,bySymbol:{},lightweight:{},ladder:ladder.nextLadder};
+  const next={ts:now,bySymbol:{},lightweight:{},ladder:ladder.nextLadder,loserLadder:loserLadder.nextLoserLadder};
   for(const x of universe){
     next.lightweight[x.symbol]={
       at:now,lastPrice:x.lastPrice,quoteVolume:x.quoteVolume,
@@ -767,6 +798,11 @@ async function performScan() {
       rows:[...ladder.top3,...ladder.top10,...ladder.top24].map(ladderRow),
       approach:ladder.approach.slice(0,10).map(ladderRow),
       attention:attentionPool.map(x=>({symbol:x.symbol,rank:ladder.bySymbol.get(x.symbol)?.gainerRank||null,detailed:analyzedSet.has(x.symbol),earlyMoveScore:x.attention?.earlyMoveScore??null,direction:x.attention?.direction||null}))
+    },
+    loserLadder:{
+      rankedLosers:loserLadder.rankedCount,
+      rows:[...loserLadder.top3,...loserLadder.top10,...loserLadder.top24].map(x=>({symbol:x.symbol,rank:x.loserRank,prevRank:x.loserRankPrev,velocity:x.loserRankVelocity,projected:x.projectedLoserRank,change24hPct:x.change24hPct,shortChangePct:x.shortChangePct,tier:x.loserTier,approach:x.approach||null})),
+      approach:loserLadder.approach.slice(0,10).map(x=>({symbol:x.symbol,rank:x.loserRank,prevRank:x.loserRankPrev,velocity:x.loserRankVelocity,projected:x.projectedLoserRank,change24hPct:x.change24hPct,shortPer5mPct:x.shortPer5mPct,approach:x.approach||null}))
     },
     ladderTop3,ladderTop10,ladderTop24,ladderApproach,nearExplosionCandidates,
     // CLAUDE_R2544_16_SLOT_POLICY: katman başına aday/seçilen (Office ve devir raporu için)
@@ -833,4 +869,4 @@ async function scan(){
   return inFlight;
 }
 
-module.exports={readPreMoveHits,recordPreMoveHits,PREMOVE_HITS_PATH,scan,lastScan,buildGainerLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT,SCAN_CACHE_MS,DETAIL_ENRICH_CONCURRENCY,scannerKlines};
+module.exports={readPreMoveHits,recordPreMoveHits,PREMOVE_HITS_PATH,scan,lastScan,buildGainerLadder,buildLoserLadder,tfStats,scoreExpansion,selectCandidates,addLeaderHunterFields,validUsdtSymbol,readAttention,writeAttentionSnapshot,accumulationProxyScore,lightweightAccelerationScore,TARGET_DETAIL_LIMIT,SCAN_CACHE_MS,DETAIL_ENRICH_CONCURRENCY,scannerKlines};

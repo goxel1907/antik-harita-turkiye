@@ -32,7 +32,7 @@ try {
   Stop-Office $RT
   Start-Sleep -Seconds 2
   Start-Office $RT $BK
-  foreach ($f in 'server.js','live-controller.js','position-guard.js','engine.js','pipeline.js','market.js','jev-market-packet.js','jev-decision.js','chart-narrator.js') {
+  foreach ($f in 'server.js','live-controller.js','burst-scalp.js','position-guard.js','engine.js','pipeline.js','market.js','jev-market-packet.js','jev-decision.js','chart-narrator.js') {
     Write-Host ("HASH $f " + (Get-FileHash (Join-Path "$RT\server" $f)).Hash)
   }
   Write-Host "JEV_DEPLOY_OK $h — LIVE ARM restart ile kapandi; uygulamadan yeniden acin."

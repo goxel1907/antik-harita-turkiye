@@ -93,7 +93,7 @@ test('R2543 devir bulguları: tek seçili aday + JEV_ATTENTION WATCH eski ARMED 
   assert.match(lc,/for \(const row of leaderAutoLastDiagnostics\?\.candidates \|\| \[\]\) if \(row !== target\) row\.selected = false;/);
   assert.match(lc,/\(fastMode\.kind==='REVALIDATION'\|\|fastMode\.kind==='JEV_ATTENTION'\) && advisory\?\.plan && advisory\?\.unifiedContext/);
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
-  assert.match(sv,/const RUNTIME_RELEASE='R2544\.28-JEV-DECISION-MANAGEMENT-LEARNING';/);
+  assert.match(sv,/const RUNTIME_RELEASE='R2544\.29-JEV-BURST-SCALP';/);
   assert.equal((sv.match(/runtimeRelease:RUNTIME_RELEASE/g)||[]).length,2,'/health ve /live/status');
   assert.match(sv,/\},10000\);\nif\(typeof claudeRunnerTimer\.unref/,'pozisyon takibi 10 sn');
 });

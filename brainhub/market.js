@@ -560,8 +560,10 @@ class StreamingMarket {
     const longLiqQuote = state.liquidations.filter(x => x.side === 'LONG_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
     const shortLiqQuote = state.liquidations.filter(x => x.side === 'SHORT_LIQUIDATED').reduce((s, x) => s + x.quote, 0);
     const zones = liquidationZones(state.liquidations, mid || state.book?.bid || state.book?.ask || 0);
-    const flow5=flowWindowStats(state.trades,now,5000), flow10=flowWindowStats(state.trades,now,10000), flow15=flowWindowStats(state.trades,now,15000), flow30=flowWindowStats(state.trades,now,30000), flow60=flowWindowStats(state.trades,now,60000), flow120=flowWindowStats(state.trades,now,120000);
-    const l1Ofi5=bookTickerFlowStats(state.bookHistory,now,5000),l1Ofi15=bookTickerFlowStats(state.bookHistory,now,15000),l1Ofi30=bookTickerFlowStats(state.bookHistory,now,30000),l1Ofi60=bookTickerFlowStats(state.bookHistory,now,60000),l1Ofi120=bookTickerFlowStats(state.bookHistory,now,120000);
+    // R2544.29 BURST_SCALP: 1s/3s windows are fed entirely from the existing WebSocket
+    // aggTrade/bookTicker ring buffers. No extra REST call is introduced.
+    const flow1=flowWindowStats(state.trades,now,1000), flow3=flowWindowStats(state.trades,now,3000), flow5=flowWindowStats(state.trades,now,5000), flow10=flowWindowStats(state.trades,now,10000), flow15=flowWindowStats(state.trades,now,15000), flow30=flowWindowStats(state.trades,now,30000), flow60=flowWindowStats(state.trades,now,60000), flow120=flowWindowStats(state.trades,now,120000);
+    const l1Ofi1=bookTickerFlowStats(state.bookHistory,now,1000),l1Ofi3=bookTickerFlowStats(state.bookHistory,now,3000),l1Ofi5=bookTickerFlowStats(state.bookHistory,now,5000),l1Ofi15=bookTickerFlowStats(state.bookHistory,now,15000),l1Ofi30=bookTickerFlowStats(state.bookHistory,now,30000),l1Ofi60=bookTickerFlowStats(state.bookHistory,now,60000),l1Ofi120=bookTickerFlowStats(state.bookHistory,now,120000);
     const dynamics=depthDynamics(state.depthHistory,state.trades,now,mid || state.book?.bid || state.book?.ask || 0);
     const localL2=this.localL2.snapshot(symbol,now,state.trades);
     const liqVelocity=liquidationVelocity(state.liquidations,now);
@@ -591,8 +593,8 @@ class StreamingMarket {
       cvdSource:'BINANCE_WS_AGGTRADE',
       cvdAsOf:state.tradeAt || null,
       cvdAgeMs:state.tradeAt > 0 && now >= state.tradeAt ? now - state.tradeAt : null,
-      orderFlow:{windows:{'5s':flow5,'10s':flow10,'15s':flow15,'30s':flow30,'60s':flow60,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
-      level1Ofi:{windows:{'5s':l1Ofi5,'15s':l1Ofi15,'30s':l1Ofi30,'60s':l1Ofi60,'120s':l1Ofi120},semantics:'SEQUENCED_PUBLIC_BOOKTICKER_LEVEL1_OFI_ONLY'},
+      orderFlow:{windows:{'1s':flow1,'3s':flow3,'5s':flow5,'10s':flow10,'15s':flow15,'30s':flow30,'60s':flow60,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
+      level1Ofi:{windows:{'1s':l1Ofi1,'3s':l1Ofi3,'5s':l1Ofi5,'15s':l1Ofi15,'30s':l1Ofi30,'60s':l1Ofi60,'120s':l1Ofi120},semantics:'SEQUENCED_PUBLIC_BOOKTICKER_LEVEL1_OFI_ONLY'},
       depthDynamics:dynamics,
       localL2,
       observedLiquidations:{
