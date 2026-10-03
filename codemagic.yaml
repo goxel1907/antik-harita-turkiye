@@ -47,7 +47,7 @@ workflows:
           echo R2542_DUPLICATE_CLOSE_WRITE_GUARD_OK
           node --test brainhub/test/r2542-jev-budget-cooldown.test.js
           echo R2542_JEV_BUDGET_COOLDOWN_OK
-      - name: Prepare Futures Alarm v9.5.115-r2541 JEV PC-only fail-closed Turkish source
+      - name: Prepare Futures Alarm v9.5.120-r2544.29 BURST 443 PC-only Turkish source
         script: |
           set -euo pipefail
           trap 'rc=$?; echo "PREPARE_V110_FAILED rc=$rc line=$LINENO command=$BASH_COMMAND"; exit $rc' ERR
@@ -691,7 +691,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.119-r2544.4-claude PC-only fail-closed signed APK
+      - name: Build installable v9.5.120-r2544.29-burst-443 PC-only signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
