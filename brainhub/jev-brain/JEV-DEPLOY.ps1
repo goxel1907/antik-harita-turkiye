@@ -1,12 +1,12 @@
-﻿# JEV-Brain DEPLOY R2544.29 - JEV-preauthorized BURST_SCALP + Android read-only burst monitor on top of R2544.28.
+# JEV-Brain DEPLOY R2544.29 - JEV-preauthorized BURST_SCALP + Android read-only burst monitor on top of R2544.28.
 # Kaynak: bu teslim paketindeki .\source. Hedef: C:\JEV-Brain\runtime.
 # R2544.29 guvenlik ilkesi: LIVE KAPALI + ACIK POZISYON 0 olmadan deploy YAPMAZ; restart sonrasi LIVE kapali kalir.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.29-JEV-BURST-SCALP'
-$EXPECTED_OFFICE = '2.5.9-R2544.29-JEV-Brain'
+$EXPECTED_RELEASE = 'R2544.30-JEV-OFFICE-BURST'
+$EXPECTED_OFFICE = '2.5.10-R2544.30-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null

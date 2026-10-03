@@ -318,6 +318,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
   const burst = new BurstScalpManager({marketStream:market?.marketStream||marketStream,now:clock,maxArmed:4,maxActive:1});
   let burstArmBusy=false, burstTickBusy=false, burstArmCursor=0;
+  let burstArmReview={at:null,checked:0,results:[],reason:'NOT_REVIEWED'};
   const leaseToken = crypto.randomBytes(32).toString('base64url');
   let armState = { armed:false, armedAt:null, expiresAt:null };
   let armGeneration = 0;
@@ -1868,10 +1869,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let closed=[];
     try{closed=typeof store?.recentJournal==='function'?store.recentJournal('POSITION_CLOSED',{limit:closedLimit}):[];}catch{closed=[];}
     const allOfficeRecords=typeof store.officeRecords==='function'?store.officeRecords():closed;
-    const rows=reconcileCloses(enrichCloses(allOfficeRecords.filter(x=>x.kind==='POSITION_CLOSED').map(x=>({symbol:x.symbol,id:x.id,ts:new Date(x.ts).toISOString(),...x.payload})),allOfficeRecords)).trades
+    const allRows=reconcileCloses(enrichCloses(allOfficeRecords.filter(x=>x.kind==='POSITION_CLOSED').map(x=>({symbol:x.symbol,id:x.id,ts:new Date(x.ts).toISOString(),...x.payload})),allOfficeRecords)).trades
       .filter(x=>x.incomeAvailable!==undefined||Number.isFinite(Number(x.netPnl)))
-      .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts)).slice(0,closedLimit);
-    const measured=rows.filter(x=>Number.isFinite(Number(x.netPnl)));
+      .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts));
+    const rows=allRows.slice(0,closedLimit);
+    const measured=allRows.filter(x=>Number.isFinite(Number(x.netPnl)));
     const wins=measured.filter(x=>Number(x.netPnl)>0).length;
     const net=measured.reduce((a,x)=>a+Number(x.netPnl),0);
     const rs=measured.filter(x=>finite(x.rMultiple)!==null).map(x=>Number(x.rMultiple));
@@ -1902,7 +1904,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {
       ok:true,asOf:ledgerState.at,ledgerOk:ledgerState.ok,ledgerError:ledgerState.error,
       open,openCount:open.length,openUnrealizedPnl:Number(open.reduce((a,x)=>a+(Number(x.unrealizedPnl)||0),0).toFixed(4)),
-      closed:rows,
+      closed:rows,summaryScope:'ALL_RECONCILED_CLOSED_TRADES',
       summary:{closed:measured.length,wins,losses:measured.length-wins,winRatePct:measured.length?Number((100*wins/measured.length).toFixed(1)):null,
         netPnl:Number(net.toFixed(4)),avgR:rs.length?Number((rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(2)):null},
       deskSummary:deskSummary,
@@ -4964,12 +4966,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   async function burstArmTick(){
     if(burstArmBusy)return {ok:true,skipped:true,reason:'BURST_ARM_BUSY'};burstArmBusy=true;
+    const skipped=(reason,ok=true)=>{burstArmReview={at:new Date(clock()).toISOString(),checked:0,results:[],reason};return {ok,skipped:true,reason};};
     try{
-      if(typeof burstJudge!=='function')return {ok:true,skipped:true,reason:'BURST_JEV_PREAUTH_UNAVAILABLE'};
-      const la=readLeaderAutoConfig();if(!la.ok||la.config?.enabled!==true)return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};
-      let scan;try{scan=await scanner.scan();}catch{return {ok:false,reason:'SCANNER_UNAVAILABLE'};}
-      const pool=burstCandidatePool(scan);if(!pool.length)return {ok:true,skipped:true,reason:'BURST_NO_CANDIDATES'};
-      const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return {ok:true,skipped:true,reason:'BURST_ARM_FULL'};
+      if(typeof burstJudge!=='function')return skipped('BURST_JEV_PREAUTH_UNAVAILABLE');
+      const la=readLeaderAutoConfig();if(!la.ok||la.config?.enabled!==true)return skipped('LEADER_AUTO_DISABLED');
+      let scan;try{scan=await scanner.scan();}catch{return skipped('SCANNER_UNAVAILABLE',false);}
+      const pool=burstCandidatePool(scan);if(!pool.length)return skipped('BURST_NO_CANDIDATES');
+      const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return skipped('BURST_ARM_FULL');
       const start=burstArmCursor%pool.length;burstArmCursor=(burstArmCursor+Math.max(1,vacancies))%Math.max(1,pool.length);
       const chosen=[...pool.slice(start),...pool.slice(0,start)].filter(x=>!burst.status().armed.some(a=>a.symbol===x.symbol)).slice(0,Math.min(4,vacancies));
       const results=[];
@@ -4988,9 +4991,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           if(pos&&String(pos.side||'').toUpperCase()!==j.side){results.push({symbol:c.symbol,armed:false,reason:'OPPOSITE_CORE_POSITION'});continue;}
           const a=burst.arm({symbol:c.symbol,side:j.side,ttlMs:j.ttlMs,triggerThreshold:j.triggerThreshold,leverageMode:j.leverageMode,pauseExceptionAllowed:j.pauseExceptionAllowed,preMove:pm,jevReason:`${c.burstReason||''}|${j.mode||''}`});
           try{store.journal('BURST_ARM',c.symbol,{candidate:{reason:c.burstReason||null,sideHint:c.burstSideHint||null},preMove:pm,jev:j,authorization:a.authorization||null});}catch{}
-          results.push({symbol:c.symbol,armed:a.ok===true,side:j.side,decision:j.decision});
-        } else results.push({symbol:c.symbol,armed:false,reason:j?.reason||j?.decision||'JEV_DO_NOT_ARM'});
+          results.push({symbol:c.symbol,armed:a.ok===true,side:j.side,decision:j.decision,jevCalled:j.called===true,authorizationId:a.authorization?.authorizationId||null,reason:a.ok?null:a.reason});
+        } else results.push({symbol:c.symbol,armed:false,jevCalled:j?.called===true,decision:j?.decision||null,reason:j?.reason||j?.decision||'JEV_DO_NOT_ARM'});
       }
+      burstArmReview={at:new Date(clock()).toISOString(),checked:chosen.length,results,reason:results.some(x=>x.armed)?'JEV_PREAUTHORIZED':'NO_AUTHORIZATION'};
       return {ok:true,checked:chosen.length,results};
     }finally{burstArmBusy=false;}
   }
@@ -5087,7 +5091,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {ok:true,triggered:false};
     }finally{burstTickBusy=false;}
   }
-  function burstStatus(){return burst.status(lossStreakPause());}
+  function burstStatus(){return {...burst.status(lossStreakPause()),lastArmReview:burstArmReview};}
 
   restoreCooldownsFromJournal();
   return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),

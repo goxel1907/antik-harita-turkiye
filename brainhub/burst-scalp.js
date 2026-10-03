@@ -90,7 +90,10 @@ class BurstScalpManager{
   finish(burstId,result={}){const a=this.active.get(burstId);if(!a)return null;this.active.delete(burstId);const closed={...a,closedAt:this.now(),...result};this._event('CLOSE',closed);return closed;}
   consumePauseException(pauseKey){if(!pauseKey)return false;if(this.pauseExceptionConsumedFor===pauseKey)return false;this.pauseExceptionConsumedFor=pauseKey;return true;}
   pauseExceptionAvailable(pauseKey){return !!pauseKey&&this.pauseExceptionConsumedFor!==pauseKey;}
-  status(pause=null){this.cleanup();return {ok:true,version:'R2544.29',mode:'BURST_SCALP',maxArmed:this.maxArmed,maxActive:this.maxActive,watchIntervalMs:1000,armed:[...this.armed.values()].map(x=>({...x,remainingMs:Math.max(0,x.expiresAt-this.now())})),active:[...this.active.values()].map(x=>({...x})),pause:{active:!!pause,key:pause?.pauseStartedAt||null,exceptionAvailable:pause?this.pauseExceptionAvailable(String(pause.pauseStartedAt||pause.until||'')):false},history:this.history.slice(0,20)};}
+  status(pause=null){this.cleanup();return {ok:true,version:'R2544.30',mode:'BURST_SCALP',maxArmed:this.maxArmed,maxActive:this.maxActive,watchIntervalMs:1000,armed:[...this.armed.values()].map(x=>{
+    let e;try{e=burstEvidence(this.marketStream?.snapshot?.(x.symbol,this.now()),x.side,{preMove:x.preMove});}catch{e=null;}
+    return {...x,remainingMs:Math.max(0,x.expiresAt-this.now()),telemetry:{score:e?.score??null,threshold:x.triggerThreshold,state:!e||!e.fresh?'DATA_NOT_READY':e.score>=x.triggerThreshold&&e.ignition?'TRIGGER_READY':'WAIT_TRIGGER',contradictions:e?.contradictions||['STREAM_UNAVAILABLE']}};
+  }),active:[...this.active.values()].map(x=>({...x})),pause:{active:!!pause,key:pause?.pauseStartedAt||null,exceptionAvailable:pause?this.pauseExceptionAvailable(String(pause.pauseStartedAt||pause.until||'')):false},history:this.history.slice(0,20)};}
   _event(kind,data){this.history.unshift({at:new Date(this.now()).toISOString(),kind,...JSON.parse(JSON.stringify(data||{}))});this.history=this.history.slice(0,50);}
 }
 

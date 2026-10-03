@@ -1572,7 +1572,9 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,{ok:true,...live.burstStatus()});
     }
     if(req.method==='GET'&&u.pathname==='/live/positions'){
-      return send(res,200,live.positionsStatus({closedLimit:Number(u.searchParams.get('limit'))||40}));
+      const compact=u.searchParams.get('compact')==='1';
+      const report=live.positionsStatus({closedLimit:compact?5:Number(u.searchParams.get('limit'))||40});
+      return send(res,200,compact?require('./mobile-positions').mobilePositions(report):report);
     }
     if(req.method==='POST'&&u.pathname==='/binance/recovery-probe'){
       const st=binanceRate.status();
@@ -2293,7 +2295,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.29-JEV-BURST-SCALP';
+const RUNTIME_RELEASE='R2544.30-JEV-OFFICE-BURST';
 const RUNTIME_BUILT_BY='OpenAI GPT-5.6 Sol • 2026-10-02 • R2544.29: JEV-preauthorized LONG/SHORT BURST_SCALP, 4 armed coins, 1s WebSocket watcher, separate burst slot, synthetic same-side addon, one strict pause exception and burst learning; all R2544.28/R2544.27f safety preserved';
 function fastLaneObsSuffix(result){
   try{

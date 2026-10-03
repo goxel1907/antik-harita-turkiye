@@ -251,6 +251,10 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 
   <section class="kpis" id="kpis"></section>
   <section class="guard-strip" id="guardStrip" aria-label="Karar ve koruma (R2544)"></section>
+  <section class="card" id="burstCard" aria-label="Vur-kaç: JEV seçimi ve durumları" style="margin:16px 0;border-color:#ddaa43">
+    <h2>⚡ Vur-kaç <span class="hint">JEV ön-yetkisi • ayrı işlem hattı • yalnız PC yürütür</span></h2>
+    <div id="burstHost" aria-live="polite">PC vur-kaç verisi bekleniyor.</div>
+  </section>
   <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
   <section class="lane-strip" id="laneStrip"></section>
 
@@ -781,6 +785,25 @@ function renderGuardStrip(s){
     card(lb?(lbAge!==null&&lbAge>30?'warn':'bad'):'good','Son yürütme engeli',lb?(lbAge!==null&&lbAge>30?'ESKİ ENGEL':'ENGEL'):'temiz',lbSub,[...(c112.fastLane?.lossStreak?.pause?[`SERİ ZARAR MOLASI ${c112.fastLane.lossStreak.pause.remainingMin} dk`]:[]),...(rcd.length?rcd.map(x=>`${x.symbol} soğumada ${x.remainingMin} dk`):['soğumada coin yok'])])
   ].join('');
 }
+function renderBurst(s){
+  const el=document.getElementById('burstHost');if(!el)return;
+  const b=s.burst;
+  if(!b||b.ok!==true){el.innerHTML='<p>Vur-kaç verisi okunamadı. Seçim veya işlem durumu doğrulanamıyor.</p>';return;}
+  const selected=Array.isArray(b.armed)?b.armed:[],active=Array.isArray(b.active)?b.active:[];
+  const status=s.status?.data, live=status?.armed===true, auto=status?.leaderAuto?.enabled===true;
+  const names={WAIT_TRIGGER:'Tetik bekleniyor',TRIGGER_READY:'Tetik hazır; yürütme güvenlik kontrolüne bağlı',DATA_NOT_READY:'Güncel piyasa verisi bekleniyor',NO_PREMOVE:'Erken hareket kanıtı yok',NO_AUTHORIZATION:'JEV ön-yetkisi yok',BURST_NO_CANDIDATES:'Vur-kaç adayı yok',NOT_REVIEWED:'Henüz değerlendirme yok',LEADER_AUTO_DISABLED:'OTO kapalı',JEV_DO_NOT_ARM:'JEV ön-yetki vermedi',DO_NOT_ARM:'JEV ön-yetki vermedi',BURST_ARM_FULL:'Ön-yetki listesi dolu',BURST_JEV_PREAUTH_UNAVAILABLE:'JEV ön-yetki bağlantısı hazır değil',SCANNER_UNAVAILABLE:'Tarayıcı verisi alınamadı'};
+  const tr=v=>names[v]||trUi(v||'—');
+  let html=`<p><b>JEV seçimi ${selected.length}/${b.maxArmed??4} • aktif ${active.length}/${b.maxActive??1}</b> • izleme ${Math.round((b.watchIntervalMs||1000)/1000)} sn</p><p>${!status?'LIVE/OTO durumu okunamadı':live&&auto?'LIVE ve OTO açık; JEV ön-yetkisi tek başına emir değildir.':'LIVE veya OTO kapalı; bu kart işlem açmaz.'}</p>`;
+  if(!selected.length)html+='<p><b>Şu anda JEV’in ön-yetki verdiği coin yok.</b> Radar adayları JEV seçimi sayılmaz.</p>';
+  for(const x of selected){const t=x.telemetry||{};html+=`<div class="lane-card"><div class="t">${esc(x.symbol)} • ${esc(x.side)} • JEV SEÇTİ</div><div class="v">${esc(tr(t.state||'WAIT_TRIGGER'))}</div><div class="s">Yetki: ${Math.ceil(Math.max(0,Number(x.remainingMs)||0)/1000)} sn • tetik gücü ${t.score==null?'—':Math.round(t.score*100)+'%'} / eşik ${Math.round((Number(x.triggerThreshold)||.9)*100)}% (olasılık değildir)</div><div class="s">${esc(x.jevReason||'JEV koşullu ön-yetkisi')} • ${esc((t.contradictions||[]).map(tr).join(', '))}</div></div>`;}
+  for(const x of active)html+=`<div class="lane-card good"><div class="t">${esc(x.symbol)} • ${esc(x.side)} • AKTİF VUR-KAÇ</div><div class="s">${esc(x.marginQuote??'—')} USDT • ${esc(x.leverage??'—')}x • giriş ${esc(x.entryPrice??'—')} • stop ${esc(x.stopPrice??'—')}</div></div>`;
+  const r=b.lastArmReview;
+  html+=`<p>Son seçim turu: ${r?.at?esc(new Date(r.at).toLocaleString('tr-TR'))+' • '+esc(tr(r.reason)):'Çalışan PC sürümü seçim turu ayrıntısını henüz yayınlamıyor.'}</p>`;
+  for(const x of (r?.results||[]).slice(0,4))html+=`<p>• ${esc(x.symbol)}: ${x.armed?'JEV seçti • '+esc(x.side):esc(tr(x.reason))}</p>`;
+  if(b.pause?.active)html+=`<p>Zarar molası aktif • güçlü vur-kaç istisnası ${b.pause.exceptionAvailable?'uygun (en fazla bir)':'kullanıldı / uygun değil'}.</p>`;
+  const history=(b.history||[]).slice(0,3);if(history.length)html+='<p>Son olaylar: '+history.map(x=>esc(x.symbol||'')+' '+esc(tr(x.kind))+' '+esc(new Date(x.at).toLocaleTimeString('tr-TR'))).join(' • ')+'</p>';
+  el.innerHTML=html;
+}
 function renderKpis(s){
   const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h={...(la.health||{}),...(s.derived?.decisionHealth||{})}; const acc=s.account?.data||{};
   const armed = st.armed===true; const exp = st.expiresAt ? Math.max(0,Math.round((Date.parse(st.expiresAt)-Date.now())/60000)) : null;
@@ -799,8 +822,8 @@ function renderKpis(s){
     kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`en fazla ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'ALIŞ (LONG)':'',la.allowShort?'SATIŞ (SHORT)':''].filter(Boolean).join(' ')}`:'Otomatik lider etkin değil', la.enabled?null:'critical'),
     kpi('Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
     kpi('JEV değerlendirme (60 dk)', `${h.decisionAnalyses??h.deepAnalyses??0} / ${h.decisionUniqueCoins??h.uniqueAnalyzedSymbols??0} coin`, `PASS-1 ${h.sovereignPass1Calls??0} • PASS-2 çağrı ${h.sovereignFinalCalls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0}`),
-    kpi('JEV son karar', `${(h.sovereignLong??0)+(h.sovereignShort??0)} işlem / ${h.sovereignWait??0} BEKLE`, `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • zorunlu güvenlik sonrası emir ${h.ordersPlaced??0}`, ((h.sovereignLong||0)+(h.sovereignShort||0))>0?'good':'info'),
-    kpi('Açılan emir', `${h.ordersPlaced??0}`, `onay ${h.claudeV111?.finalAuthorityApproved??h.qualified??0} • niyet ${h.claudeV111?.finalAuthorityIntentBuilt??h.intentBuilt??0} • güvenlik ${h.claudeV111?.finalAuthorityHardSafetyReady??h.safetyReady??h.intentReady??0} • yürütme ${h.executionResults??0}`, (h.ordersPlaced||0)>0?'good':null),
+    kpi('JEV son karar', `${(h.sovereignLong??0)+(h.sovereignShort??0)} yön kararı / ${h.sovereignWait??0} BEKLE`, `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • zorunlu güvenlik sonrası emir ${h.ordersPlaced??0}`, ((h.sovereignLong||0)+(h.sovereignShort||0))>0?'good':'info'),
+    kpi('Açılan emir', `${h.ordersPlaced??0}`, `onay ${h.claudeV111?.finalAuthorityApproved??h.qualified??0} • niyet ${h.claudeV111?.finalAuthorityIntentBuilt??h.intentBuilt??0} • güvenlik ${h.claudeV111?.finalAuthorityHardSafetyReady??h.safetyReady??h.intentReady??0} • engel ${s.positions?.data?.performance?.funnel?.hardBlocked??'—'}`, (h.ordersPlaced||0)>0?'good':null),
     kpi('Günlük zarar freni', maxDailyLossPct!=null?`%${maxDailyLossPct}`:'—', maxDailyLossPct!=null?'eşik dolunca yeni emir zorunlu güvenlikte engellenir':'live-policy sınırı okunamadı', maxDailyLossPct!=null?'good':'warn'),
     kpi('Stop sonrası yeniden giriş', stopCooldown!=null?`${stopCooldown} dk`:'aktif', 'aynı coin hızlı hatta hemen yeniden açılmaz; intikam işlemi engellenir', 'good')
   ].join('');
@@ -1600,7 +1623,7 @@ async function tick(){
     const s = await r.json(); last=s;
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
-    renderKpis(s); try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    renderKpis(s); renderBurst(s); try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yalnız GET`;

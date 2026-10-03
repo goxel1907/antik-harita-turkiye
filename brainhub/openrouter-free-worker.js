@@ -45,14 +45,15 @@ function createOpenRouterFreeWorker({
     const body={
       model:id,
       messages:[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],
-      temperature:0,max_tokens:220
+      temperature:0,max_tokens:768
     };
     const r=await fetchImpl('https://openrouter.ai/api/v1/chat/completions',{
       method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json','HTTP-Referer':'https://brainhub.local','X-Title':'BrainHub Plan Worker'},
       body:JSON.stringify(body),signal:AbortSignal.timeout(Math.max(5000,Math.min(30000,Number(timeoutMs)||15000)))
     });
     const raw=await r.text();let j={};try{j=raw?JSON.parse(raw):{};}catch{}
-    const text=String(j?.choices?.[0]?.message?.content||j?.output_text||'').trim();
+    const content=j?.choices?.[0]?.message?.content??j?.output_text;
+    const text=(typeof content==='string'?content:Array.isArray(content)?content.filter(x=>x?.type==='text'&&typeof x.text==='string').map(x=>x.text).join('\n'):'').trim();
     if(!r.ok||!text){
       const err=new Error('HTTP '+r.status+' '+clip(raw,300));err.status=r.status;err.payload=j;err.headers=r.headers;throw err;
     }

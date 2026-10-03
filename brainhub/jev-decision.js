@@ -543,7 +543,9 @@ function frameTruth(f,{detail=false,timing=false}={}){
   return out;
 }
 function protectedCoreTruth(body){
-  const p=body?.state?.coreMarketPacket;
+  const record=body?.state?.record;
+  const management=record?.contract==='R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT';
+  const p=body?.state?.coreMarketPacket||(management?{...record,coreFrames:record.frames,microstructure:{orderFlow:record.orderFlow,depth:record.depth,preEntryAdverseSelection:record.currentAdverseSelection}}:null);
   if(!p||typeof p!=='object')return null;
   return {
     contract:p.contract??null,symbol:p.symbol??null,livePrice:p.livePrice??null,levelMap:p.levelMap??null,liquidationHistory:p.liquidationHistory??null,
@@ -551,7 +553,8 @@ function protectedCoreTruth(body){
     timingFrames:Object.fromEntries(['1m','3m'].map(tf=>[tf,frameTruth(p?.timingFrames?.[tf],{timing:true})])),
     higherContext:Object.fromEntries(['30m','45m','1h','4h','1d'].map(tf=>[tf,frameTruth(p?.higherContext?.[tf])])),
     microstructure:p.microstructure??null,derivatives:p.derivatives??null,observedLiquidations:p.observedLiquidations??null,
-    dataQuality:p.dataQuality??null,global:p.global??null
+    dataQuality:p.dataQuality??null,global:p.global??null,
+    ...(management?{position:record.position,lifecycle:record.lifecycle,riskState:record.riskState,positionProgress:record.positionProgress,performanceState:record.performanceState,entryThesis:record.entryThesis,managementContract:record.managementContract}: {})
   };
 }
 function compactChartNarrative(n){
@@ -946,17 +949,34 @@ function prepareDecisionRequest(input,opts={}){
     if(state.decisionContract&&typeof state.decisionContract==='object')state.decisionContract=compactPass2DecisionContractResidual(state.decisionContract);
     trimStepsApplied.push('PASS2_RESIDUAL_OPTIONAL_FINAL');serialized=refresh();
   }
+  // R2544.30: routing and position management also need residual budgeting.
+  // Leave questions, position geometry, management contract and current packet intact.
+  if(pass!==2&&byteSize(body)>targetCap){
+    if(state.experienceMemory&&typeof state.experienceMemory==='object'){
+      const measured=state.experienceMemory;
+      state.experienceMemory=compactMemoryForPass2Residual(measured);
+      if(measured.tradeLessons&&state.experienceMemory.tradeLessons){
+        state.experienceMemory.tradeLessons.current=compactMeasuredAggregate(measured.tradeLessons.current);
+        state.experienceMemory.tradeLessons.symbol=compactMeasuredAggregate(measured.tradeLessons.symbol);
+      }
+      if(measured.caseMemoryByLane)state.experienceMemory.caseMemoryByLane=Object.fromEntries(Object.entries(measured.caseMemoryByLane).slice(0,4).map(([k,d])=>[k,{available:d?.available,samples:d?.samples,summary:compactMeasuredAggregate(d?.summary),counterexamples:compactMeasuredAggregate(d?.counterexamples)}]));
+      state.experienceMemory.note='Measured outcomes and winner/loser counterexamples; soft context only, never an execution rule.';
+    }
+    if(state.professionalTraderCortex&&typeof state.professionalTraderCortex.reference==='string')state.professionalTraderCortex.reference=compactCortexReference(state.professionalTraderCortex.reference,700);
+    if(state.dynamicKnowledge&&Array.isArray(state.dynamicKnowledge.entries))state.dynamicKnowledge.entries=compactKnowledgeEntries(state.dynamicKnowledge.entries,1).map(x=>({...x,summary:clipNatural(x.summary||'',160),keyPoints:(x.keyPoints||[]).slice(0,1).map(v=>clipNatural(v,96))}));
+    trimStepsApplied.push('ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL');serialized=refresh();
+  }
   serialized=refresh();const bytes=Buffer.byteLength(serialized,'utf8');
   const coreHashAfter=hashJson(protectedCoreTruth(body));const coreTruthProtected=coreHashBefore===coreHashAfter;
   const essentialBytes=byteSize(minimalEssentialEnvelope(body));
-  const blockReason=bytes<=hardCap?null:(essentialBytes>hardCap?'JEV_CORE_CONTEXT_TOO_LARGE':'JEV_REQUEST_CONTEXT_TOO_LARGE');
+  const blockReason=!coreTruthProtected?'JEV_CONTEXT_TRUTH_CHANGED':bytes<=hardCap?null:(essentialBytes>hardCap?'JEV_CORE_CONTEXT_TOO_LARGE':'JEV_REQUEST_CONTEXT_TOO_LARGE');
   const diagnostics={pass,chars:serialized.length,bytes,beforeBytes,maxBytes:hardCap,targetBytes:targetCap,targetExceeded:bytes>targetCap,estimatedTokens:Math.ceil(bytes*0.6)+1024,estimateOnly:true,
     stateBytes:byteSize(body.state),questionsBytes:byteSize(body.questions),essentialBytes,secondaryTrimApplied:trimStepsApplied.length>0,trimStepsApplied,
     marketTrimApplied:trimStepsApplied.some(x=>['PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),
     sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,byteSize(v)])),coreTruthProtected,coreTruthHash:coreHashAfter,blockReason,
-    contextBudget:{policy:'R2544.25_PASS2_DYNAMIC_RESIDUAL_BUDGET',targetBytes:targetCap,hardMaxBytes:hardCap,usedBytes:bytes,remainingToTarget:Math.max(0,targetCap-bytes),remainingToHard:Math.max(0,hardCap-bytes),hardHeadroomBytes:hardCap-bytes,coreMarketPacketBytes:byteSize(state.coreMarketPacket),protectedCoreBytes:byteSize(protectedCoreTruth(body)),optionalBudgetBytes:Math.max(0,targetCap-byteSize(state.coreMarketPacket)),residualBudgetApplied:trimStepsApplied.some(x=>x.startsWith('PASS2_RESIDUAL_')),coreTruthProtected,
-      optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT','PASS1_QUESTION_SCHEMA_COMPACT','PASS1_ROUTING_MEMORY_TIGHT','PASS2_QUESTION_SCHEMA_COMPACT','PASS2_RECORD_COMPACT','PASS2_MEMORY_TIGHT','PASS2_RESIDUAL_QUESTION_TIGHT','PASS2_RESIDUAL_RECORD_TIGHT','PASS2_RESIDUAL_MEMORY_TIGHT','PASS2_RESIDUAL_OPTIONAL_FINAL'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),coreMarketPriority:true}};
-  return {ok:bytes<=hardCap,body,serialized,diagnostics};
+    contextBudget:{policy:'R2544.25_PASS2_DYNAMIC_RESIDUAL_BUDGET',targetBytes:targetCap,hardMaxBytes:hardCap,usedBytes:bytes,remainingToTarget:Math.max(0,targetCap-bytes),remainingToHard:Math.max(0,hardCap-bytes),hardHeadroomBytes:hardCap-bytes,coreMarketPacketBytes:byteSize(state.coreMarketPacket),protectedCoreBytes:byteSize(protectedCoreTruth(body)),optionalBudgetBytes:Math.max(0,targetCap-byteSize(state.coreMarketPacket)),residualBudgetApplied:trimStepsApplied.some(x=>x.startsWith('PASS2_RESIDUAL_')||x==='ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL'),coreTruthProtected,
+      optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT','PASS1_QUESTION_SCHEMA_COMPACT','PASS1_ROUTING_MEMORY_TIGHT','PASS2_QUESTION_SCHEMA_COMPACT','PASS2_RECORD_COMPACT','PASS2_MEMORY_TIGHT','PASS2_RESIDUAL_QUESTION_TIGHT','PASS2_RESIDUAL_RECORD_TIGHT','PASS2_RESIDUAL_MEMORY_TIGHT','PASS2_RESIDUAL_OPTIONAL_FINAL','ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),coreMarketPriority:true}};
+  return {ok:bytes<=hardCap&&coreTruthProtected,body,serialized,diagnostics};
 }
 
 function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.fetch,clock=()=>Date.now()}={}){
@@ -1153,7 +1173,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       }
       // CLAUDE_R2544_7_CONTEXT_RETRY: 29.09 03:20 OP pozisyon incelemesi 51.635 baytta 400 max_tokens_exceeded aldı; JEV stoptan
       // 1 dk önce karar veremedi. Bu yanıtta paket 44.000 bayta budanıp BİR kez yeniden gönderilir (emir değil, karar çağrısı).
-      if(!r.ok&&Number(r.status)===400&&JSON.stringify(r.data||'').includes('max_tokens_exceeded')){
+      if(!r.ok&&Number(r.status)===400&&requestSize.bytes>44000&&JSON.stringify(r.data||'').includes('max_tokens_exceeded')){
         const smaller=prepareDecisionRequest(originalBody,{maxBytes:44000,targetBytes:42000});
         if(smaller.ok&&smaller.diagnostics.bytes<requestSize.bytes){
           try{fs.appendFileSync(path.join(root,'logs','jev-request-size.log'),JSON.stringify({at:new Date(clock()).toISOString(),...smaller.diagnostics,retryAfter:'MAX_TOKENS_EXCEEDED',blocked:false})+'\n','utf8');}catch{}
