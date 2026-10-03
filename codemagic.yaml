@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.119-r2544.4-claude DESK STATS + PRO UI + PC R2544.4
+    name: Futures 15m Alarm PRO APK v9.5.120-r2544.29-burst-443 + PC R2544.29 BURST MONITOR + FIXED TAILSCALE 443
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -497,6 +497,27 @@ workflows:
             exit 1
           fi
           echo 'V127_ANDROID_R2544_4_DESK_STATS_OK'
+          # V95128 / R2544.29: read-only BURST telemetry + fixed tailnet-only HTTPS 443 BrainHub endpoint.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95128_r2544_29_burst_443.py"
+          grep -q 'V95128_R2544_29_BURST_443' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'https://8z9rvd.tail8c30c4.ts.net' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          if grep -q ':8787' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_29_ANDROID_STALE_8787_FORBIDDEN'
+            exit 1
+          fi
+          grep -q 'liveBurst(Context c)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q 'get(c, "/live/burst")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q "versionName '9.5.120-r2544.29-burst-443'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26100331' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_29_ANDROID_BURST_POST_FORBIDDEN'
+            exit 1
+          fi
+          if grep -q 'post(c, "/live/execute", intent, true)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_29_ANDROID_LIVE_EXECUTE_POST_FORBIDDEN'
+            exit 1
+          fi
+          echo 'V95128_R2544_29_BURST_443_OK'
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
@@ -716,9 +737,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.119-R2544.4-CLAUDE.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.120-R2544.29-BURST-443.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.119-R2544.4-CLAUDE.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.120-R2544.29-BURST-443.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -729,5 +750,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.119-R2544.4-CLAUDE.apk
+      - Futures15mAlarm-PRO-v9.5.120-R2544.29-BURST-443.apk
       - v9595-gradle.log
