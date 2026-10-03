@@ -39,5 +39,5 @@
 2. Her deploy'dan önce `BEKLENEN-SURUM.txt` / `BEKLENEN-PUBLIC.txt` güncellenir; betik başka commit'i kurmaz.
 3. Git klasörlerinde kalan `*.lock` dosyası git'i kilitler. Claude'un Linux kabuğu dosya silemediği için kilitler `.git\_claude_to_delete_*` klasörüne taşınır; o klasörler güvenle silinebilir.
 4. LIVE ve OTO kullanıcıya aittir; hiçbir betik açmaz. Core yeniden başlayınca LIVE ARM kapanır, uygulamadan yeniden açılır.
-5. Telefon emir yürütücüsü değildir (PC-only, fail-closed). APK PC'ye Tailscale ile 8787 portundan bağlanır; klasör taşıma APK'yı etkilemez.
+5. Telefon emir yürütücüsü değildir (PC-only, fail-closed). R2544.29 APK sabit https://8z9rvd.tail8c30c4.ts.net adresine bağlanır. Tailscale Serve yalnız tailnet içinde HTTPS 443 üzerinden PC'deki 127.0.0.1:8787 core servisine yönlenir; Funnel kapalıdır. 9Router 20128 mobil API hedefi değildir.
 6. Claude oturumlarında bağlanacak klasör: yalnız `C:\JEV-Brain`.
