@@ -801,6 +801,30 @@ async function frameSet(symbol, base = FUTURES, path = '/fapi/v1/klines') {
   return out;
 }
 // CLAUDE_R2544_PREMOVE: hızlı-hat sıralaması için hafif prob — yalnız 1m+3m (72 mum), 15 sn önbellek.
+function chartContextFromSnapshot(symbol,snapshot,now=Date.now()){
+  const ageMs=snapshot?Math.max(0,now-Number(snapshot.asOf||0)):null;
+  if(!snapshot||ageMs>60000)return {available:false,symbol,ageMs,reason:snapshot?'CHART_CACHE_STALE':'CHART_CACHE_MISSING',source:'CACHED_CLOSED_CANDLES'};
+  // Lazy loading avoids the market/pipeline initialization cycle and uses the normal frame projection.
+  const {buildUnifiedContext}=require('./pipeline');
+  const {marketPacket}=require('./jev-market-packet');
+  const unified=buildUnifiedContext({symbol:{symbol,timeframes:snapshot.frames,microstructure:{available:false},derivatives:{available:false}},now});
+  unified.livePrice=unified.frames?.['5m']?.close??unified.frames?.['15m']?.close??null;
+  const packet=marketPacket(unified),available=['5m','15m'].every(tf=>packet.coreFrames[tf]?.available===true&&packet.coreFrames[tf]?.fresh===true);
+  return {available,symbol,asOf:snapshot.asOf,ageMs,source:'CACHED_CLOSED_CANDLES',reason:available?null:'CHART_CORE_NOT_FRESH',packet};
+}
+function cachedChartContext(symbol,now=Date.now()){
+  return chartContextFromSnapshot(symbol,frameCache.get(`${FUTURES}:${symbol}`)?.result,now);
+}
+let burstChartWarmAt=null,burstChartWarmBusy=false;
+async function warmChartContext(symbol){
+  if(!validSymbol(symbol))return {ok:false,reason:'SYMBOL_INVALID'};
+  const now=Date.now(),rate=binanceRate.status(now);
+  if(burstChartWarmBusy||(burstChartWarmAt!==null&&now-burstChartWarmAt<120000))return {ok:false,reason:'CHART_WARM_THROTTLED'};
+  if(rate.quarantined||now<Number(rate.cooldownUntil||0)||Math.max(Number(rate.estimatedWeight1m)||0,Number(rate.usedWeight1m)||0)+20>=Number(rate.publicSoftWeight1m||1200))return {ok:false,reason:'BINANCE_RATE_HEADROOM_UNAVAILABLE'};
+  burstChartWarmAt=now;burstChartWarmBusy=true;
+  try{const snapshot=await frameSet(symbol);return {ok:chartContextFromSnapshot(symbol,snapshot).available===true};}
+  catch(e){return {ok:false,reason:String(e?.message||e).slice(0,120)};}finally{burstChartWarmBusy=false;}
+}
 const preMoveCache = new Map();
 async function preMoveProbe(symbol) {
   if (!validSymbol(symbol)) return { available:false, reason:'SYMBOL_INVALID' };
@@ -1523,4 +1547,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, modeledLiquidationDensityFromOi, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats, bookTickerFlowStats };
+module.exports = { warmChartContext, cachedChartContext, chartContextFromSnapshot, liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, modeledLiquidationDensityFromOi, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats, bookTickerFlowStats };

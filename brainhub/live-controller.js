@@ -319,6 +319,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const burst = new BurstScalpManager({marketStream:market?.marketStream||marketStream,now:clock,maxArmed:4,maxActive:1});
   let burstArmBusy=false, burstTickBusy=false, burstArmCursor=0;
   let burstArmReview={at:null,checked:0,results:[],reason:'NOT_REVIEWED'};
+  const burstReviewAt=new Map();
   const leaseToken = crypto.randomBytes(32).toString('base64url');
   let armState = { armed:false, armedAt:null, expiresAt:null };
   let armGeneration = 0;
@@ -1141,7 +1142,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{
           const out=await freeWorker.review({
             system:'You are a free second-opinion plan watcher. You cannot qualify or place an order. Return only WORKER_STATE, CONFIDENCE, REASON, RECHECK_TFS.',
-            prompt
+            prompt,validate:text=>planWorkers.parseWorkerDecision(text)?.ok===true
           });
           if(out?.ok){
             openRouter=planWorkers.parseWorkerDecision(out.text);
@@ -4974,9 +4975,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const pool=burstCandidatePool(scan);if(!pool.length)return skipped('BURST_NO_CANDIDATES');
       const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return skipped('BURST_ARM_FULL');
       const start=burstArmCursor%pool.length;burstArmCursor=(burstArmCursor+Math.max(1,vacancies))%Math.max(1,pool.length);
-      const chosen=[...pool.slice(start),...pool.slice(0,start)].filter(x=>!burst.status().armed.some(a=>a.symbol===x.symbol)).slice(0,Math.min(4,vacancies));
+      const chosen=[...pool.slice(start),...pool.slice(0,start)].filter(x=>!burst.status().armed.some(a=>a.symbol===x.symbol)).sort((a,b)=>Number(market?.cachedChartContext?.(b.symbol,clock())?.available===true)-Number(market?.cachedChartContext?.(a.symbol,clock())?.available===true)).slice(0,Math.min(4,vacancies));
       const results=[];
       for(const c of chosen){
+        const prior=burstReviewAt.get(c.symbol);
+        const phase=c.burstPreMove||c.preMove;
+        const phaseKey=phase?`${String(phase.state||'').toUpperCase()}:${String(phase.direction||'').toUpperCase()}`:null;
+        if(prior&&clock()-prior.at<120000&&(clock()-prior.at<30000||!phaseKey||phaseKey===prior.phaseKey)){results.push({symbol:c.symbol,armed:false,reason:'JEV_PREAUTH_RECHECK_COOLDOWN',nextReviewAt:prior.at+120000});continue;}
         let pm=c.burstPreMove||c.preMove||null;
         if(!pm&&market&&typeof market.preMoveProbe==='function'){
           // Only a few JEV burst candidates use this closed-candle probe; normal 1s watcher remains pure WebSocket.
@@ -4985,7 +4990,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(!pm||!['PRE_MOVE','IGNITION'].includes(String(pm.state||'').toUpperCase())){results.push({symbol:c.symbol,armed:false,reason:'NO_PREMOVE'});continue;}
         const stream=(market?.marketStream||marketStream).snapshot(c.symbol,clock());
         const pos=burstCurrentPosition(c.symbol);
-        let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,position:pos,pause:lossStreakPause()});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
+        const chartContext=market?.cachedChartContext?.(c.symbol,clock())||{available:false,reason:'CHART_CACHE_MISSING'};
+        if(chartContext.available!==true){
+          // One background candle warm-up per 120s, inside the existing Binance governor.
+          Promise.resolve(market?.warmChartContext?.(c.symbol)).catch(()=>{});
+          results.push({symbol:c.symbol,armed:false,reason:chartContext.reason||'CHART_CACHE_MISSING',chartAgeMs:chartContext.ageMs??null});continue;
+        }
+        burstReviewAt.set(c.symbol,{at:clock(),phaseKey:`${String(pm.state||'').toUpperCase()}:${String(pm.direction||'').toUpperCase()}`});
+        if(burstReviewAt.size>200){for(const [symbol,review] of burstReviewAt)if(clock()-review.at>=120000)burstReviewAt.delete(symbol);}
+        let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,chartContext,position:pos,pause:lossStreakPause()});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
+        try{store.journal('BURST_PREAUTH_REVIEW',c.symbol,{decision:j?.decision||'DO_NOT_ARM',called:j?.called===true,reason:j?.reason||null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null});}catch{}
         if(j?.ok&&['LONG','SHORT'].includes(j.side)){
           // Existing opposite position is never hedged by burst v1.
           if(pos&&String(pos.side||'').toUpperCase()!==j.side){results.push({symbol:c.symbol,armed:false,reason:'OPPOSITE_CORE_POSITION'});continue;}

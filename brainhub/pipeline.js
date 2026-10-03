@@ -12,7 +12,7 @@ const claudeV112 = require('./claude-v112');
 const tradeLanes = require('./trade-lanes');
 const { preflightRiskGate, accountRiskCaps, structuralStopGate, killSwitchGate, executionClaimGate } = require('./risk-gate');
 const { buildDryRunOrder } = require('./binance-dry-run-executor');
-const { marketPacket, mirrorDigest } = require('./jev-market-packet');
+const { marketPacket, mirrorDigest, chartOverlayLevels } = require('./jev-market-packet');
 
 const FRAME_ORDER = ['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const FRAME_MS = {
@@ -108,6 +108,7 @@ function summarizeFrame(frame, f, now, livePrice) {
     source:f.source||(frame==='45m'?'BINANCE_15M_AGGREGATED_45M':null),
     synthetic:f.synthetic===true||frame==='45m',
     closedCandle:f.closedCandle||null,
+    officeOverlay:chartOverlayLevels({[frame]:f})[frame],
     fresh:frameFresh(frame, f, now),
     asOf:f.asOf,
     close:f.close,

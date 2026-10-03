@@ -171,6 +171,10 @@ function createKnowledgeResearch({
   const file=path.join(root,'data','jev-knowledge.json');
   let busy=false;
   let last={ok:true,called:false,at:null,reason:'NOT_CALLED'};
+  const attemptsFile=path.join(root,'data','jev-knowledge-attempts.json');
+  const attemptsState=readJson(attemptsFile,{topics:{},hosts:{}});
+  const recentTopics=attemptsState.topics||{},sourceCooldown=attemptsState.hosts||{},sourceCache=new Map();
+  function saveAttempts(){try{writeJsonAtomic(attemptsFile,{topics:Object.fromEntries(Object.entries(recentTopics).sort((a,b)=>b[1]-a[1]).slice(0,80)),hosts:sourceCooldown});}catch{}}
 
   function state(){
     const x=readJson(file,{version:1,entries:[]});
@@ -230,11 +234,12 @@ function createKnowledgeResearch({
   }
   async function askChannelResilient(fn,args){
     const delays=Array.isArray(retryDelaysMs)&&retryDelaysMs.length?retryDelaysMs.slice(0,4):[0];
-    let lastResult={ok:false,reason:'CHANNEL_UNAVAILABLE'};
+    let lastResult={ok:false,reason:'CHANNEL_UNAVAILABLE'},attempts=0;
     for(let attempt=0;attempt<delays.length;attempt++){
       const delay=Math.max(0,Number(delays[attempt])||0);
       if(delay&&typeof sleepImpl==='function')await sleepImpl(delay);
       const result=await askChannel(fn,args);
+      attempts++;
       if(result.ok)return {...result,attempts:attempt+1};
       lastResult=result;
       const r=String(result.reason||'');
@@ -242,9 +247,12 @@ function createKnowledgeResearch({
       const transient=/UNAVAILABLE|FAILED|TIMEOUT|429|RATE|JSON_INVALID/i.test(r+' '+d);
       if(!transient)break;
     }
-    return {...lastResult,attempts:delays.length};
+    return {...lastResult,attempts};
   }
   async function fetchOne(url){
+    const host=new URL(url).hostname,cached=sourceCache.get(url);
+    if(clock()<Number(sourceCooldown[host]||0))return null;
+    if(cached&&clock()-cached.at<86400000)return cached.text;
     let lastStatus=null;
     for(let attempt=0;attempt<2;attempt++){
       try{
@@ -252,11 +260,12 @@ function createKnowledgeResearch({
         const r=await fetchImpl(url,{headers:{'user-agent':'BrainHub-JEV-Knowledge/1.1','accept':'text/html,text/plain'},signal:AbortSignal.timeout(12000),redirect:'follow'});
         lastStatus=r.status;
         if(!r.ok){
-          if(r.status===429||r.status>=500)continue;
+          if(r.status===429){const retry=r.headers?.get?.('retry-after'),ms=Number(retry)*1000||Math.max(0,Date.parse(retry)-clock());sourceCooldown[host]=clock()+Math.max(60000,Math.min(86400000,ms||60000));saveAttempts();return null;}
+          if(r.status>=500)continue;
           return null;
         }
         const raw=(await r.text()).slice(0,300000);
-        return stripHtml(raw).slice(0,30000);
+        const text=stripHtml(raw).slice(0,30000);sourceCache.set(url,{at:clock(),text});if(sourceCache.size>100)sourceCache.delete(sourceCache.keys().next().value);return text;
       }catch{}
     }
     return lastStatus?null:null;
@@ -274,8 +283,11 @@ function createKnowledgeResearch({
     topic=safeTopic(topic); family=String(family||'OTHER').toUpperCase().slice(0,32);
     if(!topic)return {ok:false,called:false,reason:'KNOWLEDGE_TOPIC_INVALID'};
     if(!force&&hasTopic(topic))return {ok:true,called:false,cached:true,topic,reason:'KNOWLEDGE_ALREADY_VERIFIED'};
+    const topicKey=topic.toUpperCase();
+    if(!force&&recentTopics[topicKey]!==undefined&&clock()-recentTopics[topicKey]<900000)return {ok:false,called:false,topic,reason:'KNOWLEDGE_TOPIC_COOLDOWN',nextAttemptAt:recentTopics[topicKey]+900000};
     if(busy)return {ok:true,called:false,reason:'KNOWLEDGE_RESEARCH_BUSY'};
     busy=true;
+    recentTopics[topicKey]=clock();saveAttempts();
     try{
       const [router,openrouter]=await Promise.all([
         askChannelResilient(routerResearch,{topic,family}),
@@ -339,6 +351,7 @@ function createKnowledgeResearch({
       ok:true,busy,verifiedCount:entries.length,last:{...last},
       latest:entries.slice(-5).reverse().map(x=>({topic:x.topic,family:x.family,verifiedAt:x.verifiedAt,sourceUrls:x.sourceUrls})),
       retryPolicy:{channelAttempts:Math.max(1,Math.min(4,Array.isArray(retryDelaysMs)?retryDelaysMs.length:1)),sourceFetchAttempts:2},
+      sourceLimits:{topicRetryMs:900000,cacheTtlMs:86400000,hostCooldowns:{...sourceCooldown}},
       openSourceRepoCount:CURATED_OPEN_SOURCE_REPOS.length,
       openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],integrationStatus:x.integrationStatus||'REFERENCE_ONLY',authority:x.authority||'REFERENCE_ONLY',executionAuthority:false}))
     };

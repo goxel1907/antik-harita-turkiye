@@ -84,7 +84,7 @@ function volDigest(v){
 }
 function keyLevels(f){
   if(!f||f.available===false)return null;
-  const r=v=>{const n=finite(v);return n===null?null:Number(n.toPrecision(7));};
+  const r=v=>v===null||v===undefined?null:finite(v);
   const close=finite(f.close),dr=f?.smcContext?.dealingRange||{},fib=f?.smcContext?.fibLevels?.retracement||{},ote=f?.smcContext?.oteReference||{};
   const dist=z=>Math.abs(((finite(z.low)||0)+(finite(z.high)||0))/2-(close||0));
   const gaps=(arr(f.recentFairValueGaps).length?arr(f.recentFairValueGaps):arr(f?.liquidity?.fairValueGaps)).filter(g=>g&&g.filled!==true&&finite(g.low)!==null&&finite(g.high)!==null).sort((a,b)=>dist(a)-dist(b));
@@ -147,6 +147,16 @@ function liquidationHistoryDigest(lh){
     note:'Binance all-market forceOrder sample (max one print per symbol per second); not a complete heatmap.'};
 }
 
+// Numeric overlays selected from the same frame objects used by Office; no REST/model call.
+function chartOverlayLevels(frames){
+  const out={};
+  for(const tf of ['1m','3m','5m','15m','30m','45m','1h','4h','1d']){
+    const f=frames?.[tf];if(!f||f.available===false){out[tf]={available:false};continue;}
+    if(f.officeOverlay){out[tf]=f.officeOverlay;continue;}
+    const k=keyLevels(f);out[tf]={available:true,rangeHigh:k?.rangeHigh??null,rangeLow:k?.rangeLow??null,fib618:k?.fib618??null,nearestFvg:k?.nearestFvg??null,nearestOb:k?.nearestOb??null};
+  }
+  return out;
+}
 function marketPacket(u){
   const m=u?.microstructure||{};
   const stream=m?.streaming||{};
@@ -160,6 +170,7 @@ function marketPacket(u){
     chartNarrative:narrateChart(u),
     // CLAUDE_R2544_15: tek seviye haritası + 24 saatlik likidasyon kümeleri (kırpma adımları dokunmaz).
     levelMap:levelMap(u),
+    chartOverlayLevels:chartOverlayLevels(u?.frames),
     liquidationHistory:liquidationHistoryDigest(u?.microstructure?.liquidationHistory),
     coreFrames:{
       '5m':framePacket(u?.frames?.['5m'],{full:true}),
@@ -250,13 +261,14 @@ function mirrorFrameDigest(f){
     orderBlocks:{bullish:arr(f?.orderBlocks?.bullish).slice(-2),bearish:arr(f?.orderBlocks?.bearish).slice(-2)},
     smcContext:f.smcContext||null,
     // CLAUDE_R2544_5: denetim aynası JEV'e giden ön-hareket ve kapanmamış mum bilgisini de gösterir.
-    preMove:f.preMove||null,forming:f.forming||null
+    preMove:f.preMove||null,forming:f.forming||null,keyLevels:f.keyLevels||null,volatility:f.volatility||null,readout:f.readout||null
   };
 }
 function mirrorDigest(packet){
   const p=packet&&typeof packet==='object'?packet:{};
   return {
     contract:p.contract||null,symbol:p.symbol||null,livePrice:p.livePrice??null,
+    levelMap:p.levelMap||null,chartOverlayLevels:p.chartOverlayLevels||null,liquidationHistory:p.liquidationHistory||null,global:p.global||null,
     coreFrames:{
       '5m':mirrorFrameDigest(p?.coreFrames?.['5m']),
       '15m':mirrorFrameDigest(p?.coreFrames?.['15m'])
@@ -273,4 +285,4 @@ function mirrorDigest(packet){
   };
 }
 
-module.exports={levelMap,liquidationHistoryDigest,framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest,keyLevels};
+module.exports={chartOverlayLevels,levelMap,liquidationHistoryDigest,framePacket,marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest,keyLevels};

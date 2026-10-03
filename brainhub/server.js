@@ -47,21 +47,26 @@ if(!KEY){console.error('BRAINHUB_ROUTER_KEY missing');process.exit(2);}
 if(HOST!=='127.0.0.1'&&HOST!=='::1'&&CLIENT_TOKEN.length<32){console.error('BRAINHUB_CLIENT_TOKEN (32+ chars) required for non-loopback binding');process.exit(2);}
 const store=openStore(ROOT);
 const jev=createJevClient({root:ROOT,apiKey:OPENROUTER_API_KEY,managementKey:OPENROUTER_MANAGEMENT_KEY});
-const freeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY});
+const freeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,statePath:path.join(ROOT,'data','openrouter-free-health.json')});
+function validResearchText(text){try{const raw=String(text||'').match(/\{[\s\S]*\}/)?.[0],j=JSON.parse(raw);return typeof j.summary==='string'&&j.summary.trim().length>0&&Array.isArray(j.keyPoints)&&Array.isArray(j.sourceUrls);}catch{return false;}}
 const knowledgeResearch=createKnowledgeResearch({
   root:ROOT,
   routerResearch:async({system,prompt,family})=>{
     const role=String(family||'DEFAULT').toUpperCase();
     const mapped=['PATTERN','MICROSTRUCTURE','RISK','STRUCTURE'].includes(role)?role:'DEFAULT';
-    return ask(prompt,system,'',mapped);
+    return ask(prompt,system+' Keep JSON compact: summary <=800 characters, at most 3 short keyPoints and 3 sourceUrls; stay within 500 output tokens.','',mapped,validResearchText);
   },
-  openRouterResearch:async({system,prompt})=>freeWorker.review({system,prompt}),
+  openRouterResearch:async({system,prompt})=>freeWorker.review({system:system+' Keep JSON compact: summary <=800 characters, at most 3 short keyPoints and 3 sourceUrls; stay within 500 output tokens.',prompt,validate:validResearchText}),
   jevReview:payload=>jev.sovereignKnowledgeReview(payload)
 });
 jev.billingStatus({force:true}).catch(()=>{});
 
 fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
+const routerHealthFile=path.join(ROOT,'data','router-text-health.json');
+let routerCooldownUntil=0;
+try{const saved=JSON.parse(fs.readFileSync(routerHealthFile,'utf8'));routerCooldownUntil=Number(saved.cooldownUntil)||0;for(const row of saved.models||[])if(is9RouterOpenCodeFreeId(row.model))state.set(row.model,row);}catch{}
+function persistRouterHealth(){try{fs.mkdirSync(path.dirname(routerHealthFile),{recursive:true});const tmp=routerHealthFile+'.tmp';fs.writeFileSync(tmp,JSON.stringify({version:1,cooldownUntil:routerCooldownUntil,models:[...state].filter(([model])=>is9RouterOpenCodeFreeId(model)).map(([model,row])=>({model,...row}))}));fs.renameSync(tmp,routerHealthFile);}catch{}}
 const visionState=new Map();
 const routerDiscovery={models:[],lastAttemptAt:null,lastSuccessAt:null,lastError:null,lastLatencyMs:null,busy:false};
 function markTextModel(model,{ok,error=null,durationMs=null}={}){
@@ -71,19 +76,20 @@ function markTextModel(model,{ok,error=null,durationMs=null}={}){
     attempts:Number(prev.attempts||0)+1,
     successes:Number(prev.successes||0)+(ok===true?1:0),
     failures:Number(prev.failures||0)+(ok===true?0:1),
-    cooldownUntil:ok===true?null:(prev.cooldownUntil||null)
+    consecutiveFailures:ok===true?0:Number(prev.consecutiveFailures||0)+1,cooldownUntil:ok===true?null:(prev.cooldownUntil||null)
   });
+  persistRouterHealth();
 }
 function textModelStatus(model){
   if(!state.has(model))return 'untested';
   const st=state.get(model);
-  if(st?.ok===true)return 'healthy';
+  if(st?.ok===true&&Date.now()-st.at<3600000)return 'healthy';
   return blocked(model)?'cooldown':'failed';
 }
 function textModelReason(model){
   const st=state.get(model);
   if(!st)return 'UNTRIED';
-  if(st?.ok===true)return 'AVAILABLE';
+  if(st?.ok===true)return Date.now()-st.at<3600000?'AVAILABLE':'RECHECK_REQUIRED';
   if(blocked(model))return st?.errorClass||'COOLDOWN';
   return st?.errorClass||'FAILED';
 }
@@ -205,14 +211,15 @@ function rankPool(models,role,rotate=false){
   }).sort((a,b)=>a.rank-b.rank||a.index-b.index).map(x=>x.model);
 }
 function orderedModels(role='DEFAULT',preferred=''){
-  const free=rankPool(routerTextModels(),role,true);
-  if(preferred&&free.includes(preferred))return [preferred,...free.filter(x=>x!==preferred)];
+  const free=rankPool(routerTextModels(),role,true).sort((a,b)=>Number(state.get(b)?.ok===true&&Date.now()-state.get(b).at<3600000)-Number(state.get(a)?.ok===true&&Date.now()-state.get(a).at<3600000));
+  if(preferred&&free.includes(preferred)&&state.get(preferred)?.ok!==false)return [preferred,...free.filter(x=>x!==preferred)];
   return free;
 }
 
 function routerTextModels(){
   const configured=Array.isArray(cfg.opencode)&&cfg.opencode.length?cfg.opencode:NINEROUTER_OPENCODE_BASELINE;
-  return uniqueRegistryModels([...configured,...routerDiscovery.models]).filter(is9RouterOpenCodeFreeId);
+  const pool=routerDiscovery.lastSuccessAt&&routerDiscovery.models.length?routerDiscovery.models:configured;
+  return uniqueRegistryModels(pool).filter(is9RouterOpenCodeFreeId);
 }
 async function refresh9RouterDiscovery({force=false}={}){
   const now=Date.now();
@@ -306,6 +313,7 @@ async function callModel(model,messages,timeoutMs=12000,requestOptions={}){
   const started=Date.now();
   const local=localVisionConfig();
   const isLocal=String(model||'').startsWith('local/');
+  if(!isLocal&&Date.now()<routerCooldownUntil)throw new Error('9ROUTER_RATE_COOLDOWN');
   if(isLocal&&(!local.enabled||!local.models.includes(model)))throw new Error('local vision model not enabled');
   const baseUrl=isLocal?local.baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,'');
   const wireModel=isLocal?String(model).slice('local/'.length):model;
@@ -318,9 +326,20 @@ async function callModel(model,messages,timeoutMs=12000,requestOptions={}){
   }
   const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(request),signal:AbortSignal.timeout(timeoutMs)});
   const raw=await r.text();
-  if(!r.ok)throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
+  if(!r.ok){
+    if(r.status===429||r.status===401||r.status===403){
+      const retry=r.headers?.get?.('retry-after');const delay=Number(retry)*1000||Math.max(0,Date.parse(retry)-Date.now());
+      if(!isLocal){routerCooldownUntil=Date.now()+Math.max(r.status===429?60000:3600000,Math.min(86400000,delay||0));persistRouterHealth();}
+    }
+    throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
+  }
+  let parsed;try{parsed=JSON.parse(raw);}catch{}
+  if(parsed?.choices?.[0]?.finish_reason==='length')throw new Error('RESPONSE_TRUNCATED');
   const text=extract(raw);
   if(!text)throw new Error('empty response');
+  const workerSchema=messages.some(m=>String(m?.content||'').includes('WORKER_STATE')&&String(m?.content||'').includes('RECHECK_TFS'));
+  if(workerSchema&&require('./plan-workers').parseWorkerDecision(text).ok!==true)throw new Error('RESPONSE_SCHEMA_INVALID');
+  if(typeof requestOptions.validate==='function'&&requestOptions.validate(text)!==true)throw new Error('RESPONSE_SCHEMA_INVALID');
   markTextModel(model,{ok:true,durationMs:Date.now()-started});
   return {model,text};
 }
@@ -522,7 +541,8 @@ async function runKiroFreeQuotaVisionFallback(body,localError){
   };
   throw err;
 }
-async function ask(prompt,system,preferred,role='DEFAULT'){
+async function ask(prompt,system,preferred,role='DEFAULT',validate=null){
+  if(Date.now()<routerCooldownUntil)throw new Error('9ROUTER_RATE_COOLDOWN');
   role=normalizeRole(role);
   if(!routerDiscovery.lastAttemptAt||Date.now()-Number(routerDiscovery.lastAttemptAt||0)>15*60*1000){
     // Discovery is best-effort and never becomes a hard dependency for JEV/evidence.
@@ -535,23 +555,26 @@ async function ask(prompt,system,preferred,role='DEFAULT'){
   const list=orderedModels(role,preferred);
   const errors=[];
   for(const m of list){
+    if(errors.length>=2)break;
     if(blocked(m))continue;
     try{
-      const out=await callModel(m,msgs);
+      const out=await callModel(m,msgs,12000,{temperature:0,maxTokens:768,validate});
       log('ASK OK role='+role+' model='+m);
       return {...out,role,attempts:errors.length+1};
     }catch(e){
       const msg=String(e.message||e);
       const prev=state.get(m)||{};
-      const failures=Number(prev.failures||0)+1;
+      const failures=Number(prev.consecutiveFailures||0)+1;
       const c=classifyProviderError(msg);
       state.set(m,{
-        ...prev,ok:false,at:Date.now(),attempts:Number(prev.attempts||0)+1,successes:Number(prev.successes||0),failures,
-        cooldownUntil:Date.now()+Math.min(1800000,TTL*2**Math.min(failures-1,5)),optional:true,blocksJev:false,
+        ...prev,ok:false,at:Date.now(),attempts:Number(prev.attempts||0)+1,successes:Number(prev.successes||0),failures:Number(prev.failures||0)+1,consecutiveFailures:failures,
+        cooldownUntil:Date.now()+(c.class==='MODEL_UNAVAILABLE'?86400000:c.class==='AUTH'?3600000:Math.min(1800000,TTL*2**Math.min(failures-1,5))),optional:true,blocksJev:false,
         error:msg.slice(0,240),errorClass:c.class,httpStatus:c.httpStatus||null
       });
       errors.push({model:m,error:msg.slice(0,240),errorClass:c.class,httpStatus:c.httpStatus||null});
       log('ASK FAIL role='+role+' model='+m+' '+msg.slice(0,180));
+      persistRouterHealth();
+      if(c.httpStatus===429||c.class==='AUTH'||Date.now()<routerCooldownUntil)break;
     }
   }
   throw Object.assign(new Error('no healthy model'),{errors});
@@ -1536,7 +1559,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&u.pathname==='/health'){
       const ls=live.status();
       const local=localVisionConfig();
-      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',releaseVersion:'R2542-JEV-TRADER-OFFICE',enabled:true,decisionOwner:'JEV',scannerAuthority:'ATTENTION_ONLY',workerAuthority:'EVIDENCE_ONLY',primaryLanes:['5m','15m'],passLimit:2,autonomousPlanWorkers:false,noScoreThresholds:true,noTwoOfThreeGate:true,noHard15mStrategicVeto:true,experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS_PLUS_CASE_MEMORY',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.4.1',mode:'ATOMIC_PACKET_CHART_TURKISH_STRUCTURAL'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',reduceRisk:'BINDING_REDUCE_ONLY_WHEN_ADVERSE_AND_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',jevProfiles:'PARTIAL_BREAKEVEN_TRAIL_EXECUTABLE',externalPositions:'ADVISORY_ONLY'}},runtimeRelease:RUNTIME_RELEASE,runtimeBuiltBy:RUNTIME_BUILT_BY,binanceRateLimit:binanceRate.status(),featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV112Base:claudeV112.baseBranch,claudeV111Marker:claudeV111.marker,claudeV111Base:claudeV111.baseBranch,claudeV111Config:claudeV111.readConfig(),v110FeatureVersion:v110.featureVersion,v110BuiltBy:v110.builtBy,v110Marker:v110.marker,v110Base:v110.base,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,baseBranch:claudeV109.baseBranch,changesDoc:claudeV109.changesDoc,claudeV109Config:claudeV109.readConfig(),execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_BATCH3_ACTIVE','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CORE_LEVEL_DETERMINISTIC_REPAIR','VISION_BOTH_SIDE_TRIGGER_CANDIDATES','JEV_VISION_EVIDENCE_ONLY_NO_PLAN_SCHEMA','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','JEV_CORTEX_LIVE_REASONING_ALWAYS_ON','JEV_EXPERIENCE_MEMORY_ALWAYS_ON','JEV_LIFETIME_MEMORY_AGGREGATE','JEV_FREE_MODEL_KNOWLEDGE_RESEARCH','JEV_VERIFIED_DYNAMIC_KNOWLEDGE','JEV_RESEARCH_RETRY_FAILOVER','JEV_CURATED_OSS_REFERENCE_REGISTRY','JEV_CONTEXT_COMPLETE_PACKET','JEV_LIVE_MIRROR_READ_ONLY','JEV_MIRROR_PACKET_CHART_PARITY','JEV_LIVE_MIRROR_FULL_OVERLAYS','R2541_ATOMIC_PACKET_CHART','R2541_CONFIRMED_SWING_TRENDLINES','R2541_PATTERN_GEOMETRY','R2541_TURKISH_OFFICE_UI','R2542_JEV_TRADER_OFFICE','R2542_5M_SCALPER_DESK','R2542_15M_TRADER_DESK','R2542_DESK_PERFORMANCE_TELEMETRY','R2542_TRADE_RELEASE_TAG','ANDROID_REMOTE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY','JEV_SETUP_FAMILY_LEARNING','JEV_EXPLICIT_ENTRY_TIMING','VISION_OB_OTE_FIB_OVERLAYS','JEV_EXIT_NOW_REDUCE_ONLY_BINDING','JEV_PARTIAL_REDUCE_ONLY_BINDING','TARGETED_PRIORITY_UNIVERSE_24','BINANCE_TOP24_GAINER_DISCOVERY','ACCUMULATION_PROXY_DISCOVERY','ANDROID_ATTENTION_SYNC','PLAN_WORKER_ORCHESTRATION','PLAN_WORKER_9ROUTER_TEXT','PLAN_WORKER_9ROUTER_FREE_ONLY','OPENROUTER_FREE_WORKER_SECOND_OPINION','WORKER_VISION_AVOIDANCE_TELEMETRY','PLAN_WORKER_PARALLEL_TIMER','V108_WORKER_ESCALATION_LATCH','V108_CONCRETE_WATCH_CONTRACT','LOCAL_VISION_FREE_QUOTA_FAILOVER','V109_EXPLICIT_FREE_QUOTA_FAILOVER','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_SYNTHETIC_ACCURACY_BENCHMARK','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','FREE_PROVIDER_DYNAMIC_DISCOVERY','OPENROUTER_FREE_POOL_FAILOVER','PROVIDER_HEALTH_GROUPS','HEADROOM_PORT_COLLISION_GUARD','R2544_19_IMMUTABLE_ENTRY_CASE','R2544_19_OUTCOME_PATH_MEMORY','R2544_19_ANALOG_COUNTEREXAMPLES','R2544_19_MICROSTRUCTURE_EVENTS','R2544_19_DATA_QUALITY_FLAGS','R2544_19_CONTEXT_BUDGETER','R2544_19_OSS_PROVENANCE','R2544_20_PREENTRY_ADVERSE_SELECTION','R2544_20_MULTIWINDOW_FLOW','R2544_20_PARTIAL_DEPTH_PRESSURE','R2544_20_JEV_ENTRY_TIMING_EVIDENCE','R2544_20_OFFICE_TRAP_RISK','R2544_21_SPARSE_FLOW_CONFIDENCE','R2544_21_WINDOW_SAMPLE_WEIGHTING','R2544_21_SHORT_WINDOW_CONFIDENCE','R2544_22_HARD_CONTEXT_BUDGET','R2544_22_PASS_SPECIFIC_BUDGET','R2544_22_CORE_MARKET_PROTECTED','R2544_22_PASS1_PASS2_HANDOFF','R2544_23_PASS1_QUESTION_COMPACTION','R2544_23_PASS1_ROUTING_MEMORY_TIGHT','R2544_24_PASS2_QUESTION_COMPACTION','R2544_24_PASS2_RECORD_COMPACTION','R2544_24_PASS2_MEMORY_TIGHT','R2544_25_PASS2_DYNAMIC_RESIDUAL_BUDGET','R2544_25_PASS2_RESIDUAL_QUESTION_TIGHT','R2544_25_PASS2_RESIDUAL_RECORD_TIGHT','R2544_25_PASS2_RESIDUAL_MEMORY_TIGHT','R2544_26_ACTIVE_SYMBOL_LOCAL_L2','R2544_26_SHADOW_MODELED_LIQUIDATION','R2544_26_BEHAVIOR_MEMORY_HARDENING','R2544_26_OSS_PROVENANCE_HARDENING','R2544_26_AUDIT_PROVENANCE_HASHES','R2544_27_BINANCE_RATE_LIMIT_GUARD','R2544_27_BINANCE_429_418_COOLDOWN','R2544_27_BINANCE_WS_PATH_HARDENING','R2544_27_BINANCE_418_MANUAL_RECOVERY_QUARANTINE','R2544_27_BINANCE_RECOVERY_WARMUP','R2544_27_BINANCE_SCANNER_BURST_SMOOTHING','R2544_27_BINANCE_REMOTE_WEIGHT_HEADER_TRUTH','R2544_27_BINANCE_REQUESTS_1M_TELEMETRY','R2544_27E_SCANNER_CANDLE_BOUNDARY_CACHE','R2544_27E_PREMOVE_REUSE','R2544_27E_STREAM_PRIMARY_REST_FALLBACK','R2544_27E_BINANCE_ROUTE_TELEMETRY','R2544_27F_BINANCE_WS_SPLIT_ENDPOINTS','R2544_27F_L2_SNAPSHOT_DISCIPLINE','R2544_27F_L2_CHURN_LEASE','R2544_28_JEV_SEMANTIC_CONSISTENCY','R2544_28_JEV_MANAGEMENT_EXECUTION','R2544_28_LOCAL_L2_CONFIDENCE_MERGE','R2544_28_ADVERSE_REDUCE_RISK','R2544_28_URGENT_POSITION_REVIEW','R2544_28_CAPTURE_TIMING_LEARNING','R2544_29_BURST_SCALP','R2544_29_JEV_BURST_PREAUTH','R2544_29_1S_3S_WS_IGNITION','R2544_29_LONG_SHORT_BURST_SYMMETRY','R2544_29_SEPARATE_BURST_SLOT','R2544_29_SYNTHETIC_ADDON','R2544_29_ONE_PAUSE_EXCEPTION','R2544_29_BURST_LEARNING','LIVE_FAIL_CLOSED',...claudeV109.features,...v110.features,...claudeV111.features,...claudeV112.features],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_SINGLE_TF:'FALLBACK_CAPABILITY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
+      return send(res,200,{ok:true,time:new Date().toISOString(),host:HOST,port:PORT,routerKeyLoaded:true,version:'brainhub-pro-1',jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',releaseVersion:'R2542-JEV-TRADER-OFFICE',enabled:true,decisionOwner:'JEV',scannerAuthority:'ATTENTION_ONLY',workerAuthority:'EVIDENCE_ONLY',primaryLanes:['5m','15m'],passLimit:2,autonomousPlanWorkers:false,noScoreThresholds:true,noTwoOfThreeGate:true,noHard15mStrategicVeto:true,experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS_PLUS_CASE_MEMORY',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.4.1',mode:'ATOMIC_PACKET_CHART_TURKISH_STRUCTURAL'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',reduceRisk:'BINDING_REDUCE_ONLY_WHEN_ADVERSE_AND_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',jevProfiles:'PARTIAL_BREAKEVEN_TRAIL_EXECUTABLE',externalPositions:'ADVISORY_ONLY'}},runtimeRelease:RUNTIME_RELEASE,runtimeBuiltBy:RUNTIME_BUILT_BY,binanceRateLimit:binanceRate.status(),featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV112Base:claudeV112.baseBranch,claudeV111Marker:claudeV111.marker,claudeV111Base:claudeV111.baseBranch,claudeV111Config:claudeV111.readConfig(),v110FeatureVersion:v110.featureVersion,v110BuiltBy:v110.builtBy,v110Marker:v110.marker,v110Base:v110.base,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,baseBranch:claudeV109.baseBranch,changesDoc:claudeV109.changesDoc,claudeV109Config:claudeV109.readConfig(),execution:ls.armed?'LIVE_ARMED_PER_ORDER_GRANT_REQUIRED':'ADVISORY_ONLY',live:{configured:ls.liveConfigured,armed:ls.armed,expiresAt:ls.expiresAt},database:'sqlite',router:'9Router',configured:{opencode:(cfg.opencode||[]).length,kiro:(cfg.kiro||[]).length,localVision:local.enabled?local.models.length:0,openRouterJev:jev.localStatus().configured?1:0,total:(cfg.opencode||[]).length+(cfg.kiro||[]).length+(local.enabled?local.models.length:0)},features:['UNIFIED_9TF','CAUSAL_45M','ROLE_ROUTING','FAILED_BREAKOUT_GUARD','CHART_DATA','CHART_PNG_CLEAN','CHART_PNG_ANNOTATED','VISION_COMMITTEE_INPUT','VISION_CAPABILITY_FALLBACK','VISION_PROBE','VISION_PIXEL_PROBE','KIRO_FREE_QUOTA_VISION_OPT_IN','LOCAL_OLLAMA_VISION_FALLBACK','LOCAL_OLLAMA_VISION_16K','LOCAL_OLLAMA_VISION_32K','LOCAL_OLLAMA_VISION_ONLY','LOCAL_OLLAMA_VISION_TWO_STAGE','LOCAL_OLLAMA_VISION_BATCH3','LOCAL_OLLAMA_VISION_BATCH3_ACTIVE','LOCAL_OLLAMA_VISION_SINGLE_TF','LOCAL_OLLAMA_VISION_SINGLE_TF_FALLBACK','LOCAL_OLLAMA_VISION_COMPACT_FINALIZE','LOCAL_OLLAMA_VISION_TF_CONTRACT','LOCAL_OLLAMA_VISION_SPLIT_GLOBAL','LOCAL_OLLAMA_VISION_PROGRESS','LOCAL_OLLAMA_VISION_SEMANTIC_CONTRACT','LOCAL_OLLAMA_VISION_TEXT_REPAIR','LOCAL_OLLAMA_VISION_SLIM_TF_CONTEXT','LOCAL_OLLAMA_VISION_SINGLE_FLIGHT','LOCAL_OLLAMA_VISION_COMPACT_GLOBAL_CONTEXT','LOCAL_OLLAMA_VISION_NARRATIVE_REPAIR','VISION_SEMANTIC_DOWNGRADE','LOCAL_VISION_NO_DUPLICATE_IMAGE_REPAIR','LOCAL_OLLAMA_VISION_DIRECT_PIPELINE','VISION_CORE_LEVEL_DETERMINISTIC_REPAIR','VISION_BOTH_SIDE_TRIGGER_CANDIDATES','JEV_VISION_EVIDENCE_ONLY_NO_PLAN_SCHEMA','OPENROUTER_DPAPI_SECRET','OPENROUTER_JEV_DECISIONS_PROBE','OPENROUTER_JEV_ADVISORY_VETO_GATE','OPENROUTER_JEV_DAILY_BUDGET','OPENROUTER_JEV_SOFT_HARD_BUDGET','OPENROUTER_ACCOUNT_CREDIT_TELEMETRY','ACTIVE_POSITION_9TF_REVIEW','JEV_POSITION_EXIT_JUDGE','BRAIN_LEARNING_SOFT_CONTEXT','ANDROID_TURKISH_DECISION_TEXT','BACKGROUND_VISION_COLLISION_GUARD','VISION_WATCH_NONE_ANTI_CHOKE','USER_PANEL_EXACT_SIZING','VISION_RUNTIME_TRUTH_STATUS','LEADER_STATUS_STALE_SUPPRESSION','LEADER_AUTO_HEALTH_TELEMETRY','LEADER_AUTO_COVERAGE_SCHEDULER','USER_PANEL_EXACT_TOTAL_EXPOSURE','LEADER_APPROVED_ANALYSIS_REUSE','PREJEV_EXECUTION_TELEMETRY','BRAIN_LEARNING_OUTCOME_CONTEXT_ACTIVE','JEV_CORTEX_LIVE_REASONING_ALWAYS_ON','JEV_EXPERIENCE_MEMORY_ALWAYS_ON','JEV_LIFETIME_MEMORY_AGGREGATE','JEV_FREE_MODEL_KNOWLEDGE_RESEARCH','JEV_VERIFIED_DYNAMIC_KNOWLEDGE','JEV_RESEARCH_RETRY_FAILOVER','JEV_CURATED_OSS_REFERENCE_REGISTRY','JEV_CONTEXT_COMPLETE_PACKET','JEV_LIVE_MIRROR_READ_ONLY','JEV_MIRROR_PACKET_CHART_PARITY','JEV_LIVE_MIRROR_FULL_OVERLAYS','R2541_ATOMIC_PACKET_CHART','R2541_CONFIRMED_SWING_TRENDLINES','R2541_PATTERN_GEOMETRY','R2541_TURKISH_OFFICE_UI','R2542_JEV_TRADER_OFFICE','R2542_5M_SCALPER_DESK','R2542_15M_TRADER_DESK','R2542_DESK_PERFORMANCE_TELEMETRY','R2542_TRADE_RELEASE_TAG','ANDROID_REMOTE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY','JEV_SETUP_FAMILY_LEARNING','JEV_EXPLICIT_ENTRY_TIMING','VISION_OB_OTE_FIB_OVERLAYS','JEV_EXIT_NOW_REDUCE_ONLY_BINDING','JEV_PARTIAL_REDUCE_ONLY_BINDING','TARGETED_PRIORITY_UNIVERSE_24','BINANCE_TOP24_GAINER_DISCOVERY','ACCUMULATION_PROXY_DISCOVERY','ANDROID_ATTENTION_SYNC','PLAN_WORKER_ORCHESTRATION','PLAN_WORKER_9ROUTER_TEXT','PLAN_WORKER_9ROUTER_FREE_ONLY','OPENROUTER_FREE_WORKER_SECOND_OPINION','WORKER_VISION_AVOIDANCE_TELEMETRY','PLAN_WORKER_PARALLEL_TIMER','V108_WORKER_ESCALATION_LATCH','V108_CONCRETE_WATCH_CONTRACT','LOCAL_VISION_FREE_QUOTA_FAILOVER','V109_EXPLICIT_FREE_QUOTA_FAILOVER','ANDROID_FULL_TURKISH_STATUS','VISION_CHART_896X504','VISION_SYNTHETIC_ACCURACY_BENCHMARK','VISION_CHART_640X360','VISION_CHART_448X252','KKK_DETAILED_9TF_DIAGNOSTICS','LEADER_DETAIL_PROBE','OPENCODE_OFFICIAL_FREE_INFERENCE','FREE_PROVIDER_DYNAMIC_DISCOVERY','OPENROUTER_FREE_POOL_FAILOVER','PROVIDER_HEALTH_GROUPS','HEADROOM_PORT_COLLISION_GUARD','R2544_19_IMMUTABLE_ENTRY_CASE','R2544_19_OUTCOME_PATH_MEMORY','R2544_19_ANALOG_COUNTEREXAMPLES','R2544_19_MICROSTRUCTURE_EVENTS','R2544_19_DATA_QUALITY_FLAGS','R2544_19_CONTEXT_BUDGETER','R2544_19_OSS_PROVENANCE','R2544_20_PREENTRY_ADVERSE_SELECTION','R2544_20_MULTIWINDOW_FLOW','R2544_20_PARTIAL_DEPTH_PRESSURE','R2544_20_JEV_ENTRY_TIMING_EVIDENCE','R2544_20_OFFICE_TRAP_RISK','R2544_21_SPARSE_FLOW_CONFIDENCE','R2544_21_WINDOW_SAMPLE_WEIGHTING','R2544_21_SHORT_WINDOW_CONFIDENCE','R2544_22_HARD_CONTEXT_BUDGET','R2544_22_PASS_SPECIFIC_BUDGET','R2544_22_CORE_MARKET_PROTECTED','R2544_22_PASS1_PASS2_HANDOFF','R2544_23_PASS1_QUESTION_COMPACTION','R2544_23_PASS1_ROUTING_MEMORY_TIGHT','R2544_24_PASS2_QUESTION_COMPACTION','R2544_24_PASS2_RECORD_COMPACTION','R2544_24_PASS2_MEMORY_TIGHT','R2544_25_PASS2_DYNAMIC_RESIDUAL_BUDGET','R2544_25_PASS2_RESIDUAL_QUESTION_TIGHT','R2544_25_PASS2_RESIDUAL_RECORD_TIGHT','R2544_25_PASS2_RESIDUAL_MEMORY_TIGHT','R2544_26_ACTIVE_SYMBOL_LOCAL_L2','R2544_26_SHADOW_MODELED_LIQUIDATION','R2544_26_BEHAVIOR_MEMORY_HARDENING','R2544_26_OSS_PROVENANCE_HARDENING','R2544_26_AUDIT_PROVENANCE_HASHES','R2544_27_BINANCE_RATE_LIMIT_GUARD','R2544_27_BINANCE_429_418_COOLDOWN','R2544_27_BINANCE_WS_PATH_HARDENING','R2544_27_BINANCE_418_MANUAL_RECOVERY_QUARANTINE','R2544_27_BINANCE_RECOVERY_WARMUP','R2544_27_BINANCE_SCANNER_BURST_SMOOTHING','R2544_27_BINANCE_REMOTE_WEIGHT_HEADER_TRUTH','R2544_27_BINANCE_REQUESTS_1M_TELEMETRY','R2544_27E_SCANNER_CANDLE_BOUNDARY_CACHE','R2544_27E_PREMOVE_REUSE','R2544_27E_STREAM_PRIMARY_REST_FALLBACK','R2544_27E_BINANCE_ROUTE_TELEMETRY','R2544_27F_BINANCE_WS_SPLIT_ENDPOINTS','R2544_27F_L2_SNAPSHOT_DISCIPLINE','R2544_27F_L2_CHURN_LEASE','R2544_28_JEV_SEMANTIC_CONSISTENCY','R2544_28_JEV_MANAGEMENT_EXECUTION','R2544_28_LOCAL_L2_CONFIDENCE_MERGE','R2544_28_ADVERSE_REDUCE_RISK','R2544_28_URGENT_POSITION_REVIEW','R2544_28_CAPTURE_TIMING_LEARNING','R2544_29_BURST_SCALP','R2544_29_JEV_BURST_PREAUTH','R2544_29_1S_3S_WS_IGNITION','R2544_29_LONG_SHORT_BURST_SYMMETRY','R2544_29_SEPARATE_BURST_SLOT','R2544_29_SYNTHETIC_ADDON','R2544_29_ONE_PAUSE_EXCEPTION','R2544_29_BURST_LEARNING','R2544_31_JEV_OFFICE_LEVEL_PARITY','R2544_31_BURST_CHART_CONTEXT','R2544_31_DYNAMIC_FREE_CATALOG','R2544_31_FREE_QUOTA_GUARD','R2544_31_VALIDATED_EVIDENCE','LIVE_FAIL_CLOSED',...claudeV109.features,...v110.features,...claudeV111.features,...claudeV112.features],featureCompatibility:{OPENCODE_OFFICIAL_FREE_INFERENCE:'BOOTSTRAP_ALIAS_ONLY',LOCAL_OLLAMA_VISION_SINGLE_TF:'FALLBACK_CAPABILITY',VISION_CHART_896X504:'BOOTSTRAP_ALIAS_ONLY',VISION_CHART_640X360:'BOOTSTRAP_ALIAS_ONLY'}});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/status'){
       const remote=u.searchParams.get('remote')==='1';
@@ -2295,8 +2318,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.30-JEV-OFFICE-BURST';
-const RUNTIME_BUILT_BY='OpenAI GPT-5.6 Sol • 2026-10-02 • R2544.29: JEV-preauthorized LONG/SHORT BURST_SCALP, 4 armed coins, 1s WebSocket watcher, separate burst slot, synthetic same-side addon, one strict pause exception and burst learning; all R2544.28/R2544.27f safety preserved';
+const RUNTIME_RELEASE='R2544.31-JEV-BOUNDED-CHART-FREE';
+const RUNTIME_BUILT_BY='Codex • 2026-10-04 • R2544.31: protected Office chart overlays, cached BURST context, bounded free catalog/quotas, validated evidence and durable provider cooldowns';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

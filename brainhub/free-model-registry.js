@@ -35,6 +35,13 @@ function normalizeModelPayload(payload){
   const rows=Array.isArray(payload)?payload:Array.isArray(payload?.data)?payload.data:Array.isArray(payload?.models)?payload.models:[];
   return unique(rows.map(x=>typeof x==='string'?x:(x?.id||x?.model||x?.name||'')));
 }
+// A free suffix alone is insufficient when a catalog contains stale or priced entries.
+function freeCatalogModels(payload){
+  const rows=Array.isArray(payload?.data)?payload.data:[];
+  return unique(rows.filter(x=>isOpenRouterFreeId(x?.id)&&x.pricing&&x.pricing.prompt!==undefined&&x.pricing.completion!==undefined&&
+    Object.values(x.pricing).every(v=>v!==null&&v!==''&&Number(v)===0)&&
+    (!Array.isArray(x.architecture?.output_modalities)||x.architecture.output_modalities.includes('text'))).map(x=>x.id));
+}
 function providerGroup(model){
   const z=String(model||'').toLowerCase();
   if(z.startsWith('oc/'))return '9ROUTER_OPENCODE_FREE';
@@ -47,6 +54,8 @@ function classifyProviderError(error,statusCode=null){
   const msg=String(error||'');
   const code=Number(statusCode)||Number((msg.match(/\bHTTP\s+(\d{3})\b/i)||[])[1])||null;
   if(code===401||code===403)return {class:'AUTH',httpStatus:code};
+  if(code===404||/no endpoints found|model.*not found|paid.only/i.test(msg))return {class:'MODEL_UNAVAILABLE',httpStatus:code};
+  if(/RESPONSE_TRUNCATED|RESPONSE_SCHEMA_INVALID/.test(msg))return {class:'INVALID_RESPONSE',httpStatus:code};
   if(code===429)return {class:'RATE_LIMIT',httpStatus:code};
   if(code===502||code===503||code===504||/overload|temporar(?:ily)? unavailable|capacity/i.test(msg))return {class:'OVERLOADED',httpStatus:code};
   if(code===400&&/upstream|endpoint unavailable|provider/i.test(msg))return {class:'UPSTREAM_UNAVAILABLE',httpStatus:code};
@@ -72,5 +81,5 @@ async function discoverOpenAIModels({baseUrl,key='',fetchImpl=globalThis.fetch,t
 module.exports={
   OPENROUTER_FREE_BASELINE,
   NINEROUTER_OPENCODE_BASELINE,
-  unique,isOpenRouterFreeId,is9RouterOpenCodeFreeId,normalizeModelPayload,providerGroup,classifyProviderError,discoverOpenAIModels
+  unique,isOpenRouterFreeId,is9RouterOpenCodeFreeId,normalizeModelPayload,freeCatalogModels,providerGroup,classifyProviderError,discoverOpenAIModels
 };

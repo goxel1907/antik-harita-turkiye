@@ -533,6 +533,7 @@ function frameTruth(f,{detail=false,timing=false}={}){
   const sw=f.swingStructure&&typeof f.swingStructure==='object'?f.swingStructure:null;
   const out={
     available:f.available??null,fresh:f.fresh??null,asOf:f.asOf??null,source:f.source??null,synthetic:f.synthetic??null,
+    closedCandle:f.closedCandle??null,
     close:f.close??null,trend:f.trend??null,breakOfStructure:f.breakOfStructure??null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,
     ema20:f.ema20??null,ema50:f.ema50??null,prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,
     candle:f.candle??null,forming:f.forming??null,keyLevels:f.keyLevels??null,volatility:f.volatility??null,readout:f.readout??null,
@@ -549,6 +550,7 @@ function protectedCoreTruth(body){
   if(!p||typeof p!=='object')return null;
   return {
     contract:p.contract??null,symbol:p.symbol??null,livePrice:p.livePrice??null,levelMap:p.levelMap??null,liquidationHistory:p.liquidationHistory??null,
+    chartOverlayLevels:p.chartOverlayLevels??null,
     coreFrames:Object.fromEntries(['5m','15m'].map(tf=>[tf,frameTruth(p?.coreFrames?.[tf],{detail:true})])),
     timingFrames:Object.fromEntries(['1m','3m'].map(tf=>[tf,frameTruth(p?.timingFrames?.[tf],{timing:true})])),
     higherContext:Object.fromEntries(['30m','45m','1h','4h','1d'].map(tf=>[tf,frameTruth(p?.higherContext?.[tf])])),
@@ -925,8 +927,8 @@ function prepareDecisionRequest(input,opts={}){
       ['DUP_FVG_SMC_TEXT',()=>{for(const t of targets)stripDup(t);}],
       ['FIB_OTE_RAW',()=>{for(const t of targets)stripFib(t);}],
       ['PATTERNS_TOP3_BOTH_SIDES_PER_TF',()=>{const frames=targets.flatMap(t=>[t.frames,t.timingFrames,t.higherContext,t.coreFrames]).filter(x=>x&&typeof x==='object');for(const g of frames)for(const f of Object.values(g))if(f&&typeof f==='object'&&Array.isArray(f.patterns))f.patterns=rankPatterns(f.patterns,3);}],
-      ['HIGHER_CONTEXT_SUMMARY',()=>{const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','keyLevels','volatility','readout'];for(const t of targets)summarizeGroup(t.higherContext,keep);}],
-      ['TIMING_FRAMES_SUMMARY',()=>{const keep=['available','fresh','asOf','source','synthetic','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','preMove','volatility','keyLevels','readout'];for(const t of targets)summarizeGroup(t.timingFrames,keep);}]
+      ['HIGHER_CONTEXT_SUMMARY',()=>{const keep=['available','fresh','asOf','source','synthetic','closedCandle','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','keyLevels','volatility','readout'];for(const t of targets)summarizeGroup(t.higherContext,keep);}],
+      ['TIMING_FRAMES_SUMMARY',()=>{const keep=['available','fresh','asOf','source','synthetic','closedCandle','close','trend','breakOfStructure','rsi14','atrPct','prior20High','prior20Low','ema20','ema50','candle','forming','preMove','volatility','keyLevels','readout'];for(const t of targets)summarizeGroup(t.timingFrames,keep);}]
     ];
     for(const [name,step] of secondary){if(byteSize(body)<=targetCap)break;try{step();trimStepsApplied.push(name);}catch{}serialized=refresh();}
   }
@@ -964,6 +966,9 @@ function prepareDecisionRequest(input,opts={}){
     }
     if(state.professionalTraderCortex&&typeof state.professionalTraderCortex.reference==='string')state.professionalTraderCortex.reference=compactCortexReference(state.professionalTraderCortex.reference,700);
     if(state.dynamicKnowledge&&Array.isArray(state.dynamicKnowledge.entries))state.dynamicKnowledge.entries=compactKnowledgeEntries(state.dynamicKnowledge.entries,1).map(x=>({...x,summary:clipNatural(x.summary||'',160),keyPoints:(x.keyPoints||[]).slice(0,1).map(v=>clipNatural(v,96))}));
+    // Optional worker prose must not displace current market/position truth. Structured evidence stays intact.
+    const requested=state.record?.requestedEvidence;
+    if(requested&&typeof requested==='object'&&typeof requested.text==='string'&&requested.text.length>1600){state.record.requestedEvidence={...requested,text:clipNatural(requested.text,1600),textProjected:true,textAuthority:'OPTIONAL_EVIDENCE_ONLY'};}
     trimStepsApplied.push('ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL');serialized=refresh();
   }
   serialized=refresh();const bytes=Buffer.byteLength(serialized,'utf8');
@@ -1627,10 +1632,11 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   // R2544.29 BURST_SCALP: JEV pre-authorizes only a short-lived conditional watch.
   // This call never places an order. A later deterministic WebSocket ignition must independently
   // satisfy direction/TTL/strictness before the PC-only burst executor may act.
-  async function sovereignBurstArm({candidate,preMove,stream,position=null,pause=null}={}){
+  async function sovereignBurstArm({candidate,preMove,stream,chartContext=null,position=null,pause=null}={}){
     if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,decision:'DO_NOT_ARM',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     const symbol=String(candidate?.symbol||stream?.symbol||'').toUpperCase();
     if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))return {ok:false,called:false,decision:'DO_NOT_ARM',reason:'BURST_SYMBOL_INVALID'};
+    if(!chartContext?.packet||chartContext.symbol!==symbol||chartContext.available!==true)return {ok:false,called:false,decision:'DO_NOT_ARM',reason:'BURST_CHART_CONTEXT_NOT_READY'};
     const compact={
       contract:'R2544.29_BURST_PREAUTH',symbol,
       radar:{source:candidate?.deepScanReason||candidate?.burstReason||null,sideHint:candidate?.burstSideHint||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[],gainerRank:finiteNumber(candidate?.gainerRank),projectedGainerRank:finiteNumber(candidate?.projectedGainerRank),gainerRankVelocity:finiteNumber(candidate?.gainerRankVelocity),loserRank:finiteNumber(candidate?.loserRank),projectedLoserRank:finiteNumber(candidate?.projectedLoserRank),loserRankVelocity:finiteNumber(candidate?.loserRankVelocity),change24hPct:finiteNumber(candidate?.change24hPct??candidate?.priceChangePercent),shortChangePct:finiteNumber(candidate?.shortChangePct),shortPer5mPct:finiteNumber(candidate?.shortPer5mPct)},
@@ -1646,7 +1652,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     };
     const body={
       model:cfg.model,
-      state:{description:'JEV BURST pre-authorization. Choose whether ONE symbol may be ARMED for a very short PC-only burst scalp watcher. This is not an entry order. LONG and SHORT are symmetric. Only arm when the supplied pre-move/location plus current public WebSocket microstructure can plausibly support an imminent expansion. A later deterministic ignition must independently pass strict freshness, spread, sequence-safe local-L2, 1s/3s flow and OFI conditions. During a 2-loss/30m pause, allow an exception only for an unusually clear ignition; at most one exception can execute in that pause. Never infer participant identity. Do not bypass exchange safety.',record:compact},
+      state:{description:'JEV BURST pre-authorization. Read coreMarketPacket closed-candle OB/FVG/Fib/OTE, Office chartOverlayLevels and higher context together with current public WebSocket flow. Timeframes are context, not votes; 45m is synthetic. Missing/stale fields are not confirmations. Choose whether ONE symbol may be ARMED for a very short PC-only burst scalp watcher. This is not an entry order. LONG and SHORT are symmetric. Only arm when pre-move/location and flow support an imminent expansion. Later ignition must independently pass freshness, spread, sequence-safe L2, 1s/3s flow and OFI. During the 2-loss/30m pause allow at most one unusually clear strict exception. Never infer participant identity or bypass exchange safety.',record:compact,coreMarketPacket:chartContext.packet,chartCache:{asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source}},
       questions:{
         burst_decision:{type:'choice',instructions:'Pre-authorize a conditional burst direction or do not arm.',criteria:{ARM_LONG:'Arm LONG only; later trigger may execute LONG.',ARM_SHORT:'Arm SHORT only; later trigger may execute SHORT.',DO_NOT_ARM:'Do not arm this symbol now.'}},
         ttl:{type:'choice',instructions:'How long may this pre-authorization remain valid?',criteria:{TTL_30S:'30 seconds',TTL_60S:'60 seconds',TTL_120S:'120 seconds'}},
@@ -1662,7 +1668,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!['TTL_30S','TTL_60S','TTL_120S'].includes(ttl)||!['STRICT_090','VERY_STRICT_094'].includes(strict)||!['MAX_SAFE','HALF_MAX','PANEL'].includes(lev)||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
     const chosenSide=decision==='ARM_LONG'?'LONG':decision==='ARM_SHORT'?'SHORT':null,pmDir=String(preMove?.direction||'').toUpperCase();
     if(chosenSide&&['LONG','SHORT'].includes(pmDir)&&chosenSide!==pmDir)return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_DIRECTION_CONTRADICTS_PREMOVE',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,side:chosenSide,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,side:chosenSide,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize};
   }
 
   async function sovereignExit({position,lifecycle,currentPlan,unified,evidence=null}={}){
@@ -1749,7 +1755,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         };
       })(),
       entryThesis:{why:entryContext.why||original.why||null,setupFamily:entryContext.setupFamily||original.setupFamily||null,entryTiming:entryContext.entryTiming||original.entryTiming||null,edgeBasis:entryContext.edgeBasis||original.edgeBasis||null,lane:entryContext.lane||original.lane||null,source:lifecycle?.entryPlanSource||null,marketSignature:entryContext.marketSignature||null},
-      frames:coreMarket.coreFrames,timingFrames:coreMarket.timingFrames,higherContext:coreMarket.higherContext,
+      frames:coreMarket.coreFrames,timingFrames:coreMarket.timingFrames,higherContext:coreMarket.higherContext,chartOverlayLevels:coreMarket.chartOverlayLevels,levelMap:coreMarket.levelMap,liquidationHistory:coreMarket.liquidationHistory,global:coreMarket.global,
       noisePolicy:'Lower-timeframe noise is evidence, not by itself proof that the original owner-timeframe thesis failed. Evaluate the supplied original thesis against current owner and higher context; JEV retains final strategic authority.',
       orderFlow:unified?.marketMakerEvidence?.orderFlow||null,
       depth:unified?.marketMakerEvidence?.bookBehavior||null,
