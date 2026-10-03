@@ -804,7 +804,8 @@ function renderKpis(s){
     kpi('Günlük zarar freni', maxDailyLossPct!=null?`%${maxDailyLossPct}`:'—', maxDailyLossPct!=null?'eşik dolunca yeni emir zorunlu güvenlikte engellenir':'live-policy sınırı okunamadı', maxDailyLossPct!=null?'good':'warn'),
     kpi('Stop sonrası yeniden giriş', stopCooldown!=null?`${stopCooldown} dk`:'aktif', 'aynı coin hızlı hatta hemen yeniden açılmaz; intikam işlemi engellenir', 'good')
   ].join('');
-  chip('#chipVer', s.health?.ok?'good':'bad', s.health?.ok?'PC BAĞLI':'PC BAĞLANTI BEKLENİYOR');
+  const runtimeRelease=s.health?.data?.runtimeRelease||'sürüm okunamadı';
+  chip('#chipVer', s.health?.ok?'good':'bad', s.health?.ok?`PC BAĞLI • ${runtimeRelease}`:'PC BAĞLANTI BEKLENİYOR');
   chip('#chipLive', armed?'good':'bad', armed?`LIVE AÇIK${exp!=null?' • '+exp+' dk':''}`:'LIVE KAPALI');
   // CLAUDE_R2543_UX: surum adinda VISION yaziyor diye gorsel analizin calistigi sanilmasin.
   const vStage=String(s.visionProgress?.data?.stage||'IDLE').toUpperCase();
@@ -946,7 +947,7 @@ function renderWorkers(s){
     ['Son inceleme', lr?`${lr.symbol} ${lr.side||''} → ${lr.state} (${lr.source||'—'})`:'—'],
     ['İşlem hattı', lr?`${lr.tradeLaneName||'—'} • ${lr.momentumStage||'—'} • alt TF uyum ${lr.scalpAlignedCount??0}`:'—'],
     ['Gerekçe', lr?.reason||'—'],
-    ['Kanıt ajanı durumu', (cool>0||orf.last?.ok===false)?'Opsiyonel kanıt ajanı bozuldu / soğumada; JEV final kararını engellemez. Ücretli yedek kapalı.':'Opsiyonel kanıt; JEV final kararından bağımsız'],
+    ['Kanıt ajanı durumu', (cool>0||(orf.last?.called===true&&orf.last?.ok===false))?'Opsiyonel kanıt ajanı bozuldu / soğumada; JEV final kararını engellemez. Ücretli yedek kapalı.':'Opsiyonel kanıt; JEV final kararından bağımsız. Henüz denenmeyen model hatalı sayılmaz.'],
     ['Model sağlık toplamı', models.length?`${healthy} sağlıklı • ${cool} soğumada • ${failed} başarısız • ${untested} denenmedi`:'okunamadı'],
     ['9Router OpenCode Free', goc.total?groupTxt(goc):'model yok / keşif bekleniyor'],
     ['9Router Kiro kotası', gki.total?groupTxt(gki):'yapılandırılmamış'],
