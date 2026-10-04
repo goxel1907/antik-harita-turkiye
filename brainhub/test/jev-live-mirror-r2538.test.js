@@ -44,7 +44,7 @@ test('R2541 Office mirror remains GET-only, Turkish and snapshot-bound',()=>{
   assert.match(html,/Piyasa \/ TEMİZ/);
   assert.match(html,/JEV \+ Vision \/ TAM AÇIKLAMALI/);
   assert.match(html,/renderMirror\(s\)/);
-  assert.match(html,/const mirrorBars=mirrorTf==='15m'\?180:72/);
+  assert.match(html,/const mirrorBars=tf==='15m'\?180:72/);
   assert.match(html,/snapshotId/);
   assert.match(html,/mirror-wide/);
   assert.match(html,/Aralık ÜST\/ALT\/EQ/);

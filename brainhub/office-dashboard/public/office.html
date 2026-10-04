@@ -1504,31 +1504,31 @@ async function renderMirror(s){
     $('#mirrorParity').textContent='Demo modunda canlı JEV aynası devre dışı.';
     return;
   }
-  const seq=++mirrorSeq, stamp=Date.now();
-  const mirrorBars=mirrorTf==='15m'?180:72;
+  const seq=++mirrorSeq, stamp=Date.now(), tf=mirrorTf;
+  const mirrorBars=tf==='15m'?180:72;
   const clean=$('#mirrorClean'), annotated=$('#mirrorAnnotated');
   const parityLoading=$('#mirrorParity');
   parityLoading.className='mirror-parity warn';
   parityLoading.textContent='Yeni atomik snapshot yükleniyor…';
   if(clean)clean.style.opacity='.12';
   if(annotated)annotated.style.opacity='.12';
-  $('#mirrorCleanLabel').textContent=`${symbol} • ${mirrorTf}`;
-  $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${mirrorTf} • TAM SMC + LİKİDİTE`;
+  $('#mirrorCleanLabel').textContent=`${symbol} • ${tf}`;
+  $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${tf} • TAM SMC + LİKİDİTE`;
 
   try{
-    const r=await fetch('/api/jev-mirror'+mirrorQuery({symbol,tf:mirrorTf,_:stamp}),{cache:'no-store'});
+    const r=await fetch('/api/jev-mirror'+mirrorQuery({symbol,tf,_:stamp}),{cache:'no-store'});
     const j=await r.json();
     if(seq!==mirrorSeq)return;
     if(!r.ok||!j?.ok)throw new Error(j?.error||'mirror unavailable');
     const snapshotId=String(j.snapshotId||'');
-    const cleanUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'clean',bars:mirrorBars,snapshotId,_:stamp});
-    const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf:mirrorTf,mode:'annotated',bars:mirrorBars,snapshotId,_:stamp,...(mirrorOpts.htf?{}:{htf:'0'}),...(mirrorOpts.pos?{}:{pos:'0'})});
+    const cleanUrl='/api/chart'+mirrorQuery({symbol,tf,mode:'clean',bars:mirrorBars,snapshotId,_:stamp});
+    const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf,mode:'annotated',bars:mirrorBars,snapshotId,_:stamp,...(mirrorOpts.htf?{}:{htf:'0'}),...(mirrorOpts.pos?{}:{pos:'0'})});
     await Promise.all([
       loadMirrorImage(clean,cleanUrl,seq),
       loadMirrorImage(annotated,annotatedUrl,seq)
     ]);
     if(seq!==mirrorSeq)return;
-    const p=j.packet||{}, f=p?.coreFrames?.[mirrorTf]||{}, smc=f?.smcContext||{};
+    const p=j.packet||{}, f=p?.coreFrames?.[tf]||{}, smc=f?.smcContext||{};
     const ob=f?.orderBlocks||{}, ms=p?.microstructure||{}, der=p?.derivatives||{}, liq=p?.observedLiquidations||{};
     renderPreEntryMicro(p);
     const d=j.latestDecision||{}, p1=d.jevPass1||{}, p2=d.jevFinal||{}, pl=d.plan||{};
