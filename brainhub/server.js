@@ -49,7 +49,11 @@ if(!KEY){console.error('BRAINHUB_ROUTER_KEY missing');process.exit(2);}
 if(HOST!=='127.0.0.1'&&HOST!=='::1'&&CLIENT_TOKEN.length<32){console.error('BRAINHUB_CLIENT_TOKEN (32+ chars) required for non-loopback binding');process.exit(2);}
 const store=openStore(ROOT);
 const jev=createJevClient({root:ROOT,apiKey:OPENROUTER_API_KEY,managementKey:OPENROUTER_MANAGEMENT_KEY});
-const freeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,statePath:path.join(ROOT,'data','openrouter-free-health.json')});
+const freeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,
+  preferredModels:cfg.openRouterFreeWorker?.preferredModels,
+  timeoutMs:cfg.openRouterFreeWorker?.timeoutMs,
+  maxAttempts:cfg.openRouterFreeWorker?.maxAttempts,
+  statePath:path.join(ROOT,'data','openrouter-free-health.json')});
 function validResearchText(text){try{const raw=String(text||'').match(/\{[\s\S]*\}/)?.[0],j=JSON.parse(raw);return typeof j.summary==='string'&&j.summary.trim().length>0&&Array.isArray(j.keyPoints)&&Array.isArray(j.sourceUrls);}catch{return false;}}
 const knowledgeResearch=createKnowledgeResearch({
   root:ROOT,

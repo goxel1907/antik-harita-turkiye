@@ -20,6 +20,15 @@
     "kiroStream": true,
     "probeOnStart": true,
     "healthCacheSeconds": 600,
+    "openRouterFreeWorker": {
+        "preferredModels": [
+            "apodex/apodex-1.1-mini:free",
+            "qwen/qwen3.8-27b:free",
+            "nvidia/nemotron-3.5-lightning:free"
+        ],
+        "timeoutMs": 15000,
+        "maxAttempts": 2
+    },
     "localVision": {
         "enabled": false,
         "baseUrl": "http://127.0.0.1:11434/v1",

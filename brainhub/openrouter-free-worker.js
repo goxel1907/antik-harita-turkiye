@@ -14,6 +14,7 @@ function createOpenRouterFreeWorker({
   timeoutMs=15000,
   model='openrouter/free',
   models=OPENROUTER_FREE_BASELINE,
+  preferredModels=[],
   maxAttempts=2,
   autoDiscovery=false,
   statePath=null,
@@ -23,6 +24,7 @@ function createOpenRouterFreeWorker({
   const key=String(apiKey||'').trim();
   const configured=key.startsWith('sk-or-v1-')&&typeof fetchImpl==='function';
   let freeModels=unique([...(models||[]),model,'openrouter/free']).filter(isOpenRouterFreeId);
+  const preferred=unique(Array.isArray(preferredModels)?preferredModels:[]).filter(isOpenRouterFreeId);
   let failures=0,cooldownUntil=0,busy=false,rr=0;
   const perModel=new Map();
   let catalog={attemptAt:null,successAt:null,error:null},quota={day:new Date(clock()).toISOString().slice(0,10),used:0,limit:Math.max(1,Number(dailyLimit)||50),lastCheckedAt:null},minuteCalls=[];
@@ -65,7 +67,10 @@ function createOpenRouterFreeWorker({
     const n=rr++%direct.length;
     const rotated=['openrouter/free',...direct.slice(n),...direct.slice(0,n)];
     const rank=id=>{const s=modelState(id);return s.lastOk===true&&clock()-s.lastOkAt<3600000?(s.validatedRoles?.[role]!==undefined&&clock()-s.validatedRoles[role]<3600000?2:1):0;};
-    return rotated.sort((a,b)=>rank(b)-rank(a));
+    // Preferences only order the current free catalog; they cannot resurrect a
+    // removed model, override its cooldown or enable a priced provider.
+    const preferenceRank=id=>{const n=preferred.indexOf(id);return n<0?preferred.length:n;};
+    return rotated.sort((a,b)=>rank(b)-rank(a)||preferenceRank(a)-preferenceRank(b));
   }
 
   async function callOne(id,system,prompt,validate,role){
@@ -143,7 +148,7 @@ function createOpenRouterFreeWorker({
   }
 
   function status(){
-    rollover();return {configured,model,models:freeModels,freeOnly:true,optional:true,blocksJev:false,failures,cooldownUntil,busy,catalog:{...catalog},quota:{...quota,remaining:Math.max(0,quota.limit-quota.used),minuteUsed:minuteCalls.length},last:{...last},perModel:freeModels.map(id=>({model:id,...modelState(id),status:blocked(id)?'cooldown':modelState(id).lastOk===true&&clock()-modelState(id).lastOkAt<3600000?'healthy':modelState(id).attempts>0?'failed':'untested'}))};
+    rollover();return {configured,model,models:freeModels,preferredModels:preferred.filter(id=>freeModels.includes(id)),freeOnly:true,optional:true,blocksJev:false,failures,cooldownUntil,busy,catalog:{...catalog},quota:{...quota,remaining:Math.max(0,quota.limit-quota.used),minuteUsed:minuteCalls.length},last:{...last},perModel:freeModels.map(id=>({model:id,...modelState(id),status:blocked(id)?'cooldown':modelState(id).lastOk===true&&clock()-modelState(id).lastOkAt<3600000?'healthy':modelState(id).attempts>0?'failed':'untested'}))};
   }
   return {review,status};
 }
