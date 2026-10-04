@@ -934,13 +934,14 @@ if ($Action -eq 'Pair') {
     try {
         Start-Brain $rootFull $node $key
         Test-Brain $rootFull
-        & $tailscale serve --bg --https=8787 --yes 'http://127.0.0.1:8787' | Out-Null
+        # BrainHub remote API uses a dedicated tailnet-only TLS port. 443 is reserved for 9Router Funnel.
+        & $tailscale serve --bg --https=8443 --yes 'http://127.0.0.1:8787' | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Tailscale Serve failed' }
         $state = (& $tailscale status --json | ConvertFrom-Json)
         $dns = ([string]$state.Self.DNSName).TrimEnd('.')
         if (-not $dns) { throw 'Tailscale DNS name unavailable' }
         Set-Clipboard -Value $token
-        Write-Host "BRAINHUB_PAIR_OK endpoint=https://$($dns):8787 token=PC_CLIPBOARD"
+        Write-Host "BRAINHUB_PAIR_OK endpoint=https://$($dns):8443 token=PC_CLIPBOARD"
     } catch {
         Remove-Item -LiteralPath $flag -ErrorAction SilentlyContinue
         Stop-Brain $rootFull
@@ -951,7 +952,7 @@ if ($Action -eq 'Pair') {
 }
 if ($Action -eq 'Unpair') {
     $tailscale = 'C:\Program Files\Tailscale\tailscale.exe'
-    if (Test-Path -LiteralPath $tailscale) { & $tailscale serve --https=8787 off | Out-Null }
+    if (Test-Path -LiteralPath $tailscale) { & $tailscale serve --https=8443 off | Out-Null }
     $flag = Join-Path $rootFull 'config\remote-enabled'
     Remove-Item -LiteralPath $flag -ErrorAction SilentlyContinue
     $key = Router-Key $rootFull
