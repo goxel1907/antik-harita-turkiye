@@ -1348,7 +1348,8 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       const y0=Number(tl?.from?.price),y1=Number(tl?.projected?.price??tl?.to?.price);
       if(x0===null||x1===null||!Number.isFinite(y0)||!Number.isFinite(y1))return;
       line(x0,yPrice(y0),x1,yPrice(y1),col);line(x0,yPrice(y0)+1,x1,yPrice(y1)+1,col);
-      const ty=Math.max(top,Math.min(priceBottom-16,Math.round(yPrice(y1))-15));fillRect(Math.min(right-110,x1+4),ty-1,Math.min(right-110,x1+4)+textWidth(label,2)*1.5+4,ty+14,[13,17,23,255]);text57(Math.min(right-110,x1+6),ty,label,col,2);
+      // Use the existing collision-aware price column instead of covering candles.
+      addLevel(y1,label,col,2);
     };
     drawTrend(trendLines.upSupport,[0,230,118,255],'TREND HL');
     drawTrend(trendLines.downResistance,[255,82,82,255],'TREND LH');

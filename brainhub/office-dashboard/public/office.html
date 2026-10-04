@@ -1579,9 +1579,14 @@ async function renderMirror(s){
     const fmtLiq=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} @${mirrorFmt(x?.price,4)} ≈${mirrorFmt(x?.observedQuote,0)} USDT`).join(' • ')||'yok';
     const patterns=(f?.patterns||[]).slice(-6).map(x=>`${trUi(x?.type||x?.name||'FORMASYON')}${x?.status?' ('+trUi(x.status)+')':''}`).join(' • ')||'yok';
     const swing=f?.swingStructure||{};
+    const previewStructure=p?.chartOverlayLevels?.[tf]||{};
+    const fmtBreaks=b=>!b?.available?'Veri yok / eski kayıt':(b.events||[]).map(e=>`${e.type==='CLOSE_BREAK_FAILED'?'Kapanış kırılımı geri alındı':'Fitil süpürmesi reddedildi'} ${e.direction==='UP'?'YUKARI':'AŞAĞI'} @${mirrorFmt(e.level)} • ${e.barsAgo} mum önce • ${e.stillInside?'seviye içinde':'yeniden dışarıda'}`).join(' • ')||'Son 6 kapalı mumda doğrulanmış geri dönüş yok';
+    const fmtTrends=t=>Object.values(t||{}).filter(Boolean).map(l=>`${l.kind==='UP_SUPPORT'?'HL destek':'LH direnç'} ${mirrorFmt(l.from?.price)}→${mirrorFmt(l.to?.price)} • uzatım ${mirrorFmt(l.projected?.price)} • ${l.active?'aktif':'kırılmış / çizilmez'}`).join(' • ')||'Teyitli iki pivot çizgisi yok';
     const rows=[
       ['Anlık fiyat', mirrorFmt(p.livePrice,4)],
       ['Trend / yapı', `${trUi(f.trend||'—')} • swing ${trUi(swing.state||'—')} • ${trUi(swing.highSequence||'')}/${trUi(swing.lowSequence||'')} • olay ${trUi(swing.event||'—')} • BOS ${trUi(f.breakOfStructure||'—')}`],
+      ['Sahte kırılım kanıtı (kapalı mum)',fmtBreaks(previewStructure.breakoutEvidence||f.breakoutEvidence)],
+      ['Trend çizgisi (teyitli pivot)',fmtTrends(previewStructure.trendLines||swing.trendLines)],
       ['Momentum', `RSI ${mirrorFmt(f.rsi14,1)} • ATR ${mirrorFmt(f.atrPct,2)}% • EMA20 ${mirrorFmt(f.ema20,4)} • EMA50 ${mirrorFmt(f.ema50,4)}`],
       ['Aralık', `${trUi(dr.zone||'—')} • alt ${mirrorFmt(dr.low,4)} • denge ${mirrorFmt(dr.equilibrium,4)} • üst ${mirrorFmt(dr.high,4)} • konum ${mirrorFmt(dr.positionPct,1)}%`],
       ['Likidite', `önceki20 tepe/dip ${mirrorFmt(f.prior20High,4)} / ${mirrorFmt(f.prior20Low,4)} • eşit tepe/dip ${mirrorFmt(f?.liquidity?.equalHigh?.price,4)} / ${mirrorFmt(f?.liquidity?.equalLow?.price,4)} • süpürme ${trUi(f?.liquidity?.lastSweep||'—')}`],
@@ -1602,6 +1607,7 @@ async function renderMirror(s){
       ['Türevler', `OIΔ5dk ${mirrorFmt(der.oiDelta5mPct,2)}% • fonlama ${mirrorFmt(der.fundingRate,6)} • piyasa alıcı/satıcı ${mirrorFmt(der.takerBuySellRatio,3)} • üst trader ${mirrorFmt(der.topTraderLongShortRatio,3)} • genel ${mirrorFmt(der.globalLongShortRatio,3)}`],
       ['PASS-1', d.ts?`${trUi(p1.laneFocus||'—')} • yön ${trUi(p1.directionFocus||'—')} • istek ${(p1.requestedEvidence||[]).map(trUi).join(', ')||'yok'}`:'henüz bu coin için kayıt yok'],
       ['Son JEV paketinin grafik seviyeleri', recorded?.chartOverlayLevels?.[tf]?`Kayıtlı ${tf}: aralık ${mirrorFmt(recorded.chartOverlayLevels[tf].rangeLow)} / ${mirrorFmt(recorded.chartOverlayLevels[tf].rangeHigh)} • Fib .618 ${mirrorFmt(recorded.chartOverlayLevels[tf].fib618)} • FVG ${fmtRange(recorded.chartOverlayLevels[tf].nearestFvg)} • OB ${fmtRange(recorded.chartOverlayLevels[tf].nearestOb)} • bu son kararın zamanına aittir`:'Bu karar kaydında yeni seviye izi yok; eski PC/karar kaydı olabilir'],
+      ['Son JEV paketinin kırılım / trend izi',recorded?.chartOverlayLevels?.[tf]?.breakoutEvidence?fmtBreaks(recorded.chartOverlayLevels[tf].breakoutEvidence)+' • '+fmtTrends(recorded.chartOverlayLevels[tf].trendLines):'Bu karar kaydı R32 kırılım/trend izini içermiyor'],
       ['PASS-2', d.ts?`${trUi(p2.action||pl.side||'WAIT')} • ${trUi(p2.setupFamily||pl.setupFamily||'—')} • giriş ${trUi(p2.entryTiming||pl.entryTiming||'—')} • avantaj ${trUi(p2.edgeBasis||pl.edgeBasis||'—')}`:'henüz son karar kaydı yok'],
       ['Son karar görüntüsü', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski kayıt / kesin snapshot yok':mirrorFmt(recordedPx,4)}${ageSec!=null&&ageSec>120?' • ⚠ ESKİ KARAR — ŞİMDİKİ PİYASA İLE KARIŞTIRMA':''}`:'—']
     ];

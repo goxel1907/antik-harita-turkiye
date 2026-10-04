@@ -148,12 +148,19 @@ function liquidationHistoryDigest(lh){
 }
 
 // Numeric overlays selected from the same frame objects used by Office; no REST/model call.
+function trendLineDigest(line){
+  if(!line)return null;
+  const point=p=>p?{price:finite(p.price),at:p.at??null}:null;
+  return {kind:line.kind??null,active:line.active===true,from:point(line.from),to:point(line.to),projected:point(line.projected),
+    confirmedAt:line.confirmedAt??null,invalidatedAt:line.invalidatedAt??null,invalidatedByClose:finite(line.invalidatedByClose)};
+}
 function chartOverlayLevels(frames){
   const out={};
   for(const tf of ['1m','3m','5m','15m','30m','45m','1h','4h','1d']){
     const f=frames?.[tf];if(!f||f.available===false){out[tf]={available:false};continue;}
     if(f.officeOverlay){out[tf]=f.officeOverlay;continue;}
-    const k=keyLevels(f);out[tf]={available:true,rangeHigh:k?.rangeHigh??null,rangeLow:k?.rangeLow??null,fib618:k?.fib618??null,nearestFvg:k?.nearestFvg??null,nearestOb:k?.nearestOb??null};
+    const k=keyLevels(f);out[tf]={available:true,rangeHigh:k?.rangeHigh??null,rangeLow:k?.rangeLow??null,fib618:k?.fib618??null,nearestFvg:k?.nearestFvg??null,nearestOb:k?.nearestOb??null,
+      trendLines:f.swingStructure?.trendLines?Object.fromEntries(Object.entries(f.swingStructure.trendLines).map(([k,v])=>[k,trendLineDigest(v)])):null,breakoutEvidence:f.breakoutEvidence??null};
   }
   return out;
 }

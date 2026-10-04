@@ -140,7 +140,7 @@ function linearFit(points) {
   const slope = num / den;
   return { slope, intercept:my - slope * mx, at:x => slope * x + (my - slope * mx) };
 }
-function swingStructure(pv, tolerance, lastClose, lastIndex = null, lastAt = null) {
+function swingStructure(pv, tolerance, lastClose, lastIndex = null, lastAt = null, candles = null) {
   const h = pv.highs.slice(-6), l = pv.lows.slice(-6);
   const cmp = (a, b) => a > b + tolerance ? 1 : a < b - tolerance ? -1 : 0;
   const highSeq = h.length >= 2 ? cmp(h.at(-1).price, h.at(-2).price) : null;
@@ -163,16 +163,26 @@ function swingStructure(pv, tolerance, lastClose, lastIndex = null, lastAt = nul
     if(!a||!b||!(b.index>a.index))return null;
     const slope=(b.price-a.price)/(b.index-a.index);
     const projected=b.price+slope*Math.max(0,endIndex-b.index);
-    const active=kind==='UP_SUPPORT'
+    let active=kind==='UP_SUPPORT'
       ? lastClose>=projected-tolerance*0.15
       : lastClose<=projected+tolerance*0.15;
+    // A recovered close cannot reactivate a line already broken after its anchors.
+    // Reject a line cutting through an intervening closed body as well.
+    let firstBreak=null;
+    if(Array.isArray(candles))for(let i=a.index+1;i<=endIndex;i++){
+      const x=candles[i];if(!x)continue;
+      const level=a.price+slope*(i-a.index);
+      if(kind==='UP_SUPPORT'?x.close<level-tolerance*0.15:x.close>level+tolerance*0.15){firstBreak=x;active=false;break;}
+    }
     return {
       kind,active,
       source:'CONFIRMED_PIVOTS_CLOSED_CANDLES',
-      from:{index:a.index,price:round(a.price),at:a.at},
-      to:{index:b.index,price:round(b.price),at:b.at},
-      projected:{index:endIndex,price:round(projected),at:lastAt||null},
-      invalidatedByClose:active?null:round(lastClose)
+      from:{index:a.index,price:a.price,at:a.at},
+      to:{index:b.index,price:b.price,at:b.at},
+      projected:{index:endIndex,price:projected,at:lastAt||null},
+      confirmedAt:Array.isArray(candles)?candles[b.index+2]?.closeTime??null:null,
+      invalidatedAt:firstBreak?.closeTime??(active?null:lastAt),
+      invalidatedByClose:active?null:firstBreak?.close??lastClose
     };
   };
   const lowA=l.at(-2),lowB=l.at(-1),highA=h.at(-2),highB=h.at(-1);
@@ -191,6 +201,52 @@ function swingStructure(pv, tolerance, lastClose, lastIndex = null, lastAt = nul
     trendLines:{upSupport,downResistance},
     event
   };
+}
+// R2544.32: measured rejection, never a prediction or autonomous veto.
+// Freeze each level BEFORE its break; pivots must have their two right bars closed.
+function breakoutEvidence(c, frame) {
+  if(!Array.isArray(c)||c.length<30)return {available:false,reason:'INSUFFICIENT_CLOSED_CANDLES'};
+  const events=[];
+  const start=Math.max(20,c.length-6);
+  for(let i=start;i<c.length;i++){
+    const before=c.slice(0,i),x=c[i],prev=c[i-1],a=atr(before)||0;
+    const epsilon=Math.max(a*0.025,Math.abs(prev.close)*0.00001);
+    const recent=before.slice(-20),pv=pivots(before.slice(-40));
+    const levels=[];
+    const add=(side,price,source)=>{
+      if(!Number.isFinite(price))return;
+      const same=levels.find(y=>y.side===side&&Math.abs(y.price-price)<=epsilon);
+      if(same){same.source+='+'+source;return;}
+      levels.push({side,price,source});
+    };
+    add('UP',Math.max(...recent.map(y=>y.high)),'PRIOR20_HIGH');
+    add('DOWN',Math.min(...recent.map(y=>y.low)),'PRIOR20_LOW');
+    add('UP',pv.highs.at(-1)?.price,'CONFIRMED_SWING_HIGH');
+    add('DOWN',pv.lows.at(-1)?.price,'CONFIRMED_SWING_LOW');
+    const equalTolerance=Math.max(a*0.15,Math.abs(prev.close)*0.0005);
+    add('UP',equalLevel(pv.highs,equalTolerance)?.price,'EQUAL_HIGH');
+    add('DOWN',equalLevel(pv.lows,equalTolerance)?.price,'EQUAL_LOW');
+    for(const l of levels){
+      const up=l.side==='UP',outside=y=>up?y>l.price+epsilon:y<l.price-epsilon;
+      const inside=y=>up?y<l.price-epsilon:y>l.price+epsilon;
+      // A previously broken swing is not a new sweep from inside the range.
+      if(outside(prev.close))continue;
+      const extreme=up?x.high:x.low;
+      let j=i,type=null;
+      if(outside(extreme)&&inside(x.close))type='WICK_SWEEP_REJECTION';
+      else if(outside(x.close)){
+        for(let k=i+1;k<=Math.min(c.length-1,i+3);k++)if(inside(c[k].close)){j=k;type='CLOSE_BREAK_FAILED';break;}
+      }
+      if(!type)continue;
+      events.push({type,direction:l.side,level:l.price,source:l.source,breakAt:x.closeTime,at:c[j].closeTime,
+        extreme,close:c[j].close,barsToReturn:j-i,barsAgo:c.length-1-j,
+        stillInside:inside(c.at(-1).close),tolerance:epsilon});
+    }
+  }
+  const unique=new Map();
+  for(const e of events.sort((a,b)=>a.at-b.at))unique.set(e.type+':'+e.direction+':'+e.at+':'+e.level,e);
+  return {available:true,frame,asOf:c.at(-1).closeTime,events:[...unique.values()].slice(-4),eventCount:unique.size,omittedCount:Math.max(0,unique.size-4),
+    semantics:'OBSERVED_CLOSED_CANDLE_REJECTION_CONTEXT_ONLY',lookbackBars:6,returnWindowBars:3};
 }
 function smcContext(swings, lastClose, gaps = []) {
   const high=finite(swings?.lastConfirmedSwingHigh?.price);
@@ -587,7 +643,7 @@ function structure(c, frame = null) {
   let lastSweep = null;
   if (eqLow && last.low < eqLow.price && last.close > eqLow.price) lastSweep = 'SELL_SIDE_RECLAIM';
   if (eqHigh && last.high > eqHigh.price && last.close < eqHigh.price) lastSweep = 'BUY_SIDE_REJECT';
-  const swings = swingStructure(pv, tolerance, last.close, c.length-1, last.closeTime);
+  const swings = swingStructure(pv, tolerance, last.close, c.length-1, last.closeTime, c);
   const patterns = detectPatterns(c, a14, high, low, pv, tolerance);
   const base = {
     available:true, frame, asOf:last.closeTime, closedCandles:c.length,
@@ -603,6 +659,7 @@ function structure(c, frame = null) {
     candle:candleShape(last, a14),
     patterns,
     swingStructure:swings,
+    breakoutEvidence:breakoutEvidence(c,frame),
     liquidity:{ equalHigh:eqHigh, equalLow:eqLow, lastSweep }
   };
   base.smcContext = smcContext(swings, last.close, openGaps);
@@ -743,4 +800,4 @@ function handoff(initialStop, candidateStop, side) {
   const safe = side === 'LONG' ? candidateStop >= initialStop : side === 'SHORT' ? candidateStop <= initialStop : false;
   return { allowed:safe, stop:safe ? candidateStop : initialStop, reason:safe ? 'RISK_NOT_WIDENED' : 'WOULD_WIDEN_RISK' };
 }
-module.exports = { rsi, formingCandle, FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, smcContext, orderBlocks, volatilityContext, atrSeries, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };
+module.exports = { rsi, formingCandle, FRAMES, NATIVE_FRAMES, parseKlines, aggregate45m, candleShape, pivots, swingStructure, breakoutEvidence, smcContext, orderBlocks, volatilityContext, atrSeries, detectPatterns, structure, analyzeFrames, triggerLevelCandidates, resolveTriggerLevel, triggerSatisfied, invalidationBreached, breakoutExecution, microstructure, handoff };

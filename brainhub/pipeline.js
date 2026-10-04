@@ -124,6 +124,7 @@ function summarizeFrame(frame, f, now, livePrice) {
     candle:f.candle || null,
     patterns:Array.isArray(f.patterns) ? f.patterns.slice(-6) : [],
     swingStructure:f.swingStructure || null,
+    breakoutEvidence:f.breakoutEvidence || null,
     smcContext:f.smcContext || null,
     orderBlocks:f.orderBlocks || null,
     liquidity:{

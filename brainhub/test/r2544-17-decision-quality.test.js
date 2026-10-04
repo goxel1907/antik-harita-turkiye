@@ -78,7 +78,7 @@ test('R2544.17 curated OSS registry karar kalitesi araştırma kaynaklarını i�
 });
 
 test('R2544.27 sürüm kimliği',()=>{
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.31-JEV-BOUNDED-CHART-FREE'/);
-  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2\.5\.11-R2544\.31-JEV-Brain'/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.32-JEV-CAUSAL-BREAK-TREND'/);
+  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2\.5\.12-R2544\.32-JEV-Brain'/);
   assert.match(src('server.js'),/R2544_27_BINANCE_RATE_LIMIT_GUARD/);
 });
