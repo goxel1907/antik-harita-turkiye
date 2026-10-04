@@ -374,7 +374,7 @@ function compactSwing(s){
 function compactOrderBlocks(ob){
   if(!ob||typeof ob!=='object')return null;
   const pick=list=>{const a=(Array.isArray(list)?list:[]);const x=a.find(o=>o&&o.broken!==true)||null;
-    return x?{low:x.low??null,high:x.high??null,mitigated:x.mitigated===true,distancePct:x.distancePct??null,volRel:x.volRel??null}:null;};
+    return x?{low:x.low??null,high:x.high??null,scope:x.scope??null,zoneMode:x.zoneMode??null,confirmedAt:x.confirmedAt??null,state:x.state??null,mitigated:x.mitigated===true,distancePct:x.distancePct??null,volRel:x.volRel??null}:null;};
   // CLAUDE_R2544_11_BREAKER: kırılan ve geri alınmayan blok (yön değiştirmiş) ayrıca verilir.
   const brk=list=>{const x=(Array.isArray(list)?list:[]).find(o=>o&&o.broken===true&&o.breaker===true)||null;return x?{low:x.low??null,high:x.high??null,volRel:x.volRel??null}:null;};
   const out={bullish:pick(ob.bullish),bearish:pick(ob.bearish)};
@@ -540,7 +540,7 @@ function frameTruth(f,{detail=false,timing=false}={}){
     closedCandle:f.closedCandle??null,
     close:f.close??null,trend:f.trend??null,breakOfStructure:f.breakOfStructure??null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,
     ema20:f.ema20??null,ema50:f.ema50??null,prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,
-    candle:f.candle??null,forming:f.forming??null,keyLevels:f.keyLevels??null,volatility:f.volatility??null,readout:f.readout??null,
+    candle:f.candle??null,forming:f.forming??null,keyLevels:f.keyLevels??null,volatility:f.volatility??null,readout:f.readout??null,priceAction:f.priceAction??null,
     swingState:sw?{state:sw.state??sw.structure??null,event:sw.event??null,lastConfirmedSwingHigh:sw.lastConfirmedSwingHigh?.price??null,lastConfirmedSwingLow:sw.lastConfirmedSwingLow?.price??null}:null
   };
   if(timing)out.preMove=f.preMove??null;
@@ -601,7 +601,7 @@ function compactMemoryForDecision(mem,pass){
   const out={alwaysOn:true,source:mem.source||null,measuredSampleCount:mem.measuredSampleCount??null,jevLessonCount:mem.jevLessonCount??null,lifetime:mem.lifetime||null};
   out.burstExperience=(Array.isArray(mem.burstExperience)?mem.burstExperience:[]).slice(0,2);
   const tl=mem.tradeLessons;
-  if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,worked:(tl.worked||[]).slice(0,3),failed:(tl.failed||[]).slice(0,3),repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,3),current:tl.current||null,symbol:tl.symbol||null,byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,6),trimmedForDecision:true};
+  if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,worked:(tl.worked||[]).slice(0,3),failed:(tl.failed||[]).slice(0,3),repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,3),current:tl.current||null,symbol:tl.symbol||null,byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,6),...(tl.byPriceAction?.length?{byPriceAction:tl.byPriceAction.slice(0,4)}:{}),trimmedForDecision:true};
   const cm=mem.caseMemory;
   if(cm&&typeof cm==='object')out.caseMemory={version:cm.version,available:cm.available,samples:cm.samples,summary:cm.summary,fidelity:cm.fidelity,counterexamples:cm.counterexamples,
     analogs:Array.isArray(cm.analogs)?cm.analogs.slice(0,pass===2?3:2):[],softContextOnly:true,contextProjected:true,executionAuthority:false};
@@ -647,7 +647,9 @@ function compactMemoryItemForRouting(v,max=180){
   if(Array.isArray(v))return v.slice(0,7).map(x=>compactMemoryItemForRouting(x,Math.max(70,Math.floor(max/2))));
   if(typeof v==='object'){
     const keys=['eventId','symbol','side','family','lane','netPnl','rMultiple','exitType','similarity','fidelity','quality','actionHint','trapRisk','support','state','samples','avgR'];
-    const out={};for(const k of keys)if(v[k]!==undefined)out[k]=compactMemoryItemForRouting(v[k],Math.max(70,Math.floor(max/2)));return Object.keys(out).length?out:null;
+    const out={};for(const k of keys)if(v[k]!==undefined)out[k]=compactMemoryItemForRouting(v[k],Math.max(70,Math.floor(max/2)));
+    if(v.priceActionAtEntry)out.priceActionAtEntry=Object.fromEntries(['5m','15m'].map(tf=>{const f=v.priceActionAtEntry[tf];return [tf,f?{version:f.version,asOf:f.asOf,orderBlocks:(f.orderBlocks||[]).slice(0,2).map(z=>({side:z.side,scope:z.scope,low:z.low,high:z.high,state:z.state,confirmedAt:z.confirmedAt})),events:(f.events||[]).slice(-1)}:null];}));
+    return Object.keys(out).length?out:null;
   }
   return null;
 }
@@ -658,7 +660,7 @@ function compactMemoryForPass1Routing(mem){
   const tl=mem.tradeLessons;
   if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,current:tl.current||null,symbol:tl.symbol||null,
     worked:(tl.worked||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,160)),failed:(tl.failed||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,160)),
-    repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,2).map(x=>compactMemoryItemForRouting(x,120)),byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,3),trimmedForPass1Routing:true};
+    repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,2).map(x=>compactMemoryItemForRouting(x,120)),byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,3),...(tl.byPriceAction?.length?{byPriceAction:tl.byPriceAction.slice(0,3)}:{}),trimmedForPass1Routing:true};
   const analogPair=xs=>{
     const a=Array.isArray(xs)?xs:[];const win=a.find(x=>Number(x?.netPnl)>0);const loss=a.find(x=>Number(x?.netPnl)<0);const picked=[];
     if(win)picked.push(win);if(loss&&loss!==win)picked.push(loss);if(!picked.length&&a[0])picked.push(a[0]);
@@ -762,7 +764,7 @@ function compactMemoryForPass2Final(mem){
   const tl=mem.tradeLessons;
   if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,current:compactMemoryItemForRouting(tl.current,220),symbol:compactMemoryItemForRouting(tl.symbol,220),
     worked:(tl.worked||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,220)).filter(Boolean),failed:(tl.failed||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,220)).filter(Boolean),
-    repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,2).map(x=>compactMemoryItemForRouting(x,160)).filter(Boolean),byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,4),trimmedForPass2Final:true};
+    repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,2).map(x=>compactMemoryItemForRouting(x,160)).filter(Boolean),byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,4),...(tl.byPriceAction?.length?{byPriceAction:tl.byPriceAction.slice(0,4)}:{}),trimmedForPass2Final:true};
   const analogPair=xs=>{const a=Array.isArray(xs)?xs:[];const win=a.find(x=>Number(x?.netPnl)>0),loss=a.find(x=>Number(x?.netPnl)<0);const picked=[];if(win)picked.push(win);if(loss&&loss!==win)picked.push(loss);if(!picked.length&&a[0])picked.push(a[0]);return picked.slice(0,2).map(x=>compactMemoryItemForRouting(x,220)).filter(Boolean);};
   const cm=mem.caseMemory;if(cm&&typeof cm==='object')out.caseMemory={version:cm.version,available:cm.available,samples:cm.samples,summary:cm.summary,fidelity:cm.fidelity,counterexamples:cm.counterexamples,analogs:analogPair(cm.analogs),softContextOnly:true,contextProjected:true,executionAuthority:false};
   if(mem.caseMemoryByLane&&typeof mem.caseMemoryByLane==='object')out.caseMemoryByLane=Object.fromEntries(Object.entries(mem.caseMemoryByLane).slice(0,4).map(([k,d])=>[k,d&&typeof d==='object'?{available:d.available,samples:d.samples,summary:d.summary,fidelity:d.fidelity,counterexamples:d.counterexamples,softContextOnly:true,contextProjected:true}:d]));
@@ -851,7 +853,7 @@ function compactMemoryForPass2Residual(mem){
   if(!mem||typeof mem!=='object')return mem;
   const out={alwaysOn:true,source:mem.source||null,measuredSampleCount:mem.measuredSampleCount??null,jevLessonCount:mem.jevLessonCount??null,lifetime:compactMeasuredAggregate(mem.lifetime)};
   out.burstExperience=(Array.isArray(mem.burstExperience)?mem.burstExperience:[]).slice(0,2);
-  const tl=mem.tradeLessons;if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:compactMeasuredAggregate(tl.lifetime),current:compactMemoryItemForRouting(tl.current,120),symbol:compactMemoryItemForRouting(tl.symbol,120),worked:(tl.worked||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,120)).filter(Boolean),failed:(tl.failed||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,120)).filter(Boolean),byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,2).map(x=>compactMeasuredAggregate(x)),residualCompacted:true};
+  const tl=mem.tradeLessons;if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:compactMeasuredAggregate(tl.lifetime),current:compactMemoryItemForRouting(tl.current,120),symbol:compactMemoryItemForRouting(tl.symbol,120),worked:(tl.worked||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,120)).filter(Boolean),failed:(tl.failed||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,120)).filter(Boolean),byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,2).map(x=>compactMeasuredAggregate(x)),...(tl.byPriceAction?.length?{byPriceAction:tl.byPriceAction.slice(0,2)}:{}),residualCompacted:true};
   const pair=xs=>{const a=Array.isArray(xs)?xs:[];const win=a.find(x=>Number(x?.netPnl)>0),loss=a.find(x=>Number(x?.netPnl)<0);const picked=[];if(win)picked.push(win);if(loss&&loss!==win)picked.push(loss);if(!picked.length&&a[0])picked.push(a[0]);return picked.slice(0,2).map(x=>compactMemoryItemForRouting(x,120)).filter(Boolean);};
   const cm=mem.caseMemory;if(cm&&typeof cm==='object')out.caseMemory={version:cm.version,available:cm.available,samples:cm.samples,summary:compactMeasuredAggregate(cm.summary),fidelity:compactMeasuredAggregate(cm.fidelity),counterexamples:compactMeasuredAggregate(cm.counterexamples),analogs:pair(cm.analogs),softContextOnly:true,executionAuthority:false};
   if(mem.caseMemoryByLane&&typeof mem.caseMemoryByLane==='object')out.caseMemoryByLane=Object.fromEntries(Object.entries(mem.caseMemoryByLane).slice(0,2).map(([k,d])=>[k,d&&typeof d==='object'?{available:d.available,samples:d.samples,summary:compactMeasuredAggregate(d.summary),fidelity:compactMeasuredAggregate(d.fidelity),counterexamples:compactMeasuredAggregate(d.counterexamples)}:d]));
@@ -994,6 +996,23 @@ function prepareDecisionRequest(input,opts={}){
   if(management&&byteSize(body)>targetCap){
     const packed=encodeMarketPacket(state.record);
     if(packed.encoded){state.record=packed.packet;trimStepsApplied.push('LOSSLESS_MANAGEMENT_ROWS');}
+  }
+  // R37: the burst lane must keep its exact new levels within the existing
+  // 36 KB target. Only duplicated interpretation prose is removed; all nine
+  // numeric frames, core OBs, confirmation times and protected overlays survive.
+  if(pass==='BURST'&&byteSize(body)>targetCap&&state.coreMarketPacket){
+    const packet=expandMarketPacket(state.coreMarketPacket);
+    if(packet.chartNarrative?.frames){
+      for(const [tf,f] of Object.entries(packet.chartNarrative.frames))if(f&&typeof f==='object'){
+        if(['5m','15m'].includes(tf)&&typeof f.line==='string')f.line=clipNatural(f.line,400);
+        else delete f.line;
+        f.readingInNumericFrame=true;
+      }
+      packet.chartNarrative.compactedForBurst=true;
+      const packed=encodeMarketPacket(packet);state.coreMarketPacket=packed.encoded?packed.packet:packet;
+      if(packed.encoded)wireEncoding={version:packed.packet.wire.version,beforeBytes:packed.beforeBytes,afterBytes:packed.afterBytes,schemaCount:packed.schemaCount,roundTripVerified:true};
+      trimStepsApplied.push('BURST_DUPLICATE_NARRATIVE_ONLY');
+    }
   }
   serialized=refresh();const bytes=Buffer.byteLength(serialized,'utf8');
   const coreHashAfter=hashJson(protectedCoreTruth(body));const coreTruthProtected=coreHashBefore===coreHashAfter;
@@ -1344,7 +1363,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV PASS-2 final strategic choice. Read protected chartOverlayLevels trendLines and breakoutEvidence per TF; rejected breaks are observations, not a guaranteed reversal or automatic veto. 5M_SCALP is a professional scalper desk; 15M_TRADE is a professional trader desk. Choose one supplied executable plan or WAIT. WAIT is an active strategic decision that requires a concrete market reason, not generic uncertainty. Weight evidence by freshness, independence, reliability and relevance; disagreement is normal. MARKET_NOW requires coherent direction, location, invalidation, execution quality and remaining path; when those are already sound, do not demand textbook confirmation before MARKET_NOW. coreMarketPacket.levelMap lists the nearest levels for location, stop and remaining path. Frame readout (closed candles, compact), volatility spike/extAtr/trail and order-block context are soft closed-candle context for chase risk and location, never a checklist, threshold or veto. experienceMemory.tradeLessons is YOUR OWN measured P&L and remains soft context with winners and losses.',
+        description:'JEV PASS-2 final strategic choice. Read protected chartOverlayLevels trendLines and breakoutEvidence per TF; rejected breaks are observations, not a guaranteed reversal or automatic veto. 5M_SCALP is a professional scalper desk; 15M_TRADE is a professional trader desk. Choose one supplied executable plan or WAIT. WAIT is an active strategic decision that requires a concrete market reason, not generic uncertainty. Weight evidence by freshness, independence, reliability and relevance; disagreement is normal. MARKET_NOW requires coherent direction, location, invalidation, execution quality and remaining path; when those are already sound, do not demand textbook confirmation before MARKET_NOW. coreMarketPacket.levelMap lists the nearest levels for location, stop and remaining path. Read exact core-frame OB boundaries and priceAction confirmations; distinguish internal versus swing/prior10 scope, full-range versus rejection zones, origin versus confirmation time and mitigated/broken/reclaimed state. A 5m zone is not a 15m zone. These observations are not automatic trade permission. Frame readout (closed candles, compact), volatility spike/extAtr/trail and order-block context are soft closed-candle context for chase risk and location, never a checklist, threshold or veto. experienceMemory.tradeLessons is YOUR OWN measured P&L and remains soft context with winners and losses.',
         decisionContract:{version:'R2544.26',authority:'JEV_FINAL',phase:'PASS2_FINAL',lanes:{'5M_SCALP':'prioritize immediate execution,1m/3m timing,5m structure,spread/flow/depth,near liquidity','15M_TRADE':'prioritize 15m structure/location/invalidation/liquidity path; lower-TF noise alone is not a veto'},rules:['NO_MANDATORY_CHECKLIST','NO_FIXED_SCORE','NO_2_OF_3','NO_HARD_15M_VETO','NUMERIC_TRUTH_OVER_VISUAL','OPTIONAL_MISSING_NOT_NEGATIVE'],microstructure:'R2544.26 PREENTRY is timing evidence only; sequence-safe local L2 is used only when healthy/confident; samplingConfidence down-weights SPARSE/VERY_SPARSE windows, depth20 is fallback, missing/resync L2 is not negative evidence or a hard gate.',memory:'MEASURED_SOFT_CONTEXT_WINNERS_PLUS_COUNTEREXAMPLES; MFE giveback, fast adverse move, repeat/flip/NONE_WAIT and exitAuthority are soft analog context only; current market evidence overrides history.',knowledge:'Do not invent unfamiliar concepts; choose WAIT when a material knowledge gap remains.'},
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,

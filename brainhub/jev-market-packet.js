@@ -43,6 +43,7 @@ function framePacket(f,{full=false}={}){
     fibLevels:f.smcContext?.fibLevels||null,oteReference:f.smcContext?.oteReference||null,
     orderBlocks:{bullish:clipArr(f?.orderBlocks?.bullish,2),bearish:clipArr(f?.orderBlocks?.bearish,2)},
     swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,
+    ...(full?{priceAction:f.priceAction||null}:{}),
     // CLAUDE_R2544_PREMOVE: hareket başlamadan önceki deterministik imza (yalnız 1m/3m/5m; kanıt, karar değil).
     preMove:f.preMove&&f.preMove.available?{state:f.preMove.state,score:f.preMove.score,direction:f.preMove.direction,
       triggers:f.preMove.triggers,invalidation:f.preMove.invalidation,reasons:clipArr(f.preMove.reasons,6)}:null,
@@ -91,7 +92,7 @@ function keyLevels(f){
   const gaps=(arr(f.recentFairValueGaps).length?arr(f.recentFairValueGaps):arr(f?.liquidity?.fairValueGaps)).filter(g=>g&&g.filled!==true&&finite(g.low)!==null&&finite(g.high)!==null).sort((a,b)=>dist(a)-dist(b));
   const obs=[...arr(f?.orderBlocks?.bullish).map(x=>({...x,side:'BULL'})),...arr(f?.orderBlocks?.bearish).map(x=>({...x,side:'BEAR'}))].filter(x=>x&&x.broken!==true&&finite(x.low)!==null&&finite(x.high)!==null).sort((a,b)=>dist(a)-dist(b));
   const brk=[...arr(f?.orderBlocks?.bullish).map(x=>({...x,side:'BULL_BREAKER_RESISTANCE'})),...arr(f?.orderBlocks?.bearish).map(x=>({...x,side:'BEAR_BREAKER_SUPPORT'}))].filter(x=>x&&x.broken===true&&x.breaker===true&&finite(x.low)!==null&&finite(x.high)!==null).sort((a,b)=>dist(a)-dist(b));
-  const z=x=>x?{side:x.side||null,low:r(x.low),high:r(x.high),...(finite(x.volRel)!==null?{volRel:finite(x.volRel)}:{})}:null;
+  const z=x=>x?{side:x.side||null,low:r(x.low),high:r(x.high),...(x.scope?{scope:x.scope,zoneMode:x.zoneMode??null,confirmedAt:x.confirmedAt??null,state:x.state??null}:{}),...(finite(x.volRel)!==null?{volRel:finite(x.volRel)}:{})}:null;
   const out={rangeHigh:r(dr.high),rangeLow:r(dr.low),rangeZone:dr.zone||null,fib50:r(fib['0.5']),fib618:r(fib['0.618']),
     oteLong:ote.longDiscountZone?[r(ote.longDiscountZone.low),r(ote.longDiscountZone.high)]:null,
     oteShort:ote.shortPremiumZone?[r(ote.shortPremiumZone.low),r(ote.shortPremiumZone.high)]:null,
@@ -111,7 +112,7 @@ function levelMap(u){
   const items=[];
   const add=(p,k)=>{const v=finite(p);if(v>0&&Math.abs(v-price)/price<=0.35)items.push({p:v,k});};
   const edge=z=>{const lo=finite(z?.low),hi=finite(z?.high);if(lo===null||hi===null)return null;return lo>price?lo:hi<price?hi:(lo+hi)/2;};
-  for(const tf of ['15m','30m','1h','4h','1d']){
+  for(const tf of ['5m','15m','30m','1h','4h','1d']){
     const f=u?.frames?.[tf];
     if(!f||f.available===false)continue;
     const smc=f.smcContext||{},dr=smc.dealingRange||{},fib=smc.fibLevels?.retracement||{},ote=smc.oteReference||{};
@@ -123,7 +124,7 @@ function levelMap(u){
     for(const g of gaps)if(g&&g.filled!==true)add(edge(g),tf+':'+(String(g.side).toUpperCase()==='BULL'?'FVG_BULL':'FVG_BEAR'));
     for(const [side,list] of [['BULL',f?.orderBlocks?.bullish],['BEAR',f?.orderBlocks?.bearish]])for(const o of arr(list)){
       if(!o)continue;
-      if(o.broken!==true)add(edge(o),tf+':OB_'+side+(finite(o.volRel)!==null?'x'+Number(o.volRel).toFixed(1):''));
+      if(o.broken!==true)add(edge(o),tf+':OB_'+side+(o.scope==='INTERNAL'?'_INTERNAL':'')+(finite(o.volRel)!==null?'x'+Number(o.volRel).toFixed(1):''));
       else if(o.breaker===true)add(edge(o),tf+':BREAKER_'+(side==='BULL'?'RES':'SUP'));
     }
     add(f.prior20High,tf+':P20H');add(f.prior20Low,tf+':P20L');
@@ -138,7 +139,7 @@ function levelMap(u){
   const above=merge(items.filter(x=>x.p>price).sort((a,b)=>a.p-b.p)).slice(0,7).map(fmt);
   const below=merge(items.filter(x=>x.p<price).sort((a,b)=>b.p-a.p)).slice(0,7).map(fmt);
   if(!above.length&&!below.length)return null;
-  return {price:sig(price),above,below,semantics:'NEAREST_LEVELS_15M_TO_1D_PLUS_24H_OBSERVED_LIQUIDATIONS_CONTEXT_ONLY'};
+  return {price:sig(price),above,below,semantics:'NEAREST_LEVELS_5M_TO_1D_PLUS_24H_OBSERVED_LIQUIDATIONS_CONTEXT_ONLY'};
 }
 function liquidationHistoryDigest(lh){
   if(!lh||typeof lh!=='object'||lh.available!==true)return lh&&typeof lh==='object'?{available:false,count:finite(lh.count)||0,coverageH:finite(lh.coverageFromMs)!==null?Number((lh.coverageFromMs/3600000).toFixed(1)):null}:null;
@@ -267,7 +268,7 @@ function mirrorFrameDigest(f){
     patterns:arr(f.patterns).slice(-6),swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,
     recentFairValueGaps:clipArr(arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps,3),
     orderBlocks:{bullish:arr(f?.orderBlocks?.bullish).slice(-2),bearish:arr(f?.orderBlocks?.bearish).slice(-2)},
-    smcContext:f.smcContext||null,
+    smcContext:f.smcContext||null,priceAction:f.priceAction||null,
     // CLAUDE_R2544_5: denetim aynası JEV'e giden ön-hareket ve kapanmamış mum bilgisini de gösterir.
     preMove:f.preMove||null,forming:f.forming||null,keyLevels:f.keyLevels||null,volatility:f.volatility||null,readout:f.readout||null
   };

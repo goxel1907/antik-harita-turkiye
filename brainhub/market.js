@@ -1376,10 +1376,10 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       }
     }
     for(const ob of Array.isArray(a?.orderBlocks?.bullish)?a.orderBlocks.bullish:[]){
-      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(fromX(ob.at),yPrice(high),right,yPrice(low),[0,150,136],0.12);addZoneLabel(ob,'BOGA OB',[64,224,208,255],3);}
+      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(fromX(ob.confirmedAt??ob.at),yPrice(high),right,yPrice(low),[0,150,136],0.12);addZoneLabel(ob,ob.scope==='INTERNAL'?'IC BOGA OB':'BOGA OB',[64,224,208,255],3);}
     }
     for(const ob of Array.isArray(a?.orderBlocks?.bearish)?a.orderBlocks.bearish:[]){
-      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(fromX(ob.at),yPrice(high),right,yPrice(low),[244,67,54],0.12);addZoneLabel(ob,'AYI OB',[255,110,100,255],3);}
+      const low=Number(ob.low),high=Number(ob.high);if(!ob.broken&&Number.isFinite(low)&&Number.isFinite(high)){blendRect(fromX(ob.confirmedAt??ob.at),yPrice(high),right,yPrice(low),[244,67,54],0.12);addZoneLabel(ob,ob.scope==='INTERNAL'?'IC AYI OB':'AYI OB',[255,110,100,255],3);}
     }
     const ote=a?.smcContext?.oteReference||{};
     const drawZone=(z,col,alpha,label)=>{const low=Number(z?.low),high=Number(z?.high);if(Number.isFinite(low)&&Number.isFinite(high)){blendRect(legX,yPrice(high),right,yPrice(low),col,alpha);addZoneLabel(z,label,[220,220,220,255],5);}};

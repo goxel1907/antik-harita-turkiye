@@ -1575,7 +1575,7 @@ async function renderMirror(s){
     const ageSec=Number.isFinite(Number(d?.ageMs))?Math.round(Number(d.ageMs)/1000):null;
     const fmtRange=z=>z&&num(z.low)!==null&&num(z.high)!==null?`${mirrorFmt(z.low,4)}→${mirrorFmt(z.high,4)}`:'—';
     // CLAUDE_R2544_11: blok gücü (yer değiştirme hacmi / önceki 10 mum) ve breaker (kırılıp geri alınmamış, yön değiştirmiş).
-    const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.broken?(x?.breaker?' kırık → breaker':' kırık'):''}${x?.volRel!==null&&x?.volRel!==undefined&&Number.isFinite(Number(x.volRel))?' • hacim ×'+Number(x.volRel).toFixed(2):''}`).join(' • ')||'yok';
+    const fmtOb=list=>(list||[]).map((x,i)=>`#${i+1} ${fmtRange(x)}${x?.scope?' • '+(x.scope==='INTERNAL'?'iç yapı':x.scope==='SWING'?'swing':'10 mum kırılımı'):''}${x?.zoneMode==='FULL_RANGE'?' • tam mum aralığı':''}${x?.confirmedAt?' • teyit '+new Date(x.confirmedAt).toLocaleTimeString('tr-TR'):''}${x?.state?' • '+x.state:''}${x?.broken?(x?.breaker?' kırık → breaker':' kırık'):''}${x?.volRel!==null&&x?.volRel!==undefined&&Number.isFinite(Number(x.volRel))?' • hacim ×'+Number(x.volRel).toFixed(2):''}`).join(' • ')||'yok';
     const vol=f?.volatility||null;
     const fmtVol=v=>{if(!v)return 'son 30 mumda yok • iz yok';const s=v.spike,t=v.trail;
       return (s?`${s.dir==='UP'?'YUKARI':'AŞAĞI'} ${mirrorFmt(s.bodyAtr,1)} ATR (${mirrorFmt(s.pct,2)}%) ${s.barsAgo} mum önce • orta ${mirrorFmt(s.mid,4)} • fiyat ortadan ${mirrorFmt(v.extAtr,2)} ATR${Number(v.extAtr)>=1.5?' (uzamış: kovalama riski)':''}`:'son 30 mumda yok')+
@@ -1597,6 +1597,7 @@ async function renderMirror(s){
       ['Likidite', `önceki20 tepe/dip ${mirrorFmt(f.prior20High,4)} / ${mirrorFmt(f.prior20Low,4)} • eşit tepe/dip ${mirrorFmt(f?.liquidity?.equalHigh?.price,4)} / ${mirrorFmt(f?.liquidity?.equalLow?.price,4)} • süpürme ${trUi(f?.liquidity?.lastSweep||'—')}`],
       ['Boğa OB', fmtOb(ob.bullish)],
       ['Ayı OB', fmtOb(ob.bearish)],
+      ['Price action teyidi', f.priceAction?.available?(f.priceAction.events||[]).map(x=>`${x.scope} ${x.kind} ${x.side} @${x.level??'—'} • ${new Date(x.confirmedAt).toLocaleTimeString('tr-TR')}`).join(' • '):'veri yok'],
       ['FVG', fmtFvg(f.recentFairValueGaps)],
       ['OTE Alış', fmtRange(ote?.longDiscountZone)],
       ['OTE Satış', fmtRange(ote?.shortPremiumZone)],

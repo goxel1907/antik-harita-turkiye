@@ -1,6 +1,7 @@
 'use strict';
 const { preMoveSignal } = require('./premove');
 const { chartReadout } = require('./chart-readout');
+const {analyzePriceAction,mergeOrderBlocks,priceActionDigest}=require('./price-action');
 
 const FRAMES = ['1m', '3m', '5m', '15m', '30m', '45m', '1h', '4h', '1d'];
 const NATIVE_FRAMES = FRAMES.filter(x => x !== '45m');
@@ -668,7 +669,9 @@ function structure(c, frame = null) {
     liquidity:{ equalHigh:eqHigh, equalLow:eqLow, lastSweep }
   };
   base.smcContext = smcContext(swings, last.close, openGaps);
-  base.orderBlocks = orderBlocks(c, a14);
+  const pa=analyzePriceAction(c);
+  base.priceAction=priceActionDigest(pa);
+  base.orderBlocks = mergeOrderBlocks(orderBlocks(c, a14),pa,last.close);
   try { base.volatility = volatilityContext(c, a14); } catch { base.volatility = null; }
   // CLAUDE_R2544_16_CHART_READOUT: uzama/çapalı VWAP, sıkışma, yer değiştirme, likidite havuzları, çaba-sonuç (yalnız bağlam).
   try { base.readout = chartReadout(c, a14, pv, frame); } catch { base.readout = null; }

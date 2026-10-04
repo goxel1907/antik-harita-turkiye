@@ -7,3 +7,6 @@ brainhub/**/*.html text eol=lf
 brainhub/**/*.md text eol=lf
 brainhub/**/*.ps1 text eol=lf
 brainhub/**/*.cmd text eol=crlf
+# Preserve pinned upstream bytes for SHA256 validation on Windows/Linux clones.
+brainhub/tools/*.py text eol=lf
+brainhub/third-party/price-action/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

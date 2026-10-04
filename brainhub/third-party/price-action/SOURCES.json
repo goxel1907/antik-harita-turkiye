@@ -1,0 +1,49 @@
+{
+  "version": "R2544.37",
+  "sources": [
+    {
+      "repo": "Khaymat/pyvsmc",
+      "url": "https://github.com/Khaymat/pyvsmc",
+      "commit": "55008a6dce09e0e36691d2e34150f0f499ac4f4b",
+      "license": "MIT",
+      "role": "OFFLINE_FVG_OB_ORACLE_AND_RUNTIME_DEFINITION_ADAPTATION",
+      "files": {
+        "LICENSE": "e120e1e1be7966ac8561248cb6e63b51ee37739af63923439c3d6682a25b715b",
+        "src/pyvsmc/fvg.py": "1ac611a92e7f89b49fcd742757b539d52234c7b9da1278478935a0abb851922e",
+        "src/pyvsmc/order_blocks.py": "7001e81357fc2ad8f2a6494da1b079f146fafe5d64970e1dedb93cb50464c59b",
+        "src/pyvsmc/structure.py": "7eb068b2e51ac47c17695eca19d259916cbc69ba0671eae5a03e421afa0640f8",
+        "src/pyvsmc/swings.py": "eea039d5e34b4a515e9ca19109c155e6355c9ab07d680593a13bc260a57b080f"
+      }
+    },
+    {
+      "repo": "stockalgo/stolgo",
+      "url": "https://github.com/stockalgo/stolgo",
+      "commit": "1b99e2c8e677084247c60c6bfe3d951fcdb3466c",
+      "license": "MIT",
+      "role": "CLOSE_LEVEL_RELATION_ADAPTATION",
+      "files": {
+        "LICENSE": "7033c0f58e11171ba9e76716ad15ea5781866a7d40af776df372b633de3b9a1c",
+        "lib/stolgo/pa/relations/price_level.py": "dd38bceb76e7d4ca56557e4de2af1010b63ee1de3fe00930cab6628d55ee5ad8"
+      }
+    },
+    {
+      "repo": "joshyattridge/smart-money-concepts",
+      "url": "https://github.com/joshyattridge/smart-money-concepts",
+      "commit": "1b62fd6c41e1f508e7ed76831a039fa4c82d42f6",
+      "license": "MIT",
+      "role": "REVIEWED_REFERENCE_ONLY_NOT_IMPORTED",
+      "files": {
+        "LICENSE": "c597f69f08d5096ccaa9cc877c58be0542006cc76703577ed1a8ed4631a19a0c"
+      }
+    }
+  ],
+  "runtime": "Dependency-free JavaScript adaptation; third-party Python is offline only",
+  "differences": [
+    "Confirmed pivots available only after right-hand candles close; strict ties.",
+    "Full-wick internal/FVG OB supplements the existing prior10 ATR displacement definition.",
+    "Mitigation starts after confirmation, requires actual zone overlap; broken originals remain invalid after reclaim.",
+    "FVG-only oracle comparison isolates common definitions; no claim of full BOS parity.",
+    "5m and 15m are calculated separately; no copying zones across timeframes.",
+    "Evidence only; no learned weights, new strategic veto or automatic risk changes."
+  ]
+}

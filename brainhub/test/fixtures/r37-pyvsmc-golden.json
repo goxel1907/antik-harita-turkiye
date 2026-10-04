@@ -1,0 +1,245 @@
+{
+  "repo": "Khaymat/pyvsmc",
+  "commit": "55008a6dce09e0e36691d2e34150f0f499ac4f4b",
+  "mode": "FVG_ONLY_FULL_RANGE_LOOKBACK_5",
+  "zones": [
+    {
+      "side": "BULL",
+      "at": 1791075299999,
+      "confirmedAt": 1791075899999,
+      "low": 1.798,
+      "high": 1.802
+    },
+    {
+      "side": "BEAR",
+      "at": 1791075899999,
+      "confirmedAt": 1791076499999,
+      "low": 1.804,
+      "high": 1.815
+    },
+    {
+      "side": "BULL",
+      "at": 1791077399999,
+      "confirmedAt": 1791077999999,
+      "low": 1.796,
+      "high": 1.798
+    },
+    {
+      "side": "BEAR",
+      "at": 1791078599999,
+      "confirmedAt": 1791080099999,
+      "low": 1.802,
+      "high": 1.807
+    },
+    {
+      "side": "BULL",
+      "at": 1791079799999,
+      "confirmedAt": 1791080699999,
+      "low": 1.794,
+      "high": 1.803
+    },
+    {
+      "side": "BULL",
+      "at": 1791081299999,
+      "confirmedAt": 1791081899999,
+      "low": 1.795,
+      "high": 1.802
+    },
+    {
+      "side": "BEAR",
+      "at": 1791082799999,
+      "confirmedAt": 1791083699999,
+      "low": 1.811,
+      "high": 1.814
+    },
+    {
+      "side": "BULL",
+      "at": 1791083999999,
+      "confirmedAt": 1791084899999,
+      "low": 1.799,
+      "high": 1.803
+    },
+    {
+      "side": "BULL",
+      "at": 1791086099999,
+      "confirmedAt": 1791086999999,
+      "low": 1.813,
+      "high": 1.818
+    },
+    {
+      "side": "BULL",
+      "at": 1791087299999,
+      "confirmedAt": 1791087899999,
+      "low": 1.816,
+      "high": 1.819
+    },
+    {
+      "side": "BULL",
+      "at": 1791087899999,
+      "confirmedAt": 1791088499999,
+      "low": 1.821,
+      "high": 1.825
+    },
+    {
+      "side": "BULL",
+      "at": 1791090299999,
+      "confirmedAt": 1791090899999,
+      "low": 1.833,
+      "high": 1.839
+    },
+    {
+      "side": "BEAR",
+      "at": 1791093299999,
+      "confirmedAt": 1791093899999,
+      "low": 1.841,
+      "high": 1.845
+    },
+    {
+      "side": "BULL",
+      "at": 1791093899999,
+      "confirmedAt": 1791094499999,
+      "low": 1.837,
+      "high": 1.84
+    },
+    {
+      "side": "BEAR",
+      "at": 1791096599999,
+      "confirmedAt": 1791097799999,
+      "low": 1.834,
+      "high": 1.839
+    },
+    {
+      "side": "BULL",
+      "at": 1791097499999,
+      "confirmedAt": 1791098399999,
+      "low": 1.831,
+      "high": 1.84
+    },
+    {
+      "side": "BEAR",
+      "at": 1791104399999,
+      "confirmedAt": 1791104999999,
+      "low": 1.842,
+      "high": 1.847
+    },
+    {
+      "side": "BULL",
+      "at": 1791106499999,
+      "confirmedAt": 1791107099999,
+      "low": 1.828,
+      "high": 1.833
+    },
+    {
+      "side": "BEAR",
+      "at": 1791108299999,
+      "confirmedAt": 1791109199999,
+      "low": 1.839,
+      "high": 1.842
+    },
+    {
+      "side": "BULL",
+      "at": 1791112499999,
+      "confirmedAt": 1791113099999,
+      "low": 1.815,
+      "high": 1.818
+    },
+    {
+      "side": "BEAR",
+      "at": 1791112799999,
+      "confirmedAt": 1791113699999,
+      "low": 1.814,
+      "high": 1.82
+    },
+    {
+      "side": "BEAR",
+      "at": 1791113999999,
+      "confirmedAt": 1791114599999,
+      "low": 1.816,
+      "high": 1.82
+    },
+    {
+      "side": "BULL",
+      "at": 1791114899999,
+      "confirmedAt": 1791115799999,
+      "low": 1.804,
+      "high": 1.809
+    },
+    {
+      "side": "BULL",
+      "at": 1791116699999,
+      "confirmedAt": 1791117899999,
+      "low": 1.813,
+      "high": 1.816
+    },
+    {
+      "side": "BULL",
+      "at": 1791118799999,
+      "confirmedAt": 1791119399999,
+      "low": 1.823,
+      "high": 1.825
+    },
+    {
+      "side": "BULL",
+      "at": 1791120599999,
+      "confirmedAt": 1791121199999,
+      "low": 1.828,
+      "high": 1.833
+    },
+    {
+      "side": "BEAR",
+      "at": 1791122399999,
+      "confirmedAt": 1791122999999,
+      "low": 1.841,
+      "high": 1.844
+    },
+    {
+      "side": "BEAR",
+      "at": 1791130499999,
+      "confirmedAt": 1791131399999,
+      "low": 1.81,
+      "high": 1.814
+    },
+    {
+      "side": "BEAR",
+      "at": 1791132299999,
+      "confirmedAt": 1791133799999,
+      "low": 1.804,
+      "high": 1.81
+    },
+    {
+      "side": "BULL",
+      "at": 1791133799999,
+      "confirmedAt": 1791134399999,
+      "low": 1.788,
+      "high": 1.792
+    },
+    {
+      "side": "BULL",
+      "at": 1791134399999,
+      "confirmedAt": 1791135299999,
+      "low": 1.793,
+      "high": 1.797
+    },
+    {
+      "side": "BULL",
+      "at": 1791136799999,
+      "confirmedAt": 1791137399999,
+      "low": 1.835,
+      "high": 1.841
+    },
+    {
+      "side": "BULL",
+      "at": 1791139799999,
+      "confirmedAt": 1791140699999,
+      "low": 1.921,
+      "high": 1.964
+    },
+    {
+      "side": "BEAR",
+      "at": 1791140699999,
+      "confirmedAt": 1791141299999,
+      "low": 2.022,
+      "high": 2.091
+    }
+  ]
+}

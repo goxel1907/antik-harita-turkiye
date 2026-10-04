@@ -78,7 +78,8 @@ test('order block: yer değiştirme hacmi (volRel) ve breaker (kırılıp geri a
   d[42]={...d[42],open:p-0.6,close:p+8,high:p+8.2,low:p-0.65,quoteVolume:4000};
   for(let j=43;j<52;j++)d[j]={...d[j],open:p+7,close:p+7.2,high:p+7.5,low:p+6.8};
   for(let j=52;j<60;j++)d[j]={...d[j],open:p-2,close:p-2.2,high:p-1.9,low:p-2.5};
-  const ob=E.structure(d,'15m').orderBlocks.bullish.find(o=>o.broken);
+  // Legacy prior10 displacement contract remains independent of nearest internal-zone selection.
+  const ob=E.orderBlocks(d,E.atrSeries(d).at(-1)).bullish.find(o=>o.broken);
   assert.ok(ob,'kırılan boğa bloğu');assert.equal(ob.breaker,true);assert.ok(ob.volRel>2,'hacim ortalamanın 2 katından fazla');
 });
 test('ATR\'nin %10\'undan küçük FVG gürültü sayılır: JEV\'e gitmez, sayısı yazılır',()=>{

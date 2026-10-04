@@ -6,10 +6,10 @@ const path=require('node:path');
 const {CURATED_OPEN_SOURCE_REPOS}=require('../knowledge-research');
 
 test('R2544.26 OSS provenance keeps research/shadow authority explicit',()=>{
-  assert.equal(CURATED_OPEN_SOURCE_REPOS.length,29);
+  assert.equal(CURATED_OPEN_SOURCE_REPOS.length,31);
   const by=new Map(CURATED_OPEN_SOURCE_REPOS.map(x=>[x.repo,x]));
   const expected={
-    'Khaymat/pyvsmc':['OFFLINE_ORACLE','REFERENCE_ONLY'],
+    'Khaymat/pyvsmc':['OFFLINE_ORACLE_AND_DEFINITION_ADAPTED','REFERENCE_ONLY'],
     'JWHaan/quant.term':['REFERENCE_ADOPTED','REFERENCE_ONLY'],
     'crisari666/liquidity-scanner':['HISTORICAL_CONCEPT_ADOPTED','REFERENCE_ONLY'],
     'AIUngated/crypto-liquidity-terminal':['ARCHITECTURE_ADAPTED','REFERENCE_ONLY'],

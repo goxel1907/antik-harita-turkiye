@@ -32,23 +32,24 @@ function readoutSummary(f){
 function patternSummary(p){
   if(!p)return null;
   if(typeof p==='string')return {type:p,status:null,side:null};
-  return {type:p.type||p.id||p.name||null,status:p.status||null,side:p.side||null,neckline:r4(p.neckline),level:r4(p.level)};
+  return {type:p.type||p.id||p.name||null,status:p.status||null,side:p.side||null,neckline:finite(p.neckline),level:finite(p.level)};
 }
 function frameSnapshot(f){
   if(!f||typeof f!=='object')return {available:false};
   const smc=f.smcContext||{}, liq=f.liquidity||{}, sw=f.swingStructure||{};
-  const fvgs=array(f.recentFairValueGaps||liq.fairValueGaps,3).map(x=>({side:x?.side||x?.direction||null,low:r4(x?.low??x?.bottom),high:r4(x?.high??x?.top),ce50:r4(x?.ce50??x?.mid),status:x?.status||null}));
-  const obs=array(f.orderBlocks||smc.orderBlocks,3).map(x=>({side:x?.side||x?.direction||null,low:r4(x?.low),high:r4(x?.high),status:x?.status||null,mitigated:x?.mitigated??null,broken:x?.broken??null}));
+  const fvgs=array(f.recentFairValueGaps||liq.fairValueGaps,3).map(x=>({side:x?.side||x?.direction||null,low:finite(x?.low??x?.bottom),high:finite(x?.high??x?.top),ce50:finite(x?.ce50??x?.mid),status:x?.status||null}));
+  const ob=f.orderBlocks||smc.orderBlocks;
+  const obs=(Array.isArray(ob)?ob:[...array(ob?.bullish,2),...array(ob?.bearish,2)]).slice(0,4).map(x=>({side:x?.side||x?.direction||null,low:finite(x?.low),high:finite(x?.high),scope:x?.scope||null,zoneMode:x?.zoneMode||null,impulse:x?.impulse||null,at:x?.at??null,confirmedAt:x?.confirmedAt??x?.displacementAt??null,state:x?.state||x?.status||null,mitigated:x?.mitigated??null,broken:x?.broken??null,breaker:x?.breaker??null}));
   return {
     available:f.available!==false,fresh:f.fresh===true,asOf:f.asOf||null,ageMs:finite(f.ageMs),source:f.source||null,synthetic:f.synthetic===true,
-    close:r4(f.close),trend:f.trend||null,breakOfStructure:f.breakOfStructure||null,
+    close:finite(f.close),trend:f.trend||null,breakOfStructure:f.breakOfStructure||null,
     structure:{state:sw.state||sw.structure||null,lastEvent:sw.lastEvent||sw.event||null,hh:sw.hh??null,hl:sw.hl??null,lh:sw.lh??null,ll:sw.ll??null},
-    rsi14:r4(f.rsi14),atrPct:r4(f.atrPct),ema20:r4(f.ema20),ema50:r4(f.ema50),
-    prior20:{high:r4(f.prior20High),low:r4(f.prior20Low),equalHigh:r4(liq.equalHigh??f.equalHigh),equalLow:r4(liq.equalLow??f.equalLow),sweep:clone(liq.sweep||liq.lastSweep||null)},
+    rsi14:r4(f.rsi14),atrPct:r4(f.atrPct),ema20:finite(f.ema20),ema50:finite(f.ema50),
+    prior20:{high:finite(f.prior20High),low:finite(f.prior20Low),equalHigh:finite(liq.equalHigh?.price??liq.equalHigh??f.equalHigh),equalLow:finite(liq.equalLow?.price??liq.equalLow??f.equalLow),sweep:clone(liq.sweep||liq.lastSweep||null)},
     candle:clone(f.candle||f.closedCandle||null),forming:clone(f.forming||null),
     patterns:array(f.patterns,4).map(patternSummary).filter(Boolean),
-    fvg:fvgs,orderBlocks:obs,
-    ote:{long:clone(smc?.oteReference?.long||smc?.oteLong||f?.oteLong||null),short:clone(smc?.oteReference?.short||smc?.oteShort||f?.oteShort||null)},
+    fvg:fvgs,orderBlocks:obs,priceAction:clone(f.priceAction||null),
+    ote:{long:clone(smc?.oteReference?.longDiscountZone||f?.oteReference?.longDiscountZone||smc?.oteReference?.long||smc?.oteLong||f?.oteLong||null),short:clone(smc?.oteReference?.shortPremiumZone||f?.oteReference?.shortPremiumZone||smc?.oteReference?.short||smc?.oteShort||f?.oteShort||null)},
     fib:clone(smc?.fibLevels||f?.fibLevels||null),keyLevels:clone(f.keyLevels||null),
     readout:readoutSummary(f)
   };
@@ -135,13 +136,13 @@ function attentionSnapshot(candidate){
 function buildCurrentCase({unified,candidate,side=null,now=Date.now()}={}){
   const frames={};for(const tf of TFS)frames[tf]=frameSnapshot(unified?.frames?.[tf]);
   const flow=flowSnapshot(unified||{}); const dq=dataQuality(unified||{},{now});
-  return {version:'R2544.21',capturedAt:new Date(now).toISOString(),symbol:unified?.symbol||candidate?.symbol||null,side:side||null,livePrice:r4(unified?.livePrice),frames,flow,dataQuality:dq,attention:attentionSnapshot(candidate),microstructureEvents:microstructureEvents(unified||{},{side})};
+  return {version:'R2544.21',capturedAt:new Date(now).toISOString(),symbol:unified?.symbol||candidate?.symbol||null,side:side||null,livePrice:finite(unified?.livePrice),frames,flow,dataQuality:dq,attention:attentionSnapshot(candidate),microstructureEvents:microstructureEvents(unified||{},{side})};
 }
 function buildEntryCase({unified,candidate,plan,jevDecision,sizing,entryPrice,stopPrice,takeProfit1,now=Date.now()}={}){
   const side=String(plan?.side||jevDecision?.side||'').toUpperCase()||null;
   const c=buildCurrentCase({unified,candidate,side,now});
   c.decision={side,setupFamily:plan?.setupFamily||jevDecision?.setupFamily||null,entryTiming:plan?.entryTiming||jevDecision?.entryTiming||null,edgeBasis:plan?.edgeBasis||jevDecision?.edgeBasis||null,preEntryFlowAssessment:jevDecision?.preEntryFlowAssessment||plan?.preEntryFlowAssessment||null,lane:(plan?.tradeLane&&typeof plan.tradeLane==='object'?plan.tradeLane.name:plan?.tradeLane)||plan?.lane||null,originTF:plan?.originTF||null,ownerTF:plan?.ownerTF||null,why:clip(plan?.why||jevDecision?.reasoning||'',500),jevSummary:clip(jevDecision?.summaryTr||'',240)};
-  c.risk={entryPrice:r4(entryPrice??plan?.entryPrice??unified?.livePrice),stopPrice:r4(stopPrice??plan?.stopPrice),takeProfit1:r4(takeProfit1??plan?.takeProfit1),riskPctOfEquity:r4(sizing?.riskPctOfEquity),stopDistancePct:(finite(entryPrice??plan?.entryPrice)&&finite(stopPrice??plan?.stopPrice))?r4(Math.abs((finite(entryPrice??plan?.entryPrice)-finite(stopPrice??plan?.stopPrice))/finite(entryPrice??plan?.entryPrice)*100)):null};
+  c.risk={entryPrice:finite(entryPrice??plan?.entryPrice??unified?.livePrice),stopPrice:finite(stopPrice??plan?.stopPrice),takeProfit1:finite(takeProfit1??plan?.takeProfit1),riskPctOfEquity:r4(sizing?.riskPctOfEquity),stopDistancePct:(finite(entryPrice??plan?.entryPrice)&&finite(stopPrice??plan?.stopPrice))?r4(Math.abs((finite(entryPrice??plan?.entryPrice)-finite(stopPrice??plan?.stopPrice))/finite(entryPrice??plan?.entryPrice)*100)):null};
   const gapCount=array(c?.dataQuality?.klineGapFlags,32).reduce((sum,x)=>{const m=String(x||'').match(/:(\d+)$/);return sum+(m?Number(m[1]):0);},0);
   c.auditProvenance={version:'R2544.26',marketSnapshotHash:hashObject({frames:c.frames,flow:c.flow}),entryEvidenceHash:hashObject({decision:c.decision,risk:c.risk,microstructureEvents:c.microstructureEvents}),dataGapCount:gapCount,timestampSkewMs:c?.dataQuality?.timestampSkewMs??null,semantics:'AUDIT_ONLY_NOT_PROMPT_AUTHORITY'};
   c.snapshotHash=hashObject({...c,snapshotHash:undefined});
@@ -185,7 +186,8 @@ function similarity(a,b,legacyTrade=null){
   const ax=new Set(x.events||[]),by=new Set(y.events||[]);if(ax.size||by.size){const inter=[...ax].filter(z=>by.has(z)).length,uni=new Set([...ax,...by]).size;weight+=2;score+=2*(uni?inter/uni:0);}
   return weight?score/weight:0;
 }
-function summarizeTrade(t,sim){const ec=t?.entryContext?.entryCase,exact=!!ec;const ev=ec?.flow?.preEntryAdverseSelection,sd=sideOf(t);return {eventId:t?.eventId||null,symbol:t?.symbol||null,side:sd,family:t?.entryContext?.setupFamily||null,lane:t?.tradeLane||t?.entryContext?.lane||null,openedAt:t?.openedAt||null,closedAt:t?.closedAt||null,netPnl:r4(t?.netPnl),rMultiple:r4(t?.rMultiple),exitType:t?.exitType||null,similarity:r4(sim),fidelity:exact?(ec?.version==='R2544.21'?'IMMUTABLE_R2544_21':ec?.version==='R2544.20'?'IMMUTABLE_R2544_20':'IMMUTABLE_R2544_19'):'LEGACY_PARTIAL_SIGNATURE',entryHash:ec?.snapshotHash||null,microstructureEvents:array(ec?.microstructureEvents,5).map(x=>x.type),preEntry:ev?{quality:ev?.reliability?.quality||null,actionHint:ev?.actionHint||null,trapRisk:r4(ev?.[sd==='SHORT'?'short':'long']?.trapRiskIndex),support:r4(ev?.[sd==='SHORT'?'short':'long']?.supportIndex)}:null,outcome:t?.outcomePath?{mfeR:r4(t.outcomePath.mfeR),maeR:r4(t.outcomePath.maeR),timeToMfeMin:r4(t.outcomePath.timeToMfeMin),timeToMaeMin:r4(t.outcomePath.timeToMaeMin),mfeGivebackR:r4(profitGiveback(t.outcomePath.mfeR,t.rMultiple)),captureEfficiency:r4(t.outcomePath.captureEfficiency)}:null,exitAuthority:t?.lessonCard?.exitAuthority||null,lesson:t?.lessonCard?.lesson||null};}
+function priceActionMemory(c){return Object.fromEntries(['5m','15m'].map(tf=>{const f=c?.frames?.[tf];return [tf,f?.priceAction?.available?{version:f.priceAction.version,asOf:f.asOf,orderBlocks:array(f.orderBlocks,4),events:array(f.priceAction.events,4)}:null];}));}
+function summarizeTrade(t,sim){const ec=t?.entryContext?.entryCase,exact=!!ec;const ev=ec?.flow?.preEntryAdverseSelection,sd=sideOf(t);return {eventId:t?.eventId||null,symbol:t?.symbol||null,side:sd,family:t?.entryContext?.setupFamily||null,lane:t?.tradeLane||t?.entryContext?.lane||null,openedAt:t?.openedAt||null,closedAt:t?.closedAt||null,netPnl:r4(t?.netPnl),rMultiple:r4(t?.rMultiple),exitType:t?.exitType||null,similarity:r4(sim),fidelity:exact?(ec?.version==='R2544.21'?'IMMUTABLE_R2544_21':ec?.version==='R2544.20'?'IMMUTABLE_R2544_20':'IMMUTABLE_R2544_19'):'LEGACY_PARTIAL_SIGNATURE',entryHash:ec?.snapshotHash||null,priceActionAtEntry:priceActionMemory(ec),microstructureEvents:array(ec?.microstructureEvents,5).map(x=>x.type),preEntry:ev?{quality:ev?.reliability?.quality||null,actionHint:ev?.actionHint||null,trapRisk:r4(ev?.[sd==='SHORT'?'short':'long']?.trapRiskIndex),support:r4(ev?.[sd==='SHORT'?'short':'long']?.supportIndex)}:null,outcome:t?.outcomePath?{mfeR:r4(t.outcomePath.mfeR),maeR:r4(t.outcomePath.maeR),timeToMfeMin:r4(t.outcomePath.timeToMfeMin),timeToMaeMin:r4(t.outcomePath.timeToMaeMin),mfeGivebackR:r4(profitGiveback(t.outcomePath.mfeR,t.rMultiple)),captureEfficiency:r4(t.outcomePath.captureEfficiency)}:null,exitAuthority:t?.lessonCard?.exitAuthority||null,lesson:t?.lessonCard?.lesson||null};}
 function analogDigest(trades,{currentCase,limit=5,minSimilarity=0.28}={}){
   if(!currentCase)return {version:'R2544.21',available:false,reason:'CURRENT_CASE_UNAVAILABLE',analogs:[],winners:[],losers:[],executionAuthority:false};
   const scored=(Array.isArray(trades)?trades:[]).filter(t=>finite(t?.netPnl)!==null&&(caseOf(t)||t?.entryContext?.marketSignature)).map(t=>{const exact=caseOf(t);const raw=similarity(currentCase,exact,exact?null:t);return {t,sim:exact?raw:raw*0.82};}).filter(x=>x.sim>=minSimilarity).sort((a,b)=>b.sim-a.sim).slice(0,Math.max(2,Math.min(10,Number(limit)||5)));
@@ -208,13 +210,13 @@ function compactCaseFlow(flow){
 
 function compactEntryCase(c){
   if(!c||typeof c!=='object')return null;
-  const pick=tf=>{const f=c?.frames?.[tf]||{};return {fresh:f.fresh??null,asOf:f.asOf||null,trend:f.trend||null,structure:f?.structure?.state||null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,stretch:f?.readout?.stretch?.state||null,zone:f?.readout?.stretch?.zone||null,chaseRisk:f?.readout?.chaseRisk||null,patterns:array(f.patterns,3).map(x=>x?.type||x).filter(Boolean)};};
+  const pick=tf=>{const f=c?.frames?.[tf]||{};return {fresh:f.fresh??null,asOf:f.asOf||null,trend:f.trend||null,structure:f?.structure?.state||null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,stretch:f?.readout?.stretch?.state||null,zone:f?.readout?.stretch?.zone||null,chaseRisk:f?.readout?.chaseRisk||null,orderBlocks:array(f.orderBlocks,4),priceAction:f.priceAction||null,patterns:array(f.patterns,3).map(x=>x?.type||x).filter(Boolean)};};
   return {version:c.version,capturedAt:c.capturedAt,symbol:c.symbol,side:c.side,snapshotHash:c.snapshotHash,immutable:c.immutable===true,decision:c.decision||null,risk:c.risk||null,dataQuality:{advisoryUsable:c?.dataQuality?.advisoryUsable!==false,flags:array(c?.dataQuality?.flags,12),timestampSkewMs:c?.dataQuality?.timestampSkewMs??null},frames:{'1m':pick('1m'),'3m':pick('3m'),'5m':pick('5m'),'15m':pick('15m'),'1h':pick('1h'),'4h':pick('4h')},flow:compactCaseFlow(c.flow),microstructureEvents:array(c.microstructureEvents,8),attention:c.attention||null,executionAuthority:false};
 }
 
 function compactAnalogDigest(d,maxChars=4200){
   if(!d||typeof d!=='object')return null;
-  const out={version:d.version,available:d.available,samples:d.samples,summary:d.summary,fidelity:d.fidelity,counterexamples:d.counterexamples,analogs:array(d.analogs,5).map(x=>({symbol:x.symbol,side:x.side,family:x.family,lane:x.lane,netPnl:x.netPnl,rMultiple:x.rMultiple,exitType:x.exitType,exitAuthority:x.exitAuthority||null,similarity:x.similarity,fidelity:x.fidelity,microstructureEvents:array(x.microstructureEvents,4),preEntry:x.preEntry||null,outcome:x.outcome||null})),softContextOnly:true,executionAuthority:false};
+  const out={version:d.version,available:d.available,samples:d.samples,summary:d.summary,fidelity:d.fidelity,counterexamples:d.counterexamples,analogs:array(d.analogs,5).map(x=>({symbol:x.symbol,side:x.side,family:x.family,lane:x.lane,netPnl:x.netPnl,rMultiple:x.rMultiple,exitType:x.exitType,exitAuthority:x.exitAuthority||null,priceActionAtEntry:x.priceActionAtEntry||null,similarity:x.similarity,fidelity:x.fidelity,microstructureEvents:array(x.microstructureEvents,4),preEntry:x.preEntry||null,outcome:x.outcome||null})),softContextOnly:true,executionAuthority:false};
   let raw=JSON.stringify(out);if(raw.length>maxChars)out.analogs=out.analogs.slice(0,3);return out;
 }
 module.exports={TFS,hashObject,frameSnapshot,dataQuality,flowSnapshot,microstructureEvents,buildCurrentCase,buildEntryCase,buildOutcomePath,compactEntryCase,compactPreEntry,analogDigest,compactAnalogDigest,similarity};

@@ -1,5 +1,6 @@
 'use strict';
 const {profitGiveback}=require('./outcome-metrics');
+function priceActionAtEntry(ec){return Object.fromEntries(['5m','15m'].map(tf=>{const f=ec?.entryCase?.frames?.[tf];return [tf,f?.priceAction?.available?{version:f.priceAction.version,asOf:f.asOf,orderBlocks:(f.orderBlocks||[]).slice(0,4),events:(f.priceAction.events||[]).slice(-2)}:null];}));}
 // CLAUDE_R2544_16_TRADE_LESSONS (Claude Work, 2026-09-29) — beynin kâr/zarardan KESİN öğrenmesi.
 // Önceki durum: JEV_LESSON'lar tek işlemden genel "OBSERVE_MORE" üretiyordu; deneyim hafızası kurulumu hangi
 // dikkat katmanından (ilk 3 / 4–10 / 11–24 / aday / erken ilgi / patlamaya yakın) geldiğini hiç bilmiyordu.
@@ -195,7 +196,7 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
     rank:num(att?.gainerRank),ch24:ch24===null?null:r2(ch24,1),
     family:ec.setupFamily||null,lane:p.tradeLane||ec.lane||null,timing:ec.entryTiming||null,regime,
     preEntry:{state:preEntry.state,quality:preEntry.quality,trapRisk:preEntry.trapRisk===null?null:r2(preEntry.trapRisk,3),support:preEntry.support===null?null:r2(preEntry.support,3),assessment:preEntry.assessment||null},
-    exit,exitAuthority,net:net===null?null:r2(net,2),r:cr.r===null?null:r2(cr.r,2),rStatus:cr.status,
+    priceActionAtEntry:priceActionAtEntry(ec),exit,exitAuthority,net:net===null?null:r2(net,2),r:cr.r===null?null:r2(cr.r,2),rStatus:cr.status,
     outcome:{mfeR:mfeR===null?null:r2(mfeR,2),maeR:maeR===null?null:r2(maeR,2),mfeGivebackR:mfeGivebackR===null?null:r2(mfeGivebackR,2),captureEfficiency:captureEfficiency===null?null:r2(captureEfficiency,3),timeToMfeMin:timeToMfeMin===null?null:r2(timeToMfeMin,1),timeToMaeMin:timeToMaeMin===null?null:r2(timeToMaeMin,1)},
     holdMin:hold,stopPct:stopPct===null?null:r2(stopPct,2),gapMin,globalGapMin,
     openedAt:p.openedAt||null,closedMs:Number.isFinite(closed)?closed:null,
@@ -247,6 +248,12 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
   const famSide=group(xs.filter(c=>c.family),c=>c.family+'|'+c.side);
   const regimeSide=group(xs.filter(c=>c.regime&&c.regime!=='REGIME_UNKNOWN'),c=>c.regime+'|'+c.side);
   const preEntrySide=group(xs.filter(c=>c.preEntry&&c.preEntry.state&&c.preEntry.state!=='NO_PREENTRY_DATA'),c=>c.preEntry.state+'|'+c.side);
+  const paGroups=new Map();
+  for(const c of xs)for(const [tf,f] of Object.entries(c.priceActionAtEntry||{})){
+    if(!f)continue;
+    const keys=new Set((f.orderBlocks||[]).map(z=>[tf,z.scope||'UNKNOWN',z.side,z.state||'UNKNOWN',c.side].join('|')));
+    for(const k of keys){if(!paGroups.has(k))paGroups.set(k,[]);paGroups.get(k).push(c);}
+  }
   const tagG=new Map();for(const c of xs)for(const t of c.tags){if(!tagG.has(t))tagG.set(t,[]);tagG.get(t).push(c);}
   const tagRows=[...tagG.entries()].filter(([t])=>!t.startsWith('R_')).map(([t,v])=>{const s=stats(v);return [t,s.n,s.winPct,s.net];}).sort((a,b)=>a[3]-b[3]);
   // Ne çalıştı / ne çalışmadı: n≥4 grup; PF ve net ile sıralı.
@@ -266,6 +273,8 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
     byFamilySide:rows(famSide,{minN:4,limit:8}),
     byRegimeSide:rows(regimeSide,{minN:3,limit:10}),
     byPreEntryFlow:rows(preEntrySide,{minN:2,limit:10}),
+    byPriceAction:rows(paGroups,{minN:2,limit:8}),
+    priceActionGrouping:'Overlapping immutable-entry cohorts; a trade may appear in multiple rows. Association, not causal attribution or trained weights.',
     byExit:rows(group(xs,c=>c.exit||'UNKNOWN'),{minN:3,limit:6}).map(r=>r.slice(0,4)),
     worked,failed,repeatedMistakes:tagFailed,
     howToUse:'Geçmiş sonuçlar yalnız yumuşak bağlamdır; kazanan hem kaybeden karşı örnekleri birlikte değerlendirilir. MFE/MAE, NONE_WAIT, hızlı adverse hareket, yeniden giriş ve yön tersleme benzer vakaları açıklar; otomatik veto/onay üretmez. Mevcut piyasa kanıtı önce gelir.'

@@ -110,7 +110,7 @@ function compactFrame(f){
   return {
     available:true,fresh:f.fresh===true,asOf:f.asOf||null,source:f.source||null,synthetic:f.synthetic===true,
     closedCandle:f.closedCandle||null,close:f.close??null,trend:f.trend||null,
-    keyLevels:keyLevels(f),
+    keyLevels:keyLevels(f),priceAction:f.priceAction||null,orderBlocks:f.orderBlocks||null,
     breakOfStructure:f.breakOfStructure||null,
     opportunity:f.opportunity?{
       state:f.opportunity.state??null,preferredSide:f.opportunity.preferredSide??null,
