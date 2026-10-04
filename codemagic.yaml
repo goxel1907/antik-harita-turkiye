@@ -548,6 +548,10 @@ workflows:
             exit 1
           fi
           echo 'V95130_R2544_33_BRAINHUB_8443_OK'
+          # R35 dedicated PC heartbeat and current PC-only UI/analysis contract.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95131_r2544_35_pc_sync_ui.py"
+          grep -q V95131_R2544_35_PC_SYNC_UI /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          echo V95131_R2544_35_PC_SYNC_UI_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
