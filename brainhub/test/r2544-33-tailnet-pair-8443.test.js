@@ -11,5 +11,7 @@ test('R2544.33 BrainHub Pair uses dedicated tailnet-only HTTPS 8443',()=>{
   const pair=manage.slice(manage.indexOf("if ($Action -eq 'Pair')"),manage.indexOf("if ($Action -eq 'Backup')"));
   assert.doesNotMatch(pair,/serve --bg --https=8787/);
   assert.doesNotMatch(pair,/endpoint=https:\/\/\$\(\$dns\):8787/);
-  assert.doesNotMatch(pair,/funnel/i);
+  // A comment describing 9Router's separate 443 listener is not a command.
+  const executable=pair.split(/\r?\n/).filter(line=>!/^\s*#/.test(line)).join('\n');
+  assert.doesNotMatch(executable,/funnel/i);
 });

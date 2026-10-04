@@ -2,6 +2,7 @@
 
 const {narrateChart}=require('./chart-narrator');
 const {readoutDigest}=require('./chart-readout');
+const {expandMarketPacket}=require('./jev-wire-market');
 
 function finite(v){if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function arr(v){return Array.isArray(v)?v:[];}
@@ -272,7 +273,7 @@ function mirrorFrameDigest(f){
   };
 }
 function mirrorDigest(packet){
-  const p=packet&&typeof packet==='object'?packet:{};
+  const p=packet&&typeof packet==='object'?expandMarketPacket(packet):{};
   return {
     contract:p.contract||null,symbol:p.symbol||null,livePrice:p.livePrice??null,
     levelMap:p.levelMap||null,chartOverlayLevels:p.chartOverlayLevels||null,liquidationHistory:p.liquidationHistory||null,global:p.global||null,

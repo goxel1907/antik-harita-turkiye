@@ -17,7 +17,7 @@ for(const tf of ['5m','15m'])test(`R32 Office ${tf} renders actual mirror table 
  const evidence={available:true,events:[{type:'CLOSE_BREAK_FAILED',direction:'UP',level:12,barsAgo:1,stillInside:true}]};
  const trendLines={upSupport:{kind:'UP_SUPPORT',active:true,from:{price:10},to:{price:11},projected:{price:11.5}}};
  const overlay={rangeLow:10,rangeHigh:12,fib618:11,breakoutEvidence:evidence,trendLines};
- const packet={livePrice:11,coreFrames:{[tf]:{}},chartOverlayLevels:{[tf]:overlay}};
+ const packet={livePrice:11,coreFrames:{[tf]:{}},chartOverlayLevels:{[tf]:overlay},chartNarrative:{frames:Object.fromEntries(['1m','3m','5m','15m','30m','45m','1h','4h','1d'].map(tf=>[tf,{available:tf!=='1d',line:tf==='1d'?'no usable candles':'closed candle reading'}]))}};
  const context={mirrorTf:tf,mirrorSeq:0,mirrorOpts:{htf:true,pos:true},Date,Promise,
   $:node,num:x=>x==null?null:Number(x),esc:x=>String(x),trUi:x=>x,
   syncMirrorSymbol:()=> 'TESTUSDT',mirrorQuery:x=>'?'+new URLSearchParams(x),renderPreEntryMicro(){},
@@ -32,4 +32,6 @@ for(const tf of ['5m','15m'])test(`R32 Office ${tf} renders actual mirror table 
  assert.match(node('#mirrorKv').innerHTML,new RegExp(`Kayıtlı ${tf}:`));
  assert.match(node('#mirrorKv').innerHTML,/Son JEV paketinin kırılım \/ trend izi/);
  assert.equal(node('#mirrorAnnotated').style.opacity,'1');
+ assert.match(node('#mirrorNarrative').innerHTML,/TF 8\/9/);
+ assert.match(node('#mirrorNarrative').innerHTML,/okunamayan: 1d/);
 });

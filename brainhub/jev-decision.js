@@ -2,6 +2,7 @@ const fs=require('fs');
 const path=require('path');
 const crypto=require('node:crypto');
 const {marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest}=require('./jev-market-packet');
+const {encodeMarketPacket,expandMarketPacket}=require('./jev-wire-market');
 
 const DEFAULTS={
   enabled:false,
@@ -523,9 +524,10 @@ const MAX_DECISION_REQUEST_BYTES=48000;
 const PASS1_TARGET_BYTES=42000;
 const PASS2_TARGET_BYTES=46000;
 const OTHER_TARGET_BYTES=44000;
+const BURST_TARGET_BYTES=36000;
 
-function decisionPass(body){return body?.questions?.trade_plan?2:body?.questions?.lane_focus?1:'OTHER';}
-function targetBytesForPass(pass){return pass===1?PASS1_TARGET_BYTES:pass===2?PASS2_TARGET_BYTES:OTHER_TARGET_BYTES;}
+function decisionPass(body){return body?.state?.record?.contract==='R2544.29_BURST_PREAUTH'?'BURST':body?.questions?.trade_plan?2:body?.questions?.lane_focus?1:'OTHER';}
+function targetBytesForPass(pass){return pass===1?PASS1_TARGET_BYTES:pass===2?PASS2_TARGET_BYTES:pass==='BURST'?BURST_TARGET_BYTES:OTHER_TARGET_BYTES;}
 function byteSize(v){return Buffer.byteLength(JSON.stringify(v??null),'utf8');}
 function hashJson(v){return crypto.createHash('sha256').update(JSON.stringify(v??null)).digest('hex');}
 function frameTruth(f,{detail=false,timing=false}={}){
@@ -546,7 +548,7 @@ function frameTruth(f,{detail=false,timing=false}={}){
 function protectedCoreTruth(body){
   const record=body?.state?.record;
   const management=record?.contract==='R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT';
-  const p=body?.state?.coreMarketPacket||(management?{...record,coreFrames:record.frames,microstructure:{orderFlow:record.orderFlow,depth:record.depth,preEntryAdverseSelection:record.currentAdverseSelection}}:null);
+  const p=expandMarketPacket(body?.state?.coreMarketPacket)||(management?{...record,coreFrames:record.frames,microstructure:{orderFlow:record.orderFlow,depth:record.depth,preEntryAdverseSelection:record.currentAdverseSelection}}:null);
   if(!p||typeof p!=='object')return null;
   return {
     contract:p.contract??null,symbol:p.symbol??null,livePrice:p.livePrice??null,levelMap:p.levelMap??null,liquidationHistory:p.liquidationHistory??null,
@@ -862,6 +864,8 @@ function prepareDecisionRequest(input,opts={}){
   const targetCap=Number.isFinite(Number(opts?.targetBytes))&&Number(opts.targetBytes)>0?Math.min(Number(opts.targetBytes),hardCap):Math.min(targetBytesForPass(pass),hardCap);
   const body=JSON.parse(JSON.stringify(input));
   const beforeBytes=byteSize(body);const state=body.state||{};const trimStepsApplied=[];
+  const marketSectionsBefore=Object.fromEntries(Object.entries(state.coreMarketPacket||{}).map(([k,v])=>[k,byteSize(v)]));
+  let wireEncoding=null;
   const coreHashBefore=hashJson(protectedCoreTruth(body));
   const record=body?.state?.record;const recordObj=record&&typeof record==='object'&&!Array.isArray(record)?record:null;
   const packetObj=body?.state?.coreMarketPacket&&typeof body.state.coreMarketPacket==='object'?body.state.coreMarketPacket:null;
@@ -971,6 +975,13 @@ function prepareDecisionRequest(input,opts={}){
     if(requested&&typeof requested==='object'&&typeof requested.text==='string'&&requested.text.length>1600){state.record.requestedEvidence={...requested,text:clipNatural(requested.text,1600),textProjected:true,textAuthority:'OPTIONAL_EVIDENCE_ONLY'};}
     trimStepsApplied.push('ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL');serialized=refresh();
   }
+  // R34: after optional prose and duplication are bounded, share repeated field
+  // names using self-describing rows. Round-trip validation preserves every
+  // remaining fact; protected truth and the mirror expand the serialized rows.
+  if(byteSize(body)>targetCap&&state.coreMarketPacket){
+    const packed=encodeMarketPacket(state.coreMarketPacket);
+    if(packed.encoded){state.coreMarketPacket=packed.packet;wireEncoding={version:packed.packet.wire.version,beforeBytes:packed.beforeBytes,afterBytes:packed.afterBytes,schemaCount:packed.schemaCount,roundTripVerified:true};trimStepsApplied.push('LOSSLESS_MARKET_ROWS');}
+  }
   serialized=refresh();const bytes=Buffer.byteLength(serialized,'utf8');
   const coreHashAfter=hashJson(protectedCoreTruth(body));const coreTruthProtected=coreHashBefore===coreHashAfter;
   const essentialBytes=byteSize(minimalEssentialEnvelope(body));
@@ -978,7 +989,7 @@ function prepareDecisionRequest(input,opts={}){
   const diagnostics={pass,chars:serialized.length,bytes,beforeBytes,maxBytes:hardCap,targetBytes:targetCap,targetExceeded:bytes>targetCap,estimatedTokens:Math.ceil(bytes*0.6)+1024,estimateOnly:true,
     stateBytes:byteSize(body.state),questionsBytes:byteSize(body.questions),essentialBytes,secondaryTrimApplied:trimStepsApplied.length>0,trimStepsApplied,
     marketTrimApplied:trimStepsApplied.some(x=>['PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),
-    sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,byteSize(v)])),coreTruthProtected,coreTruthHash:coreHashAfter,blockReason,
+    sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,byteSize(v)])),marketSectionsBefore,marketSectionsAfter:Object.fromEntries(Object.entries(state.coreMarketPacket||{}).map(([k,v])=>[k,byteSize(v)])),wireEncoding,coreTruthProtected,coreTruthHash:coreHashAfter,blockReason,
     contextBudget:{policy:'R2544.25_PASS2_DYNAMIC_RESIDUAL_BUDGET',targetBytes:targetCap,hardMaxBytes:hardCap,usedBytes:bytes,remainingToTarget:Math.max(0,targetCap-bytes),remainingToHard:Math.max(0,hardCap-bytes),hardHeadroomBytes:hardCap-bytes,coreMarketPacketBytes:byteSize(state.coreMarketPacket),protectedCoreBytes:byteSize(protectedCoreTruth(body)),optionalBudgetBytes:Math.max(0,targetCap-byteSize(state.coreMarketPacket)),residualBudgetApplied:trimStepsApplied.some(x=>x.startsWith('PASS2_RESIDUAL_')||x==='ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL'),coreTruthProtected,
       optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT','PASS1_QUESTION_SCHEMA_COMPACT','PASS1_ROUTING_MEMORY_TIGHT','PASS2_QUESTION_SCHEMA_COMPACT','PASS2_RECORD_COMPACT','PASS2_MEMORY_TIGHT','PASS2_RESIDUAL_QUESTION_TIGHT','PASS2_RESIDUAL_RECORD_TIGHT','PASS2_RESIDUAL_MEMORY_TIGHT','PASS2_RESIDUAL_OPTIONAL_FINAL','ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),coreMarketPriority:true}};
   return {ok:bytes<=hardCap&&coreTruthProtected,body,serialized,diagnostics};
