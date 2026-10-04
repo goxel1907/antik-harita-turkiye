@@ -2,6 +2,7 @@
 const { preMoveSignal } = require('./premove');
 const { chartReadout } = require('./chart-readout');
 const {analyzePriceAction,mergeOrderBlocks,priceActionDigest}=require('./price-action');
+const {fairValueGaps}=require('./fvg-lifecycle');
 
 const FRAMES = ['1m', '3m', '5m', '15m', '30m', '45m', '1h', '4h', '1d'];
 const NATIVE_FRAMES = FRAMES.filter(x => x !== '45m');
@@ -273,7 +274,7 @@ function smcContext(swings, lastClose, gaps = []) {
     low:round(g.low),
     high:round(g.high),
     ce50:round((Number(g.low)+Number(g.high))/2),
-    at:g.at
+    at:g.at,lifecycle:g.lifecycle||null
   }));
   // CLAUDE_V113_JEV_FULL_EVIDENCE: son onaylı swing bacağından Fibonacci düzeltme/uzatma seviyeleri.
   // Bacak yönü: hangi swing daha yeni ise (düşük→yüksek = yükseliş bacağı; düzeltme tepeden ölçülür).
@@ -623,14 +624,7 @@ function structure(c, frame = null) {
   const low = Math.min(...recent.map(x => x.low));
   const direction = e20 > e50 && last.close > e20 ? 'UP' : e20 < e50 && last.close < e20 ? 'DOWN' : 'MIXED';
   const breaksHigh = last.close > high, breaksLow = last.close < low;
-  const gaps = [];
-  for (let i = Math.max(2, c.length - 25); i < c.length; i++) {
-    const a = c[i - 2], b = c[i];
-    // CLAUDE_R2544_6_FVG_FILL: sonradan tamamen doldurulan boşluk "açık FVG" diye gönderilmez (29.09: 157 FVG'nin 67'si doluydu).
-    const after = c.slice(i + 1);
-    if (b.low > a.high) { const lo = a.high, hi = b.low; gaps.push({ side:'BULL', low:lo, high:hi, at:b.closeTime, filled:after.some(x => x.low <= lo), touched:after.some(x => x.low < hi) }); }
-    if (b.high < a.low) { const lo = b.high, hi = a.low; gaps.push({ side:'BEAR', low:lo, high:hi, at:b.closeTime, filled:after.some(x => x.high >= hi), touched:after.some(x => x.high > lo) }); }
-  }
+  const gaps = fairValueGaps(c);
   // CLAUDE_R2544_11_FVG_SIZE: ATR14'ün %10'undan küçük boşluklar gürültüdür; JEV'e gönderilmez, yalnız sayısı yazılır.
   const unfilled = gaps.filter(g => !g.filled);
   const openGaps = a14 > 0 ? unfilled.filter(g => g.high - g.low >= 0.1 * a14) : unfilled;
@@ -660,6 +654,7 @@ function structure(c, frame = null) {
     breakOfStructure:breaksHigh ? 'UP' : breaksLow ? 'DOWN' : null,
     buySideLiquidity:round(high), sellSideLiquidity:round(low),
     recentFairValueGaps:openGaps.slice(-3).map(g => ({ ...g, low:round(g.low), high:round(g.high), ce50:round((g.low+g.high)/2) })),
+    fairValueGapHistory:gaps.filter(g=>g.filled).sort((a,b)=>(b.lifecycle.invalidatedAt??b.lifecycle.filledAt)-(a.lifecycle.invalidatedAt??a.lifecycle.filledAt)).slice(0,2).map(g=>({...g,low:round(g.low),high:round(g.high),ce50:round(g.ce50)})),
     filledFairValueGapCount:gaps.length - unfilled.length, minorFairValueGapCount:unfilled.length - openGaps.length,
     returnPct:round((last.close / c.at(-6).close - 1) * 100, 3),
     candle:candleShape(last, a14),

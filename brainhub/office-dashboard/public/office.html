@@ -1580,7 +1580,7 @@ async function renderMirror(s){
     const fmtVol=v=>{if(!v)return 'son 30 mumda yok • iz yok';const s=v.spike,t=v.trail;
       return (s?`${s.dir==='UP'?'YUKARI':'AŞAĞI'} ${mirrorFmt(s.bodyAtr,1)} ATR (${mirrorFmt(s.pct,2)}%) ${s.barsAgo} mum önce • orta ${mirrorFmt(s.mid,4)} • fiyat ortadan ${mirrorFmt(v.extAtr,2)} ATR${Number(v.extAtr)>=1.5?' (uzamış: kovalama riski)':''}`:'son 30 mumda yok')+
         ' • '+(t?`3×ATR iz ${t.state==='UP'?'YUKARI':'AŞAĞI'} ${mirrorFmt(t.stop,4)} (${mirrorFmt(t.distAtr,1)} ATR)`:'iz yok');};
-    const fmtFvg=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} ${fmtRange(x)} CE50 ${mirrorFmt(x?.ce50,4)}`).join(' • ')||'yok';
+    const fmtFvg=list=>(list||[]).map((x,i)=>{const l=x.lifecycle,r=l?.reaction;return `#${i+1} ${trUi(x?.side||'?')} ${fmtRange(x)} CE50 ${mirrorFmt(x?.ce50,4)}`+(l?` • ${l.state} • dolum %${l.fillPct} • ayrı test ${l.testCount} • CE50 ${l.ce50Touched?'temas var':'temas yok'}`:'')+(r?` • son testten ${r.barsAfterTest} mum • kenara göre kapanış %${r.closePct}${r.barsAfterTest>0?` • lehte %${r.mfePct} / aleyhte %${r.maePct}`:''}`:'');}).join(' • ')||'yok';
     const fmtLiq=list=>(list||[]).map((x,i)=>`#${i+1} ${trUi(x?.side||'?')} @${mirrorFmt(x?.price,4)} ≈${mirrorFmt(x?.observedQuote,0)} USDT`).join(' • ')||'yok';
     const patterns=(f?.patterns||[]).slice(-6).map(x=>`${trUi(x?.type||x?.name||'FORMASYON')}${x?.status?' ('+trUi(x.status)+')':''}`).join(' • ')||'yok';
     const swing=f?.swingStructure||{};
@@ -1599,6 +1599,7 @@ async function renderMirror(s){
       ['Ayı OB', fmtOb(ob.bearish)],
       ['Price action teyidi', f.priceAction?.available?(f.priceAction.events||[]).map(x=>`${x.scope} ${x.kind} ${x.side} @${x.level??'—'} • ${new Date(x.confirmedAt).toLocaleTimeString('tr-TR')}`).join(' • '):'veri yok'],
       ['FVG', fmtFvg(f.recentFairValueGaps)],
+      ['Son dolan/geçersiz FVG (geçmiş kanıt)', fmtFvg(f.fairValueGapHistory)],
       ['OTE Alış', fmtRange(ote?.longDiscountZone)],
       ['OTE Satış', fmtRange(ote?.shortPremiumZone)],
       ['Fib geri çekilme', `.236 ${mirrorFmt(fib['0.236'],4)} • .382 ${mirrorFmt(fib['0.382'],4)} • .5 ${mirrorFmt(fib['0.5'],4)} • .618 ${mirrorFmt(fib['0.618'],4)} • .705 ${mirrorFmt(fib['0.705'],4)} • .786 ${mirrorFmt(fib['0.786'],4)}`],

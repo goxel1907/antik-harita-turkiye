@@ -37,7 +37,8 @@ function patternSummary(p){
 function frameSnapshot(f){
   if(!f||typeof f!=='object')return {available:false};
   const smc=f.smcContext||{}, liq=f.liquidity||{}, sw=f.swingStructure||{};
-  const fvgs=array(f.recentFairValueGaps||liq.fairValueGaps,3).map(x=>({side:x?.side||x?.direction||null,low:finite(x?.low??x?.bottom),high:finite(x?.high??x?.top),ce50:finite(x?.ce50??x?.mid),status:x?.status||null}));
+  const gapSnapshot=x=>({side:x?.side||x?.direction||null,low:finite(x?.low??x?.bottom),high:finite(x?.high??x?.top),ce50:finite(x?.ce50??x?.mid),at:x?.at??null,status:x?.status||null,lifecycle:clone(x?.lifecycle||null)});
+  const fvgs=array(f.recentFairValueGaps||liq.fairValueGaps,3).map(gapSnapshot);
   const ob=f.orderBlocks||smc.orderBlocks;
   const obs=(Array.isArray(ob)?ob:[...array(ob?.bullish,2),...array(ob?.bearish,2)]).slice(0,4).map(x=>({side:x?.side||x?.direction||null,low:finite(x?.low),high:finite(x?.high),scope:x?.scope||null,zoneMode:x?.zoneMode||null,impulse:x?.impulse||null,at:x?.at??null,confirmedAt:x?.confirmedAt??x?.displacementAt??null,state:x?.state||x?.status||null,mitigated:x?.mitigated??null,broken:x?.broken??null,breaker:x?.breaker??null}));
   return {
@@ -48,7 +49,7 @@ function frameSnapshot(f){
     prior20:{high:finite(f.prior20High),low:finite(f.prior20Low),equalHigh:finite(liq.equalHigh?.price??liq.equalHigh??f.equalHigh),equalLow:finite(liq.equalLow?.price??liq.equalLow??f.equalLow),sweep:clone(liq.sweep||liq.lastSweep||null)},
     candle:clone(f.candle||f.closedCandle||null),forming:clone(f.forming||null),
     patterns:array(f.patterns,4).map(patternSummary).filter(Boolean),
-    fvg:fvgs,orderBlocks:obs,priceAction:clone(f.priceAction||null),
+    fvg:fvgs,fvgHistory:array(f.fairValueGapHistory,2).map(gapSnapshot),orderBlocks:obs,priceAction:clone(f.priceAction||null),
     ote:{long:clone(smc?.oteReference?.longDiscountZone||f?.oteReference?.longDiscountZone||smc?.oteReference?.long||smc?.oteLong||f?.oteLong||null),short:clone(smc?.oteReference?.shortPremiumZone||f?.oteReference?.shortPremiumZone||smc?.oteReference?.short||smc?.oteShort||f?.oteShort||null)},
     fib:clone(smc?.fibLevels||f?.fibLevels||null),keyLevels:clone(f.keyLevels||null),
     readout:readoutSummary(f)
@@ -186,7 +187,7 @@ function similarity(a,b,legacyTrade=null){
   const ax=new Set(x.events||[]),by=new Set(y.events||[]);if(ax.size||by.size){const inter=[...ax].filter(z=>by.has(z)).length,uni=new Set([...ax,...by]).size;weight+=2;score+=2*(uni?inter/uni:0);}
   return weight?score/weight:0;
 }
-function priceActionMemory(c){return Object.fromEntries(['5m','15m'].map(tf=>{const f=c?.frames?.[tf];return [tf,f?.priceAction?.available?{version:f.priceAction.version,asOf:f.asOf,orderBlocks:array(f.orderBlocks,4),events:array(f.priceAction.events,4)}:null];}));}
+function priceActionMemory(c){return Object.fromEntries(['5m','15m'].map(tf=>{const f=c?.frames?.[tf];return [tf,f?.priceAction?.available?{version:f.priceAction.version,asOf:f.asOf,orderBlocks:array(f.orderBlocks,4),fvg:array(f.fvg,3),events:array(f.priceAction.events,4)}:null];}));}
 function summarizeTrade(t,sim){const ec=t?.entryContext?.entryCase,exact=!!ec;const ev=ec?.flow?.preEntryAdverseSelection,sd=sideOf(t);return {eventId:t?.eventId||null,symbol:t?.symbol||null,side:sd,family:t?.entryContext?.setupFamily||null,lane:t?.tradeLane||t?.entryContext?.lane||null,openedAt:t?.openedAt||null,closedAt:t?.closedAt||null,netPnl:r4(t?.netPnl),rMultiple:r4(t?.rMultiple),exitType:t?.exitType||null,similarity:r4(sim),fidelity:exact?(ec?.version==='R2544.21'?'IMMUTABLE_R2544_21':ec?.version==='R2544.20'?'IMMUTABLE_R2544_20':'IMMUTABLE_R2544_19'):'LEGACY_PARTIAL_SIGNATURE',entryHash:ec?.snapshotHash||null,priceActionAtEntry:priceActionMemory(ec),microstructureEvents:array(ec?.microstructureEvents,5).map(x=>x.type),preEntry:ev?{quality:ev?.reliability?.quality||null,actionHint:ev?.actionHint||null,trapRisk:r4(ev?.[sd==='SHORT'?'short':'long']?.trapRiskIndex),support:r4(ev?.[sd==='SHORT'?'short':'long']?.supportIndex)}:null,outcome:t?.outcomePath?{mfeR:r4(t.outcomePath.mfeR),maeR:r4(t.outcomePath.maeR),timeToMfeMin:r4(t.outcomePath.timeToMfeMin),timeToMaeMin:r4(t.outcomePath.timeToMaeMin),mfeGivebackR:r4(profitGiveback(t.outcomePath.mfeR,t.rMultiple)),captureEfficiency:r4(t.outcomePath.captureEfficiency)}:null,exitAuthority:t?.lessonCard?.exitAuthority||null,lesson:t?.lessonCard?.lesson||null};}
 function analogDigest(trades,{currentCase,limit=5,minSimilarity=0.28}={}){
   if(!currentCase)return {version:'R2544.21',available:false,reason:'CURRENT_CASE_UNAVAILABLE',analogs:[],winners:[],losers:[],executionAuthority:false};
@@ -210,7 +211,7 @@ function compactCaseFlow(flow){
 
 function compactEntryCase(c){
   if(!c||typeof c!=='object')return null;
-  const pick=tf=>{const f=c?.frames?.[tf]||{};return {fresh:f.fresh??null,asOf:f.asOf||null,trend:f.trend||null,structure:f?.structure?.state||null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,stretch:f?.readout?.stretch?.state||null,zone:f?.readout?.stretch?.zone||null,chaseRisk:f?.readout?.chaseRisk||null,orderBlocks:array(f.orderBlocks,4),priceAction:f.priceAction||null,patterns:array(f.patterns,3).map(x=>x?.type||x).filter(Boolean)};};
+  const pick=tf=>{const f=c?.frames?.[tf]||{};return {fresh:f.fresh??null,asOf:f.asOf||null,trend:f.trend||null,structure:f?.structure?.state||null,rsi14:f.rsi14??null,atrPct:f.atrPct??null,stretch:f?.readout?.stretch?.state||null,zone:f?.readout?.stretch?.zone||null,chaseRisk:f?.readout?.chaseRisk||null,orderBlocks:array(f.orderBlocks,4),fvg:array(f.fvg,3),fvgHistory:array(f.fvgHistory,2),priceAction:f.priceAction||null,patterns:array(f.patterns,3).map(x=>x?.type||x).filter(Boolean)};};
   return {version:c.version,capturedAt:c.capturedAt,symbol:c.symbol,side:c.side,snapshotHash:c.snapshotHash,immutable:c.immutable===true,decision:c.decision||null,risk:c.risk||null,dataQuality:{advisoryUsable:c?.dataQuality?.advisoryUsable!==false,flags:array(c?.dataQuality?.flags,12),timestampSkewMs:c?.dataQuality?.timestampSkewMs??null},frames:{'1m':pick('1m'),'3m':pick('3m'),'5m':pick('5m'),'15m':pick('15m'),'1h':pick('1h'),'4h':pick('4h')},flow:compactCaseFlow(c.flow),microstructureEvents:array(c.microstructureEvents,8),attention:c.attention||null,executionAuthority:false};
 }
 

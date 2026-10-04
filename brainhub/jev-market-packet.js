@@ -57,6 +57,7 @@ function framePacket(f,{full=false}={}){
   if(full){
     const fvgSource=arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps;
     base.recentFairValueGaps=clipArr(fvgSource,3);
+    base.fairValueGapHistory=clipArr(f.fairValueGapHistory,2);
     base.orderBlocks={
       bullish:clipArr(f?.orderBlocks?.bullish,2),
       bearish:clipArr(f?.orderBlocks?.bearish,2)
@@ -92,7 +93,7 @@ function keyLevels(f){
   const gaps=(arr(f.recentFairValueGaps).length?arr(f.recentFairValueGaps):arr(f?.liquidity?.fairValueGaps)).filter(g=>g&&g.filled!==true&&finite(g.low)!==null&&finite(g.high)!==null).sort((a,b)=>dist(a)-dist(b));
   const obs=[...arr(f?.orderBlocks?.bullish).map(x=>({...x,side:'BULL'})),...arr(f?.orderBlocks?.bearish).map(x=>({...x,side:'BEAR'}))].filter(x=>x&&x.broken!==true&&finite(x.low)!==null&&finite(x.high)!==null).sort((a,b)=>dist(a)-dist(b));
   const brk=[...arr(f?.orderBlocks?.bullish).map(x=>({...x,side:'BULL_BREAKER_RESISTANCE'})),...arr(f?.orderBlocks?.bearish).map(x=>({...x,side:'BEAR_BREAKER_SUPPORT'}))].filter(x=>x&&x.broken===true&&x.breaker===true&&finite(x.low)!==null&&finite(x.high)!==null).sort((a,b)=>dist(a)-dist(b));
-  const z=x=>x?{side:x.side||null,low:r(x.low),high:r(x.high),...(x.scope?{scope:x.scope,zoneMode:x.zoneMode??null,confirmedAt:x.confirmedAt??null,state:x.state??null}:{}),...(finite(x.volRel)!==null?{volRel:finite(x.volRel)}:{})}:null;
+  const z=x=>x?{side:x.side||null,low:r(x.low),high:r(x.high),...(x.lifecycle?{lifecycle:{state:x.lifecycle.state,fillPct:x.lifecycle.fillPct,testCount:x.lifecycle.testCount,ce50Touched:x.lifecycle.ce50Touched}}:{}),...(x.scope?{scope:x.scope,zoneMode:x.zoneMode??null,confirmedAt:x.confirmedAt??null,state:x.state??null}:{}),...(finite(x.volRel)!==null?{volRel:finite(x.volRel)}:{})}:null;
   const out={rangeHigh:r(dr.high),rangeLow:r(dr.low),rangeZone:dr.zone||null,fib50:r(fib['0.5']),fib618:r(fib['0.618']),
     oteLong:ote.longDiscountZone?[r(ote.longDiscountZone.low),r(ote.longDiscountZone.high)]:null,
     oteShort:ote.shortPremiumZone?[r(ote.shortPremiumZone.low),r(ote.shortPremiumZone.high)]:null,
@@ -267,6 +268,7 @@ function mirrorFrameDigest(f){
     prior20High:f.prior20High??null,prior20Low:f.prior20Low??null,candle:f.candle||null,
     patterns:arr(f.patterns).slice(-6),swingStructure:f.swingStructure||null,liquidity:f.liquidity||null,
     recentFairValueGaps:clipArr(arr(f.recentFairValueGaps).length ? f.recentFairValueGaps : f?.liquidity?.fairValueGaps,3),
+    fairValueGapHistory:clipArr(f.fairValueGapHistory,2),
     orderBlocks:{bullish:arr(f?.orderBlocks?.bullish).slice(-2),bearish:arr(f?.orderBlocks?.bearish).slice(-2)},
     smcContext:f.smcContext||null,priceAction:f.priceAction||null,
     // CLAUDE_R2544_5: denetim aynası JEV'e giden ön-hareket ve kapanmamış mum bilgisini de gösterir.

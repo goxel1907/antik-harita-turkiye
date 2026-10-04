@@ -1,6 +1,6 @@
 'use strict';
 const {profitGiveback}=require('./outcome-metrics');
-function priceActionAtEntry(ec){return Object.fromEntries(['5m','15m'].map(tf=>{const f=ec?.entryCase?.frames?.[tf];return [tf,f?.priceAction?.available?{version:f.priceAction.version,asOf:f.asOf,orderBlocks:(f.orderBlocks||[]).slice(0,4),events:(f.priceAction.events||[]).slice(-2)}:null];}));}
+function priceActionAtEntry(ec){return Object.fromEntries(['5m','15m'].map(tf=>{const f=ec?.entryCase?.frames?.[tf];return [tf,f?.priceAction?.available?{version:f.priceAction.version,asOf:f.asOf,orderBlocks:(f.orderBlocks||[]).slice(0,4),fvg:(f.fvg||[]).slice(0,3),events:(f.priceAction.events||[]).slice(-2)}:null];}));}
 // CLAUDE_R2544_16_TRADE_LESSONS (Claude Work, 2026-09-29) — beynin kâr/zarardan KESİN öğrenmesi.
 // Önceki durum: JEV_LESSON'lar tek işlemden genel "OBSERVE_MORE" üretiyordu; deneyim hafızası kurulumu hangi
 // dikkat katmanından (ilk 3 / 4–10 / 11–24 / aday / erken ilgi / patlamaya yakın) geldiğini hiç bilmiyordu.
@@ -254,6 +254,11 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
     const keys=new Set((f.orderBlocks||[]).map(z=>[tf,z.scope||'UNKNOWN',z.side,z.state||'UNKNOWN',c.side].join('|')));
     for(const k of keys){if(!paGroups.has(k))paGroups.set(k,[]);paGroups.get(k).push(c);}
   }
+  const fvgGroups=new Map();
+  for(const c of xs)for(const [tf,f] of Object.entries(c.priceActionAtEntry||{})){
+    const keys=new Set((f?.fvg||[]).filter(z=>z.lifecycle).map(z=>[tf,z.side,z.lifecycle.state,z.lifecycle.testCount>1?"REPEATED_TEST":z.lifecycle.testCount===1?"FIRST_TEST":"UNTESTED",c.side].join("|")));
+    for(const k of keys){if(!fvgGroups.has(k))fvgGroups.set(k,[]);fvgGroups.get(k).push(c);}
+  }
   const tagG=new Map();for(const c of xs)for(const t of c.tags){if(!tagG.has(t))tagG.set(t,[]);tagG.get(t).push(c);}
   const tagRows=[...tagG.entries()].filter(([t])=>!t.startsWith('R_')).map(([t,v])=>{const s=stats(v);return [t,s.n,s.winPct,s.net];}).sort((a,b)=>a[3]-b[3]);
   // Ne çalıştı / ne çalışmadı: n≥4 grup; PF ve net ile sıralı.
@@ -274,6 +279,7 @@ function digest(cards,{symbol=null,candidate=null,now=Date.now()}={}){
     byRegimeSide:rows(regimeSide,{minN:3,limit:10}),
     byPreEntryFlow:rows(preEntrySide,{minN:2,limit:10}),
     byPriceAction:rows(paGroups,{minN:2,limit:8}),
+    byFvgLifecycle:rows(fvgGroups,{minN:2,limit:6}),
     priceActionGrouping:'Overlapping immutable-entry cohorts; a trade may appear in multiple rows. Association, not causal attribution or trained weights.',
     byExit:rows(group(xs,c=>c.exit||'UNKNOWN'),{minN:3,limit:6}).map(r=>r.slice(0,4)),
     worked,failed,repeatedMistakes:tagFailed,
