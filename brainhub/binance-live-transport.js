@@ -700,7 +700,7 @@ class BinanceLiveTransport {
   // already-open position only. This helper can never increase/reverse exposure.
   // The controller must separately require explicit LIVE arm + BrainHub ownership.
   // ------------------------------------------------------------------
-  async reducePositionMarket({ symbol, side, fraction = 1, credentials, reason = 'JEV_POSITION_MANAGEMENT' } = {}) {
+  async reducePositionMarket({ symbol, side, fraction = 1, maxQuantity = null, minRemainingQty = null, clientOrderId = null, credentials, reason = 'JEV_POSITION_MANAGEMENT' } = {}) {
     const sym=text(symbol)?.toUpperCase();
     const s=text(side)?.toUpperCase();
     const f=finite(fraction);
@@ -709,6 +709,9 @@ class BinanceLiveTransport {
       return {ok:false,orderPlaced:false,reason:'POSITION_REDUCE_INPUT_INVALID'};
     }
     if(!apiKey||!apiSecret)return {ok:false,orderPlaced:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    if(clientOrderId!==null&&!/^JX[a-f0-9]{30}$/.test(clientOrderId))return {ok:false,orderPlaced:false,requestSent:false,reason:'POSITION_REDUCE_CLIENT_ID_INVALID'};
+    const cid=clientOrderId||'JX'+crypto.createHash('sha256').update(sym+'|'+s+'|'+String(this.clock())+'|'+String(f)+'|'+String(reason)).digest('hex').slice(0,30);
+    let reductionSent=false;
     try{
       await this._syncServerTime();
       const mode=await this._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials,signed:true});
@@ -728,20 +731,22 @@ class BinanceLiveTransport {
       const step=finite(lot?.stepSize),minQty=finite(lot?.minQty);
       if(step===null||step<=0||minQty===null||minQty<=0)return {ok:false,orderPlaced:false,reason:'POSITION_REDUCE_LOT_FILTER_REQUIRED'};
       let qty=f>=0.999999?floorToStep(actualQty,step):floorToStep(actualQty*f,step);
+      if(finite(maxQuantity)!==null)qty=Math.min(qty,floorToStep(maxQuantity,step));
+      if(finite(minRemainingQty)!==null)qty=Math.min(qty,floorToStep(Math.max(0,actualQty-minRemainingQty),step));
       if(qty===null||qty<minQty||qty<=0)return {ok:false,orderPlaced:false,reason:'POSITION_REDUCE_QTY_BELOW_MIN',actualQty,fraction:f,step,minQty};
       if(qty>actualQty)qty=floorToStep(actualQty,step);
       const closeSide=s==='LONG'?'SELL':'BUY';
-      const cid='JX'+crypto.createHash('sha256').update(sym+'|'+s+'|'+String(this.clock())+'|'+String(f)+'|'+String(reason)).digest('hex').slice(0,30);
       const params={
         symbol:sym,side:closeSide,positionSide:hedgeMode?s:'BOTH',type:'MARKET',
         quantity:decimal(qty),newClientOrderId:cid,newOrderRespType:'RESULT'
       };
       if(!hedgeMode)params.reduceOnly='true';
+      reductionSent=true;
       const ack=await this._fetchJson('POST','/fapi/v1/order',{credentials,signed:true,params});
       const orderId=ack?.orderId??null;
       const executedQty=finite(ack?.executedQty)||0;
       if(orderId===null||executedQty<=0){
-        return {ok:false,orderPlaced:orderId!==null,requestSent:true,reason:'POSITION_REDUCE_FILL_UNCLEAR',symbol:sym,side:s,quantity:qty,orderId,status:text(ack?.status)};
+        return {ok:false,orderPlaced:orderId!==null,requestSent:true,clientOrderId:cid,reason:'POSITION_REDUCE_FILL_UNCLEAR',symbol:sym,side:s,quantity:qty,orderId,status:text(ack?.status)};
       }
       let remainingQty=null;
       try{
@@ -755,13 +760,21 @@ class BinanceLiveTransport {
       }catch{}
       return {
         ok:true,orderPlaced:true,requestSent:true,execution:f>=0.999999?'JEV_EXIT_NOW_REDUCE_ONLY_MARKET':'JEV_PARTIAL_REDUCE_ONLY_MARKET',
-        symbol:sym,side:s,fraction:f,requestedQty:qty,executedQty,remainingQty,
-        fullyClosed:remainingQty===0,closeVerification:remainingQty===null?'UNVERIFIED':'POSITION_RISK_RECHECKED',orderId,status:text(ack?.status),hedgeMode,
+        symbol:sym,side:s,fraction:f,clientOrderId:cid,requestedQty:qty,executedQty,remainingQty,
+        avgPrice:finite(ack?.avgPrice),fullyClosed:remainingQty===0,closeVerification:remainingQty===null?'UNVERIFIED':'POSITION_RISK_RECHECKED',orderId,status:text(ack?.status),hedgeMode,
         reduceOnly:!hedgeMode,reason:String(reason||'JEV_POSITION_MANAGEMENT').slice(0,80)
       };
     }catch(e){
-      return {ok:false,orderPlaced:false,requestSent:Boolean(e?.requestSent),reason:String(e?.message||'POSITION_REDUCE_FAILED').slice(0,160),exchangeError:e?.body||null};
+      return {ok:false,orderPlaced:false,requestSent:reductionSent,clientOrderId:cid,reason:String(e?.message||'POSITION_REDUCE_FAILED').slice(0,160),exchangeError:e?.body||null};
     }
+  }
+  async reductionStatus({symbol,clientOrderId,credentials}={}){
+    if(!/^[A-Z0-9]{1,28}USDT$/.test(String(symbol||''))||!/^JX[a-f0-9]{30}$/.test(String(clientOrderId||'')))return {ok:false,reason:'REDUCTION_ID_REQUIRED'};
+    try{
+      await this._syncServerTime();
+      const ack=await this._fetchJson('GET','/fapi/v1/order',{params:{symbol,origClientOrderId:clientOrderId},credentials,signed:true});
+      return {ok:true,status:text(ack?.status),avgPrice:finite(ack?.avgPrice),executedQty:finite(ack?.executedQty),orderId:ack?.orderId??null};
+    }catch{return {ok:false,reason:'REDUCTION_STATUS_UNAVAILABLE'};}
   }
 
   // ------------------------------------------------------------------

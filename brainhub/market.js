@@ -816,12 +816,17 @@ function cachedChartContext(symbol,now=Date.now()){
   return chartContextFromSnapshot(symbol,frameCache.get(`${FUTURES}:${symbol}`)?.result,now);
 }
 let burstChartWarmAt=null,burstChartWarmBusy=false;
+const burstChartWarmBySymbol=new Map();
 async function warmChartContext(symbol){
   if(!validSymbol(symbol))return {ok:false,reason:'SYMBOL_INVALID'};
   const now=Date.now(),rate=binanceRate.status(now);
-  if(burstChartWarmBusy||(burstChartWarmAt!==null&&now-burstChartWarmAt<120000))return {ok:false,reason:'CHART_WARM_THROTTLED'};
+  // The old global 120s gate was longer than the 60s freshness window and
+  // starved three of four candidates. One refresh at a time remains governed.
+  if(burstChartWarmBusy||(burstChartWarmAt!==null&&now-burstChartWarmAt<10000)||now-(burstChartWarmBySymbol.get(symbol)||0)<30000)return {ok:false,reason:'CHART_WARM_THROTTLED'};
   if(rate.quarantined||now<Number(rate.cooldownUntil||0)||Math.max(Number(rate.estimatedWeight1m)||0,Number(rate.usedWeight1m)||0)+20>=Number(rate.publicSoftWeight1m||1200))return {ok:false,reason:'BINANCE_RATE_HEADROOM_UNAVAILABLE'};
   burstChartWarmAt=now;burstChartWarmBusy=true;
+  burstChartWarmBySymbol.set(symbol,now);
+  if(burstChartWarmBySymbol.size>200)for(const [s,t] of burstChartWarmBySymbol)if(now-t>120000)burstChartWarmBySymbol.delete(s);
   try{const snapshot=await frameSet(symbol);return {ok:chartContextFromSnapshot(symbol,snapshot).available===true};}
   catch(e){return {ok:false,reason:String(e?.message||e).slice(0,120)};}finally{burstChartWarmBusy=false;}
 }

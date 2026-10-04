@@ -88,10 +88,11 @@ function createOpenRouterFreeWorker({
     const raw=await r.text();let j={};try{j=raw?JSON.parse(raw):{};}catch{}
     const content=j?.choices?.[0]?.message?.content??j?.output_text;
     const text=(typeof content==='string'?content:Array.isArray(content)?content.filter(x=>x?.type==='text'&&typeof x.text==='string').map(x=>x.text).join('\n'):'').trim();
-    if(!r.ok||!text){
+    if(!r.ok){
       const err=new Error('HTTP '+r.status+' '+clip(raw,300));err.status=r.status;err.payload=j;err.headers=r.headers;throw err;
     }
     if(j?.choices?.[0]?.finish_reason==='length')throw new Error('RESPONSE_TRUNCATED');
+    if(!text)throw new Error(j?.error?'PROVIDER_RESPONSE_ERROR':'EMPTY_MODEL_OUTPUT');
     if(text.length>16000)throw new Error('RESPONSE_SCHEMA_INVALID: output too large');
     if(typeof validate==='function'&&validate(text)!==true)throw new Error('RESPONSE_SCHEMA_INVALID');
     const routedModel=String(j?.model||id);

@@ -59,12 +59,12 @@ test('CLAUDE_R2543: JEV tam çıkışı JEV_EXIT_NOW olarak sınıflanır, "manu
   assert.equal(h.classifyExit({ runner:null, netPnl:-0.3, riskQuote:10, row:staleRow, closedAt:now }), 'EXTERNAL_CLOSE');
 });
 
-test('CLAUDE_R2543: stop / TP / runner sınıflandırması korunur', () => {
+test('CLAUDE_R2543: R35: PnL ve stop kilometre taşları kapanış failini kanıtlamaz', () => {
   const { _testHelpers:h } = controller(stubStore());
-  assert.equal(h.classifyExit({ runner:null, netPnl:-12.09, riskQuote:11.86, row:{}, closedAt:Date.now() }), 'STOP_LOSS');
-  assert.equal(h.classifyExit({ runner:null, netPnl:11.0, riskQuote:11.0, row:{}, closedAt:Date.now() }), 'TAKE_PROFIT');
-  assert.equal(h.classifyExit({ runner:{ tp1ReachedAt:1, stopMoveCount:3 }, netPnl:10.05, riskQuote:6.44, row:{}, closedAt:Date.now() }), 'TP1_RUNNER_TRAIL');
-  assert.equal(h.classifyExit({ runner:{ tp1ReachedAt:1, stopMoveCount:0 }, netPnl:0.25, riskQuote:3.25, row:{}, closedAt:Date.now() }), 'TP1_BREAKEVEN');
+  assert.equal(h.classifyExit({ runner:null, netPnl:-12.09, riskQuote:11.86, row:{}, closedAt:Date.now() }), 'EXTERNAL_CLOSE');
+  assert.equal(h.classifyExit({ runner:null, netPnl:11.0, riskQuote:11.0, row:{}, closedAt:Date.now() }), 'EXTERNAL_CLOSE');
+  assert.equal(h.classifyExit({ runner:{ tp1ReachedAt:1, stopMoveCount:3 }, netPnl:10.05, riskQuote:6.44, row:{}, closedAt:Date.now() }), 'EXTERNAL_CLOSE');
+  assert.equal(h.classifyExit({ runner:{ tp1ReachedAt:1, stopMoveCount:0 }, netPnl:0.25, riskQuote:3.25, row:{}, closedAt:Date.now() }), 'EXTERNAL_CLOSE');
   // riskQuote ölçülemiyorsa dürüst etiket
   assert.equal(h.classifyExit({ runner:null, netPnl:-1, riskQuote:null, row:{}, closedAt:Date.now() }), 'OTHER_CLOSE');
 });

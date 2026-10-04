@@ -90,7 +90,7 @@ test('controller: 0,5R kademeli kâr reduce-only MARKET 1/3, faz INITIAL kalır,
   const controller=createLiveController({root,credentials:{apiKey:'test-api-key',apiSecret:'test-api-secret'},fetchImpl,clock:()=>state.now,
     store:{journal:(k,s,p)=>{journal.push({k,p});return 'id';}},scanner:{async scan(){throw new Error('unused');}},
     pipeline:{async run(){throw new Error('unused');}},committee:async()=>({})});
-  controller._testRegisterRunner({intent:{symbol:'ABCUSDT',side:'LONG',entryPrice:100,stopPrice:98,takeProfit3:106,originTF:'5m',estimatedLiquidationPrice:80},
+  controller._testRegisterRunner({intent:{symbol:'ABCUSDT',side:'LONG',entryPrice:100,stopPrice:98,takeProfit1:102,takeProfit2:104,takeProfit3:106,originTF:'5m',estimatedLiquidationPrice:80},
     result:{symbol:'ABCUSDT',side:'LONG',executedQty:30,tpQuantities:[10,10,10],stopAlgoId:'S1',tpAlgoIds:['T1'],runner:{enabled:true,tpPlaced:1},stopProtected:true},mode:'BINDING',lane:'5M_SCALP'});
   const r1=await controller.runnerTick();
   assert.equal(r1.results[0].action,'GUARD_SCALE_OUT',JSON.stringify(r1));

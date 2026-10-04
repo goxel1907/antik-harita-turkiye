@@ -28,6 +28,8 @@ const tradeLanesV111 = require('./trade-lanes');
 const positionGuard = require('./position-guard');
 const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
+const {createProfitBudget}=require('./profit-budget');
+const {createBurstReduction}=require('./burst-reduction');
 const { BurstScalpManager } = require('./burst-scalp');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
@@ -312,10 +314,11 @@ function jevFinalAuthorityPreflight({ plan, unified } = {}) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
+  const profitBudget=createProfitBudget({transport,clock,emit:runnerEvent,persist:writeRunnerState});
   const burst = new BurstScalpManager({marketStream:market?.marketStream||marketStream,now:clock,maxArmed:4,maxActive:1});
   let burstArmBusy=false, burstTickBusy=false, burstArmCursor=0;
   let burstArmReview={at:null,checked:0,results:[],reason:'NOT_REVIEWED'};
@@ -1481,15 +1484,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // USER_MANUAL yalnız gerçek kanıt olduğunda yazılır (şu an BrainHub dışı kapanış için kanıt yoktur → EXTERNAL_CLOSE).
   function classifyExit({ runner, netPnl, riskQuote, row = null, closedAt = null }) {
     const events = Array.isArray(runner?.events) ? runner.events : [];
-    const tp1Reached = Number(runner?.tp1ReachedAt||0)>0 || events.some(e => e?.kind === 'PHASE' && ['TRAILING','BREAKEVEN'].includes(String(e?.to || '').toUpperCase()));
-    const trailMoves = Math.max(Number(runner?.stopMoveCount||0), events.filter(e => e?.kind === 'STOP_MOVED').length);
     const jev = row?.lastExitExecution && row.lastExitExecution.by==='JEV' ? row.lastExitExecution : null;
     const jevAt = jev ? Number(jev.at||0) : 0;
     const jevFresh = jev && jevAt>0 && (closedAt===null||!Number.isFinite(Number(closedAt))||Math.abs(Number(closedAt)-jevAt)<=15*60000);
     if (jevFresh && jev.fullyClosed===true) return jev.action==='EXIT_NOW' ? 'JEV_EXIT_NOW' : 'JEV_PARTIAL_TAKE_PROFIT';
-    if (tp1Reached) return netPnl !== null && netPnl > 0 ? (trailMoves > 1 ? 'TP1_RUNNER_TRAIL' : 'TP1_BREAKEVEN') : 'TP1_THEN_STOP';
-    if (netPnl !== null && riskQuote && riskQuote > 0 && netPnl <= -0.7 * riskQuote) return 'STOP_LOSS';
-    if (netPnl !== null && riskQuote && riskQuote > 0 && netPnl >= 0.9 * riskQuote) return 'TAKE_PROFIT';
+    const guard=events.filter(e=>e?.kind==='GUARD_CLOSE'&&e.ok===true&&e.fullyClosed===true&&
+      Number.isFinite(Date.parse(e.at))&&Math.abs(Number(closedAt)-Date.parse(e.at))<=15*60000).at(-1);
+    if(guard)return 'GUARD_CLOSE';
+    // A partial fill, a moved stop or the size/sign of P&L cannot identify the
+    // final closer. Preserve those milestones in outcomePath, not exit cause.
     if (jevFresh) return 'JEV_PARTIAL_THEN_EXTERNAL_CLOSE';
     if (riskQuote && riskQuote > 0) return 'EXTERNAL_CLOSE';
     return 'OTHER_CLOSE';
@@ -1584,7 +1587,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // CLAUDE_R2543_TRADE_R_FIX: R ve riskQuote İLK miktar + İLK stop üzerinden hesaplanır.
       // Eski davranış: row.quantity (kalan miktar) kullanılıyordu → tam çıkışta 0 (R=0), kısmi çıkışta şişik R.
       const init=recoverInitialEntry(row,symbol);
-      const remainingAtClose=finite(row.quantity);
+      const remainingAtClose=0; // two exchange snapshots confirmed no open position
       const entry=init.entryPrice,qty=finite(init.quantity),stop=init.stopPrice;
       const base=entry!==null&&qty!==null?Math.abs(entry*qty):null;
       const riskQuote=finite(row.plannedRiskQuote)??init.riskQuote;
@@ -1592,6 +1595,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const rMultiple=netPnl!==null&&riskQuote&&riskQuote>0?netPnl/riskQuote:null;
       const riskBasis=finite(row.plannedRiskQuote)!==null?'LIFECYCLE_PLANNED_RISK':init.source;
       const runner=runnerForRow(row,symbol);
+      const lastObservedQuantityBeforeClose=finite(runner?.lastObservedQuantity??runner?.runnerStopQty??row.quantity);
       const closedAt=clock();
       const exitType=classifyExit({runner,netPnl,riskQuote,row,closedAt});
       const holdMinutes=activeAt>0?Math.round((closedAt-activeAt)/60000):null;
@@ -1654,9 +1658,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,tradeLane:row.tradeLaneName||row.entryContext?.lane||null,
         entryPrice:entry,stopPrice:stop,takeProfit1:finite(row.takeProfit1),quantity:qty,notional:base,riskQuote,
         // CLAUDE_R2543: ilk/kalan miktar ayrımı ve risk tabanı kayda girer (raporlama ve öğrenme bunu kullanır).
-        initialQuantity:qty,remainingQuantityAtClose:remainingAtClose,riskBasis,
+        initialQuantity:qty,remainingQuantityAtClose:remainingAtClose,lastObservedQuantityBeforeClose,riskBasis,
         stopDistancePct:finite(row.stopDistancePct),exitBy:row?.lastExitExecution?.by||null,
-        realizedPnl,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,outcomePct,rMultiple,exitType,
+        realizedPnl,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,outcomePct,rMultiple,exitType,exitEvidenceVersion:'R2544.35',
         openedAt:activeAt>0?new Date(activeAt).toISOString():null,closedAt:new Date(closedAt).toISOString(),holdMinutes,
         runner:runner?{phase:runner.phase,tpPlaced:runner.tpPlaced,stopMoves:Math.max(Number(runner.stopMoveCount||0),(runner.events||[]).filter(e=>e?.kind==='STOP_MOVED').length)}:null,
         entryContext:row.entryContext||null,
@@ -1990,10 +1994,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       const assessment=positionManager.assessPosition({position,lifecycle,unified:advisory?.unifiedContext||{}});
       const runnerRow=preRunner;
+      const managementEvents=[...(existing?.jevExitEvents||[])];
+      for(const fill of runnerRow?.managementFills||[])if(!managementEvents.some(x=>x.clientOrderId&&x.clientOrderId===fill.clientOrderId))managementEvents.push(fill);
       const partialGate=positionGuard.partialContract({side:position.side,
         entryPrice:finite(runnerRow?.entryPrice)??finite(lifecycle?.entryPlan?.entryPrice)??finite(position.entryPrice),
         initialStop:finite(runnerRow?.originalStopPrice)??finite(lifecycle?.entryPlan?.stopPrice),
-        markPrice:finite(position.markPrice),partialEvents:existing?.jevExitEvents||[],now:clock(),config:positionGuard.readConfig(root),
+        markPrice:finite(position.markPrice),partialEvents:managementEvents,now:clock(),config:positionGuard.readConfig(root),
         // CLAUDE_R2544_8_PRE_TP1_CAP: TP1 öncesi toplam azaltma (JEV kısmi + guard kademeli) ilk miktara oranla.
         reducedFraction:finite(runnerRow?.initialQty)>0?(finite(runnerRow?.mgmtReducedQty)||0)/finite(runnerRow.initialQty):null,phase:runnerRow?.phase||null,
         // CLAUDE_R2544_10_RUNNER_FLOOR: TP1 sonrası kalan/ilk miktar (runner tabanı %25).
@@ -2008,7 +2014,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         reducedFraction:initQty>0?(finite(runnerRow?.mgmtReducedQty)||0)/initQty:null,
         managementStyle:runnerRow?.managementStyle||lifecycle?.entryPlan?.managementStyle||null,partialProfile:runnerRow?.partialProfile||lifecycle?.entryPlan?.partialProfile||null,
         partialFractions:runnerRow?.partialFractions||lifecycle?.entryPlan?.partialFractions||null,breakevenRule:runnerRow?.breakevenRule||lifecycle?.entryPlan?.breakevenRule||null,trailRule:runnerRow?.trailRule||lifecycle?.entryPlan?.trailRule||null,
-        recentManagementEvents:Array.isArray(runnerRow?.events)?runnerRow.events.slice(-12):[],recentJevActions:Array.isArray(existing?.jevExitEvents)?existing.jevExitEvents.slice(-8):[]
+        recentManagementEvents:Array.isArray(runnerRow?.events)?runnerRow.events.slice(-12):[],recentJevActions:managementEvents.slice(-8)
       };
       let jevExit={ok:false,called:false,action:'HOLD_REVIEW',actionTr:'TUT • VERİYİ YENİDEN KONTROL ET',summaryTr:'Jev pozisyon hakemi kullanılamadı.'};
       if(typeof exitJudge==='function'&&advisory?.unifiedContext){
@@ -2030,7 +2036,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let riskReduceDeferred=null;
       if(action==='REDUCE_RISK'){
         const adverseR=finite(partialGate?.progressR);
-        const recent=(Array.isArray(existing?.jevExitEvents)?existing.jevExitEvents:[]).filter(x=>x?.action==='REDUCE_RISK');
+        const recent=managementEvents.filter(x=>x?.action==='REDUCE_RISK');
         const last=recent.reduce((m,x)=>Math.max(m,finite(x?.at)||0),0);
         const remFrac=initQty>0?remQty/initQty:null;
         if(adverseR===null||adverseR>=0)riskReduceDeferred='REDUCE_RISK_ONLY_WHILE_ADVERSE';
@@ -2079,7 +2085,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
             }
             executionBusy=true;
             try{
-              const result=await transport.reducePositionMarket({
+              const managedRunner=runnerState.bySymbol?.[position.symbol];
+              const result=action!=='EXIT_NOW'&&runnerBinding(managedRunner)?await profitBudget.reduce({row:managedRunner,fraction,credentials:creds,
+                reason:action==='REDUCE_RISK'?'JEV_REDUCE_RISK':'JEV_PARTIAL_TAKE_PROFIT'}):action==='EXIT_NOW'&&runnerBinding(managedRunner)?await profitBudget.close({row:managedRunner,credentials:creds,reason:'JEV_EXIT_NOW'}):await transport.reducePositionMarket({
                 symbol:position.symbol,side:position.side,fraction,credentials:creds,
                 reason:action==='EXIT_NOW'?'JEV_EXIT_NOW':(action==='REDUCE_RISK'?'JEV_REDUCE_RISK':'JEV_PARTIAL_TAKE_PROFIT')
               });
@@ -2093,13 +2101,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
                   reason:action==='EXIT_NOW'?'JEV_EXIT_NOW':(action==='REDUCE_RISK'?'JEV_REDUCE_RISK':'JEV_PARTIAL_TAKE_PROFIT')};
                 if(result?.fullyClosed!==true&&runnerState.bySymbol?.[position.symbol]){
                   const rr0=runnerState.bySymbol[position.symbol];
-                  rr0.mgmtReducedQty=(finite(rr0.mgmtReducedQty)||0)+(finite(result?.executedQty)||0);
+                  if(!runnerBinding(managedRunner))rr0.mgmtReducedQty=(finite(rr0.mgmtReducedQty)||0)+(finite(result?.executedQty)||0);
                   // CLAUDE_R2544_7_JEV_PARTIAL_BE: kârda yürüyen JEV kısmisi → guard kalan için stopu başabaşa çeker.
                   if(action==='PARTIAL_TAKE_PROFIT'&&finite(partialGate?.progressR)!==null&&partialGate.progressR>0){rr0.jevPartialBE=true;rr0.jevPartialBEAt=clock();}
                   writeRunnerState();
                 }
                 existing.jevExitEvents=[...(Array.isArray(existing.jevExitEvents)?existing.jevExitEvents:[]),
-                  {action,at:clock(),fraction,executedQty:finite(result?.executedQty),remainingQty:finite(result?.remainingQty),fullyClosed:result?.fullyClosed===true}].slice(-8);
+                  {action,at:clock(),fraction,clientOrderId:result.clientOrderId||managedRunner?.lastConfirmedPartial?.clientOrderId,executedQty:finite(result?.executedQty),remainingQty:finite(result?.remainingQty),fullyClosed:result?.fullyClosed===true}].slice(-8);
                 if(result?.fullyClosed===true){
                   const rr=runnerState.bySymbol?.[position.symbol]||null;
                   if(rr){
@@ -2206,11 +2214,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       entryPrice:finite(intent?.entryPrice),
       initialQty:finite(result?.executedQty),
       tpQty:Array.isArray(result?.tpQuantities)?result.tpQuantities.map(finite):null,
+      originalTpQty:Array.isArray(result?.tpQuantities)?result.tpQuantities.map(finite):null,
       originalStopPrice:finite(intent?.stopPrice),
       originalStopAlgoId:result?.stopAlgoId??null,
       tpAlgoIds:Array.isArray(result?.tpAlgoIds)?result.tpAlgoIds.slice(0,3):[],
       tpPlaced:Number(result?.runner?.tpPlaced||(Array.isArray(result?.tpAlgoIds)?result.tpAlgoIds.length:2))||2,
       takeProfit3:finite(intent?.takeProfit3),
+      takeProfit1:finite(intent?.takeProfit1),takeProfit2:finite(intent?.takeProfit2),
       managementStyle:intent?.managementStyle||null,
       targetProfile:intent?.targetProfile||null,
       partialProfile:intent?.partialProfile||null,
@@ -2268,6 +2278,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function manageRunner(row,cfg,creds){
     const snap=await transport.positionSnapshot({symbol:row.symbol,side:row.side,credentials:creds});
     if(!snap.ok)return {symbol:row.symbol,ok:false,reason:snap.reason};
+    if(snap.qty>0){row.lastObservedQuantity=snap.qty;row.lastObservedQuantityAt=clock();}
     const binding=runnerBinding(row);
     if(!(snap.qty>0)){
       row.phase='CLOSED';
@@ -2284,11 +2295,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     // CLAUDE_R2544_4_RUNNER_PHASE: JEV kısmi / guard kademeli azaltması TP1 dolumu DEĞİLDİR. 29.09 MARSCOIN:
     // 0,13R'deki JEV kısmisi fazı TRAILING yapıp stopu başabaşa çekiyordu. Faz yalnız borsa TP dolumlarıyla ilerler.
-    const phase=claudeV111.runnerPhase({initialQty:row.initialQty,tpQty:row.tpQty,remainingQty:snap.qty+(finite(row.mgmtReducedQty)||0),stepSize:snap.stepSize,tpPlaced:row.tpPlaced||2});
+    let phase=claudeV111.runnerPhase({initialQty:row.initialQty,tpQty:row.tpQty,remainingQty:snap.qty+(finite(row.mgmtReducedQty)||0),stepSize:snap.stepSize,tpPlaced:row.tpPlaced||2});
+    if(row.profitBudgetVersion==='R2544.35'){
+      const paid=Math.max(0,row.initialQty-snap.qty-(finite(row.mgmtReducedQty)||0)),tol=(finite(snap.stepSize)||0)/2;
+      phase=paid<=tol?'INITIAL':snap.qty<=row.tpQty[2]+tol?'TRAILING':paid>=row.tpQty[0]-tol?(Number(row.tpPlaced)===1?'TRAILING':'BREAKEVEN'):'INITIAL';
+    }
     if(phase!==row.phase){runnerEvent(row,'PHASE',{from:row.phase,to:phase,remainingQty:snap.qty});row.phase=phase;}
     // CLAUDE_R2544_POSITION_GUARD: runner'dan ÖNCE koruma (likidasyon + scalp/trade kuralları).
     const guarded=await applyPositionGuard(row,snap,phase,creds);
     if(guarded)return guarded;
+    if(row.profitBudgetPending){
+      const repaired=await profitBudget.restore(row,creds);
+      if(!repaired.ok)return {symbol:row.symbol,ok:false,phase,action:'PROFIT_BUDGET_PENDING',reason:repaired.reason};
+    }
     if(binding&&Array.isArray(row.pendingCancel)&&row.pendingCancel.length){
       const c=await cancelRefs(row.pendingCancel.map(id=>({algoId:id})),creds);
       row.pendingCancel=c.failed.map(r=>r.algoId);
@@ -2398,8 +2417,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(ev.action==='CLOSE'){
       if(now-Number(row.guardCloseAttemptAt||0)<10000)return {symbol:row.symbol,ok:true,phase,action:'GUARD_CLOSE_PENDING',reason:ev.reason};
       row.guardCloseAttemptAt=now;
-      const r=await transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:1,credentials:creds,reason:ev.reason});
-      runnerEvent(row,'GUARD_CLOSE',{reason:ev.reason,ok:r?.ok===true,executedQty:r?.executedQty??null,remainingQty:r?.remainingQty??null,error:r?.ok===true?null:(r?.reason||null),metrics:m});
+      const r=await profitBudget.close({row,credentials:creds,reason:ev.reason});
+      runnerEvent(row,'GUARD_CLOSE',{reason:ev.reason,ok:r?.ok===true,fullyClosed:r?.fullyClosed===true,executedQty:r?.executedQty??null,remainingQty:r?.remainingQty??null,error:r?.ok===true?null:(r?.reason||null),metrics:m});
       leaderHealthEvent('POSITION_GUARD',{symbol:row.symbol,stage:'CLOSE',reason:ev.reason,ok:r?.ok===true});
       return {symbol:row.symbol,ok:r?.ok===true,phase,action:'GUARD_CLOSE',reason:ev.reason};
     }
@@ -2407,11 +2426,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // CLAUDE_R2544_4_SCALE_OUT: 0,5R'de bir kez kısmi azaltma (reduce-only MARKET). Başabaş stopu sonraki turda.
       if(now-Number(row.scaleOutAttemptAt||0)<10000)return {symbol:row.symbol,ok:true,phase,action:'GUARD_SCALE_OUT_PENDING',reason:ev.reason};
       row.scaleOutAttemptAt=now;
-      const r=await transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:ev.fraction,credentials:creds,reason:'GUARD_SCALE_OUT'});
-      const okR=r?.ok===true&&r?.orderPlaced!==false;
+      const r=runnerBinding(row)?await profitBudget.reduce({row,fraction:ev.fraction,credentials:creds,reason:'GUARD_SCALE_OUT'}):await transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:ev.fraction,credentials:creds,reason:'GUARD_SCALE_OUT'});
+      const okR=r?.ok===true&&(r?.orderPlaced!==false||r?.recovered===true);
       if(okR){
         row.scaleOutDone=true;row.scaleOutAt=now;
-        row.mgmtReducedQty=(finite(row.mgmtReducedQty)||0)+(finite(r?.executedQty)||0);
+        if(!runnerBinding(row))row.mgmtReducedQty=(finite(row.mgmtReducedQty)||0)+(finite(r?.executedQty)||0);
       }else{
         row.scaleOutFailures=Number(row.scaleOutFailures||0)+1;
         if(row.scaleOutFailures>=3){row.scaleOutDone=true;row.scaleOutSkipped=true;} // döngü yok: başabaş kuralı devralır
@@ -2431,8 +2450,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       runnerEvent(row,'GUARD_STOP_FAILED',{target:ev.target,reason:ev.reason,error:placed?.reason||null,failures:row.guardFailures});
       // Likidasyon koruması stop koyamıyorsa pozisyon kapatılır (fail-closed).
       if(row.guardFailures>=3&&ev.reason==='GUARD_STOP_NEAR_LIQUIDATION'){
-        const r=await transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:1,credentials:creds,reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE'});
-        runnerEvent(row,'GUARD_CLOSE',{reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE',ok:r?.ok===true,error:r?.ok===true?null:(r?.reason||null)});
+        const r=await profitBudget.close({row,credentials:creds,reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE'});
+        runnerEvent(row,'GUARD_CLOSE',{reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE',ok:r?.ok===true,fullyClosed:r?.fullyClosed===true,error:r?.ok===true?null:(r?.reason||null)});
         return {symbol:row.symbol,ok:r?.ok===true,phase,action:'GUARD_CLOSE',reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE'};
       }
       return {symbol:row.symbol,ok:false,phase,action:'GUARD_STOP_FAILED',reason:placed?.reason||null};
@@ -4992,15 +5011,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(!pm||!['PRE_MOVE','IGNITION'].includes(String(pm.state||'').toUpperCase())){results.push({symbol:c.symbol,armed:false,reason:'NO_PREMOVE'});continue;}
         const stream=(market?.marketStream||marketStream).snapshot(c.symbol,clock());
         const pos=burstCurrentPosition(c.symbol);
-        const chartContext=market?.cachedChartContext?.(c.symbol,clock())||{available:false,reason:'CHART_CACHE_MISSING'};
+        let chartContext=market?.cachedChartContext?.(c.symbol,clock())||{available:false,reason:'CHART_CACHE_MISSING'};
         if(chartContext.available!==true){
-          // One background candle warm-up per 120s, inside the existing Binance governor.
-          Promise.resolve(market?.warmChartContext?.(c.symbol)).catch(()=>{});
-          results.push({symbol:c.symbol,armed:false,reason:chartContext.reason||'CHART_CACHE_MISSING',chartAgeMs:chartContext.ageMs??null});continue;
+          let warm;try{warm=await market?.warmChartContext?.(c.symbol);}catch{warm=null;}
+          chartContext=market?.cachedChartContext?.(c.symbol,clock())||chartContext;
+          if(chartContext.available!==true){results.push({symbol:c.symbol,armed:false,reason:chartContext.reason||'CHART_CACHE_MISSING',chartAgeMs:chartContext.ageMs??null,warmReason:warm?.reason||null});continue;}
         }
         burstReviewAt.set(c.symbol,{at:clock(),phaseKey:`${String(pm.state||'').toUpperCase()}:${String(pm.direction||'').toUpperCase()}`});
         if(burstReviewAt.size>200){for(const [symbol,review] of burstReviewAt)if(clock()-review.at>=120000)burstReviewAt.delete(symbol);}
-        let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,chartContext,position:pos,pause:lossStreakPause()});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
+        let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,chartContext,position:pos,pause:lossStreakPause(),learning:store.learningContext?.({symbol:c.symbol})});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
         try{store.journal('BURST_PREAUTH_REVIEW',c.symbol,{decision:j?.decision||'DO_NOT_ARM',called:j?.called===true,reason:j?.reason||null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null});}catch{}
         if(j?.ok&&['LONG','SHORT'].includes(j.side)){
           // Existing opposite position is never hedged by burst v1.
@@ -5021,7 +5040,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const burstMargin=finite(la.config.burstMarginQuote)??finite(la.config.marginQuote);
     const freeFraction=Math.max(0.10,Math.min(0.50,finite(la.config.burstFreeMarginFraction)??0.50));
     const userCap=Math.max(1,Math.min(125,Math.floor(finite(la.config.burstMaxLeverage)??125)));
-    const margin=flat?Math.min(burstMargin||0,finite(acct.availableBalance)||0):(finite(acct.availableBalance)||0)*freeFraction;
+    if(flat&&Number(acct.availableBalance)<burstMargin)return {ok:false,reason:'BURST_PANEL_MARGIN_UNAVAILABLE'};
+    const margin=flat?burstMargin:(finite(acct.availableBalance)||0)*freeFraction;
     if(!(margin>0))return {ok:false,reason:'BURST_MARGIN_UNAVAILABLE'};
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'BURST_LEVERAGE_BRACKET_UNAVAILABLE'};}
@@ -5037,7 +5057,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(coreLev>userCap)return {ok:false,reason:'BURST_CORE_LEVERAGE_EXCEEDS_USER_CAP',coreLeverage:coreLev,userBurstMaxLeverage:userCap};
       leverage=Math.min(exchangeMax,coreLev);changeLeverage=false;
     }else{
-      leverage=String(mode||'MAX_SAFE')==='PANEL'?Number(la.config.leverage)||1:String(mode||'MAX_SAFE')==='HALF_MAX'?Math.floor(exchangeMax/2):exchangeMax;
+      leverage=exchangeMax; // user mandate: maximum safe, subject to caps below
       leverage=Math.max(1,Math.min(125,userCap,exchangeMax,safeMax,leverage));
       // Reconcile with notional bracket at chosen size.
       for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);const cap=Number(br?.initialLeverage)||exchangeMax;leverage=Math.max(1,Math.min(leverage,cap,safeMax,userCap));}
@@ -5046,16 +5066,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   async function burstReduceExact(active,reason){
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
-    try{await transport._syncServerTime();const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;const ack=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol:active.symbol,side:active.side==='LONG'?'SELL':'BUY',positionSide:hedge?active.side:'BOTH',type:'MARKET',quantity:String(active.quantity),...(hedge?{}:{reduceOnly:'true'}),newClientOrderId:('BX'+active.burstId.replace(/[^A-Za-z0-9]/g,'').slice(-28)).slice(0,36),newOrderRespType:'RESULT'}});return {ok:true,reason,orderId:ack?.orderId??null,avgPrice:finite(ack?.avgPrice),executedQty:finite(ack?.executedQty)};}catch(e){return {ok:false,reason:String(e?.message||'BURST_REDUCE_FAILED').slice(0,140),exchangeError:e?.body||null};}
+    try{return await createBurstReduction({transport,persist:a=>{try{store.journal('BURST_EXIT_STATE',a.symbol,{burstId:a.burstId,quantity:a.quantity,exitPending:a.exitPending,stopAlgoId:a.stopAlgoId});}catch{}}}).reduce(active,reason,creds);}catch(e){return {ok:false,reason:String(e?.message||'BURST_REDUCE_FAILED').slice(0,140)};}
   }
   async function burstOpen(auth,ev){
     if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
     const creds=currentCredentials(),symbol=auth.symbol,side=auth.side,snap=(market?.marketStream||marketStream).snapshot(symbol,clock());
     const price=finite(side==='LONG'?snap?.ask:snap?.bid)??finite((finite(snap?.ask)+finite(snap?.bid))/2);if(!(price>0))return {ok:false,reason:'BURST_PRICE_UNAVAILABLE'};
     const current=burstCurrentPosition(symbol),sameAddon=!!current;
+    // Binance merges same-side lots; a separate burst stop/exit cannot prove
+    // it will leave the core lot intact during partial fills or unknown ACKs.
+    if(sameAddon)return {ok:false,reason:'BURST_SHARED_POSITION_NOT_ISOLATABLE'};
     if(current&&String(current.side||'').toUpperCase()!==side)return {ok:false,reason:'BURST_OPPOSITE_POSITION_BLOCKED'};
     const stopPct=Math.max(0.32,Math.min(0.75,0.38+Math.max(0,finite(snap?.spreadBps)||0)*0.006));
-    const tpPct=Math.max(0.50,Math.min(1.10,stopPct*1.65));
     const hasAnyOpen=Array.isArray(ledgerState.open)&&ledgerState.open.length>0;
     const sz=await burstLeverageAndSizing(symbol,side,auth.leverageMode,price,stopPct,!hasAnyOpen,current);if(!sz.ok)return sz;
     await transport._syncServerTime();
@@ -5063,8 +5085,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const f=exchangeFiltersFor(si);if(!(f.lotStep>0&&f.tickSize>0))return {ok:false,reason:'BURST_FILTERS_MISSING'};
     const quantity=burstFloor(sz.marginQuote*sz.leverage/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||quantity>f.maxQty)return {ok:false,reason:'BURST_QUANTITY_INVALID'};
     if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'BURST_MIN_NOTIONAL_NOT_MET'};
-    const stopRaw=side==='LONG'?price*(1-stopPct/100):price*(1+stopPct/100),tpRaw=side==='LONG'?price*(1+tpPct/100):price*(1-tpPct/100);
-    const stopPrice=burstTickPrice(stopRaw,f.tickSize,side==='LONG'?'down':'up'),takeProfitPrice=burstTickPrice(tpRaw,f.tickSize,side==='LONG'?'up':'down');
+    const stopRaw=side==='LONG'?price*(1-stopPct/100):price*(1+stopPct/100);
+    const stopPrice=burstTickPrice(stopRaw,f.tickSize,side==='LONG'?'down':'up');
     const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;const positionSide=hedge?side:'BOTH';
     // One-way mode: same-side addon is permitted; opposite is blocked above. Hedge mode must match side.
     if(sz.changeLeverage!==false){const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(sz.leverage)}});if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==sz.leverage)return {ok:false,reason:'BURST_LEVERAGE_REJECTED'};}
@@ -5073,26 +5095,36 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const executed=finite(entry?.executedQty),entryPrice=finite(entry?.avgPrice)??price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
     // Quantity-specific protective stop so a synthetic addon can never close the core position.
     const stop=await transport.placeRunnerStop({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:stopPrice,clientAlgoId:('BS'+burstId.replace('_','')).slice(0,36),credentials:creds});
-    if(!stop.ok){const emergency=await burstReduceExact({symbol,side,quantity:executed,burstId},'BURST_STOP_PROTECTION_FAILED');return {ok:false,orderPlaced:true,emergencyClose:emergency,reason:'BURST_STOP_PROTECTION_FAILED'};}
-    const started=burst.start({burstId,authorizationId:auth.authorizationId,symbol,side,quantity:executed,entryPrice,stopPrice,takeProfitPrice,leverage:sz.leverage,marginQuote:sz.marginQuote,syntheticAddon:sameAddon,pauseExceptionUsed:false});
+    if(!stop.ok){const emergency=await burstReduceExact({symbol,side,quantity:executed,burstId,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,stopPrice},'BURST_STOP_PROTECTION_FAILED');return {ok:false,orderPlaced:true,emergencyClose:emergency,reason:'BURST_STOP_PROTECTION_FAILED'};}
+    const started=burst.start({burstId,authorizationId:auth.authorizationId,symbol,side,quantity:executed,entryPrice,stopPrice,leverage:sz.leverage,marginQuote:sz.marginQuote,syntheticAddon:sameAddon,pauseExceptionUsed:false});
     if(started.ok){started.active.stopAlgoId=stop.algoId;started.active.coreQtyBefore=finite(current?.quantity)||0;started.active.exchangeMaxLeverage=sz.exchangeMaxLeverage;started.active.triggerScore=ev.score;}
-    try{store.journal('BURST_ENTRY',symbol,{burstId,authorizationId:auth.authorizationId,side,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,marginQuote:sz.marginQuote,leverage:sz.leverage,exchangeMaxLeverage:sz.exchangeMaxLeverage,safeMaxLeverage:sz.safeMaxLeverage,entryPrice,quantity:executed,stopPrice,takeProfitPrice,trigger:ev});store.recordLearning?.('BURST_OPENED',symbol,{burstId,side,entryPrice,quantity:executed,leverage:sz.leverage,triggerScore:ev.score,syntheticAddon:sameAddon});}catch{}
+    try{store.journal('BURST_ENTRY',symbol,{burstId,authorizationId:auth.authorizationId,side,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,marginQuote:sz.marginQuote,leverage:sz.leverage,exchangeMaxLeverage:sz.exchangeMaxLeverage,safeMaxLeverage:sz.safeMaxLeverage,entryPrice,quantity:executed,stopPrice,profitAuthority:'JEV_NO_FIXED_TARGET',trigger:ev});store.recordLearning?.('BURST_OPENED',symbol,{burstId,side,entryPrice,quantity:executed,leverage:sz.leverage,triggerScore:ev.score,syntheticAddon:sameAddon});}catch{}
     return {ok:true,orderPlaced:true,active:started.active,sizing:sz};
   }
   async function burstScalpTick(){
     if(burstTickBusy)return {ok:true,skipped:true,reason:'BURST_TICK_BUSY'};burstTickBusy=true;
     try{
-      // Manage active burst first. Watcher exits are exact-quantity reduce-only; the core lot is untouched.
+      // Manage active burst first. Watcher exits are confirmed, quantity-bounded reductions of standalone burst positions.
       for(const a of [...burst.active.values()]){
         const checked=burst.evaluateActive(a.burstId);if(!checked.ok)continue;
-        // 0.8R is a deliberate fast-profit objective; flow reversal/giveback/fast-fail can exit earlier.
-        if(checked.exit.progressR!==null&&checked.exit.progressR>=0.80){checked.exit.exit=true;checked.exit.reason='BURST_PROFIT_HIT';}
+        if(a.exitRequestedReason){checked.exit.exit=true;checked.exit.reason=a.exitRequestedReason;}
+        // Profit decisions belong to JEV; the 1s stop/time watcher does not wait on HTTP.
+        const fresh=checked.snapshot?.available===true&&Number(checked.snapshot.ageMs)<=2500;
+        if(a.jevExitDecision?.action==='EXIT_NOW'&&clock()-a.jevExitDecision.at<=5000&&fresh){checked.exit.exit=true;checked.exit.reason='JEV_BURST_EXIT';}
+        if(!checked.exit.exit&&fresh&&armedNow()&&typeof burstExitJudge==='function'&&!a.jevReviewBusy&&clock()-Number(a.jevReviewAt||0)>=5000){
+          a.jevReviewBusy=true;a.jevReviewAt=clock();const requestedAt=a.jevReviewAt;
+          Promise.resolve().then(()=>burstExitJudge({active:{...a},stream:checked.snapshot,progress:checked.exit,chartContext:market?.cachedChartContext?.(a.symbol,clock()),learning:store.learningContext?.({symbol:a.symbol})})).then(j=>{
+            if(!burst.active.has(a.burstId))return;
+            a.jevExitDecision={at:requestedAt,receivedAt:clock(),action:j?.ok&&['HOLD','EXIT_NOW'].includes(j.action)?j.action:'REVIEW_UNAVAILABLE',called:j?.called===true,reason:j?.reason||null};
+            try{store.journal('BURST_POSITION_REVIEW',a.symbol,{burstId:a.burstId,...a.jevExitDecision,progressR:checked.exit.progressR});store.recordLearning?.('BURST_REVIEW',a.symbol,{burstId:a.burstId,side:a.side,...a.jevExitDecision});}catch{}
+          }).catch(()=>{a.jevExitDecision={at:requestedAt,receivedAt:clock(),action:'REVIEW_UNAVAILABLE',called:false,reason:'JEV_BURST_REVIEW_FAILED'};}).finally(()=>{a.jevReviewBusy=false;});
+        }
         // Ledger reconciliation for protective-stop fills (no 1s signed REST polling).
-        const led=burstCurrentPosition(a.symbol),ledgerFresh=ledgerState.ok&&ledgerState.at&&clock()-Date.parse(ledgerState.at)<=90000;
+        const led=burstCurrentPosition(a.symbol),ledgerFresh=ledgerState.ok&&ledgerState.at&&Date.parse(ledgerState.at)>=Number(a.openedAt)&&clock()-Date.parse(ledgerState.at)<=90000;
         const addonGone=ledgerFresh&&a.syntheticAddon&&led&&finite(led.quantity)!==null&&finite(led.quantity)<=Math.max(0,(finite(a.coreQtyBefore)||0)+(finite(a.quantity)||0)*0.10);
         const flatGone=ledgerFresh&&!a.syntheticAddon&&!led;
-        if(addonGone||flatGone){const closed=burst.finish(a.burstId,{exitReason:'EXCHANGE_PROTECTIVE_EXIT_DETECTED',exitPrice:finite(checked.snapshot?.bid)??finite(checked.snapshot?.ask),mfeR:checked.exit.mfeR,maeR:checked.exit.maeR});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,captureEfficiency:null,authority:'EXCHANGE_PROTECTIVE'});}catch{};continue;}
-        if(checked.exit.exit){const r=await burstReduceExact(a,checked.exit.reason);if(r.ok){if(a.stopAlgoId)try{await transport.cancelAlgoOrder({algoId:a.stopAlgoId,credentials:currentCredentials()});}catch{}const exitPrice=finite(r.avgPrice)??finite(checked.snapshot?.bid)??finite(checked.snapshot?.ask),oneR=Math.abs((finite(a.entryPrice)||0)-(finite(a.stopPrice)||0)),gross=oneR>0&&exitPrice!==null?(exitPrice-a.entryPrice)*(a.side==='LONG'?1:-1)*a.quantity:null,realizedR=oneR>0&&gross!==null?gross/(oneR*a.quantity):null,capture=checked.exit.mfeR>0&&realizedR!==null?Math.max(-2,Math.min(2,realizedR/checked.exit.mfeR)):null;const closed=burst.finish(a.burstId,{exitReason:checked.exit.reason,exitPrice,mfeR:checked.exit.mfeR,maeR:checked.exit.maeR,realizedR,captureEfficiency:capture});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,authority:'BURST_WATCHER'});}catch{}}}
+        if(addonGone||flatGone){const closed=burst.finish(a.burstId,{exitReason:'EXCHANGE_INVENTORY_EXIT_DETECTED',exitPrice:finite(checked.snapshot?.bid)??finite(checked.snapshot?.ask),mfeR:checked.exit.mfeR,maeR:checked.exit.maeR});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,captureEfficiency:null,authority:'UNCONFIRMED_FINAL_EXIT'});}catch{};continue;}
+        if(checked.exit.exit){const r=await burstReduceExact(a,checked.exit.reason);if(r.ok){if(a.stopAlgoId)try{await transport.cancelAlgoOrder({algoId:a.stopAlgoId,credentials:currentCredentials()});}catch{}const exitPrice=finite(r.avgPrice)>0?finite(r.avgPrice):null,oneR=Math.abs((finite(a.entryPrice)||0)-(finite(a.stopPrice)||0)),gross=oneR>0&&exitPrice!==null?(exitPrice-a.entryPrice)*(a.side==='LONG'?1:-1)*(a.initialQuantity||a.quantity):null,realizedR=oneR>0&&gross!==null?gross/(oneR*(a.initialQuantity||a.quantity)):null,capture=checked.exit.mfeR>0&&realizedR!==null?Math.max(-2,Math.min(2,realizedR/checked.exit.mfeR)):null;const closed=burst.finish(a.burstId,{exitReason:checked.exit.reason,exitPrice,mfeR:checked.exit.mfeR,maeR:checked.exit.maeR,realizedR,captureEfficiency:capture});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,authority:checked.exit.reason==='JEV_BURST_EXIT'?'JEV':'BURST_SAFETY_WATCHER'});}catch{}}}
       }
       if(!burst.canStart())return {ok:true,active:true};
       const pause=lossStreakPause();

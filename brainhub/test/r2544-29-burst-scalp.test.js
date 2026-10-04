@@ -34,7 +34,7 @@ test('R2544.29 burst exit supports fast fail, flow reversal and MFE giveback',()
   assert.equal(ff.exit,true);assert.equal(ff.reason,'BURST_FAST_FAIL');
   const b=snap('LONG');b.bid=100.35;b.ask=100.36;
   const gb=exitEvidence(b,{side:'LONG',entryPrice:100,stopPrice:99,openedAt:Date.now(),mfeR:.8,maeR:0});
-  assert.equal(gb.exit,true);assert.equal(gb.reason,'BURST_MFE_GIVEBACK');
+  assert.equal(gb.exit,false);assert.equal(gb.reviewReason,'BURST_MFE_GIVEBACK');
 });
 
 test('R2544.29 manager enforces four armed, one active and one pause exception',()=>{

@@ -25,7 +25,7 @@ test('R31 latest failed response cannot inherit healthy from an old success',asy
  await w.review({});assert.equal(w.status().perModel[0].status,'healthy');ok=false;at+=1;await w.review({});at+=1800001;assert.equal(w.status().perModel[0].status,'failed');
 });
 test('R31 HTTP 200 truncation and invalid worker schema do not count as successful evidence',async()=>{
- for(const payload of [{choices:[{finish_reason:'length',message:{content:'WORKER_STATE: TRIGGERED'}}]},{choices:[{message:{content:'invalid'}}]}]){
+ for(const payload of [{choices:[{finish_reason:'length',message:{content:'WORKER_STATE: TRIGGERED'}}]},{choices:[{finish_reason:'length',message:{content:null}}]},{choices:[{message:{content:'invalid'}}]},{choices:[{message:{content:null}}]}]){
   const w=createOpenRouterFreeWorker({apiKey:'sk-or-v1-fake',models:[],maxAttempts:1,fetchImpl:async()=>reply(200,payload)});assert.equal((await w.review({validate:()=>false})).ok,false);assert.equal(w.status().perModel[0].successes,0);
  }
 });
@@ -63,7 +63,7 @@ test('R31 cached burst context performs no network work and exposes missing/stal
 test('R31 burst sends bounded closed-candle chart context and fails closed without it',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'jev-r31-burst-'));let seen=null,calls=0;
  fs.mkdirSync(path.join(root,'config'));fs.writeFileSync(path.join(root,'config','jev.json'),JSON.stringify({enabled:true,dailyCapUsd:2}));
- const c=createJevClient({root,apiKey:'sk-or-v1-fake',clock:()=>now,fetchImpl:async(_,opt)=>{seen=JSON.parse(opt.body);calls++;return reply(200,{answers:{burst_decision:{choice:'ARM_LONG'},ttl:{choice:'TTL_30S'},trigger_strictness:{choice:'STRICT_090'},leverage_mode:{choice:'PANEL'},pause_exception:{choice:'NO_PAUSE_EXCEPTION'}},usage:{cost:0.00001}});}});
+ const c=createJevClient({root,apiKey:'sk-or-v1-fake',clock:()=>now,fetchImpl:async(_,opt)=>{seen=JSON.parse(opt.body);calls++;return reply(200,{answers:{burst_decision:{choice:'ARM_LONG'},ttl:{choice:'TTL_30S'},trigger_strictness:{choice:'STRICT_090'},leverage_mode:{choice:'MAX_SAFE'},pause_exception:{choice:'NO_PAUSE_EXCEPTION'}},usage:{cost:0.00001}});}});
  const args={candidate:{symbol:'TESTUSDT'},preMove:{state:'PRE_MOVE',direction:'LONG'}};
  assert.equal((await c.sovereignBurstArm(args)).reason,'BURST_CHART_CONTEXT_NOT_READY');assert.equal(calls,0);
  const chartContext=chartContextFromSnapshot('TESTUSDT',{asOf:now-500,frames:frames()},now);const out=await c.sovereignBurstArm({...args,chartContext});assert.equal(out.ok,true,JSON.stringify(out));assert.equal(out.side,'LONG');assert.deepEqual(seen.state.coreMarketPacket.chartOverlayLevels,chartContext.packet.chartOverlayLevels);assert.ok(Buffer.byteLength(JSON.stringify(seen))<=48000);

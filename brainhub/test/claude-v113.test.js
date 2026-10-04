@@ -74,7 +74,7 @@ test('sonuç defteri: kapanan işlem Vision beklemeden gerçek PnL + R + çıkı
   const closed = journal.find(x => x.k === 'POSITION_CLOSED');
   assert.ok(closed);
   assert.equal(closed.p.netPnl.toFixed(2), '-11.82');
-  assert.equal(closed.p.exitType, 'STOP_LOSS');
+  assert.equal(closed.p.exitType, 'EXTERNAL_CLOSE');
   assert.ok(Math.abs(closed.p.rMultiple - (-11.82 / 11.5)) < 0.01, String(closed.p.rMultiple));
   assert.match(closed.p.entryContext.why, /uzamış/);
   const learned = learning.find(x => x.k === 'POSITION_CLOSED');
@@ -212,7 +212,7 @@ test('geçmiş işlemler: LIVE_EXECUTION kayıtlarından gerçek sonuç bir kez 
   assert.equal(out.written, 2, 'iki kapanmış COOKIE yazılır, açık TAO yazılmaz');
   const rows = written.filter(x => x.k === 'POSITION_CLOSED');
   assert.equal(rows[0].p.netPnl.toFixed(1), '-16.7');
-  assert.equal(rows[0].p.exitType, 'STOP_LOSS');
+  assert.equal(rows[0].p.exitType, 'EXTERNAL_CLOSE');
   assert.match(rows[0].p.entryContext.why, /ilk COOKIE/);
   assert.ok(incomeCalls[0][2] < journal[1].ts, 'ilk işlemin gelir penceresi ikinci girişten önce biter');
   assert.equal((await controller.backfillClosedOutcomes({ sinceTs:0 })).written, 0, 'tekrar yazılmaz');

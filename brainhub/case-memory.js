@@ -150,11 +150,12 @@ function buildEntryCase({unified,candidate,plan,jevDecision,sizing,entryPrice,st
 function buildOutcomePath({row,runner,closedAt,netPnl,rMultiple,exitType,income=null}={}){
   const events=array(runner?.events,40).map(e=>({at:e?.at||null,kind:e?.kind||null,to:e?.to??null,from:e?.from??null,basis:e?.basis||null,fraction:r4(e?.fraction),executedQty:r4(e?.executedQty),remainingQty:r4(e?.remainingQty),progressR:r4(e?.metrics?.progressR??e?.progressR),reason:e?.reason||null}));
   const opened=timestampMs(row?.activeAt?new Date(Number(row.activeAt)).toISOString():row?.openedAt);
-  const mfeAt=finite(row?.guardMfeAt),maeAt=finite(row?.guardMaeAt);
-  const mfe=r4(row?.guardMfeR), rr=r4(rMultiple);
+  // Excursions are measured by the runner, not the leader lifecycle row.
+  const mfeAt=finite(runner?.guardMfeAt??row?.guardMfeAt),maeAt=finite(runner?.guardMaeAt??row?.guardMaeAt);
+  const mfe=r4(runner?.guardMfeR??row?.guardMfeR), rr=r4(rMultiple);
   const captureEfficiency=mfe!==null&&mfe>0&&rr!==null&&rr>0?r4(Math.max(0,Math.min(2,rr/mfe))):null;
   const mfeGivebackR=mfe!==null&&rr!==null?r4(Math.max(0,mfe-rr)):null;
-  return {version:'R2544.28',netPnl:r4(netPnl),rMultiple:rr,exitType:exitType||null,mfeR:mfe,maeR:r4(row?.guardMaeR),captureEfficiency,mfeGivebackR,timeToMfeMin:opened!==null&&mfeAt!==null?r4((mfeAt-opened)/60000):null,timeToMaeMin:opened!==null&&maeAt!==null?r4((maeAt-opened)/60000):null,partialAndProtectionEvents:events,closedAt:closedAt?new Date(Number(closedAt)).toISOString():null,commission:r4(income?.commission),funding:r4(income?.funding),realizedPnl:r4(income?.realized),slippage:null,executionAuthority:false};
+  return {version:'R2544.35',netPnl:r4(netPnl),rMultiple:rr,exitType:exitType||null,mfeR:mfe,maeR:r4(runner?.guardMaeR??row?.guardMaeR),excursionSource:runner?.guardMfeR!=null?'RUNNER_OBSERVED_MARKS':row?.guardMfeR!=null?'LIFECYCLE_OBSERVED_MARKS':null,captureEfficiency,mfeGivebackR,timeToMfeMin:opened!==null&&mfeAt!==null?r4((mfeAt-opened)/60000):null,timeToMaeMin:opened!==null&&maeAt!==null?r4((maeAt-opened)/60000):null,partialAndProtectionEvents:events,closedAt:closedAt?new Date(Number(closedAt)).toISOString():null,commission:r4(income?.commission),funding:r4(income?.funding),realizedPnl:r4(income?.realized),slippage:null,executionAuthority:false};
 }
 function sideOf(t){return String(t?.side||t?.entryContext?.entryCase?.side||'').toUpperCase();}
 function caseOf(t){return t?.entryContext?.entryCase||null;}

@@ -7,6 +7,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { reconcileCloses } = require('./office-performance');
 const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
+const {learningQuality}=require('./learning-quality');
 
 function openStore(root) {
   const dir = path.join(root, 'data');
@@ -150,6 +151,7 @@ function openStore(root) {
           mfeR:body.outcomePath.mfeR??null,maeR:body.outcomePath.maeR??null,timeToMfeMin:body.outcomePath.timeToMfeMin??null,
           timeToMaeMin:body.outcomePath.timeToMaeMin??null,netPnl:body.outcomePath.netPnl??body.netPnl??null,
           rMultiple:body.outcomePath.rMultiple??body.rMultiple??null,exitType:body.outcomePath.exitType||body.exitType||null,
+          captureEfficiency:body.outcomePath.captureEfficiency??null,mfeGivebackR:body.outcomePath.mfeGivebackR??null,excursionSource:body.outcomePath.excursionSource??null,
           events:Array.isArray(body.outcomePath.events)?body.outcomePath.events.slice(-12):[]
         }:null
       };
@@ -192,7 +194,7 @@ function openStore(root) {
     const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
     const key=raw.length+':'+(raw.length?raw[raw.length-1].id:'');
     if(lessonCache.key===key)return lessonCache.cards;
-    const rows=raw.map(x=>{let p={};try{p=JSON.parse(x.payload)||{};}catch{p={};}return {...p,id:x.id,symbol:x.symbol};});
+    const rows=raw.map(x=>{let p={};try{p=JSON.parse(x.payload)||{};}catch{p={};}return learningQuality({...p,id:x.id,symbol:x.symbol});});
     const trades=reconcileCloses(rows).trades;
     const cards=tradeLessonsLib.buildCards(trades,{attentionOf:attentionForClose});
     lessonCache={key,cards};
@@ -209,7 +211,7 @@ function openStore(root) {
     const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
     const ck=raw.length+':'+(raw.length?raw[raw.length-1].id:'');
     if(caseTradeCache.key===ck)return caseTradeCache.trades;
-    const rows=raw.map(x=>{let q={};try{q=JSON.parse(x.payload)||{};}catch{q={};}return {...q,id:x.id,symbol:x.symbol};});
+    const rows=raw.map(x=>{let q={};try{q=JSON.parse(x.payload)||{};}catch{q={};}return learningQuality({...q,id:x.id,symbol:x.symbol});});
     const trades=reconcileCloses(rows).trades;caseTradeCache={key:ck,trades};return trades;
   }
   function caseMemory({currentCase=null,symbol=null,limit=5}={}){
@@ -243,7 +245,7 @@ function openStore(root) {
       return {rMultiple:Number(r.toFixed(4)),rStatus:p?.riskBasis?(basisOk?'MEASURED':'MEASURED_WEAK_BASIS'):'MEASURED_LEGACY'};
     };
     const measuredOutcomes=learnByKind.all('POSITION_CLOSED',key,key,24).map(row=>{
-      const p=safeLearningPayload(row.payload), ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
+      const p=learningQuality(safeLearningPayload(row.payload)), ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
       const cr=canonicalR(p);
       return {
         ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
@@ -252,7 +254,9 @@ function openStore(root) {
         outcomePct:row.outcomePct,rMultiple:cr.rMultiple,rStatus:cr.rStatus,rawRMultiple:p.rMultiple??null,
         riskBasis:p.riskBasis||null,netPnl:p.netPnl??null,exitType:p.exitType||null,
         lane:p.tradeLane||ec.lane||null,holdMinutes:p.holdMinutes??null,
-        marketSignature:ec.marketSignature||null
+        marketSignature:ec.marketSignature||null,
+        qualityWarnings:p.qualityWarnings,recordedExitType:p.recordedExitType||null,
+        outcomePath:p.outcomePath?{mfeR:p.outcomePath.mfeR??null,maeR:p.outcomePath.maeR??null,captureEfficiency:p.outcomePath.captureEfficiency??null,mfeGivebackR:p.outcomePath.mfeGivebackR??null,timeToMfeMin:p.outcomePath.timeToMfeMin??null,timeToMaeMin:p.outcomePath.timeToMaeMin??null,excursionSource:p.outcomePath.excursionSource||null}:null
       };
     });
     const jevLessons=learnByKind.all('JEV_LESSON',key,key,24).map(row=>{
@@ -280,8 +284,13 @@ function openStore(root) {
         }
       }
     }catch{caseMemoryDigest=null;caseMemoryByLane=null;}
+    const burstExperience=learnByKind.all('BURST_CLOSED',key,key,8).map(row=>{
+      const p=safeLearningPayload(row.payload);
+      return {ts:row.ts,symbol:row.symbol,side:p.side||null,burstId:p.burstId||null,exitReason:p.exitReason||null,mfeR:p.mfeR??null,maeR:p.maeR??null,realizedR:p.realizedR??null,captureEfficiency:p.captureEfficiency??null,authority:p.authority||null,measurement:'GROSS_PRICE_PATH_NOT_FEE_RECONCILED_NET_PNL'};
+    });
     return {
       source:'BrainHub ölçülebilir işlem/karar geçmişi',
+      burstExperience,
       tradeLessons:tradeLessonDigest,
       caseMemory:caseMemoryDigest,
       caseMemoryByLane,

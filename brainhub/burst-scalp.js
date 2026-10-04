@@ -58,7 +58,7 @@ function burstEvidence(snapshot,side,{preMove=null}={}){
   return {version:'R2544.29',side,score:Number(score.toFixed(4)),ignition,strong,fresh,spreadBps:spread,acceleration:Number(accel.toFixed(3)),preMove:{state:pmState||null,direction:pmDir||null,match:pmMatch},flow:{oneSec:f1,threeSec:f3,fiveSec:f5},l1:{oneSec:o1,threeSec:o3},localL2:{available:l2?.available===true,sequenceHealthy:l2?.sequenceHealthy===true,confidence:finite(l2?.confidence),multiLevelOfi:finite(l2?.multiLevelOfi),depthImbalance:finite(l2?.depthImbalance)},contradictions};
 }
 
-function exitEvidence(snapshot,active){
+function exitEvidence(snapshot,active,now=Date.now()){
   const side=String(active?.side||'').toUpperCase(),opp=side==='LONG'?'SHORT':'LONG';
   const adverse=burstEvidence(snapshot,opp,{preMove:null});
   const livePrice=finite(snapshot?.bid)&&finite(snapshot?.ask)?(Number(snapshot.bid)+Number(snapshot.ask))/2:null;
@@ -67,12 +67,12 @@ function exitEvidence(snapshot,active){
   const progress=livePrice!==null&&entry!==null&&oneR>0?((livePrice-entry)*sideSign(side)/oneR):null;
   const mfe=Math.max(finite(active?.mfeR)||0,finite(progress)||0), mae=Math.min(finite(active?.maeR)||0,finite(progress)||0);
   const giveback=mfe>0&&progress!==null?mfe-progress:0;
-  let reason=null;
+  let reason=null,reviewReason=null;
   if(progress!==null&&progress<=-0.45)reason='BURST_FAST_FAIL';
-  else if(adverse.score>=0.82&&adverse.fresh)reason='BURST_FLOW_REVERSAL';
-  else if(mfe>=0.55&&giveback>=Math.max(0.22,mfe*0.35))reason='BURST_MFE_GIVEBACK';
-  else if(Number(active?.openedAt)>0&&Date.now()-Number(active.openedAt)>=120000)reason='BURST_TIME_EXIT';
-  return {exit:!!reason,reason,progressR:progress===null?null:Number(progress.toFixed(4)),mfeR:Number(mfe.toFixed(4)),maeR:Number(mae.toFixed(4)),givebackR:Number(giveback.toFixed(4)),adverse};
+  else if(Number(active?.openedAt)>0&&now-Number(active.openedAt)>=120000)reason='BURST_TIME_EXIT';
+  if(adverse.score>=0.82&&adverse.fresh)reviewReason='BURST_FLOW_REVERSAL';
+  else if(mfe>=0.55&&giveback>=Math.max(0.22,mfe*0.35))reviewReason='BURST_MFE_GIVEBACK';
+  return {exit:!!reason,reason,reviewReason,progressR:progress===null?null:Number(progress.toFixed(4)),mfeR:Number(mfe.toFixed(4)),maeR:Number(mae.toFixed(4)),givebackR:Number(giveback.toFixed(4)),adverse};
 }
 
 class BurstScalpManager{
@@ -86,7 +86,7 @@ class BurstScalpManager{
   canStart(){return this.active.size<this.maxActive;}
   evaluateArmed(symbol){this.cleanup();symbol=String(symbol||'').toUpperCase();const a=this.armed.get(symbol);if(!a)return {ok:false,reason:'NOT_ARMED'};const snap=this.marketStream?.snapshot?.(symbol,this.now());const ev=burstEvidence(snap,a.side,{preMove:a.preMove});return {ok:true,authorization:a,snapshot:snap,evidence:ev,trigger:ev.score>=a.triggerThreshold&&ev.ignition};}
   start(row){if(!this.canStart())return {ok:false,reason:'BURST_SLOT_FULL'};const symbol=String(row?.symbol||'').toUpperCase();const active={burstId:String(row?.burstId||id('burst')),authorizationId:row.authorizationId,symbol,side:row.side,quantity:finite(row.quantity),entryPrice:finite(row.entryPrice),stopPrice:finite(row.stopPrice),takeProfitPrice:finite(row.takeProfitPrice),leverage:finite(row.leverage),marginQuote:finite(row.marginQuote),openedAt:this.now(),mfeR:0,maeR:0,syntheticAddon:row.syntheticAddon===true,pauseExceptionUsed:row.pauseExceptionUsed===true};this.active.set(active.burstId,active);this.armed.delete(symbol);this._event('START',active);return {ok:true,active};}
-  evaluateActive(burstId){const a=this.active.get(burstId);if(!a)return {ok:false,reason:'BURST_NOT_ACTIVE'};const snap=this.marketStream?.snapshot?.(a.symbol,this.now());const ex=exitEvidence(snap,a);a.mfeR=Math.max(a.mfeR,finite(ex.mfeR)||0);a.maeR=Math.min(a.maeR,finite(ex.maeR)||0);return {ok:true,active:{...a},snapshot:snap,exit:ex};}
+  evaluateActive(burstId){const a=this.active.get(burstId);if(!a)return {ok:false,reason:'BURST_NOT_ACTIVE'};const snap=this.marketStream?.snapshot?.(a.symbol,this.now());const ex=exitEvidence(snap,a,this.now());a.mfeR=Math.max(a.mfeR,finite(ex.mfeR)||0);a.maeR=Math.min(a.maeR,finite(ex.maeR)||0);return {ok:true,active:{...a},snapshot:snap,exit:ex};}
   finish(burstId,result={}){const a=this.active.get(burstId);if(!a)return null;this.active.delete(burstId);const closed={...a,closedAt:this.now(),...result};this._event('CLOSE',closed);return closed;}
   consumePauseException(pauseKey){if(!pauseKey)return false;if(this.pauseExceptionConsumedFor===pauseKey)return false;this.pauseExceptionConsumedFor=pauseKey;return true;}
   pauseExceptionAvailable(pauseKey){return !!pauseKey&&this.pauseExceptionConsumedFor!==pauseKey;}

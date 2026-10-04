@@ -84,7 +84,7 @@ const WIN_EXITS=new Set(['TP1_RUNNER_TRAIL','TP1_BREAKEVEN','TAKE_PROFIT','JEV_P
 function exitAuthorityOf(exit){
   const x=String(exit||'').toUpperCase();
   if(x==='JEV_EXIT_NOW'||x==='JEV_PARTIAL_TAKE_PROFIT')return 'JEV';
-  if(x==='STOP_LOSS'||x==='TP1_THEN_STOP'||x==='TP1_RUNNER_TRAIL'||x==='TP1_BREAKEVEN'||x==='TAKE_PROFIT')return 'SYSTEM';
+  if(x==='GUARD_CLOSE'||x==='STOP_LOSS'||x==='TP1_THEN_STOP'||x==='TP1_RUNNER_TRAIL'||x==='TP1_BREAKEVEN'||x==='TAKE_PROFIT')return 'SYSTEM';
   if(x.includes('EXTERNAL'))return x.includes('JEV_PARTIAL')?'JEV_PARTIAL_THEN_EXTERNAL':'EXTERNAL';
   return x?'OTHER':'UNKNOWN';
 }

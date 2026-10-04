@@ -263,6 +263,7 @@ function compactExperienceMemory(learning,maxChars=6500){
     source:src.source||'BrainHub measured experience memory',
     measuredSampleCount:Number(src.measuredSampleCount)||0,
     jevLessonCount:Number(src.jevLessonCount)||0,
+    burstExperience:Array.isArray(src.burstExperience)?src.burstExperience.slice(0,6):[],
     lifetime:src.lifetime&&typeof src.lifetime==='object'?src.lifetime:null,
     stats:Array.isArray(src.stats)?src.stats.slice(0,8):[],
     measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,8).map(compactOutcomeRecord):[],
@@ -283,7 +284,7 @@ function compactExperienceMemory(learning,maxChars=6500){
   if(raw.length>limit){
     return {
       alwaysOn:true,tradeLessons:out.tradeLessons,caseMemory:out.caseMemory,caseMemoryByLane:out.caseMemoryByLane,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
-      stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),
+      stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),burstExperience:out.burstExperience.slice(0,2),
       memoryTrimmed:true,note:out.note
     };
   }
@@ -546,7 +547,7 @@ function frameTruth(f,{detail=false,timing=false}={}){
   return out;
 }
 function protectedCoreTruth(body){
-  const record=body?.state?.record;
+  const record=expandMarketPacket(body?.state?.record);
   const management=record?.contract==='R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT';
   const p=expandMarketPacket(body?.state?.coreMarketPacket)||(management?{...record,coreFrames:record.frames,microstructure:{orderFlow:record.orderFlow,depth:record.depth,preEntryAdverseSelection:record.currentAdverseSelection}}:null);
   if(!p||typeof p!=='object')return null;
@@ -597,6 +598,7 @@ function compactKnowledgeEntries(entries,maxEntries=3){
 function compactMemoryForDecision(mem,pass){
   if(!mem||typeof mem!=='object')return mem;
   const out={alwaysOn:true,source:mem.source||null,measuredSampleCount:mem.measuredSampleCount??null,jevLessonCount:mem.jevLessonCount??null,lifetime:mem.lifetime||null};
+  out.burstExperience=(Array.isArray(mem.burstExperience)?mem.burstExperience:[]).slice(0,2);
   const tl=mem.tradeLessons;
   if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,worked:(tl.worked||[]).slice(0,3),failed:(tl.failed||[]).slice(0,3),repeatedMistakes:(tl.repeatedMistakes||[]).slice(0,3),current:tl.current||null,symbol:tl.symbol||null,byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,6),trimmedForDecision:true};
   const cm=mem.caseMemory;
@@ -651,6 +653,7 @@ function compactMemoryItemForRouting(v,max=180){
 function compactMemoryForPass1Routing(mem){
   if(!mem||typeof mem!=='object')return mem;
   const out={alwaysOn:true,source:mem.source||null,measuredSampleCount:mem.measuredSampleCount??null,jevLessonCount:mem.jevLessonCount??null,lifetime:mem.lifetime||null};
+  out.burstExperience=(Array.isArray(mem.burstExperience)?mem.burstExperience:[]).slice(0,2);
   const tl=mem.tradeLessons;
   if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,current:tl.current||null,symbol:tl.symbol||null,
     worked:(tl.worked||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,160)),failed:(tl.failed||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,160)),
@@ -754,6 +757,7 @@ function compactPass2Record(record){
 function compactMemoryForPass2Final(mem){
   if(!mem||typeof mem!=='object')return mem;
   const out={alwaysOn:true,source:mem.source||null,measuredSampleCount:mem.measuredSampleCount??null,jevLessonCount:mem.jevLessonCount??null,lifetime:mem.lifetime||null};
+  out.burstExperience=(Array.isArray(mem.burstExperience)?mem.burstExperience:[]).slice(0,2);
   const tl=mem.tradeLessons;
   if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:tl.lifetime,current:compactMemoryItemForRouting(tl.current,220),symbol:compactMemoryItemForRouting(tl.symbol,220),
     worked:(tl.worked||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,220)).filter(Boolean),failed:(tl.failed||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,220)).filter(Boolean),
@@ -845,6 +849,7 @@ function compactMeasuredAggregate(v,depth=0){
 function compactMemoryForPass2Residual(mem){
   if(!mem||typeof mem!=='object')return mem;
   const out={alwaysOn:true,source:mem.source||null,measuredSampleCount:mem.measuredSampleCount??null,jevLessonCount:mem.jevLessonCount??null,lifetime:compactMeasuredAggregate(mem.lifetime)};
+  out.burstExperience=(Array.isArray(mem.burstExperience)?mem.burstExperience:[]).slice(0,2);
   const tl=mem.tradeLessons;if(tl&&typeof tl==='object')out.tradeLessons={version:tl.version,samples:tl.samples,lifetime:compactMeasuredAggregate(tl.lifetime),current:compactMemoryItemForRouting(tl.current,120),symbol:compactMemoryItemForRouting(tl.symbol,120),worked:(tl.worked||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,120)).filter(Boolean),failed:(tl.failed||[]).slice(0,1).map(x=>compactMemoryItemForRouting(x,120)).filter(Boolean),byPreEntryFlow:(tl.byPreEntryFlow||[]).slice(0,2).map(x=>compactMeasuredAggregate(x)),residualCompacted:true};
   const pair=xs=>{const a=Array.isArray(xs)?xs:[];const win=a.find(x=>Number(x?.netPnl)>0),loss=a.find(x=>Number(x?.netPnl)<0);const picked=[];if(win)picked.push(win);if(loss&&loss!==win)picked.push(loss);if(!picked.length&&a[0])picked.push(a[0]);return picked.slice(0,2).map(x=>compactMemoryItemForRouting(x,120)).filter(Boolean);};
   const cm=mem.caseMemory;if(cm&&typeof cm==='object')out.caseMemory={version:cm.version,available:cm.available,samples:cm.samples,summary:compactMeasuredAggregate(cm.summary),fidelity:compactMeasuredAggregate(cm.fidelity),counterexamples:compactMeasuredAggregate(cm.counterexamples),analogs:pair(cm.analogs),softContextOnly:true,executionAuthority:false};
@@ -869,7 +874,10 @@ function prepareDecisionRequest(input,opts={}){
   const coreHashBefore=hashJson(protectedCoreTruth(body));
   const record=body?.state?.record;const recordObj=record&&typeof record==='object'&&!Array.isArray(record)?record:null;
   const packetObj=body?.state?.coreMarketPacket&&typeof body.state.coreMarketPacket==='object'?body.state.coreMarketPacket:null;
-  const targets=[recordObj,packetObj].filter(Boolean);
+  // Position geometry and the immutable entry thesis are not current-market
+  // compaction targets. Current market facts use the same wire packet as entry.
+  const management=recordObj?.contract==='R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT';
+  const targets=[management?null:recordObj,packetObj].filter(Boolean);
   const refresh=()=>JSON.stringify(body);let serialized=refresh();
   // Pure duplication is removed even below target; no decision information is lost.
   if(recordObj&&body?.state?.experienceMemory&&recordObj.experienceMemory){delete recordObj.experienceMemory;trimStepsApplied.push('DUP_RECORD_EXPERIENCE_MEMORY');}
@@ -981,6 +989,10 @@ function prepareDecisionRequest(input,opts={}){
   if(byteSize(body)>targetCap&&state.coreMarketPacket){
     const packed=encodeMarketPacket(state.coreMarketPacket);
     if(packed.encoded){state.coreMarketPacket=packed.packet;wireEncoding={version:packed.packet.wire.version,beforeBytes:packed.beforeBytes,afterBytes:packed.afterBytes,schemaCount:packed.schemaCount,roundTripVerified:true};trimStepsApplied.push('LOSSLESS_MARKET_ROWS');}
+  }
+  if(management&&byteSize(body)>targetCap){
+    const packed=encodeMarketPacket(state.record);
+    if(packed.encoded){state.record=packed.packet;trimStepsApplied.push('LOSSLESS_MANAGEMENT_ROWS');}
   }
   serialized=refresh();const bytes=Buffer.byteLength(serialized,'utf8');
   const coreHashAfter=hashJson(protectedCoreTruth(body));const coreTruthProtected=coreHashBefore===coreHashAfter;
@@ -1643,7 +1655,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   // R2544.29 BURST_SCALP: JEV pre-authorizes only a short-lived conditional watch.
   // This call never places an order. A later deterministic WebSocket ignition must independently
   // satisfy direction/TTL/strictness before the PC-only burst executor may act.
-  async function sovereignBurstArm({candidate,preMove,stream,chartContext=null,position=null,pause=null}={}){
+  async function sovereignBurstArm({candidate,preMove,stream,chartContext=null,position=null,pause=null,learning=null}={}){
     if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,decision:'DO_NOT_ARM',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     const symbol=String(candidate?.symbol||stream?.symbol||'').toUpperCase();
     if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))return {ok:false,called:false,decision:'DO_NOT_ARM',reason:'BURST_SYMBOL_INVALID'};
@@ -1663,12 +1675,12 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     };
     const body={
       model:cfg.model,
-      state:{description:'JEV BURST pre-authorization. chartOverlayLevels includes protected trendLines and breakoutEvidence; weight their age and stillInside state, never assume a reversal. Read coreMarketPacket closed-candle OB/FVG/Fib/OTE, Office chartOverlayLevels and higher context together with current public WebSocket flow. Timeframes are context, not votes; 45m is synthetic. Missing/stale fields are not confirmations. Choose whether ONE symbol may be ARMED for a very short PC-only burst scalp watcher. This is not an entry order. LONG and SHORT are symmetric. Only arm when pre-move/location and flow support an imminent expansion. Later ignition must independently pass freshness, spread, sequence-safe L2, 1s/3s flow and OFI. During the 2-loss/30m pause allow at most one unusually clear strict exception. Never infer participant identity or bypass exchange safety.',record:compact,coreMarketPacket:chartContext.packet,chartCache:{asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source}},
+      state:{description:'JEV BURST pre-authorization. chartOverlayLevels includes protected trendLines and breakoutEvidence; weight their age and stillInside state, never assume a reversal. Read coreMarketPacket closed-candle OB/FVG/Fib/OTE, Office chartOverlayLevels and higher context together with current public WebSocket flow. Timeframes are context, not votes; 45m is synthetic. Missing/stale fields are not confirmations. Choose whether ONE symbol may be ARMED for a very short PC-only burst scalp watcher. This is not an entry order. LONG and SHORT are symmetric. Only arm when pre-move/location and flow support an imminent expansion. Later ignition must independently pass freshness, spread, sequence-safe L2, 1s/3s flow and OFI. During the 2-loss/30m pause allow at most one unusually clear strict exception. Never infer participant identity or bypass exchange safety.',record:compact,experienceMemory:compactExperienceMemory(learning,3500),coreMarketPacket:chartContext.packet,chartCache:{asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source}},
       questions:{
         burst_decision:{type:'choice',instructions:'Pre-authorize a conditional burst direction or do not arm.',criteria:{ARM_LONG:'Arm LONG only; later trigger may execute LONG.',ARM_SHORT:'Arm SHORT only; later trigger may execute SHORT.',DO_NOT_ARM:'Do not arm this symbol now.'}},
         ttl:{type:'choice',instructions:'How long may this pre-authorization remain valid?',criteria:{TTL_30S:'30 seconds',TTL_60S:'60 seconds',TTL_120S:'120 seconds'}},
         trigger_strictness:{type:'choice',instructions:'Choose deterministic ignition strictness.',criteria:{STRICT_090:'Require trigger score >=0.90.',VERY_STRICT_094:'Require trigger score >=0.94.'}},
-        leverage_mode:{type:'choice',instructions:'Choose leverage policy if a burst later triggers.',criteria:{MAX_SAFE:'Use the highest exchange-allowed leverage that still passes burst liquidation/stop safety.',HALF_MAX:'Use at most half of exchange maximum, still subject to safety.',PANEL:'Use configured panel leverage.'}},
+        leverage_mode:{type:'choice',instructions:'User burst mandate: highest safe leverage within the configured user cap and exchange bracket; do not substitute normal panel leverage.',criteria:{MAX_SAFE:'Use the highest exchange-allowed leverage that still passes user cap and burst liquidation/stop safety.'}},
         pause_exception:{type:'choice',instructions:'If the account is currently in the 2-loss/30m entry pause, may this authorization use the single strict burst exception?',criteria:{ALLOW_ONE_STRICT_EXCEPTION:'Allow the one-per-pause strict burst exception.',NO_PAUSE_EXCEPTION:'Do not allow burst execution during the pause.'}}
       }
     };
@@ -1676,10 +1688,21 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!out.ok)return {...out,called:out.called!==false,decision:'DO_NOT_ARM',mode:'BURST_PREAUTH'};
     const a=out.data?.answers||{};
     const decision=choiceValue(a.burst_decision),ttl=choiceValue(a.ttl),strict=choiceValue(a.trigger_strictness),lev=choiceValue(a.leverage_mode),pex=choiceValue(a.pause_exception);
-    if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!['TTL_30S','TTL_60S','TTL_120S'].includes(ttl)||!['STRICT_090','VERY_STRICT_094'].includes(strict)||!['MAX_SAFE','HALF_MAX','PANEL'].includes(lev)||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
+    if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!['TTL_30S','TTL_60S','TTL_120S'].includes(ttl)||!['STRICT_090','VERY_STRICT_094'].includes(strict)||lev!=='MAX_SAFE'||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
     const chosenSide=decision==='ARM_LONG'?'LONG':decision==='ARM_SHORT'?'SHORT':null,pmDir=String(preMove?.direction||'').toUpperCase();
     if(chosenSide&&['LONG','SHORT'].includes(pmDir)&&chosenSide!==pmDir)return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_DIRECTION_CONTRADICTS_PREMOVE',budget:out.budget,costUsd:out.costUsd};
     return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,side:chosenSide,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize};
+  }
+
+  async function sovereignBurstExit({active,stream,progress,chartContext,learning=null}={}){
+    if(!configured)return {ok:false,called:false,action:'HOLD',reason:'JEV_KEY_UNAVAILABLE'};
+    if(!active?.burstId||stream?.available!==true||!(Number(stream.ageMs)<=2500))return {ok:false,called:false,action:'HOLD',reason:'BURST_STREAM_STALE'};
+    const record={contract:'R2544.35_BURST_POSITION_MANAGEMENT',position:{burstId:active.burstId,symbol:active.symbol,side:active.side,quantity:active.quantity,entryPrice:active.entryPrice,stopPrice:active.stopPrice,leverage:active.leverage,openedAt:active.openedAt,mfeR:active.mfeR,maeR:active.maeR},progress:{progressR:progress?.progressR,givebackR:progress?.givebackR,reviewReason:progress?.reviewReason},stream:{ageMs:stream.ageMs,bid:stream.bid,ask:stream.ask,spreadBps:stream.spreadBps,orderFlow:stream.orderFlow,level1Ofi:stream.level1Ofi,localL2:stream.localL2}};
+    const body={model:cfg.model,state:{description:'JEV owns whether this short-lived LONG/SHORT burst has earned enough profit or should continue. There is no fixed profit/R target. Weigh current expansion quality, public flow, spread, giveback, costs and risk from leverage. Choose EXIT_NOW or HOLD. The independent stop/fast-fail and 120-second maximum duration remain mandatory. A later PC watcher executes only against the still-active burst identity, never the core lot. Missing/stale chart context is explicitly unavailable, never confirmation. Experience is soft context, never automatic strategy promotion.',record,experienceMemory:compactExperienceMemory(learning,3500),...(chartContext?.available===true?{coreMarketPacket:chartContext.packet}:{chartContext:{available:false,reason:chartContext?.reason||'CHART_UNAVAILABLE'}})},questions:{burst_exit:{type:'choice',instructions:'Decide this burst position from current evidence; profit sufficiency has no fixed target.',criteria:{HOLD:'Continue while this specific expansion still supports the exposure.',EXIT_NOW:'Realize the available profit or exit because further exposure is no longer justified.'}}}};
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,action:'HOLD'};
+    const action=choiceValue(out.data?.answers?.burst_exit);
+    return {...out,action:['HOLD','EXIT_NOW'].includes(action)?action:'HOLD',ok:['HOLD','EXIT_NOW'].includes(action),finalAuthority:'JEV'};
   }
 
   async function sovereignExit({position,lifecycle,currentPlan,unified,evidence=null}={}){
@@ -1766,13 +1789,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         };
       })(),
       entryThesis:{why:entryContext.why||original.why||null,setupFamily:entryContext.setupFamily||original.setupFamily||null,entryTiming:entryContext.entryTiming||original.entryTiming||null,edgeBasis:entryContext.edgeBasis||original.edgeBasis||null,lane:entryContext.lane||original.lane||null,source:lifecycle?.entryPlanSource||null,marketSignature:entryContext.marketSignature||null},
-      frames:coreMarket.coreFrames,timingFrames:coreMarket.timingFrames,higherContext:coreMarket.higherContext,chartOverlayLevels:coreMarket.chartOverlayLevels,levelMap:coreMarket.levelMap,liquidationHistory:coreMarket.liquidationHistory,global:coreMarket.global,
+      marketContext:'SEE_STATE_CORE_MARKET_PACKET',
       noisePolicy:'Lower-timeframe noise is evidence, not by itself proof that the original owner-timeframe thesis failed. Evaluate the supplied original thesis against current owner and higher context; JEV retains final strategic authority.',
-      orderFlow:unified?.marketMakerEvidence?.orderFlow||null,
-      depth:unified?.marketMakerEvidence?.bookBehavior||null,
-      currentAdverseSelection:coreMarket?.microstructure?.preEntryAdverseSelection||unified?.marketMakerEvidence?.preEntryAdverseSelection||null,
-      derivatives:unified?.derivatives||null,
-      observedLiquidations:unified?.liquidationContext||null,
       experienceMemory:liveContext.experienceMemory,
       requestedEvidence:evidence||null,
       // CLAUDE_R2544_4_PARTIAL_CONTRACT: kısmi kâr yürütme sözleşmesi ve bu pozisyonda şimdiye kadar alınan kısmiler.
@@ -1781,7 +1799,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={
       model:cfg.model,
       state:{
-        description:'JEV is the sole strategic position manager. record.chartOverlayLevels includes protected trendLines and breakoutEvidence per TF; weigh their age and stillInside state as context, never automatic exits. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, REDUCE_RISK, protect profit, take a partial, or exit now from the supplied evidence. REDUCE_RISK is for a losing/adverse position whose thesis is not fully invalidated but full exposure is no longer justified; it is not profit taking. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it. experienceMemory.caseMemory, when available, contains the most similar ENTRY-STATE cases and deliberately includes both winners and losers/counterexamples; experienceMemory.caseMemoryByLane provides LONG/SHORT × 5M_SCALP/15M_TRADE analogs so direction/lane differences are explicit. Similarity is soft context only, legacy partial signatures are discounted, and a single case never becomes a rule. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byPreEntryFlow/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. byPreEntryFlow calibrates whether the same pre-entry trap/support state historically produced winners AND losers; treat it as measured timing evidence, never a hard rule. It is soft experience, never a veto.',
+        coreMarketPacket:coreMarket,
+        description:'JEV is the sole strategic position manager. state.coreMarketPacket.chartOverlayLevels includes protected trendLines and breakoutEvidence per TF; weigh their age and stillInside state as context, never automatic exits. record.managementContract states the execution contract for PARTIAL_TAKE_PROFIT (minimum progress in R, maximum review partials, minimum spacing) and what the position guard already does automatically; a PARTIAL_TAKE_PROFIT outside that contract is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead when the contract does not allow a partial. EXIT_NOW is never restricted. Frame volatility.trail (3-ATR trail) and volatility.spike (a fresh displacement against the position) are soft context for runner management, not automatic exits. The professional trader/scalper Cortex and measured experience memory are ALWAYS ON read-only reasoning context. Choose HOLD, REDUCE_RISK, protect profit, take a partial, or exit now from the supplied evidence. REDUCE_RISK is for a losing/adverse position whose thesis is not fully invalidated but full exposure is no longer justified; it is not profit taking. Do not require fixed 1m/3m/5m/15m alignment and do not use a score threshold. Weight conflicting evidence by its actual importance. Code after this decision may enforce execution integrity and exchange safety only; it must not downgrade the strategic action, except the stated partial-take-profit contract. If a material concept is not understood, do not invent it. experienceMemory.caseMemory, when available, contains the most similar ENTRY-STATE cases and deliberately includes both winners and losers/counterexamples; experienceMemory.caseMemoryByLane provides LONG/SHORT × 5M_SCALP/15M_TRADE analogs so direction/lane differences are explicit. Similarity is soft context only, legacy partial signatures are discounted, and a single case never becomes a rule. experienceMemory.tradeLessons is YOUR OWN measured P&L: byTierSide/byFamilySide/byRegimeSide/byPreEntryFlow/byExit rows [key,n,win%,netUSDT,PF,avgWin,avgLoss], worked/failed lines, repeatedMistakes (e.g. RAPID_REENTRY_AFTER_WIN, LEADER_CHASE_LONG, WIDE_STOP, OVERSIZED_LOSS), current = attention-tier stats of this coin per side, symbol = your recent trades on this coin, sequence = recent 60m realized P&L/coin switches plus quickSwitchAfterLoss/returnToRecentSymbol. Learn from it: repeat what worked, do not mechanically rotate between recently traded coins or flip direction after a loss/win unless the CURRENT structure, location and execution evidence is materially different; explicitly explain that difference in reasoning. Regime rows describe whether past trades were with/counter to aligned 5m+15m trend and whether entry was stretched/chase-risk. byPreEntryFlow calibrates whether the same pre-entry trap/support state historically produced winners AND losers; treat it as measured timing evidence, never a hard rule. It is soft experience, never a veto.',
         professionalTraderCortex:liveContext.professionalTraderCortex,
         dynamicKnowledge:liveContext.dynamicKnowledge,
         experienceMemory:liveContext.experienceMemory,
@@ -1910,6 +1929,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignExit,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignBurstExit,sovereignExit,budgetStatus};
 }
 module.exports={prepareDecisionRequest,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,sovereignFinalConsistency,createJevClient};
