@@ -573,11 +573,16 @@ function orderBlocks(c, a14) {
   const out = { bullish:[], bearish:[] };
   if (!Array.isArray(c) || c.length < 20 || !(a14 > 0)) return out;
   const last = c.at(-1);
+  // R36: qualify the displacement with ATR known at that closed candle.
+  // Later volatility changes may update mitigation, never erase/recreate its origin.
+  const historicalAtr = atrSeries(c, 14);
   for (let i = c.length - 1; i >= Math.max(11, c.length - 80) && (out.bullish.length < 4 || out.bearish.length < 4); i--) {
     const k = c[i], body = k.close - k.open;
+    const displacementAtr = historicalAtr[i];
+    if (!(displacementAtr > 0)) continue;
     const prev = c.slice(i - 10, i);
-    const upBreak = body >= 1.2 * a14 && k.close > Math.max(...prev.map(x => x.high));
-    const downBreak = -body >= 1.2 * a14 && k.close < Math.min(...prev.map(x => x.low));
+    const upBreak = body >= 1.2 * displacementAtr && k.close > Math.max(...prev.map(x => x.high));
+    const downBreak = -body >= 1.2 * displacementAtr && k.close < Math.min(...prev.map(x => x.low));
     if (!upBreak && !downBreak) continue;
     for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
       const o = c[j];
