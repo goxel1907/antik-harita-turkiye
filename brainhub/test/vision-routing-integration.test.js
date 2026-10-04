@@ -121,11 +121,11 @@ test('9TF Vision prefers explicitly enabled loopback Ollama and never uses it fo
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'brainhub-local-vision-route-')), brainPort=await freePort(), configDir=path.join(root,'config');
   fs.mkdirSync(configDir,{recursive:true});
   fs.writeFileSync(path.join(configDir,'models.json'),JSON.stringify({
-    baseUrl:'http://127.0.0.1:'+routerPort+'/v1',opencode:['oc/text-a','oc/text-b'],kiro:['kr/not-needed'],
+    baseUrl:'http://127.0.0.1:'+routerPort+'/v1',opencode:['oc/text-a-free','oc/text-b-free'],kiro:['kr/not-needed'],
     localVision:{enabled:true,baseUrl:'http://127.0.0.1:'+localPort+'/v1',models:['qwen3-vl:test'],contextSize:16384,timeoutMs:300000,localOnly:true},healthCacheSeconds:1
   }),'utf8');
   fs.writeFileSync(path.join(configDir,'committee.json'),JSON.stringify({
-    analysts:['oc/text-a','oc/text-b'],backupAnalysts:[],judges:[],minAnalystReplies:2,minVisionAnalystReplies:1,maxFreeVisionAttempts:2,
+    analysts:['oc/text-a-free','oc/text-b-free'],backupAnalysts:[],judges:[],minAnalystReplies:2,minVisionAnalystReplies:1,maxFreeVisionAttempts:2,
     allowKiroFreeQuotaVision:false,allowKiroVisionFallback:false,parallelAnalysts:2,visionParallelAnalysts:1,judgeOnlyOnDisagreement:true
   }),'utf8');
   const serverPath=path.join(__dirname,'..','server.js');
@@ -186,7 +186,7 @@ test('9TF Vision may use an explicitly opted-in Kiro free-quota route without ch
   const configDir=path.join(root,'config');
   fs.mkdirSync(configDir,{recursive:true});
 
-  const opencode=['oc/free-fast','oc/free-structure'];
+  const opencode=['oc/fast-free','oc/structure-free'];
   const kiro=['kr/vision-backup'];
   fs.writeFileSync(path.join(configDir,'models.json'),JSON.stringify({
     baseUrl:'http://127.0.0.1:'+routerPort+'/v1',
@@ -255,8 +255,8 @@ test('9TF Vision may use an explicitly opted-in Kiro free-quota route without ch
     assert.match(String(vision.text),/^VISION_OK:/);
 
     const imageCalls=requested.filter(x=>x.vision);
-    assert.ok(imageCalls.some(x=>x.model==='oc/free-fast'));
-    assert.ok(imageCalls.some(x=>x.model==='oc/free-structure'));
+    assert.ok(imageCalls.some(x=>x.model==='oc/fast-free'));
+    assert.ok(imageCalls.some(x=>x.model==='oc/structure-free'));
     assert.ok(imageCalls.some(x=>x.model==='kr/vision-backup'));
     const firstKiro=imageCalls.findIndex(x=>x.model.startsWith('kr/'));
     const lastFree=Math.max(...imageCalls.map((x,i)=>x.model.startsWith('oc/')?i:-1));

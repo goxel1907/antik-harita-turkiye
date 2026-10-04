@@ -102,9 +102,9 @@ test('R2544.19 oversized learning close stays parseable JSON and preserves compa
 });
 
 test('R2544.22 runtime/Office preserve case memory, provenance and read-only authority',()=>{
-  assert.match(src('server.js'),/R2544\.32-JEV-CAUSAL-BREAK-TREND/);
+  assert.match(src('server.js'),/R2544\.33-JEV-FREE-WORKER-EVIDENCE/);
   assert.match(src('server.js'),/\/learning\/case-memory/);
-  assert.match(src('office-dashboard/office-server.js'),/2\.5\.12-R2544\.32-JEV-Brain/);
+  assert.match(src('office-dashboard/office-server.js'),/2\.5\.13-R2544\.33-JEV-Brain/);
   assert.match(src('office-dashboard/public/office.html'),/Vaka Hafızası/);
   assert.match(src('office-dashboard/public/office.html'),/Açık Kaynak Bilgi Provenance/);
   assert.match(src('manage.ps1'),/case-memory\.js/);

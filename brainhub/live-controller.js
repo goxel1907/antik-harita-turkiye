@@ -1121,12 +1121,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let router=null,openRouter=null;
 
     if(deterministic.state==='REVIEW'){
-      const prompt=planWorkers.buildWorkerPrompt({tracked,candidate,unified});
+      const workerRole=String(tracked.tradeLaneName||'').includes('SCALP')||tracked.ownerTF==='5m'?'SCALP':'STRUCTURE';
+      const prompt=planWorkers.buildWorkerPrompt({tracked,candidate,unified,role:workerRole});
       try{
         const out=await committee({
-          role:'FAST',
+          role:workerRole,
           freeOnly:true,
-          system:'V107 PLAN WORKER. Text-only advisory watcher. Never QUALIFY, never place orders, never invent missing market facts. Return exactly the requested WORKER_* schema.',
+          system:'JEV PLAN WORKER. Text-only evidence watcher. Never QUALIFY, never place orders, never invent missing market facts. Return exactly the requested WORKER_* schema.',
           prompt
         });
         router=planWorkers.parseWorkerDecision(out?.text||out?.analysts?.[0]?.text||'');
@@ -1141,6 +1142,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(router?.ok&&router.state==='TRIGGERED'&&freeWorker&&typeof freeWorker.review==='function'){
         try{
           const out=await freeWorker.review({
+            role:workerRole,
             system:'You are a free second-opinion plan watcher. You cannot qualify or place an order. Return only WORKER_STATE, CONFIDENCE, REASON, RECHECK_TFS.',
             prompt,validate:text=>planWorkers.parseWorkerDecision(text)?.ok===true
           });

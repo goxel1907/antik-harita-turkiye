@@ -1,16 +1,14 @@
 'use strict';
 
 const OPENROUTER_FREE_BASELINE = Object.freeze([
-  // Keep the dynamic free router first, then a small explicit evidence-only
-  // pool verified as $0 on OpenRouter in Sep 2026. Finance-specific Ling is
-  // the first direct fallback because JEV-Brain's helper prompts are market
-  // evidence/research, not general coding.
+  // Bootstrap only. A successful live catalog replaces these routes; a name
+  // or zero price is not proof of trading expertise or successful inference.
   'openrouter/free',
-  'inclusionai/ling-3.0-flash-fin:free',
+  'nvidia/nemotron-3.5-lightning:free',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
   'nvidia/nemotron-3-super-120b-a12b:free',
   'google/gemma-4-26b-a4b-it:free',
-  'inclusionai/ling-3.0-flash-vl:free'
+  'qwen/qwen3.8-27b:free'
 ]);
 
 const NINEROUTER_OPENCODE_BASELINE = Object.freeze([
@@ -29,7 +27,15 @@ function isOpenRouterFreeId(id){
   return z==='openrouter/free'||/:free$/i.test(z);
 }
 function is9RouterOpenCodeFreeId(id){
-  return /^oc\//i.test(String(id||'').trim());
+  const z=String(id||'').trim();
+  return /^oc\//i.test(z)&&(/(?:[-:]free)$/i.test(z)||NINEROUTER_OPENCODE_BASELINE.includes(z));
+}
+function select9RouterFreeModels(discovery,configured=NINEROUTER_OPENCODE_BASELINE){
+  // An authoritative empty catalog means the provider is disconnected, not
+  // permission to retry a stale bootstrap pool. Failed discovery retains the
+  // last successful catalog, including an empty one.
+  const discovered=discovery?.lastSuccessAt!==null&&discovery?.lastSuccessAt!==undefined;
+  return unique(discovered?discovery.models:configured).filter(is9RouterOpenCodeFreeId);
 }
 function normalizeModelPayload(payload){
   const rows=Array.isArray(payload)?payload:Array.isArray(payload?.data)?payload.data:Array.isArray(payload?.models)?payload.models:[];
@@ -72,8 +78,9 @@ async function discoverOpenAIModels({baseUrl,key='',fetchImpl=globalThis.fetch,t
   const started=Date.now();
   try{
     const r=await fetchImpl(url,{method:'GET',headers:key?{authorization:'Bearer '+key}:{},signal:AbortSignal.timeout(Math.max(1000,Math.min(10000,Number(timeoutMs)||3000)))});
-    const raw=await r.text();let j={};try{j=raw?JSON.parse(raw):{};}catch{}
+    const raw=await r.text();let j=null;try{j=raw?JSON.parse(raw):null;}catch{}
     if(!r.ok)return {ok:false,models:[],status:r.status,error:('HTTP '+r.status+' '+raw).slice(0,400),durationMs:Date.now()-started};
+    if(!Array.isArray(j)&&!Array.isArray(j?.data)&&!Array.isArray(j?.models))return {ok:false,models:[],status:r.status,error:'MODEL_CATALOG_SCHEMA_INVALID',durationMs:Date.now()-started};
     return {ok:true,models:normalizeModelPayload(j),status:r.status,durationMs:Date.now()-started};
   }catch(e){return {ok:false,models:[],error:String(e?.message||e).slice(0,400),durationMs:Date.now()-started};}
 }
@@ -81,5 +88,5 @@ async function discoverOpenAIModels({baseUrl,key='',fetchImpl=globalThis.fetch,t
 module.exports={
   OPENROUTER_FREE_BASELINE,
   NINEROUTER_OPENCODE_BASELINE,
-  unique,isOpenRouterFreeId,is9RouterOpenCodeFreeId,normalizeModelPayload,freeCatalogModels,providerGroup,classifyProviderError,discoverOpenAIModels
+  unique,isOpenRouterFreeId,is9RouterOpenCodeFreeId,select9RouterFreeModels,normalizeModelPayload,freeCatalogModels,providerGroup,classifyProviderError,discoverOpenAIModels
 };

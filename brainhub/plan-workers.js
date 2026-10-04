@@ -2,6 +2,8 @@
 
 const { isNonConcreteWait } = require('./wait-condition');
 const tradeLanes = require('./trade-lanes');
+const {chartOverlayLevels,keyLevels}=require('./jev-market-packet');
+const {roleInstruction}=require('./worker-expertise');
 
 const FRAMES=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
 const STATES=new Set(['WAIT','TRIGGERED','REFRESH_REQUIRED']);
@@ -15,11 +17,13 @@ function validTf(tf){return FRAMES.includes(String(tf||'').toLowerCase());}
 
 function parseWorkerDecision(text){
   const lines=new Map();
+  let duplicate=false;
   for(const raw of String(text||'').split(/\r?\n/)){
     const line=raw.trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+)/,'');
     const i=line.indexOf(':');if(i<1)continue;
     const k=line.slice(0,i).replace(/[\`*"']/g,'').trim().toUpperCase();
     const v=line.slice(i+1).trim();
+    if(['WORKER_STATE','CONFIDENCE','REASON','RECHECK_TFS'].includes(k)&&lines.has(k))duplicate=true;
     if(k&&!lines.has(k))lines.set(k,v);
   }
   const state=String(lines.get('WORKER_STATE')||'').toUpperCase();
@@ -27,7 +31,8 @@ function parseWorkerDecision(text){
   const reason=clip(lines.get('REASON')||'',300);
   const rawTfs=String(lines.get('RECHECK_TFS')||'').trim();
   const recheckTFs=rawTfs.toUpperCase()==='NONE'?[]:rawTfs.split(',').map(x=>x.trim().toLowerCase()).filter(validTf);
-  const ok=STATES.has(state)&&Number.isFinite(confidence)&&confidence>=0&&confidence<=100&&Boolean(reason);
+  const validTfs=rawTfs.toUpperCase()==='NONE'||(Boolean(rawTfs)&&rawTfs.split(',').every(x=>validTf(x.trim().toLowerCase())));
+  const ok=!duplicate&&STATES.has(state)&&Boolean(lines.get('CONFIDENCE'))&&Number.isFinite(confidence)&&confidence>=0&&confidence<=100&&Boolean(reason)&&validTfs;
   return {ok,state:ok?state:'WAIT',confidence:Number.isFinite(confidence)?confidence:null,reason:reason||'WORKER_OUTPUT_INVALID',recheckTFs:[...new Set(recheckTFs)],raw:clip(text,1200)};
 }
 
@@ -101,9 +106,11 @@ function deterministicGuard({tracked,candidate,unified,now=Date.now(),maxPlanAge
 }
 
 function compactFrame(f){
-  if(!f?.available)return {available:false};
+  if(!f?.available)return {available:false,reason:f?.reason||'UNAVAILABLE',asOf:f?.asOf||null};
   return {
-    available:true,fresh:f.fresh===true,asOf:f.asOf||null,close:f.close??null,trend:f.trend||null,
+    available:true,fresh:f.fresh===true,asOf:f.asOf||null,source:f.source||null,synthetic:f.synthetic===true,
+    closedCandle:f.closedCandle||null,close:f.close??null,trend:f.trend||null,
+    keyLevels:keyLevels(f),
     breakOfStructure:f.breakOfStructure||null,
     opportunity:f.opportunity?{
       state:f.opportunity.state??null,preferredSide:f.opportunity.preferredSide??null,
@@ -121,6 +128,7 @@ function compactWorkerContext({tracked,candidate,unified}={}){
   const wanted=new Set([
     String(tracked?.originTF||'').toLowerCase(),
     String(tracked?.ownerTF||'').toLowerCase(),
+    String(tracked?.triggerTF||'').toLowerCase(),
     '1m','3m','5m','15m'
   ].filter(validTf));
   for(const tf of wanted)frames[tf]=compactFrame(unified?.frames?.[tf]);
@@ -147,6 +155,12 @@ function compactWorkerContext({tracked,candidate,unified}={}){
     },
     livePrice:unified?.livePrice??null,
     frames,
+    // Same numeric selector as Office/JEV. All already-cached TFs are bounded
+    // context; no extra Binance request, model call or confirmation vote.
+    chartOverlayLevels:chartOverlayLevels(unified?.frames),
+    chartOverlayProvenance:Object.fromEntries(FRAMES.map(tf=>{
+      const f=unified?.frames?.[tf];return [tf,{available:f?.available===true,fresh:f?.fresh===true,asOf:f?.asOf??null,source:f?.source||null,synthetic:f?.synthetic===true}];
+    })),
     opportunityPath:unified?.opportunityPaths?.[String(tracked?.side||'').toUpperCase()]||null,
     tradeLane:tradeLanes.analyzeTradeLanes(unified,String(tracked?.side||'').toUpperCase(),candidate),
     dataQuality:unified?.dataQuality||null,
@@ -165,7 +179,8 @@ function compactWorkerContext({tracked,candidate,unified}={}){
 function buildWorkerPrompt(args={}){
   const c=compactWorkerContext(args);
   return [
-    'PLAN_WORKER_V110. Daha once Vision tarafindan uretilmis WATCH plani icin yalniz takip karari ver.',
+    'PLAN_WORKER_R2544_33. JEV tarafindan yonetilen mevcut WATCH plani icin yalniz takip kaniti ver.',
+    roleInstruction(args.role||'STRUCTURE'),
     'Bu worker QUALIFIED veremez, emir veremez ve eski plani tek basina degistiremez.',
     'JEV SOVEREIGN modunda hangi kanitin gerekli olduguna yalniz JEV karar verir; worker kendi evidence listesini, yonunu veya zaman dilimi oylamasini dayatamaz.',
     '5m LONG/SHORT scalp ve 15m LONG/SHORT trade ana karar hatlaridir; 1m/3m/30m/1h/4h/1d ancak JEV isterse ek kanittir.',

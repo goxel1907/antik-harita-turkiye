@@ -3,6 +3,7 @@
 const {OPENROUTER_FREE_BASELINE,isOpenRouterFreeId,freeCatalogModels,classifyProviderError,unique}=require('./free-model-registry');
 const fs=require('node:fs');
 const path=require('node:path');
+const {roleInstruction,normalizeRole}=require('./worker-expertise');
 
 function clip(v,n=800){return String(v??'').replace(/\s+/g,' ').trim().slice(0,n);}
 
@@ -33,7 +34,7 @@ function createOpenRouterFreeWorker({
     const now=clock();
     if(catalog.attemptAt===null||now-catalog.attemptAt>=30*60*1000){
       catalog.attemptAt=now;
-      try{const r=await fetchImpl('https://openrouter.ai/api/v1/models',{signal:AbortSignal.timeout(5000)});const j=JSON.parse(await r.text());const ids=freeCatalogModels(j);if(!r.ok||!ids.length)throw new Error('FREE_CATALOG_UNAVAILABLE');freeModels=unique(['openrouter/free',...ids]);catalog.successAt=now;catalog.error=null;}catch(e){catalog.error=clip(e?.message||e,160);}
+      try{const r=await fetchImpl('https://openrouter.ai/api/v1/models',{signal:AbortSignal.timeout(5000)});const j=JSON.parse(await r.text());if(!r.ok||!Array.isArray(j?.data))throw new Error('FREE_CATALOG_UNAVAILABLE');const ids=freeCatalogModels(j);freeModels=unique(['openrouter/free',...ids]);catalog.successAt=now;catalog.error=null;}catch(e){catalog.error=clip(e?.message||e,160);}
     }
     if(quota.lastCheckedAt===null||now-quota.lastCheckedAt>=15*60*1000){
       quota.lastCheckedAt=now;
@@ -46,31 +47,33 @@ function createOpenRouterFreeWorker({
 
   function modelState(id){return perModel.get(id)||{attempts:0,successes:0,failures:0,consecutiveFailures:0,lastOk:false,lastAt:null,lastOkAt:null,lastError:null,lastErrorClass:null,httpStatus:null,cooldownUntil:0,lastLatencyMs:null};}
   function blocked(id){return clock()<Number(modelState(id).cooldownUntil||0);}
-  function mark(id,{ok,error=null,errorClass=null,httpStatus=null,latencyMs=null,cooldown=null}={}){
+  function mark(id,{ok,error=null,errorClass=null,httpStatus=null,latencyMs=null,cooldown=null,validatedRole=null}={}){
     const p=modelState(id),now=clock();
     perModel.set(id,{
       ...p,attempts:p.attempts+1,successes:p.successes+(ok?1:0),failures:p.failures+(ok?0:1),lastAt:now,
       lastOk:ok===true,consecutiveFailures:ok?0:Number(p.consecutiveFailures||0)+1,
+      validatedRoles:validatedRole?{...(p.validatedRoles||{}),[validatedRole]:now}:p.validatedRoles||{},
       lastOkAt:ok?now:p.lastOkAt,lastError:ok?null:clip(error,300),lastErrorClass:ok?null:(errorClass||'FAILED'),httpStatus:ok?null:(httpStatus||null),
       cooldownUntil:ok?0:(cooldown??p.cooldownUntil??0),lastLatencyMs:Number.isFinite(Number(latencyMs))?Number(latencyMs):p.lastLatencyMs
     });
     persist();
   }
-  function orderedPool(){
+  function orderedPool(role){
     if(!freeModels.length)return ['openrouter/free'];
     const direct=freeModels.filter(x=>x!=='openrouter/free');
     if(!direct.length)return ['openrouter/free'];
     const n=rr++%direct.length;
     const rotated=['openrouter/free',...direct.slice(n),...direct.slice(0,n)];
-    return rotated.sort((a,b)=>Number(modelState(b).lastOk===true&&clock()-modelState(b).lastOkAt<3600000)-Number(modelState(a).lastOk===true&&clock()-modelState(a).lastOkAt<3600000));
+    const rank=id=>{const s=modelState(id);return s.lastOk===true&&clock()-s.lastOkAt<3600000?(s.validatedRoles?.[role]!==undefined&&clock()-s.validatedRoles[role]<3600000?2:1):0;};
+    return rotated.sort((a,b)=>rank(b)-rank(a));
   }
 
-  async function callOne(id,system,prompt,validate){
+  async function callOne(id,system,prompt,validate,role){
     if(!isOpenRouterFreeId(id))throw new Error('NON_FREE_MODEL_REJECTED');
     const started=clock();
     const body={
       model:id,
-      messages:[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],
+      messages:[{role:'system',content:roleInstruction(role)+' '+String(system||'')},{role:'user',content:String(prompt||'')}],
       temperature:0,max_tokens:768,provider:{max_price:{prompt:0,completion:0}}
     };
     const r=await fetchImpl('https://openrouter.ai/api/v1/chat/completions',{
@@ -87,11 +90,12 @@ function createOpenRouterFreeWorker({
     if(text.length>16000)throw new Error('RESPONSE_SCHEMA_INVALID: output too large');
     if(typeof validate==='function'&&validate(text)!==true)throw new Error('RESPONSE_SCHEMA_INVALID');
     const routedModel=String(j?.model||id);
-    mark(id,{ok:true,latencyMs:clock()-started});
+    mark(id,{ok:true,latencyMs:clock()-started,validatedRole:typeof validate==='function'?role:null});
     return {routedModel,text};
   }
 
-  async function review({system='',prompt='',validate=null}={}){
+  async function review({system='',prompt='',validate=null,role='DEFAULT'}={}){
+    role=normalizeRole(role);
     if(!configured){
       last={called:false,ok:false,at:new Date(clock()).toISOString(),model,reason:'OPENROUTER_NOT_CONFIGURED'};return last;
     }
@@ -101,18 +105,18 @@ function createOpenRouterFreeWorker({
     try{
       rollover();await refresh();
       if(quota.used>=quota.limit||minuteCalls.length>=Math.max(1,Math.min(20,Number(minuteLimit)||10))){last={called:false,ok:false,optional:true,blocksJev:false,freeOnly:true,reason:'OPENROUTER_FREE_QUOTA_EXHAUSTED',quota:{...quota}};return last;}
-      const pool=orderedPool().filter(x=>!blocked(x));
+      const pool=orderedPool(role).filter(x=>!blocked(x));
       const attempts=Math.max(1,Math.min(3,Number(maxAttempts)||2));
       for(const id of pool.slice(0,attempts)){
         if(quota.used>=quota.limit||minuteCalls.length>=Math.max(1,Math.min(20,Number(minuteLimit)||10)))break;
         const started=clock();
         try{
           quota.used++;minuteCalls.push(clock());persist();
-          const out=await callOne(id,system,prompt,validate);
+          const out=await callOne(id,system,prompt,validate,role);
           failures=0;cooldownUntil=0;
           persist();
           // Preserve line breaks and complete JSON. Whitespace flattening corrupts WORKER_STATE/CONFIDENCE parsing.
-          last={called:true,ok:true,at:new Date(clock()).toISOString(),model:out.routedModel,requestedModel:id,text:out.text,freeOnly:true,optional:true,blocksJev:false,attempts:errors.length+1};
+          last={called:true,ok:true,at:new Date(clock()).toISOString(),model:out.routedModel,requestedModel:id,text:out.text,role,schemaValidated:typeof validate==='function',factualAccuracyVerified:false,freeOnly:true,optional:true,blocksJev:false,attempts:errors.length+1};
           return last;
         }catch(e){
           const msg=clip(e?.message||e,300);const c=classifyProviderError(msg,e?.status);

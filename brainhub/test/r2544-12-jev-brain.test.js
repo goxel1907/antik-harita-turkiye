@@ -10,7 +10,7 @@ test('varsayılan kökler C:\\JEV-Brain',()=>{
   assert.match(so,/\[string\]\$BackupRoot = 'C:\\JEV-Brain\\BrainHubBackups'/);
   const os=R('office-dashboard','office-server.js');
   assert.match(os,/BRAINHUB_ROOT \|\| 'C:\\\\JEV-Brain\\\\runtime'/);
-  assert.match(os,/OFFICE_VERSION = '2\.5\.12-R2544\.32-JEV-Brain'/);
+  assert.match(os,/OFFICE_VERSION = '2\.5\.13-R2544\.33-JEV-Brain'/);
   assert.match(R('office-dashboard','public','office.html'),/<span id="rootLine">C:\\JEV-Brain<\/span>/);
 });
 test('geçiş betiği: yönetici, beklenen sürüm, açık pozisyon kapısı, geri başlatma, veri silmez',()=>{

@@ -24,9 +24,9 @@ function reply(status,payload,headers={}){
   };
 }
 
-test('R2544.18 explicit helper registry is free-only and contains finance evidence route',()=>{
+test('helper bootstrap registry is free-only; a model name does not prove finance expertise',()=>{
   assert.ok(OPENROUTER_FREE_BASELINE.includes('openrouter/free'));
-  assert.ok(OPENROUTER_FREE_BASELINE.includes('inclusionai/ling-3.0-flash-fin:free'));
+  assert.ok(OPENROUTER_FREE_BASELINE.includes('nvidia/nemotron-3.5-lightning:free'));
   assert.ok(OPENROUTER_FREE_BASELINE.every(isOpenRouterFreeId));
   assert.ok(NINEROUTER_OPENCODE_BASELINE.every(is9RouterOpenCodeFreeId));
   assert.equal(isOpenRouterFreeId('anthropic/claude-opus-4.1'),false);
@@ -102,12 +102,12 @@ test('R2544.18 Headroom collision guard uses 8788 and never changes JEV authorit
   assert.match(manager,/free-model-registry\.js/);
   assert.match(manager,/HEADROOM-SETUP\.ps1/);
   assert.match(server,/const freeWorker=createOpenRouterFreeWorker/);
-  assert.match(server,/const RUNTIME_RELEASE='R2544\.32-JEV-CAUSAL-BREAK-TREND'/);
+  assert.match(server,/const RUNTIME_RELEASE='R2544\.33-JEV-FREE-WORKER-EVIDENCE'/);
 });
 
 test('R2544.18 Office probes Headroom sidecar separately from BrainHub 8787',()=>{
   const officeServer=src('office-dashboard/office-server.js');
   assert.match(officeServer,/HEADROOM_URL = \(process\.env\.HEADROOM_URL \|\| 'http:\/\/127\.0\.0\.1:8788'\)/);
   assert.match(officeServer,/HEADROOM_URL \+ '\/health'/);
-  assert.match(officeServer,/OFFICE_VERSION = '2\.5\.12-R2544\.32-JEV-Brain'/);
+  assert.match(officeServer,/OFFICE_VERSION = '2\.5\.13-R2544\.33-JEV-Brain'/);
 });
