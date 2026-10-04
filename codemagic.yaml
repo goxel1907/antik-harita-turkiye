@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.121-r2544.30-office-burst + PC POSITION SYNC + JEV BURST STATUS
+    name: Futures 15m Alarm PRO APK v9.5.122-r2544.33-brainhub-8443 + PC POSITION SYNC + JEV BURST STATUS
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -529,6 +529,25 @@ workflows:
             exit 1
           fi
           echo 'V95129_R2544_30_OFFICE_BURST_OK'
+          # V95130 / R2544.33 transport hotfix: BrainHub gets dedicated tailnet-only HTTPS 8443; 443 stays with 9Router Funnel.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95130_r2544_33_brainhub_8443.py"
+          grep -q 'V95130_R2544_33_BRAINHUB_8443' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'private static final String FIXED_ENDPOINT = "https://8z9rvd.tail8c30c4.ts.net:8443";' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q "versionName '9.5.122-r2544.33-brainhub-8443'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26100401' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'private static final String FIXED_ENDPOINT = "https://8z9rvd.tail8c30c4.ts.net";' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_33_ANDROID_STALE_443_ENDPOINT_FORBIDDEN'
+            exit 1
+          fi
+          if grep -q ':8787' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_33_ANDROID_STALE_8787_FORBIDDEN'
+            exit 1
+          fi
+          if grep -q 'post(c, "/live/execute", intent, true)\|post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_33_ANDROID_ORDER_INITIATION_FORBIDDEN'
+            exit 1
+          fi
+          echo 'V95130_R2544_33_BRAINHUB_8443_OK'
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
@@ -702,7 +721,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.121-r2544.30-office-burst PC-only signed APK
+      - name: Build installable v9.5.122-r2544.33-brainhub-8443 PC-only signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -748,9 +767,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.121-R2544.30-OFFICE-BURST.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.122-R2544.33-BRAINHUB-8443.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.121-R2544.30-OFFICE-BURST.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.122-R2544.33-BRAINHUB-8443.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -761,5 +780,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.121-R2544.30-OFFICE-BURST.apk
+      - Futures15mAlarm-PRO-v9.5.122-R2544.33-BRAINHUB-8443.apk
       - v9595-gradle.log
