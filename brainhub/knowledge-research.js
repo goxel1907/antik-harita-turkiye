@@ -28,7 +28,7 @@ const CURATED_OPEN_SOURCE_REPOS=[
   // R2544.17 research additions: architecture/validation references only; never copied as live strategy authority.
   {repo:'microsoft/qlib',url:'https://github.com/microsoft/qlib',license:'MIT',roles:['ML_RESEARCH','MARKET_DYNAMICS','REGIME','WALK_FORWARD']},
   {repo:'online-ml/river',url:'https://github.com/online-ml/river',license:'BSD-3-Clause',roles:['ONLINE_LEARNING','CONCEPT_DRIFT','STREAMING_STATS']},
-  {repo:'nkaz001/hftbacktest',url:'https://github.com/nkaz001/hftbacktest',license:'MIT',roles:['ORDER_BOOK','MICROSTRUCTURE','LATENCY','BACKTEST']},
+  {repo:'nkaz001/hftbacktest',url:'https://github.com/nkaz001/hftbacktest',license:'MIT',roles:['ORDER_BOOK','MICROSTRUCTURE','LATENCY','BACKTEST'],why:'Offline tick replay reference for feed/order latency, queue position and realistic scalp fills; no live strategy import.',concepts:['FEED_LATENCY','ORDER_LATENCY','QUEUE_POSITION','TICK_REPLAY'],integrationStatus:'REFERENCE_ONLY',authority:'REFERENCE_ONLY',reviewedCommit:'5f3ec40b2afb764e0fea112f941ed85523ef4e88',checkedAt:'2026-10-04'},
   {repo:'AgentJDrew/backtest-guard',url:'https://github.com/AgentJDrew/backtest-guard',license:'MIT',roles:['VALIDATION','OVERFITTING','PURGED_CV','BACKTEST']},
   {repo:'landtml/purgedcv',url:'https://github.com/landtml/purgedcv',license:'MIT',roles:['VALIDATION','PURGED_CV','WALK_FORWARD']},
   // R2544.19: verified-license microstructure/data-integrity references. Reference-only; no code is copied and
@@ -47,7 +47,11 @@ const CURATED_OPEN_SOURCE_REPOS=[
   {repo:'JWHaan/quant.term',url:'https://github.com/JWHaan/quant.term',license:'MIT',roles:['ORDER_FLOW','OFI','CVD','DATA_PROVENANCE','GAP_VALIDATION'],why:'Reference for deterministic market-data provenance, checksums, gap reporting and order-flow research panels.',concepts:['DATASET_PROVENANCE','GAP_REPORTING','CHECKSUM','OFI','CVD'],integrationStatus:'REFERENCE_ADOPTED',authority:'REFERENCE_ONLY'},
   {repo:'crisari666/liquidity-scanner',url:'https://github.com/crisari666/liquidity-scanner',license:'UNVERIFIED_CURRENT',roles:['MICROSTRUCTURE','ORDER_BOOK','LIQUIDITY'],why:'Historical reviewed concept source; current BrainHub already implements persistence/pull/replenishment/absorption concepts independently.',concepts:['WALL_PERSISTENCE','LIQUIDITY_PULL','REPLENISHMENT','ABSORPTION'],integrationStatus:'HISTORICAL_CONCEPT_ADOPTED',authority:'REFERENCE_ONLY'},
   {repo:'AIUngated/crypto-liquidity-terminal',url:'https://github.com/AIUngated/crypto-liquidity-terminal',license:'MIT',roles:['ORDER_BOOK','MARKET_DATA','MICROSTRUCTURE'],why:'Architecture reference for sequence-safe local order-book reconstruction; USD-M implementation follows Binance U/u/pu rules rather than copying spot assumptions.',concepts:['LOCAL_L2','SEQUENCE_HEALTH','RESYNC','MULTILEVEL_OFI'],integrationStatus:'ARCHITECTURE_ADAPTED',authority:'REFERENCE_ONLY'},
-  {repo:'minchillo4/btc-liquidation-heatmap',url:'https://github.com/minchillo4/btc-liquidation-heatmap',license:'MIT',roles:['OPEN_INTEREST','LIQUIDATION_MODEL','SHADOW_RESEARCH'],why:'Reference for OI anomaly and modeled liquidation-density research; modeled zones remain explicitly estimated and separate from observed Binance forceOrder.',concepts:['OI_ANOMALY','MODELED_LIQUIDATION_DENSITY','POSITION_FLOW_REGIME'],integrationStatus:'SHADOW_MODEL_REFERENCE',authority:'SHADOW_EVIDENCE_ONLY'}
+  {repo:'minchillo4/btc-liquidation-heatmap',url:'https://github.com/minchillo4/btc-liquidation-heatmap',license:'MIT',roles:['OPEN_INTEREST','LIQUIDATION_MODEL','SHADOW_RESEARCH'],why:'Reference for OI anomaly and modeled liquidation-density research; modeled zones remain explicitly estimated and separate from observed Binance forceOrder.',concepts:['OI_ANOMALY','MODELED_LIQUIDATION_DENSITY','POSITION_FLOW_REGIME'],integrationStatus:'SHADOW_MODEL_REFERENCE',authority:'SHADOW_EVIDENCE_ONLY'},
+  // R36: primary README and GitHub license/commit metadata checked; implementation
+  // remains unaudited and uninstalled. No repository prose becomes market truth.
+  {repo:'mrzdev/quest_deep_orderbook',url:'https://github.com/mrzdev/quest_deep_orderbook',license:'MIT',roles:['ORDER_BOOK','MARKET_DATA','REPLAY'],why:'Research reference for recording Binance Futures depth metrics in QuestDB; useful for later gap/latency replay, not an executable scalp strategy.',concepts:['DEPTH_RECORDING','TIME_SERIES','LOCAL_DEPTH_CACHE'],integrationStatus:'REFERENCE_ONLY',authority:'REFERENCE_ONLY',reviewedCommit:'d912eda1621264e8d196fe0b1c92380f1f923c68',checkedAt:'2026-10-04'},
+  {repo:'thrownew/go-binance-orderbook',url:'https://github.com/thrownew/go-binance-orderbook',license:'MIT',roles:['ORDER_BOOK','DATA_INTEGRITY','MICROSTRUCTURE'],why:'Focused low-star USD-M U/u/pu synchronization reference; local BrainHub L2 stays authoritative and no Go dependency is installed.',concepts:['USD_M_SEQUENCE','SNAPSHOT_RESYNC','BOUNDED_SNAPSHOT_CONCURRENCY'],integrationStatus:'REFERENCE_ONLY',authority:'REFERENCE_ONLY',reviewedCommit:'8b19a6b6c279b52a4135d34aad2f46c7d9a38648',checkedAt:'2026-10-04'}
 ];
 
 function clip(v,n=1200){return String(v??'').replace(/\s+/g,' ').trim().slice(0,n);}
@@ -125,7 +129,7 @@ function repoHints(family){
   return CURATED_OPEN_SOURCE_REPOS
     .filter(x=>x.roles.some(r=>wanted.includes(r)))
     .slice(0,5)
-    .map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],integrationStatus:x.integrationStatus||'REFERENCE_ONLY',authority:x.authority||'REFERENCE_ONLY'}));
+    .map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],reviewedCommit:x.reviewedCommit||null,checkedAt:x.checkedAt||null,integrationStatus:x.integrationStatus||'REFERENCE_ONLY',authority:x.authority||'REFERENCE_ONLY'}));
 }
 function topicCandidates(unified,evidence=null){
   const out=[];
@@ -353,7 +357,7 @@ function createKnowledgeResearch({
       retryPolicy:{channelAttempts:Math.max(1,Math.min(4,Array.isArray(retryDelaysMs)?retryDelaysMs.length:1)),sourceFetchAttempts:2},
       sourceLimits:{topicRetryMs:900000,cacheTtlMs:86400000,hostCooldowns:{...sourceCooldown}},
       openSourceRepoCount:CURATED_OPEN_SOURCE_REPOS.length,
-      openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],integrationStatus:x.integrationStatus||'REFERENCE_ONLY',authority:x.authority||'REFERENCE_ONLY',executionAuthority:false}))
+      openSourceRepos:CURATED_OPEN_SOURCE_REPOS.map(x=>({repo:x.repo,url:x.url,license:x.license,roles:x.roles,why:x.why||null,concepts:Array.isArray(x.concepts)?x.concepts:[],reviewedCommit:x.reviewedCommit||null,checkedAt:x.checkedAt||null,integrationStatus:x.integrationStatus||'REFERENCE_ONLY',authority:x.authority||'REFERENCE_ONLY',executionAuthority:false}))
     };
   }
   return {research,researchFromContext,reference,status,detectGap};

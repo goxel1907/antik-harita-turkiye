@@ -765,6 +765,16 @@ class BinanceLiveTransport {
         reduceOnly:!hedgeMode,reason:String(reason||'JEV_POSITION_MANAGEMENT').slice(0,80)
       };
     }catch(e){
+      // A protective stop may win the race with a reduce-only market request.
+      // Confirm exchange inventory before marking it flat; never retry blindly
+      // or claim that our rejected order performed the close.
+      if(reductionSent&&Number(e?.body?.code)===-2022){
+        try{
+          const after=await this._fetchJson('GET','/fapi/v3/positionRisk',{params:{symbol:sym},credentials,signed:true});
+          const matching=Array.isArray(after)?after.filter(x=>x.symbol===sym&&(x.positionSide===s||x.positionSide==='BOTH')):[];
+          if(matching.length&&matching.every(x=>finite(x.positionAmt)===0))return {ok:false,orderPlaced:false,requestSent:true,clientOrderId:cid,fullyClosed:true,remainingQty:0,closeVerification:'POSITION_RISK_RECHECKED',reason:'POSITION_ALREADY_FLAT_AFTER_REJECT',exchangeError:e.body};
+        }catch{}
+      }
       return {ok:false,orderPlaced:false,requestSent:reductionSent,clientOrderId:cid,reason:String(e?.message||'POSITION_REDUCE_FAILED').slice(0,160),exchangeError:e?.body||null};
     }
   }

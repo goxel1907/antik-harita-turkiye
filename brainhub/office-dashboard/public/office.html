@@ -791,12 +791,14 @@ function renderBurst(s){
   if(!b||b.ok!==true){el.innerHTML='<p>Vur-kaç verisi okunamadı. Seçim veya işlem durumu doğrulanamıyor.</p>';return;}
   const selected=Array.isArray(b.armed)?b.armed:[],active=Array.isArray(b.active)?b.active:[];
   const status=s.status?.data, live=status?.armed===true, auto=status?.leaderAuto?.enabled===true;
-  const names={WAIT_TRIGGER:'Tetik bekleniyor',TRIGGER_READY:'Tetik hazır; yürütme güvenlik kontrolüne bağlı',DATA_NOT_READY:'Güncel piyasa verisi bekleniyor',NO_PREMOVE:'Erken hareket kanıtı yok',NO_AUTHORIZATION:'JEV ön-yetkisi yok',BURST_NO_CANDIDATES:'Vur-kaç adayı yok',NOT_REVIEWED:'Henüz değerlendirme yok',LEADER_AUTO_DISABLED:'OTO kapalı',JEV_DO_NOT_ARM:'JEV ön-yetki vermedi',DO_NOT_ARM:'JEV ön-yetki vermedi',BURST_ARM_FULL:'Ön-yetki listesi dolu',BURST_JEV_PREAUTH_UNAVAILABLE:'JEV ön-yetki bağlantısı hazır değil',SCANNER_UNAVAILABLE:'Tarayıcı verisi alınamadı',CHART_CACHE_MISSING:'Grafik bağlamı hazırlanıyor; JEV seçimi henüz yok',CHART_CACHE_STALE:'Grafik bağlamı yenileniyor',CHART_CORE_NOT_FRESH:'Kapalı mum verisi güncel değil',BURST_CHART_CONTEXT_NOT_READY:'JEV için grafik bağlamı hazır değil',JEV_PREAUTH_RECHECK_COOLDOWN:'JEV yeniden değerlendirme aralığı bekleniyor'};
+  const names={EARLY_EXPANSION:'Erken genişleme adayı',LOCATION_ADVERSE:'Giriş konumu uygun değil',FLOW_ADVERSE:'Canlı akış ters yönde',NO_EARLY_EDGE:'Erken hareket avantajı yok',POSITION_CONFLICT:'Aynı coinde ters pozisyon var',RISK_OR_PAUSE:'Risk veya zarar molası',JEV_REASON_NOT_PROVIDED:'JEV gerekçe bildirmedi',BURST_SHARED_POSITION_NOT_ISOLATABLE:'Aynı coinde ana pozisyon ayrı korunamıyor',WAIT_TRIGGER:'Tetik bekleniyor',TRIGGER_READY:'Tetik hazır; yürütme güvenlik kontrolüne bağlı',DATA_NOT_READY:'Güncel piyasa verisi bekleniyor',NO_PREMOVE:'Erken hareket kanıtı yok',NO_AUTHORIZATION:'JEV ön-yetkisi yok',BURST_NO_CANDIDATES:'Vur-kaç adayı yok',NOT_REVIEWED:'Henüz değerlendirme yok',LEADER_AUTO_DISABLED:'OTO kapalı',JEV_DO_NOT_ARM:'JEV ön-yetki vermedi',DO_NOT_ARM:'JEV ön-yetki vermedi',BURST_ARM_FULL:'Ön-yetki listesi dolu',BURST_JEV_PREAUTH_UNAVAILABLE:'JEV ön-yetki bağlantısı hazır değil',SCANNER_UNAVAILABLE:'Tarayıcı verisi alınamadı',CHART_CACHE_MISSING:'Grafik bağlamı hazırlanıyor; JEV seçimi henüz yok',CHART_CACHE_STALE:'Grafik bağlamı yenileniyor',CHART_CORE_NOT_FRESH:'Kapalı mum verisi güncel değil',BURST_CHART_CONTEXT_NOT_READY:'JEV için grafik bağlamı hazır değil',JEV_PREAUTH_RECHECK_COOLDOWN:'JEV yeniden değerlendirme aralığı bekleniyor'};
   const tr=v=>names[v]||trUi(v||'—');
   let html=`<p><b>JEV seçimi ${selected.length}/${b.maxArmed??4} • aktif ${active.length}/${b.maxActive??1}</b> • izleme ${Math.round((b.watchIntervalMs||1000)/1000)} sn</p><p>${!status?'LIVE/OTO durumu okunamadı':live&&auto?'LIVE ve OTO açık; JEV ön-yetkisi tek başına emir değildir.':'LIVE veya OTO kapalı; bu kart işlem açmaz.'}</p>`;
   if(!selected.length)html+='<p><b>Şu anda JEV’in ön-yetki verdiği coin yok.</b> Radar adayları JEV seçimi sayılmaz.</p>';
   for(const x of selected){const t=x.telemetry||{};html+=`<div class="lane-card"><div class="t">${esc(x.symbol)} • ${esc(x.side)} • JEV SEÇTİ</div><div class="v">${esc(tr(t.state||'WAIT_TRIGGER'))}</div><div class="s">Yetki: ${Math.ceil(Math.max(0,Number(x.remainingMs)||0)/1000)} sn • tetik gücü ${t.score==null?'—':Math.round(t.score*100)+'%'} / eşik ${Math.round((Number(x.triggerThreshold)||.9)*100)}% (olasılık değildir)</div><div class="s">${esc(x.jevReason||'JEV koşullu ön-yetkisi')} • ${esc((t.contradictions||[]).map(tr).join(', '))}</div></div>`;}
   for(const x of active)html+=`<div class="lane-card good"><div class="t">${esc(x.symbol)} • ${esc(x.side)} • AKTİF VUR-KAÇ</div><div class="s">${esc(x.marginQuote??'—')} USDT • ${esc(x.leverage??'—')}x • giriş ${esc(x.entryPrice??'—')} • stop ${esc(x.stopPrice??'—')}</div></div>`;
+  if(b.diagnostics)html+=`<p>Son 60 dk: ${Number(b.diagnostics.reviewed)||0} değerlendirme • ${Number(b.diagnostics.called)||0} JEV çağrısı • ${Number(b.diagnostics.authorized)||0} ön-yetki</p><p>${Object.entries(b.diagnostics.reasons||{}).map(([k,v])=>esc(tr(k))+': '+Number(v)).join(' • ')}</p>`;
+  if(b.separateOtherSymbolSlot)html+='<p>Başka coinde açık ana pozisyon varken ayrı vur-kaç slotu kullanılabilir. Aynı coinde ek işlem, ana pozisyon ayrı korunamadığı için kapalıdır.</p>';
   const r=b.lastArmReview;
   html+=`<p>Son seçim turu: ${r?.at?esc(new Date(r.at).toLocaleString('tr-TR'))+' • '+esc(tr(r.reason)):'Çalışan PC sürümü seçim turu ayrıntısını henüz yayınlamıyor.'}</p>`;
   for(const x of (r?.results||[]).slice(0,4))html+=`<p>• ${esc(x.symbol)}: ${x.armed?'JEV seçti • '+esc(x.side):esc(tr(x.reason))}</p>`;
@@ -923,7 +925,7 @@ function renderJev(s){
       ['Akış', `PASS-1 ${h.sovereignPass1Calls??0} • kanıt isteği ${h.sovereignEvidenceRequests??0} • PASS-2 ${h.sovereignFinalCalls??0}`],
       ['Son karar', `ALIŞ ${h.sovereignLong??0} • SATIŞ ${h.sovereignShort??0} • BEKLE ${h.sovereignWait??0}`],
       ['Seçicilik', selectivity],
-      ['Deneyim hafızası', `ölçülmüş ${le.measuredSampleCount??0} • JEV dersi ${le.jevLessonCount??0} • yumuşak bağlam`],
+      ['Deneyim hafızası', `ölçülmüş ${le.measuredSampleCount??0} • JEV dersi ${le.jevLessonTotalCount??le.jevLessonCount??0} • yumuşak bağlam`],
       ['Kural', 'Puanlama/2-of-3/zorunlu-15dk stratejik kapı yok; JEV setup ailesi + avantaj kaynağı + giriş zamanlamasını ayrıca seçer. ŞİMDİ PİYASA GİRİŞİ değilse emir yetkilenmez.']
     ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
     $('#jevList').innerHTML = [
@@ -1105,8 +1107,8 @@ function renderPositions(s){
   const st=s.status?.data||{}; const pm=st.positionManager||{}; const lr=pm.lastReview||{}; const le=st.learning||{};
   const stats=le.stats||[]; const samples=stats.reduce((a,x)=>a+Number(x.samples||0),0);
   const recentLearning=Array.isArray(le.recent)?le.recent:[];
-  const jevLessons=Number.isFinite(Number(le.jevLessonCount))
-    ? Number(le.jevLessonCount)
+  const jevLessons=Number.isFinite(Number(le.jevLessonTotalCount??le.jevLessonCount))
+    ? Number(le.jevLessonTotalCount??le.jevLessonCount)
     : recentLearning.filter(x=>String(x?.kind||'').toUpperCase()==='JEV_LESSON').length;
   renderLedger(s);
   const js=st.jevSovereign||s.health?.data?.jevSovereign||{};

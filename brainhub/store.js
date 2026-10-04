@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
-const { reconcileCloses } = require('./office-performance');
+const { reconcileCloses,enrichCloses } = require('./office-performance');
 const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
 const {learningQuality}=require('./learning-quality');
@@ -190,12 +190,14 @@ function openStore(root) {
     attnCache.set(key,att);
     return att;
   }
+  function closeExecutionRecords(){return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION') ORDER BY ts").all().map(x=>({...x,payload:safeLearningPayload(x.payload)}));}
+  function closeEvidenceKey(){const x=db.prepare("SELECT COUNT(*) AS n,MAX(rowid) AS last FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION')").get();return ':'+x.n+':'+x.last;}
   function tradeLessonCards(){
     const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
-    const key=raw.length+':'+(raw.length?raw[raw.length-1].id:'');
+    const key=raw.length+':'+(raw.length?raw[raw.length-1].id:'')+closeEvidenceKey();
     if(lessonCache.key===key)return lessonCache.cards;
-    const rows=raw.map(x=>{let p={};try{p=JSON.parse(x.payload)||{};}catch{p={};}return learningQuality({...p,id:x.id,symbol:x.symbol});});
-    const trades=reconcileCloses(rows).trades;
+    const rows=raw.map(x=>{let p={};try{p=JSON.parse(x.payload)||{};}catch{p={};}return learningQuality({...p,id:x.id,ts:x.ts,symbol:x.symbol});});
+    const trades=reconcileCloses(enrichCloses(rows,closeExecutionRecords()).map(learningQuality)).trades;
     const cards=tradeLessonsLib.buildCards(trades,{attentionOf:attentionForClose});
     lessonCache={key,cards};
     return cards;
@@ -209,18 +211,20 @@ function openStore(root) {
   let caseTradeCache={key:null,trades:[]};
   function caseTrades(){
     const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
-    const ck=raw.length+':'+(raw.length?raw[raw.length-1].id:'');
+    const ck=raw.length+':'+(raw.length?raw[raw.length-1].id:'')+closeEvidenceKey();
     if(caseTradeCache.key===ck)return caseTradeCache.trades;
-    const rows=raw.map(x=>{let q={};try{q=JSON.parse(x.payload)||{};}catch{q={};}return learningQuality({...q,id:x.id,symbol:x.symbol});});
-    const trades=reconcileCloses(rows).trades;caseTradeCache={key:ck,trades};return trades;
+    const rows=raw.map(x=>{let q={};try{q=JSON.parse(x.payload)||{};}catch{q={};}return learningQuality({...q,id:x.id,ts:x.ts,symbol:x.symbol});});
+    const trades=reconcileCloses(enrichCloses(rows,closeExecutionRecords()).map(learningQuality)).trades;caseTradeCache={key:ck,trades};return trades;
   }
   function caseMemory({currentCase=null,symbol=null,limit=5}={}){
     try{return caseMemoryLib.analogDigest(caseTrades(),{currentCase,limit});}
     catch(e){return {version:'R2544.21',available:false,reason:'CASE_MEMORY_ERROR',detail:String(e?.message||e).slice(0,160),analogs:[],executionAuthority:false};}
   }
   function learningContext({symbol=null,candidate=null,unified=null}={}){
-    const closes=db.prepare("SELECT id,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED'").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,symbol:x.symbol}));
-    const excluded=reconcileCloses(closes).excluded;
+    const closes=db.prepare("SELECT id,ts,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED' ORDER BY ts").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,ts:x.ts,symbol:x.symbol}));
+    const enrichedCloses=enrichCloses(closes,closeExecutionRecords());
+    const enrichedById=new Map(enrichedCloses.map(x=>[x.id,x]));
+    const excluded=reconcileCloses(enrichedCloses).excluded;
     db.exec('DELETE FROM excluded_learning_close_ids');
     const exclude=db.prepare('INSERT OR IGNORE INTO excluded_learning_close_ids(id) VALUES(?)');
     for(const x of excluded)exclude.run(x.id);
@@ -245,7 +249,7 @@ function openStore(root) {
       return {rMultiple:Number(r.toFixed(4)),rStatus:p?.riskBasis?(basisOk?'MEASURED':'MEASURED_WEAK_BASIS'):'MEASURED_LEGACY'};
     };
     const measuredOutcomes=learnByKind.all('POSITION_CLOSED',key,key,24).map(row=>{
-      const p=learningQuality(safeLearningPayload(row.payload)), ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
+      const p=learningQuality(enrichedById.get(row.id)||safeLearningPayload(row.payload)), ec=p.entryContext&&typeof p.entryContext==='object'?p.entryContext:{};
       const cr=canonicalR(p);
       return {
         ts:row.ts,kind:row.kind,symbol:row.symbol,side:row.side,setup:row.setup,originTF:row.originTF,ownerTF:row.ownerTF,
@@ -291,6 +295,7 @@ function openStore(root) {
     return {
       source:'BrainHub ölçülebilir işlem/karar geçmişi',
       burstExperience,
+      burstDecisions:learnByKind.all('BURST_PREAUTH_REVIEW',key,key,8).map(row=>{const p=safeLearningPayload(row.payload);return {ts:row.ts,symbol:row.symbol,decision:p.decision,reason:p.reason,side:p.side,preMove:p.preMove,streamAvailable:p.streamAvailable,l2Ready:p.l2Ready,measurement:'DECISION_TRACE_NOT_TRADE_OUTCOME',authority:'SOFT_CONTEXT_ONLY'};}),
       tradeLessons:tradeLessonDigest,
       caseMemory:caseMemoryDigest,
       caseMemoryByLane,
@@ -303,6 +308,8 @@ function openStore(root) {
       measuredSampleCount:lifetime.measuredSamples,
       recentMeasuredDetailCount:measuredOutcomes.length,
       jevLessonCount:jevLessons.length,
+      recentJevLessonCount:jevLessons.length,
+      jevLessonTotalCount:Number(db.prepare("SELECT COUNT(*) AS n FROM canonical_learning_events WHERE kind='JEV_LESSON'").get().n),
       changesAppliedToHardRisk:false,
       rMeasurementPolicy:'rMultiple yalnız geçerli ilk-miktar/ilk-stop tabanı varsa ölçülmüş sayılır; rStatus UNMEASURED_* veya REJECTED_OUTLIER_R olan satırlar R kanıtı olarak kullanılamaz (ham kayıt korunur, rawRMultiple alanında).',
       note:'Lifetime özeti bütün ölçülmüş POSITION_CLOSED geçmişini temsil eder; son 24 kapanış ve son 24 JEV lesson ayrıntı olarak taşınır. R2544.19+ caseMemory aynı isimli setupı otomatik kural yapmaz; R2544.21 ayrıca giriş-öncesi mikroyapı durumunu pencere örnek güveniyle kalibre eder; entry-state benzerliğine göre kazanan ve kaybeden örnekleri birlikte gösterir. JEV_LESSON ve CASE_MEMORY yalnız yumuşak bağlamdır; hard risk/kill-switch/execution güvenliğini değiştiremez.'

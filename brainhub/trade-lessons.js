@@ -1,4 +1,5 @@
 'use strict';
+const {profitGiveback}=require('./outcome-metrics');
 // CLAUDE_R2544_16_TRADE_LESSONS (Claude Work, 2026-09-29) — beynin kâr/zarardan KESİN öğrenmesi.
 // Önceki durum: JEV_LESSON'lar tek işlemden genel "OBSERVE_MORE" üretiyordu; deneyim hafızası kurulumu hangi
 // dikkat katmanından (ilk 3 / 4–10 / 11–24 / aday / erken ilgi / patlamaya yakın) geldiğini hiç bilmiyordu.
@@ -102,7 +103,7 @@ function lessonCard(close,{attention=null,prev=null,prevGlobal=null,prevTwo=[],a
   const op=p.outcomePath&&typeof p.outcomePath==='object'?p.outcomePath:{};
   const mfeR=num(op.mfeR),maeR=num(op.maeR),timeToMfeMin=num(op.timeToMfeMin),timeToMaeMin=num(op.timeToMaeMin);
   const realizedR=cr.r!==null?cr.r:num(op.rMultiple);
-  const mfeGivebackR=num(op.mfeGivebackR)??(mfeR!==null&&realizedR!==null?Math.max(0,mfeR-realizedR):null);
+  const mfeGivebackR=profitGiveback(mfeR,realizedR);
   const captureEfficiency=num(op.captureEfficiency)??(mfeR!==null&&mfeR>0&&realizedR!==null&&realizedR>0?Math.max(0,Math.min(2,realizedR/mfeR)):null);
   const preEntry=preEntryForSide(ec,side);
   const regime=regimeKeyFromSignature(ec.marketSignature||null,side);

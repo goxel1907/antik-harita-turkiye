@@ -6,7 +6,7 @@ const path=require('node:path');
 const {CURATED_OPEN_SOURCE_REPOS}=require('../knowledge-research');
 
 test('R2544.26 OSS provenance keeps research/shadow authority explicit',()=>{
-  assert.equal(CURATED_OPEN_SOURCE_REPOS.length,27);
+  assert.equal(CURATED_OPEN_SOURCE_REPOS.length,29);
   const by=new Map(CURATED_OPEN_SOURCE_REPOS.map(x=>[x.repo,x]));
   const expected={
     'Khaymat/pyvsmc':['OFFLINE_ORACLE','REFERENCE_ONLY'],

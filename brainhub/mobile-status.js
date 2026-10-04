@@ -11,7 +11,7 @@ function mobileStatus(status={}){
   const out=project(status);
   if(out.learning){
     const src=status.learning;
-    out.learning=Object.fromEntries(['source','lifetime','stats','measuredSampleCount','recentMeasuredDetailCount','jevLessonCount','changesAppliedToHardRisk','rMeasurementPolicy','note'].filter(k=>src[k]!==undefined).map(k=>[k,project(src[k])]));
+    out.learning=Object.fromEntries(['source','lifetime','stats','measuredSampleCount','recentMeasuredDetailCount','jevLessonCount','recentJevLessonCount','jevLessonTotalCount','changesAppliedToHardRisk','rMeasurementPolicy','note'].filter(k=>src[k]!==undefined).map(k=>[k,project(src[k])]));
   }
   out.compact=true;out.mobileContract='R2544.35_PC_STATUS';return out;
 }

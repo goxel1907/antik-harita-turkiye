@@ -264,6 +264,7 @@ function compactExperienceMemory(learning,maxChars=6500){
     measuredSampleCount:Number(src.measuredSampleCount)||0,
     jevLessonCount:Number(src.jevLessonCount)||0,
     burstExperience:Array.isArray(src.burstExperience)?src.burstExperience.slice(0,6):[],
+    burstDecisions:Array.isArray(src.burstDecisions)?src.burstDecisions.slice(0,2):[],
     lifetime:src.lifetime&&typeof src.lifetime==='object'?src.lifetime:null,
     stats:Array.isArray(src.stats)?src.stats.slice(0,8):[],
     measuredOutcomes:Array.isArray(src.measuredOutcomes)?src.measuredOutcomes.slice(0,8).map(compactOutcomeRecord):[],
@@ -284,7 +285,7 @@ function compactExperienceMemory(learning,maxChars=6500){
   if(raw.length>limit){
     return {
       alwaysOn:true,tradeLessons:out.tradeLessons,caseMemory:out.caseMemory,caseMemoryByLane:out.caseMemoryByLane,source:out.source,measuredSampleCount:out.measuredSampleCount,jevLessonCount:out.jevLessonCount,lifetime:out.lifetime,
-      stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),burstExperience:out.burstExperience.slice(0,2),
+      stats:out.stats.slice(0,3),measuredOutcomes:out.measuredOutcomes.slice(0,2),jevLessons:out.jevLessons.slice(0,2),burstExperience:out.burstExperience.slice(0,2),burstDecisions:out.burstDecisions.slice(0,1),
       memoryTrimmed:true,note:out.note
     };
   }
@@ -1359,7 +1360,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       questions:{
         trade_plan:{
           type:'choice',
-          instructions:'Choose the single best action now. Select one supplied executable plan only when direction, lane, timing, location and risk geometry are justified by the complete core market packet plus requested evidence; otherwise choose WAIT.',
+          instructions:'Choose the single best action now. Select one supplied executable plan only when direction, lane, timing, location and risk geometry are justified by the complete core market packet plus requested evidence; otherwise choose WAIT. Explicitly weigh the supplied geometryNote, stopAtr and formingOwnerTF: a stop inside owner-frame noise with adverse live movement is not made sound by a supportive aggregate flow label. For countertrend mean reversion distinguish observed rejection from an accepted break or squeeze; oversold/overbought alone does not establish exhaustion. JEV retains the strategic choice; these are evidence considerations, not new code vetoes.',
           criteria
         },
         setup_family:{
@@ -1420,7 +1421,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         },
         pre_entry_flow_assessment:{
           type:'choice',
-          instructions:'Read coreMarketPacket.microstructure.preEntryAdverseSelection for the selected direction. This is diagnostic telemetry for JEV entry timing, not a hard gate and not a probability. Sequence-safe local L2 is higher-quality when healthy; depth20 is fallback. Warming/sparse/resync/unavailable L2 is DATA_INSUFFICIENT, never negative evidence by itself. If usable public flow/depth is materially adverse to entry now choose TRAP_RISK_WAIT even when the higher-level setup remains valid.',
+          instructions:'Read coreMarketPacket.microstructure.preEntryAdverseSelection for the selected direction. Support/risk indices share a total evidence-weight denominator; opposing price progress and accepted breaks must not be discarded because resting book imbalance favors the plan. A rejection that was reclaimed inside a closed range is historical evidence, not proof that the current forming breakout will fail. This is diagnostic telemetry for JEV entry timing, not a hard gate and not a probability. Sequence-safe local L2 is higher-quality when healthy; depth20 is fallback. Warming/sparse/resync/unavailable L2 is DATA_INSUFFICIENT, never negative evidence by itself. If usable public flow/depth is materially adverse to entry now choose TRAP_RISK_WAIT even when the higher-level setup remains valid.',
           criteria:{
             SUPPORTS_PLAN:'Pre-entry microstructure materially supports immediate execution for the selected side.',
             NEUTRAL_OR_MIXED:'Pre-entry flow is usable but not directionally decisive.',
@@ -1675,11 +1676,12 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     };
     const body={
       model:cfg.model,
-      state:{description:'JEV BURST pre-authorization. chartOverlayLevels includes protected trendLines and breakoutEvidence; weight their age and stillInside state, never assume a reversal. Read coreMarketPacket closed-candle OB/FVG/Fib/OTE, Office chartOverlayLevels and higher context together with current public WebSocket flow. Timeframes are context, not votes; 45m is synthetic. Missing/stale fields are not confirmations. Choose whether ONE symbol may be ARMED for a very short PC-only burst scalp watcher. This is not an entry order. LONG and SHORT are symmetric. Only arm when pre-move/location and flow support an imminent expansion. Later ignition must independently pass freshness, spread, sequence-safe L2, 1s/3s flow and OFI. During the 2-loss/30m pause allow at most one unusually clear strict exception. Never infer participant identity or bypass exchange safety.',record:compact,experienceMemory:compactExperienceMemory(learning,3500),coreMarketPacket:chartContext.packet,chartCache:{asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source}},
+      state:{description:'JEV BURST pre-authorization. chartOverlayLevels includes protected trendLines and breakoutEvidence; weight their age and stillInside state, never assume a reversal. Read coreMarketPacket closed-candle OB/FVG/Fib/OTE, Office chartOverlayLevels and higher context together with current public WebSocket flow. Timeframes are context, not votes; 45m is synthetic. Missing/stale fields are not confirmations. Choose whether ONE symbol may be ARMED for a very short PC-only burst scalp watcher. This is not an entry order. LONG and SHORT are symmetric. A conditional authorization may precede ignition while compression/pre-move and location support a plausible near-term expansion. Do not require the later 1s/3s ignition checks to be satisfied at authorization time. Warming feed is not confirmation; it may warm during TTL, and execution stays blocked until the independent watcher confirms fresh complete evidence. An open core trade in another symbol does not itself prohibit a separate burst slot. Later ignition must independently pass freshness, spread, sequence-safe L2, 1s/3s flow and OFI. During the 2-loss/30m pause allow at most one unusually clear strict exception. Never infer participant identity or bypass exchange safety.',record:compact,experienceMemory:compactExperienceMemory(learning,3500),coreMarketPacket:chartContext.packet,chartCache:{asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source}},
       questions:{
         burst_decision:{type:'choice',instructions:'Pre-authorize a conditional burst direction or do not arm.',criteria:{ARM_LONG:'Arm LONG only; later trigger may execute LONG.',ARM_SHORT:'Arm SHORT only; later trigger may execute SHORT.',DO_NOT_ARM:'Do not arm this symbol now.'}},
+        burst_reason:{type:'choice',instructions:'Report the primary reason for this conditional authorization or refusal. Do not confuse preauthorization with an entry order.',criteria:{EARLY_EXPANSION:'Plausible early expansion; watcher must confirm ignition.',LOCATION_ADVERSE:'Location/remaining path is adverse.',FLOW_ADVERSE:'Observed public flow is adverse.',DATA_NOT_READY:'Material data is unavailable/stale.',NO_EARLY_EDGE:'No credible early expansion setup.',POSITION_CONFLICT:'Same-symbol opposite core position.',RISK_OR_PAUSE:'Risk or pause makes this authorization unsuitable.'}},
         ttl:{type:'choice',instructions:'How long may this pre-authorization remain valid?',criteria:{TTL_30S:'30 seconds',TTL_60S:'60 seconds',TTL_120S:'120 seconds'}},
-        trigger_strictness:{type:'choice',instructions:'Choose deterministic ignition strictness.',criteria:{STRICT_090:'Require trigger score >=0.90.',VERY_STRICT_094:'Require trigger score >=0.94.'}},
+        trigger_strictness:{type:'choice',instructions:'Choose deterministic ignition strictness.',criteria:{STRICT_082:'Require trigger score >=0.82 with fresh stream, healthy L2, aligned pre-move and no contradictions.',STRICT_090:'Require trigger score >=0.90.',VERY_STRICT_094:'Require trigger score >=0.94.'}},
         leverage_mode:{type:'choice',instructions:'User burst mandate: highest safe leverage within the configured user cap and exchange bracket; do not substitute normal panel leverage.',criteria:{MAX_SAFE:'Use the highest exchange-allowed leverage that still passes user cap and burst liquidation/stop safety.'}},
         pause_exception:{type:'choice',instructions:'If the account is currently in the 2-loss/30m entry pause, may this authorization use the single strict burst exception?',criteria:{ALLOW_ONE_STRICT_EXCEPTION:'Allow the one-per-pause strict burst exception.',NO_PAUSE_EXCEPTION:'Do not allow burst execution during the pause.'}}
       }
@@ -1688,10 +1690,10 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!out.ok)return {...out,called:out.called!==false,decision:'DO_NOT_ARM',mode:'BURST_PREAUTH'};
     const a=out.data?.answers||{};
     const decision=choiceValue(a.burst_decision),ttl=choiceValue(a.ttl),strict=choiceValue(a.trigger_strictness),lev=choiceValue(a.leverage_mode),pex=choiceValue(a.pause_exception);
-    if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!['TTL_30S','TTL_60S','TTL_120S'].includes(ttl)||!['STRICT_090','VERY_STRICT_094'].includes(strict)||lev!=='MAX_SAFE'||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
+    if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!['TTL_30S','TTL_60S','TTL_120S'].includes(ttl)||!['STRICT_082','STRICT_090','VERY_STRICT_094'].includes(strict)||lev!=='MAX_SAFE'||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
     const chosenSide=decision==='ARM_LONG'?'LONG':decision==='ARM_SHORT'?'SHORT':null,pmDir=String(preMove?.direction||'').toUpperCase();
     if(chosenSide&&['LONG','SHORT'].includes(pmDir)&&chosenSide!==pmDir)return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_DIRECTION_CONTRADICTS_PREMOVE',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,side:chosenSide,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,reason:['EARLY_EXPANSION','LOCATION_ADVERSE','FLOW_ADVERSE','DATA_NOT_READY','NO_EARLY_EDGE','POSITION_CONFLICT','RISK_OR_PAUSE'].includes(choiceValue(a.burst_reason))?choiceValue(a.burst_reason):'JEV_REASON_NOT_PROVIDED',side:chosenSide,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:strict==='STRICT_082'?0.82:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize};
   }
 
   async function sovereignBurstExit({active,stream,progress,chartContext,learning=null}={}){

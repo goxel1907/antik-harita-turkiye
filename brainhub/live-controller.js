@@ -1253,6 +1253,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
 
   async function planWorkerTick() {
+    if(positionReviewBusy||hasPendingUrgentReview())return {ok:true,skipped:true,reason:'URGENT_POSITION_REVIEW_PRIORITY'};
     // R2.5.3.2 JEV SOVEREIGN: legacy autonomous plan workers are disabled.
     // Workers run only when JEV PASS-1 explicitly requests evidence.
     if(pipeline?.sovereignFlow===true)return {ok:true,skipped:true,reason:'JEV_SOVEREIGN_WORKERS_ON_DEMAND'};
@@ -1924,6 +1925,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {
       ok:true,
       busy:positionReviewBusy,
+      urgentPending:hasPendingUrgentReview(),
       cadenceMinutes:5,
       execution:'JEV_POSITION_REDUCE_BINDING_WHEN_LIVE_ARMED',
       bindingActions:['EXIT_NOW','PARTIAL_TAKE_PROFIT','REDUCE_RISK'],
@@ -1942,7 +1944,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  async function activePositionReviewTick() {
+  function hasPendingUrgentReview(){return Object.values(runnerState.bySymbol||{}).some(r=>r.phase!=='CLOSED'&&(finite(r.urgentReviewRequestedAt)||0)>(finite(r.urgentReviewConsumedAt)||0));}
+  async function activePositionReviewTick({urgentOnly=false}={}) {
+    if(urgentOnly&&!hasPendingUrgentReview())return {ok:true,skipped:true,reason:'NO_PENDING_URGENT_REVIEW'};
     if(positionReviewBusy||leaderAutoBusy||executionBusy||leaderFlowBusy)return {ok:true,skipped:true,reason:positionReviewBusy?'POSITION_REVIEW_BUSY':'VISION_PIPELINE_BUSY'};
     if(typeof pipeline?.isBusy==='function'&&pipeline.isBusy())return {ok:true,skipped:true,reason:'VISION_PIPELINE_BUSY'};
     positionReviewBusy=true;
@@ -1959,13 +1963,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         positionManagerState.lastReview={action:'HOLD',actionTr:'AÇIK POZİSYON YOK',checkedAt:new Date(clock()).toISOString()};
         return {ok:true,skipped:true,reason:'NO_OPEN_POSITION'};
       }
-      const position=open.positions[positionReviewCursor%open.positions.length];
+      let position=open.positions.find(p=>{const r=runnerState.bySymbol?.[p.symbol];return r&&(finite(r.urgentReviewRequestedAt)||0)>(finite(r.urgentReviewConsumedAt)||0);})||open.positions[positionReviewCursor%open.positions.length];
+      if(urgentOnly&&!runnerState.bySymbol?.[position.symbol])return {ok:true,skipped:true,reason:'URGENT_POSITION_NOT_OPEN'};
       positionReviewCursor=(positionReviewCursor+1)%Math.max(1,open.positions.length);
       const preExisting=leaderAnalysisState.bySymbol?.[position.symbol]||{};
       const preRunner=runnerState.bySymbol?.[position.symbol]||null;
       const urgentAt=finite(preRunner?.urgentReviewRequestedAt)||0;
       const consumedAt=finite(preRunner?.urgentReviewConsumedAt)||0;
       const urgent=urgentAt>consumedAt;
+      if(urgentOnly&&!urgent)return {ok:true,skipped:true,reason:'URGENT_POSITION_NOT_OPEN'};
       const lastReviewMs=Date.parse(preExisting?.lastPositionReview?.checkedAt||'');
       if(!urgent&&Number.isFinite(lastReviewMs)&&clock()-lastReviewMs<300000){
         return {ok:true,skipped:true,reason:'POSITION_REVIEW_NORMAL_CADENCE',nextInMs:300000-(clock()-lastReviewMs)};
@@ -1979,6 +1985,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         scan,store,committee,
         executionIntent:{symbol:position.symbol,side:position.side,analysisTracking:true,positionReviewOnly:true}
       });
+      // Pipeline collection may take seconds. Give JEV a freshly read account
+      // position, not the pre-collection quote; never review a vanished position.
+      const refreshed=await exchangeOpenPositions();
+      if(!refreshed.ok)return {ok:false,skipped:true,reason:'POSITION_REVIEW_REFRESH_UNAVAILABLE'};
+      position=refreshed.positions.find(p=>p.symbol===position.symbol&&p.side===position.side);
+      if(!position)return {ok:true,skipped:true,reason:'POSITION_CLOSED_DURING_REVIEW'};
+      const positionObservedAt=clock();
       const lifecycle={
         ...existing,
         side:position.side,
@@ -2128,7 +2141,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       const review={
         symbol:position.symbol,side:position.side,checkedAt:new Date(clock()).toISOString(),
-        entryPrice:position.entryPrice,markPrice:position.markPrice,unrealizedPnl:position.unrealizedPnl,
+        entryPrice:position.entryPrice,markPrice:position.markPrice,unrealizedPnl:position.unrealizedPnl,positionObservedAt,positionAgeMs:clock()-positionObservedAt,urgentRequestAt:urgent?urgentAt:null,
         pnlPct:assessment.pnlPct,originTF:lifecycle.originTF,ownerTF:lifecycle.ownerTF,
         action,actionTr,reasonTr,requestedJevAction:requestedAction,
         partialContract:partialGate,partialDeferred:partialDeferred?partialDeferred.reason:null,riskReduceDeferred,
@@ -2150,7 +2163,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       try{store.journal('POSITION_REVIEW',position.symbol,review);}catch{}
       try{store.recordLearning?.('POSITION_REVIEW',position.symbol,{side:position.side,setup:lifecycle.setup,originTF:lifecycle.originTF,ownerTF:lifecycle.ownerTF,decision:action,confidence:advisory?.plan?.confidence,review});}catch{}
-      if(urgent&&runnerRow){runnerRow.urgentReviewConsumedAt=clock();runnerEvent(runnerRow,'URGENT_REVIEW_CONSUMED',{reason:runnerRow.urgentReviewReason||null,action});writeRunnerState();}
+      if(urgent&&runnerRow&&jevExit?.ok===true&&jevExit?.called===true){runnerRow.urgentReviewConsumedAt=urgentAt;runnerEvent(runnerRow,'URGENT_REVIEW_CONSUMED',{reason:runnerRow.urgentReviewReason||null,action,requestedAt:urgentAt,latencyMs:clock()-urgentAt});writeRunnerState();}
       return {ok:true,...review,urgentReview:urgent};
     }catch(e){
       const reason=String(e?.message||e).slice(0,180);
@@ -2418,7 +2431,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(now-Number(row.guardCloseAttemptAt||0)<10000)return {symbol:row.symbol,ok:true,phase,action:'GUARD_CLOSE_PENDING',reason:ev.reason};
       row.guardCloseAttemptAt=now;
       const r=await profitBudget.close({row,credentials:creds,reason:ev.reason});
-      runnerEvent(row,'GUARD_CLOSE',{reason:ev.reason,ok:r?.ok===true,fullyClosed:r?.fullyClosed===true,executedQty:r?.executedQty??null,remainingQty:r?.remainingQty??null,error:r?.ok===true?null:(r?.reason||null),metrics:m});
+      runnerEvent(row,'GUARD_CLOSE',{reason:ev.reason,ok:r?.ok===true,fullyClosed:r?.fullyClosed===true,executedQty:r?.executedQty??null,remainingQty:r?.remainingQty??null,error:r?.ok===true?null:(r?.reason||null),exchangeError:r?.exchangeError?{code:r.exchangeError.code??null,msg:String(r.exchangeError.msg||'').slice(0,240)}:null,requestSent:r?.requestSent===true,clientOrderId:r?.clientOrderId||null,closeVerification:r?.closeVerification||null,metrics:m});
       leaderHealthEvent('POSITION_GUARD',{symbol:row.symbol,stage:'CLOSE',reason:ev.reason,ok:r?.ok===true});
       return {symbol:row.symbol,ok:r?.ok===true,phase,action:'GUARD_CLOSE',reason:ev.reason};
     }
@@ -2451,7 +2464,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // Likidasyon koruması stop koyamıyorsa pozisyon kapatılır (fail-closed).
       if(row.guardFailures>=3&&ev.reason==='GUARD_STOP_NEAR_LIQUIDATION'){
         const r=await profitBudget.close({row,credentials:creds,reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE'});
-        runnerEvent(row,'GUARD_CLOSE',{reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE',ok:r?.ok===true,fullyClosed:r?.fullyClosed===true,error:r?.ok===true?null:(r?.reason||null)});
+        runnerEvent(row,'GUARD_CLOSE',{reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE',ok:r?.ok===true,fullyClosed:r?.fullyClosed===true,error:r?.ok===true?null:(r?.reason||null),exchangeError:r?.exchangeError?{code:r.exchangeError.code??null,msg:String(r.exchangeError.msg||'').slice(0,240)}:null,closeVerification:r?.closeVerification||null});
         return {symbol:row.symbol,ok:r?.ok===true,phase,action:'GUARD_CLOSE',reason:'GUARD_LIQUIDATION_STOP_UNPLACEABLE'};
       }
       return {symbol:row.symbol,ok:false,phase,action:'GUARD_STOP_FAILED',reason:placed?.reason||null};
@@ -2574,6 +2587,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {enabled:claudeV111.readConfig().restWhenPositionsFull===true,...slotRest};
   }
   async function scalpFastLaneTick(){
+    if(positionReviewBusy||hasPendingUrgentReview())return {ok:true,skipped:true,reason:'URGENT_POSITION_REVIEW_PRIORITY'};
     const cfg=claudeV111.readConfig();
     // SHADOW/OFF: Jev çağrılmaz, emir yok. BINDING: Vision'ı beklemeden Jev'e.
     if(cfg.scalpFastLane==='OFF')return {ok:true,skipped:true,reason:'FAST_LANE_OFF'};
@@ -2947,7 +2961,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   async function leaderAutoTick() {
     if (leaderAutoBusy) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BUSY', orderPlaced:false }; }
-    if (positionReviewBusy) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BACKGROUND_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BACKGROUND_BUSY', orderPlaced:false }; }
+    if (positionReviewBusy||hasPendingUrgentReview()) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BACKGROUND_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BACKGROUND_BUSY', orderPlaced:false }; }
     if (typeof pipeline?.isBusy==='function' && pipeline.isBusy()) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_PIPELINE_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_PIPELINE_BUSY', orderPlaced:false }; }
     const cfg = readLeaderAutoConfig();
     if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
@@ -4999,6 +5013,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const chosen=[...pool.slice(start),...pool.slice(0,start)].filter(x=>!burst.status().armed.some(a=>a.symbol===x.symbol)).sort((a,b)=>Number(market?.cachedChartContext?.(b.symbol,clock())?.available===true)-Number(market?.cachedChartContext?.(a.symbol,clock())?.available===true)).slice(0,Math.min(4,vacancies));
       const results=[];
       for(const c of chosen){
+        // Warm the four bounded candidate feeds BEFORE asking for conditional
+        // authorization. Previously L2 subscribed only after approval.
+        const candidateStream=market?.marketStream||marketStream;
+        candidateStream.ensureSymbol?.(c.symbol);candidateStream.ensureLocalL2?.(c.symbol);
         const prior=burstReviewAt.get(c.symbol);
         const phase=c.burstPreMove||c.preMove;
         const phaseKey=phase?`${String(phase.state||'').toUpperCase()}:${String(phase.direction||'').toUpperCase()}`:null;
@@ -5009,7 +5027,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           try{const pr=await Promise.race([market.preMoveProbe(c.symbol),new Promise(r=>setTimeout(()=>r(null),3500))]);pm=pr?.combined||null;}catch{}
         }
         if(!pm||!['PRE_MOVE','IGNITION'].includes(String(pm.state||'').toUpperCase())){results.push({symbol:c.symbol,armed:false,reason:'NO_PREMOVE'});continue;}
-        const stream=(market?.marketStream||marketStream).snapshot(c.symbol,clock());
         const pos=burstCurrentPosition(c.symbol);
         let chartContext=market?.cachedChartContext?.(c.symbol,clock())||{available:false,reason:'CHART_CACHE_MISSING'};
         if(chartContext.available!==true){
@@ -5017,10 +5034,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           chartContext=market?.cachedChartContext?.(c.symbol,clock())||chartContext;
           if(chartContext.available!==true){results.push({symbol:c.symbol,armed:false,reason:chartContext.reason||'CHART_CACHE_MISSING',chartAgeMs:chartContext.ageMs??null,warmReason:warm?.reason||null});continue;}
         }
+        const stream=candidateStream.snapshot(c.symbol,clock());
         burstReviewAt.set(c.symbol,{at:clock(),phaseKey:`${String(pm.state||'').toUpperCase()}:${String(pm.direction||'').toUpperCase()}`});
         if(burstReviewAt.size>200){for(const [symbol,review] of burstReviewAt)if(clock()-review.at>=120000)burstReviewAt.delete(symbol);}
         let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,chartContext,position:pos,pause:lossStreakPause(),learning:store.learningContext?.({symbol:c.symbol})});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
-        try{store.journal('BURST_PREAUTH_REVIEW',c.symbol,{decision:j?.decision||'DO_NOT_ARM',called:j?.called===true,reason:j?.reason||null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null});}catch{}
+        const reviewEvidence={decision:j?.decision||'DO_NOT_ARM',called:j?.called===true,ok:j?.ok===true,reason:j?.reason||'JEV_REASON_NOT_PROVIDED',side:j?.side||null,preMove:{state:pm.state,direction:pm.direction},streamAvailable:stream?.available===true,streamAgeMs:stream?.ageMs??null,l2Ready:stream?.localL2?.available===true,l2Confidence:stream?.localL2?.confidence??null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null};
+        try{store.journal('BURST_PREAUTH_REVIEW',c.symbol,reviewEvidence);store.recordLearning?.('BURST_PREAUTH_REVIEW',c.symbol,{...reviewEvidence,authority:'SOFT_CONTEXT_ONLY',measurement:'DECISION_TRACE_NOT_TRADE_OUTCOME'});}catch{}
         if(j?.ok&&['LONG','SHORT'].includes(j.side)){
           // Existing opposite position is never hedged by burst v1.
           if(pos&&String(pos.side||'').toUpperCase()!==j.side){results.push({symbol:c.symbol,armed:false,reason:'OPPOSITE_CORE_POSITION'});continue;}
@@ -5139,10 +5158,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {ok:true,triggered:false};
     }finally{burstTickBusy=false;}
   }
-  function burstStatus(){return {...burst.status(lossStreakPause()),lastArmReview:burstArmReview};}
+  function burstStatus(){
+    const diagnostics={windowMinutes:60,reviewed:0,called:0,authorized:0,reasons:{}};
+    try{for(const x of store.recentJournal?.('BURST_PREAUTH_REVIEW',{limit:500,sinceTs:clock()-3600000})||[]){const p=x.payload||{};diagnostics.reviewed++;if(p.called===true)diagnostics.called++;if(['ARM_LONG','ARM_SHORT'].includes(p.decision))diagnostics.authorized++;const k=p.reason||'JEV_REASON_NOT_PROVIDED';diagnostics.reasons[k]=(diagnostics.reasons[k]||0)+1;}}catch{}
+    return {...burst.status(lossStreakPause()),lastArmReview:burstArmReview,diagnostics,separateOtherSymbolSlot:true,sameSymbolAddonSupported:false};
+  }
 
   restoreCooldownsFromJournal();
-  return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

@@ -54,14 +54,18 @@ function component(id,weight,value,evidence,confidence=1){
 function sideScore(components){
   const xs=components.filter(Boolean);let support=0,risk=0,ws=0,wr=0;
   for(const x of xs){const w=Math.max(0,finite(x.weight)||0),v=finite(x.value)||0;if(v>=0){support+=w*v;ws+=w;}else{risk+=w*(-v);wr+=w;}}
-  const supportIdx=ws>0?support/ws:0,riskIdx=wr>0?risk/wr:0;
+  // One denominator preserves the relative mass of contradictory evidence.
+  // Separate sign averages allowed a tiny positive signal to outweigh many adverse signals.
+  const total=ws+wr;
+  const supportIdx=total>0?support/total:0,riskIdx=total>0?risk/total:0;
   const net=supportIdx-riskIdx;
-  const state=riskIdx>=0.66&&riskIdx>=supportIdx+0.15?'TRAP_RISK_HIGH':
-    riskIdx>=0.45&&riskIdx>=supportIdx+0.08?'TRAP_RISK_ELEVATED':
-    supportIdx>=0.62&&supportIdx>=riskIdx+0.15?'CONTINUATION_SUPPORT_STRONG':
-    supportIdx>=0.45&&supportIdx>=riskIdx+0.08?'CONTINUATION_SUPPORT':'MIXED_OR_NEUTRAL';
+  const supportIntensity=ws>0?support/ws:0,riskIntensity=wr>0?risk/wr:0;
+  const state=riskIntensity>=0.66&&riskIdx>=supportIdx+0.15?'TRAP_RISK_HIGH':
+    riskIntensity>=0.45&&riskIdx>=supportIdx+0.08?'TRAP_RISK_ELEVATED':
+    supportIntensity>=0.62&&supportIdx>=riskIdx+0.15?'CONTINUATION_SUPPORT_STRONG':
+    supportIntensity>=0.45&&supportIdx>=riskIdx+0.08?'CONTINUATION_SUPPORT':'MIXED_OR_NEUTRAL';
   const top=xs.slice().sort((a,b)=>Math.abs((finite(b.value)||0)*(finite(b.weight)||0))-Math.abs((finite(a.value)||0)*(finite(a.weight)||0))).slice(0,6);
-  return {supportIndex:r(supportIdx,3),trapRiskIndex:r(riskIdx,3),netEvidence:r(net,3),state,components:top};
+  return {evidenceWeight:r(ws+wr,3),supportWeightShare:r(ws/(ws+wr||1),3),riskWeightShare:r(wr/(ws+wr||1),3),supportIndex:r(supportIdx,3),trapRiskIndex:r(riskIdx,3),netEvidence:r(net,3),state,components:top};
 }
 function flowPersistence(streaming){
   const keys=['5s','15s','30s','60s','120s'];
@@ -173,8 +177,8 @@ function buildPreEntryAdverseSelection({streaming={},derivatives={},microstructu
   const tox=toxicityProxy(streaming,sampling);const winner=long.netEvidence>short.netEvidence?'LONG':short.netEvidence>long.netEvidence?'SHORT':'NEUTRAL';
   const asym=Math.abs((finite(long.netEvidence)||0)-(finite(short.netEvidence)||0));const l2Usable=localL2Usable(streaming?.localL2);const signalUsable=(rel.usable&&sampling.overall.usable)||l2Usable;
   const actionHint=!signalUsable?'DATA_INSUFFICIENT':
-    long.state==='TRAP_RISK_HIGH'?'LONG_WAIT_FLOW_NORMALIZATION':
-    short.state==='TRAP_RISK_HIGH'?'SHORT_WAIT_FLOW_NORMALIZATION':
+    ['TRAP_RISK_HIGH','TRAP_RISK_ELEVATED'].includes(long.state)?'LONG_WAIT_FLOW_NORMALIZATION':
+    ['TRAP_RISK_HIGH','TRAP_RISK_ELEVATED'].includes(short.state)?'SHORT_WAIT_FLOW_NORMALIZATION':
     winner==='LONG'&&long.netEvidence>=0.25?'FLOW_SUPPORTS_LONG':winner==='SHORT'&&short.netEvidence>=0.25?'FLOW_SUPPORTS_SHORT':'FLOW_MIXED';
   return {
     version:'R2544.26',authority:'EVIDENCE_ONLY_JEV_FINAL',source:'Binance public bookTicker/aggTrade + depth20 fallback + sequence-safe active-symbol local L2 + derivatives; deterministic BrainHub features',

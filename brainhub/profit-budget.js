@@ -139,6 +139,9 @@ function createProfitBudget({transport,clock=()=>Date.now(),emit=()=>{},persist=
     const profitBudget=await restore(row,credentials);
     return {...result,profitBudget};
   }
-  return {restore:(row,credentials)=>exclusive(row,()=>restore(row,credentials)),reduce:args=>exclusive(args.row,()=>reduce(args)),close:({row,credentials,reason})=>exclusive(row,()=>transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:1,credentials,reason}))};
+  return {restore:(row,credentials)=>exclusive(row,()=>restore(row,credentials)),reduce:args=>exclusive(args.row,()=>reduce(args)),close:({row,credentials,reason})=>exclusive(row,async()=>{
+    if(!await cancel(row,credentials))return {ok:false,orderPlaced:false,requestSent:false,reason:'PROFIT_ORDER_CANCEL_UNCONFIRMED'};
+    return transport.reducePositionMarket({symbol:row.symbol,side:row.side,fraction:1,credentials,reason});
+  })};
 }
 module.exports={allocations,createProfitBudget};
