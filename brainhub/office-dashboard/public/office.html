@@ -1497,10 +1497,13 @@ function mirrorFmt(v,d=3){
 function loadMirrorImage(img,url,seq){
   if(!img)return Promise.resolve();
   return new Promise((resolve,reject)=>{
-    img.style.opacity='.12';
-    img.onload=()=>{ if(seq===mirrorSeq)img.style.opacity='1'; resolve(); };
-    img.onerror=()=>reject(new Error('grafik PNG yüklenemedi'));
-    img.src=url;
+    const pending=new Image();
+    pending.onload=async()=>{
+      try{if(typeof pending.decode==='function')await pending.decode();resolve(url);}
+      catch(e){reject(e);}
+    };
+    pending.onerror=()=>reject(new Error('grafik PNG yüklenemedi'));
+    pending.src=url;
   });
 }
 async function renderMirror(s){
@@ -1516,11 +1519,7 @@ async function renderMirror(s){
   const clean=$('#mirrorClean'), annotated=$('#mirrorAnnotated');
   const parityLoading=$('#mirrorParity');
   parityLoading.className='mirror-parity warn';
-  parityLoading.textContent='Yeni atomik snapshot yükleniyor…';
-  if(clean)clean.style.opacity='.12';
-  if(annotated)annotated.style.opacity='.12';
-  $('#mirrorCleanLabel').textContent=`${symbol} • ${tf}`;
-  $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${tf} • TAM SMC + LİKİDİTE`;
+  parityLoading.textContent=`Yeni atomik snapshot yükleniyor… ${symbol} • ${tf}; gösterilen grafik önceki başarılı görüntüdür.`;
 
   try{
     const r=await fetch('/api/jev-mirror'+mirrorQuery({symbol,tf,_:stamp}),{cache:'no-store'});
@@ -1535,6 +1534,12 @@ async function renderMirror(s){
       loadMirrorImage(annotated,annotatedUrl,seq)
     ]);
     if(seq!==mirrorSeq)return;
+    // Both decoded images belong to one snapshot. Keep the previous pair visible
+    // during loading/error; never publish one half of a new pair or an old request.
+    if(clean){clean.src=cleanUrl;clean.style.opacity='1';}
+    if(annotated){annotated.src=annotatedUrl;annotated.style.opacity='1';}
+    $('#mirrorCleanLabel').textContent=`${symbol} • ${tf}`;
+    $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${tf} • TAM SMC + LİKİDİTE`;
     const p=j.packet||{}, f=p?.coreFrames?.[tf]||{}, smc=f?.smcContext||{};
     const ob=f?.orderBlocks||{}, ms=p?.microstructure||{}, der=p?.derivatives||{}, liq=p?.observedLiquidations||{};
     renderPreEntryMicro(p);
@@ -1629,7 +1634,7 @@ async function renderMirror(s){
     if(seq!==mirrorSeq)return;
     const parityEl=$('#mirrorParity');
     parityEl.className='mirror-parity bad';
-    parityEl.textContent='JEV canlı aynası okunamadı: '+String(e?.message||e).slice(0,140);
+    parityEl.textContent='JEV canlı aynası okunamadı; önceki grafik korunuyor: '+String(e?.message||e).slice(0,140);
   }
 }
 

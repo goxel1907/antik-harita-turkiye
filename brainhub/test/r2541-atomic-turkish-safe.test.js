@@ -119,7 +119,7 @@ test('R2541 installer fails closed on structural parity',()=>{
 });
 
 
-test('R2541 Office hides stale chart while a new atomic snapshot is loading',()=>{
+test('Office labels the previous chart while a new atomic snapshot pair is loading',()=>{
   const office=read('office-dashboard/public/office.html');
   assert.match(office,/Yeni atomik snapshot yükleniyor/);
   assert.match(office,/function loadMirrorImage/);

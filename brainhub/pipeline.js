@@ -1365,6 +1365,14 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,jevSeen,risk
   };
 }
 const sovereignEvidenceCache=new Map();
+// Entry routing failure must not discard usable evidence for an existing lot.
+// This only exposes context to the independent JEV exit judge; it grants no entry.
+function positionReviewFallback(result,unified,executionIntent){
+  if(executionIntent?.positionReviewOnly!==true||unified?.dataQuality?.advisoryUsable!==true||!(finite(unified?.livePrice)>0))return result;
+  return {...result,unifiedContext:unified,positionReviewOnly:true,
+    evidence:{requested:[],missing:['PASS1_ROUTING_UNAVAILABLE:'+String(result.reason||'UNKNOWN')],routingAvailable:false},
+    execution:'ADVISORY_ONLY',orderPlaced:false};
+}
 async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=null,killSwitch=null,executionClaim=null,executionIntent=null,decisionPass1,decisionFinal,knowledgeResearch=null}){
   const selection=resolveAttentionCandidate(scan,executionIntent);
   const candidate=selection.candidate;
@@ -1382,11 +1390,11 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
   const materialChangeReason=!previousEvidence?'FIRST_OBSERVATION':previousEvidence.key!==evidenceKey?'EVIDENCE_CHANGED':'RECHECK_INTERVAL';
   if(previousEvidence?.wait&&previousEvidence.key===evidenceKey&&Date.now()-previousEvidence.at<60000){
     try{store.journal('R2542_OFFICE_EVENT',candidate.symbol,{kind:'DEDUPE',releaseContract:'R2542_JEV_TRADER_OFFICE',reason:'UNCHANGED_EVIDENCE',tradeLaneName:previousEvidence.lane});}catch{}
-    return {ok:true,candidateFound:true,analysisSkipped:true,reason:'UNCHANGED_EVIDENCE',materialChangeReason:'UNCHANGED_EVIDENCE',jevSovereign:true,execution:'ADVISORY_ONLY',orderPlaced:false};
+    return positionReviewFallback({ok:true,candidateFound:true,analysisSkipped:true,reason:'UNCHANGED_EVIDENCE',materialChangeReason:'UNCHANGED_EVIDENCE',jevSovereign:true,execution:'ADVISORY_ONLY',orderPlaced:false},unified,executionIntent);
   }
   const pass1=await decisionPass1({candidate,unified});
   if(!pass1?.ok){
-    return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:pass1?.reason||'JEV_SOVEREIGN_PASS1_UNAVAILABLE',jevPass1:pass1||null,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
+    return positionReviewFallback({ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:pass1?.reason||'JEV_SOVEREIGN_PASS1_UNAVAILABLE',jevPass1:pass1||null,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true},unified,executionIntent);
   }
   const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee,visionAudit:executionIntent?.visionAudit===true});
   let knowledgeResearchResult=null;

@@ -9,7 +9,7 @@ for(const tf of ['5m','15m'])test(`R32 Office ${tf} renders actual mirror table 
  function node(id){
   if(!nodes[id]){
    const n={style:{},className:'',textContent:'',innerHTML:''};
-   Object.defineProperty(n,'src',{set(){queueMicrotask(()=>n.onload());}});
+   Object.defineProperty(n,'src',{set(){queueMicrotask(()=>n.onload?.());}});
    nodes[id]=n;
   }
   return nodes[id];
@@ -18,7 +18,8 @@ for(const tf of ['5m','15m'])test(`R32 Office ${tf} renders actual mirror table 
  const trendLines={upSupport:{kind:'UP_SUPPORT',active:true,from:{price:10},to:{price:11},projected:{price:11.5}}};
  const overlay={rangeLow:10,rangeHigh:12,fib618:11,breakoutEvidence:evidence,trendLines};
  const packet={livePrice:11,coreFrames:{[tf]:{}},chartOverlayLevels:{[tf]:overlay},chartNarrative:{frames:Object.fromEntries(['1m','3m','5m','15m','30m','45m','1h','4h','1d'].map(tf=>[tf,{available:tf!=='1d',line:tf==='1d'?'no usable candles':'closed candle reading'}]))}};
- const context={mirrorTf:tf,mirrorSeq:0,mirrorOpts:{htf:true,pos:true},Date,Promise,
+ class MockImage {set src(v){this.url=v;queueMicrotask(()=>this.onload());} async decode(){}}
+ const context={mirrorTf:tf,mirrorSeq:0,mirrorOpts:{htf:true,pos:true},Date,Promise,Image:MockImage,
   $:node,num:x=>x==null?null:Number(x),esc:x=>String(x),trUi:x=>x,
   syncMirrorSymbol:()=> 'TESTUSDT',mirrorQuery:x=>'?'+new URLSearchParams(x),renderPreEntryMicro(){},
   fetch:async()=>({ok:true,json:async()=>({ok:true,snapshotId:'test',packet,parity:{ok:true,compared:3},
