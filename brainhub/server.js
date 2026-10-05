@@ -13,7 +13,8 @@ const {createOpenRouterFreeWorker}=require('./openrouter-free-worker');
 const {
   NINEROUTER_OPENCODE_BASELINE,
   unique:uniqueRegistryModels,
-  is9RouterOpenCodeFreeId,
+  is9RouterFreeTierTextId,
+  byFreeTierCost,
   select9RouterFreeModels,
   providerGroup,
   classifyProviderError,
@@ -71,8 +72,13 @@ fs.mkdirSync(path.dirname(LOG),{recursive:true});
 const state=new Map();
 const routerHealthFile=path.join(ROOT,'data','router-text-health.json');
 let routerCooldownUntil=0;
-try{const saved=JSON.parse(fs.readFileSync(routerHealthFile,'utf8'));routerCooldownUntil=Number(saved.cooldownUntil)||0;for(const row of saved.models||[])if(is9RouterOpenCodeFreeId(row.model))state.set(row.model,row);}catch{}
-function persistRouterHealth(){try{fs.mkdirSync(path.dirname(routerHealthFile),{recursive:true});const tmp=routerHealthFile+'.tmp';fs.writeFileSync(tmp,JSON.stringify({version:1,cooldownUntil:routerCooldownUntil,models:[...state].filter(([model])=>is9RouterOpenCodeFreeId(model)).map(([model,row])=>({model,...row}))}));fs.renameSync(tmp,routerHealthFile);}catch{}}
+// R43: 9Router fronts several free providers (gc/kr/oc). A quota or access answer from one provider
+// cools that provider only; an invalid router key (401) still pauses the whole router.
+const routerProviderCooldownUntil=new Map();
+function routerProviderOf(model){const z=String(model||'').toLowerCase();const i=z.indexOf('/');return i>0?z.slice(0,i):'';}
+function routerProviderCooling(model){return (routerProviderCooldownUntil.get(routerProviderOf(model))||0)>Date.now();}
+try{const saved=JSON.parse(fs.readFileSync(routerHealthFile,'utf8'));routerCooldownUntil=Number(saved.cooldownUntil)||0;for(const row of saved.models||[])if(is9RouterFreeTierTextId(row.model))state.set(row.model,row);}catch{}
+function persistRouterHealth(){try{fs.mkdirSync(path.dirname(routerHealthFile),{recursive:true});const tmp=routerHealthFile+'.tmp';fs.writeFileSync(tmp,JSON.stringify({version:1,cooldownUntil:routerCooldownUntil,models:[...state].filter(([model])=>is9RouterFreeTierTextId(model)).map(([model,row])=>({model,...row}))}));fs.renameSync(tmp,routerHealthFile);}catch{}}
 const visionState=new Map();
 const routerDiscovery={models:[],lastAttemptAt:null,lastSuccessAt:null,lastError:null,lastLatencyMs:null,busy:false};
 function markTextModel(model,{ok,error=null,durationMs=null}={}){
@@ -205,8 +211,10 @@ function rankPool(models,role,rotate=false){
     return {model,index,rank};
   }).sort((a,b)=>a.rank-b.rank||a.index-b.index).map(x=>x.model);
 }
+// R43: free text routes rotate inside a quota tier; lighter free tiers are tried before scarce ones.
+function rankFreeTextPool(models,role,rotate=false){return byFreeTierCost(rankPool(models,role,rotate));}
 function orderedModels(role='DEFAULT',preferred=''){
-  const free=rankPool(routerTextModels(),role,true).sort((a,b)=>Number(state.get(b)?.ok===true&&Date.now()-state.get(b).at<3600000)-Number(state.get(a)?.ok===true&&Date.now()-state.get(a).at<3600000));
+  const free=rankFreeTextPool(routerTextModels(),role,true).sort((a,b)=>Number(state.get(b)?.ok===true&&Date.now()-state.get(b).at<3600000)-Number(state.get(a)?.ok===true&&Date.now()-state.get(a).at<3600000));
   if(preferred&&free.includes(preferred)&&state.get(preferred)?.ok!==false)return [preferred,...free.filter(x=>x!==preferred)];
   return free;
 }
@@ -224,7 +232,7 @@ async function refresh9RouterDiscovery({force=false}={}){
     const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:3500});
     routerDiscovery.lastLatencyMs=out.durationMs||null;
     if(!out.ok){routerDiscovery.lastError=String(out.error||'MODEL_DISCOVERY_FAILED').slice(0,300);return routerDiscovery;}
-    routerDiscovery.models=uniqueRegistryModels(out.models).filter(is9RouterOpenCodeFreeId);
+    routerDiscovery.models=uniqueRegistryModels(out.models).filter(is9RouterFreeTierTextId);
     routerDiscovery.lastSuccessAt=Date.now();routerDiscovery.lastError=null;
     return routerDiscovery;
   }finally{routerDiscovery.busy=false;}
@@ -323,7 +331,11 @@ async function callModel(model,messages,timeoutMs=12000,requestOptions={}){
   if(!r.ok){
     if(r.status===429||r.status===401||r.status===403){
       const retry=r.headers?.get?.('retry-after');const delay=Number(retry)*1000||Math.max(0,Date.parse(retry)-Date.now());
-      if(!isLocal){routerCooldownUntil=Date.now()+Math.max(r.status===429?60000:3600000,Math.min(86400000,delay||0));persistRouterHealth();}
+      if(!isLocal){
+        const until=Date.now()+Math.max(r.status===429?60000:3600000,Math.min(86400000,delay||0)),provider=routerProviderOf(model);
+        if(r.status===401||!provider)routerCooldownUntil=until;else routerProviderCooldownUntil.set(provider,Math.max(routerProviderCooldownUntil.get(provider)||0,until));
+        persistRouterHealth();
+      }
     }
     throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
   }
@@ -551,7 +563,7 @@ async function ask(prompt,system,preferred,role='DEFAULT',validate=null){
   const errors=[];
   for(const m of list){
     if(errors.length>=2)break;
-    if(blocked(m))continue;
+    if(blocked(m)||routerProviderCooling(m))continue;
     try{
       const out=await callModel(m,msgs,12000,{temperature:0,maxTokens:768,validate});
       log('ASK OK role='+role+' model='+m);
@@ -569,7 +581,7 @@ async function ask(prompt,system,preferred,role='DEFAULT',validate=null){
       errors.push({model:m,error:msg.slice(0,240),errorClass:c.class,httpStatus:c.httpStatus||null});
       log('ASK FAIL role='+role+' model='+m+' '+msg.slice(0,180));
       persistRouterHealth();
-      if(c.httpStatus===429||c.class==='AUTH'||Date.now()<routerCooldownUntil)break;
+      if(Date.now()<routerCooldownUntil)break;
     }
   }
   throw Object.assign(new Error('no healthy model'),{errors});
@@ -1660,7 +1672,7 @@ const server=http.createServer(async(req,res)=>{
       const configured=[...(ccfg.analysts||[]),...(ccfg.backupAnalysts||[])];
       const base=configured.length?configured:routerTextModels();
       const routes={};
-      for(const role of Object.keys(ROLE_HINTS))routes[role]=rankPool(base,role,false);
+      for(const role of Object.keys(ROLE_HINTS))routes[role]=rankFreeTextPool(base,role,false);
       const visionRoutes={};
       for(const role of Object.keys(ROLE_HINTS))visionRoutes[role]=orderedVisionModels(ccfg,role);
       const visionKiroFreeQuota=ccfg.allowKiroFreeQuotaVision===true;
@@ -1829,7 +1841,7 @@ const server=http.createServer(async(req,res)=>{
       const forceVisionProbe=hasVision&&j.forceVisionProbe===true;
       const routed=hasVision
         ? orderedVisionModels(ccfg,role,forceVisionProbe)
-        : rankPool(eligible.length?eligible:routerTextModels(),role,true);
+        : rankFreeTextPool(eligible.length?eligible:routerTextModels(),role,true);
       const judges=Array.isArray(ccfg.judges)?ccfg.judges:[];
       const minReplies=Math.max(1,Number(ccfg.minAnalystReplies||2));
       const minVisionReplies=Math.max(1,Number(ccfg.minVisionAnalystReplies||1));
@@ -1846,7 +1858,7 @@ const server=http.createServer(async(req,res)=>{
       messages.push({role:'user',content:vision.content});
 
       async function probe(model){
-        if(hasVision?!forceVisionProbe&&visionBlocked(model):blocked(model))return {ok:false,model,error:hasVision?'vision cooldown':'cooldown',durationMs:0};
+        if(hasVision?!forceVisionProbe&&visionBlocked(model):(blocked(model)||routerProviderCooling(model)))return {ok:false,model,error:hasVision?'vision cooldown':'cooldown',durationMs:0};
         const started=Date.now();
         try{
           const modelTimeoutMs=hasVision&&String(model).startsWith('local/')
@@ -2316,8 +2328,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.42-JEV-REACH-BUDGET';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-05 • R2544.42: JEV position judge and final decisions fit the request ceiling; urgent review backoff';
+const RUNTIME_RELEASE='R2544.43-FREE-BURST-CLOCK';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-05 • R2544.43: free 9Router/OpenRouter routes, burst L2 slots and margin rule, JEV-held burst exits, exchange-time stream windows';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

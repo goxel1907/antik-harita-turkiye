@@ -1,12 +1,12 @@
-# JEV-Brain DEPLOY R2544.42 - JEV reaches position management/final decisions under the 48 kB ceiling; includes R39-R41 fixes.
+# JEV-Brain DEPLOY R2544.43 - free model routes, burst slots/margin/JEV exits, exchange-time windows; includes R39-R42 fixes.
 # Kaynak: bu teslim paketindeki .\source. Hedef: C:\JEV-Brain\runtime.
 # R2544.29 guvenlik ilkesi: LIVE KAPALI + ACIK POZISYON 0 olmadan deploy YAPMAZ; restart sonrasi LIVE kapali kalir.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.42-JEV-REACH-BUDGET'
-$EXPECTED_OFFICE = '2.5.22-R2544.42-JEV-Brain'
+$EXPECTED_RELEASE = 'R2544.43-FREE-BURST-CLOCK'
+$EXPECTED_OFFICE = '2.5.23-R2544.43-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null

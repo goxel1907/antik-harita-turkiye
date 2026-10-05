@@ -30,12 +30,31 @@ function is9RouterOpenCodeFreeId(id){
   const z=String(id||'').trim();
   return /^oc\//i.test(z)&&(/(?:[-:]free)$/i.test(z)||NINEROUTER_OPENCODE_BASELINE.includes(z));
 }
+// R43 (user decision 05.10.2026): text evidence workers may use 9Router's account-login free tiers.
+// oc/* = OpenCode free, gc/* = Gemini CLI (Google account quota), kr/* = Kiro (AWS Builder ID quota,
+// already the configured free-quota vision route). Combos and auto routes hide their upstream billing,
+// and agentic/thinking variants do not return short schema-bound text, so they are never selected.
+function is9RouterFreeTierTextId(id){
+  const z=String(id||'').trim().toLowerCase();
+  if(is9RouterOpenCodeFreeId(id))return true;
+  if(!/^(gc|kr)\/[a-z0-9]/.test(z))return false;
+  return !/(?:\/|-)(?:auto|agentic)(?:-|$)|thinking/.test(z);
+}
+// Lower runs first: spare the scarcest quotas (Kiro Sonnet, Gemini Pro) for when lighter routes fail.
+function freeTierCost(id){
+  const z=String(id||'').trim().toLowerCase();
+  if(z.startsWith('oc/'))return 0;
+  if(z.startsWith('gc/'))return /pro/.test(z)?4:/lite/.test(z)?1:2;
+  if(z.startsWith('kr/'))return /sonnet/.test(z)?4:3;
+  return 5;
+}
+function byFreeTierCost(models){return models.map((m,i)=>({m,i})).sort((a,b)=>freeTierCost(a.m)-freeTierCost(b.m)||a.i-b.i).map(x=>x.m);}
 function select9RouterFreeModels(discovery,configured=NINEROUTER_OPENCODE_BASELINE){
   // An authoritative empty catalog means the provider is disconnected, not
   // permission to retry a stale bootstrap pool. Failed discovery retains the
   // last successful catalog, including an empty one.
   const discovered=discovery?.lastSuccessAt!==null&&discovery?.lastSuccessAt!==undefined;
-  return unique(discovered?discovery.models:configured).filter(is9RouterOpenCodeFreeId);
+  return byFreeTierCost(unique(discovered?discovery.models:configured).filter(is9RouterFreeTierTextId));
 }
 function normalizeModelPayload(payload){
   const rows=Array.isArray(payload)?payload:Array.isArray(payload?.data)?payload.data:Array.isArray(payload?.models)?payload.models:[];
@@ -52,6 +71,7 @@ function providerGroup(model){
   const z=String(model||'').toLowerCase();
   if(z.startsWith('oc/'))return '9ROUTER_OPENCODE_FREE';
   if(z.startsWith('kr/'))return '9ROUTER_KIRO_QUOTA';
+  if(z.startsWith('gc/'))return '9ROUTER_GEMINI_CLI_QUOTA';
   if(z.startsWith('local/'))return 'LOCAL_VISION';
   if(z==='openrouter/free'||z.endsWith(':free'))return 'OPENROUTER_FREE';
   return 'OTHER';
@@ -59,8 +79,13 @@ function providerGroup(model){
 function classifyProviderError(error,statusCode=null){
   const msg=String(error||'');
   const code=Number(statusCode)||Number((msg.match(/\bHTTP\s+(\d{3})\b/i)||[])[1])||null;
+  // R43: a model restricted to other apps ("only available on agentic harnesses") is a model-level
+  // 403, not a key failure; treating it as AUTH paused the whole free worker for an hour.
+  if(code===403&&/only available|agentic harness|not available for|not allowed for this model/i.test(msg))return {class:'MODEL_UNAVAILABLE',httpStatus:code};
   if(code===401||code===403)return {class:'AUTH',httpStatus:code};
   if(code===404||/no endpoints found|model.*not found|paid.only/i.test(msg))return {class:'MODEL_UNAVAILABLE',httpStatus:code};
+  // R43: one upstream provider throttling its own free model is model-level; the key can still use others.
+  if(code===429&&/rate-limited upstream|temporarily rate-limited/i.test(msg))return {class:'MODEL_RATE_LIMIT',httpStatus:code};
   if(/RESPONSE_TRUNCATED|RESPONSE_SCHEMA_INVALID/.test(msg))return {class:'INVALID_RESPONSE',httpStatus:code};
   if(code===429)return {class:'RATE_LIMIT',httpStatus:code};
   if(code===502||code===503||code===504||/overload|temporar(?:ily)? unavailable|capacity/i.test(msg))return {class:'OVERLOADED',httpStatus:code};
@@ -88,5 +113,5 @@ async function discoverOpenAIModels({baseUrl,key='',fetchImpl=globalThis.fetch,t
 module.exports={
   OPENROUTER_FREE_BASELINE,
   NINEROUTER_OPENCODE_BASELINE,
-  unique,isOpenRouterFreeId,is9RouterOpenCodeFreeId,select9RouterFreeModels,normalizeModelPayload,freeCatalogModels,providerGroup,classifyProviderError,discoverOpenAIModels
+  unique,isOpenRouterFreeId,is9RouterOpenCodeFreeId,is9RouterFreeTierTextId,freeTierCost,byFreeTierCost,select9RouterFreeModels,normalizeModelPayload,freeCatalogModels,providerGroup,classifyProviderError,discoverOpenAIModels
 };

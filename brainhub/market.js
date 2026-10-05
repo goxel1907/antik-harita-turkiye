@@ -381,14 +381,36 @@ class StreamingMarket {
     this.tradeWindowMs = 120000;
     this.liquidationWindowMs = 15 * 60 * 1000;
     this.staleMs = 15000;
+    this.eventLag = { buckets:new Map(), ms:null, samples:0 };
     this.localL2 = new LocalL2Manager({
       WebSocketImpl:this.WebSocketImpl,
       now:this.now,
       maxSymbols:6,
+      // R43: two dedicated burst books (+2 depth streams; seeds ~20 weight each, well inside 2400/min).
+      burstSlots:2,
       staleMs:3000,
       snapshotLoader:async symbol=>getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=1000`, 7000)
     });
   }
+  // R43: Binance stamps events with exchange time while windows were measured on the PC clock. Live 05.10 the
+  // PC ran ~370 ms ahead (Windows Time stopped); with latency every event looked ~0.5 s old and the 1 s burst
+  // trigger window was mostly empty. The rolling 60 s minimum of (receive - event time) estimates clock offset
+  // plus base latency; windows and freshness use that aligned clock. Raw event times are unchanged, and the
+  // correction is bounded so a genuinely delayed stream still reads as stale.
+  _noteEventLag(lag, now) {
+    if (!Number.isFinite(lag) || Math.abs(lag) > 30000) return;
+    const sec = Math.floor(now / 1000), b = this.eventLag.buckets, prev = b.get(sec);
+    if (prev === undefined || lag < prev) b.set(sec, lag);
+    this.eventLag.samples++;
+    if (this.eventLag.samples <= 20 || this.eventLag.samples % 25 === 0) this._refreshEventLag(now);
+  }
+  _refreshEventLag(now) {
+    const b = this.eventLag.buckets, cutoff = Math.floor(now / 1000) - 60;
+    let min = null;
+    for (const [sec, lag] of b) { if (sec < cutoff) { b.delete(sec); continue; } if (min === null || lag < min) min = lag; }
+    this.eventLag.ms = this.eventLag.samples >= 20 && min !== null ? Math.max(-3000, Math.min(1500, min)) : null;
+  }
+  alignedNow(now = this.now()) { return this.eventLag.ms === null ? now : now - this.eventLag.ms; }
   ensureLocalL2(symbol,options){
     if(process.env.BRAINHUB_LOCAL_L2==='0')return null;
     return this.localL2.ensureSymbol(symbol,options);
@@ -498,6 +520,7 @@ class StreamingMarket {
     if (!state) return false; // late packets must not resurrect an evicted subscription
     const now = this.now();
     const eventAt = finite(data.E) ?? finite(data.T) ?? finite(data.o?.T) ?? now;
+    if (finite(data.E) !== null) this._noteEventLag(now - finite(data.E), now);
     state.lastEventAt = Math.max(state.lastEventAt, eventAt || now);
     if (eventType === 'bookTicker') {
       const bid = finite(data.b), ask = finite(data.a), bidQty = finite(data.B), askQty = finite(data.A);
@@ -539,7 +562,7 @@ class StreamingMarket {
         state.liquidationAt = Math.max(state.liquidationAt, at);
       }
     } else return false;
-    this.cleanup(state, now);
+    this.cleanup(state, this.alignedNow(now));
     return true;
   }
   snapshot(symbol, now = this.now()) {
@@ -548,6 +571,7 @@ class StreamingMarket {
     if (!state) return {
       available:false, symbol, reason:'STREAM_NOT_STARTED', websocketAvailable:Boolean(this.WebSocketImpl), connected:Boolean(this.ws && this.ws.readyState === 1)
     };
+    now = this.alignedNow(now);
     this.cleanup(state, now);
     const connected = Boolean(this.ws && this.ws.readyState === 1);
     const lastAt = Math.max(state.lastEventAt, state.book?.at || 0, state.depthAt || 0, state.tradeAt || 0, state.liquidationAt || 0);
@@ -637,6 +661,7 @@ class StreamingMarket {
       endpoint:FUTURES_WS,
       channels:Object.fromEntries(Object.entries(this.channels).map(([name,c]) => [name,{endpoint:c.endpoint,connected:c.ws?.readyState===1}])),
       localL2:this.localL2.health(),
+      clockAlignment:{ eventLagMs:this.eventLag.ms, samples:this.eventLag.samples, method:'ROLLING_60S_MIN_RECEIVE_MINUS_EVENT_TIME', boundsMs:[-3000,1500] },
       publicOnly:true
     };
   }

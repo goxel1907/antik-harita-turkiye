@@ -599,6 +599,18 @@ function compactKnowledgeEntries(entries,maxEntries=3){
   return (Array.isArray(entries)?entries:[]).slice(0,maxEntries).map(x=>({topic:x?.topic||null,family:x?.family||null,verifiedAt:x?.verifiedAt||null,
     summary:clipNatural(x?.summary||'',320),keyPoints:(Array.isArray(x?.keyPoints)?x.keyPoints:[]).slice(0,2).map(v=>clipNatural(v,180)),sourceUrls:(Array.isArray(x?.sourceUrls)?x.sourceUrls:[]).slice(0,1)}));
 }
+// R43: verified notes used to reach JEV newest-first, so budget compaction kept one unrelated note while JEV
+// waited on KNOWLEDGE_GAP (130 times since 04.10). Order notes by the patterns present in the current packet;
+// generic direction words do not count. Ties keep the newest-first order.
+const KNOWLEDGE_GENERIC_TOKENS=new Set(['BULL','BEAR','BULLISH','BEARISH','LONG','SHORT','HIGH','LOW','HIGHS','LOWS','UP','DOWN','CLOSE','OPEN','BREAK','BREAKOUT','BREAKDOWN','TREND','PATTERN','PRICE','LEVEL','ZONE','RISING','FALLING','THE','AND','OR','WITH','FROM','INTO']);
+function knowledgeTokens(topic){return String(topic||'').toUpperCase().split(/[^A-Z0-9]+/).filter(t=>t.length>=3&&!KNOWLEDGE_GENERIC_TOKENS.has(t));}
+function rankKnowledgeByPacket(entries,packet){
+  if(!Array.isArray(entries)||entries.length<2||!packet||typeof packet!=='object')return entries;
+  const text=JSON.stringify(packet).toUpperCase();
+  const score=e=>{const topic=String(e?.topic||'').toUpperCase().trim();if(!topic)return 0;
+    let n=text.includes(topic)?10:0;for(const t of new Set(knowledgeTokens(topic)))if(new RegExp('(^|[^A-Z0-9])'+t+'($|[^A-Z0-9])').test(text))n+=1;return n;};
+  return entries.map((e,i)=>({e,i,s:score(e)})).sort((a,b)=>b.s-a.s||a.i-b.i).map(x=>x.s>0?{...x.e,packetRelevance:x.s}:x.e);
+}
 function compactMemoryForDecision(mem,pass){
   if(!mem||typeof mem!=='object')return mem;
   const out={alwaysOn:true,source:mem.source||null,measuredSampleCount:mem.measuredSampleCount??null,jevLessonCount:mem.jevLessonCount??null,lifetime:mem.lifetime||null};
@@ -878,6 +890,9 @@ function prepareDecisionRequest(input,opts={}){
   const marketSectionsBefore=Object.fromEntries(Object.entries(state.coreMarketPacket||{}).map(([k,v])=>[k,byteSize(v)]));
   let wireEncoding=null;
   const coreHashBefore=hashJson(protectedCoreTruth(body));
+  if(state.dynamicKnowledge&&Array.isArray(state.dynamicKnowledge.entries)&&state.dynamicKnowledge.entries.length>1&&state.coreMarketPacket&&typeof state.coreMarketPacket==='object'){
+    state.dynamicKnowledge.entries=rankKnowledgeByPacket(state.dynamicKnowledge.entries,expandMarketPacket(state.coreMarketPacket));
+  }
   const record=body?.state?.record;const recordObj=record&&typeof record==='object'&&!Array.isArray(record)?record:null;
   const packetObj=body?.state?.coreMarketPacket&&typeof body.state.coreMarketPacket==='object'?body.state.coreMarketPacket:null;
   // Position geometry and the immutable entry thesis are not current-market
@@ -1769,7 +1784,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!configured)return {ok:false,called:false,action:'HOLD',reason:'JEV_KEY_UNAVAILABLE'};
     if(!active?.burstId||stream?.available!==true||!(Number(stream.ageMs)<=2500))return {ok:false,called:false,action:'HOLD',reason:'BURST_STREAM_STALE'};
     const record={contract:'R2544.35_BURST_POSITION_MANAGEMENT',position:{burstId:active.burstId,symbol:active.symbol,side:active.side,quantity:active.quantity,entryPrice:active.entryPrice,stopPrice:active.stopPrice,leverage:active.leverage,openedAt:active.openedAt,mfeR:active.mfeR,maeR:active.maeR},progress:{progressR:progress?.progressR,givebackR:progress?.givebackR,reviewReason:progress?.reviewReason},stream:{ageMs:stream.ageMs,bid:stream.bid,ask:stream.ask,spreadBps:stream.spreadBps,orderFlow:stream.orderFlow,level1Ofi:stream.level1Ofi,localL2:stream.localL2}};
-    const body={model:cfg.model,state:{description:'JEV owns whether this short-lived LONG/SHORT burst has earned enough profit or should continue. There is no fixed profit/R target. Weigh current expansion quality, public flow, spread, giveback, costs and risk from leverage. Choose EXIT_NOW or HOLD. The independent stop/fast-fail and 120-second maximum duration remain mandatory. A later PC watcher executes only against the still-active burst identity, never the core lot. Missing/stale chart context is explicitly unavailable, never confirmation. Experience is soft context, never automatic strategy promotion.',record,experienceMemory:compactExperienceMemory(learning,3500),...(chartContext?.available===true?{coreMarketPacket:chartContext.packet}:{chartContext:{available:false,reason:chartContext?.reason||'CHART_UNAVAILABLE'}})},questions:{burst_exit:{type:'choice',instructions:'Decide this burst position from current evidence; profit sufficiency has no fixed target.',criteria:{HOLD:'Continue while this specific expansion still supports the exposure.',EXIT_NOW:'Realize the available profit or exit because further exposure is no longer justified.'}}}};
+    const body={model:cfg.model,state:{description:'JEV owns whether this short-lived LONG/SHORT burst has earned enough profit or should continue. There is no fixed profit/R target. Weigh current expansion quality, public flow, spread, giveback, costs and risk from leverage. Choose EXIT_NOW or HOLD. The independent exchange stop and fast-fail remain mandatory. After 120 seconds the burst continues only while it is in profit and you keep answering HOLD; absolute ceiling 10 minutes. A later PC watcher executes only against the still-active burst identity, never the core lot. Missing/stale chart context is explicitly unavailable, never confirmation. Experience is soft context, never automatic strategy promotion.',record,experienceMemory:compactExperienceMemory(learning,3500),...(chartContext?.available===true?{coreMarketPacket:chartContext.packet}:{chartContext:{available:false,reason:chartContext?.reason||'CHART_UNAVAILABLE'}})},questions:{burst_exit:{type:'choice',instructions:'Decide this burst position from current evidence; profit sufficiency has no fixed target.',criteria:{HOLD:'Continue while this specific expansion still supports the exposure.',EXIT_NOW:'Realize the available profit or exit because further exposure is no longer justified.'}}}};
     const out=await decisions(body,{reserve:true});
     if(!out.ok)return {...out,action:'HOLD'};
     const action=choiceValue(out.data?.answers?.burst_exit);
@@ -2002,4 +2017,4 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   }
   return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignBurstExit,sovereignExit,budgetStatus};
 }
-module.exports={prepareDecisionRequest,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,sovereignFinalConsistency,createJevClient};
+module.exports={prepareDecisionRequest,rankKnowledgeByPacket,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,sovereignFinalConsistency,createJevClient};

@@ -53,7 +53,7 @@ test('R2544.30 Office shows separate read-only BURST selection, trigger state an
 });
 test('R2544.30 free worker decodes content blocks and keeps empty reasoning response unavailable',async()=>{
  let body;const worker=createOpenRouterFreeWorker({apiKey:'sk-or-v1-fake',maxAttempts:1,fetchImpl:async(_,o)=>{body=JSON.parse(o.body);return {ok:true,status:200,text:async()=>JSON.stringify({choices:[{message:{content:[{type:'text',text:'WORKER_STATE: WAIT'}]}}]})};}});
- const out=await worker.review({});assert.equal(out.ok,true);assert.equal(out.text,'WORKER_STATE: WAIT');assert.equal(body.max_tokens,768);assert.equal(out.blocksJev,false);
+ const out=await worker.review({});assert.equal(out.ok,true);assert.equal(out.text,'WORKER_STATE: WAIT');assert.equal(body.max_tokens,1536);assert.deepEqual(body.reasoning,{effort:'low',exclude:true});/* R43: free reasoning models were truncated at 768 */assert.equal(out.blocksJev,false);
  const empty=createOpenRouterFreeWorker({apiKey:'sk-or-v1-fake',maxAttempts:1,fetchImpl:async()=>({ok:true,status:200,text:async()=>JSON.stringify({choices:[{message:{content:null,reasoning:'private reasoning'}}]})})});
  assert.equal((await empty.review({})).ok,false);
 });

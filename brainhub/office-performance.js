@@ -1,6 +1,6 @@
 'use strict';
 const { executionTelemetry } = require('./execution-telemetry');
-const {exitCorrectionFor}=require('./close-exit-evidence');
+const {exitCorrectionFor,externalActorClose}=require('./close-exit-evidence');
 const RELEASE='R2542_JEV_TRADER_OFFICE';
 const num=v=>v===null||v===undefined||v===''?null:(Number.isFinite(Number(v))?Number(v):null);
 // Old live-ledger rows had no eventId. A backfill can refer to the same entry a
@@ -30,6 +30,8 @@ function enrichCloses(rows,records=[]){
    const correction=exitCorrectionFor(row,records);
    if(correction&&['EXTERNAL_CLOSE','OTHER_CLOSE','UNKNOWN_CLOSE','JEV_PARTIAL_THEN_EXTERNAL_CLOSE'].includes(row.exitType)){
      row.exitEvidence=correction;row.rawExitType=raw.exitType;row.exitType=correction.confirmed?correction.exitType:'UNKNOWN_CLOSE';
+     // R43: money stays in every report; only strategy learning skips a close sent by someone else.
+     if(externalActorClose(correction)){row.exitType='EXTERNAL_ACTOR_CLOSE';row.learningAuthority='EXCLUDED_EXTERNAL_ACTOR';}
      if(row.outcomePath)row.outcomePath={...row.outcomePath,exitType:row.exitType};
    }
    const matches=entries.filter(e=>e.symbol===row.symbol&&e.payload.result.side===row.side&&(row.eventId?e.payload.eventId===row.eventId:Number.isFinite(at)&&Math.abs(Number(e.ts)-at)<=2000));

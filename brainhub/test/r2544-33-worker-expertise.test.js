@@ -11,7 +11,9 @@ test('R33 successful empty 9Router catalog stops stale attempts, including after
  const config=['oc/mimo-v2.5-free'];
  assert.deepEqual(select9RouterFreeModels({lastSuccessAt:null,models:[]},config),config);
  assert.deepEqual(select9RouterFreeModels({lastSuccessAt:0,models:[],lastError:'timeout'},config),[]);
- assert.deepEqual(select9RouterFreeModels({lastSuccessAt:123,models:['kr/glm-5','gc/gemini-2.5-flash']},config),[]);
+ // R43 (user decision 05.10.2026): Kiro and Gemini CLI free quotas serve text workers; lighter tier first.
+ assert.deepEqual(select9RouterFreeModels({lastSuccessAt:123,models:['kr/glm-5','gc/gemini-2.5-flash']},config),['gc/gemini-2.5-flash','kr/glm-5']);
+ assert.deepEqual(select9RouterFreeModels({lastSuccessAt:125,models:['grafik','kr/auto','kr/glm-5-thinking','kr/claude-haiku-4.5-agentic']},config),[]);
  assert.deepEqual(select9RouterFreeModels({lastSuccessAt:124,models:['oc/new-free','oc/new-paid']},config),['oc/new-free']);
  assert.equal(is9RouterOpenCodeFreeId('oc/paid-pro'),false);
 });

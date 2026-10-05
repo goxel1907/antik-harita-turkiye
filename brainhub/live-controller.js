@@ -30,7 +30,7 @@ const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
 const {createProfitBudget}=require('./profit-budget');
 const {createBurstReduction}=require('./burst-reduction');
-const { BurstScalpManager } = require('./burst-scalp');
+const { BurstScalpManager, burstMarginRule } = require('./burst-scalp');
 const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-preparation');
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
 const {readCloseExitEvidence}=require('./close-exit-evidence');
@@ -1718,7 +1718,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const pending=records.filter(x=>x.kind==='POSITION_CLOSED'&&['EXTERNAL_CLOSE','OTHER_CLOSE','JEV_PARTIAL_THEN_EXTERNAL_CLOSE'].includes(x.payload?.exitType)&&now-Date.parse(x.payload.closedAt)<7*86400000)
       .sort((a,b)=>Number(b.ts)-Number(a.ts)).find(x=>{
         const prev=records.filter(r=>r.kind==='CLOSE_EXIT_EVIDENCE'&&r.payload?.closedId===x.id).sort((a,b)=>b.ts-a.ts);
-        return !prev[0]||(!prev[0].payload?.evidence?.confirmed&&prev.length<3&&now-Number(prev[0].ts)>=15*60000);
+        return !prev[0]||(!prev[0].payload?.evidence?.confirmed&&prev.length<3&&now-Number(prev[0].ts)>=15*60000)||
+          // R43: older MARKET-close evidence lacked the order source; read it once more to classify who closed.
+          (prev[0].payload?.evidence?.reason==='NON_CONDITIONAL_FINAL_ORDER'&&!prev.some(r=>r.payload?.evidence?.actorVersion)&&now-Number(prev[0].ts)>=15*60000);
       });
     if(!pending)return null;
     exitEvidenceLastAt=now;
@@ -5111,12 +5113,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const creds=currentCredentials(),policy=readPolicy(root),la=readLeaderAutoConfig();
     if(!credentialsReady(creds)||!policy.ok||!la.ok)return {ok:false,reason:'BURST_CONFIG_OR_CREDENTIALS_UNAVAILABLE'};
     const acct=await accountSummary({maxAgeMs:3000});if(!acct?.ok||!(finite(acct.availableBalance)>0))return {ok:false,reason:'BURST_ACCOUNT_UNAVAILABLE'};
-    const burstMargin=finite(la.config.burstMarginQuote)??finite(la.config.marginQuote);
-    const freeFraction=Math.max(0.10,Math.min(0.50,finite(la.config.burstFreeMarginFraction)??0.50));
+    // R43 (user rule 05.10.2026): burstMarginRule — flat: half of the panel margin; in position: half of free margin.
+    const rule=burstMarginRule({flat,panelMarginQuote:la.config.marginQuote,availableBalance:acct.availableBalance});
+    if(!rule.ok)return {ok:false,reason:rule.reason};
+    const margin=rule.marginQuote,burstMargin=flat?margin:null,freeFraction=0.50;
     const userCap=Math.max(1,Math.min(125,Math.floor(finite(la.config.burstMaxLeverage)??125)));
-    if(flat&&Number(acct.availableBalance)<burstMargin)return {ok:false,reason:'BURST_PANEL_MARGIN_UNAVAILABLE'};
-    const margin=flat?burstMargin:(finite(acct.availableBalance)||0)*freeFraction;
-    if(!(margin>0))return {ok:false,reason:'BURST_MARGIN_UNAVAILABLE'};
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'BURST_LEVERAGE_BRACKET_UNAVAILABLE'};}
     if(!(exchangeMax>=1))return {ok:false,reason:'BURST_EXCHANGE_MAX_LEVERAGE_INVALID'};
@@ -5136,7 +5137,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // Reconcile with notional bracket at chosen size.
       for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);const cap=Number(br?.initialLeverage)||exchangeMax;leverage=Math.max(1,Math.min(leverage,cap,safeMax,userCap));}
     }
-    return {ok:true,marginQuote:Number(margin.toFixed(8)),leverage,exchangeMaxLeverage:exchangeMax,userBurstMaxLeverage:userCap,safeMaxLeverage:safeMax,availableBalance:acct.availableBalance,freeMarginFraction:freeFraction,burstMarginQuote:burstMargin,changeLeverage,sameSymbolCore};
+    return {ok:true,marginQuote:Number(margin.toFixed(8)),leverage,exchangeMaxLeverage:exchangeMax,userBurstMaxLeverage:userCap,safeMaxLeverage:safeMax,availableBalance:acct.availableBalance,freeMarginFraction:freeFraction,burstMarginQuote:burstMargin,marginRule:rule.rule,changeLeverage,sameSymbolCore};
   }
   async function burstReduceExact(active,reason){
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};

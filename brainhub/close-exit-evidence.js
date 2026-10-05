@@ -2,6 +2,17 @@
 // Reporting only. No POST/DELETE, strategy, PnL recomputation or manual inference.
 const n=v=>v===null||v===undefined||v===''?null:Number.isFinite(Number(v))?Number(v):null;
 const id=v=>v===null||v===undefined||v===''?null:String(v);
+// R43: the final order's clientOrderId shows who sent a non-conditional close. Binance UI orders start with
+// web_/android_/ios_, liquidation/ADL with autoclose, BrainHub with its own prefixes; anything else is another
+// API client. Only a short prefix is stored. An external actor's close is not a strategy outcome for learning.
+function orderSourceClass(clientOrderId){
+ const c=String(clientOrderId||''),prefix=c?c.slice(0,12):null;
+ if(!c)return {clientOrderIdClass:'UNKNOWN',actor:null,clientOrderIdPrefix:null};
+ if(/^(web|android|ios|electron|desktop|mac|windows)_/i.test(c))return {clientOrderIdClass:'BINANCE_UI',actor:'EXTERNAL_BINANCE_UI',clientOrderIdPrefix:prefix};
+ if(/^(autoclose|adl_autoclose|settlement_autoclose)/i.test(c))return {clientOrderIdClass:'BINANCE_SYSTEM',actor:'BINANCE_LIQUIDATION_OR_ADL',clientOrderIdPrefix:prefix};
+ if(/^(JX|RD|LH|BE|BS|CT)[A-Za-z0-9]/.test(c)||/^[EST][0-9a-f]{30}$/.test(c))return {clientOrderIdClass:'BRAINHUB',actor:'BRAINHUB',clientOrderIdPrefix:prefix};
+ return {clientOrderIdClass:'OTHER_API',actor:'EXTERNAL_API_CLIENT',clientOrderIdPrefix:prefix};
+}
 function matchFinalExit(row,trades,order,algos){
  const start=Date.parse(row.openedAt||''),end=Date.parse(row.closedAt||'');
  const closing=row.side==='LONG'?'SELL':row.side==='SHORT'?'BUY':null;
@@ -18,7 +29,9 @@ function matchFinalExit(row,trades,order,algos){
  const algo=matches[0],type=String(algo?.orderType||order.origType||order.type||'').toUpperCase();
  let exitType=['STOP','STOP_MARKET'].includes(type)?'STOP_LOSS':type==='TRAILING_STOP_MARKET'?'TRAILING_STOP':['TAKE_PROFIT','TAKE_PROFIT_MARKET'].includes(type)?'TAKE_PROFIT':null;
  // A MARKET order alone cannot distinguish a user from another API client.
- if(!exitType)return {...unknown('NON_CONDITIONAL_FINAL_ORDER'),orderId:id(last.orderId),orderType:type,fillAt:n(last.time)};
+ if(!exitType){const src=orderSourceClass(order.clientOrderId);
+  return {...unknown('NON_CONDITIONAL_FINAL_ORDER'),orderId:id(last.orderId),orderType:type,fillAt:n(last.time),
+   actorVersion:'R2544.43',...src,strategyOutcome:['EXTERNAL_BINANCE_UI','EXTERNAL_API_CLIENT'].includes(src.actor)?false:null};}
  return {version:'R2544.40',confirmed:true,exitType,source:algo?'BINANCE_FILL_ALGO_ORDER_ID':'BINANCE_FILL_ORIGINAL_ORDER_TYPE',
   orderId:id(last.orderId),algoId:id(algo?.algoId),orderType:type,fillAt:n(last.time)};
 }
@@ -43,4 +56,5 @@ function exitCorrectionFor(row,records=[]){
   x.payload?.openedAt===row.openedAt&&x.payload?.closedAt===row.closedAt)
   .sort((a,b)=>Number(b.ts)-Number(a.ts))[0]?.payload?.evidence||null;
 }
-module.exports={matchFinalExit,readCloseExitEvidence,exitCorrectionFor};
+function externalActorClose(evidence){return evidence?.actorVersion==='R2544.43'&&evidence.strategyOutcome===false;}
+module.exports={matchFinalExit,readCloseExitEvidence,exitCorrectionFor,orderSourceClass,externalActorClose};

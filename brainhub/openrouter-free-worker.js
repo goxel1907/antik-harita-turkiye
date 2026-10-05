@@ -66,7 +66,9 @@ function createOpenRouterFreeWorker({
     if(!direct.length)return ['openrouter/free'];
     const n=rr++%direct.length;
     const rotated=['openrouter/free',...direct.slice(n),...direct.slice(0,n)];
-    const rank=id=>{const s=modelState(id);return s.lastOk===true&&clock()-s.lastOkAt<3600000?(s.validatedRoles?.[role]!==undefined&&clock()-s.validatedRoles[role]<3600000?2:1):0;};
+    // R43: recently working > untested > chronic failures; a model failing 3+ times in a row no longer
+    // takes one of the few attempts ahead of models that were never tried.
+    const rank=id=>{const s=modelState(id);if(s.lastOk===true&&clock()-s.lastOkAt<3600000)return s.validatedRoles?.[role]!==undefined&&clock()-s.validatedRoles[role]<3600000?2:1;return Number(s.consecutiveFailures||0)>=3?-1:0;};
     // Preferences only order the current free catalog; they cannot resurrect a
     // removed model, override its cooldown or enable a priced provider.
     const preferenceRank=id=>{const n=preferred.indexOf(id);return n<0?preferred.length:n;};
@@ -79,7 +81,9 @@ function createOpenRouterFreeWorker({
     const body={
       model:id,
       messages:[{role:'system',content:roleInstruction(role)+' '+String(system||'')},{role:'user',content:String(prompt||'')}],
-      temperature:0,max_tokens:768,provider:{max_price:{prompt:0,completion:0}}
+      // R43: free reasoning models spent the 768-token budget thinking and returned finish_reason=length.
+      // Keep reasoning low and out of the reply; the visible answer stays schema-bound by validate().
+      temperature:0,max_tokens:1536,reasoning:{effort:'low',exclude:true},provider:{max_price:{prompt:0,completion:0}}
     };
     const r=await fetchImpl('https://openrouter.ai/api/v1/chat/completions',{
       method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json','HTTP-Referer':'https://brainhub.local','X-Title':'BrainHub Plan Worker'},
@@ -130,6 +134,7 @@ function createOpenRouterFreeWorker({
           let until=clock()+Math.min(1800000,30000*2**Math.min(modelFailures-1,6));
           if(c.class==='MODEL_UNAVAILABLE')until=clock()+86400000;
           if(c.class==='AUTH')until=clock()+3600000;
+          if(c.class==='MODEL_RATE_LIMIT')until=Math.max(until,clock()+300000);
           const reset=Number(e?.payload?.error?.metadata?.headers?.['X-RateLimit-Reset']);
           const retryHeader=e?.headers?.get?.('retry-after');const retry=Number(retryHeader)||Math.max(0,(Date.parse(retryHeader)-clock())/1000);
           if(c.httpStatus===429)until=Math.max(until,Number.isFinite(reset)?Math.min(reset,clock()+86400000):0,retry>0?clock()+Math.min(retry,86400)*1000:0);
@@ -137,7 +142,8 @@ function createOpenRouterFreeWorker({
           errors.push({model:id,error:msg,errorClass:c.class,httpStatus:c.httpStatus});
           // 429 is commonly key/free-tier level. Do not spray the same key across
           // explicit free endpoints after a quota response.
-          if(c.httpStatus===429||c.class==='AUTH'){cooldownUntil=Math.max(cooldownUntil,until);persist();break;}
+          // R43: model-level 403/429 (agent-only model, one upstream provider throttled) cools that model only.
+          if((c.httpStatus===429&&c.class!=='MODEL_RATE_LIMIT')||c.class==='AUTH'){cooldownUntil=Math.max(cooldownUntil,until);persist();break;}
         }
       }
       failures++;

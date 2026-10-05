@@ -197,7 +197,8 @@ function openStore(root) {
     const key=raw.length+':'+(raw.length?raw[raw.length-1].id:'')+closeEvidenceKey();
     if(lessonCache.key===key)return lessonCache.cards;
     const rows=raw.map(x=>{let p={};try{p=JSON.parse(x.payload)||{};}catch{p={};}return learningQuality({...p,id:x.id,ts:x.ts,symbol:x.symbol});});
-    const trades=reconcileCloses(enrichCloses(rows,closeExecutionRecords()).map(learningQuality)).trades;
+    // R43: closes sent by an external actor are not strategy outcomes; financial reports keep them.
+    const trades=reconcileCloses(enrichCloses(rows,closeExecutionRecords()).map(learningQuality)).trades.filter(t=>t.learningAuthority!=='EXCLUDED_EXTERNAL_ACTOR');
     const cards=tradeLessonsLib.buildCards(trades,{attentionOf:attentionForClose});
     lessonCache={key,cards};
     return cards;
@@ -214,7 +215,7 @@ function openStore(root) {
     const ck=raw.length+':'+(raw.length?raw[raw.length-1].id:'')+closeEvidenceKey();
     if(caseTradeCache.key===ck)return caseTradeCache.trades;
     const rows=raw.map(x=>{let q={};try{q=JSON.parse(x.payload)||{};}catch{q={};}return learningQuality({...q,id:x.id,ts:x.ts,symbol:x.symbol});});
-    const trades=reconcileCloses(enrichCloses(rows,closeExecutionRecords()).map(learningQuality)).trades;caseTradeCache={key:ck,trades};return trades;
+    const trades=reconcileCloses(enrichCloses(rows,closeExecutionRecords()).map(learningQuality)).trades.filter(t=>t.learningAuthority!=='EXCLUDED_EXTERNAL_ACTOR');caseTradeCache={key:ck,trades};return trades;
   }
   function caseMemory({currentCase=null,symbol=null,limit=5}={}){
     try{return caseMemoryLib.analogDigest(caseTrades(),{currentCase,limit});}
@@ -224,7 +225,8 @@ function openStore(root) {
     const closes=db.prepare("SELECT id,ts,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED' ORDER BY ts").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,ts:x.ts,symbol:x.symbol}));
     const enrichedCloses=enrichCloses(closes,closeExecutionRecords());
     const enrichedById=new Map(enrichedCloses.map(x=>[x.id,x]));
-    const excluded=reconcileCloses(enrichedCloses).excluded;
+    const duplicateCloses=reconcileCloses(enrichedCloses).excluded,externalActorCloses=enrichedCloses.filter(x=>x.learningAuthority==='EXCLUDED_EXTERNAL_ACTOR');
+    const excluded=[...duplicateCloses,...externalActorCloses];
     db.exec('DELETE FROM excluded_learning_close_ids');
     const exclude=db.prepare('INSERT OR IGNORE INTO excluded_learning_close_ids(id) VALUES(?)');
     for(const x of excluded)exclude.run(x.id);
@@ -299,7 +301,7 @@ function openStore(root) {
       tradeLessons:tradeLessonDigest,
       caseMemory:caseMemoryDigest,
       caseMemoryByLane,
-      excludedDuplicateCloses:excluded.length,
+      excludedDuplicateCloses:duplicateCloses.length,excludedExternalActorCloses:externalActorCloses.length,
       recent,
       lifetime,
       stats,
