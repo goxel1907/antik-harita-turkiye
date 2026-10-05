@@ -1,4 +1,4 @@
-# JEV-Brain DEPLOY R2544.41 - existing-position context handoff and chart preload; includes R39/R40 fixes.
+# JEV-Brain DEPLOY R2544.42 - JEV reaches position management/final decisions under the 48 kB ceiling; includes R39-R41 fixes.
 # Kaynak: bu teslim paketindeki .\source. Hedef: C:\JEV-Brain\runtime.
 # R2544.29 guvenlik ilkesi: LIVE KAPALI + ACIK POZISYON 0 olmadan deploy YAPMAZ; restart sonrasi LIVE kapali kalir.
 $ErrorActionPreference = 'Stop'
