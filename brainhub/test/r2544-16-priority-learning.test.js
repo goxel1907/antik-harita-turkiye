@@ -129,7 +129,7 @@ test('ön-hareket kayıtları 20 dk saklanır, yalnız PRE_MOVE/IGNITION yazıl�
   assert.ok(a&&a.targetSources.includes('NEAR_EXPLOSION'),'saklı ön-hareket imzası havuzda');assert.equal(a.nearExplosion.direction,'SHORT');
 });
 test('R2544.16 sürüm kimliği',()=>{
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.38-FVG-LIFECYCLE';/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544\.39-BURST-DATA-RESERVATION';/);
   assert.match(src('scanner.js'),/const TARGET_DETAIL_LIMIT = 36;/);
 });
 

@@ -13,16 +13,22 @@ class LocalL2Manager{
   constructor({WebSocketImpl=null,snapshotLoader=null,endpoint='wss://fstream.binance.com/public/ws',now=()=>Date.now(),maxSymbols=6,staleMs=3000,minResidenceMs=60000,evictionCooldownMs=30000,minReseedMs=15000}={}){
     this.WebSocketImpl=WebSocketImpl;this.snapshotLoader=snapshotLoader;this.endpoint=endpoint;this.now=now;
     this.maxSymbols=maxSymbols;this.staleMs=staleMs;this.minResidenceMs=minResidenceMs;this.evictionCooldownMs=evictionCooldownMs;this.minReseedMs=minReseedMs;this.states=new Map();this.subscribed=new Set();this.ws=null;this.connecting=false;this.retryMs=1000;this.timer=null;this.id=1;this.stopped=false;this.evictions=0;this.lastEvictionAt=0;this.evictionDeferrals=0;
+    this.reservations=new Map();this.protectedSymbols=new Set();
   }
   state(symbol){return this.states.get(String(symbol||'').toUpperCase())||null;}
   _new(symbol){return {symbol,status:'COLD',bids:new Map(),asks:new Map(),buffer:[],seeded:false,awaitingBridge:false,snapshotLastUpdateId:null,lastU:null,lastEventAt:0,lastRequestedAt:this.now(),createdAt:this.now(),healthySince:0,eventCount:0,resyncTimes:[],flow:[],activity:[],metaBid:new Map(),metaAsk:new Map(),seedPromise:null,lastSeedAt:0,seedCount:0,lastError:null};}
-  ensureSymbol(symbol){
+  isReserved(symbol){const x=this.reservations.get(symbol);if(x&&x.until>this.now())return true;this.reservations.delete(symbol);return false;}
+  releaseReservation(symbol){this.reservations.delete(symbol);}
+  setPositionSymbols(symbols){this.protectedSymbols=new Set(symbols);}
+  ensureSymbol(symbol,{priority='ANALYSIS',leaseMs=120000}={}){
     symbol=String(symbol||'').toUpperCase();if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))return null;
+    if(this.protectedSymbols.has(symbol))priority='POSITION';
     if(!this.states.has(symbol)){
-      if(this.states.size>=this.maxSymbols){const now=this.now(),victim=[...this.states.values()].filter(x=>now-(x.lastRequestedAt||x.createdAt||0)>=this.minResidenceMs).sort((a,b)=>(a.lastRequestedAt||0)-(b.lastRequestedAt||0))[0];if(!victim||now-this.lastEvictionAt<this.evictionCooldownMs){this.evictionDeferrals++;return null;}this._send([victim.symbol],'UNSUBSCRIBE');this.states.delete(victim.symbol);this.subscribed.delete(victim.symbol);this.evictions++;this.lastEvictionAt=now;}
+      if(this.states.size>=this.maxSymbols){const now=this.now(),victim=[...this.states.values()].filter(x=>!this.protectedSymbols.has(x.symbol)&&(priority==='POSITION'||!this.isReserved(x.symbol))&&(priority!=='ANALYSIS'||now-(x.lastRequestedAt||x.createdAt||0)>=this.minResidenceMs)).sort((a,b)=>Number(this.isReserved(a.symbol))-Number(this.isReserved(b.symbol))||(a.lastRequestedAt||0)-(b.lastRequestedAt||0))[0];if(!victim||(priority!=='POSITION'&&this.evictions>0&&now-this.lastEvictionAt<this.evictionCooldownMs)){this.evictionDeferrals++;return null;}this._send([victim.symbol],'UNSUBSCRIBE');this.states.delete(victim.symbol);this.subscribed.delete(victim.symbol);this.reservations.delete(victim.symbol);this.evictions++;this.lastEvictionAt=now;}
       this.states.set(symbol,this._new(symbol));
     }
     const s=this.states.get(symbol);s.lastRequestedAt=this.now();const added=!this.subscribed.has(symbol);this.subscribed.add(symbol);this._connect();if(added)this._send([symbol],'SUBSCRIBE');
+    if(priority==='BURST')this.reservations.set(symbol,{until:this.now()+Math.max(1000,Math.min(180000,Number(leaseMs)||120000))});
     return s;
   }
   _connect(){

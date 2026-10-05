@@ -47,6 +47,7 @@ function burstEvidence(snapshot,side,{preMove=null}={}){
   if(!fresh)contradictions.push('STREAM_STALE');
   if(!(spread!==null&&spread>=0&&spread<=8))contradictions.push('SPREAD_TOO_WIDE_OR_UNKNOWN');
   if(!l2Healthy)contradictions.push('LOCAL_L2_NOT_HEALTHY');
+  if([r1,r3,p1,p3,ofi1,ofi3].some(x=>x===null)||o1.available===false||o3.available===false)contradictions.push('TRIGGER_WINDOW_INCOMPLETE');
   if(r1!==null&&r1<0.56)contradictions.push('1S_FLOW_NOT_DIRECTIONAL');
   if(r3!==null&&r3<0.56)contradictions.push('3S_FLOW_NOT_DIRECTIONAL');
   if(p3!==null&&p3<-2)contradictions.push('3S_PRICE_AGAINST_SIDE');
@@ -76,11 +77,11 @@ function exitEvidence(snapshot,active,now=Date.now()){
 }
 
 class BurstScalpManager{
-  constructor({marketStream,now=()=>Date.now(),maxArmed=4,maxActive=1}={}){this.marketStream=marketStream;this.now=now;this.maxArmed=maxArmed;this.maxActive=maxActive;this.armed=new Map();this.active=new Map();this.history=[];this.pauseExceptionConsumedFor=null;}
+  constructor({marketStream,now=()=>Date.now(),maxArmed=4,maxActive=1,onEvent=()=>{}}={}){this.marketStream=marketStream;this.now=now;this.maxArmed=maxArmed;this.maxActive=maxActive;this.onEvent=onEvent;this.armed=new Map();this.active=new Map();this.history=[];this.pauseExceptionConsumedFor=null;}
   arm(auth){const symbol=String(auth?.symbol||'').toUpperCase(),side=String(auth?.side||'').toUpperCase();if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol)||!['LONG','SHORT'].includes(side))return {ok:false,reason:'BURST_AUTH_INVALID'};const now=this.now(),ttl=Math.max(15000,Math.min(180000,Number(auth?.ttlMs)||120000));
     if(!this.armed.has(symbol)&&this.armed.size>=this.maxArmed){const victim=[...this.armed.values()].sort((a,b)=>a.expiresAt-b.expiresAt)[0];if(victim)this.armed.delete(victim.symbol);}
     const row={authorizationId:String(auth.authorizationId||id('bauth')),symbol,side,armedAt:now,expiresAt:now+ttl,preMove:auth.preMove||null,jevReason:String(auth.jevReason||'').slice(0,300),pauseExceptionAllowed:auth.pauseExceptionAllowed===true,leverageMode:String(auth.leverageMode||'MAX_SAFE'),triggerThreshold:Math.max(0.82,Math.min(0.98,Number(auth.triggerThreshold)||0.90)),source:'JEV_PREAUTHORIZED',authority:'JEV_FINAL_CONDITIONAL'};
-    this.armed.set(symbol,row);this.marketStream?.ensureSymbol?.(symbol);this.marketStream?.ensureLocalL2?.(symbol);this._event('ARM',row);return {ok:true,authorization:row};}
+    this.armed.set(symbol,row);this.marketStream?.ensureSymbol?.(symbol);this.marketStream?.ensureLocalL2?.(symbol,{priority:'BURST',leaseMs:ttl+1000});this._event('ARM',row);return {ok:true,authorization:row};}
   disarm(symbol,reason='EXPIRED'){symbol=String(symbol||'').toUpperCase();const row=this.armed.get(symbol);if(row){this.armed.delete(symbol);this._event('DISARM',{symbol,reason,authorizationId:row.authorizationId});}return !!row;}
   cleanup(){const now=this.now();for(const [s,a] of this.armed)if(a.expiresAt<=now)this.disarm(s,'TTL_EXPIRED');}
   canStart(){return this.active.size<this.maxActive;}
@@ -94,7 +95,7 @@ class BurstScalpManager{
     let e;try{e=burstEvidence(this.marketStream?.snapshot?.(x.symbol,this.now()),x.side,{preMove:x.preMove});}catch{e=null;}
     return {...x,remainingMs:Math.max(0,x.expiresAt-this.now()),telemetry:{score:e?.score??null,threshold:x.triggerThreshold,state:!e||!e.fresh?'DATA_NOT_READY':e.score>=x.triggerThreshold&&e.preMove.match&&e.contradictions.length===0?'TRIGGER_READY':'WAIT_TRIGGER',contradictions:e?.contradictions||['STREAM_UNAVAILABLE']}};
   }),active:[...this.active.values()].map(x=>({...x})),pause:{active:!!pause,key:pause?.pauseStartedAt||null,exceptionAvailable:pause?this.pauseExceptionAvailable(String(pause.pauseStartedAt||pause.until||'')):false},history:this.history.slice(0,20)};}
-  _event(kind,data){this.history.unshift({at:new Date(this.now()).toISOString(),kind,...JSON.parse(JSON.stringify(data||{}))});this.history=this.history.slice(0,50);}
+  _event(kind,data){const event={at:new Date(this.now()).toISOString(),kind,...JSON.parse(JSON.stringify(data||{}))};this.history.unshift(event);this.history=this.history.slice(0,50);try{this.onEvent(event);}catch{}}
 }
 
 module.exports={finite,burstEvidence,exitEvidence,BurstScalpManager};

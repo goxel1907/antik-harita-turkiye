@@ -389,16 +389,16 @@ class StreamingMarket {
       snapshotLoader:async symbol=>getJson(FUTURES, `/fapi/v1/depth?symbol=${symbol}&limit=1000`, 7000)
     });
   }
-  ensureLocalL2(symbol){
+  ensureLocalL2(symbol,options){
     if(process.env.BRAINHUB_LOCAL_L2==='0')return null;
-    return this.localL2.ensureSymbol(symbol);
+    return this.localL2.ensureSymbol(symbol,options);
   }
   ensureSymbol(symbol) {
     symbol = String(symbol || '').toUpperCase();
     if (!validSymbol(symbol)) throw new Error('invalid USDT perpetual symbol');
     if (!this.states.has(symbol)) {
       if (this.states.size >= this.maxSymbols) {
-        const victim = [...this.states.values()].filter(x=>!this.protectedSymbols.has(x.symbol))
+        const victim = [...this.states.values()].filter(x=>!this.protectedSymbols.has(x.symbol)&&!this.localL2.isReserved(x.symbol))
           .sort((a,b)=>(a.lastRequestedAt||0)-(b.lastRequestedAt||0)||a.symbol.localeCompare(b.symbol))[0];
         if (!victim) return null; // optional stream unavailable; REST evidence still runs
         this.sendSubscriptions([victim.symbol], 'UNSUBSCRIBE');

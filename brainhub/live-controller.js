@@ -31,6 +31,7 @@ const caseMemoryLib = require('./case-memory');
 const {createProfitBudget}=require('./profit-budget');
 const {createBurstReduction}=require('./burst-reduction');
 const { BurstScalpManager } = require('./burst-scalp');
+const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-preparation');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -319,8 +320,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
   const profitBudget=createProfitBudget({transport,clock,emit:runnerEvent,persist:writeRunnerState});
-  const burst = new BurstScalpManager({marketStream:market?.marketStream||marketStream,now:clock,maxArmed:4,maxActive:1});
-  let burstArmBusy=false, burstTickBusy=false, burstArmCursor=0;
+  const candidateStream=market?.marketStream||marketStream;
+  const burst = new BurstScalpManager({marketStream:candidateStream,now:clock,maxArmed:4,maxActive:1,onEvent:event=>{try{store.journal('BURST_WATCH_EVENT',event.symbol||null,event);}catch{}}});
+  const burstPreparation=new BurstPreparationQueue({now:clock,onExpire:(symbol,reason)=>{candidateStream.localL2?.releaseReservation?.(symbol);try{store.journal('BURST_PREP_EXPIRED',symbol,{reason});}catch{}}});
+  const burstTrace=new Map();
+  function traceBurst(kind,symbol,evidence){const key=kind+':'+symbol,prior=burstTrace.get(key),signature=JSON.stringify([evidence.reason,evidence.state,evidence.reasons,evidence.contradictions]);if(!prior||prior.signature!==signature||clock()-prior.at>=30000){burstTrace.set(key,{at:clock(),signature});try{store.journal(kind,symbol,evidence);}catch{}}if(burstTrace.size>400)for(const [k,v] of burstTrace)if(clock()-v.at>300000)burstTrace.delete(k);}
+  function releaseBurstPreparation(symbol){burstPreparation.release(symbol);if(!burst.armed.has(symbol))candidateStream.localL2?.releaseReservation?.(symbol);}
+  let burstArmBusy=false, burstTickBusy=false;
   let burstArmReview={at:null,checked:0,results:[],reason:'NOT_REVIEWED'};
   const burstReviewAt=new Map();
   const leaseToken = crypto.randomBytes(32).toString('base64url');
@@ -1709,7 +1715,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(!open.ok){ledgerState={...ledgerState,at,ok:false,error:open.reason};return {ok:false,reason:open.reason};}
       await reconcilePending(open.positions,currentCredentials(),open.snapshotStartedAt);
       const finalized=await finalizeClosedActiveRows(open.positions,{snapshotStartedAt:open.snapshotStartedAt});
-      marketStream.protectedSymbols=new Set(open.positions.map(x=>x.symbol));
+      const protectedSymbols=[...open.positions.map(x=>x.symbol),...burst.active.values()].map(x=>typeof x==='string'?x:x.symbol);
+      candidateStream.protectedSymbols=new Set(protectedSymbols);
+      candidateStream.localL2?.setPositionSymbols?.(protectedSymbols);
       ledgerState={at,ok:true,error:null,open:open.positions,source:open.source||null,lastFinalized:finalized.length?finalized:ledgerState.lastFinalized};
       return {ok:true,open:open.positions.length,finalized:finalized.length};
     }catch(e){
@@ -5005,18 +5013,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const skipped=(reason,ok=true)=>{burstArmReview={at:new Date(clock()).toISOString(),checked:0,results:[],reason};return {ok,skipped:true,reason};};
     try{
       if(typeof burstJudge!=='function')return skipped('BURST_JEV_PREAUTH_UNAVAILABLE');
-      const la=readLeaderAutoConfig();if(!la.ok||la.config?.enabled!==true)return skipped('LEADER_AUTO_DISABLED');
+      const la=readLeaderAutoConfig();if(!la.ok||la.config?.enabled!==true){for(const symbol of [...burstPreparation.pending.keys()])releaseBurstPreparation(symbol);return skipped('LEADER_AUTO_DISABLED');}
       let scan;try{scan=await scanner.scan();}catch{return skipped('SCANNER_UNAVAILABLE',false);}
       const pool=burstCandidatePool(scan);if(!pool.length)return skipped('BURST_NO_CANDIDATES');
       const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return skipped('BURST_ARM_FULL');
-      const start=burstArmCursor%pool.length;burstArmCursor=(burstArmCursor+Math.max(1,vacancies))%Math.max(1,pool.length);
-      const chosen=[...pool.slice(start),...pool.slice(0,start)].filter(x=>!burst.status().armed.some(a=>a.symbol===x.symbol)).sort((a,b)=>Number(market?.cachedChartContext?.(b.symbol,clock())?.available===true)-Number(market?.cachedChartContext?.(a.symbol,clock())?.available===true)).slice(0,Math.min(4,vacancies));
+      const chosen=burstPreparation.pick(pool,{armed:[...burst.armed.keys()],blocked:pool.filter(c=>{const p=burstReviewAt.get(c.symbol);return p&&clock()-p.at<120000;}).map(c=>c.symbol),slots:vacancies});
       const results=[];
       for(const c of chosen){
-        // Warm the four bounded candidate feeds BEFORE asking for conditional
-        // authorization. Previously L2 subscribed only after approval.
-        const candidateStream=market?.marketStream||marketStream;
-        candidateStream.ensureSymbol?.(c.symbol);candidateStream.ensureLocalL2?.(c.symbol);
+        // Keep at most two persistent preparation feeds; grant no authority
+        // until actual readiness is measured. Position feeds retain priority.
+        candidateStream.ensureSymbol?.(c.symbol);
+        const leased=candidateStream.ensureLocalL2?.(c.symbol,{priority:'BURST',leaseMs:120000});
+        if(leased===null){const reason='BURST_L2_CAPACITY_WAIT';results.push({symbol:c.symbol,armed:false,reason});traceBurst('BURST_PREPARATION',c.symbol,{reason});continue;}
         const prior=burstReviewAt.get(c.symbol);
         const phase=c.burstPreMove||c.preMove;
         const phaseKey=phase?`${String(phase.state||'').toUpperCase()}:${String(phase.direction||'').toUpperCase()}`:null;
@@ -5026,7 +5034,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           // Only a few JEV burst candidates use this closed-candle probe; normal 1s watcher remains pure WebSocket.
           try{const pr=await Promise.race([market.preMoveProbe(c.symbol),new Promise(r=>setTimeout(()=>r(null),3500))]);pm=pr?.combined||null;}catch{}
         }
-        if(!pm||!['PRE_MOVE','IGNITION'].includes(String(pm.state||'').toUpperCase())){results.push({symbol:c.symbol,armed:false,reason:'NO_PREMOVE'});continue;}
+        if(!pm||!['PRE_MOVE','IGNITION'].includes(String(pm.state||'').toUpperCase())){results.push({symbol:c.symbol,armed:false,reason:'NO_PREMOVE'});releaseBurstPreparation(c.symbol);continue;}
+        const readiness=burstPreparationReadiness(candidateStream.snapshot(c.symbol,clock()));
+        if(!readiness.ready){const reason=readiness.reasons[0];results.push({symbol:c.symbol,armed:false,reason,readiness});traceBurst('BURST_PREPARATION',c.symbol,{reason,...readiness});continue;}
         const pos=burstCurrentPosition(c.symbol);
         let chartContext=market?.cachedChartContext?.(c.symbol,clock())||{available:false,reason:'CHART_CACHE_MISSING'};
         if(chartContext.available!==true){
@@ -5035,18 +5045,22 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           if(chartContext.available!==true){results.push({symbol:c.symbol,armed:false,reason:chartContext.reason||'CHART_CACHE_MISSING',chartAgeMs:chartContext.ageMs??null,warmReason:warm?.reason||null});continue;}
         }
         const stream=candidateStream.snapshot(c.symbol,clock());
+        const requestReadiness=burstPreparationReadiness(stream);
+        if(!requestReadiness.ready){results.push({symbol:c.symbol,armed:false,reason:requestReadiness.reasons[0],readiness:requestReadiness});traceBurst('BURST_PREPARATION',c.symbol,{reason:requestReadiness.reasons[0],...requestReadiness});continue;}
+        const requestedAt=clock();
         burstReviewAt.set(c.symbol,{at:clock(),phaseKey:`${String(pm.state||'').toUpperCase()}:${String(pm.direction||'').toUpperCase()}`});
         if(burstReviewAt.size>200){for(const [symbol,review] of burstReviewAt)if(clock()-review.at>=120000)burstReviewAt.delete(symbol);}
         let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,chartContext,position:pos,pause:lossStreakPause(),learning:store.learningContext?.({symbol:c.symbol})});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
-        const reviewEvidence={decision:j?.decision||'DO_NOT_ARM',called:j?.called===true,ok:j?.ok===true,reason:j?.reason||'JEV_REASON_NOT_PROVIDED',side:j?.side||null,preMove:{state:pm.state,direction:pm.direction},streamAvailable:stream?.available===true,streamAgeMs:stream?.ageMs??null,l2Ready:stream?.localL2?.available===true,l2Confidence:stream?.localL2?.confidence??null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null};
+        const reviewEvidence={decision:j?.decision||'DO_NOT_ARM',called:j?.called===true,ok:j?.ok===true,reason:j?.reason||'JEV_REASON_NOT_PROVIDED',dataGap:j?.dataGap||'NOT_REPORTED',side:j?.side||null,preMove:{state:pm.state,direction:pm.direction},streamAvailable:stream?.available===true,streamAgeMs:stream?.ageMs??null,l2Ready:stream?.localL2?.available===true,l2Confidence:stream?.localL2?.confidence??null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null,requestReadiness,responseReadiness:burstPreparationReadiness(candidateStream.snapshot(c.symbol,clock())),durationMs:clock()-requestedAt};
         try{store.journal('BURST_PREAUTH_REVIEW',c.symbol,reviewEvidence);store.recordLearning?.('BURST_PREAUTH_REVIEW',c.symbol,{...reviewEvidence,authority:'SOFT_CONTEXT_ONLY',measurement:'DECISION_TRACE_NOT_TRADE_OUTCOME'});}catch{}
         if(j?.ok&&['LONG','SHORT'].includes(j.side)){
           // Existing opposite position is never hedged by burst v1.
-          if(pos&&String(pos.side||'').toUpperCase()!==j.side){results.push({symbol:c.symbol,armed:false,reason:'OPPOSITE_CORE_POSITION'});continue;}
+          if(pos&&String(pos.side||'').toUpperCase()!==j.side){results.push({symbol:c.symbol,armed:false,reason:'OPPOSITE_CORE_POSITION'});releaseBurstPreparation(c.symbol);continue;}
           const a=burst.arm({symbol:c.symbol,side:j.side,ttlMs:j.ttlMs,triggerThreshold:j.triggerThreshold,leverageMode:j.leverageMode,pauseExceptionAllowed:j.pauseExceptionAllowed,preMove:pm,jevReason:`${c.burstReason||''}|${j.mode||''}`});
           try{store.journal('BURST_ARM',c.symbol,{candidate:{reason:c.burstReason||null,sideHint:c.burstSideHint||null},preMove:pm,jev:j,authorization:a.authorization||null});}catch{}
           results.push({symbol:c.symbol,armed:a.ok===true,side:j.side,decision:j.decision,jevCalled:j.called===true,authorizationId:a.authorization?.authorizationId||null,reason:a.ok?null:a.reason});
         } else results.push({symbol:c.symbol,armed:false,jevCalled:j?.called===true,decision:j?.decision||null,reason:j?.reason||j?.decision||'JEV_DO_NOT_ARM'});
+        releaseBurstPreparation(c.symbol);
       }
       burstArmReview={at:new Date(clock()).toISOString(),checked:chosen.length,results,reason:results.some(x=>x.armed)?'JEV_PREAUTHORIZED':'NO_AUTHORIZATION'};
       return {ok:true,checked:chosen.length,results};
@@ -5089,6 +5103,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   async function burstOpen(auth,ev){
     if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
+    if(readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'LEADER_AUTO_DISABLED'};
     const creds=currentCredentials(),symbol=auth.symbol,side=auth.side,snap=(market?.marketStream||marketStream).snapshot(symbol,clock());
     const price=finite(side==='LONG'?snap?.ask:snap?.bid)??finite((finite(snap?.ask)+finite(snap?.bid))/2);if(!(price>0))return {ok:false,reason:'BURST_PRICE_UNAVAILABLE'};
     const current=burstCurrentPosition(symbol),sameAddon=!!current;
@@ -5108,8 +5123,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const stopPrice=burstTickPrice(stopRaw,f.tickSize,side==='LONG'?'down':'up');
     const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;const positionSide=hedge?side:'BOTH';
     // One-way mode: same-side addon is permitted; opposite is blocked above. Hedge mode must match side.
+    if(!armedNow()||readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'BURST_ENTRY_PERMISSION_REVOKED'};
     if(sz.changeLeverage!==false){const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(sz.leverage)}});if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==sz.leverage)return {ok:false,reason:'BURST_LEVERAGE_REJECTED'};}
     const burstId='burst_'+crypto.randomBytes(8).toString('hex'),clientId=('BE'+burstId.replace('_','')).slice(0,36);
+    if(!armedNow()||readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'BURST_ENTRY_PERMISSION_REVOKED'};
     let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide,type:'MARKET',quantity:String(quantity),newClientOrderId:clientId,newOrderRespType:'RESULT'}});}catch(e){return {ok:false,reason:String(e?.message||'BURST_ENTRY_FAILED'),exchangeError:e?.body||null};}
     const executed=finite(entry?.executedQty),entryPrice=finite(entry?.avgPrice)??price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
     // Quantity-specific protective stop so a synthetic addon can never close the core position.
@@ -5124,6 +5141,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(burstTickBusy)return {ok:true,skipped:true,reason:'BURST_TICK_BUSY'};burstTickBusy=true;
     try{
       // Manage active burst first. Watcher exits are confirmed, quantity-bounded reductions of standalone burst positions.
+      const protectedSymbols=[...(ledgerState.open||[]).map(x=>x.symbol),...[...burst.active.values()].map(x=>x.symbol)];
+      candidateStream.protectedSymbols=new Set(protectedSymbols);
+      candidateStream.localL2?.setPositionSymbols?.(protectedSymbols);
       for(const a of [...burst.active.values()]){
         const checked=burst.evaluateActive(a.burstId);if(!checked.ok)continue;
         if(a.exitRequestedReason){checked.exit.exit=true;checked.exit.reason=a.exitRequestedReason;}
@@ -5145,10 +5165,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(addonGone||flatGone){const closed=burst.finish(a.burstId,{exitReason:'EXCHANGE_INVENTORY_EXIT_DETECTED',exitPrice:finite(checked.snapshot?.bid)??finite(checked.snapshot?.ask),mfeR:checked.exit.mfeR,maeR:checked.exit.maeR});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,captureEfficiency:null,authority:'UNCONFIRMED_FINAL_EXIT'});}catch{};continue;}
         if(checked.exit.exit){const r=await burstReduceExact(a,checked.exit.reason);if(r.ok){if(a.stopAlgoId)try{await transport.cancelAlgoOrder({algoId:a.stopAlgoId,credentials:currentCredentials()});}catch{}const exitPrice=finite(r.avgPrice)>0?finite(r.avgPrice):null,oneR=Math.abs((finite(a.entryPrice)||0)-(finite(a.stopPrice)||0)),gross=oneR>0&&exitPrice!==null?(exitPrice-a.entryPrice)*(a.side==='LONG'?1:-1)*(a.initialQuantity||a.quantity):null,realizedR=oneR>0&&gross!==null?gross/(oneR*(a.initialQuantity||a.quantity)):null,capture=checked.exit.mfeR>0&&realizedR!==null?Math.max(-2,Math.min(2,realizedR/checked.exit.mfeR)):null;const closed=burst.finish(a.burstId,{exitReason:checked.exit.reason,exitPrice,mfeR:checked.exit.mfeR,maeR:checked.exit.maeR,realizedR,captureEfficiency:capture});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,authority:checked.exit.reason==='JEV_BURST_EXIT'?'JEV':'BURST_SAFETY_WATCHER'});}catch{}}}
       }
+      const la=readLeaderAutoConfig();
+      if(!la.ok||la.config?.enabled!==true){for(const symbol of [...burst.armed.keys()]){burst.disarm(symbol,'LEADER_AUTO_DISABLED');candidateStream.localL2?.releaseReservation?.(symbol);}return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};}
       if(!burst.canStart())return {ok:true,active:true};
       const pause=lossStreakPause();
       for(const auth of [...burst.armed.values()]){
-        const chk=burst.evaluateArmed(auth.symbol);if(!chk.ok||!chk.trigger)continue;
+        candidateStream.ensureLocalL2?.(auth.symbol,{priority:'BURST',leaseMs:Math.max(1000,auth.expiresAt-clock()+1000)});
+        const chk=burst.evaluateArmed(auth.symbol);
+        traceBurst('BURST_WATCH',auth.symbol,{authorizationId:auth.authorizationId,state:chk.trigger?'TRIGGER_READY':'WAIT_TRIGGER',score:chk.evidence?.score??null,threshold:auth.triggerThreshold,remainingMs:Math.max(0,auth.expiresAt-clock()),contradictions:chk.evidence?.contradictions||[],reason:chk.reason||null});
+        if(!chk.ok||!chk.trigger)continue;
         if(pause){const key=String(pause.pauseStartedAt||pause.until||'');const veryStrict=chk.evidence.score>=Math.max(0.94,auth.triggerThreshold)&&String(auth.preMove?.state||'').toUpperCase()==='IGNITION';if(!(auth.pauseExceptionAllowed&&veryStrict&&burst.pauseExceptionAvailable(key))){continue;}}
         const opened=await burstOpen(auth,chk.evidence);
         if(opened?.ok&&pause){burst.consumePauseException(String(pause.pauseStartedAt||pause.until||''));if(opened.active)opened.active.pauseExceptionUsed=true;}
@@ -5161,7 +5186,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function burstStatus(){
     const diagnostics={windowMinutes:60,reviewed:0,called:0,authorized:0,reasons:{}};
     try{for(const x of store.recentJournal?.('BURST_PREAUTH_REVIEW',{limit:500,sinceTs:clock()-3600000})||[]){const p=x.payload||{};diagnostics.reviewed++;if(p.called===true)diagnostics.called++;if(['ARM_LONG','ARM_SHORT'].includes(p.decision))diagnostics.authorized++;const k=p.reason||'JEV_REASON_NOT_PROVIDED';diagnostics.reasons[k]=(diagnostics.reasons[k]||0)+1;}}catch{}
-    return {...burst.status(lossStreakPause()),lastArmReview:burstArmReview,diagnostics,separateOtherSymbolSlot:true,sameSymbolAddonSupported:false};
+    const preparation=[...burstPreparation.pending.values()].map(p=>({symbol:p.candidate.symbol,ageMs:clock()-p.since,readiness:burstPreparationReadiness(candidateStream.snapshot(p.candidate.symbol,clock()))}));
+    return {...burst.status(lossStreakPause()),preparation,lastArmReview:burstArmReview,diagnostics,separateOtherSymbolSlot:true,sameSymbolAddonSupported:false};
   }
 
   restoreCooldownsFromJournal();

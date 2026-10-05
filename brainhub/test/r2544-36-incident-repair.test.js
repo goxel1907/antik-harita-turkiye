@@ -102,13 +102,13 @@ test('R36 burst candidates subscribe before JEV review and preserve refusal evid
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'r36-burst-')),calls=[],rows=[],lessons=[];
  fs.mkdirSync(path.join(root,'config'),{recursive:true});
  fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:true,marginQuote:35,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
- const stream={ensureSymbol:s=>calls.push('symbol'),ensureLocalL2:s=>calls.push('l2'),snapshot:s=>{assert.deepEqual(calls,['symbol','l2']);calls.push('snapshot');return burstSnap();}};
+ const stream={ensureSymbol:s=>calls.push('symbol'),ensureLocalL2:s=>calls.push('l2'),snapshot:s=>{assert.deepEqual(calls.slice(0,2),['symbol','l2']);calls.push('snapshot');return burstSnap();}};
  const {createLiveController}=require('../live-controller');
  const c=createLiveController({root,credentials:{apiKey:'test-api-key',apiSecret:'test-api-secret'},fetchImpl:async()=>{throw Error('network forbidden');},clock:()=>1000000,
   store:{journal:(kind,symbol,payload)=>rows.push({kind,symbol,payload}),recordLearning:(k,s,p)=>lessons.push(p),recentJournal:()=>rows,learningContext:()=>({})},
   scanner:{scan:async()=>({nearExplosionCandidates:[{symbol:'ABCUSDT',preMove:{state:'PRE_MOVE',direction:'LONG'}}]})},pipeline:{run:async()=>{throw Error('unused');}},committee:async()=>({}),
   market:{marketStream:stream,cachedChartContext:()=>({available:true,asOf:999900,ageMs:100})},
-  burstJudge:async()=>{assert.deepEqual(calls,['symbol','l2','snapshot']);return {ok:true,called:true,decision:'DO_NOT_ARM',reason:'LOCATION_ADVERSE'};}});
+  burstJudge:async()=>{assert.deepEqual(calls,['symbol','l2','snapshot','snapshot']);return {ok:true,called:true,decision:'DO_NOT_ARM',reason:'LOCATION_ADVERSE'};}});
  const r=await c.burstArmTick();assert.equal(r.checked,1,JSON.stringify(r));assert.equal(rows[0].payload.l2Ready,true);
  assert.equal(lessons[0].measurement,'DECISION_TRACE_NOT_TRADE_OUTCOME');assert.equal(lessons[0].netPnl,undefined);
  const status=c.burstStatus();assert.equal(status.diagnostics.called,1);assert.equal(status.diagnostics.authorized,0);assert.equal(status.diagnostics.reasons.LOCATION_ADVERSE,1);assert.equal(status.separateOtherSymbolSlot,true);
