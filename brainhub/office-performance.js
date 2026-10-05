@@ -1,5 +1,6 @@
 'use strict';
 const { executionTelemetry } = require('./execution-telemetry');
+const {exitCorrectionFor}=require('./close-exit-evidence');
 const RELEASE='R2542_JEV_TRADER_OFFICE';
 const num=v=>v===null||v===undefined||v===''?null:(Number.isFinite(Number(v))?Number(v):null);
 // Old live-ledger rows had no eventId. A backfill can refer to the same entry a
@@ -26,6 +27,11 @@ function enrichCloses(rows,records=[]){
  const exits=records.filter(x=>x.kind==='JEV_POSITION_EXECUTION'&&x.payload?.result?.orderPlaced===true&&Number(x.payload?.result?.executedQty)>0);
  return rows.map(raw=>{
    const row={...raw}, at=Date.parse(row.openedAt||''), end=Date.parse(row.closedAt||'');
+   const correction=exitCorrectionFor(row,records);
+   if(correction&&['EXTERNAL_CLOSE','OTHER_CLOSE','UNKNOWN_CLOSE','JEV_PARTIAL_THEN_EXTERNAL_CLOSE'].includes(row.exitType)){
+     row.exitEvidence=correction;row.rawExitType=raw.exitType;row.exitType=correction.confirmed?correction.exitType:'UNKNOWN_CLOSE';
+     if(row.outcomePath)row.outcomePath={...row.outcomePath,exitType:row.exitType};
+   }
    const matches=entries.filter(e=>e.symbol===row.symbol&&e.payload.result.side===row.side&&(row.eventId?e.payload.eventId===row.eventId:Number.isFinite(at)&&Math.abs(Number(e.ts)-at)<=2000));
    if(matches.length!==1||!Number.isFinite(end))return row;
    const e=matches[0],p=e.payload,r=p.result;
@@ -47,7 +53,7 @@ function enrichCloses(rows,records=[]){
    const lineage=exits.filter(x=>x.symbol===row.symbol&&x.payload.result.side===row.side&&Number(x.ts)>=Number(e.ts)&&Number(x.ts)<=upper);
    const full=lineage.filter(x=>x.payload.action==='EXIT_NOW'&&x.payload.result.fullyClosed===true&&x.payload.result.reduceOnly===true).at(-1);
    const partial=lineage.filter(x=>x.payload.action==='PARTIAL_TAKE_PROFIT');
-   if(full){row.exitType='JEV_EXIT_NOW';row.reportingSource.exitJournalId=full.id;}
+   if(full&&!correction?.confirmed){row.exitType='JEV_EXIT_NOW';row.reportingSource.exitJournalId=full.id;}
    if(partial.length){row.partialExitType='JEV_PARTIAL_TAKE_PROFIT';row.reportingSource.partialExitJournalIds=partial.map(x=>x.id);}
    return row;
  });

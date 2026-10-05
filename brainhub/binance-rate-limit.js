@@ -97,6 +97,8 @@ function endpointWeight(path=''){
   if(p==='/fapi/v1/ticker/bookTicker') return hasSymbol?2:5;
   if(p==='/fapi/v1/premiumIndex') return hasSymbol?1:10;
   if(p==='/fapi/v3/account' || p==='/fapi/v3/positionRisk') return 5;
+  if(p==='/fapi/v1/userTrades'||p==='/fapi/v1/allAlgoOrders')return 5;
+  if(p==='/fapi/v1/order'||p==='/fapi/v1/algoOrder')return 1;
   if(p==='/fapi/v1/exchangeInfo') return 1;
   if(p.startsWith('/futures/data/')) return 1;
   return 2;

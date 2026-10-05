@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.19-R2544.39-JEV-Brain';
+const OFFICE_VERSION = '2.5.20-R2544.40-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -44,7 +44,7 @@ function canonicalPositions(data){
    const perfPath=fs.existsSync(path.join(BRAIN_ROOT,'server','office-performance.js'))?path.join(BRAIN_ROOT,'server','office-performance.js'):path.join(HERE,'..','office-performance.js');
    const {enrichCloses,performanceReport}=require(perfPath);
    db=new DatabaseSync(path.join(BRAIN_ROOT,'data','brainhub.sqlite'),{readOnly:true});
-   const records=db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION') ORDER BY ts ASC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
+   const records=db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY ts ASC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
    return {...data,closed:enrichCloses(data.closed||[],records),performance:performanceReport(records,data.open||[]),reportingOverlay:'READ_ONLY_SQLITE_CANONICAL'};
  }catch(e){return {...data,reportingOverlayError:String(e.message).slice(0,160)};}
  finally{if(db)db.close();}
@@ -374,7 +374,11 @@ function derive(snap) {
       if (Number(cv.chaseBlocked || 0) > 0) add('info', 'CHASE', 'Kovalama ölçümü (JEV sonrası veto değil)', `${cv.chaseBlocked} eski/ölçüm olayı var. v111 JEV_FINAL_AUTHORITY modunda JEV onayından sonra stratejik veto olarak uygulanmaz.`);
     }
     if (!sovereign && wr >= 10 && wref / Math.max(1, wr) >= 0.8) add('serious', 'WORKER_LOOP', 'Plan worker döngüsü', `${wr} incelemenin ${wref}'i "9TF yenile" (%${Math.round(100 * wref / wr)}). Aynı coinler tekrar tekrar analiz ediliyor.`);
-    if (deep >= 6 && unique / Math.max(1, deep) < 0.5) add('warning', 'COVERAGE', 'Kapsam daralması', `${deep} derin analiz yalnız ${unique} farklı coinde.`);
+    const coverage=h.coverage;
+    if(deep>=6&&coverage&&coverage.staleCount>=2&&coverage.oldestStaleMs>=10*60000)
+      add('warning','COVERAGE','İnceleme sırası gecikiyor',`${coverage.targetCount} dikkat adayının ${coverage.staleCount} tanesi yeniden inceleme bekliyor; en eski ${Math.floor(coverage.oldestStaleMs/60000)} dk. Borsa evreni ile dikkat listesi farklıdır.`);
+    else if(deep>=6&&unique/Math.max(1,deep)<0.5)
+      add('info','REANALYSIS','Yeniden inceleme',`${deep} analiz / ${unique} farklı coin. Tekrar analiz tek başına kapsam daralması veya işlem engeli değildir.`);
     if (deep >= 3 && vu / Math.max(1, deep) >= 0.25) add('serious', 'VISION_DOWN', 'Görsel analiz sık düşüyor', `${vu}/${deep} analizde görsel komite yanıt vermedi.`);
     const fake = rows.filter(r => (String(r.state || '').toUpperCase() === 'WATCH' || String(r.planStatus || '').toUpperCase() === 'WATCH') && r.waitFor !== undefined && waitIsFake(r.waitFor));
     if (fake.length) add('warning', 'FAKE_WAIT', 'Sahte bekleme koşulu', `${fake.length} takipte bekleme metni "NONE ..." ile başlıyor; somut tetik yok.`);

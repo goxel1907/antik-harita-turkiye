@@ -47,7 +47,7 @@ function openStore(root) {
   // Read-time reconciliation only: raw learning history remains unchanged.
   db.exec('CREATE TEMP TABLE excluded_learning_close_ids(id TEXT PRIMARY KEY); CREATE TEMP VIEW canonical_learning_events AS SELECT * FROM learning_events WHERE id NOT IN (SELECT id FROM excluded_learning_close_ids)');
   const learnRecent=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct FROM canonical_learning_events WHERE (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
-  const learnByKind=db.prepare('SELECT ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct,payload FROM canonical_learning_events WHERE kind=? AND (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
+  const learnByKind=db.prepare('SELECT id,ts,kind,symbol,side,setup,origin_tf AS originTF,owner_tf AS ownerTF,decision,confidence,outcome_pct AS outcomePct,payload FROM canonical_learning_events WHERE kind=? AND (? IS NULL OR symbol=?) ORDER BY ts DESC LIMIT ?');
   // Only measured POSITION_CLOSED rows count as PnL samples. JEV_LESSON may carry the same
   // outcomePct for context, but must never double-count the underlying trade in win/loss stats.
   const learnStats=db.prepare("SELECT side,setup,origin_tf AS originTF,owner_tf AS ownerTF,COUNT(*) AS samples,AVG(outcome_pct) AS avgOutcomePct,SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END) AS wins FROM canonical_learning_events WHERE kind='POSITION_CLOSED' AND outcome_pct IS NOT NULL GROUP BY side,setup,origin_tf,owner_tf ORDER BY samples DESC LIMIT 20");
@@ -89,7 +89,7 @@ function openStore(root) {
     }).filter(x => x.payload);
   }
   function officeRecords() {
-    return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION') ORDER BY ts DESC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
+    return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY ts DESC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
   }
   function getJournal(limit = 50) {
     return list.all(Math.max(1, Math.min(200, Number(limit) || 50))).map(x => ({ ...x, payload: JSON.parse(x.payload) }));
@@ -190,8 +190,8 @@ function openStore(root) {
     attnCache.set(key,att);
     return att;
   }
-  function closeExecutionRecords(){return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION') ORDER BY ts").all().map(x=>({...x,payload:safeLearningPayload(x.payload)}));}
-  function closeEvidenceKey(){const x=db.prepare("SELECT COUNT(*) AS n,MAX(rowid) AS last FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION')").get();return ':'+x.n+':'+x.last;}
+  function closeExecutionRecords(){return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY ts").all().map(x=>({...x,payload:safeLearningPayload(x.payload)}));}
+  function closeEvidenceKey(){const x=db.prepare("SELECT COUNT(*) AS n,MAX(rowid) AS last FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE')").get();return ':'+x.n+':'+x.last;}
   function tradeLessonCards(){
     const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
     const key=raw.length+':'+(raw.length?raw[raw.length-1].id:'')+closeEvidenceKey();

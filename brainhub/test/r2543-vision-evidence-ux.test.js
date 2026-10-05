@@ -56,7 +56,8 @@ test('office panel: approve -> intent -> safety is explicit and Ollama readiness
 });
 
 test('office panel: other-close label and vision badge are explicit', () => {
-  assert.match(OFFICE, /OTHER_CLOSE:'Diğer kapanış — neden doğrulanmadı \(manuel\/borsa olabilir\)'/);
+  assert.match(OFFICE, /OTHER_CLOSE:'Kapanış nedeni doğrulanamadı'/);
+  assert.match(OFFICE, /UNKNOWN_CLOSE:'Kapanış nedeni doğrulanamadı'/);
   assert.match(OFFICE, /id="chipVision"/);
   assert.match(OFFICE, /chip\('#chipVision'/);
   assert.ok(OFFICE.includes("'GRAFİK DETERMINİSTİK • GPU '+(vOllama?'AUDIT HAZIR':'AUDIT KAPALI')"));

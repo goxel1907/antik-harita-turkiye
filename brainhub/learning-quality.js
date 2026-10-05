@@ -11,7 +11,10 @@ function learningQuality(record){
     if(p.outcomePath.mfeGivebackR!==giveback)warnings.push('PROFIT_GIVEBACK_RECOMPUTED_FROM_OBSERVED_MFE');
     p.outcomePath={...p.outcomePath,mfeGivebackR:giveback};
   }
-  if(p.exitEvidenceVersion!=='R2544.35'&&inferred.has(p.exitType)){
+  const exchangeVerified=p.exitEvidence?.version==='R2544.40'&&p.exitEvidence.confirmed===true&&
+    !!p.exitEvidence.orderId&&['BINANCE_FILL_ALGO_ORDER_ID','BINANCE_FILL_ORIGINAL_ORDER_TYPE'].includes(p.exitEvidence.source)&&
+    p.exitEvidence.exitType===p.exitType;
+  if(p.exitEvidenceVersion!=='R2544.35'&&!exchangeVerified&&inferred.has(p.exitType)){
     p.recordedExitType=p.exitType;p.exitType='UNVERIFIED_LEGACY_EXIT';
     warnings.push('FINAL_EXIT_AUTHORITY_NOT_CONFIRMED');
   }

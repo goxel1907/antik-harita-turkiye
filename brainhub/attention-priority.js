@@ -67,4 +67,26 @@ function pickPriorityCandidate(candidates,history={},cursor=0){
  pool.sort((a,b)=>a.last-b.last||a.index-b.index);
  return {...pool[0],reason:'R2544_16_'+slot};
 }
-module.exports={selectDeterministicCandidates,pickPriorityCandidate};
+// R40: a cheap worker check is not a completed deep analysis. Failed attempts
+// still receive a retry cooldown, shared by primary and fast attention lanes.
+function attentionAt(symbol,history={},attempts=new Map(),seen=new Map()){
+ return Math.max(num(history[symbol]?.lastAnalyzedAt),num(attempts.get(symbol)),num(seen.get('JEVATTN|'+symbol)));
+}
+function freshAttention(candidates,{history={},attempts=new Map(),seen=new Map(),now=Date.now(),cooldownMs=60000}={}){
+ return rows(candidates).map((candidate,index)=>({candidate,index,last:attentionAt(sym(candidate),history,attempts,seen)}))
+  .filter(x=>!x.last||now-x.last>=cooldownMs).sort((a,b)=>a.last-b.last||a.index-b.index);
+}
+function pickFreshAttention(candidates,options,priorityTurn=true){
+ const fresh=freshAttention(candidates,options);
+ const chosen=(priorityTurn?[...fresh].sort((a,b)=>a.index-b.index):fresh)[0];
+ return chosen?{...chosen,reason:priorityTurn?'PRIORITY_STALE_OR_NEW':'LEAST_RECENT_STALE_OR_NEW'}:
+  {candidate:null,index:-1,reason:'ATTENTION_POOL_COOLDOWN'};
+}
+function coverageState(candidates,history={},attempts=new Map(),now=Date.now(),firstSeen=new Map()){
+ const xs=uniquePool(candidates).map(c=>({symbol:sym(c),deep:num(history[sym(c)]?.lastAnalyzedAt),at:Math.max(num(history[sym(c)]?.lastAnalyzedAt),num(attempts.get(sym(c)))),since:num(firstSeen.get(sym(c)))}));
+ const pending=xs.filter(x=>!x.at||now-x.at>=300000);
+ const timed=pending.map(x=>x.at||x.since).filter(x=>x>0).map(x=>Math.max(0,now-x));
+ return {targetCount:xs.length,staleCount:pending.length,neverAnalyzed:xs.filter(x=>!x.deep).length,neverAttempted:xs.filter(x=>!x.at).length,
+  oldestStaleMs:timed.length?Math.max(...timed):0,semantics:'CURRENT_ATTENTION_POOL_ATTEMPTS_NOT_FULL_EXCHANGE'};
+}
+module.exports={selectDeterministicCandidates,pickPriorityCandidate,attentionAt,freshAttention,pickFreshAttention,coverageState};

@@ -32,6 +32,8 @@ const {createProfitBudget}=require('./profit-budget');
 const {createBurstReduction}=require('./burst-reduction');
 const { BurstScalpManager } = require('./burst-scalp');
 const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-preparation');
+const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
+const {readCloseExitEvidence}=require('./close-exit-evidence');
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -428,6 +430,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const LEADER_AUTO_HEALTH_WINDOW_MS = 60 * 60 * 1000;
   const LEADER_AUTO_REANALYSIS_COOLDOWN_MS = 5 * 60 * 1000;
   let leaderAutoPickCount = 0;
+  const attentionAttempts=new Map();
+  let fastAttentionTurns=0;
+  let currentCoverageCandidates=[];
+  const coverageFirstSeen=new Map();
   const WORKER_ESCALATION_COOLDOWN_MS = 15 * 60 * 1000;
   const leaderAutoHealthStartedAt = Number.isFinite(clock()) ? clock() : Date.now();
   let leaderAutoHealthEvents = [];
@@ -514,6 +520,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       skippedPositionReviewBusy:skips.filter(x=>x.reason==='LEADER_AUTO_BACKGROUND_BUSY').length,
       deepAnalyses:analyses.length,
       uniqueAnalyzedSymbols:uniqueAnalyzedSymbols.length,
+      coverage:coverageState(currentCoverageCandidates,leaderAnalysisState.bySymbol,attentionAttempts,now,coverageFirstSeen),
       preJevQualified:analyses.filter(x=>String(x.preJevStatus||'').toUpperCase()==='QUALIFIED').length,
       sovereignPass1Calls:sovereignAnalyses.filter(x=>x.jevPass1Called===true).length,
       sovereignFinalCalls:sovereignAnalyses.filter(x=>x.jevCalled===true).length,
@@ -764,21 +771,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // erken teşhis ve erken ilgi 5 dk'dan eski analizle beklemesin); 3'üncüsü imleçle bütün listeyi dolaşır (ilk 24 aç kalmaz).
     leaderAutoPickCount=(leaderAutoPickCount+1)%3;
     const priorityTurn=leaderAutoPickCount!==0;
-    const coverageOrder=candidates.map((_,i)=>priorityTurn?i:(leaderAutoCandidateCursor+i)%candidates.length);
-    index=coverageOrder.find(i=>{
-      const c=candidates[i];
-      const row=leaderAnalysisState.bySymbol?.[String(c?.symbol || '').toUpperCase()];
-      const last=Math.max(Number(row?.lastAnalyzedAt || 0),Number(row?.lastWorkerCheckAt || 0));
-      return !last || now-last >= LEADER_AUTO_REANALYSIS_COOLDOWN_MS;
-    });
-    if(index===undefined)index=-1;
-    let reason=priorityTurn?'PRIORITY_STALE_OR_NEW':'COVERAGE_STALE_OR_NEW';
-    if (index < 0) {
-      index=leaderAutoCandidateCursor % candidates.length;
-      reason='ROUND_ROBIN_RECENT_SET';
+    const picked=pickFreshAttention(candidates,{history:leaderAnalysisState.bySymbol,attempts:attentionAttempts,seen:fastLaneSeen,now,cooldownMs:LEADER_AUTO_REANALYSIS_COOLDOWN_MS},priorityTurn);
+    if(!picked.candidate){
+      if(pipeline?.sovereignFlow===true)return picked;
+      // Preserve legacy Vision refresh behavior. R40 scheduling targets the
+      // active JEV sovereign path; legacy audit fixtures can still refresh.
+      index=leaderAutoCandidateCursor%candidates.length;
+      leaderAutoCandidateCursor=(index+1)%candidates.length;
+      return {candidate:candidates[index],index,reason:'ROUND_ROBIN_RECENT_SET'};
     }
-    const candidate=candidates[index];
-    if(!priorityTurn||reason==='ROUND_ROBIN_RECENT_SET')leaderAutoCandidateCursor=(index+1)%candidates.length;
+    const {candidate,reason}=picked;index=picked.index;
+    if(!priorityTurn)leaderAutoCandidateCursor=(index+1)%candidates.length;
     return {candidate,index,reason};
   }
   let positionReviewBusy = false;
@@ -1706,6 +1709,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // pozisyonları (Office/uygulama için) + kapananların sonuç kaydı. Emir göndermez.
   let ledgerBusy=false;
   let ledgerState={at:null,ok:false,error:null,open:[],lastFinalized:[],source:null};
+  let exitEvidenceLastAt=0;
+  const exitReportingIdle=()=>!positionReviewBusy&&!hasPendingUrgentReview()&&!leaderFlowBusy&&!fastLaneBusy&&!executionBusy&&!burstTickBusy&&!runnerBusy&&burst.active.size===0;
+  async function reconcileOneCloseExit(){
+    const now=clock();if(exitEvidenceLastAt&&now-exitEvidenceLastAt<60000)return null;
+    if(typeof store?.officeRecords!=='function')return null;
+    const records=store.officeRecords();
+    const pending=records.filter(x=>x.kind==='POSITION_CLOSED'&&['EXTERNAL_CLOSE','OTHER_CLOSE','JEV_PARTIAL_THEN_EXTERNAL_CLOSE'].includes(x.payload?.exitType)&&now-Date.parse(x.payload.closedAt)<7*86400000)
+      .sort((a,b)=>Number(b.ts)-Number(a.ts)).find(x=>{
+        const prev=records.filter(r=>r.kind==='CLOSE_EXIT_EVIDENCE'&&r.payload?.closedId===x.id).sort((a,b)=>b.ts-a.ts);
+        return !prev[0]||(!prev[0].payload?.evidence?.confirmed&&prev.length<3&&now-Number(prev[0].ts)>=15*60000);
+      });
+    if(!pending)return null;
+    exitEvidenceLastAt=now;
+    const row={...pending.payload,id:pending.id,symbol:pending.symbol};
+    const evidence=await readCloseExitEvidence(transport,row,currentCredentials(),exitReportingIdle);
+    if(evidence.reason==='REPORTING_DEFERRED')return null;
+    try{store.journal('CLOSE_EXIT_EVIDENCE',row.symbol,{closedId:row.id,eventId:row.eventId||null,openedAt:row.openedAt,closedAt:row.closedAt,evidence});}catch{}
+    return evidence;
+  }
   async function positionLedgerTick(){
     if(ledgerBusy)return {ok:true,skipped:true,reason:'LEDGER_BUSY'};
     ledgerBusy=true;
@@ -1719,6 +1741,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       candidateStream.protectedSymbols=new Set(protectedSymbols);
       candidateStream.localL2?.setPositionSymbols?.(protectedSymbols);
       ledgerState={at,ok:true,error:null,open:open.positions,source:open.source||null,lastFinalized:finalized.length?finalized:ledgerState.lastFinalized};
+      // Reporting-only reads yield entirely while any position requires protection.
+      if(open.positions.length===0&&exitReportingIdle()){
+        try{await reconcileOneCloseExit();}catch{/* Optional reporting cannot invalidate a successful position ledger read. */}
+      }
       return {ok:true,open:open.positions.length,finalized:finalized.length};
     }catch(e){
       ledgerState={...ledgerState,ok:false,error:String(e?.message||e).slice(0,160)};
@@ -2647,9 +2673,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           const last=Number(fastLaneSeen.get('JEVATTN|'+sym)||0);
           return !last||now-last>=cooldownMs;
         });
-        let chosen=null,selection='SCANNER_ORDER',preMove=null;
+        const fresh=freshAttention(eligible,{history:leaderAnalysisState.bySymbol,attempts:attentionAttempts,seen:fastLaneSeen,now,cooldownMs});
+        eligible.splice(0,eligible.length,...fresh.map(x=>x.candidate));
+        fastAttentionTurns++;
+        const fairnessTurn=fastAttentionTurns%3===0;
+        let chosen=fairnessTurn?(eligible[0]||null):null,selection=fairnessTurn?'LEAST_RECENT_ATTENTION':'SCANNER_ORDER',preMove=null;
         // (a) CLAUDE_R2544_CHASE_REQUEUE: fiyatı kaçan sembol 20 sn sonra taze veriyle (soğuma beklemeden) yeniden.
-        for(const [psym,pv] of [...fastLanePriority.entries()]){
+        for(const [psym,pv] of (chosen?[]:[...fastLanePriority.entries()])){
           if(!(Number(pv?.until)>now)){fastLanePriority.delete(psym);continue;}
           const hit=candidates.find(c=>symOf(c)===psym&&psym!==leaderVisionSymbol);
           if(hit&&now-Number(pv.lastRunAt||0)>=20000){chosen=hit;selection='CHASE_REQUEUE';pv.lastRunAt=now;pv.runs=Number(pv.runs||0)+1;if(pv.runs>=3)fastLanePriority.delete(psym);break;}
@@ -4036,6 +4066,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         return (side === 'LONG' && allowLong) || (side === 'SHORT' && allowShort);
       })
       .filter(x => fastMode || String(x?.symbol || '').toUpperCase() !== fastLaneSymbol);
+    if(!fastMode){
+      currentCoverageCandidates=candidates;
+      const symbols=new Set(candidates.map(x=>String(x?.symbol||'').toUpperCase()).filter(Boolean));
+      for(const s of symbols)if(!coverageFirstSeen.has(s))coverageFirstSeen.set(s,clock());
+      for(const s of coverageFirstSeen.keys())if(!symbols.has(s))coverageFirstSeen.delete(s);
+    }
     if (fastMode && !candidates.some(c => String(c?.symbol || '').toUpperCase() === String(fastMode.symbol || '').toUpperCase() && (sovereignFlow || String(c?.side || '').toUpperCase() === String(fastMode.side || '').toUpperCase()))) {
       return { ok:true, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_WAIT', symbol:fastMode.symbol, reasons:[sovereignFlow?'JEV_ATTENTION_SYMBOL_NOT_FOUND':'CLAUDE_V112_FAST_LANE_CANDIDATE_NOT_ELIGIBLE'], fastLane:fastMode.kind };
     }
@@ -4053,6 +4089,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       : pickLeaderCandidate(candidates);
     const selectedIndex = pick.index;
     const candidate = pick.candidate;
+    if(!candidate)return {ok:true,orderPlaced:false,execution:'LEADER_AUTO_WAIT',reasons:[pick.reason]};
+    attentionAttempts.set(String(candidate.symbol).toUpperCase(),clock());
+    for(const [sym,at] of attentionAttempts)if(clock()-at>3600000)attentionAttempts.delete(sym);
     if (!fastMode) leaderAutoLastDiagnostics.selectionReason=pick.reason;
 
     // Primary scanner candidate has priority. When fresh candidates exist this tick
