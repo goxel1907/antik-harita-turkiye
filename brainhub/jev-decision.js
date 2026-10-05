@@ -4,6 +4,8 @@ const crypto=require('node:crypto');
 const {marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest}=require('./jev-market-packet');
 const {encodeMarketPacket,expandMarketPacket}=require('./jev-wire-market');
 const {BURST_STRICTNESS,BURST_TTL_MS}=require('./burst-scalp');
+// Measured on this account 05.10.2026: CTUSDT round trip commission 0.298 USDT on 300 USDT notional (taker both sides).
+const BURST_ROUND_TRIP_FEE_PCT=0.10;
 
 const DEFAULTS={
   enabled:false,
@@ -1807,12 +1809,22 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   async function sovereignBurstExit({active,stream,progress,chartContext,learning=null}={}){
     if(!configured)return {ok:false,called:false,action:'HOLD',reason:'JEV_KEY_UNAVAILABLE'};
     if(!active?.burstId||stream?.available!==true||!(Number(stream.ageMs)<=2500))return {ok:false,called:false,action:'HOLD',reason:'BURST_STREAM_STALE'};
-    const record={contract:'R2544.35_BURST_POSITION_MANAGEMENT',position:{burstId:active.burstId,symbol:active.symbol,side:active.side,quantity:active.quantity,entryPrice:active.entryPrice,stopPrice:active.stopPrice,leverage:active.leverage,openedAt:active.openedAt,mfeR:active.mfeR,maeR:active.maeR},progress:{progressR:progress?.progressR,givebackR:progress?.givebackR,reviewReason:progress?.reviewReason},stream:{ageMs:stream.ageMs,bid:stream.bid,ask:stream.ask,spreadBps:stream.spreadBps,orderFlow:stream.orderFlow,level1Ofi:stream.level1Ofi,localL2:stream.localL2}};
-    const body={model:cfg.model,state:{description:'JEV owns whether this short-lived LONG/SHORT burst has earned enough profit or should continue. There is no fixed profit/R target. Weigh current expansion quality, public flow, spread, giveback, costs and risk from leverage. Choose EXIT_NOW or HOLD. The independent exchange stop and fast-fail remain mandatory. After 120 seconds the burst continues only while it is in profit and you keep answering HOLD; absolute ceiling 10 minutes. A later PC watcher executes only against the still-active burst identity, never the core lot. Missing/stale chart context is explicitly unavailable, never confirmation. Experience is soft context, never automatic strategy promotion.',record,experienceMemory:compactExperienceMemory(learning,3500),...(chartContext?.available===true?{coreMarketPacket:chartContext.packet}:{chartContext:{available:false,reason:chartContext?.reason||'CHART_UNAVAILABLE'}})},questions:{burst_exit:{type:'choice',instructions:'Decide this burst position from current evidence; profit sufficiency has no fixed target.',criteria:{HOLD:'Continue while this specific expansion still supports the exposure.',EXIT_NOW:'Realize the available profit or exit because further exposure is no longer justified.'}}}};
+    // R2544.47: the record carries the burst's age and the fee already paid (in R), and the same compact
+    // trade-clock flow digest as the pre-authorization. On 05.10 21:18 JEV exited ORCA 1 s after entry without
+    // knowing the position was 1 s old, and the whole orderFlow/level1Ofi objects (9 kB) crowded out chart context.
+    const entryPx=finiteNumber(active.entryPrice),stopPx=finiteNumber(active.stopPrice),opened=finiteNumber(active.openedAt);
+    const stopPct=entryPx>0&&stopPx>0?Math.abs(entryPx-stopPx)/entryPx*100:null;
+    const l2=stream.localL2||{};
+    const record={contract:'R2544.47_BURST_POSITION_MANAGEMENT',position:{burstId:active.burstId,symbol:active.symbol,side:active.side,quantity:active.quantity,entryPrice:active.entryPrice,stopPrice:active.stopPrice,leverage:active.leverage,openedAt:active.openedAt,ageSec:opened>0?Math.max(0,Math.round((clock()-opened)/100)/10):null,entryTriggerScore:finiteNumber(active.triggerScore),mfeR:active.mfeR,maeR:active.maeR},
+      costs:{roundTripFeePct:BURST_ROUND_TRIP_FEE_PCT,roundTripFeeR:stopPct>0?Number((BURST_ROUND_TRIP_FEE_PCT/stopPct).toFixed(3)):null,stopDistancePct:stopPct===null?null:Number(stopPct.toFixed(3))},
+      progress:{progressR:progress?.progressR,givebackR:progress?.givebackR,reviewReason:progress?.reviewReason},
+      stream:{ageMs:stream.ageMs,bid:stream.bid,ask:stream.ask,spreadBps:stream.spreadBps,orderFlow:burstFlowDigest(stream),level1Ofi:{fast:burstOfiDigest(stream?.level1Ofi?.eventClock?.fast),slow:burstOfiDigest(stream?.level1Ofi?.eventClock?.slow)},
+        localL2:{available:l2.available===true,sequenceHealthy:l2.sequenceHealthy===true,confidence:finiteNumber(l2.confidence),multiLevelOfi:finiteNumber(l2.multiLevelOfi),depthImbalance:finiteNumber(l2.depthImbalance)}}};
+    const body={model:cfg.model,state:{description:'JEV owns whether this short-lived LONG/SHORT burst has earned enough profit or should continue. There is no fixed profit/R target. Weigh current expansion quality, public flow, spread, giveback, costs and risk from leverage. record.position.ageSec is seconds since entry; record.costs.roundTripFeeR is the round-trip fee in R that any exit realizes. Choose EXIT_NOW or HOLD. The independent exchange stop and fast-fail remain mandatory. After 120 seconds the burst continues only while it is in profit and you keep answering HOLD; absolute ceiling 10 minutes. A later PC watcher executes only against the still-active burst identity, never the core lot. Missing/stale chart context is explicitly unavailable, never confirmation. Experience is soft context, never automatic strategy promotion.',record,experienceMemory:compactExperienceMemory(learning,3500),...(chartContext?.available===true?{coreMarketPacket:chartContext.packet}:{chartContext:{available:false,reason:chartContext?.reason||'CHART_UNAVAILABLE'}})},questions:{burst_exit:{type:'choice',instructions:'Decide this burst position from current evidence; profit sufficiency has no fixed target.',criteria:{HOLD:'Continue while this specific expansion still supports the exposure.',EXIT_NOW:'Realize the available profit or exit because further exposure is no longer justified.'}}}};
     const out=await decisions(body,{reserve:true});
     if(!out.ok)return {...out,action:'HOLD'};
     const action=choiceValue(out.data?.answers?.burst_exit);
-    return {...out,action:['HOLD','EXIT_NOW'].includes(action)?action:'HOLD',ok:['HOLD','EXIT_NOW'].includes(action),finalAuthority:'JEV'};
+    return {...out,called:true,action:['HOLD','EXIT_NOW'].includes(action)?action:'HOLD',ok:['HOLD','EXIT_NOW'].includes(action),finalAuthority:'JEV'};
   }
 
   async function sovereignExit({position,lifecycle,currentPlan,unified,evidence=null}={}){

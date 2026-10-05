@@ -5195,7 +5195,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const burstId='burst_'+crypto.randomBytes(8).toString('hex'),clientId=('BE'+burstId.replace('_','')).slice(0,36);
     if(!armedNow()||readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'BURST_ENTRY_PERMISSION_REVOKED'};
     let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide,type:'MARKET',quantity:String(quantity),newClientOrderId:clientId,newOrderRespType:'RESULT'}});}catch(e){return {ok:false,reason:String(e?.message||'BURST_ENTRY_FAILED'),exchangeError:e?.body||null};}
-    const executed=finite(entry?.executedQty),entryPrice=finite(entry?.avgPrice)??price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
+    // R2544.47: an ACK avgPrice of 0 is "not reported", never a 0 entry price (progressR/stop math would break).
+    const executed=finite(entry?.executedQty),entryPrice=finite(entry?.avgPrice)>0?finite(entry.avgPrice):price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
     // Quantity-specific protective stop so a synthetic addon can never close the core position.
     const stop=await transport.placeRunnerStop({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:stopPrice,clientAlgoId:('BS'+burstId.replace('_','')).slice(0,36),credentials:creds});
     if(!stop.ok){const emergency=await burstReduceExact({symbol,side,quantity:executed,burstId,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,stopPrice},'BURST_STOP_PROTECTION_FAILED');return {ok:false,orderPlaced:true,emergencyClose:emergency,reason:'BURST_STOP_PROTECTION_FAILED'};}

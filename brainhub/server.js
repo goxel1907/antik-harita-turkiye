@@ -2328,8 +2328,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.46-BURST-TRADE-CLOCK';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-05 • R2544.46: burst trigger on a trade clock (thin coins trade), coin-relative moves, missing OFI neutral, burst leverage <=25x, no JEV re-ask for 5 min after DO_NOT_ARM';
+const RUNTIME_RELEASE='R2544.47-BURST-EXIT-DATA';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-05 • R2544.47: JEV burst exit sees position age, fee in R and the compact trade-clock flow; exit/entry fill prices measured (avgPrice 0 is not a price)';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

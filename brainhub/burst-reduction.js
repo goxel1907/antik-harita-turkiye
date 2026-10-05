@@ -28,7 +28,11 @@ function createBurstReduction({transport,persist=()=>{}}){
     const r=await transport.reducePositionMarket({symbol:active.symbol,side:active.side,fraction:1,maxQuantity:qty,minRemainingQty:floor,clientOrderId,credentials,reason});
     if(r?.ok&&r.status==='FILLED'&&n(r.executedQty)>0){
       const filled=n(r.executedQty);active.quantity=Math.max(0,active.quantity-filled);
-      active.exitFilledQty=(n(active.exitFilledQty)||0)+filled;if(n(r.avgPrice)>0)active.exitQuote=(n(active.exitQuote)||0)+filled*n(r.avgPrice);else active.exitPriceUnmeasured=true;
+      // R2544.47: Binance can ACK a filled MARKET order with avgPrice 0; one order query (weight 1) measures it,
+      // so realizedR/learning are not lost (ORCA 05.10 21:18 closed with exitPrice null). Best effort only.
+      let px=n(r.avgPrice);
+      if(!(px>0)&&typeof transport.reductionStatus==='function'){try{const st=await transport.reductionStatus({symbol:active.symbol,clientOrderId,credentials});if(st?.ok&&n(st.avgPrice)>0)px=n(st.avgPrice);}catch{}}
+      active.exitFilledQty=(n(active.exitFilledQty)||0)+filled;if(px>0)active.exitQuote=(n(active.exitQuote)||0)+filled*px;else active.exitPriceUnmeasured=true;
       active.exitPending=null;persist(active);
       return {...r,ok:active.quantity<=0,reason:active.quantity<=0?reason:'BURST_EXIT_PARTIAL_PENDING',avgPrice:!active.exitPriceUnmeasured&&active.exitFilledQty>0?active.exitQuote/active.exitFilledQty:null};
     }
