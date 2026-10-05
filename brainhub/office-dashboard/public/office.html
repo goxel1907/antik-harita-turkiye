@@ -1182,7 +1182,8 @@ function renderDataQualityAndBudget(s){
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   const opt=(cb.optionalSectionsCompacted||[]).join(' → '); const mk=(cb.marketCompactionSteps||[]).join(' → ');
   const parts=Object.entries(ph.marketSectionsAfter||{}).filter(([k])=>k!=='wire').map(([k,v])=>`${k}: ${ph.marketSectionsBefore?.[k]??'—'} → ${v}`).join(' • ');
-  $('#contextTrim').innerHTML=`<b>Opsiyonel budama:</b> ${esc(opt||'yok')}<br><b>Piyasa kompaksiyonu:</b> ${esc(mk||'yok')}<br><b>Bölüm boyutları (bayt):</b> ${esc(parts||'eski kayıtta yok')}<br><b>İlke:</b> canlı çekirdek piyasa gerçekleri öğrenme/OSS bağlamından önce korunur.`;
+  const fitOm=(ph.fitOmitted||[]).map(x=>x.startsWith('NARRATIVE_LINE_')?x.slice(15).toLowerCase()+' anlatı satırı (bütün)':x==='SOFT_CONTEXT_MIN'?'yumuşak bağlam en küçük özet':x).join(', ');
+  $('#contextTrim').innerHTML=`<b>Opsiyonel budama:</b> ${esc(opt||'yok')}<br><b>Sınır için çıkarılan (sayısal veri tam, yarım metin yok):</b> ${esc(fitOm||'yok')}<br><b>Piyasa kompaksiyonu:</b> ${esc(mk||'yok')}<br><b>Bölüm boyutları (bayt):</b> ${esc(parts||'eski kayıtta yok')}<br><b>İlke:</b> canlı çekirdek piyasa gerçekleri öğrenme/OSS bağlamından önce korunur.`;
 }
 function renderOssProvenance(s){
   const k=s.knowledge?.data||{}; const repos=Array.isArray(k.openSourceRepos)?k.openSourceRepos:[];

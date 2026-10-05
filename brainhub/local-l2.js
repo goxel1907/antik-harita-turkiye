@@ -20,11 +20,19 @@ class LocalL2Manager{
   state(symbol){return this.states.get(String(symbol||'').toUpperCase())||null;}
   _new(symbol){return {symbol,status:'COLD',bids:new Map(),asks:new Map(),buffer:[],seeded:false,awaitingBridge:false,snapshotLastUpdateId:null,lastU:null,lastEventAt:0,lastRequestedAt:this.now(),createdAt:this.now(),healthySince:0,eventCount:0,resyncTimes:[],flow:[],activity:[],metaBid:new Map(),metaAsk:new Map(),seedPromise:null,lastSeedAt:0,seedCount:0,lastError:null};}
   isReserved(symbol){const x=this.reservations.get(symbol);if(x&&x.until>this.now())return true;this.reservations.delete(symbol);return false;}
-  releaseReservation(symbol){this.reservations.delete(symbol);}
+  // R44: a book opened only for a burst candidate is closed as soon as its reservation ends, so the dedicated
+  // burst slots stay free for the next candidate (live 05.10: stale burst books kept 76% of preparations waiting).
+  // A book that analysis or a position also uses is never closed here.
+  releaseReservation(symbol){this.reservations.delete(symbol);if(this.burstSlots>0)this._closeBurstOnly(symbol);}
+  _closeBurstOnly(symbol){const s=this.states.get(symbol);if(!s||s.burstOnly!==true||this.isReserved(symbol)||this.protectedSymbols.has(symbol))return false;
+    this._send([symbol],'UNSUBSCRIBE');this.states.delete(symbol);this.subscribed.delete(symbol);this.burstBooksClosed=(this.burstBooksClosed||0)+1;return true;}
+  _pruneBurstOnly(){for(const symbol of [...this.states.keys()])this._closeBurstOnly(symbol);}
   setPositionSymbols(symbols){this.protectedSymbols=new Set(symbols);}
   ensureSymbol(symbol,{priority='ANALYSIS',leaseMs=120000}={}){
     symbol=String(symbol||'').toUpperCase();if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol))return null;
     if(this.protectedSymbols.has(symbol))priority='POSITION';
+    if(this.burstSlots>0)this._pruneBurstOnly();
+    const created=!this.states.has(symbol);
     if(!this.states.has(symbol)){
       const reserved=this.burstSlots>0?[...this.states.keys()].filter(x=>this.isReserved(x)).length:0;
       const dedicated=priority==='BURST'&&reserved<this.burstSlots&&this.states.size<this.maxSymbols+this.burstSlots;
@@ -32,7 +40,7 @@ class LocalL2Manager{
       if(full){const now=this.now(),victim=[...this.states.values()].filter(x=>!this.protectedSymbols.has(x.symbol)&&(priority==='POSITION'||!this.isReserved(x.symbol))&&(priority!=='ANALYSIS'||now-(x.lastRequestedAt||x.createdAt||0)>=this.minResidenceMs)).sort((a,b)=>Number(this.isReserved(a.symbol))-Number(this.isReserved(b.symbol))||(a.lastRequestedAt||0)-(b.lastRequestedAt||0))[0];if(!victim||(priority!=='POSITION'&&this.evictions>0&&now-this.lastEvictionAt<this.evictionCooldownMs)){this.evictionDeferrals++;return null;}this._send([victim.symbol],'UNSUBSCRIBE');this.states.delete(victim.symbol);this.subscribed.delete(victim.symbol);this.reservations.delete(victim.symbol);this.evictions++;this.lastEvictionAt=now;}
       this.states.set(symbol,this._new(symbol));
     }
-    const s=this.states.get(symbol);s.lastRequestedAt=this.now();const added=!this.subscribed.has(symbol);this.subscribed.add(symbol);this._connect();if(added)this._send([symbol],'SUBSCRIBE');
+    const s=this.states.get(symbol);s.lastRequestedAt=this.now();if(priority==='BURST'){if(created)s.burstOnly=true;}else s.burstOnly=false;const added=!this.subscribed.has(symbol);this.subscribed.add(symbol);this._connect();if(added)this._send([symbol],'SUBSCRIBE');
     if(priority==='BURST')this.reservations.set(symbol,{until:this.now()+Math.max(1000,Math.min(180000,Number(leaseMs)||120000))});
     return s;
   }
@@ -87,7 +95,7 @@ class LocalL2Manager{
     const freshness=age===null?0:Math.max(0,1-age/this.staleMs),continuity=s.healthySince?Math.min(1,Math.max(0,now-s.healthySince)/30000):0,samples=Math.min(1,s.eventCount/100),score=s.status==='HEALTHY'?Math.max(0,Math.min(1,0.35*freshness+0.35*continuity+0.30*samples)):0;s.resyncTimes=s.resyncTimes.filter(t=>now-t<=300000);
     const wall=depth.bidWall||depth.askWall?((depth.bidWall?.share||0)>=(depth.askWall?.share||0)?{side:'BID',...depth.bidWall}:{side:'ASK',...depth.askWall}):null;
     return {available:s.status==='HEALTHY'&&age!==null&&age<=this.staleMs,state:s.status,source:'BINANCE_USDM_DIFF_DEPTH_LOCAL_BOOK',authority:'EVIDENCE_ONLY_JEV_FINAL',observed:true,estimated:false,canQualify:false,canVeto:false,canSize:false,canExecute:false,executionAuthority:false,sequenceHealthy:s.status==='HEALTHY',ageMs:age,resyncCount5m:s.resyncTimes.length,lastUpdateId:s.lastU,confidence:r(score,3),confidenceQuality:quality(score),multiLevelOfi:tot>0?r(clamp(signed/tot),4):null,depthImbalance:r(depth.imbalance,4),wallPersistence:wall?{side:wall.side,share:r(wall.share,3),ageMs:wall.firstSeen?Math.max(0,now-wall.firstSeen):null}:null,liquidityPull:{side:pullSide,bidQuote:r(bp,0),askQuote:r(ap,0),semantics:'BOOK_REDUCTION_PROXY_NOT_INTENT'},replenishment:{side:repSide,bidQuote:r(br,0),askQuote:r(ar,0)},absorption:{side:absorption,confidence:r(absConf,3),semantics:'AGGTRADE_PLUS_REPLENISHMENT_RESPONSE_PROXY'},note:'Sequence-safe public local L2 evidence. Low confidence or unavailable state down-weights/omits evidence and never vetoes a sound JEV setup.'};}
-  health(){const now=this.now();let healthy=0,warming=0,stale=0,seedCount=0,resyncCount5m=0;for(const s of this.states.values()){const x=this.snapshot(s.symbol,now,[]);seedCount+=s.seedCount||0;resyncCount5m+=x.resyncCount5m||0;if(x.state==='HEALTHY')healthy++;else if(x.state==='STALE')stale++;else warming++;}return {subscribedSymbols:this.subscribed.size,maxSymbols:this.maxSymbols,burstSlots:this.burstSlots,burstReserved:[...this.states.keys()].filter(x=>this.isReserved(x)).length,evictions:this.evictions,evictionDeferrals:this.evictionDeferrals,seedCount,resyncCount5m,minResidenceMs:this.minResidenceMs,evictionCooldownMs:this.evictionCooldownMs,minReseedMs:this.minReseedMs,endpoint:this.endpoint,connected:this.ws?.readyState===1,healthy,warming,stale,authority:'EVIDENCE_ONLY'};}
+  health(){const now=this.now();let healthy=0,warming=0,stale=0,seedCount=0,resyncCount5m=0;for(const s of this.states.values()){const x=this.snapshot(s.symbol,now,[]);seedCount+=s.seedCount||0;resyncCount5m+=x.resyncCount5m||0;if(x.state==='HEALTHY')healthy++;else if(x.state==='STALE')stale++;else warming++;}return {subscribedSymbols:this.subscribed.size,maxSymbols:this.maxSymbols,burstSlots:this.burstSlots,burstReserved:[...this.states.keys()].filter(x=>this.isReserved(x)).length,burstBooksClosed:this.burstBooksClosed||0,evictions:this.evictions,evictionDeferrals:this.evictionDeferrals,seedCount,resyncCount5m,minResidenceMs:this.minResidenceMs,evictionCooldownMs:this.evictionCooldownMs,minReseedMs:this.minReseedMs,endpoint:this.endpoint,connected:this.ws?.readyState===1,healthy,warming,stale,authority:'EVIDENCE_ONLY'};}
   shutdown(){this.stopped=true;if(this.timer)clearTimeout(this.timer);this.timer=null;const ws=this.ws;this.ws=null;if(ws&&typeof ws.close==='function')try{ws.close();}catch{};}
 }
 

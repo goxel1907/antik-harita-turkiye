@@ -1050,32 +1050,38 @@ function prepareDecisionRequest(input,opts={}){
       trimStepsApplied.push(pass==='BURST'?'BURST_DUPLICATE_NARRATIVE_ONLY':'ROUTING_DUPLICATE_NARRATIVE_ONLY');
     }
   }
-  // R42 FIT_BEFORE_BLOCK: exceeding the hard ceiling drops the JEV decision entirely (live 05.10: PASS-2 43%,
-  // management 100% blocked). Before blocking, shrink only unprotected context in a fixed order: narrative
-  // prose that duplicates numeric frames, then soft context down to the smallest measured digest.
-  // protectedCoreTruth is re-hashed below; if the request still does not fit, the fail-closed block stands.
+  // R42/R44 FIT_BEFORE_BLOCK: exceeding the hard ceiling would drop the JEV decision entirely. User rule
+  // (05.10.2026): never send a half sentence. Numeric frames always stay complete; if still over the ceiling,
+  // whole narrative lines are omitted (they restate those numbers) - other timeframe first, the lane's owner
+  // timeframe last - then soft context goes to its smallest measured digest. Every omission is recorded.
+  const fitOmitted=[];
   if(pass!=='BURST'&&byteSize(body)>hardCap&&state.coreMarketPacket){
-    for(const max of [600,0]){
-      if(byteSize(body)<=hardCap)break;
-      const packet=expandMarketPacket(state.coreMarketPacket);
-      if(!packet?.chartNarrative?.frames)break;
-      for(const [tf,f] of Object.entries(packet.chartNarrative.frames))if(f&&typeof f==='object'){
-        if(max>0&&['5m','15m'].includes(tf)&&typeof f.line==='string')f.line=clipNatural(f.line,max);
-        else delete f.line;
+    const rec=expandMarketPacket(state.record)||{};
+    const lane=String(state.pass1Handoff?.laneFocus||'').toUpperCase();
+    const owner=['5m','15m'].includes(String(rec?.lifecycle?.ownerTF||'').toLowerCase())?String(rec.lifecycle.ownerTF).toLowerCase():lane.startsWith('5M')?'5m':'15m';
+    const packet=expandMarketPacket(state.coreMarketPacket);
+    const frames=packet?.chartNarrative?.frames;
+    if(frames&&typeof frames==='object'){
+      const order=[...Object.keys(frames).filter(tf=>!['5m','15m'].includes(tf)),...['5m','15m'].filter(tf=>tf!==owner),owner];
+      for(const tf of order){
+        if(byteSize(body)<=hardCap)break;
+        const f=frames[tf];if(!f||typeof f!=='object'||typeof f.line!=='string')continue;
+        delete f.line;fitOmitted.push('NARRATIVE_LINE_'+tf.toUpperCase());
+        packet.chartNarrative.readingInNumericFrames=true;
+        packet.chartNarrative.omittedLines=fitOmitted.filter(x=>x.startsWith('NARRATIVE_LINE_')).map(x=>x.slice(15).toLowerCase());
+        packet.chartNarrative.semantics='Closed-bar interpretation; exact facts remain in numeric frames. Omitted lines were removed whole, never cut.';
+        const packed=encodeMarketPacket(packet);state.coreMarketPacket=packed.encoded?packed.packet:packet;
+        if(packed.encoded)wireEncoding={version:packed.packet.wire.version,beforeBytes:packed.beforeBytes,afterBytes:packed.afterBytes,schemaCount:packed.schemaCount,roundTripVerified:true};
+        serialized=refresh();
       }
-      packet.chartNarrative.readingInNumericFrames=true;
-      packet.chartNarrative.semantics='Closed-bar interpretation; exact facts remain in numeric frames.';
-      packet.chartNarrative.fitBeforeBlock=true;
-      const packed=encodeMarketPacket(packet);state.coreMarketPacket=packed.encoded?packed.packet:packet;
-      if(packed.encoded)wireEncoding={version:packed.packet.wire.version,beforeBytes:packed.beforeBytes,afterBytes:packed.afterBytes,schemaCount:packed.schemaCount,roundTripVerified:true};
-      trimStepsApplied.push(max>0?'FIT_BEFORE_BLOCK_NARRATIVE_5M15M_600':'FIT_BEFORE_BLOCK_NARRATIVE_NUMERIC_ONLY');serialized=refresh();
+      if(fitOmitted.length)trimStepsApplied.push('FIT_BEFORE_BLOCK_NARRATIVE_WHOLE_LINES');
     }
   }
   if(pass!=='BURST'&&byteSize(body)>hardCap){
     if(state.dynamicKnowledge&&typeof state.dynamicKnowledge==='object'&&Array.isArray(state.dynamicKnowledge.entries)&&state.dynamicKnowledge.entries.length)state.dynamicKnowledge={mode:state.dynamicKnowledge.mode||null,entries:[],omittedForBudget:true};
     if(state.professionalTraderCortex&&typeof state.professionalTraderCortex.reference==='string')state.professionalTraderCortex.reference=compactCortexReference(state.professionalTraderCortex.reference,500);
     if(state.experienceMemory&&typeof state.experienceMemory==='object')state.experienceMemory=compactMemoryForPass2Residual(state.experienceMemory);
-    trimStepsApplied.push('FIT_BEFORE_BLOCK_SOFT_CONTEXT_MIN');serialized=refresh();
+    fitOmitted.push('SOFT_CONTEXT_MIN');trimStepsApplied.push('FIT_BEFORE_BLOCK_SOFT_CONTEXT_MIN');serialized=refresh();
   }
   serialized=refresh();const bytes=Buffer.byteLength(serialized,'utf8');
   const coreHashAfter=hashJson(protectedCoreTruth(body));const coreTruthProtected=coreHashBefore===coreHashAfter;
@@ -1085,9 +1091,9 @@ function prepareDecisionRequest(input,opts={}){
     stateBytes:byteSize(body.state),questionsBytes:byteSize(body.questions),essentialBytes,secondaryTrimApplied:trimStepsApplied.length>0,trimStepsApplied,
     marketTrimApplied:trimStepsApplied.some(x=>['PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),
     sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,byteSize(v)])),marketSectionsBefore,marketSectionsAfter:Object.fromEntries(Object.entries(state.coreMarketPacket||{}).map(([k,v])=>[k,byteSize(v)])),wireEncoding,coreTruthProtected,coreTruthHash:coreHashAfter,blockReason,
-    fitBeforeBlock:trimStepsApplied.some(x=>x.startsWith('FIT_BEFORE_BLOCK')),
+    fitBeforeBlock:trimStepsApplied.some(x=>x.startsWith('FIT_BEFORE_BLOCK')),fitOmitted,
     contextBudget:{policy:'R2544.25_PASS2_DYNAMIC_RESIDUAL_BUDGET',targetBytes:targetCap,hardMaxBytes:hardCap,usedBytes:bytes,remainingToTarget:Math.max(0,targetCap-bytes),remainingToHard:Math.max(0,hardCap-bytes),hardHeadroomBytes:hardCap-bytes,coreMarketPacketBytes:byteSize(state.coreMarketPacket),protectedCoreBytes:byteSize(protectedCoreTruth(body)),optionalBudgetBytes:Math.max(0,targetCap-byteSize(state.coreMarketPacket)),residualBudgetApplied:trimStepsApplied.some(x=>x.startsWith('PASS2_RESIDUAL_')||x.startsWith('MANAGEMENT_')||x.startsWith('FIT_BEFORE_BLOCK')||x==='ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL'),coreTruthProtected,
-      optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT','PASS1_QUESTION_SCHEMA_COMPACT','PASS1_ROUTING_MEMORY_TIGHT','PASS2_QUESTION_SCHEMA_COMPACT','PASS2_RECORD_COMPACT','PASS2_MEMORY_TIGHT','PASS2_RESIDUAL_QUESTION_TIGHT','PASS2_RESIDUAL_RECORD_TIGHT','PASS2_RESIDUAL_MEMORY_TIGHT','PASS2_RESIDUAL_OPTIONAL_FINAL','ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL','MANAGEMENT_EVIDENCE_RESIDUAL','MANAGEMENT_DESCRIPTION_COMPACT','FIT_BEFORE_BLOCK_SOFT_CONTEXT_MIN'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY','FIT_BEFORE_BLOCK_NARRATIVE_5M15M_600','FIT_BEFORE_BLOCK_NARRATIVE_NUMERIC_ONLY'].includes(x)),coreMarketPriority:true}};
+      optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT','PASS1_QUESTION_SCHEMA_COMPACT','PASS1_ROUTING_MEMORY_TIGHT','PASS2_QUESTION_SCHEMA_COMPACT','PASS2_RECORD_COMPACT','PASS2_MEMORY_TIGHT','PASS2_RESIDUAL_QUESTION_TIGHT','PASS2_RESIDUAL_RECORD_TIGHT','PASS2_RESIDUAL_MEMORY_TIGHT','PASS2_RESIDUAL_OPTIONAL_FINAL','ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL','MANAGEMENT_EVIDENCE_RESIDUAL','MANAGEMENT_DESCRIPTION_COMPACT','FIT_BEFORE_BLOCK_SOFT_CONTEXT_MIN'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY','FIT_BEFORE_BLOCK_NARRATIVE_WHOLE_LINES'].includes(x)),coreMarketPriority:true}};
   return {ok:bytes<=hardCap&&coreTruthProtected,body,serialized,diagnostics};
 }
 
