@@ -110,5 +110,5 @@ test('R46 source contract: 25x burst leverage ceiling and 5 min no-re-ask after 
   assert.match(live,/leverage=Math\.max\(1,Math\.min\(125,userCap,exchangeMax,safeMax,leverage\)\)/,'userCap bounds the chosen leverage');
   assert.match(live,/const burstReviewCooldownMs=prior=>prior\?\.armed===true\?120000:300000;/);
   assert.match(live,/reviewRow\.armed=a\.ok===true;/);
-  assert.match(live,/score>=Math\.max\(BURST_PAUSE_EXCEPTION_MIN,auth\.triggerThreshold\)/);
+  assert.match(live,/[sS]core>=Math\.max\(BURST_PAUSE_EXCEPTION_MIN,auth\.triggerThreshold\)/,'R49: the pause exception reads the impulse score');
 });

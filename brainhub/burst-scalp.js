@@ -93,6 +93,63 @@ function burstEvidence(snapshot,side,{preMove=null}={}){
     preMove:{state:pmState||null,direction:pmDir||null,match:pmMatch},flow:{oneSec:f1,threeSec:f3},l1:{oneSec:o1,threeSec:o3},localL2:{available:l2?.available===true,sequenceHealthy:l2?.sequenceHealthy===true,confidence:finite(l2?.confidence),multiLevelOfi:finite(l2?.multiLevelOfi),depthImbalance:finite(l2?.depthImbalance)},contradictions};
 }
 
+// R2544.49 scalper entry (user 06.10.2026: "trade it the way a scalper does"; research in Claud-Work raporlar
+// 2026-10-06-vurkac-scalper-tasarimi.md). The trade-clock burst is the IMPULSE, never the entry: R46/R47 bought the
+// tip (5 of 6 live bursts lost, 4 never went green). A scalper waits for the first shallow pullback with weak
+// opposite aggression, enters when the move resumes, and puts the stop where the read fails (beyond the pullback
+// extreme). No pullback in time = no trade (no chasing).
+const PULLBACK_RULES={minRetrace:0.20,maxRetrace:0.62,resumeFrac:0.30,maxOppositeRatio:0.60,minSideRatioResume:0.55,
+  impulseMaxWaitMs:90000,pullbackMaxMs:120000,minStopPct:0.15,maxStopPct:0.60,stopBufferUnits:0.25};
+const HARD_DATA_CONTRADICTIONS=['STREAM_STALE','SPREAD_TOO_WIDE_OR_UNKNOWN','LOCAL_L2_NOT_HEALTHY'];
+function midOf(s){const b=finite(s?.bid),a=finite(s?.ask);return b>0&&a>0?(a+b)/2:null;}
+class PullbackEntry{
+  constructor({side,rules={}}={}){this.side=String(side||'').toUpperCase();this.sg=sideSign(this.side);this.r={...PULLBACK_RULES,...rules};this.state='WATCH';this.impulse=null;this.lastReset=null;this.impulses=0;}
+  reset(reason){this.state='WATCH';this.impulse=null;this.lastReset=reason;return {state:'WATCH',reason};}
+  // evidence = burstEvidence(snapshot, side, {preMove}); impulse = evidence clears the armed threshold with no contradiction.
+  step({snapshot,evidence,threshold,now}){
+    const mid=midOf(snapshot),sg=this.sg,signed=x=>x*sg;
+    if(mid===null||!evidence)return {state:this.state,reason:'NO_PRICE_OR_EVIDENCE'};
+    const hard=(evidence.contradictions||[]).filter(x=>HARD_DATA_CONTRADICTIONS.includes(x));
+    if(this.state==='WATCH'){
+      if(!(evidence.score>=threshold)||(evidence.contradictions||[]).length)return {state:'WATCH'};
+      if(evidence.preMove?.match!==true)return {state:'WATCH',reason:'PREMOVE_NOT_ALIGNED'};
+      if(!(finite(evidence.moveUnits?.noiseBps20)>0))return {state:'WATCH',reason:'COIN_UNIT_NOT_READY'};
+      const slow=finite(evidence.flow?.threeSec?.priceMoveBps);
+      if(!(slow!==null&&signed(slow)>0))return {state:'WATCH',reason:'NO_IMPULSE_LEG'};
+      this.impulse={at:now,legStart:mid/(1+slow/10000),extreme:mid,pullbackExtreme:null,pullbackAt:null,score:evidence.score};
+      this.state='IMPULSE';this.impulses++;return {state:'IMPULSE'};
+    }
+    const im=this.impulse;
+    if(signed(mid)>signed(im.extreme)){im.extreme=mid;im.pullbackExtreme=null;im.pullbackAt=null;this.state='IMPULSE';}
+    const leg=signed(im.extreme)-signed(im.legStart);
+    if(!(leg>0))return this.reset('LEG_INVALID');
+    const retrace=(signed(im.extreme)-signed(mid))/leg;
+    if(retrace>this.r.maxRetrace)return this.reset('PULLBACK_TOO_DEEP');
+    if(this.state==='IMPULSE'){
+      if(now-im.at>this.r.impulseMaxWaitMs)return this.reset('NO_PULLBACK_IN_TIME');
+      if(retrace>=this.r.minRetrace){this.state='PULLBACK';im.pullbackAt=now;im.pullbackExtreme=mid;}
+      return {state:this.state,retrace:Number(retrace.toFixed(3))};
+    }
+    if(now-im.pullbackAt>this.r.pullbackMaxMs)return this.reset('PULLBACK_STALLED');
+    if(signed(mid)<signed(im.pullbackExtreme))im.pullbackExtreme=mid;
+    const depth=signed(im.extreme)-signed(im.pullbackExtreme),bounce=signed(mid)-signed(im.pullbackExtreme);
+    const fast=evidence.flow?.oneSec||{},sideRatio=ratioFor(fast,this.side),oppRatio=ratioFor(fast,this.side==='LONG'?'SHORT':'LONG');
+    const base={state:'PULLBACK',retrace:Number(retrace.toFixed(3)),bounceFrac:depth>0?Number((bounce/depth).toFixed(3)):0};
+    if(hard.length)return {...base,reason:hard[0]};
+    if(oppRatio!==null&&oppRatio>this.r.maxOppositeRatio)return {...base,reason:'OPPOSITE_AGGRESSION'};
+    if(!(depth>0&&bounce>=this.r.resumeFrac*depth&&(sideRatio??0)>=this.r.minSideRatioResume))return base;
+    const unit=finite(evidence.moveUnits?.noiseBps20),spread=finite(snapshot?.spreadBps)||0;
+    const bufBps=Math.max(spread,unit>0?unit*this.r.stopBufferUnits:2);
+    const entryPx=this.side==='LONG'?finite(snapshot.ask):finite(snapshot.bid);
+    const stopPx=im.pullbackExtreme*(1-sg*bufBps/10000);
+    const structuralStopPct=Math.abs(entryPx-stopPx)/entryPx*100;
+    if(structuralStopPct>this.r.maxStopPct)return this.reset('STRUCTURAL_STOP_TOO_WIDE');
+    this.state='ENTER';
+    return {state:'ENTER',entry:{side:this.side,price:entryPx,stopPrice:stopPx,stopPct:Number(Math.max(this.r.minStopPct,structuralStopPct).toFixed(4)),structuralStopPct:Number(structuralStopPct.toFixed(4)),
+      pullbackExtreme:im.pullbackExtreme,impulseExtreme:im.extreme,legStart:im.legStart,retraceAtEntry:Number(retrace.toFixed(3)),impulseScore:im.score,impulseAgeMs:now-im.at}};
+  }
+}
+
 // R43 (user rule 05.10.2026): no fixed burst margin. Flat account -> half of the panel margin;
 // with an open position -> half of the remaining free margin. Leverage is chosen separately (maximum safe).
 function burstMarginRule({flat,panelMarginQuote,availableBalance}={}){
@@ -153,4 +210,4 @@ class BurstScalpManager{
   _event(kind,data){const event={at:new Date(this.now()).toISOString(),kind,...JSON.parse(JSON.stringify(data||{}))};this.history.unshift(event);this.history=this.history.slice(0,50);try{this.onEvent(event);}catch{}}
 }
 
-module.exports={finite,burstEvidence,exitEvidence,burstMarginRule,BurstScalpManager,BURST_STRICTNESS,BURST_PAUSE_EXCEPTION_MIN,BURST_TTL_MS,BURST_TRIGGER_VERSION};
+module.exports={finite,burstEvidence,exitEvidence,burstMarginRule,BurstScalpManager,PullbackEntry,PULLBACK_RULES,BURST_STRICTNESS,BURST_PAUSE_EXCEPTION_MIN,BURST_TTL_MS,BURST_TRIGGER_VERSION};

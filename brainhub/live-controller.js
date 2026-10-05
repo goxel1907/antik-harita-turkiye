@@ -30,7 +30,7 @@ const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
 const {createProfitBudget}=require('./profit-budget');
 const {createBurstReduction}=require('./burst-reduction');
-const { BurstScalpManager, burstMarginRule, BURST_PAUSE_EXCEPTION_MIN } = require('./burst-scalp');
+const { BurstScalpManager, burstMarginRule, BURST_PAUSE_EXCEPTION_MIN, PullbackEntry } = require('./burst-scalp');
 const { locationChaseGate } = require('./chart-readout');
 const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-preparation');
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
@@ -333,6 +333,26 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const activeBurstFor=symbol=>{const s=String(symbol||'').toUpperCase();return [...burst.active.values()].find(a=>String(a?.symbol||'').toUpperCase()===s)||null;};
   const burstWhy=a=>`JEV vur-kaç (radar ${String(a?.jevReason||'').split('|')[0]||'—'}), tetik puanı ${finite(a?.triggerScore)??'—'}, ${finite(a?.leverage)??'—'}x`;
   const queueBurstClose=closed=>{if(closed?.burstId&&closed?.symbol&&!burstClosePending.some(x=>x.burstId===closed.burstId))burstClosePending.push({...closed,queuedAt:clock()});};
+  // R2544.49 scalper discipline: per-authorization impulse->pullback state, and a burst-only loss pause
+  // (2 consecutive net-losing bursts -> 30 min; -3R net in an Istanbul day -> rest of the day). No revenge trading;
+  // during the pause JEV is not asked for burst pre-authorizations either.
+  const burstPullback=new Map();
+  let burstLossCache={at:0,value:null};
+  const burstNetR=p=>{const e=finite(p?.entryPrice),s=finite(p?.stopPrice),g=finite(p?.realizedR);const stopPct=e>0&&s>0?Math.abs(e-s)/e*100:null;
+    const gross=g??(finite(p?.mfeR)>0?0:-0.1);return stopPct>0?gross-0.10/stopPct:gross;};
+  function burstLossPause(){
+    if(burstLossCache.at&&clock()-burstLossCache.at<15000)return burstLossCache.value;
+    let value=null;
+    try{
+      const day=86400000,tz=3*3600000,dayStart=Math.floor((clock()+tz)/day)*day-tz;
+      const rows=(store.recentJournal?.('BURST_CLOSED',{limit:200,sinceTs:clock()-day})||[]).map(x=>x?.payload||{}).filter(p=>finite(p.closedAt)).sort((a,b)=>a.closedAt-b.closedAt);
+      const last2=rows.slice(-2);
+      if(last2.length===2&&last2.every(p=>burstNetR(p)<0)&&clock()-last2[1].closedAt<30*60000)value={reason:'BURST_TWO_LOSS_PAUSE',until:last2[1].closedAt+30*60000};
+      const dayR=rows.filter(p=>p.closedAt>=dayStart).reduce((a,p)=>a+burstNetR(p),0);
+      if(!value&&dayR<=-3)value={reason:'BURST_DAILY_LOSS_CAP',until:dayStart+day,dayR:Number(dayR.toFixed(2))};
+    }catch{value=null;}
+    burstLossCache={at:clock(),value};return value;
+  }
   const burstPreparation=new BurstPreparationQueue({now:clock,onExpire:(symbol,reason)=>{candidateStream.localL2?.releaseReservation?.(symbol);try{store.journal('BURST_PREP_EXPIRED',symbol,{reason});}catch{}}});
   const burstTrace=new Map();
   function traceBurst(kind,symbol,evidence){const key=kind+':'+symbol,prior=burstTrace.get(key),signature=JSON.stringify([evidence.reason,evidence.state,evidence.reasons,evidence.contradictions]);if(!prior||prior.signature!==signature||clock()-prior.at>=30000){burstTrace.set(key,{at:clock(),signature});try{store.journal(kind,symbol,evidence);}catch{}}if(burstTrace.size>400)for(const [k,v] of burstTrace)if(clock()-v.at>300000)burstTrace.delete(k);}
@@ -5149,6 +5169,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{
       if(typeof burstJudge!=='function')return skipped('BURST_JEV_PREAUTH_UNAVAILABLE');
       const la=readLeaderAutoConfig();if(!la.ok||la.config?.enabled!==true){for(const symbol of [...burstPreparation.pending.keys()])releaseBurstPreparation(symbol);return skipped('LEADER_AUTO_DISABLED');}
+      // R2544.49: no burst pre-authorization (no JEV credit) while the burst-only loss pause is active.
+      {const blp=burstLossPause();if(blp)return skipped(blp.reason);}
       let scan;try{scan=await scanner.scan();}catch{return skipped('SCANNER_UNAVAILABLE',false);}
       const pool=burstCandidatePool(scan);if(!pool.length)return skipped('BURST_NO_CANDIDATES');
       const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return skipped('BURST_ARM_FULL');
@@ -5238,7 +5260,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
     try{return await createBurstReduction({transport,persist:a=>{try{store.journal('BURST_EXIT_STATE',a.symbol,{burstId:a.burstId,quantity:a.quantity,exitPending:a.exitPending,stopAlgoId:a.stopAlgoId});}catch{}}}).reduce(active,reason,creds);}catch(e){return {ok:false,reason:String(e?.message||'BURST_REDUCE_FAILED').slice(0,140)};}
   }
-  async function burstOpen(auth,ev){
+  async function burstOpen(auth,ev,plan=null){
     if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
     if(readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'LEADER_AUTO_DISABLED'};
     const creds=currentCredentials(),symbol=auth.symbol,side=auth.side,snap=(market?.marketStream||marketStream).snapshot(symbol,clock());
@@ -5248,7 +5270,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // it will leave the core lot intact during partial fills or unknown ACKs.
     if(sameAddon)return {ok:false,reason:'BURST_SHARED_POSITION_NOT_ISOLATABLE'};
     if(current&&String(current.side||'').toUpperCase()!==side)return {ok:false,reason:'BURST_OPPOSITE_POSITION_BLOCKED'};
-    const stopPct=Math.max(0.32,Math.min(0.75,0.38+Math.max(0,finite(snap?.spreadBps)||0)*0.006));
+    // R2544.49: a pullback plan carries its structural stop (beyond the pullback extreme); it must still be on the
+    // right side and within 0.60% at order time, otherwise no trade. Without a plan the R2544.29 fixed stop is kept.
+    let stopPct,stopRaw;
+    if(plan&&finite(plan.stopPrice)>0){
+      const sp=finite(plan.stopPrice),d=Math.abs(price-sp)/price*100,wrongSide=side==='LONG'?sp>=price:sp<=price;
+      if(wrongSide||d>0.60)return {ok:false,reason:'BURST_STRUCTURAL_STOP_INVALID_AT_ORDER',stopDistancePct:Number(d.toFixed(4))};
+      stopPct=Math.max(0.15,d);stopRaw=d>=0.15?sp:(side==='LONG'?price*(1-0.0015):price*(1+0.0015));
+    }else{stopPct=Math.max(0.32,Math.min(0.75,0.38+Math.max(0,finite(snap?.spreadBps)||0)*0.006));stopRaw=side==='LONG'?price*(1-stopPct/100):price*(1+stopPct/100);}
     const hasAnyOpen=Array.isArray(ledgerState.open)&&ledgerState.open.length>0;
     const sz=await burstLeverageAndSizing(symbol,side,auth.leverageMode,price,stopPct,!hasAnyOpen,current);if(!sz.ok)return sz;
     await transport._syncServerTime();
@@ -5256,7 +5285,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const f=exchangeFiltersFor(si);if(!(f.lotStep>0&&f.tickSize>0))return {ok:false,reason:'BURST_FILTERS_MISSING'};
     const quantity=burstFloor(sz.marginQuote*sz.leverage/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||quantity>f.maxQty)return {ok:false,reason:'BURST_QUANTITY_INVALID'};
     if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'BURST_MIN_NOTIONAL_NOT_MET'};
-    const stopRaw=side==='LONG'?price*(1-stopPct/100):price*(1+stopPct/100);
     const stopPrice=burstTickPrice(stopRaw,f.tickSize,side==='LONG'?'down':'up');
     const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;const positionSide=hedge?side:'BOTH';
     // One-way mode: same-side addon is permitted; opposite is blocked above. Hedge mode must match side.
@@ -5276,7 +5304,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!ackPriced){try{const q=await transport._fetchJson('GET','/fapi/v1/order',{params:{symbol,origClientOrderId:clientId},credentials:creds,signed:true});if(finite(q?.avgPrice)>0){entryPrice=finite(q.avgPrice);entryPriceSource='ORDER_QUERY';}}catch{}}
     const started=burst.start({burstId,authorizationId:auth.authorizationId,symbol,side,quantity:executed,entryPrice,stopPrice,leverage:sz.leverage,marginQuote:sz.marginQuote,syntheticAddon:sameAddon,pauseExceptionUsed:false});
     if(started.ok){started.active.stopAlgoId=stop.algoId;started.active.coreQtyBefore=finite(current?.quantity)||0;started.active.exchangeMaxLeverage=sz.exchangeMaxLeverage;started.active.triggerScore=ev.score;started.active.entryPriceSource=entryPriceSource;started.active.jevReason=auth.jevReason||null;started.active.entryClientOrderId=clientId;}
-    try{store.journal('BURST_ENTRY',symbol,{burstId,authorizationId:auth.authorizationId,side,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,marginQuote:sz.marginQuote,leverage:sz.leverage,exchangeMaxLeverage:sz.exchangeMaxLeverage,safeMaxLeverage:sz.safeMaxLeverage,entryPrice,quantity:executed,stopPrice,profitAuthority:'JEV_NO_FIXED_TARGET',trigger:ev});store.recordLearning?.('BURST_OPENED',symbol,{burstId,side,entryPrice,quantity:executed,leverage:sz.leverage,triggerScore:ev.score,syntheticAddon:sameAddon});}catch{}
+    try{store.journal('BURST_ENTRY',symbol,{burstId,authorizationId:auth.authorizationId,side,entryModel:plan?'PULLBACK_RESUME':'IMPULSE_TIP',plan:plan||null,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,marginQuote:sz.marginQuote,leverage:sz.leverage,exchangeMaxLeverage:sz.exchangeMaxLeverage,safeMaxLeverage:sz.safeMaxLeverage,entryPrice,quantity:executed,stopPrice,profitAuthority:'JEV_NO_FIXED_TARGET',trigger:ev});store.recordLearning?.('BURST_OPENED',symbol,{burstId,side,entryPrice,quantity:executed,leverage:sz.leverage,triggerScore:ev.score,syntheticAddon:sameAddon});}catch{}
     return {ok:true,orderPlaced:true,active:started.active,sizing:sz};
   }
   async function burstScalpTick(){
@@ -5311,16 +5339,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(!la.ok||la.config?.enabled!==true){for(const symbol of [...burst.armed.keys()]){burst.disarm(symbol,'LEADER_AUTO_DISABLED');candidateStream.localL2?.releaseReservation?.(symbol);}return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};}
       if(!burst.canStart())return {ok:true,active:true};
       const pause=lossStreakPause();
+      const blp=burstLossPause();
+      for(const id of [...burstPullback.keys()])if(![...burst.armed.values()].some(a=>a.authorizationId===id))burstPullback.delete(id);
       for(const auth of [...burst.armed.values()]){
         candidateStream.ensureLocalL2?.(auth.symbol,{priority:'BURST',leaseMs:Math.max(1000,auth.expiresAt-clock()+1000)});
         const chk=burst.evaluateArmed(auth.symbol);
-        traceBurst('BURST_WATCH',auth.symbol,{authorizationId:auth.authorizationId,state:chk.trigger?'TRIGGER_READY':'WAIT_TRIGGER',score:chk.evidence?.score??null,threshold:auth.triggerThreshold,remainingMs:Math.max(0,auth.expiresAt-clock()),contradictions:chk.evidence?.contradictions||[],reason:chk.reason||null});
-        if(!chk.ok||!chk.trigger)continue;
-        if(pause){const key=String(pause.pauseStartedAt||pause.until||'');const veryStrict=chk.evidence.score>=Math.max(BURST_PAUSE_EXCEPTION_MIN,auth.triggerThreshold)&&String(auth.preMove?.state||'').toUpperCase()==='IGNITION';if(!(auth.pauseExceptionAllowed&&veryStrict&&burst.pauseExceptionAvailable(key))){continue;}}
-        const opened=await burstOpen(auth,chk.evidence);
+        if(!chk.ok){traceBurst('BURST_WATCH',auth.symbol,{authorizationId:auth.authorizationId,state:'NOT_ARMED',reason:chk.reason||null});continue;}
+        // R2544.49: the trigger is an IMPULSE; entry only on the resume after a shallow pullback (PullbackEntry).
+        if(!burstPullback.has(auth.authorizationId))burstPullback.set(auth.authorizationId,new PullbackEntry({side:auth.side}));
+        const pb=burstPullback.get(auth.authorizationId);
+        const step=pb.step({snapshot:chk.snapshot,evidence:chk.evidence,threshold:auth.triggerThreshold,now:clock()});
+        traceBurst('BURST_WATCH',auth.symbol,{authorizationId:auth.authorizationId,state:step.state,score:chk.evidence?.score??null,threshold:auth.triggerThreshold,remainingMs:Math.max(0,auth.expiresAt-clock()),contradictions:chk.evidence?.contradictions||[],reason:step.reason||blp?.reason||null,retrace:step.retrace??null,bounceFrac:step.bounceFrac??null,lastReset:pb.lastReset});
+        if(step.state!=='ENTER')continue;
+        burstPullback.set(auth.authorizationId,new PullbackEntry({side:auth.side}));
+        if(blp){try{store.journal('BURST_BLOCKED',auth.symbol,{authorization:auth,reason:blp.reason,pause:blp,plan:step.entry});}catch{}continue;}
+        if(pause){const key=String(pause.pauseStartedAt||pause.until||'');const veryStrict=step.entry.impulseScore>=Math.max(BURST_PAUSE_EXCEPTION_MIN,auth.triggerThreshold)&&String(auth.preMove?.state||'').toUpperCase()==='IGNITION';if(!(auth.pauseExceptionAllowed&&veryStrict&&burst.pauseExceptionAvailable(key))){continue;}}
+        const opened=await burstOpen(auth,chk.evidence,step.entry);
         if(opened?.ok&&pause){burst.consumePauseException(String(pause.pauseStartedAt||pause.until||''));if(opened.active)opened.active.pauseExceptionUsed=true;}
-        if(opened?.ok)return {ok:true,triggered:true,symbol:auth.symbol,opened};
-        try{store.journal('BURST_BLOCKED',auth.symbol,{authorization:auth,evidence:chk.evidence,result:opened});}catch{}
+        if(opened?.ok){burstPullback.delete(auth.authorizationId);return {ok:true,triggered:true,symbol:auth.symbol,opened};}
+        try{store.journal('BURST_BLOCKED',auth.symbol,{authorization:auth,evidence:chk.evidence,plan:step.entry,result:opened});}catch{}
       }
       return {ok:true,triggered:false};
     }finally{burstTickBusy=false;}
@@ -5334,7 +5371,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }
