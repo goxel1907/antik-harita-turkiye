@@ -8,8 +8,44 @@ const ALLOWED_SOURCE_HOSTS=[
   'cmegroup.com','www.cmegroup.com',
   'cftc.gov','www.cftc.gov',
   'tradingview.com','www.tradingview.com',
-  'investopedia.com','www.investopedia.com'
+  'investopedia.com','www.investopedia.com',
+  // R2544.50: curated reference articles are fetched as plain text through the Wikipedia API.
+  'en.wikipedia.org'
 ];
+
+// R2544.50 (user 06.10.2026: "make the free models actually work"). The free models invented source links
+// (05.10: the "BREAKDOWN_CLOSE" link was TradingView's ATR page, "RISING_CHANNEL" was PPO), so JEV rightly rejected
+// every note and research ended NO_VERIFIED_SOURCE_FETCHED / JEV_RESEARCH_REJECTED. Every engine pattern now has a
+// pre-verified reference article (titles checked against the Wikipedia API on 06.10.2026); model links come second.
+const CURATED_TOPIC_SOURCES=[
+  [/^DOJI$/,['Doji','Candlestick pattern']],
+  [/^MORNING_STAR$/,['Morning star (candlestick pattern)','Candlestick pattern']],
+  [/^(THREE_WHITE_SOLDIERS)$/,['Three white soldiers','Candlestick pattern']],
+  [/^(THREE_BLACK_CROWS)$/,['Three black crows','Candlestick pattern']],
+  [/HARAMI/,['Harami (candlestick pattern)','Candlestick pattern']],
+  [/(ENGULFING|HAMMER|SHOOTING_STAR|MARUBOZU|EVENING_STAR|INSIDE_BAR|OUTSIDE_BAR|PIN_BAR)/,['Candlestick pattern']],
+  [/HEAD_AND_SHOULDERS/,['Head and shoulders (chart pattern)','Chart pattern']],
+  [/DOUBLE_(TOP|BOTTOM)/,['Double top and double bottom','Chart pattern']],
+  [/(FLAG|PENNANT)/,['Flag and pennant patterns','Chart pattern']],
+  [/TRIANGLE/,['Triangle (chart pattern)','Chart pattern']],
+  [/WEDGE/,['Wedge pattern','Chart pattern']],
+  [/CHANNEL/,['Price channels','Trend line (technical analysis)']],
+  [/(BREAKOUT|BREAKDOWN)/,['Breakout (technical analysis)','Support and resistance']],
+  [/(SUPPORT|RESISTANCE)_FLIP|SWEEP_(REJECT|RECLAIM)/,['Support and resistance']],
+  [/SHORT_LIQUIDATION|SHORT_SQUEEZE/,['Short squeeze','Margin (finance)']],
+  [/LONG_LIQUIDATION|MARGIN_CALL/,['Margin (finance)']],
+  [/ABSORB|AGGRESSION|ORDER_FLOW/,['Order flow trading','Order book']],
+  [/VOLATILITY_COMPRESSION|SQUEEZE|BOLLINGER/,['Bollinger Bands','Volatility (finance)']],
+  [/(ATR|AVERAGE_TRUE_RANGE)/,['Average true range']],
+  [/FIBONACCI|\bOTE\b/,['Fibonacci retracement']]
+];
+const wikiPageUrl=title=>'https://en.wikipedia.org/wiki/'+encodeURIComponent(String(title).replace(/ /g,'_'));
+const wikiTextUrl=title=>'https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&redirects=1&format=json&formatversion=2&titles='+encodeURIComponent(title);
+function curatedSourcesFor(topic){
+  const t=String(topic||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+  const row=CURATED_TOPIC_SOURCES.find(([rx])=>rx.test(t));
+  return row?row[1].map(title=>({title,url:wikiPageUrl(title),fetchUrl:wikiTextUrl(title),curated:true})):[];
+}
 
 // R2536: curated open-source engineering references. These are READ-ONLY references,
 // never strategy authority and never executable/vendor code inside BrainHub.
@@ -115,11 +151,26 @@ function stripHtml(raw){
 function normalizedTerms(topic){
   return String(topic||'').toLowerCase().split(/[^a-z0-9]+/).filter(x=>x.length>=3).slice(0,6);
 }
-function sourceLooksRelevant(topic,text){
+// R2544.50: generic words never prove a page is about the topic (05.10 an ATR page "matched" BREAKDOWN_CLOSE).
+const GENERIC_TOPIC_TERMS=new Set(['close','open','high','low','price','level','candle','bar','line','trend','zone','side','buy','sell','long','short','flip','acceptance','reject','reclaim','rejection','pattern','cascade','at','ask','bid']);
+function specificTerms(topic){return normalizedTerms(topic).filter(x=>!GENERIC_TOPIC_TERMS.has(x));}
+function pageTitle(html){
+  const m=String(html||'').match(/<title[^>]*>([\s\S]*?)<\/title>/i)||String(html||'').match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  return m?stripHtml(m[1]).slice(0,200):null;
+}
+function sourceLooksRelevant(topic,text,title=null,curated=false){
   const t=String(text||'').toLowerCase();
   const terms=normalizedTerms(topic);
   if(!terms.length)return false;
-  return terms.some(x=>t.includes(x)) && /(futures|trading|price|market|order|volume|trend|pattern|risk|liquid|margin|support|resistance|indicator|open interest|funding|backtest|exchange|portfolio)/i.test(t);
+  const trading=/(futures|trading|price|market|order|volume|trend|pattern|risk|liquid|margin|support|resistance|indicator|open interest|funding|backtest|exchange|portfolio)/i.test(t);
+  // A curated reference was mapped to this topic in advance; it only has to be a real article about trading.
+  if(curated)return t.length>=400&&trading;
+  if(!(terms.some(x=>t.includes(x))&&trading))return false;
+  const spec=specificTerms(topic);if(!spec.length)return true;
+  // whole words only (05.10 test: 'head' must not match 'header')
+  const head=String(title||'').toLowerCase(),count=(s,w)=>(s.match(new RegExp('\\b'+w.replace(/[^a-z0-9]/g,'')+'\\b','g'))||[]).length;
+  // one specific term (e.g. 'breakdown'): in the title or repeated; several (e.g. 'symmetrical triangle'): all present.
+  return spec.some(x=>count(head,x)>0)||spec.some(x=>count(t,x)>=3)||(spec.length>=2&&spec.every(x=>count(t,x)>0));
 }
 function repoHints(family){
   const f=String(family||'OTHER').toUpperCase();
@@ -258,30 +309,38 @@ function createKnowledgeResearch({
   async function fetchOne(url){
     const host=new URL(url).hostname,cached=sourceCache.get(url);
     if(clock()<Number(sourceCooldown[host]||0))return null;
-    if(cached&&clock()-cached.at<86400000)return cached.text;
+    if(cached&&clock()-cached.at<86400000)return {text:cached.text,title:cached.title||null};
     let lastStatus=null;
     for(let attempt=0;attempt<2;attempt++){
       try{
         if(attempt&&typeof sleepImpl==='function')await sleepImpl(300);
-        const r=await fetchImpl(url,{headers:{'user-agent':'BrainHub-JEV-Knowledge/1.1','accept':'text/html,text/plain'},signal:AbortSignal.timeout(12000),redirect:'follow'});
+        const r=await fetchImpl(url,{headers:{'user-agent':'BrainHub-JEV-Knowledge/1.2 (local research bot; low-volume reference reads)','accept':'text/html,text/plain,application/json'},signal:AbortSignal.timeout(12000),redirect:'follow'});
         lastStatus=r.status;
         if(!r.ok){
           if(r.status===429){const retry=r.headers?.get?.('retry-after'),ms=Number(retry)*1000||Math.max(0,Date.parse(retry)-clock());sourceCooldown[host]=clock()+Math.max(60000,Math.min(86400000,ms||60000));saveAttempts();return null;}
           if(r.status>=500)continue;
           return null;
         }
-        const raw=(await r.text()).slice(0,300000);
-        const text=stripHtml(raw).slice(0,30000);sourceCache.set(url,{at:clock(),text});if(sourceCache.size>100)sourceCache.delete(sourceCache.keys().next().value);return text;
+        // R2544.50: clean first, then cut. Cutting raw HTML at 300 kB left an unclosed <script> and 30 kB of
+        // JavaScript became "source text". Wikipedia references arrive as API plain text.
+        const body=String(await r.text()).slice(0,3000000);
+        let text,title;
+        if(/^https:\/\/en\.wikipedia\.org\/w\/api\.php/.test(url)){let j=null;try{j=JSON.parse(body);}catch{}const pg=j?.query?.pages?.[0];if(!pg||pg.missing)return null;title=pg.title||null;text=String(pg.extract||'');}
+        else{title=pageTitle(body);text=stripHtml(body);}
+        text=text.slice(0,30000);const got={text,title};sourceCache.set(url,{at:clock(),...got});if(sourceCache.size>100)sourceCache.delete(sourceCache.keys().next().value);return got;
       }catch{}
     }
     return lastStatus?null:null;
   }
-  async function fetchSources(topic,urls){
-    const out=[];
-    for(const url of [...new Set(urls)].slice(0,6)){
-      const text=await fetchOne(url);
-      if(!text||!sourceLooksRelevant(topic,text))continue;
-      out.push({url,excerpt:clip(text,5500)});
+  // R2544.50: candidates are curated references first, then model-proposed links; at most 6 tried, 3 kept.
+  async function fetchSources(topic,candidates){
+    const out=[],seen=new Set();
+    for(const c of candidates.slice(0,6)){
+      if(out.length>=3)break;
+      const src=typeof c==='string'?{url:c}:c;if(!src?.url||seen.has(src.url))continue;seen.add(src.url);
+      const got=await fetchOne(src.fetchUrl||src.url);
+      if(!got?.text||!sourceLooksRelevant(topic,got.text,got.title,src.curated===true))continue;
+      out.push({url:src.url,title:got.title||src.title||null,curated:src.curated===true,excerpt:clip(got.text,5500)});
     }
     return out;
   }
@@ -295,17 +354,23 @@ function createKnowledgeResearch({
     busy=true;
     recentTopics[topicKey]=clock();saveAttempts();
     try{
-      const [router,openrouter]=await Promise.all([
-        askChannelResilient(routerResearch,{topic,family}),
-        askChannelResilient(openRouterResearch,{topic,family})
-      ]);
-      const urls=[...(router.sourceUrls||[]),...(openrouter.sourceUrls||[])];
-      const sources=await fetchSources(topic,urls);
+      // R2544.50: a mapped topic is grounded on its curated references directly (no ungrounded model round that
+      // only invented links); unmapped topics still ask the free models for candidate links first.
+      const curated=curatedSourcesFor(topic);
+      let sources=curated.length?await fetchSources(topic,curated):[];
+      let router={ok:null,attempts:0},openrouter={ok:null,attempts:0};
       if(!sources.length){
-        last={ok:false,called:true,topic,family,at:new Date(clock()).toISOString(),reason:'NO_VERIFIED_SOURCE_FETCHED',routerOk:router.ok===true,openRouterOk:openrouter.ok===true,routerAttempts:router.attempts||0,openRouterAttempts:openrouter.attempts||0};
+        [router,openrouter]=await Promise.all([
+          askChannelResilient(routerResearch,{topic,family}),
+          askChannelResilient(openRouterResearch,{topic,family})
+        ]);
+        sources=await fetchSources(topic,[...curated,...(router.sourceUrls||[]),...(openrouter.sourceUrls||[])]);
+      }
+      if(!sources.length){
+        last={ok:false,called:true,topic,family,at:new Date(clock()).toISOString(),reason:'NO_VERIFIED_SOURCE_FETCHED',curatedSources:curated.length,routerOk:router.ok===true,openRouterOk:openrouter.ok===true,routerAttempts:router.attempts||0,openRouterAttempts:openrouter.attempts||0};
         return last;
       }
-      const sourceText=sources.map((x,i)=>'SOURCE_'+(i+1)+' '+x.url+'\n'+x.excerpt).join('\n\n');
+      const sourceText=sources.map((x,i)=>'SOURCE_'+(i+1)+' '+x.url+(x.title?' ('+x.title+')':'')+'\n'+x.excerpt).join('\n\n');
       const [groundedRouter,groundedOpenRouter]=await Promise.all([
         askChannelResilient(routerResearch,{topic,family,sourceText}),
         askChannelResilient(openRouterResearch,{topic,family,sourceText})
@@ -364,4 +429,4 @@ function createKnowledgeResearch({
   }
   return {research,researchFromContext,reference,status,detectGap};
 }
-module.exports={ALLOWED_SOURCE_HOSTS,CURATED_OPEN_SOURCE_REPOS,safeTopic,allowedUrl,repoHints,topicCandidates,createKnowledgeResearch};
+module.exports={ALLOWED_SOURCE_HOSTS,CURATED_OPEN_SOURCE_REPOS,CURATED_TOPIC_SOURCES,curatedSourcesFor,sourceLooksRelevant,safeTopic,allowedUrl,repoHints,topicCandidates,createKnowledgeResearch};

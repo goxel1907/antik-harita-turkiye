@@ -2328,8 +2328,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.48-ENTRY-RESTORE-BURST-LEDGER';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-06 • R2544.48: R45 wait-for-zone sentence removed from JEV contract (it stopped all 5m/15m entries; code chase gate stays); burst lots attributed in Office, skipped by core review, closes in POSITION_CLOSED with exchange net';
+const RUNTIME_RELEASE='R2544.50-SCALPER-FREE-KNOWLEDGE';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-06 • R2544.50: R48 (5m/15m entries restored, burst ledger) + R49 burst scalper entry (impulse, shallow pullback, resume; structural stop; burst loss pause) + free-model knowledge grounded on verified references';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

@@ -102,12 +102,12 @@ test('R2544.18 Headroom collision guard uses 8788 and never changes JEV authorit
   assert.match(manager,/free-model-registry\.js/);
   assert.match(manager,/HEADROOM-SETUP\.ps1/);
   assert.match(server,/const freeWorker=createOpenRouterFreeWorker/);
-  assert.match(server,/const RUNTIME_RELEASE='R2544\.48-ENTRY-RESTORE-BURST-LEDGER'/);
+  assert.match(server,/const RUNTIME_RELEASE='R2544\.50-SCALPER-FREE-KNOWLEDGE'/);
 });
 
 test('R2544.18 Office probes Headroom sidecar separately from BrainHub 8787',()=>{
   const officeServer=src('office-dashboard/office-server.js');
   assert.match(officeServer,/HEADROOM_URL = \(process\.env\.HEADROOM_URL \|\| 'http:\/\/127\.0\.0\.1:8788'\)/);
   assert.match(officeServer,/HEADROOM_URL \+ '\/health'/);
-  assert.match(officeServer,/OFFICE_VERSION = '2\.5\.28-R2544\.48-JEV-Brain'/);
+  assert.match(officeServer,/OFFICE_VERSION = '2\.5\.30-R2544\.50-JEV-Brain'/);
 });
