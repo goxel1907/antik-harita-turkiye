@@ -2328,8 +2328,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.44-WHOLE-CONTEXT-BURST-BOOKS';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-05 • R2544.44: JEV requests never blocked or cut mid-text (whole omissions only), burst-only order books freed';
+const RUNTIME_RELEASE='R2544.45-NO-CHASE-ZONE-ENTRY';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-05 • R2544.45: no chasing LONG or SHORT; market entries only outside stretched wrong-zone or inside the side OTE/OB/FVG';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

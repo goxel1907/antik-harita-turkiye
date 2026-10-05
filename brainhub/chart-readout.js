@@ -195,4 +195,39 @@ function readoutDigest(r){
   if(e&&(/EXHAUSTION/.test(e.state)||e.divergence))o.ef=[e.state,e.divergence,e.volVsPrev];
   return Object.keys(o).length>1?o:null;
 }
-module.exports={chartReadout,readoutDigest,stretch,squeeze,displacement,liquidityPools,effort,anchoredVwap,rsiSeries};
+// R45 (user rule 05.10.2026): no chasing, LONG or SHORT; entries come from the trader's zones (OB, FVG, OTE/Fib,
+// liquidity, formations). An entry is a chase when, on the lane's owner timeframe, the leg is stretched
+// (STRETCHED/EXTENDED/EXTREME) and price sits in the wrong zone for the side (LONG in PREMIUM, SHORT in DISCOUNT)
+// while the other of 5m/15m is also in the wrong zone, or when 5m/15m chase risk for the side is HIGH.
+// Price inside the side's own OTE, unbroken OB or unfilled FVG on the owner timeframe is a zone entry, not a
+// chase. Missing location data never blocks (evidence gap, not negative evidence).
+function stretchOf(frame){
+  const ro=frame?.readout;if(!ro||typeof ro!=='object')return null;
+  if(ro.d===1){const st=Array.isArray(ro.st)?ro.st:[],ch=String(ro.ch||'');
+    const lvl=s=>new RegExp(s+'_HIGH').test(ch)?'HIGH':new RegExp(s+'_MEDIUM').test(ch)?'MEDIUM':'LOW';
+    return st.length?{leg:st[0]||null,state:st[1]||null,zone:st[2]||null,pos:finite(st[3]),chaseRisk:{LONG:lvl('LONG'),SHORT:lvl('SHORT')}}:null;}
+  const s=ro.stretch;return s&&typeof s==='object'?{leg:s.leg||null,state:s.state||null,zone:s.zone||null,pos:finite(s.rangePosPct),chaseRisk:s.chaseRisk||{}}:null;
+}
+function inSideZone(frame,side,price){
+  const p=finite(price),hits=[];if(!frame||p===null)return hits;
+  const inside=(lo,hi)=>finite(lo)!==null&&finite(hi)!==null&&Math.min(lo,hi)<=p&&p<=Math.max(lo,hi);
+  const ote=(frame?.oteReference||frame?.smcContext?.oteReference)?.[side==='LONG'?'longDiscountZone':'shortPremiumZone'];if(ote&&inside(ote.low,ote.high))hits.push('OTE');
+  for(const ob of (frame?.orderBlocks?.[side==='LONG'?'bullish':'bearish']||[]))if(ob&&ob.broken!==true&&inside(ob.low,ob.high)){hits.push('OB');break;}
+  for(const g of (Array.isArray(frame?.recentFairValueGaps)?frame.recentFairValueGaps:[]))if(g&&g.side===(side==='LONG'?'BULL':'BEAR')&&g.filled!==true&&inside(g.low,g.high)){hits.push('FVG');break;}
+  return hits;
+}
+function locationChaseGate({side,lane=null,ownerTF=null,frames={},price=null}={}){
+  side=String(side||'').toUpperCase();
+  const owner=['5m','15m'].includes(String(ownerTF||'').toLowerCase())?String(ownerTF).toLowerCase():String(lane||'').toUpperCase().startsWith('5M')?'5m':'15m';
+  const other=owner==='5m'?'15m':'5m',o=stretchOf(frames?.[owner]),x=stretchOf(frames?.[other]);
+  if(!['LONG','SHORT'].includes(side)||!o)return {ok:true,checked:false,reason:'LOCATION_DATA_UNAVAILABLE',owner};
+  const wrong=s=>!!s&&((side==='LONG'&&s.zone==='PREMIUM')||(side==='SHORT'&&s.zone==='DISCOUNT'));
+  const stretched=s=>!!s&&['STRETCHED','EXTENDED','EXTREME'].includes(String(s.state||'').toUpperCase());
+  const highChase=[o,x].some(s=>String(s?.chaseRisk?.[side]||'').toUpperCase()==='HIGH');
+  const wrongZoneStretched=stretched(o)&&wrong(o)&&wrong(x);
+  const inZone=inSideZone(frames?.[owner],side,price);
+  const chase=(highChase||wrongZoneStretched)&&!inZone.length;
+  const brief=s=>s?{state:s.state,zone:s.zone,pos:s.pos,chase:s.chaseRisk?.[side]||null}:null;
+  return {ok:!chase,checked:true,reason:chase?'LOCATION_CHASE_BLOCK':null,side,owner,ownerStretch:brief(o),otherStretch:brief(x),highChase,wrongZoneStretched,inZone};
+}
+module.exports={chartReadout,readoutDigest,stretch,squeeze,displacement,liquidityPools,effort,anchoredVwap,rsiSeries,stretchOf,inSideZone,locationChaseGate};

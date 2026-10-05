@@ -31,6 +31,7 @@ const caseMemoryLib = require('./case-memory');
 const {createProfitBudget}=require('./profit-budget');
 const {createBurstReduction}=require('./burst-reduction');
 const { BurstScalpManager, burstMarginRule } = require('./burst-scalp');
+const { locationChaseGate } = require('./chart-readout');
 const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-preparation');
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
 const {readCloseExitEvidence}=require('./close-exit-evidence');
@@ -3736,6 +3737,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     CLAUDE_V109_PRICE_RAN_AWAY_SINCE_ANALYSIS:'analizden bu yana fiyat giriş yönünde çok uzaklaştı; kovalama yapılmıyor',
     CLAUDE_V109_PRICE_MOVED_AGAINST_SINCE_ANALYSIS:'analizden bu yana fiyat ters yönde anlamlı hareket etti; plan yenilenmeli',
     CLAUDE_V109_CHASE_INPUT_INVALID:'kovalama kapısı için fiyat/tetik verisi eksik',
+    LOCATION_CHASE_BLOCK:'kovalama yok: fiyat uzamış ve yanlış bölgede (LONG premium / SHORT discount) ya da kovalama riski yüksek; giriş kendi OTE/OB/FVG bölgesini bekler',
     CLAUDE_V109_DETERMINISTIC_TRIGGER:'kapanmış mumda kabul edilmiş kırılım (Claude v109 deterministik tetik, BINDING modu)',
     WORKER_NUMERIC_TRIGGER_WAIT:'sayısal kapanış tetiği henüz gerçekleşmedi; pahalı 9TF yeniden çalıştırılmıyor',
     WORKER_NUMERIC_TRIGGER_CLOSED:'sayısal kapanış tetiği gerçekleşti; gölge hızlı doğrulama ve sonraki 9TF slotu bekleniyor',
@@ -4465,6 +4467,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs,chaseR});
           return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,chaseR,requeued:!stopBreached};
         }
+      }
+    }
+    // R45 LOCATION_CHASE_GUARD (binding, user rule 05.10.2026): no chasing, LONG or SHORT. A stretched owner-TF
+    // leg with price in the wrong zone (confirmed by the other TF) or HIGH chase risk is not entered at market
+    // unless price is inside the side's own OTE/OB/FVG; the plan waits for its zone. Live 05.10: BR SHORT was
+    // opened at 5m/15m DISCOUNT EXTENDED/EXTREME, SHORT_HIGH, ~2.5% below its 5m short OTE and lost 11.44 USDT.
+    {
+      const gate=locationChaseGate({side:chasePlan?.side,lane:chasePlan?.lane||chasePlan?.tradeLaneName,ownerTF:chasePlan?.ownerTF,frames:advisory?.unifiedContext?.frames||{},price:freshEntryPrice});
+      if(!gate.ok){
+        const rs=['LOCATION_CHASE_BLOCK'];
+        try{store.journal('LOCATION_CHASE_BLOCK',candidate.symbol,{...gate,price:freshEntryPrice,lane:chasePlan?.lane||null,setupFamily:chasePlan?.setupFamily||null,entryTiming:chasePlan?.entryTiming||null});}catch{}
+        annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{locationChase:gate});
+        leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:rs,locationChase:gate});
+        leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs,locationChase:gate});
+        return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,locationChase:gate};
       }
     }
     const requestedNotional=Number(settings.marginQuote)*Number(settings.leverage);

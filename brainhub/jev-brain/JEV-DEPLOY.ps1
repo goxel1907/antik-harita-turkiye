@@ -1,12 +1,12 @@
-# JEV-Brain DEPLOY R2544.44 - whole-context JEV requests and freed burst books; includes R39-R43 fixes.
+# JEV-Brain DEPLOY R2544.45 - no-chase zone entries; includes R39-R44 fixes.
 # Kaynak: bu teslim paketindeki .\source. Hedef: C:\JEV-Brain\runtime.
 # R2544.29 guvenlik ilkesi: LIVE KAPALI + ACIK POZISYON 0 olmadan deploy YAPMAZ; restart sonrasi LIVE kapali kalir.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.44-WHOLE-CONTEXT-BURST-BOOKS'
-$EXPECTED_OFFICE = '2.5.24-R2544.44-JEV-Brain'
+$EXPECTED_RELEASE = 'R2544.45-NO-CHASE-ZONE-ENTRY'
+$EXPECTED_OFFICE = '2.5.25-R2544.45-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null
