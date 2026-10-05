@@ -41,7 +41,7 @@ test('R2544.30 five history rows do not truncate durable totals or desk statisti
 });
 test('R2544.30 BURST telemetry distinguishes no selection and expired/stale authorization without order calls',()=>{
  let now=1000,calls=0;const m=new BurstScalpManager({now:()=>now,marketStream:{ensureSymbol(){},ensureLocalL2(){},snapshot(){calls++;return {available:false,ageMs:3000};}}});
- assert.equal(m.status().armed.length,0);m.arm({symbol:'TESTUSDT',side:'SHORT',ttlMs:30000});const s=m.status();assert.equal(s.armed[0].telemetry.state,'DATA_NOT_READY');assert.equal(s.armed[0].side,'SHORT');assert.ok(calls>0);assert.equal(s.active.length,0);now=32000;assert.equal(m.status().armed.length,0);
+ assert.equal(m.status().armed.length,0);m.arm({symbol:'TESTUSDT',side:'SHORT',ttlMs:30000});const s=m.status();assert.equal(s.armed[0].telemetry.state,'DATA_NOT_READY');assert.equal(s.armed[0].side,'SHORT');assert.ok(calls>0);assert.equal(s.active.length,0);now=32000;assert.equal(m.status().armed.length,1,'R46: TTL floor is 120 s');now=122000;assert.equal(m.status().armed.length,0);
 });
 test('R2544.30 Office shows separate read-only BURST selection, trigger state and missing telemetry',()=>{
  const html=fs.readFileSync(path.join(__dirname,'../office-dashboard/public/office.html'),'utf8'),el={innerHTML:''};

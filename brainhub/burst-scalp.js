@@ -10,53 +10,87 @@ function ratioFor(flow,side){return finite(side==='SHORT'?flow?.sellRatio:flow?.
 function signedFor(v,side){const n=finite(v);return n===null?null:n*sideSign(side);}
 function totalQuote(flow){const a=finite(flow?.buyQuote)||0,b=finite(flow?.sellQuote)||0;return a+b;}
 
+// R2544.46 (user rule 05.10.2026: burst must actually trade, thin coins included).
+// The R2544.29 trigger read fixed 1s/3s windows with fixed bps scales and vetoed on ANY missing
+// component; on altcoins the 1s window is usually empty, so in 118 live watch samples the best
+// score was 0.80 against a 0.82 floor and the burst never fired. Now:
+// - flow windows run on a trade clock (fast >=20 trades, slow >=60 trades; market.js tradeClock),
+// - price moves are measured in the coin's own typical 20-trade move (noiseBps20), not fixed bps,
+// - trade intensity is compared to the coin's own 120 s baseline,
+// - a missing optional component (OFI, L2 depth) is neutral: its weight is dropped, never a veto,
+// - only genuinely thin flow (<8 fast / <12 slow trades within 15 s / 45 s) is TRIGGER_WINDOW_INCOMPLETE.
+const BURST_TRIGGER_VERSION='R2544.46';
+const BURST_WEIGHTS={rFast:0.18,rSlow:0.16,zFast:0.14,zSlow:0.10,intensity:0.10,ofiFast:0.08,ofiSlow:0.06,queue:0.04,micro:0.03,l2Ofi:0.03,depth:0.02};
+// Pre-move bonus is equal for PRE_MOVE and IGNITION: the thresholds below were calibrated with 0.10, and a larger
+// IGNITION bonus would silently lower the bar by 0.08 (most live candidates are IGNITION).
+const BURST_BASE_SCALE=0.82, BURST_PREMOVE_BONUS={IGNITION:0.10,PRE_MOVE:0.10};
+// JEV picks one of these trigger levels at pre-authorization. Calibration 05.10.2026 20:42-20:56, 17 active coins,
+// 4908 samples, live public stream, burst stop/fast-fail rules, 0.10% fees: >=0.74 avg net -0.04% (n=10),
+// >=0.78 +0.04% (n=5), >=0.82 +0.14% (n=4), >=0.86 +0.98% (n=1). Small sample; floor 0.78, default 0.82.
+const BURST_STRICTNESS={TRIGGER_STANDARD:0.78,TRIGGER_STRICT:0.82,TRIGGER_VERY_STRICT:0.86};
+const BURST_PAUSE_EXCEPTION_MIN=0.90;
+const BURST_TTL_MS={TTL_120S:120000,TTL_180S:180000};
+function burstClockWindows(snapshot){
+  const tc=snapshot?.orderFlow?.tradeClock,ec=snapshot?.level1Ofi?.eventClock;
+  if(tc&&typeof tc==='object')return {clock:'TRADES',fast:tc.fast||{},slow:tc.slow||{},noiseBps:finite(tc.noiseBps20),intensity:finite(tc.intensityRatio),ofiFast:ec?.fast||{},ofiSlow:ec?.slow||{}};
+  // Legacy snapshot (no trade clock): 1s/3s windows, fixed bps scale, quote acceleration as intensity.
+  const w=snapshot?.orderFlow?.windows||{},o=snapshot?.level1Ofi?.windows||{};
+  const tq1=totalQuote(w['1s']),tq3=totalQuote(w['3s']);
+  return {clock:'LEGACY_1S_3S',fast:w['1s']||{},slow:w['3s']||{},noiseBps:null,intensity:tq3>0?tq1/(tq3/3):null,ofiFast:o['1s']||{},ofiSlow:o['3s']||{}};
+}
 function burstEvidence(snapshot,side,{preMove=null}={}){
   side=String(side||'').toUpperCase();
-  const s=sideSign(side), f1=snapshot?.orderFlow?.windows?.['1s']||{}, f3=snapshot?.orderFlow?.windows?.['3s']||{}, f5=snapshot?.orderFlow?.windows?.['5s']||{};
-  const o1=snapshot?.level1Ofi?.windows?.['1s']||{},o3=snapshot?.level1Ofi?.windows?.['3s']||{};
+  const win=burstClockWindows(snapshot),f1=win.fast,f3=win.slow,o1=win.ofiFast,o3=win.ofiSlow;
   const l2=snapshot?.localL2||{};
-  const r1=ratioFor(f1,side),r3=ratioFor(f3,side),r5=ratioFor(f5,side);
+  const r1=ratioFor(f1,side),r3=ratioFor(f3,side);
   const p1=signedFor(f1?.priceMoveBps,side),p3=signedFor(f3?.priceMoveBps,side);
-  const ofi1=signedFor(o1?.normalizedOfi,side),ofi3=signedFor(o3?.normalizedOfi,side);
-  const q=signedFor(o1?.queueImbalanceCurrent,side),micro=signedFor(o1?.micropriceBps,side);
+  // Move in units of the coin's typical 20-trade move; a slow window of n trades scales by sqrt(n/20).
+  const unit=n=>win.noiseBps>0?win.noiseBps*Math.sqrt(Math.max(1,(finite(n)||20))/20):null;
+  // Without a noise estimate the R2544.29 scale is kept: full credit at 5 bps (fast) / 10 bps (slow).
+  const z1=p1===null?null:unit(f1?.trades)?p1/unit(f1.trades):p1/2;
+  const z3=p3===null?null:unit(f3?.trades)?p3/unit(f3.trades):p3*0.3;
+  const ofi1=o1?.available===false?null:signedFor(o1?.normalizedOfi,side),ofi3=o3?.available===false?null:signedFor(o3?.normalizedOfi,side);
+  const q=o1?.available===false?null:signedFor(o1?.queueImbalanceCurrent,side),micro=o1?.available===false?null:signedFor(o1?.micropriceBps,side);
   const ml=signedFor(l2?.multiLevelOfi,side),depth=signedFor(l2?.depthImbalance,side);
-  const tq1=totalQuote(f1), tq3=totalQuote(f3), accel=tq3>0?(tq1/(tq3/3)):0;
   const spread=finite(snapshot?.spreadBps);
   const pmDir=String(preMove?.direction||'').toUpperCase(), pmState=String(preMove?.state||'').toUpperCase();
   const pmMatch=pmDir===side&&['PRE_MOVE','IGNITION'].includes(pmState);
   const l2Healthy=l2?.available===true&&l2?.sequenceHealthy===true&&finite(l2?.confidence)!==null&&Number(l2.confidence)>=0.55;
   const fresh=snapshot?.available===true&&finite(snapshot?.ageMs)!==null&&Number(snapshot.ageMs)<=2500;
 
-  let score=0;
-  if(pmMatch)score+=pmState==='IGNITION'?0.20:0.12;
-  if(r1!==null)score+=0.16*clamp((r1-0.50)/0.28);
-  if(r3!==null)score+=0.14*clamp((r3-0.50)/0.25);
-  if(r5!==null)score+=0.06*clamp((r5-0.50)/0.22);
-  if(p1!==null)score+=0.10*clamp(p1/5);
-  if(p3!==null)score+=0.08*clamp(p3/10);
-  if(ofi1!==null)score+=0.08*clamp((ofi1+0.05)/0.65);
-  if(ofi3!==null)score+=0.06*clamp((ofi3+0.05)/0.65);
-  if(q!==null)score+=0.04*clamp((q+0.05)/0.55);
-  if(micro!==null)score+=0.03*clamp((micro+0.02)/0.9);
-  if(ml!==null)score+=0.03*clamp((ml+0.05)/0.65);
-  if(depth!==null)score+=0.02*clamp((depth+0.05)/0.65);
-  if(accel>=1.4)score+=0.06*clamp((accel-1.4)/2.5+0.25);
-  score=clamp(score);
+  const parts={
+    rFast:r1===null?null:clamp((r1-0.50)/0.25), rSlow:r3===null?null:clamp((r3-0.50)/0.20),
+    zFast:z1===null?null:clamp(z1/2.5), zSlow:z3===null?null:clamp(z3/3),
+    intensity:win.intensity===null?null:clamp((win.intensity-1)/2),
+    ofiFast:ofi1===null?null:clamp((ofi1+0.05)/0.65), ofiSlow:ofi3===null?null:clamp((ofi3+0.05)/0.65),
+    queue:q===null?null:clamp((q+0.05)/0.55), micro:micro===null?null:clamp((micro+0.02)/0.9),
+    l2Ofi:ml===null?null:clamp((ml+0.05)/0.65), depth:depth===null?null:clamp((depth+0.05)/0.65)
+  };
+  let wSum=0,acc=0;for(const [k,w] of Object.entries(BURST_WEIGHTS))if(parts[k]!==null){wSum+=w;acc+=w*parts[k];}
+  const coreReady=parts.rFast!==null&&parts.rSlow!==null&&parts.zFast!==null&&parts.zSlow!==null;
+  const base=wSum>0&&coreReady?acc/wSum:0;
+  const score=clamp(BURST_BASE_SCALE*base+(pmMatch?BURST_PREMOVE_BONUS[pmState]:0));
 
+  // Thin flow: trade clock needs >=8 fast / >=12 slow trades (within 15 s / 45 s); legacy 3s keeps its old >=2.
+  const n1=finite(f1?.trades),n3=finite(f3?.trades);
+  const thin=win.clock==='TRADES'?((n1??0)<8||(n3??0)<12):(n3!==null&&n3<2);
   const contradictions=[];
   if(!fresh)contradictions.push('STREAM_STALE');
   if(!(spread!==null&&spread>=0&&spread<=8))contradictions.push('SPREAD_TOO_WIDE_OR_UNKNOWN');
   if(!l2Healthy)contradictions.push('LOCAL_L2_NOT_HEALTHY');
-  if([r1,r3,p1,p3,ofi1,ofi3].some(x=>x===null)||o1.available===false||o3.available===false)contradictions.push('TRIGGER_WINDOW_INCOMPLETE');
-  if(r1!==null&&r1<0.56)contradictions.push('1S_FLOW_NOT_DIRECTIONAL');
-  if(r3!==null&&r3<0.56)contradictions.push('3S_FLOW_NOT_DIRECTIONAL');
-  if(p3!==null&&p3<-2)contradictions.push('3S_PRICE_AGAINST_SIDE');
+  if(!coreReady||thin)contradictions.push('TRIGGER_WINDOW_INCOMPLETE');
+  if(r1!==null&&r1<0.55)contradictions.push('1S_FLOW_NOT_DIRECTIONAL');
+  if(r3!==null&&r3<0.55)contradictions.push('3S_FLOW_NOT_DIRECTIONAL');
+  if(z3!==null&&z3<-0.5)contradictions.push('3S_PRICE_AGAINST_SIDE');
   if(ofi3!==null&&ofi3<-0.12)contradictions.push('L1_OFI_AGAINST_SIDE');
   if(ml!==null&&ml<-0.18)contradictions.push('L2_OFI_AGAINST_SIDE');
 
   const ignition=score>=0.90&&contradictions.length===0&&pmMatch;
   const strong=score>=0.82&&contradictions.filter(x=>!['1S_FLOW_NOT_DIRECTIONAL'].includes(x)).length===0;
-  return {version:'R2544.29',side,score:Number(score.toFixed(4)),ignition,strong,fresh,spreadBps:spread,acceleration:Number(accel.toFixed(3)),preMove:{state:pmState||null,direction:pmDir||null,match:pmMatch},flow:{oneSec:f1,threeSec:f3,fiveSec:f5},l1:{oneSec:o1,threeSec:o3},localL2:{available:l2?.available===true,sequenceHealthy:l2?.sequenceHealthy===true,confidence:finite(l2?.confidence),multiLevelOfi:finite(l2?.multiLevelOfi),depthImbalance:finite(l2?.depthImbalance)},contradictions};
+  const r4=x=>x===null?null:Number(x.toFixed(4));
+  return {version:BURST_TRIGGER_VERSION,clock:win.clock,side,score:Number(score.toFixed(4)),base:r4(base),ignition,strong,fresh,spreadBps:spread,acceleration:win.intensity===null?null:Number(win.intensity.toFixed(3)),
+    moveUnits:{fast:r4(z1),slow:r4(z3),noiseBps20:win.noiseBps},parts:Object.fromEntries(Object.entries(parts).map(([k,v])=>[k,r4(v)])),
+    preMove:{state:pmState||null,direction:pmDir||null,match:pmMatch},flow:{oneSec:f1,threeSec:f3},l1:{oneSec:o1,threeSec:o3},localL2:{available:l2?.available===true,sequenceHealthy:l2?.sequenceHealthy===true,confidence:finite(l2?.confidence),multiLevelOfi:finite(l2?.multiLevelOfi),depthImbalance:finite(l2?.depthImbalance)},contradictions};
 }
 
 // R43 (user rule 05.10.2026): no fixed burst margin. Flat account -> half of the panel margin;
@@ -90,16 +124,18 @@ function exitEvidence(snapshot,active,now=Date.now()){
     const jevHold=j?.action==='HOLD'&&jAt>0&&now-jAt<=10000&&progress!==null&&progress>0;
     if(!jevHold||now-Number(active.openedAt)>=600000)reason='BURST_TIME_EXIT';
   }
-  if(adverse.score>=0.82&&adverse.fresh)reviewReason='BURST_FLOW_REVERSAL';
+  // R2544.46: adverse evidence carries no pre-move bonus, so the reversal review reads the 0-1 base
+  // (>=0.90 ~ the old 0.82 of a 0.86 maximum). This only asks JEV to review; it never exits by itself.
+  if((adverse.base??0)>=0.90&&adverse.fresh&&!adverse.contradictions.includes('TRIGGER_WINDOW_INCOMPLETE'))reviewReason='BURST_FLOW_REVERSAL';
   else if(mfe>=0.55&&giveback>=Math.max(0.22,mfe*0.35))reviewReason='BURST_MFE_GIVEBACK';
   return {exit:!!reason,reason,reviewReason,progressR:progress===null?null:Number(progress.toFixed(4)),mfeR:Number(mfe.toFixed(4)),maeR:Number(mae.toFixed(4)),givebackR:Number(giveback.toFixed(4)),adverse};
 }
 
 class BurstScalpManager{
   constructor({marketStream,now=()=>Date.now(),maxArmed=4,maxActive=1,onEvent=()=>{}}={}){this.marketStream=marketStream;this.now=now;this.maxArmed=maxArmed;this.maxActive=maxActive;this.onEvent=onEvent;this.armed=new Map();this.active=new Map();this.history=[];this.pauseExceptionConsumedFor=null;}
-  arm(auth){const symbol=String(auth?.symbol||'').toUpperCase(),side=String(auth?.side||'').toUpperCase();if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol)||!['LONG','SHORT'].includes(side))return {ok:false,reason:'BURST_AUTH_INVALID'};const now=this.now(),ttl=Math.max(15000,Math.min(180000,Number(auth?.ttlMs)||120000));
+  arm(auth){const symbol=String(auth?.symbol||'').toUpperCase(),side=String(auth?.side||'').toUpperCase();if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol)||!['LONG','SHORT'].includes(side))return {ok:false,reason:'BURST_AUTH_INVALID'};const now=this.now(),ttl=Math.max(BURST_TTL_MS.TTL_120S,Math.min(BURST_TTL_MS.TTL_180S,Number(auth?.ttlMs)||BURST_TTL_MS.TTL_120S));
     if(!this.armed.has(symbol)&&this.armed.size>=this.maxArmed){const victim=[...this.armed.values()].sort((a,b)=>a.expiresAt-b.expiresAt)[0];if(victim)this.armed.delete(victim.symbol);}
-    const row={authorizationId:String(auth.authorizationId||id('bauth')),symbol,side,armedAt:now,expiresAt:now+ttl,preMove:auth.preMove||null,jevReason:String(auth.jevReason||'').slice(0,300),pauseExceptionAllowed:auth.pauseExceptionAllowed===true,leverageMode:String(auth.leverageMode||'MAX_SAFE'),triggerThreshold:Math.max(0.82,Math.min(0.98,Number(auth.triggerThreshold)||0.90)),source:'JEV_PREAUTHORIZED',authority:'JEV_FINAL_CONDITIONAL'};
+    const row={authorizationId:String(auth.authorizationId||id('bauth')),symbol,side,armedAt:now,expiresAt:now+ttl,preMove:auth.preMove||null,jevReason:String(auth.jevReason||'').slice(0,300),pauseExceptionAllowed:auth.pauseExceptionAllowed===true,leverageMode:String(auth.leverageMode||'MAX_SAFE'),triggerThreshold:Math.max(BURST_STRICTNESS.TRIGGER_STANDARD,Math.min(0.98,Number(auth.triggerThreshold)||BURST_STRICTNESS.TRIGGER_STRICT)),source:'JEV_PREAUTHORIZED',authority:'JEV_FINAL_CONDITIONAL'};
     this.armed.set(symbol,row);this.marketStream?.ensureSymbol?.(symbol);this.marketStream?.ensureLocalL2?.(symbol,{priority:'BURST',leaseMs:ttl+1000});this._event('ARM',row);return {ok:true,authorization:row};}
   disarm(symbol,reason='EXPIRED'){symbol=String(symbol||'').toUpperCase();const row=this.armed.get(symbol);if(row){this.armed.delete(symbol);this._event('DISARM',{symbol,reason,authorizationId:row.authorizationId});}return !!row;}
   cleanup(){const now=this.now();for(const [s,a] of this.armed)if(a.expiresAt<=now)this.disarm(s,'TTL_EXPIRED');}
@@ -117,4 +153,4 @@ class BurstScalpManager{
   _event(kind,data){const event={at:new Date(this.now()).toISOString(),kind,...JSON.parse(JSON.stringify(data||{}))};this.history.unshift(event);this.history=this.history.slice(0,50);try{this.onEvent(event);}catch{}}
 }
 
-module.exports={finite,burstEvidence,exitEvidence,burstMarginRule,BurstScalpManager};
+module.exports={finite,burstEvidence,exitEvidence,burstMarginRule,BurstScalpManager,BURST_STRICTNESS,BURST_PAUSE_EXCEPTION_MIN,BURST_TTL_MS,BURST_TRIGGER_VERSION};

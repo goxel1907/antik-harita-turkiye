@@ -3,6 +3,7 @@ const path=require('path');
 const crypto=require('node:crypto');
 const {marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest}=require('./jev-market-packet');
 const {encodeMarketPacket,expandMarketPacket}=require('./jev-wire-market');
+const {BURST_STRICTNESS,BURST_TTL_MS}=require('./burst-scalp');
 
 const DEFAULTS={
   enabled:false,
@@ -88,6 +89,22 @@ function sovereignFinalConsistency({selectedId,selectedPlan,setupFamily,entryTim
     if(['TRAP_RISK_HIGH','TRAP_RISK_ELEVATED'].includes(String(sideRow?.state||'').toUpperCase()))issues.push('ORDER_FLOW_EDGE_ON_TRAP_RISK_SIDE');
   }
   return {ok:issues.length===0,issues:[...new Set(issues)]};
+}
+// R2544.46 burst pre-authorization flow digest (trade clock; legacy 1s/3s only if a stream has no trade clock).
+function burstWindowDigest(w){
+  if(!w||typeof w!=='object')return null;
+  return Object.fromEntries(['trades','spanMs','tradesPerSec','buyRatio','sellRatio','priceMoveBps','deltaQuote','largeBuyCount','largeSellCount'].map(k=>[k,finiteNumber(w[k])]));
+}
+function burstFlowDigest(stream){
+  const tc=stream?.orderFlow?.tradeClock,w=stream?.orderFlow?.windows||{};
+  if(!tc||typeof tc!=='object')return {clock:'LEGACY_1S_3S',oneSec:burstWindowDigest(w['1s']),threeSec:burstWindowDigest(w['3s'])};
+  return {clock:'TRADES',fast:burstWindowDigest(tc.fast),slow:burstWindowDigest(tc.slow),thirtySec:burstWindowDigest(w['30s']),
+    noiseBps20:finiteNumber(tc.noiseBps20),baselineTradesPerSec:finiteNumber(tc.baselineTradesPerSec),intensityRatio:finiteNumber(tc.intensityRatio)};
+}
+function burstOfiDigest(o){
+  if(!o||typeof o!=='object')return null;
+  if(o.available===false)return {available:false,reason:o.reason||null};
+  return {available:true,samples:finiteNumber(o.samples),normalizedOfi:finiteNumber(o.normalizedOfi),queueImbalanceCurrent:finiteNumber(o.queueImbalanceCurrent),micropriceBps:finiteNumber(o.micropriceBps),priceMoveBps:finiteNumber(o.priceMoveBps)};
 }
 function sovereignFrame(f){
   if(!f?.available)return {available:false,reason:f?.reason||'UNAVAILABLE'};
@@ -1756,8 +1773,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       preMove:preMove&&typeof preMove==='object'?{state:preMove.state||null,direction:preMove.direction||null,priority:finiteNumber(preMove.priority),frame:preMove.frame||null,triggers:preMove.triggers||null,reasons:Array.isArray(preMove.reasons)?preMove.reasons.slice(0,8):[]}:null,
       stream:stream&&typeof stream==='object'?{
         available:stream.available===true,ageMs:finiteNumber(stream.ageMs),spreadBps:finiteNumber(stream.spreadBps),
-        orderFlow:{oneSec:stream?.orderFlow?.windows?.['1s']||null,threeSec:stream?.orderFlow?.windows?.['3s']||null,fiveSec:stream?.orderFlow?.windows?.['5s']||null},
-        level1Ofi:{oneSec:stream?.level1Ofi?.windows?.['1s']||null,threeSec:stream?.level1Ofi?.windows?.['3s']||null},
+        // R2544.46: trade-clock flow (never empty on thin coins) replaces the fixed 1s/3s/5s windows.
+        orderFlow:burstFlowDigest(stream),
+        level1Ofi:{fast:burstOfiDigest(stream?.level1Ofi?.eventClock?.fast),slow:burstOfiDigest(stream?.level1Ofi?.eventClock?.slow)},
         localL2:stream?.localL2?{available:stream.localL2.available===true,sequenceHealthy:stream.localL2.sequenceHealthy===true,ageMs:finiteNumber(stream.localL2.ageMs),confidence:finiteNumber(stream.localL2.confidence),multiLevelOfi:finiteNumber(stream.localL2.multiLevelOfi),depthImbalance:finiteNumber(stream.localL2.depthImalance??stream.localL2.depthImbalance),wallPersistence:stream.localL2.wallPersistence||null,liquidityPull:stream.localL2.liquidityPull||null,replenishment:stream.localL2.replenishment||null,absorption:stream.localL2.absorption||null}:null
       }:null,
       existingPosition:position?{symbol:String(position.symbol||'').toUpperCase(),side:String(position.side||'').toUpperCase(),quantity:finiteNumber(position.quantity),ownerTF:position.ownerTF||null}:null,
@@ -1765,14 +1783,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     };
     const body={
       model:cfg.model,
-      state:{description:'JEV conditional preauthorization, never an entry order. Select ONE LONG/SHORT symbol for a PC-only burst watcher. Read closed-candle OB/FVG/Fib/OTE, protected trendLines/breakoutEvidence (age/stillInside), Office overlays and higher context. Timeframes are context, not votes; 45m is synthetic. Current record.stream is timing evidence; cached packet flow is historical. Missing/stale data is not confirmation. Plausible compression/pre-move/location can authorize BEFORE ignition; do not demand later 1s/3s trigger checks now. Execution still requires fresh complete stream, spread, sequence-safe L2, 1s/3s flow and OFI. Another-symbol core trade permits a separate burst slot. At most one unusually strict exception per 2-loss/30m pause. Never infer participant identity or bypass exchange safety.',record:compact,experienceMemory:compactExperienceMemory(learning,3500),coreMarketPacket:chartContext.packet,chartCache:{asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source}},
+      state:{description:'JEV conditional preauthorization, never an entry order. Select ONE LONG/SHORT symbol for a PC-only burst watcher. Read closed-candle OB/FVG/Fib/OTE, protected trendLines/breakoutEvidence (age/stillInside), Office overlays and higher context. Timeframes are context, not votes; 45m is synthetic. Current record.stream is timing evidence; cached packet flow is historical. Missing/stale data is not confirmation. Plausible compression/pre-move/location can authorize BEFORE ignition; do not demand the later trigger now. stream.orderFlow is a TRADE CLOCK (fast>=20 trades, slow>=60; noiseBps20=typical 20-trade move): an empty 1s window on a thin coin is not missing data; FLOW gap only if fast <8 trades. Missing OFI is neutral. Execution later needs fresh stream, spread<=8bps, sequence-safe L2, trade-clock trigger. Another-symbol core trade permits a separate burst slot. At most one unusually strict exception per 2-loss/30m pause. Never infer participant identity or bypass exchange safety.',record:compact,experienceMemory:compactExperienceMemory(learning,3500),coreMarketPacket:chartContext.packet,chartCache:{asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source}},
       questions:{
         burst_decision:{type:'choice',instructions:'Pre-authorize a conditional burst direction or do not arm.',criteria:{ARM_LONG:'Arm LONG only; later trigger may execute LONG.',ARM_SHORT:'Arm SHORT only; later trigger may execute SHORT.',DO_NOT_ARM:'Do not arm this symbol now.'}},
         burst_reason:{type:'choice',instructions:'Report the primary reason for this conditional authorization or refusal. Do not confuse preauthorization with an entry order.',criteria:{EARLY_EXPANSION:'Plausible early expansion; watcher must confirm ignition.',LOCATION_ADVERSE:'Location/remaining path is adverse.',FLOW_ADVERSE:'Observed public flow is adverse.',DATA_NOT_READY:'Material data is unavailable/stale.',NO_EARLY_EDGE:'No credible early expansion setup.',POSITION_CONFLICT:'Same-symbol opposite core position.',RISK_OR_PAUSE:'Risk or pause makes this authorization unsuitable.'}},
         burst_data_gap:{type:'choice',instructions:'Identify DATA_NOT_READY subsystem; otherwise NO_GAP.',criteria:{NO_GAP:'None.',CHART:'Closed chart.',STREAM:'Freshness.',L2:'Local book.',FLOW:'Trades/OFI.',DERIVATIVES:'Derivatives.',OTHER:'Other evidence.'}},
-        ttl:{type:'choice',instructions:'How long may this pre-authorization remain valid?',criteria:{TTL_30S:'30 seconds',TTL_60S:'60 seconds',TTL_120S:'120 seconds'}},
-        trigger_strictness:{type:'choice',instructions:'Choose deterministic ignition strictness.',criteria:{STRICT_082:'Require trigger score >=0.82 with fresh stream, healthy L2, aligned pre-move and no contradictions.',STRICT_090:'Require trigger score >=0.90.',VERY_STRICT_094:'Require trigger score >=0.94.'}},
-        leverage_mode:{type:'choice',instructions:'User burst mandate: highest safe leverage within the configured user cap and exchange bracket; do not substitute normal panel leverage.',criteria:{MAX_SAFE:'Use the highest exchange-allowed leverage that still passes user cap and burst liquidation/stop safety.'}},
+        ttl:{type:'choice',instructions:'How long may this authorization wait for ignition?',criteria:{TTL_120S:'120 seconds',TTL_180S:'180 seconds'}},
+        trigger_strictness:{type:'choice',instructions:'Trade-clock trigger score threshold.',criteria:Object.fromEntries(Object.entries(BURST_STRICTNESS).map(([k,v])=>[k,'score >='+v.toFixed(2)]))},
+        leverage_mode:{type:'choice',instructions:'User burst mandate: highest safe leverage, never above 25x; not panel leverage.',criteria:{MAX_SAFE:'Highest exchange-allowed leverage up to 25x passing burst stop safety.'}},
         pause_exception:{type:'choice',instructions:'If the account is currently in the 2-loss/30m entry pause, may this authorization use the single strict burst exception?',criteria:{ALLOW_ONE_STRICT_EXCEPTION:'Allow the one-per-pause strict burst exception.',NO_PAUSE_EXCEPTION:'Do not allow burst execution during the pause.'}}
       }
     };
@@ -1780,10 +1798,10 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!out.ok)return {...out,called:out.called!==false,decision:'DO_NOT_ARM',mode:'BURST_PREAUTH'};
     const a=out.data?.answers||{};
     const decision=choiceValue(a.burst_decision),ttl=choiceValue(a.ttl),strict=choiceValue(a.trigger_strictness),lev=choiceValue(a.leverage_mode),pex=choiceValue(a.pause_exception);
-    if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!['TTL_30S','TTL_60S','TTL_120S'].includes(ttl)||!['STRICT_082','STRICT_090','VERY_STRICT_094'].includes(strict)||lev!=='MAX_SAFE'||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
+    if(!['ARM_LONG','ARM_SHORT','DO_NOT_ARM'].includes(decision)||!Object.hasOwn(BURST_TTL_MS,ttl)||!Object.hasOwn(BURST_STRICTNESS,strict)||lev!=='MAX_SAFE'||!['ALLOW_ONE_STRICT_EXCEPTION','NO_PAUSE_EXCEPTION'].includes(pex))return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
     const chosenSide=decision==='ARM_LONG'?'LONG':decision==='ARM_SHORT'?'SHORT':null,pmDir=String(preMove?.direction||'').toUpperCase();
     if(chosenSide&&['LONG','SHORT'].includes(pmDir)&&chosenSide!==pmDir)return {ok:false,configured:true,called:true,decision:'DO_NOT_ARM',reason:'JEV_BURST_DIRECTION_CONTRADICTS_PREMOVE',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,reason:['EARLY_EXPANSION','LOCATION_ADVERSE','FLOW_ADVERSE','DATA_NOT_READY','NO_EARLY_EDGE','POSITION_CONFLICT','RISK_OR_PAUSE'].includes(choiceValue(a.burst_reason))?choiceValue(a.burst_reason):'JEV_REASON_NOT_PROVIDED',dataGap:['NO_GAP','CHART','STREAM','L2','FLOW','DERIVATIVES','OTHER'].includes(choiceValue(a.burst_data_gap))?choiceValue(a.burst_data_gap):'NOT_REPORTED',side:chosenSide,ttlMs:ttl==='TTL_30S'?30000:ttl==='TTL_60S'?60000:120000,triggerThreshold:strict==='VERY_STRICT_094'?0.94:strict==='STRICT_082'?0.82:0.90,leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,reason:['EARLY_EXPANSION','LOCATION_ADVERSE','FLOW_ADVERSE','DATA_NOT_READY','NO_EARLY_EDGE','POSITION_CONFLICT','RISK_OR_PAUSE'].includes(choiceValue(a.burst_reason))?choiceValue(a.burst_reason):'JEV_REASON_NOT_PROVIDED',dataGap:['NO_GAP','CHART','STREAM','L2','FLOW','DERIVATIVES','OTHER'].includes(choiceValue(a.burst_data_gap))?choiceValue(a.burst_data_gap):'NOT_REPORTED',side:chosenSide,ttlMs:BURST_TTL_MS[ttl],triggerThreshold:BURST_STRICTNESS[strict],leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize};
   }
 
   async function sovereignBurstExit({active,stream,progress,chartContext,learning=null}={}){

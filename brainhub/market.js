@@ -230,6 +230,39 @@ function bookTickerFlowStats(history, now, windowMs) {
     note:'Level-1 OFI from consecutive public best-bid/ask price+size observations; not full L2/L3 reconstruction and not participant identity.'
   };
 }
+// R2544.46 trade-clock windows (user rule 05.10.2026: burst must work on thin coins too).
+// A fixed 1s/3s window is empty on most altcoins, so the burst trigger saw "no data" and JEV refused.
+// The window covers at least minMs AND at least minTrades trades (whichever reaches further back),
+// never older than maxMs. Same ring buffer, no extra network call.
+function flowTradeClockStats(trades, now, {minTrades=20, minMs=1000, maxMs=15000}={}) {
+  const all=(Array.isArray(trades)?trades:[]).filter(x=>now>=x.at&&now-x.at<=maxMs);
+  const byTime=all.filter(x=>now-x.at<=minMs);
+  const rows=byTime.length>=minTrades?byTime:all.slice(-minTrades);
+  const windowMs=rows.length?Math.max(minMs,now-rows[0].at):maxMs;
+  const st=flowWindowStats(rows,now,windowMs);
+  const spanMs=rows.length?Math.max(1,now-rows[0].at):null;
+  return {...st,clock:'TRADES',minTrades,minMs,maxMs,spanMs,
+    tradesPerSec:spanMs?round(rows.length/Math.max(spanMs,minMs)*1000,3):0,
+    complete:rows.length>=minTrades,semantics:'PUBLIC_AGGTRADE_TRADE_CLOCK_WINDOW'};
+}
+// Typical absolute price move per block of blockTrades trades over the ring buffer (median, bps).
+// Lets the trigger read a move in the coin's own units instead of fixed bps.
+function tradeClockNoiseBps(trades, now, {blockTrades=20, maxMs=120000, floorBps=1}={}) {
+  const rows=(Array.isArray(trades)?trades:[]).filter(x=>now>=x.at&&now-x.at<=maxMs&&x.price>0);
+  const moves=[];
+  for(let i=blockTrades;i<rows.length;i+=blockTrades){const a=rows[i-blockTrades].price,b=rows[i].price;moves.push(Math.abs(b-a)/a*10000);}
+  if(moves.length<4)return null;
+  moves.sort((a,b)=>a-b);
+  return round(Math.max(floorBps,moves[Math.floor(moves.length/2)]),4);
+}
+// Level-1 OFI on an event clock: at least minSamples bookTicker samples and at least minMs, at most maxMs.
+function bookTickerEventClockStats(history, now, {minSamples=10, minMs=1000, maxMs=15000}={}) {
+  const all=(Array.isArray(history)?history:[]).filter(x=>now>=x.at&&now-x.at<=maxMs);
+  const byTime=all.filter(x=>now-x.at<=minMs);
+  const rows=byTime.length>=minSamples?byTime:all.slice(-minSamples);
+  const windowMs=rows.length?Math.max(minMs,now-Math.min(...rows.map(x=>x.at))):maxMs;
+  return {...bookTickerFlowStats(rows,now,windowMs),clock:'EVENTS',minSamples,maxMs};
+}
 function depthDynamics(history, trades, now, mid) {
   if(!(mid>0))return {available:false,reason:'MID_UNAVAILABLE'};
   const rows=(Array.isArray(history)?history:[]).filter(x=>now>=x.at&&now-x.at<=45000);
@@ -588,6 +621,13 @@ class StreamingMarket {
     // aggTrade/bookTicker ring buffers. No extra REST call is introduced.
     const flow1=flowWindowStats(state.trades,now,1000), flow3=flowWindowStats(state.trades,now,3000), flow5=flowWindowStats(state.trades,now,5000), flow10=flowWindowStats(state.trades,now,10000), flow15=flowWindowStats(state.trades,now,15000), flow30=flowWindowStats(state.trades,now,30000), flow60=flowWindowStats(state.trades,now,60000), flow120=flowWindowStats(state.trades,now,120000);
     const l1Ofi1=bookTickerFlowStats(state.bookHistory,now,1000),l1Ofi3=bookTickerFlowStats(state.bookHistory,now,3000),l1Ofi5=bookTickerFlowStats(state.bookHistory,now,5000),l1Ofi15=bookTickerFlowStats(state.bookHistory,now,15000),l1Ofi30=bookTickerFlowStats(state.bookHistory,now,30000),l1Ofi60=bookTickerFlowStats(state.bookHistory,now,60000),l1Ofi120=bookTickerFlowStats(state.bookHistory,now,120000);
+    // R2544.46: trade-clock / event-clock windows for the burst trigger (see flowTradeClockStats).
+    const tcFast=flowTradeClockStats(state.trades,now,{minTrades:20,minMs:1000,maxMs:15000}),tcSlow=flowTradeClockStats(state.trades,now,{minTrades:60,minMs:3000,maxMs:45000});
+    const tcCoverageMs=state.createdAt>0&&now>=state.createdAt?Math.min(this.tradeWindowMs,now-state.createdAt):0;
+    const baselineTradesPerSec=tcCoverageMs>=30000?round(flow120.trades/(tcCoverageMs/1000),4):null;
+    const tradeClock={fast:tcFast,slow:tcSlow,noiseBps20:tradeClockNoiseBps(state.trades,now,{blockTrades:20}),baselineTradesPerSec,
+      intensityRatio:baselineTradesPerSec>0&&tcFast.tradesPerSec>0?round(tcFast.tradesPerSec/baselineTradesPerSec,3):null};
+    const ofiClock={fast:bookTickerEventClockStats(state.bookHistory,now,{minSamples:10,minMs:1000,maxMs:15000}),slow:bookTickerEventClockStats(state.bookHistory,now,{minSamples:30,minMs:3000,maxMs:45000})};
     const dynamics=depthDynamics(state.depthHistory,state.trades,now,mid || state.book?.bid || state.book?.ask || 0);
     const localL2=this.localL2.snapshot(symbol,now,state.trades);
     const liqVelocity=liquidationVelocity(state.liquidations,now);
@@ -617,8 +657,8 @@ class StreamingMarket {
       cvdSource:'BINANCE_WS_AGGTRADE',
       cvdAsOf:state.tradeAt || null,
       cvdAgeMs:state.tradeAt > 0 && now >= state.tradeAt ? now - state.tradeAt : null,
-      orderFlow:{windows:{'1s':flow1,'3s':flow3,'5s':flow5,'10s':flow10,'15s':flow15,'30s':flow30,'60s':flow60,'120s':flow120},semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
-      level1Ofi:{windows:{'1s':l1Ofi1,'3s':l1Ofi3,'5s':l1Ofi5,'15s':l1Ofi15,'30s':l1Ofi30,'60s':l1Ofi60,'120s':l1Ofi120},semantics:'SEQUENCED_PUBLIC_BOOKTICKER_LEVEL1_OFI_ONLY'},
+      orderFlow:{windows:{'1s':flow1,'3s':flow3,'5s':flow5,'10s':flow10,'15s':flow15,'30s':flow30,'60s':flow60,'120s':flow120},tradeClock,semantics:'PUBLIC_AGGTRADE_EVIDENCE_ONLY'},
+      level1Ofi:{windows:{'1s':l1Ofi1,'3s':l1Ofi3,'5s':l1Ofi5,'15s':l1Ofi15,'30s':l1Ofi30,'60s':l1Ofi60,'120s':l1Ofi120},eventClock:ofiClock,semantics:'SEQUENCED_PUBLIC_BOOKTICKER_LEVEL1_OFI_ONLY'},
       depthDynamics:dynamics,
       localL2,
       observedLiquidations:{
@@ -1578,4 +1618,4 @@ async function globalContext() {
   globalCache = { at: now, result };
   return result;
 }
-module.exports = { warmChartContext, cachedChartContext, chartContextFromSnapshot, liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, modeledLiquidationDensityFromOi, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats, bookTickerFlowStats };
+module.exports = { warmChartContext, cachedChartContext, chartContextFromSnapshot, liquidationHistory, restCvd120, globalContext, symbolContext, preMoveProbe, derivativesContext, modeledLiquidationDensityFromOi, chartContext, atomicMirrorContext, renderChartPng, validSymbol, StreamingMarket, marketStream, liquidationZones, liquidationVelocity, depthImbalance, depthSoftContext, depthDynamics, flowWindowStats, bookTickerFlowStats, flowTradeClockStats, tradeClockNoiseBps, bookTickerEventClockStats };

@@ -17,8 +17,10 @@ function snap(side='LONG'){
 test('R2544.29 LONG/SHORT burst evidence is symmetric and ignition-capable',()=>{
   const l=burstEvidence(snap('LONG'),'LONG',{preMove:{state:'IGNITION',direction:'LONG'}});
   const s=burstEvidence(snap('SHORT'),'SHORT',{preMove:{state:'IGNITION',direction:'SHORT'}});
-  assert.equal(l.ignition,true); assert.equal(s.ignition,true);
-  assert.ok(l.score>=.90); assert.ok(s.score>=.90);
+  // R2544.46: one 0.10 pre-move bonus for PRE_MOVE and IGNITION; a strong burst clears the default trigger.
+  const {BURST_STRICTNESS}=require('../burst-scalp');
+  assert.equal(l.strong,true); assert.equal(s.strong,true); assert.equal(l.score,s.score);
+  assert.ok(l.score>=BURST_STRICTNESS.TRIGGER_STRICT,String(l.score));
 });
 
 test('R2544.29 burst fails closed on unhealthy L2 or wide spread',()=>{

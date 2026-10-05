@@ -12,12 +12,19 @@ class BurstPreparationQueue{
   return [...this.pending.values()].slice(0,limit).map(p=>p.candidate);
  }
 }
+// R2544.46: readiness reads the trade clock (>=8 trades within 15 s) instead of a fixed 3 s window, which is
+// empty on most altcoins. L1 OFI is optional evidence (neutral when missing), never a readiness veto.
 function burstPreparationReadiness(stream){
- const reasons=[],l2=stream?.localL2||{},f=stream?.orderFlow?.windows?.['3s'],o=stream?.level1Ofi?.windows?.['3s'];
+ const reasons=[],l2=stream?.localL2||{},tc=stream?.orderFlow?.tradeClock,f=stream?.orderFlow?.windows?.['3s'];
+ const o=stream?.level1Ofi?.eventClock?.fast||stream?.level1Ofi?.windows?.['3s'];
  if(stream?.available!==true||!finite(stream?.ageMs)||Number(stream.ageMs)<0||Number(stream.ageMs)>2500)reasons.push('BURST_STREAM_NOT_FRESH');
  if(l2.available!==true||l2.sequenceHealthy!==true||!finite(l2.confidence)||Number(l2.confidence)<0.55)reasons.push('BURST_L2_NOT_READY');
- if(!finite(f?.buyRatio)||!finite(f?.sellRatio)||!finite(f?.priceMoveBps)||(finite(f?.trades)&&Number(f.trades)<2))reasons.push('BURST_3S_TRADES_NOT_READY');
- if(!finite(o?.normalizedOfi)||o?.available===false||(finite(o?.transitions)&&Number(o.transitions)<1))reasons.push('BURST_3S_OFI_NOT_READY');
- return {ready:reasons.length===0,reasons,streamAvailable:stream?.available===true,streamAgeMs:stream?.ageMs??null,l2State:l2.state||null,l2Ready:l2.available===true,l2AgeMs:l2.ageMs??null,l2Confidence:l2.confidence??null,trades3s:f?.trades??null,ofiTransitions3s:o?.transitions??null};
+ if(tc&&typeof tc==='object'){
+  const x=tc.fast||{};
+  if(!finite(x.buyRatio)||!finite(x.sellRatio)||!finite(x.priceMoveBps)||!(Number(x.trades)>=8))reasons.push('BURST_TRADE_CLOCK_NOT_READY');
+ }else if(!finite(f?.buyRatio)||!finite(f?.sellRatio)||!finite(f?.priceMoveBps)||(finite(f?.trades)&&Number(f.trades)<2))reasons.push('BURST_3S_TRADES_NOT_READY');
+ return {ready:reasons.length===0,reasons,streamAvailable:stream?.available===true,streamAgeMs:stream?.ageMs??null,l2State:l2.state||null,l2Ready:l2.available===true,l2AgeMs:l2.ageMs??null,l2Confidence:l2.confidence??null,
+  trades3s:f?.trades??null,tradeClockFastTrades:tc?.fast?.trades??null,tradeClockFastSpanMs:tc?.fast?.spanMs??null,
+  ofiAvailable:finite(o?.normalizedOfi)&&o?.available!==false,ofiTransitions3s:o?.transitions??null};
 }
 module.exports={BurstPreparationQueue,burstPreparationReadiness};

@@ -30,7 +30,7 @@ const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
 const {createProfitBudget}=require('./profit-budget');
 const {createBurstReduction}=require('./burst-reduction');
-const { BurstScalpManager, burstMarginRule } = require('./burst-scalp');
+const { BurstScalpManager, burstMarginRule, BURST_PAUSE_EXCEPTION_MIN } = require('./burst-scalp');
 const { locationChaseGate } = require('./chart-readout');
 const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-preparation');
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
@@ -2817,7 +2817,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const maxOpenPositions = finite(current.maxOpenPositions);
     const burstMarginQuote = finite(current.burstMarginQuote) ?? marginQuote;
     const burstFreeMarginFraction = finite(current.burstFreeMarginFraction) ?? 0.50;
-    const burstMaxLeverage = finite(current.burstMaxLeverage) ?? 125;
+    const burstMaxLeverage = finite(current.burstMaxLeverage) ?? 25; // R2544.46: sizing never exceeds 25x
     const allowLong = current.allowLong === true;
     const allowShort = current.allowShort === true;
     const reasons = [];
@@ -2853,7 +2853,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try {
       if (fs.existsSync(leaderAutoFile)) raw = JSON.parse(fs.readFileSync(leaderAutoFile, 'utf8'));
     } catch {
-      return { ok:false, config:{ enabled:false, marginQuote:null, leverage:null, maxOpenPositions:null, burstMarginQuote:null, burstFreeMarginFraction:0.50, burstMaxLeverage:125, allowLong:false, allowShort:false, intervalSec:30 }, reasons:['LEADER_AUTO_CONFIG_INVALID'] };
+      return { ok:false, config:{ enabled:false, marginQuote:null, leverage:null, maxOpenPositions:null, burstMarginQuote:null, burstFreeMarginFraction:0.50, burstMaxLeverage:25, allowLong:false, allowShort:false, intervalSec:30 }, reasons:['LEADER_AUTO_CONFIG_INVALID'] };
     }
     return normalizeLeaderAuto(raw, readPolicy(root));
   }
@@ -5055,6 +5055,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // Normal maxOpenPositions is intentionally separate; burstSlots=1 is the independent cap.
   // 2-loss/30m pause remains binding except one VERY-STRICT JEV-preauthorized ignition per pause.
   // =====================================================================
+  const BURST_LEVERAGE_CEILING=25;
+  // R2544.46: a JEV DO_NOT_ARM for the same symbol and pre-move phase is not re-asked for 5 min (it was re-asked
+  // after 2 min: 216 of 924 burst calls on 05.10 repeated a symbol inside 5 min). A changed phase/direction may be
+  // re-asked after 30 s; an armed symbol keeps the old 2 min.
+  const burstReviewCooldownMs=prior=>prior?.armed===true?120000:300000;
   function burstFloor(v,step){const n=finite(v),s=finite(step);if(n===null||s===null||s<=0)return null;return Number((Math.floor((n/s)+1e-10)*s).toPrecision(15));}
   function burstTickPrice(v,tick,mode='round'){const n=finite(v),t=finite(tick);if(n===null||t===null||t<=0)return null;const q=mode==='down'?Math.floor(n/t+1e-10):mode==='up'?Math.ceil(n/t-1e-10):Math.round(n/t);return Number((q*t).toPrecision(15));}
   function burstCurrentPosition(symbol){const s=String(symbol||'').toUpperCase();return (ledgerState.open||[]).find(x=>String(x?.symbol||'').toUpperCase()===s)||null;}
@@ -5077,7 +5082,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let scan;try{scan=await scanner.scan();}catch{return skipped('SCANNER_UNAVAILABLE',false);}
       const pool=burstCandidatePool(scan);if(!pool.length)return skipped('BURST_NO_CANDIDATES');
       const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return skipped('BURST_ARM_FULL');
-      const chosen=burstPreparation.pick(pool,{armed:[...burst.armed.keys()],blocked:pool.filter(c=>{const p=burstReviewAt.get(c.symbol);return p&&clock()-p.at<120000;}).map(c=>c.symbol),slots:vacancies});
+      const chosen=burstPreparation.pick(pool,{armed:[...burst.armed.keys()],blocked:pool.filter(c=>{const p=burstReviewAt.get(c.symbol);if(!p)return false;const age=clock()-p.at;if(age<30000)return true;if(age>=burstReviewCooldownMs(p))return false;const ph=c.burstPreMove||c.preMove;return !ph||`${String(ph.state||'').toUpperCase()}:${String(ph.direction||'').toUpperCase()}`===p.phaseKey;}).map(c=>c.symbol),slots:vacancies});
       const results=[];
       for(const c of chosen){
         // Keep at most two persistent preparation feeds; grant no authority
@@ -5088,7 +5093,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const prior=burstReviewAt.get(c.symbol);
         const phase=c.burstPreMove||c.preMove;
         const phaseKey=phase?`${String(phase.state||'').toUpperCase()}:${String(phase.direction||'').toUpperCase()}`:null;
-        if(prior&&clock()-prior.at<120000&&(clock()-prior.at<30000||!phaseKey||phaseKey===prior.phaseKey)){results.push({symbol:c.symbol,armed:false,reason:'JEV_PREAUTH_RECHECK_COOLDOWN',nextReviewAt:prior.at+120000});continue;}
+        if(prior&&clock()-prior.at<burstReviewCooldownMs(prior)&&(clock()-prior.at<30000||!phaseKey||phaseKey===prior.phaseKey)){results.push({symbol:c.symbol,armed:false,reason:'JEV_PREAUTH_RECHECK_COOLDOWN',nextReviewAt:prior.at+burstReviewCooldownMs(prior)});continue;}
         let pm=c.burstPreMove||c.preMove||null;
         if(!pm&&market&&typeof market.preMoveProbe==='function'){
           // Only a few JEV burst candidates use this closed-candle probe; normal 1s watcher remains pure WebSocket.
@@ -5108,8 +5113,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const requestReadiness=burstPreparationReadiness(stream);
         if(!requestReadiness.ready){results.push({symbol:c.symbol,armed:false,reason:requestReadiness.reasons[0],readiness:requestReadiness});traceBurst('BURST_PREPARATION',c.symbol,{reason:requestReadiness.reasons[0],...requestReadiness});continue;}
         const requestedAt=clock();
-        burstReviewAt.set(c.symbol,{at:clock(),phaseKey:`${String(pm.state||'').toUpperCase()}:${String(pm.direction||'').toUpperCase()}`});
-        if(burstReviewAt.size>200){for(const [symbol,review] of burstReviewAt)if(clock()-review.at>=120000)burstReviewAt.delete(symbol);}
+        const reviewRow={at:clock(),phaseKey:`${String(pm.state||'').toUpperCase()}:${String(pm.direction||'').toUpperCase()}`,armed:false};
+        burstReviewAt.set(c.symbol,reviewRow);
+        if(burstReviewAt.size>200){for(const [symbol,review] of burstReviewAt)if(clock()-review.at>=burstReviewCooldownMs(review))burstReviewAt.delete(symbol);}
         let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,chartContext,position:pos,pause:lossStreakPause(),learning:store.learningContext?.({symbol:c.symbol})});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
         const reviewEvidence={decision:j?.decision||'DO_NOT_ARM',called:j?.called===true,ok:j?.ok===true,reason:j?.reason||'JEV_REASON_NOT_PROVIDED',dataGap:j?.dataGap||'NOT_REPORTED',side:j?.side||null,preMove:{state:pm.state,direction:pm.direction},streamAvailable:stream?.available===true,streamAgeMs:stream?.ageMs??null,l2Ready:stream?.localL2?.available===true,l2Confidence:stream?.localL2?.confidence??null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null,requestReadiness,responseReadiness:burstPreparationReadiness(candidateStream.snapshot(c.symbol,clock())),durationMs:clock()-requestedAt};
         try{store.journal('BURST_PREAUTH_REVIEW',c.symbol,reviewEvidence);store.recordLearning?.('BURST_PREAUTH_REVIEW',c.symbol,{...reviewEvidence,authority:'SOFT_CONTEXT_ONLY',measurement:'DECISION_TRACE_NOT_TRADE_OUTCOME'});}catch{}
@@ -5117,6 +5123,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           // Existing opposite position is never hedged by burst v1.
           if(pos&&String(pos.side||'').toUpperCase()!==j.side){results.push({symbol:c.symbol,armed:false,reason:'OPPOSITE_CORE_POSITION'});releaseBurstPreparation(c.symbol);continue;}
           const a=burst.arm({symbol:c.symbol,side:j.side,ttlMs:j.ttlMs,triggerThreshold:j.triggerThreshold,leverageMode:j.leverageMode,pauseExceptionAllowed:j.pauseExceptionAllowed,preMove:pm,jevReason:`${c.burstReason||''}|${j.mode||''}`});
+          reviewRow.armed=a.ok===true;
           try{store.journal('BURST_ARM',c.symbol,{candidate:{reason:c.burstReason||null,sideHint:c.burstSideHint||null},preMove:pm,jev:j,authorization:a.authorization||null});}catch{}
           results.push({symbol:c.symbol,armed:a.ok===true,side:j.side,decision:j.decision,jevCalled:j.called===true,authorizationId:a.authorization?.authorizationId||null,reason:a.ok?null:a.reason});
         } else results.push({symbol:c.symbol,armed:false,jevCalled:j?.called===true,decision:j?.decision||null,reason:j?.reason||j?.decision||'JEV_DO_NOT_ARM'});
@@ -5134,7 +5141,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const rule=burstMarginRule({flat,panelMarginQuote:la.config.marginQuote,availableBalance:acct.availableBalance});
     if(!rule.ok)return {ok:false,reason:rule.reason};
     const margin=rule.marginQuote,burstMargin=flat?margin:null,freeFraction=0.50;
-    const userCap=Math.max(1,Math.min(125,Math.floor(finite(la.config.burstMaxLeverage)??125)));
+    // R2544.46 (user rule 05.10.2026): burst leverage never above 25x (fees scale with notional); a lower user cap wins.
+    const userCap=Math.max(1,Math.min(BURST_LEVERAGE_CEILING,Math.floor(finite(la.config.burstMaxLeverage)??BURST_LEVERAGE_CEILING)));
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'BURST_LEVERAGE_BRACKET_UNAVAILABLE'};}
     if(!(exchangeMax>=1))return {ok:false,reason:'BURST_EXCHANGE_MAX_LEVERAGE_INVALID'};
@@ -5233,7 +5241,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const chk=burst.evaluateArmed(auth.symbol);
         traceBurst('BURST_WATCH',auth.symbol,{authorizationId:auth.authorizationId,state:chk.trigger?'TRIGGER_READY':'WAIT_TRIGGER',score:chk.evidence?.score??null,threshold:auth.triggerThreshold,remainingMs:Math.max(0,auth.expiresAt-clock()),contradictions:chk.evidence?.contradictions||[],reason:chk.reason||null});
         if(!chk.ok||!chk.trigger)continue;
-        if(pause){const key=String(pause.pauseStartedAt||pause.until||'');const veryStrict=chk.evidence.score>=Math.max(0.94,auth.triggerThreshold)&&String(auth.preMove?.state||'').toUpperCase()==='IGNITION';if(!(auth.pauseExceptionAllowed&&veryStrict&&burst.pauseExceptionAvailable(key))){continue;}}
+        if(pause){const key=String(pause.pauseStartedAt||pause.until||'');const veryStrict=chk.evidence.score>=Math.max(BURST_PAUSE_EXCEPTION_MIN,auth.triggerThreshold)&&String(auth.preMove?.state||'').toUpperCase()==='IGNITION';if(!(auth.pauseExceptionAllowed&&veryStrict&&burst.pauseExceptionAvailable(key))){continue;}}
         const opened=await burstOpen(auth,chk.evidence);
         if(opened?.ok&&pause){burst.consumePauseException(String(pause.pauseStartedAt||pause.until||''));if(opened.active)opened.active.pauseExceptionUsed=true;}
         if(opened?.ok)return {ok:true,triggered:true,symbol:auth.symbol,opened};
