@@ -2316,8 +2316,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.41-POSITION-CONTEXT-MIRROR';
-const RUNTIME_BUILT_BY='Codex • 2026-10-05 • R2544.40: shared attention fairness and exchange-confirmed exit evidence';
+const RUNTIME_RELEASE='R2544.42-JEV-REACH-BUDGET';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-05 • R2544.42: JEV position judge and final decisions fit the request ceiling; urgent review backoff';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

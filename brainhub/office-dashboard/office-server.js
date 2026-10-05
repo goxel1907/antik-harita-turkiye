@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.21-R2544.41-JEV-Brain';
+const OFFICE_VERSION = '2.5.22-R2544.42-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -360,6 +360,9 @@ function derive(snap) {
       `Kalan ${Number(budget.remainingUsd).toFixed(6)} USD • çağrı rezervi ${Number(budget.reservePerCallUsd).toFixed(6)} USD • günlük sınır ${budget.dailyCapUsd} USD • sıfırlanma ${budget.nextResetAt || 'bilinmiyor'}. Tarama devam eder; yeni JEV ağ çağrısı yapılmaz.`);
     if (providerAccessBlocked) add('critical','JEV_PROVIDER_ACCESS',`JEV sağlayıcı erişimi reddedildi (HTTP ${providerError.httpStatus})`,
       `${providerError.category || 'AUTH'}${providerError.code?' • '+providerError.code:''}${providerError.message?' • '+providerError.message:''}. Bu stratejik BEKLE veya yürütme engeli değildir; JEV PASS-1/PASS-2 ağ hattı yetkilendirilemediği için yeni karar oluşmaz.`);
+    // R42: live 05.10 13:38-14:05 every JEV call failed with HTTP 402 (OpenRouter credits) but Office only showed JEV_HTTP_ERROR.
+    if (Number(providerError?.httpStatus) === 402) add('critical', 'JEV_PROVIDER_CREDITS', 'OpenRouter kredisi yetersiz (HTTP 402)',
+      `${providerError.message || 'Insufficient credits'}${providerError.at ? ' • ' + providerError.at : ''}. Kredi eklenene kadar JEV PASS-1/PASS-2/pozisyon kararları oluşmaz; bu stratejik BEKLE değildir.`);
     const fv = String(snap.health?.data?.featureVersion || st.featureVersion || '');
     const v109 = /9\.5\.(109-CLAUDE|11\d)/.test(fv); // CLAUDE_V112: 9.5.110+ (9.5.112-CLAUDE dahil)
     const cv = h.claudeV109 || {};
@@ -375,8 +378,10 @@ function derive(snap) {
     }
     if (!sovereign && wr >= 10 && wref / Math.max(1, wr) >= 0.8) add('serious', 'WORKER_LOOP', 'Plan worker döngüsü', `${wr} incelemenin ${wref}'i "9TF yenile" (%${Math.round(100 * wref / wr)}). Aynı coinler tekrar tekrar analiz ediliyor.`);
     const coverage=h.coverage;
+    // R42: while all position slots are full, new-entry analysis rests by design; a stale attention queue is expected then.
+    const restActive=h.claudeV112?.positionRest?.active===true;
     if(deep>=6&&coverage&&coverage.staleCount>=2&&coverage.oldestStaleMs>=10*60000)
-      add('warning','COVERAGE','İnceleme sırası gecikiyor',`${coverage.targetCount} dikkat adayının ${coverage.staleCount} tanesi yeniden inceleme bekliyor; en eski ${Math.floor(coverage.oldestStaleMs/60000)} dk. Borsa evreni ile dikkat listesi farklıdır.`);
+      add(restActive?'info':'warning','COVERAGE',restActive?'İnceleme sırası bekliyor (pozisyonlar dolu)':'İnceleme sırası gecikiyor',`${coverage.targetCount} dikkat adayının ${coverage.staleCount} tanesi yeniden inceleme bekliyor; en eski ${Math.floor(coverage.oldestStaleMs/60000)} dk. Borsa evreni ile dikkat listesi farklıdır.`);
     else if(deep>=6&&unique/Math.max(1,deep)<0.5)
       add('info','REANALYSIS','Yeniden inceleme',`${deep} analiz / ${unique} farklı coin. Tekrar analiz tek başına kapsam daralması veya işlem engeli değildir.`);
     if (deep >= 3 && vu / Math.max(1, deep) >= 0.25) add('serious', 'VISION_DOWN', 'Görsel analiz sık düşüyor', `${vu}/${deep} analizde görsel komite yanıt vermedi.`);
@@ -389,6 +394,16 @@ function derive(snap) {
     // CLAUDE_V112_POSITION_SLOTS_REST: pozisyonlar doluysa ajanlar bilinçli olarak dinlenir.
     const pr = h.claudeV112?.positionRest || null;
     if (pr?.active) add('ok', 'POSITION_REST', `Pozisyonlar dolu (${pr.openPositions}/${pr.maxOpenPositions}) — ajanlar dinleniyor`, `Yeni giriş analizi (Vision, hızlı hat/Jev, plan worker) ${pr.since ? new Date(pr.since).toLocaleTimeString('tr-TR') + "'den beri " : ''}durdu; Binance'e yeni emir gitmez. Açık pozisyonlar runner ve pozisyon yöneticisiyle yönetiliyor; yer açılınca kendiliğinden devam eder.`);
+    // R42: live 05.10 every review of the open position ended without a JEV call while Office only said
+    // "agents resting". An open position whose recent reviews never reached JEV is a visible blocker.
+    const pm = st.positionManager || {};
+    const openCount = Number(pm.ledger?.openCount ?? pos?.openCount ?? 0);
+    const reviews = (Array.isArray(pm.history) ? pm.history : []).filter(r => r && r.jev && typeof r.jev === 'object');
+    if (openCount > 0 && reviews.length >= 3 && reviews.every(r => r.jev.called !== true)) {
+      const why = [...new Set(reviews.map(r => r.jev.reason).filter(Boolean))].join(', ') || 'neden kaydedilmedi';
+      add('serious', 'JEV_POSITION_JUDGE_UNREACHED', `JEV pozisyon hakemine ulaşılamıyor (son ${reviews.length} inceleme)`,
+        `${[reviews[0].symbol, reviews[0].side].filter(Boolean).join(' ')} • neden: ${why}. Pozisyon yalnız borsadaki stop/TP ve guard ile korunuyor; TUT • VERİYİ YENİDEN KONTROL ET bir JEV kararı değildir.`);
+    }
     // CLAUDE_V112: LIVE kapalıyken Jev onayı hard safety'ye hiç gitmez; bu uyarı yalnız LIVE açıkken anlamlı.
     if (st.armed === true && !pr?.active && approved > 0 && intentBuilt === 0) add('warning', 'NO_INTENT', 'JEV onayı var, emir niyeti oluşmadı', 'JEV final kararından sonra intent üretimi hard-block nedenleriyle kesiliyor olabilir. leaderAuto.activeBlocker ve JEV_FINAL_AUTHORITY HARD_BLOCK nedenleri gösterilmelidir.');
     if (intentBuilt > 0 && hardSafetyReady === 0) add('warning', 'NO_SAFETY', 'Emir niyeti var, zorunlu güvenlik geçmedi', 'Stop/likidasyon geometrisi, bakiye/pozisyon limitleri, Binance filtreleri, taze fiyat, kill-switch, lease/lineage veya execution claim engeli olabilir.');

@@ -527,6 +527,9 @@ const PASS1_TARGET_BYTES=42000;
 const PASS2_TARGET_BYTES=46000;
 const OTHER_TARGET_BYTES=44000;
 const BURST_TARGET_BYTES=36000;
+// R42: compact management instruction used only when the management request is over its target.
+// Same contract as the full sovereignExit description; only explanatory prose is shortened.
+const MANAGEMENT_DESCRIPTION_COMPACT='JEV is the sole strategic position manager. Choose HOLD, PROTECT_PROFIT, REDUCE_RISK, PARTIAL_TAKE_PROFIT or EXIT_NOW from the supplied evidence; no fixed 1m/3m/5m/15m alignment and no score threshold. Weight conflicting evidence by actual importance. record.managementContract is the execution contract for PARTIAL_TAKE_PROFIT; a partial outside it is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead. EXIT_NOW is never restricted. REDUCE_RISK is for a losing/adverse position whose thesis is not fully invalidated; it is never profit taking. chartOverlayLevels trendLines/breakoutEvidence and frame volatility.trail/spike are soft context, never automatic exits. The professional trader Cortex and experienceMemory (caseMemory winners and counterexamples, caseMemoryByLane, tradeLessons = your own measured P&L) are always-on soft context, never a veto or rule; do not mechanically flip direction or rotate coins unless current structure, location and execution evidence is materially different. Code after this decision enforces execution integrity and exchange safety only. If a material concept is not understood, do not invent it.';
 
 function decisionPass(body){return body?.state?.record?.contract==='R2544.29_BURST_PREAUTH'?'BURST':body?.questions?.trade_plan?2:body?.questions?.lane_focus?1:'OTHER';}
 function targetBytesForPass(pass){return pass===1?PASS1_TARGET_BYTES:pass===2?PASS2_TARGET_BYTES:pass==='BURST'?BURST_TARGET_BYTES:OTHER_TARGET_BYTES;}
@@ -997,6 +1000,22 @@ function prepareDecisionRequest(input,opts={}){
     const packed=encodeMarketPacket(state.record);
     if(packed.encoded){state.record=packed.packet;trimStepsApplied.push('LOSSLESS_MANAGEMENT_ROWS');}
   }
+  // R42: live 05.10 management requests were still 49-54 kB after lossless rows and 100% blocked at the
+  // 48 kB ceiling, so JEV never reviewed the open position. Requested evidence repeats facts already in
+  // coreMarketPacket (frames, flow, depth, derivatives, narrative text): keep the requested/missing list and
+  // a residual digest. Position, lifecycle, thesis and contract stay protected and untouched.
+  if(management&&byteSize(body)>targetCap&&state.record&&typeof state.record==='object'){
+    const rec=expandMarketPacket(state.record),ev=rec?.requestedEvidence;
+    if(ev&&typeof ev==='object'&&!Array.isArray(ev)&&ev.residualCompacted!==true){
+      rec.requestedEvidence={...compactPass2EvidenceResidual(ev),missing:Array.isArray(ev.missing)?ev.missing.slice(0,8):[],
+        ...(ev.routingAvailable!==undefined?{routingAvailable:ev.routingAvailable}:{}),detailInCoreMarketPacket:true};
+      const packed=encodeMarketPacket(rec);state.record=packed.encoded?packed.packet:rec;
+      trimStepsApplied.push('MANAGEMENT_EVIDENCE_RESIDUAL');serialized=refresh();
+    }
+  }
+  if(management&&byteSize(body)>targetCap&&typeof state.description==='string'&&state.description.length>MANAGEMENT_DESCRIPTION_COMPACT.length){
+    state.description=MANAGEMENT_DESCRIPTION_COMPACT;trimStepsApplied.push('MANAGEMENT_DESCRIPTION_COMPACT');serialized=refresh();
+  }
   // R38: lifecycle evidence must fit the existing routing/burst targets.
   // Only duplicated narrative prose is shortened; numeric frames, readouts,
   // active/retired zones and protected overlays all survive exactly.
@@ -1016,6 +1035,33 @@ function prepareDecisionRequest(input,opts={}){
       trimStepsApplied.push(pass==='BURST'?'BURST_DUPLICATE_NARRATIVE_ONLY':'ROUTING_DUPLICATE_NARRATIVE_ONLY');
     }
   }
+  // R42 FIT_BEFORE_BLOCK: exceeding the hard ceiling drops the JEV decision entirely (live 05.10: PASS-2 43%,
+  // management 100% blocked). Before blocking, shrink only unprotected context in a fixed order: narrative
+  // prose that duplicates numeric frames, then soft context down to the smallest measured digest.
+  // protectedCoreTruth is re-hashed below; if the request still does not fit, the fail-closed block stands.
+  if(pass!=='BURST'&&byteSize(body)>hardCap&&state.coreMarketPacket){
+    for(const max of [600,0]){
+      if(byteSize(body)<=hardCap)break;
+      const packet=expandMarketPacket(state.coreMarketPacket);
+      if(!packet?.chartNarrative?.frames)break;
+      for(const [tf,f] of Object.entries(packet.chartNarrative.frames))if(f&&typeof f==='object'){
+        if(max>0&&['5m','15m'].includes(tf)&&typeof f.line==='string')f.line=clipNatural(f.line,max);
+        else delete f.line;
+      }
+      packet.chartNarrative.readingInNumericFrames=true;
+      packet.chartNarrative.semantics='Closed-bar interpretation; exact facts remain in numeric frames.';
+      packet.chartNarrative.fitBeforeBlock=true;
+      const packed=encodeMarketPacket(packet);state.coreMarketPacket=packed.encoded?packed.packet:packet;
+      if(packed.encoded)wireEncoding={version:packed.packet.wire.version,beforeBytes:packed.beforeBytes,afterBytes:packed.afterBytes,schemaCount:packed.schemaCount,roundTripVerified:true};
+      trimStepsApplied.push(max>0?'FIT_BEFORE_BLOCK_NARRATIVE_5M15M_600':'FIT_BEFORE_BLOCK_NARRATIVE_NUMERIC_ONLY');serialized=refresh();
+    }
+  }
+  if(pass!=='BURST'&&byteSize(body)>hardCap){
+    if(state.dynamicKnowledge&&typeof state.dynamicKnowledge==='object'&&Array.isArray(state.dynamicKnowledge.entries)&&state.dynamicKnowledge.entries.length)state.dynamicKnowledge={mode:state.dynamicKnowledge.mode||null,entries:[],omittedForBudget:true};
+    if(state.professionalTraderCortex&&typeof state.professionalTraderCortex.reference==='string')state.professionalTraderCortex.reference=compactCortexReference(state.professionalTraderCortex.reference,500);
+    if(state.experienceMemory&&typeof state.experienceMemory==='object')state.experienceMemory=compactMemoryForPass2Residual(state.experienceMemory);
+    trimStepsApplied.push('FIT_BEFORE_BLOCK_SOFT_CONTEXT_MIN');serialized=refresh();
+  }
   serialized=refresh();const bytes=Buffer.byteLength(serialized,'utf8');
   const coreHashAfter=hashJson(protectedCoreTruth(body));const coreTruthProtected=coreHashBefore===coreHashAfter;
   const essentialBytes=byteSize(minimalEssentialEnvelope(body));
@@ -1024,8 +1070,9 @@ function prepareDecisionRequest(input,opts={}){
     stateBytes:byteSize(body.state),questionsBytes:byteSize(body.questions),essentialBytes,secondaryTrimApplied:trimStepsApplied.length>0,trimStepsApplied,
     marketTrimApplied:trimStepsApplied.some(x=>['PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),
     sections:Object.fromEntries(Object.entries(state).map(([k,v])=>[k,byteSize(v)])),marketSectionsBefore,marketSectionsAfter:Object.fromEntries(Object.entries(state.coreMarketPacket||{}).map(([k,v])=>[k,byteSize(v)])),wireEncoding,coreTruthProtected,coreTruthHash:coreHashAfter,blockReason,
-    contextBudget:{policy:'R2544.25_PASS2_DYNAMIC_RESIDUAL_BUDGET',targetBytes:targetCap,hardMaxBytes:hardCap,usedBytes:bytes,remainingToTarget:Math.max(0,targetCap-bytes),remainingToHard:Math.max(0,hardCap-bytes),hardHeadroomBytes:hardCap-bytes,coreMarketPacketBytes:byteSize(state.coreMarketPacket),protectedCoreBytes:byteSize(protectedCoreTruth(body)),optionalBudgetBytes:Math.max(0,targetCap-byteSize(state.coreMarketPacket)),residualBudgetApplied:trimStepsApplied.some(x=>x.startsWith('PASS2_RESIDUAL_')||x==='ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL'),coreTruthProtected,
-      optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT','PASS1_QUESTION_SCHEMA_COMPACT','PASS1_ROUTING_MEMORY_TIGHT','PASS2_QUESTION_SCHEMA_COMPACT','PASS2_RECORD_COMPACT','PASS2_MEMORY_TIGHT','PASS2_RESIDUAL_QUESTION_TIGHT','PASS2_RESIDUAL_RECORD_TIGHT','PASS2_RESIDUAL_MEMORY_TIGHT','PASS2_RESIDUAL_OPTIONAL_FINAL','ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY'].includes(x)),coreMarketPriority:true}};
+    fitBeforeBlock:trimStepsApplied.some(x=>x.startsWith('FIT_BEFORE_BLOCK')),
+    contextBudget:{policy:'R2544.25_PASS2_DYNAMIC_RESIDUAL_BUDGET',targetBytes:targetCap,hardMaxBytes:hardCap,usedBytes:bytes,remainingToTarget:Math.max(0,targetCap-bytes),remainingToHard:Math.max(0,hardCap-bytes),hardHeadroomBytes:hardCap-bytes,coreMarketPacketBytes:byteSize(state.coreMarketPacket),protectedCoreBytes:byteSize(protectedCoreTruth(body)),optionalBudgetBytes:Math.max(0,targetCap-byteSize(state.coreMarketPacket)),residualBudgetApplied:trimStepsApplied.some(x=>x.startsWith('PASS2_RESIDUAL_')||x.startsWith('MANAGEMENT_')||x.startsWith('FIT_BEFORE_BLOCK')||x==='ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL'),coreTruthProtected,
+      optionalSectionsCompacted:trimStepsApplied.filter(x=>['SEMANTIC_OPTIONAL_CONTEXT_PROJECTION','OPTIONAL_CONTEXT_TIGHT','PASS1_QUESTION_SCHEMA_COMPACT','PASS1_ROUTING_MEMORY_TIGHT','PASS2_QUESTION_SCHEMA_COMPACT','PASS2_RECORD_COMPACT','PASS2_MEMORY_TIGHT','PASS2_RESIDUAL_QUESTION_TIGHT','PASS2_RESIDUAL_RECORD_TIGHT','PASS2_RESIDUAL_MEMORY_TIGHT','PASS2_RESIDUAL_OPTIONAL_FINAL','ROUTING_MANAGEMENT_RESIDUAL_OPTIONAL','MANAGEMENT_EVIDENCE_RESIDUAL','MANAGEMENT_DESCRIPTION_COMPACT','FIT_BEFORE_BLOCK_SOFT_CONTEXT_MIN'].includes(x)),marketCompactionSteps:trimStepsApplied.filter(x=>['CHART_NARRATIVE_DEDUP','PATTERN_GEOMETRY','SWING_PIVOTS_TRENDLINES','DUP_FVG_SMC_TEXT','FIB_OTE_RAW','PATTERNS_TOP3_BOTH_SIDES_PER_TF','HIGHER_CONTEXT_SUMMARY','TIMING_FRAMES_SUMMARY','FIT_BEFORE_BLOCK_NARRATIVE_5M15M_600','FIT_BEFORE_BLOCK_NARRATIVE_NUMERIC_ONLY'].includes(x)),coreMarketPriority:true}};
   return {ok:bytes<=hardCap&&coreTruthProtected,body,serialized,diagnostics};
 }
 
@@ -1067,7 +1114,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(authFailure){providerState.consecutiveAuthFailures+=1;providerState.blockedUntil=clock()+AUTH_COOLDOWN_MS;}
     else {providerState.consecutiveAuthFailures=0;providerState.blockedUntil=0;}
     providerState.lastError={at:new Date(clock()).toISOString(),httpStatus,
-      category:httpStatus===401?'UNAUTHORIZED':httpStatus===403?'FORBIDDEN':httpStatus===429?'RATE_LIMITED':'HTTP_ERROR',
+      category:httpStatus===401?'UNAUTHORIZED':httpStatus===402?'INSUFFICIENT_CREDITS':httpStatus===403?'FORBIDDEN':httpStatus===429?'RATE_LIMITED':'HTTP_ERROR',
       code:providerCode(data),message:providerMessage(data)};
     return providerState.lastError;
   }
