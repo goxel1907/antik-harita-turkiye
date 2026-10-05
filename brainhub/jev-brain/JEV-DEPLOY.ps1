@@ -1,12 +1,12 @@
-# JEV-Brain DEPLOY R2544.47 - burst exit data and fill prices; includes R39-R46 fixes.
+# JEV-Brain DEPLOY R2544.48 - restore 5m/15m entries (R45 JEV sentence removed), burst ledger; includes R39-R47 fixes.
 # Kaynak: bu teslim paketindeki .\source. Hedef: C:\JEV-Brain\runtime.
 # R2544.29 guvenlik ilkesi: LIVE KAPALI + ACIK POZISYON 0 olmadan deploy YAPMAZ; restart sonrasi LIVE kapali kalir.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.47-BURST-EXIT-DATA'
-$EXPECTED_OFFICE = '2.5.27-R2544.47-JEV-Brain'
+$EXPECTED_RELEASE = 'R2544.48-ENTRY-RESTORE-BURST-LEDGER'
+$EXPECTED_OFFICE = '2.5.28-R2544.48-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null

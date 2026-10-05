@@ -2328,8 +2328,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.47-BURST-EXIT-DATA';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-05 • R2544.47: JEV burst exit sees position age, fee in R and the compact trade-clock flow; exit/entry fill prices measured (avgPrice 0 is not a price)';
+const RUNTIME_RELEASE='R2544.48-ENTRY-RESTORE-BURST-LEDGER';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-06 • R2544.48: R45 wait-for-zone sentence removed from JEV contract (it stopped all 5m/15m entries; code chase gate stays); burst lots attributed in Office, skipped by core review, closes in POSITION_CLOSED with exchange net';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

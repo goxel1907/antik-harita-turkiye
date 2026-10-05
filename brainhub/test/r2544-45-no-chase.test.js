@@ -40,10 +40,13 @@ test('R45 HIGH chase risk on either timeframe blocks; stretched in the right zon
   assert.equal(stretchOf({readout:{stretch:{leg:'UP',state:'EXTENDED',zone:'PREMIUM',rangePosPct:88,chaseRisk:{LONG:'HIGH',SHORT:'LOW'}}}}).chaseRisk.LONG,'HIGH');
 });
 
-test('R45 JEV final decision contract states the rule and keeps it whole when compacted',()=>{
+// R2544.48: the R45 contract sentence ("wait for the zone") made JEV answer WAIT_PULLBACK/LOCATION_POOR on almost
+// everything (05.10 21:17 -> 1-7/h became 100+/h, MARKET_NOW 0) and BrainHub has no deferred zone-entry executor,
+// so it meant "never enter". The rule stays binding in code (locationChaseGate) only; JEV's contract is R44 again.
+test('R48 JEV final decision contract no longer carries the R45 wait-for-zone sentence',()=>{
   const src=fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8');
-  assert.match(src,/'NO_CHASE_ENTER_AT_ZONE'/);assert.match(src,/location:'R2544\.45 no chasing LONG or SHORT/);
-  assert.match(src,/location:'No chasing: MARKET_NOW outside the side OTE\/OB\/FVG is not executed when stretched in the wrong zone or chaseRisk is HIGH; wait for the zone\.'/);
+  assert.doesNotMatch(src,/NO_CHASE_ENTER_AT_ZONE/);assert.doesNotMatch(src,/R2544\.45 no chasing/);assert.doesNotMatch(src,/wait for the zone/);
+  assert.match(src,/'NUMERIC_TRUTH_OVER_VISUAL','OPTIONAL_MISSING_NOT_NEGATIVE'\],microstructure:/);
 });
 
 test('R45 the guard is binding in the final execution gate, after the chase-R guard and before any order sizing',()=>{

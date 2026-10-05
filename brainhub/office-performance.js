@@ -60,7 +60,7 @@ function enrichCloses(rows,records=[]){
    return row;
  });
 }
-function laneOf(x={}){const raw=x.tradeLaneName||x.lane||x.entryContext?.lane||x.tradeLane?.name||x.tradeLane||x.jevLaneFocus;return ({SCALP_MOMENTUM:'5M_SCALP',MAIN_15M:'15M_TRADE'})[raw]||(['5M_SCALP','15M_TRADE'].includes(raw)?raw:'UNSPECIFIED');}
+function laneOf(x={}){const raw=x.tradeLaneName||x.lane||x.entryContext?.lane||x.tradeLane?.name||x.tradeLane||x.jevLaneFocus;return ({SCALP_MOMENTUM:'5M_SCALP',MAIN_15M:'15M_TRADE'})[raw]||(['5M_SCALP','15M_TRADE','BURST_SCALP'].includes(raw)?raw:'UNSPECIFIED');}
 function summary(rows,open=[]){
  const xs=rows.filter(x=>num(x.netPnl)!==null), rs=xs.map(x=>num(x.rMultiple)).filter(x=>x!==null).sort((a,b)=>a-b);
  const wins=xs.filter(x=>num(x.netPnl)>0).length,losses=xs.filter(x=>num(x.netPnl)<0).length;
@@ -83,6 +83,6 @@ function performanceReport(records=[],open=[],now=Date.now()){
  const versions=[...new Set([RELEASE,...trades.map(version),...events.map(version)])];
  const make=(name,ev,ts,os,complete)=>({name,telemetryAvailable:complete,...decisions(ev),...summary(ts,os)});
  const recentEvents=events.filter(x=>x.ts>=now-3600000),recentTrades=trades.filter(x=>Date.parse(x.closedAt||'')>=now-3600000);
- return {source:'SQLITE_JOURNAL_ALL_ROWS',generatedAt:now,reconciliation:{rawClosedRows:closed.length,canonicalClosedRows:trades.length,excluded},historyNote:'Karar telemetrisi bu güncellemeden itibaren kalıcıdır; eski eksik olaylar yeniden üretilmez.',funnel:decisions(recentEvents),total:summary(trades,open),versions:versions.map(v=>({version:v,...summary(trades.filter(x=>version(x)===v),open.filter(x=>version(x)===v))})),desks:['5M_SCALP','15M_TRADE','UNSPECIFIED'].map(desk=>({desk,recent:make('Son 60 dk',recentEvents.filter(x=>laneOf(x)===desk),recentTrades.filter(x=>laneOf(x)===desk),open.filter(x=>laneOf(x)===desk),true),cohorts:versions.map(v=>({...make(v,events.filter(x=>version(x)===v&&laneOf(x)===desk),trades.filter(x=>version(x)===v&&laneOf(x)===desk),open.filter(x=>version(x)===v&&laneOf(x)===desk),v===RELEASE),version:v}))}))};
+ return {source:'SQLITE_JOURNAL_ALL_ROWS',generatedAt:now,reconciliation:{rawClosedRows:closed.length,canonicalClosedRows:trades.length,excluded},historyNote:'Karar telemetrisi bu güncellemeden itibaren kalıcıdır; eski eksik olaylar yeniden üretilmez.',funnel:decisions(recentEvents),total:summary(trades,open),versions:versions.map(v=>({version:v,...summary(trades.filter(x=>version(x)===v),open.filter(x=>version(x)===v))})),desks:['5M_SCALP','15M_TRADE','BURST_SCALP','UNSPECIFIED'].map(desk=>({desk,recent:make('Son 60 dk',recentEvents.filter(x=>laneOf(x)===desk),recentTrades.filter(x=>laneOf(x)===desk),open.filter(x=>laneOf(x)===desk),true),cohorts:versions.map(v=>({...make(v,events.filter(x=>version(x)===v&&laneOf(x)===desk),trades.filter(x=>version(x)===v&&laneOf(x)===desk),open.filter(x=>version(x)===v&&laneOf(x)===desk),v===RELEASE),version:v}))}))};
 }
 module.exports={enrichCloses,RELEASE,laneOf,summary,decisions,performanceReport,sameEntry,reconcileCloses};

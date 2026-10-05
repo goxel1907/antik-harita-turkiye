@@ -325,6 +325,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const profitBudget=createProfitBudget({transport,clock,emit:runnerEvent,persist:writeRunnerState});
   const candidateStream=market?.marketStream||marketStream;
   const burst = new BurstScalpManager({marketStream:candidateStream,now:clock,maxArmed:4,maxActive:1,onEvent:event=>{try{store.journal('BURST_WATCH_EVENT',event.symbol||null,event);}catch{}}});
+  // R2544.48 burst bookkeeping (user report 05.10 21:35: a BrainHub burst showed as "dış/manuel / ESKİ/ETİKETSİZ").
+  // Burst lots never enter the core lifecycle, so Office called them external, the core position review also
+  // asked JEV about them, and their closes never reached POSITION_CLOSED / the closed-trades table.
+  const BURST_RELEASE_CONTRACT='R2544.48_BURST_SCALP';
+  const burstClosePending=[];
+  const activeBurstFor=symbol=>{const s=String(symbol||'').toUpperCase();return [...burst.active.values()].find(a=>String(a?.symbol||'').toUpperCase()===s)||null;};
+  const burstWhy=a=>`JEV vur-kaç (radar ${String(a?.jevReason||'').split('|')[0]||'—'}), tetik puanı ${finite(a?.triggerScore)??'—'}, ${finite(a?.leverage)??'—'}x`;
+  const queueBurstClose=closed=>{if(closed?.burstId&&closed?.symbol&&!burstClosePending.some(x=>x.burstId===closed.burstId))burstClosePending.push({...closed,queuedAt:clock()});};
   const burstPreparation=new BurstPreparationQueue({now:clock,onExpire:(symbol,reason)=>{candidateStream.localL2?.releaseReservation?.(symbol);try{store.journal('BURST_PREP_EXPIRED',symbol,{reason});}catch{}}});
   const burstTrace=new Map();
   function traceBurst(kind,symbol,evidence){const key=kind+':'+symbol,prior=burstTrace.get(key),signature=JSON.stringify([evidence.reason,evidence.state,evidence.reasons,evidence.contradictions]);if(!prior||prior.signature!==signature||clock()-prior.at>=30000){burstTrace.set(key,{at:clock(),signature});try{store.journal(kind,symbol,evidence);}catch{}}if(burstTrace.size>400)for(const [k,v] of burstTrace)if(clock()-v.at>300000)burstTrace.delete(k);}
@@ -1573,6 +1581,55 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     store.journal('POSITION_CLOSED',symbol,record);
     return true;
   }
+  // R2544.48: a closed burst becomes POSITION_CLOSED with the exchange's own income (realized PnL, commission,
+  // funding) so the closed-trades table and totals include it. Core-lane lessons/case memory skip it
+  // (learningAuthority EXCLUDED_BURST_LANE); the burst lane keeps its own BURST_CLOSED learning. Not a loss-streak input.
+  function burstCloseRecord(c,inc){
+    const qty=finite(c.initialQuantity)??finite(c.quantity),entry=finite(c.entryPrice),stop=finite(c.stopPrice);
+    const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
+    const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
+    const netPnl=inc?inc.net:null;
+    const exitType={JEV_BURST_EXIT:'BURST_JEV_EXIT',BURST_FAST_FAIL:'BURST_FAST_FAIL',BURST_TIME_EXIT:'BURST_TIME_EXIT',EXCHANGE_INVENTORY_EXIT_DETECTED:'BURST_STOP_OR_EXTERNAL'}[c.exitReason]||'BURST_OTHER_EXIT';
+    return {side:c.side,setup:'BURST_SCALP',originTF:null,ownerTF:null,tradeLane:'BURST_SCALP',entryPrice:entry,stopPrice:stop,takeProfit1:null,quantity:qty,notional,riskQuote,
+      initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'BURST_ENTRY_STOP',stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
+      exitBy:c.exitReason==='JEV_BURST_EXIT'?'JEV':'BURST_WATCHER',realizedPnl:inc?inc.realized:null,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,
+      outcomePct:netPnl!==null&&notional>0?netPnl/notional*100:null,rMultiple:netPnl!==null&&riskQuote>0?netPnl/riskQuote:null,
+      exitType,exitEvidenceVersion:'R2544.48_BURST',openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
+      entryContext:{why:burstWhy(c),setup:'BURST_SCALP',setupFamily:'BURST',entryTiming:'BURST_TRIGGER',lane:'BURST_SCALP',releaseContract:BURST_RELEASE_CONTRACT,strategyVersion:BURST_RELEASE_CONTRACT,source:'BURST',
+        burst:{burstId:c.burstId,triggerScore:finite(c.triggerScore),leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),mfeR:finite(c.mfeR),maeR:finite(c.maeR),grossPriceR:finite(c.realizedR),entryPriceSource:c.entryPriceSource||null}},
+      eventId:'BURST:'+c.burstId,closeBusinessKey:'BURST:'+c.burstId,incomeAvailable:inc!==null,learningAuthority:'EXCLUDED_BURST_LANE'};
+  }
+  async function finalizeBurstCloses(){
+    if(!burstClosePending.length)return [];
+    const creds=currentCredentials();if(!credentialsReady(creds))return [];
+    const done=[];
+    for(const c of [...burstClosePending]){
+      const closedAt=finite(c.closedAt)||finite(c.queuedAt)||clock();
+      if(clock()-closedAt<5000)continue; // let Binance post the income rows
+      const openedAt=finite(c.openedAt)||closedAt;
+      // Only this burst's own window: entry fill precedes openedAt (stop placement), exit fill precedes closedAt.
+      const inc=await positionIncome(String(c.symbol).toUpperCase(),Math.max(0,openedAt-10000),Math.min(clock(),closedAt+2000),creds);
+      if(!inc&&clock()-closedAt<10*60000)continue;
+      const i=burstClosePending.indexOf(c);if(i>=0)burstClosePending.splice(i,1);
+      const record=burstCloseRecord(c,inc);
+      if(appendClosedOnce(String(c.symbol).toUpperCase(),record))done.push({symbol:String(c.symbol).toUpperCase(),...record});
+    }
+    return done;
+  }
+  // After a restart (and once after R48 deploy) re-queue bursts closed in the last 48 h that have no POSITION_CLOSED.
+  function restoreBurstClosesFromJournal(){
+    try{
+      if(typeof store?.recentJournal!=='function')return 0;
+      const since=clock()-48*3600000;
+      const have=new Set((store.recentJournal('POSITION_CLOSED',{limit:1000,sinceTs:since})||[]).map(x=>x?.payload?.eventId).filter(Boolean));
+      let n=0;
+      for(const x of store.recentJournal('BURST_CLOSED',{limit:200,sinceTs:since})||[]){
+        const p=x?.payload||{};if(!p.burstId||have.has('BURST:'+p.burstId))continue;
+        queueBurstClose({...p,symbol:p.symbol||x.symbol});n++;
+      }
+      return n;
+    }catch{return 0;}
+  }
   async function finalizeClosedActiveRows(openPositions, { snapshotStartedAt = clock() } = {}) {
     const openSet=new Set((openPositions||[]).map(x=>x.symbol));
     const creds=currentCredentials();
@@ -1740,6 +1797,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(!open.ok){ledgerState={...ledgerState,at,ok:false,error:open.reason};return {ok:false,reason:open.reason};}
       await reconcilePending(open.positions,currentCredentials(),open.snapshotStartedAt);
       const finalized=await finalizeClosedActiveRows(open.positions,{snapshotStartedAt:open.snapshotStartedAt});
+      try{finalized.push(...await finalizeBurstCloses());}catch{/* burst bookkeeping is reporting only */}
       const protectedSymbols=[...open.positions.map(x=>x.symbol),...burst.active.values()].map(x=>typeof x==='string'?x:x.symbol);
       candidateStream.protectedSymbols=new Set(protectedSymbols);
       candidateStream.localL2?.setPositionSymbols?.(protectedSymbols);
@@ -1884,13 +1942,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function positionsStatus({ closedLimit = 40 } = {}){
     const lifecycle=leaderAnalysisState.bySymbol||{};
     const open=(ledgerState.open||[]).map(p=>{
-      const row=lifecycle[p.symbol]||{};
-      const rr=runnerState.bySymbol?.[p.symbol]||null;
+      // R2544.48: a live burst lot is BrainHub's own; never read a stale (closed) core lifecycle row for it
+      // (GRIFFAIN 05.10 21:35 showed "dış/manuel" and "15m" from a 04.10 core row).
+      const coreRow=lifecycle[p.symbol]||{};
+      const bl=String(coreRow.state||'').toUpperCase()==='ACTIVE'?null:activeBurstFor(p.symbol);
+      const row=bl?{}:coreRow;
+      const rr=bl?null:runnerState.bySymbol?.[p.symbol]||null;
       const entry=finite(p.entryPrice),mark=finite(p.markPrice),qty=finite(p.quantity);
-      const stop=finite(rr&&rr.phase!=='CLOSED'?rr.currentStop:null)??finite(row.stopPrice);
-      const firstStop=finite(row.stopPrice)??stop;
+      const stop=bl?finite(bl.stopPrice):finite(rr&&rr.phase!=='CLOSED'?rr.currentStop:null)??finite(row.stopPrice);
+      const firstStop=bl?finite(bl.stopPrice):finite(row.stopPrice)??stop;
       // CLAUDE_R2543: açık pozisyon R'si de ilk miktar + ilk stop ile (kısmi çıkış sonrası şişmesin).
-      const initQty=finite(leaderAnalysisState.bySymbol?.[String(p.symbol||'').toUpperCase()]?.initialQuantity)??qty;
+      const initQty=bl?(finite(bl.initialQuantity)??finite(bl.quantity)??qty):finite(leaderAnalysisState.bySymbol?.[String(p.symbol||'').toUpperCase()]?.initialQuantity)??qty;
       const riskQuote=entry!==null&&firstStop!==null&&initQty!==null?Math.abs(entry-firstStop)*initQty:null;
       const own=String(row.state||'').toUpperCase()==='ACTIVE';
       const entryCase=row.entryContext?.entryCase||null;
@@ -1899,14 +1961,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         symbol:p.symbol,side:p.side,quantity:qty,entryPrice:entry,markPrice:mark,unrealizedPnl:finite(p.unrealizedPnl),
         unrealizedR:riskQuote&&riskQuote>0&&finite(p.unrealizedPnl)!==null?Number((p.unrealizedPnl/riskQuote).toFixed(2)):null,
         leverage:finite(p.leverage),notional:finite(p.notional),liquidationPrice:finite(p.liquidationPrice),
-        stopPrice:stop,originalStopPrice:finite(row.stopPrice),takeProfit1:finite(row.takeProfit1),
+        stopPrice:stop,originalStopPrice:bl?finite(bl.stopPrice):finite(row.stopPrice),takeProfit1:finite(row.takeProfit1),
         runnerPhase:rr&&rr.phase!=='CLOSED'?rr.phase:null,trailTf:rr?.lastDesired?.trail?.tf||null,
-        openedBy:own?'BRAINHUB_AUTO':'EXTERNAL',openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():null,
-        lane:row.tradeLaneName||row.entryContext?.lane||null,originTF:row.originTF||null,setup:row.setup||null,
-        strategyVersion:row.entryContext?.strategyVersion||null,
-        releaseContract:row.entryContext?.releaseContract||null,
+        openedBy:own?'BRAINHUB_AUTO':bl?'BRAINHUB_BURST':'EXTERNAL',
+        openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():bl&&finite(bl.openedAt)?new Date(Number(bl.openedAt)).toISOString():null,
+        lane:bl?'BURST_SCALP':row.tradeLaneName||row.entryContext?.lane||null,originTF:row.originTF||null,setup:bl?'BURST_SCALP':row.setup||null,
+        strategyVersion:bl?BURST_RELEASE_CONTRACT:row.entryContext?.strategyVersion||null,
+        releaseContract:bl?BURST_RELEASE_CONTRACT:row.entryContext?.releaseContract||null,
         mirrorContract:row.entryContext?.mirrorContract||null,
-        entryReason:row.entryContext?.why||null,
+        entryReason:bl?burstWhy(bl):row.entryContext?.why||null,
         entryCase:caseMemoryLib.compactEntryCase(entryCase),
         caseMemory:caseAnalogs
       };
@@ -2000,9 +2063,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         positionManagerState.lastReview={action:'HOLD',actionTr:'AÇIK POZİSYON YOK',checkedAt:new Date(clock()).toISOString()};
         return {ok:true,skipped:true,reason:'NO_OPEN_POSITION'};
       }
-      let position=open.positions.find(p=>{const r=runnerState.bySymbol?.[p.symbol];return r&&(finite(r.urgentReviewRequestedAt)||0)>(finite(r.urgentReviewConsumedAt)||0);})||open.positions[positionReviewCursor%open.positions.length];
+      // R2544.48: a live burst lot has its own JEV exit manager; the core review must not also judge it
+      // (05.10 21:35 the core review asked JEV about the GRIFFAIN burst as a "15m" trade).
+      const reviewable=open.positions.filter(p=>{const row=leaderAnalysisState.bySymbol?.[p.symbol];return String(row?.state||'').toUpperCase()==='ACTIVE'||!activeBurstFor(p.symbol);});
+      if(!reviewable.length){
+        positionManagerState.lastReview={action:'HOLD',actionTr:'YALNIZ VUR-KAÇ POZİSYONU (kendi JEV çıkış yöneticisi)',checkedAt:new Date(clock()).toISOString()};
+        return {ok:true,skipped:true,reason:'BURST_LOT_OWN_MANAGER'};
+      }
+      let position=reviewable.find(p=>{const r=runnerState.bySymbol?.[p.symbol];return r&&(finite(r.urgentReviewRequestedAt)||0)>(finite(r.urgentReviewConsumedAt)||0);})||reviewable[positionReviewCursor%reviewable.length];
       if(urgentOnly&&!runnerState.bySymbol?.[position.symbol])return {ok:true,skipped:true,reason:'URGENT_POSITION_NOT_OPEN'};
-      positionReviewCursor=(positionReviewCursor+1)%Math.max(1,open.positions.length);
+      positionReviewCursor=(positionReviewCursor+1)%Math.max(1,reviewable.length);
       const preExisting=leaderAnalysisState.bySymbol?.[position.symbol]||{};
       const preRunner=runnerState.bySymbol?.[position.symbol]||null;
       const urgentAt=finite(preRunner?.urgentReviewRequestedAt)||0;
@@ -5196,12 +5266,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!armedNow()||readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'BURST_ENTRY_PERMISSION_REVOKED'};
     let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide,type:'MARKET',quantity:String(quantity),newClientOrderId:clientId,newOrderRespType:'RESULT'}});}catch(e){return {ok:false,reason:String(e?.message||'BURST_ENTRY_FAILED'),exchangeError:e?.body||null};}
     // R2544.47: an ACK avgPrice of 0 is "not reported", never a 0 entry price (progressR/stop math would break).
-    const executed=finite(entry?.executedQty),entryPrice=finite(entry?.avgPrice)>0?finite(entry.avgPrice):price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
+    const executed=finite(entry?.executedQty),ackPriced=finite(entry?.avgPrice)>0;let entryPrice=finite(entry?.avgPrice)>0?finite(entry.avgPrice):price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
     // Quantity-specific protective stop so a synthetic addon can never close the core position.
     const stop=await transport.placeRunnerStop({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:stopPrice,clientAlgoId:('BS'+burstId.replace('_','')).slice(0,36),credentials:creds});
     if(!stop.ok){const emergency=await burstReduceExact({symbol,side,quantity:executed,burstId,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,stopPrice},'BURST_STOP_PROTECTION_FAILED');return {ok:false,orderPlaced:true,emergencyClose:emergency,reason:'BURST_STOP_PROTECTION_FAILED'};}
+    // R2544.48: stop first, then measure an ACK without avgPrice from the order itself (weight 1). GRIFFAIN 05.10
+    // 21:34 recorded 0.01964 (decision ask) while the exchange entry was 0.019654.
+    let entryPriceSource=ackPriced?'ACK':'DECISION_PRICE';
+    if(!ackPriced){try{const q=await transport._fetchJson('GET','/fapi/v1/order',{params:{symbol,origClientOrderId:clientId},credentials:creds,signed:true});if(finite(q?.avgPrice)>0){entryPrice=finite(q.avgPrice);entryPriceSource='ORDER_QUERY';}}catch{}}
     const started=burst.start({burstId,authorizationId:auth.authorizationId,symbol,side,quantity:executed,entryPrice,stopPrice,leverage:sz.leverage,marginQuote:sz.marginQuote,syntheticAddon:sameAddon,pauseExceptionUsed:false});
-    if(started.ok){started.active.stopAlgoId=stop.algoId;started.active.coreQtyBefore=finite(current?.quantity)||0;started.active.exchangeMaxLeverage=sz.exchangeMaxLeverage;started.active.triggerScore=ev.score;}
+    if(started.ok){started.active.stopAlgoId=stop.algoId;started.active.coreQtyBefore=finite(current?.quantity)||0;started.active.exchangeMaxLeverage=sz.exchangeMaxLeverage;started.active.triggerScore=ev.score;started.active.entryPriceSource=entryPriceSource;started.active.jevReason=auth.jevReason||null;started.active.entryClientOrderId=clientId;}
     try{store.journal('BURST_ENTRY',symbol,{burstId,authorizationId:auth.authorizationId,side,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,marginQuote:sz.marginQuote,leverage:sz.leverage,exchangeMaxLeverage:sz.exchangeMaxLeverage,safeMaxLeverage:sz.safeMaxLeverage,entryPrice,quantity:executed,stopPrice,profitAuthority:'JEV_NO_FIXED_TARGET',trigger:ev});store.recordLearning?.('BURST_OPENED',symbol,{burstId,side,entryPrice,quantity:executed,leverage:sz.leverage,triggerScore:ev.score,syntheticAddon:sameAddon});}catch{}
     return {ok:true,orderPlaced:true,active:started.active,sizing:sz};
   }
@@ -5230,8 +5304,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const led=burstCurrentPosition(a.symbol),ledgerFresh=ledgerState.ok&&ledgerState.at&&Date.parse(ledgerState.at)>=Number(a.openedAt)&&clock()-Date.parse(ledgerState.at)<=90000;
         const addonGone=ledgerFresh&&a.syntheticAddon&&led&&finite(led.quantity)!==null&&finite(led.quantity)<=Math.max(0,(finite(a.coreQtyBefore)||0)+(finite(a.quantity)||0)*0.10);
         const flatGone=ledgerFresh&&!a.syntheticAddon&&!led;
-        if(addonGone||flatGone){const closed=burst.finish(a.burstId,{exitReason:'EXCHANGE_INVENTORY_EXIT_DETECTED',exitPrice:finite(checked.snapshot?.bid)??finite(checked.snapshot?.ask),mfeR:checked.exit.mfeR,maeR:checked.exit.maeR});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,captureEfficiency:null,authority:'UNCONFIRMED_FINAL_EXIT'});}catch{};continue;}
-        if(checked.exit.exit){const r=await burstReduceExact(a,checked.exit.reason);if(r.ok){if(a.stopAlgoId)try{await transport.cancelAlgoOrder({algoId:a.stopAlgoId,credentials:currentCredentials()});}catch{}const exitPrice=finite(r.avgPrice)>0?finite(r.avgPrice):null,oneR=Math.abs((finite(a.entryPrice)||0)-(finite(a.stopPrice)||0)),gross=oneR>0&&exitPrice!==null?(exitPrice-a.entryPrice)*(a.side==='LONG'?1:-1)*(a.initialQuantity||a.quantity):null,realizedR=oneR>0&&gross!==null?gross/(oneR*(a.initialQuantity||a.quantity)):null,capture=checked.exit.mfeR>0&&realizedR!==null?Math.max(-2,Math.min(2,realizedR/checked.exit.mfeR)):null;const closed=burst.finish(a.burstId,{exitReason:checked.exit.reason,exitPrice,mfeR:checked.exit.mfeR,maeR:checked.exit.maeR,realizedR,captureEfficiency:capture});try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,authority:checked.exit.reason==='JEV_BURST_EXIT'?'JEV':'BURST_SAFETY_WATCHER'});}catch{}}}
+        if(addonGone||flatGone){const closed=burst.finish(a.burstId,{exitReason:'EXCHANGE_INVENTORY_EXIT_DETECTED',exitPrice:finite(checked.snapshot?.bid)??finite(checked.snapshot?.ask),mfeR:checked.exit.mfeR,maeR:checked.exit.maeR});queueBurstClose(closed);try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,captureEfficiency:null,authority:'UNCONFIRMED_FINAL_EXIT'});}catch{};continue;}
+        if(checked.exit.exit){const r=await burstReduceExact(a,checked.exit.reason);if(r.ok){if(a.stopAlgoId)try{await transport.cancelAlgoOrder({algoId:a.stopAlgoId,credentials:currentCredentials()});}catch{}const exitPrice=finite(r.avgPrice)>0?finite(r.avgPrice):null,oneR=Math.abs((finite(a.entryPrice)||0)-(finite(a.stopPrice)||0)),gross=oneR>0&&exitPrice!==null?(exitPrice-a.entryPrice)*(a.side==='LONG'?1:-1)*(a.initialQuantity||a.quantity):null,realizedR=oneR>0&&gross!==null?gross/(oneR*(a.initialQuantity||a.quantity)):null,capture=checked.exit.mfeR>0&&realizedR!==null?Math.max(-2,Math.min(2,realizedR/checked.exit.mfeR)):null;const closed=burst.finish(a.burstId,{exitReason:checked.exit.reason,exitPrice,mfeR:checked.exit.mfeR,maeR:checked.exit.maeR,realizedR,captureEfficiency:capture});queueBurstClose(closed);try{store.journal('BURST_CLOSED',a.symbol,closed);store.recordLearning?.('BURST_CLOSED',a.symbol,{...closed,authority:checked.exit.reason==='JEV_BURST_EXIT'?'JEV':'BURST_SAFETY_WATCHER'});}catch{}}}
       }
       const la=readLeaderAutoConfig();
       if(!la.ok||la.config?.enabled!==true){for(const symbol of [...burst.armed.keys()]){burst.disarm(symbol,'LEADER_AUTO_DISABLED');candidateStream.localL2?.releaseReservation?.(symbol);}return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};}
@@ -5259,7 +5333,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
 
   restoreCooldownsFromJournal();
-  return { _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  restoreBurstClosesFromJournal();
+  return { _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }
