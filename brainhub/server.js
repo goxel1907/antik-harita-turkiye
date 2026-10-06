@@ -1557,7 +1557,7 @@ const decisionPipeline={
 function backgroundAnalysisWindowOpen(){
   return decisionPipelineActive===0&&localVisionQueueDepth===0&&(Date.now()-decisionPipelineLastFinishedAt)>=30000;
 }
-const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,credentials:BINANCE_CREDENTIALS});
+const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
 
 const server=http.createServer(async(req,res)=>{
   try{
@@ -1628,6 +1628,16 @@ const server=http.createServer(async(req,res)=>{
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
       if(body?.confirm!=='LIVE')return send(res,400,{ok:false,armed:false,liveAllowed:false,execution:'LIVE_BLOCKED',reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']});
       const out=await live.arm({confirmed:true});
+      return send(res,out.ok?200:409,out);
+    }
+    // R2544.51 TEST/LIVE mode (Office switch). Explicit confirmation equal to the target mode; the controller refuses
+    // while armed or with any real/paper position or active burst.
+    if(req.method==='GET'&&u.pathname==='/live/mode')return send(res,200,live.tradingModeStatus());
+    if(req.method==='POST'&&u.pathname==='/live/mode'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const want=String(body?.mode||'').toUpperCase();
+      if(!['LIVE','TEST'].includes(want)||body?.confirm!==want)return send(res,400,{ok:false,reasons:['EXPLICIT_MODE_CONFIRMATION_REQUIRED']});
+      const out=await live.setTradingMode({mode:want,startBalance:body?.testBalance});
       return send(res,out.ok?200:409,out);
     }
     if(req.method==='POST'&&u.pathname==='/live/disarm'){
@@ -2328,8 +2338,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.50-SCALPER-FREE-KNOWLEDGE';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-06 • R2544.50: R48 (5m/15m entries restored, burst ledger) + R49 burst scalper entry (impulse, shallow pullback, resume; structural stop; burst loss pause) + free-model knowledge grounded on verified references';
+const RUNTIME_RELEASE='R2544.51-TEST-MODE';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-06 • R2544.51: TEST (paper) mode with Office TEST/LIVE switch, Start/Stop and OTO buttons; burst off for real money (TEST only); burst stop floor 0.30 %; includes R48-R50';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

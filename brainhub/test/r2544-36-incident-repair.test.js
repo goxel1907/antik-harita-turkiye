@@ -101,7 +101,7 @@ test('R36 urgent controller review refreshes the position after collection, pres
 test('R36 burst candidates subscribe before JEV review and preserve refusal evidence as soft context, never PnL',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'r36-burst-')),calls=[],rows=[],lessons=[];
  fs.mkdirSync(path.join(root,'config'),{recursive:true});
- fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:true,marginQuote:35,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
+ fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:true,marginQuote:35,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true,burstLiveEnabled:true}));
  const stream={ensureSymbol:s=>calls.push('symbol'),ensureLocalL2:s=>calls.push('l2'),snapshot:s=>{assert.deepEqual(calls.slice(0,2),['symbol','l2']);calls.push('snapshot');return burstSnap();}};
  const {createLiveController}=require('../live-controller');
  const c=createLiveController({root,credentials:{apiKey:'test-api-key',apiSecret:'test-api-secret'},fetchImpl:async()=>{throw Error('network forbidden');},clock:()=>1000000,

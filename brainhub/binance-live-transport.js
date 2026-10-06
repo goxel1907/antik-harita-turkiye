@@ -1,6 +1,8 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const { canonicalOrder } = require('./live-authorization');
 const binanceRate = require('./binance-rate-limit');
 
@@ -98,6 +100,230 @@ class TransportError extends Error {
   }
 }
 
+// ---------------------------------------------------------------------------
+// R2544.51 TEST MODE (user 06.10.2026: balance withdrawn; run 24 h in TEST, LIVE/TEST switch in Office).
+// In TEST mode every account/order call is answered by this in-process paper exchange in Binance's own
+// response format; public market data (time, exchangeInfo, prices) stays real so fills and stop triggers
+// follow the live market. A real exchange write in TEST mode is a hard error (fail-safe). The only signed
+// call that still reaches Binance is the read-only leverage bracket (needed for sizing).
+// ---------------------------------------------------------------------------
+const PAPER_TAKER_FEE = 0.0005;
+const PAPER_MAINT_RATE = 0.005;
+const PAPER_REAL_SIGNED_READS = new Set(['/fapi/v1/leverageBracket']);
+const PAPER_ROUTES = new Set([
+  'GET /fapi/v3/account','GET /fapi/v3/positionRisk','GET /fapi/v1/positionSide/dual','GET /fapi/v1/symbolConfig',
+  'GET /fapi/v1/commissionRate','GET /fapi/v1/order','GET /fapi/v1/income','GET /fapi/v1/userTrades','GET /fapi/v1/allAlgoOrders',
+  'POST /fapi/v1/order','POST /fapi/v1/leverage','POST /fapi/v1/algoOrder','DELETE /fapi/v1/algoOrder'
+]);
+function tradingModeFile(root) { return path.join(String(root || '.'), 'config', 'trading-mode.json'); }
+function readTradingMode(root, defaultMode = 'LIVE') {
+  try {
+    const x = JSON.parse(fs.readFileSync(tradingModeFile(root), 'utf8').replace(/^﻿/, ''));
+    const mode = String(x?.mode || '').toUpperCase();
+    return { ...x, mode: mode === 'LIVE' ? 'LIVE' : 'TEST', defaulted:false };
+  } catch {
+    return { mode: String(defaultMode).toUpperCase() === 'TEST' ? 'TEST' : 'LIVE', defaulted:true };
+  }
+}
+function writeTradingMode(root, value) {
+  const file = tradingModeFile(root);
+  fs.mkdirSync(path.dirname(file), { recursive:true });
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8');
+  fs.renameSync(tmp, file);
+}
+function paperError(status, code, msg, endpoint) {
+  return new TransportError(`BINANCE_HTTP_${status}`, { endpoint, status, requestSent:true, body:{ code, msg } });
+}
+const s8 = v => String(Number(Number(v).toPrecision(12)));
+
+class PaperExchange {
+  constructor({ root, clock = () => Date.now(), priceOf, defaultMode = 'LIVE', startBalance = 100, autoTick = true } = {}) {
+    if (!root) throw new Error('paper exchange root required');
+    if (typeof priceOf !== 'function') throw new Error('paper exchange price source required');
+    this.root = root; this.clock = clock; this.priceOf = priceOf; this.defaultMode = defaultMode;
+    this.file = path.join(String(root), 'data', 'paper-exchange.json');
+    this.modeCache = { at:0, value:null };
+    this.lastPx = new Map();
+    this.lock = Promise.resolve();
+    this.state = this._load(startBalance);
+    this.timer = null;
+    if (autoTick) { this.timer = setInterval(() => { this.tick().catch(() => {}); }, 1000); this.timer.unref?.(); }
+  }
+  mode() {
+    const now = this.clock();
+    if (!this.modeCache.value || now - this.modeCache.at > 1000 || now < this.modeCache.at) this.modeCache = { at:now, value:readTradingMode(this.root, this.defaultMode) };
+    return this.modeCache.value;
+  }
+  active() { return this.mode().mode === 'TEST'; }
+  invalidateMode() { this.modeCache = { at:0, value:null }; }
+  handles(method, p) { return PAPER_ROUTES.has(`${method} ${p}`); }
+  _blank(balance) {
+    const b = Number(balance) > 0 ? Number(balance) : 100;
+    return { version:1, startedAt:this.clock(), startBalance:b, wallet:b, positions:{}, leverage:{}, orders:[], algos:[], trades:[], income:[], nextOrderId:9000000001, nextAlgoId:8000000001, nextTradeId:7000000001, nextTranId:6000000001 };
+  }
+  _load(balance) {
+    try { const x = JSON.parse(fs.readFileSync(this.file, 'utf8')); if (x && x.version === 1 && x.positions && Array.isArray(x.orders)) return x; } catch {}
+    return this._blank(balance);
+  }
+  _save() {
+    const s = this.state;
+    s.orders = s.orders.slice(-3000); s.algos = s.algos.slice(-3000); s.trades = s.trades.slice(-5000); s.income = s.income.slice(-8000);
+    fs.mkdirSync(path.dirname(this.file), { recursive:true });
+    const tmp = this.file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(s), 'utf8'); fs.renameSync(tmp, this.file);
+  }
+  reset(balance) { this.state = this._blank(balance); this._save(); return this.summary(); }
+  _serial(fn) { const run = this.lock.then(fn, fn); this.lock = run.catch(() => {}); return run; }
+  async _px(symbol) {
+    const p = await this.priceOf(symbol);
+    const bid = finite(p?.bid), ask = finite(p?.ask);
+    if (!(bid > 0 && ask > 0 && ask >= bid)) throw paperError(503, -1001, 'TEST mode price unavailable for ' + symbol, '/paper/price');
+    const v = { bid, ask, mid:(bid + ask) / 2, at:this.clock() }; this.lastPx.set(symbol, v); return v;
+  }
+  _pos(symbol) { return this.state.positions[symbol] || { amt:0, entry:0 }; }
+  _lev(symbol) { return Math.max(1, Math.min(125, Math.round(finite(this.state.leverage[symbol]) || 20))); }
+  _unrealized(symbol) { const p = this._pos(symbol), m = this.lastPx.get(symbol)?.mid; return p.amt && m ? (m - p.entry) * p.amt : 0; }
+  _initialMargin() { return Object.entries(this.state.positions).reduce((a, [sym, p]) => a + Math.abs(p.amt) * p.entry / this._lev(sym), 0); }
+  _available() { const upl = Object.keys(this.state.positions).reduce((a, s) => a + this._unrealized(s), 0); return this.state.wallet + upl - this._initialMargin(); }
+  async _refreshOpen() { for (const sym of Object.keys(this.state.positions)) { try { await this._px(sym); } catch {} } }
+  _income(symbol, type, amount, time, tradeId) {
+    if (!amount) return;
+    this.state.income.push({ symbol, incomeType:type, income:s8(amount), asset:'USDT', info:'', time, tranId:this.state.nextTranId++, tradeId:String(tradeId || '') });
+  }
+  async _fill({ symbol, side, qty, reduceOnly = false, clientOrderId = null, type = 'MARKET', closePosition = false, endpoint = '/fapi/v1/order' }) {
+    const px = await this._px(symbol), now = this.clock();
+    const price = side === 'BUY' ? px.ask : px.bid, sgn = side === 'BUY' ? 1 : -1;
+    const pos = this._pos(symbol);
+    let q = Math.abs(finite(qty) || 0);
+    if (closePosition) q = Math.abs(pos.amt);
+    if (reduceOnly || closePosition) {
+      if (!pos.amt || Math.sign(pos.amt) === sgn) throw paperError(400, -2022, 'ReduceOnly Order is rejected.', endpoint);
+      q = Math.min(q, Math.abs(pos.amt));
+    }
+    if (!(q > 0)) throw paperError(400, -4003, 'Quantity less than or equal to zero.', endpoint);
+    const closing = pos.amt && Math.sign(pos.amt) !== sgn ? Math.min(q, Math.abs(pos.amt)) : 0;
+    const opening = q - closing;
+    const fee = q * price * PAPER_TAKER_FEE;
+    if (opening > 0) {
+      const need = opening * price / this._lev(symbol) + fee;
+      if (need > this._available() + closing * Math.abs(pos.entry) / this._lev(symbol)) throw paperError(400, -2019, 'Margin is insufficient.', endpoint);
+    }
+    const realized = closing > 0 ? (price - pos.entry) * closing * Math.sign(pos.amt) : 0;
+    let amt = pos.amt + sgn * q, entry = pos.entry;
+    if (closing === 0) entry = pos.amt ? (pos.entry * Math.abs(pos.amt) + price * q) / (Math.abs(pos.amt) + q) : price;
+    else if (opening > 0) entry = price; // flipped through zero
+    amt = Number(amt.toPrecision(12));
+    if (Math.abs(amt) < 1e-12) { delete this.state.positions[symbol]; } else this.state.positions[symbol] = { amt, entry, updatedAt:now };
+    this.state.wallet += realized - fee;
+    const orderId = this.state.nextOrderId++, tradeId = this.state.nextTradeId++;
+    const order = { orderId, symbol, status:'FILLED', clientOrderId:clientOrderId || ('paper' + orderId), price:'0', avgPrice:s8(price), origQty:s8(q), executedQty:s8(q),
+      cumQuote:s8(q * price), timeInForce:'GTC', type, reduceOnly:Boolean(reduceOnly || closePosition), closePosition:Boolean(closePosition), side, positionSide:'BOTH',
+      stopPrice:'0', workingType:'CONTRACT_PRICE', priceProtect:false, origType:type, time:now, updateTime:now, paper:true };
+    this.state.orders.push(order);
+    this.state.trades.push({ symbol, id:tradeId, orderId, side, price:s8(price), qty:s8(q), realizedPnl:s8(realized), quoteQty:s8(q * price), commission:s8(fee), commissionAsset:'USDT',
+      time:now, positionSide:'BOTH', buyer:side === 'BUY', maker:false });
+    this._income(symbol, 'REALIZED_PNL', realized, now, tradeId);
+    this._income(symbol, 'COMMISSION', -fee, now, tradeId);
+    return order;
+  }
+  _positionRow(symbol) {
+    const p = this._pos(symbol), m = this.lastPx.get(symbol)?.mid ?? p.entry, lev = this._lev(symbol), now = this.clock();
+    const notional = p.amt * m, upl = (m - p.entry) * p.amt, q = Math.abs(p.amt);
+    const others = this._initialMargin() - q * p.entry / lev;
+    const room = Math.max(0, this.state.wallet - others - q * p.entry * PAPER_MAINT_RATE);
+    const liq = q > 0 ? Math.max(0, p.amt > 0 ? p.entry - room / q : p.entry + room / q) : 0;
+    return { symbol, positionSide:'BOTH', positionAmt:s8(p.amt), entryPrice:s8(p.entry), breakEvenPrice:s8(p.entry * (1 + Math.sign(p.amt) * PAPER_TAKER_FEE * 2)),
+      markPrice:s8(m), unRealizedProfit:s8(upl), liquidationPrice:s8(liq), isolatedMargin:'0', notional:s8(notional), marginAsset:'USDT', isolatedWallet:'0',
+      initialMargin:s8(q * m / lev), maintMargin:s8(q * m * PAPER_MAINT_RATE), positionInitialMargin:s8(q * m / lev), openOrderInitialMargin:'0', adl:0,
+      bidNotional:'0', askNotional:'0', updateTime:p.updatedAt || now };
+  }
+  _account() {
+    const syms = Object.keys(this.state.positions), upl = syms.reduce((a, s) => a + this._unrealized(s), 0), im = this._initialMargin();
+    return { totalInitialMargin:s8(im), totalMaintMargin:s8(syms.reduce((a, s) => a + Math.abs(this._pos(s).amt) * (this.lastPx.get(s)?.mid ?? this._pos(s).entry) * PAPER_MAINT_RATE, 0)),
+      totalWalletBalance:s8(this.state.wallet), totalUnrealizedProfit:s8(upl), totalMarginBalance:s8(this.state.wallet + upl), totalPositionInitialMargin:s8(im),
+      totalOpenOrderInitialMargin:'0', totalCrossWalletBalance:s8(this.state.wallet), totalCrossUnPnl:s8(upl), availableBalance:s8(this._available()), maxWithdrawAmount:s8(Math.max(0, this._available())),
+      assets:[{ asset:'USDT', walletBalance:s8(this.state.wallet), unrealizedProfit:s8(upl), marginBalance:s8(this.state.wallet + upl), availableBalance:s8(this._available()) }],
+      positions:syms.map(s => { const r = this._positionRow(s); return { symbol:s, positionSide:'BOTH', positionAmt:r.positionAmt, unrealizedProfit:r.unRealizedProfit, isolatedMargin:'0', notional:r.notional,
+        isolatedWallet:'0', initialMargin:r.initialMargin, maintMargin:r.maintMargin, updateTime:r.updateTime }; }), paper:true };
+  }
+  _wouldTrigger(algo, mid) {
+    const t = finite(algo.triggerPrice); if (!(t > 0) || !(mid > 0)) return false;
+    if (algo.orderType === 'STOP_MARKET') return algo.side === 'SELL' ? mid <= t : mid >= t;
+    if (algo.orderType === 'TAKE_PROFIT_MARKET') return algo.side === 'SELL' ? mid >= t : mid <= t;
+    return false;
+  }
+  async tick() {
+    if (!this.active()) return { ok:true, skipped:true };
+    const open = this.state.algos.filter(a => a.algoStatus === 'NEW');
+    if (!open.length) return { ok:true, triggered:0 };
+    return this._serial(async () => {
+      let n = 0, changed = false;
+      for (const a of this.state.algos.filter(x => x.algoStatus === 'NEW')) {
+        let px; try { px = await this._px(a.symbol); } catch { continue; }
+        if (!this._wouldTrigger(a, px.mid)) continue;
+        const now = this.clock(); a.triggeredAt = now; a.updateTime = now; changed = true;
+        try {
+          const o = await this._fill({ symbol:a.symbol, side:a.side, qty:a.quantity, reduceOnly:true, closePosition:a.closePosition === true, clientOrderId:a.clientAlgoId, type:a.orderType, endpoint:'/paper/trigger' });
+          a.algoStatus = 'FINISHED'; a.actualOrderId = String(o.orderId); a.actualPrice = o.avgPrice; n++;
+        } catch { a.algoStatus = 'EXPIRED'; }
+      }
+      if (changed) this._save();
+      return { ok:true, triggered:n };
+    });
+  }
+  summary() {
+    const s = this.state, upl = Object.keys(s.positions).reduce((a, x) => a + this._unrealized(x), 0);
+    const realized = s.income.filter(x => x.incomeType === 'REALIZED_PNL').reduce((a, x) => a + Number(x.income), 0);
+    const fees = s.income.filter(x => x.incomeType === 'COMMISSION').reduce((a, x) => a + Number(x.income), 0);
+    return { startedAt:s.startedAt, startBalance:s.startBalance, wallet:Number(s.wallet.toFixed(4)), equity:Number((s.wallet + upl).toFixed(4)), unrealized:Number(upl.toFixed(4)),
+      realized:Number(realized.toFixed(4)), fees:Number(fees.toFixed(4)), net:Number((s.wallet - s.startBalance).toFixed(4)), openPositions:Object.keys(s.positions).length,
+      openAlgos:s.algos.filter(a => a.algoStatus === 'NEW').length, fills:s.trades.length };
+  }
+  hasExposure() { return Object.keys(this.state.positions).length > 0; }
+  async handle(method, p, { params = {} } = {}) {
+    const key = `${method} ${p}`, P = params || {}, sym = P.symbol ? String(P.symbol).toUpperCase() : null;
+    return this._serial(async () => {
+      if (key === 'GET /fapi/v1/positionSide/dual') return { dualSidePosition:false };
+      if (key === 'GET /fapi/v1/commissionRate') return { symbol:sym, makerCommissionRate:'0.0002', takerCommissionRate:'0.0005' };
+      if (key === 'GET /fapi/v1/symbolConfig') { const list = (sym ? [sym] : Object.keys(this.state.leverage)).map(s => ({ symbol:s, marginType:'CROSSED', isAutoAddMargin:'false', leverage:this._lev(s), maxNotionalValue:'1000000' })); return list; }
+      if (key === 'POST /fapi/v1/leverage') { const lev = Math.max(1, Math.min(125, Math.round(finite(P.leverage) || 1))); this.state.leverage[sym] = lev; this._save(); return { symbol:sym, leverage:lev, maxNotionalValue:'1000000' }; }
+      if (key === 'GET /fapi/v3/account') { await this._refreshOpen(); return this._account(); }
+      if (key === 'GET /fapi/v3/positionRisk') { await this._refreshOpen(); return Object.keys(this.state.positions).filter(s => !sym || s === sym).map(s => this._positionRow(s)); }
+      if (key === 'POST /fapi/v1/order') {
+        if (String(P.type || 'MARKET').toUpperCase() !== 'MARKET') throw paperError(400, -1116, 'TEST mode supports MARKET orders only.', p);
+        const side = String(P.side || '').toUpperCase(); if (!['BUY','SELL'].includes(side)) throw paperError(400, -1117, 'Invalid side.', p);
+        if (P.newClientOrderId && this.state.orders.some(o => o.symbol === sym && o.clientOrderId === P.newClientOrderId)) throw paperError(400, -4116, 'ClientOrderId is duplicated.', p);
+        const o = await this._fill({ symbol:sym, side, qty:P.quantity, reduceOnly:String(P.reduceOnly) === 'true', closePosition:String(P.closePosition) === 'true', clientOrderId:P.newClientOrderId || null, endpoint:p });
+        this._save(); return o;
+      }
+      if (key === 'GET /fapi/v1/order') {
+        const o = this.state.orders.slice().reverse().find(x => x.symbol === sym && (P.orderId !== undefined ? String(x.orderId) === String(P.orderId) : x.clientOrderId === P.origClientOrderId));
+        if (!o) throw paperError(400, -2013, 'Order does not exist.', p); return o;
+      }
+      if (key === 'POST /fapi/v1/algoOrder') {
+        const type = String(P.type || '').toUpperCase(), side = String(P.side || '').toUpperCase(), trig = finite(P.triggerPrice), closePosition = String(P.closePosition) === 'true';
+        if (!['STOP_MARKET','TAKE_PROFIT_MARKET'].includes(type) || !['BUY','SELL'].includes(side) || !(trig > 0) || (!closePosition && !(finite(P.quantity) > 0))) throw paperError(400, -1102, 'Mandatory parameter missing or malformed.', p);
+        const px = await this._px(sym), now = this.clock();
+        const algo = { algoId:this.state.nextAlgoId++, clientAlgoId:P.clientAlgoId || ('paperalgo' + now), algoType:'CONDITIONAL', orderType:type, symbol:sym, side, positionSide:'BOTH',
+          timeInForce:'GTC', quantity:closePosition ? '0' : s8(P.quantity), algoStatus:'NEW', triggerPrice:s8(trig), price:'0', workingType:P.workingType || 'MARK_PRICE',
+          priceProtect:String(P.priceProtect) === 'true', reduceOnly:String(P.reduceOnly) === 'true' || closePosition, closePosition, createTime:now, updateTime:now, paper:true };
+        if (this._wouldTrigger(algo, px.mid)) throw paperError(400, -2021, 'Order would immediately trigger.', p);
+        this.state.algos.push(algo); this._save(); return algo;
+      }
+      if (key === 'DELETE /fapi/v1/algoOrder') {
+        const a = this.state.algos.find(x => x.algoStatus === 'NEW' && (P.algoId !== undefined ? String(x.algoId) === String(P.algoId) : x.clientAlgoId === P.clientAlgoId));
+        if (!a) throw paperError(400, -2011, 'Unknown order sent.', p);
+        a.algoStatus = 'CANCELED'; a.updateTime = this.clock(); this._save(); return { algoId:a.algoId, clientAlgoId:a.clientAlgoId, code:'200', msg:'success' };
+      }
+      const t0 = finite(P.startTime) ?? 0, t1 = finite(P.endTime) ?? Infinity, lim = Math.max(1, Math.min(1000, finite(P.limit) || 100));
+      if (key === 'GET /fapi/v1/income') return this.state.income.filter(x => (!sym || x.symbol === sym) && (!P.incomeType || x.incomeType === P.incomeType) && x.time >= t0 && x.time <= t1).slice(0, lim);
+      if (key === 'GET /fapi/v1/userTrades') return this.state.trades.filter(x => x.symbol === sym && x.time >= t0 && x.time <= t1 && (P.orderId === undefined || String(x.orderId) === String(P.orderId))).slice(-lim);
+      if (key === 'GET /fapi/v1/allAlgoOrders') return this.state.algos.filter(x => x.symbol === sym && x.createTime >= t0 && x.createTime <= t1).slice(-lim);
+      throw paperError(400, -1000, 'TEST mode endpoint not simulated: ' + key, p);
+    });
+  }
+}
+
 class BinanceLiveTransport {
   constructor({
     registry,
@@ -119,7 +345,21 @@ class BinanceLiveTransport {
     this.exchangeInfoCache = { at:0, value:null };
   }
 
-  async _fetchJson(method, path, { params = {}, credentials = null, signed = false, rateLimitKind = null } = {}) {
+  // R2544.51: TEST mode routing. Simulated routes go to the paper exchange; any other write, and any signed read
+  // except the leverage bracket, is refused before a request is built (no real order can leave in TEST mode).
+  attachPaper(paper) { this.paper = paper || null; return this; }
+  testModeActive() { return Boolean(this.paper && this.paper.active()); }
+  async _fetchJson(method, endpoint, opts = {}) {
+    if (this.paper && this.paper.active()) {
+      if (this.paper.handles(method, endpoint)) return this.paper.handle(method, endpoint, opts);
+      if (method !== 'GET' || (opts?.signed && !PAPER_REAL_SIGNED_READS.has(endpoint))) {
+        throw new TransportError('TEST_MODE_REAL_EXCHANGE_BLOCKED', { endpoint, requestSent:false, body:{ code:-9999, msg:'TEST mode: real exchange call refused' } });
+      }
+    }
+    return this._fetchJsonReal(method, endpoint, opts);
+  }
+
+  async _fetchJsonReal(method, path, { params = {}, credentials = null, signed = false, rateLimitKind = null } = {}) {
     const apiKey = text(credentials?.apiKey);
     const apiSecret = text(credentials?.apiSecret);
     if (signed && (!apiKey || !apiSecret)) throw new TransportError('BINANCE_CREDENTIALS_REQUIRED', { endpoint:path, requestSent:false });
@@ -908,5 +1148,10 @@ module.exports = {
   floorToStep,
   normalizePartialFractions,
   splitTakeProfitQty,
-  BinanceLiveTransport
+  BinanceLiveTransport,
+  PaperExchange,
+  TransportError,
+  readTradingMode,
+  writeTradingMode,
+  PAPER_ROUTES
 };

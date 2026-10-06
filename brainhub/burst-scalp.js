@@ -99,7 +99,9 @@ function burstEvidence(snapshot,side,{preMove=null}={}){
 // opposite aggression, enters when the move resumes, and puts the stop where the read fails (beyond the pullback
 // extreme). No pullback in time = no trade (no chasing).
 const PULLBACK_RULES={minRetrace:0.20,maxRetrace:0.62,resumeFrac:0.30,maxOppositeRatio:0.60,minSideRatioResume:0.55,
-  impulseMaxWaitMs:90000,pullbackMaxMs:120000,minStopPct:0.15,maxStopPct:0.60,stopBufferUnits:0.25};
+  impulseMaxWaitMs:90000,pullbackMaxMs:120000,minStopPct:0.30,maxStopPct:0.60,stopBufferUnits:0.25};
+// R2544.51: minStopPct 0.15 -> 0.30 (06.10 variant test, 53 entries: a 0.15% stop made the 0.10% fee 0.67R and the
+// -0.45R fast-fail ~6 bps, i.e. spread noise; 0.30% was the least-bad variant: -0.32R vs -0.75R per trade).
 const HARD_DATA_CONTRADICTIONS=['STREAM_STALE','SPREAD_TOO_WIDE_OR_UNKNOWN','LOCAL_L2_NOT_HEALTHY'];
 function midOf(s){const b=finite(s?.bid),a=finite(s?.ask);return b>0&&a>0?(a+b)/2:null;}
 class PullbackEntry{

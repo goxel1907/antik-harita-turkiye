@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.30-R2544.50-JEV-Brain';
+const OFFICE_VERSION = '2.5.31-R2544.51-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -87,6 +87,37 @@ async function getJson(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
+const CONTROL_ROUTES = { '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto' };
+// Only these fields ever reach the core; anything else in the Office request is dropped (OTO sizing, burst switch etc.
+// stay with the user's existing config).
+const CONTROL_BODY = {
+  '/api/control/mode': b => {
+    const out = { mode: String(b.mode || '').toUpperCase(), confirm: String(b.confirm || '').toUpperCase() };
+    const bal = Number(b.testBalance);
+    if (b.testBalance != null && Number.isFinite(bal) && bal > 0) out.testBalance = bal;
+    return out;
+  },
+  '/api/control/arm': b => ({ confirm: String(b.confirm || '') }),
+  '/api/control/disarm': () => ({ reason: 'OFFICE_USER' }),
+  '/api/control/oto': b => ({ enabled: b.enabled === true })
+};
+function readSmallBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', c => { size += c.length; if (size > limit) { reject(new Error('BODY_TOO_LARGE')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+async function brainPost(p, body) {
+  if (!Object.values(CONTROL_ROUTES).includes(p)) return { ok: false, status: 400, error: 'BRAIN_PATH_NOT_ALLOWED' };
+  const headers = { 'content-type': 'application/json', ...(TOKEN ? { authorization: 'Bearer ' + TOKEN } : {}) };
+  try {
+    const r = await fetch(BRAIN_URL + p, { method: 'POST', headers, body, signal: AbortSignal.timeout(20000) });
+    let data = null; try { data = await r.json(); } catch { data = null; }
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) { return { ok: false, status: 502, error: clip(e?.cause?.code || e?.message || e, 160) }; }
+}
 function brainGet(p, query = '') {
   if (!ALLOWED_BRAIN_PATHS.has(p)) throw new Error('BRAIN_PATH_NOT_ALLOWED');
   const headers = TOKEN ? { authorization: 'Bearer ' + TOKEN } : {};
@@ -582,6 +613,22 @@ function keyOk(req, u) {
 const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://127.0.0.1');
+    // R2544.51: the only Office writes — TEST/LIVE mode, LIVE arm/disarm, OTO on/off — forwarded to the core with the
+    // server-side token. Local only (HOST 127.0.0.1); JSON body + custom header, so a cross-site page cannot send it
+    // without a CORS preflight (Office never answers OPTIONS); the core still demands an explicit confirmation for mode
+    // and arm. The body is rebuilt from a whitelist per route.
+    if (req.method === 'POST' && CONTROL_ROUTES[u.pathname]) {
+      if (!keyOk(req, u)) return send(res, 401, { ok: false, error: 'office key required' });
+      if (req.headers['x-jev-office-control'] !== '1' || !String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) return send(res, 403, { ok: false, error: 'control header required' });
+      let raw = '';
+      try { raw = await readSmallBody(req, 2048); } catch { return send(res, 413, { ok: false, error: 'body too large' }); }
+      let parsed;
+      try { parsed = raw ? JSON.parse(raw) : {}; } catch { return send(res, 400, { ok: false, error: 'invalid json' }); }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
+      const r = await brainPost(CONTROL_ROUTES[u.pathname], JSON.stringify(CONTROL_BODY[u.pathname](parsed)));
+      for (const k of ['status', 'account', 'positions', 'burst']) cache.delete(k); // the next snapshot shows the new state
+      return send(res, r.status || 502, scrub(r.data || { ok: false, error: r.error || 'core unavailable' }));
+    }
     if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'read-only' });
     if (!keyOk(req, u)) return send(res, 401, { ok: false, error: 'office key required' });
     if (u.pathname === '/' || u.pathname === '/index.html') {
@@ -622,4 +669,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { derive, summarizeJournal, parseLog, waitIsFake, scrub };
+module.exports = { derive, summarizeJournal, parseLog, waitIsFake, scrub, server, CONTROL_ROUTES, CONTROL_BODY };

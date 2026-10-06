@@ -10,7 +10,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { LiveAuthorizationRegistry } = require('./live-authorization');
-const { BinanceLiveTransport } = require('./binance-live-transport');
+const { BinanceLiveTransport, PaperExchange, readTradingMode, writeTradingMode } = require('./binance-live-transport');
 const { assessApiPermissionDeclaration, containsSecretLikeKey } = require('./binance-account-context');
 const { selectDeepCandidates, executionEligibility, executionEligible } = require('./leader-committee');
 const SCAN_PREMOVE_REUSE_MS = 35000;
@@ -30,7 +30,7 @@ const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
 const {createProfitBudget}=require('./profit-budget');
 const {createBurstReduction}=require('./burst-reduction');
-const { BurstScalpManager, burstMarginRule, BURST_PAUSE_EXCEPTION_MIN, PullbackEntry } = require('./burst-scalp');
+const { BurstScalpManager, burstMarginRule, BURST_PAUSE_EXCEPTION_MIN, PullbackEntry, PULLBACK_RULES } = require('./burst-scalp');
 const { locationChaseGate } = require('./chart-readout');
 const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-preparation');
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
@@ -318,12 +318,24 @@ function jevFinalAuthorityPreflight({ plan, unified } = {}) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now() } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now(), defaultTradingMode = 'LIVE', paperAutoTick = true, paperStartBalance = 100 } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
-  const profitBudget=createProfitBudget({transport,clock,emit:runnerEvent,persist:writeRunnerState});
   const candidateStream=market?.marketStream||marketStream;
+  // R2544.51 TEST mode: paper exchange in the transport; prices from the live stream, else public REST bookTicker.
+  const paperPrice=async symbol=>{
+    try{const s=candidateStream?.snapshot?.(symbol,clock());if(s?.available===true&&Number(s.ageMs)<=3000&&finite(s.bid)>0&&finite(s.ask)>0)return {bid:finite(s.bid),ask:finite(s.ask),source:'STREAM'};}catch{}
+    const b=await transport._fetchJsonReal('GET','/fapi/v1/ticker/bookTicker',{params:{symbol}});
+    return {bid:finite(b?.bidPrice),ask:finite(b?.askPrice),source:'REST'};
+  };
+  const paper=new PaperExchange({root,clock,priceOf:paperPrice,defaultMode:defaultTradingMode,startBalance:paperStartBalance,autoTick:paperAutoTick});
+  transport.attachPaper(paper);
+  const testModeNow=()=>paper.active();
+  // Every journal/learning row written while TEST mode is active carries tradingMode:'TEST' (reports keep it apart).
+  store=(base=>{if(!base||typeof base.journal!=='function')return base;const w=Object.create(base);const tag=p=>testModeNow()&&p&&typeof p==='object'&&!Array.isArray(p)?{...p,tradingMode:'TEST'}:p;
+    w.journal=(k,s,p)=>base.journal(k,s,tag(p));if(typeof base.recordLearning==='function')w.recordLearning=(k,s,p)=>base.recordLearning(k,s,tag(p));return w;})(store);
+  const profitBudget=createProfitBudget({transport,clock,emit:runnerEvent,persist:writeRunnerState});
   const burst = new BurstScalpManager({marketStream:candidateStream,now:clock,maxArmed:4,maxActive:1,onEvent:event=>{try{store.journal('BURST_WATCH_EVENT',event.symbol||null,event);}catch{}}});
   // R2544.48 burst bookkeeping (user report 05.10 21:35: a BrainHub burst showed as "dış/manuel / ESKİ/ETİKETSİZ").
   // Burst lots never enter the core lifecycle, so Office called them external, the core position review also
@@ -337,6 +349,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // (2 consecutive net-losing bursts -> 30 min; -3R net in an Istanbul day -> rest of the day). No revenge trading;
   // during the pause JEV is not asked for burst pre-authorizations either.
   const burstPullback=new Map();
+  const burstAllowedNow=()=>testModeNow()||readLeaderAutoConfig().config?.burstLiveEnabled===true;
   let burstLossCache={at:0,value:null};
   const burstNetR=p=>{const e=finite(p?.entryPrice),s=finite(p?.stopPrice),g=finite(p?.realizedR);const stopPct=e>0&&s>0?Math.abs(e-s)/e*100:null;
     const gross=g??(finite(p?.mfeR)>0?0:-0.1);return stopPct>0?gross-0.10/stopPct:gross;};
@@ -1991,7 +2004,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         mirrorContract:row.entryContext?.mirrorContract||null,
         entryReason:bl?burstWhy(bl):row.entryContext?.why||null,
         entryCase:caseMemoryLib.compactEntryCase(entryCase),
-        caseMemory:caseAnalogs
+        caseMemory:caseAnalogs,
+        tradingMode:testModeNow()?'TEST':'LIVE'
       };
     });
     let closed=[];
@@ -2001,7 +2015,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       .filter(x=>x.incomeAvailable!==undefined||Number.isFinite(Number(x.netPnl)))
       .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts));
     const rows=allRows.slice(0,closedLimit);
-    const measured=allRows.filter(x=>Number.isFinite(Number(x.netPnl)));
+    // R2544.51: TEST (paper) closes stay in the closed list with tradingMode:'TEST' but never enter the real-money totals.
+    const measuredAll=allRows.filter(x=>Number.isFinite(Number(x.netPnl)));
+    const measured=measuredAll.filter(x=>x.tradingMode!=='TEST'),measuredTest=measuredAll.filter(x=>x.tradingMode==='TEST');
     const wins=measured.filter(x=>Number(x.netPnl)>0).length;
     const net=measured.reduce((a,x)=>a+Number(x.netPnl),0);
     const rs=measured.filter(x=>finite(x.rMultiple)!==null).map(x=>Number(x.rMultiple));
@@ -2036,6 +2052,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       summary:{closed:measured.length,wins,losses:measured.length-wins,winRatePct:measured.length?Number((100*wins/measured.length).toFixed(1)):null,
         netPnl:Number(net.toFixed(4)),avgR:rs.length?Number((rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(2)):null},
       deskSummary:deskSummary,
+      testSummary:(()=>{
+        const sum=xs=>{const w=xs.filter(x=>Number(x.netPnl)>0).length,r=xs.filter(x=>finite(x.rMultiple)!==null).map(x=>Number(x.rMultiple));
+          return {closed:xs.length,wins:w,losses:xs.length-w,winRatePct:xs.length?Number((100*w/xs.length).toFixed(1)):null,netPnl:Number(xs.reduce((a,x)=>a+Number(x.netPnl),0).toFixed(4)),
+            netR:r.length?Number(r.reduce((a,b)=>a+b,0).toFixed(2)):null,avgR:r.length?Number((r.reduce((a,b)=>a+b,0)/r.length).toFixed(2)):null};};
+        const deskOf=x=>[x.lane,x.tradeLane,x.tradeLaneName,x.entryContext?.lane].some(v=>String(v||'').toUpperCase()==='BURST_SCALP')?'BURST_SCALP':laneOf(x);
+        return {mode:testModeNow()?'TEST':'LIVE',...sum(measuredTest),desks:['5M_SCALP','15M_TRADE','BURST_SCALP','UNSPECIFIED'].map(desk=>({desk,...sum(measuredTest.filter(x=>deskOf(x)===desk))}))};
+      })(),
       performance:performanceReport(allOfficeRecords,open,clock()),
       execution:'READ_ONLY'
     };
@@ -2930,6 +2953,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         burstMarginQuote,
         burstFreeMarginFraction,
         burstMaxLeverage,
+        burstLiveEnabled:current.burstLiveEnabled===true, // R2544.51: real-money burst is opt-in
         allowLong,
         allowShort,
         intervalSec:30
@@ -3132,12 +3156,47 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
   }
 
+  // R2544.51 TEST / LIVE mode. TEST: every order goes to the paper exchange (no real order can leave).
+  // Switching needs: disarmed, no real or paper position, no active burst, explicit confirmation.
+  const TEST_WINDOW_HOURS=24;
+  function tradingModeStatus(){
+    const m=readTradingMode(root,defaultTradingMode),test=m.mode==='TEST',started=finite(m.testStartedAt)??(test?finite(paper.state.startedAt):null);
+    const hours=test&&started?Math.max(0,(clock()-started)/3600000):null;
+    return {ok:true,mode:m.mode,defaulted:m.defaulted===true,changedAt:m.changedAt||null,testStartedAt:started?new Date(started).toISOString():null,
+      testWindowHours:TEST_WINDOW_HOURS,testElapsedHours:hours===null?null:Number(hours.toFixed(2)),testWindowComplete:hours!==null&&hours>=TEST_WINDOW_HOURS,
+      realOrdersPossible:!test,paper:test||paper.hasExposure()?paper.summary():null};
+  }
+  async function setTradingMode({mode,startBalance=null}={}){
+    const want=String(mode||'').toUpperCase();
+    if(!['LIVE','TEST'].includes(want))return {ok:false,reasons:['TRADING_MODE_INVALID']};
+    const cur=readTradingMode(root,defaultTradingMode);
+    if(cur.mode===want&&!cur.defaulted)return {ok:true,unchanged:true,...tradingModeStatus()};
+    const reasons=[];
+    if(armedNow())reasons.push('DISARM_FIRST');
+    if(burst.active.size>0)reasons.push('BURST_ACTIVE');
+    if(paper.hasExposure())reasons.push('TEST_POSITION_OPEN');
+    if(Array.isArray(ledgerState.open)&&ledgerState.open.length)reasons.push('POSITION_OPEN');
+    // a close not yet written to the journal would be tagged with the new mode
+    if(burstClosePending.length||Object.values(leaderAnalysisState.bySymbol||{}).some(r=>String(r?.state||'').toUpperCase()==='ACTIVE'))reasons.push('POSITION_CLOSE_PENDING');
+    if(want==='TEST'||cur.mode==='TEST'){
+      // the real account must also be flat before either switch (a real lot must never be left unmanaged)
+      try{const creds=currentCredentials();if(credentialsReady(creds)){const rows=await transport._fetchJsonReal('GET','/fapi/v3/positionRisk',{credentials:creds,signed:true});if(Array.isArray(rows)&&rows.some(x=>Math.abs(finite(x?.positionAmt)||0)>0))reasons.push('REAL_POSITION_OPEN');}}catch{/* unreadable real account: switch allowed; after TEST->LIVE any real lot shows in the ledger as before */}
+    }
+    if(reasons.length)return {ok:false,mode:cur.mode,reasons:[...new Set(reasons)]};
+    const now=clock();
+    writeTradingMode(root,{mode:want,changedAt:new Date(now).toISOString(),testStartedAt:want==='TEST'?now:null});
+    if(want==='TEST')paper.reset(finite(startBalance)>0?finite(startBalance):paperStartBalance);
+    paper.invalidateMode();accountSummaryCache={at:0,value:null};
+    try{store.journal('TRADING_MODE_CHANGED',null,{from:cur.mode,to:want,at:new Date(now).toISOString()});}catch{}
+    return {ok:true,...tradingModeStatus()};
+  }
   function status() {
     const policy = readPolicy(root);
     const creds = currentCredentials();
     const armed = armedNow();
     return {
       ok:true,
+      tradingMode:tradingModeStatus(),
       liveConfigured:credentialsReady(creds) && policy.ok === true,
       credentialsConfigured:credentialsReady(creds),
       policy:publicPolicy(policy),
@@ -5171,6 +5230,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const la=readLeaderAutoConfig();if(!la.ok||la.config?.enabled!==true){for(const symbol of [...burstPreparation.pending.keys()])releaseBurstPreparation(symbol);return skipped('LEADER_AUTO_DISABLED');}
       // R2544.49: no burst pre-authorization (no JEV credit) while the burst-only loss pause is active.
       {const blp=burstLossPause();if(blp)return skipped(blp.reason);}
+      // R2544.51 (user 06.10: apply the recommendation): no burst with real money until it shows an edge after fees;
+      // TEST mode keeps it running so JEV-filtered bursts are measured without money. LIVE needs burstLiveEnabled:true.
+      if(!burstAllowedNow())return skipped('BURST_LIVE_DISABLED');
       let scan;try{scan=await scanner.scan();}catch{return skipped('SCANNER_UNAVAILABLE',false);}
       const pool=burstCandidatePool(scan);if(!pool.length)return skipped('BURST_NO_CANDIDATES');
       const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return skipped('BURST_ARM_FULL');
@@ -5276,7 +5338,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(plan&&finite(plan.stopPrice)>0){
       const sp=finite(plan.stopPrice),d=Math.abs(price-sp)/price*100,wrongSide=side==='LONG'?sp>=price:sp<=price;
       if(wrongSide||d>0.60)return {ok:false,reason:'BURST_STRUCTURAL_STOP_INVALID_AT_ORDER',stopDistancePct:Number(d.toFixed(4))};
-      stopPct=Math.max(0.15,d);stopRaw=d>=0.15?sp:(side==='LONG'?price*(1-0.0015):price*(1+0.0015));
+      const minStop=PULLBACK_RULES.minStopPct;stopPct=Math.max(minStop,d);stopRaw=d>=minStop?sp:(side==='LONG'?price*(1-minStop/100):price*(1+minStop/100));
     }else{stopPct=Math.max(0.32,Math.min(0.75,0.38+Math.max(0,finite(snap?.spreadBps)||0)*0.006));stopRaw=side==='LONG'?price*(1-stopPct/100):price*(1+stopPct/100);}
     const hasAnyOpen=Array.isArray(ledgerState.open)&&ledgerState.open.length>0;
     const sz=await burstLeverageAndSizing(symbol,side,auth.leverageMode,price,stopPct,!hasAnyOpen,current);if(!sz.ok)return sz;
@@ -5338,6 +5400,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const la=readLeaderAutoConfig();
       if(!la.ok||la.config?.enabled!==true){for(const symbol of [...burst.armed.keys()]){burst.disarm(symbol,'LEADER_AUTO_DISABLED');candidateStream.localL2?.releaseReservation?.(symbol);}return {ok:true,skipped:true,reason:'LEADER_AUTO_DISABLED'};}
       if(!burst.canStart())return {ok:true,active:true};
+      if(!burstAllowedNow()){for(const symbol of [...burst.armed.keys()]){burst.disarm(symbol,'BURST_LIVE_DISABLED');candidateStream.localL2?.releaseReservation?.(symbol);}return {ok:true,skipped:true,reason:'BURST_LIVE_DISABLED'};}
       const pause=lossStreakPause();
       const blp=burstLossPause();
       for(const id of [...burstPullback.keys()])if(![...burst.armed.values()].some(a=>a.authorizationId===id))burstPullback.delete(id);
@@ -5371,7 +5434,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

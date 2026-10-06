@@ -60,6 +60,7 @@ function enrichCloses(rows,records=[]){
    return row;
  });
 }
+const isTestRow=x=>x?.tradingMode==='TEST';
 function laneOf(x={}){const raw=x.tradeLaneName||x.lane||x.entryContext?.lane||x.tradeLane?.name||x.tradeLane||x.jevLaneFocus;return ({SCALP_MOMENTUM:'5M_SCALP',MAIN_15M:'15M_TRADE'})[raw]||(['5M_SCALP','15M_TRADE','BURST_SCALP'].includes(raw)?raw:'UNSPECIFIED');}
 function summary(rows,open=[]){
  const xs=rows.filter(x=>num(x.netPnl)!==null), rs=xs.map(x=>num(x.rMultiple)).filter(x=>x!==null).sort((a,b)=>a-b);
@@ -79,10 +80,20 @@ function performanceReport(records=[],open=[],now=Date.now()){
  const events=records.filter(x=>x.kind==='R2542_OFFICE_EVENT').map(x=>({...x.payload,id:x.id,ts:x.ts}));
  const closed=records.filter(x=>x.kind==='POSITION_CLOSED').map(x=>({...x.payload,id:x.id,ts:x.ts,symbol:x.symbol}));
  const version=x=>x.releaseContract||x.entryContext?.releaseContract||'LEGACY';
- const {trades,excluded}=reconcileCloses(enrichCloses(closed,records));
- const versions=[...new Set([RELEASE,...trades.map(version),...events.map(version)])];
+ const {trades:canonical,excluded}=reconcileCloses(enrichCloses(closed,records));
+ // R2544.51: TEST (paper) rows never enter the real-money totals, versions or desk cohorts; they get their own section
+ // and a 'TEST' cohort per desk. The decision funnel keeps both (it counts decisions, not money).
+ const trades=canonical.filter(x=>!isTestRow(x)),testTrades=canonical.filter(isTestRow);
+ const realOpen=open.filter(x=>!isTestRow(x)),testOpen=open.filter(isTestRow);
+ const realEvents=events.filter(x=>!isTestRow(x)),testEvents=events.filter(isTestRow);
+ const versions=[...new Set([RELEASE,...trades.map(version),...realEvents.map(version)])];
  const make=(name,ev,ts,os,complete)=>({name,telemetryAvailable:complete,...decisions(ev),...summary(ts,os)});
  const recentEvents=events.filter(x=>x.ts>=now-3600000),recentTrades=trades.filter(x=>Date.parse(x.closedAt||'')>=now-3600000);
- return {source:'SQLITE_JOURNAL_ALL_ROWS',generatedAt:now,reconciliation:{rawClosedRows:closed.length,canonicalClosedRows:trades.length,excluded},historyNote:'Karar telemetrisi bu güncellemeden itibaren kalıcıdır; eski eksik olaylar yeniden üretilmez.',funnel:decisions(recentEvents),total:summary(trades,open),versions:versions.map(v=>({version:v,...summary(trades.filter(x=>version(x)===v),open.filter(x=>version(x)===v))})),desks:['5M_SCALP','15M_TRADE','BURST_SCALP','UNSPECIFIED'].map(desk=>({desk,recent:make('Son 60 dk',recentEvents.filter(x=>laneOf(x)===desk),recentTrades.filter(x=>laneOf(x)===desk),open.filter(x=>laneOf(x)===desk),true),cohorts:versions.map(v=>({...make(v,events.filter(x=>version(x)===v&&laneOf(x)===desk),trades.filter(x=>version(x)===v&&laneOf(x)===desk),open.filter(x=>version(x)===v&&laneOf(x)===desk),v===RELEASE),version:v}))}))};
+ const DESKS=['5M_SCALP','15M_TRADE','BURST_SCALP','UNSPECIFIED'];
+ const testCohort=desk=>({...make('TEST (sanal)',testEvents.filter(x=>laneOf(x)===desk),testTrades.filter(x=>laneOf(x)===desk),testOpen.filter(x=>laneOf(x)===desk),true),version:'TEST',tradingMode:'TEST'});
+ const hasTest=testTrades.length>0||testOpen.length>0||testEvents.length>0;
+ return {source:'SQLITE_JOURNAL_ALL_ROWS',generatedAt:now,reconciliation:{rawClosedRows:closed.length,canonicalClosedRows:canonical.length,testClosedRows:testTrades.length,excluded},historyNote:'Karar telemetrisi bu güncellemeden itibaren kalıcıdır; eski eksik olaylar yeniden üretilmez.',funnel:decisions(recentEvents),total:summary(trades,realOpen),
+   testMode:{total:summary(testTrades,testOpen),desks:DESKS.map(desk=>({desk,...summary(testTrades.filter(x=>laneOf(x)===desk),testOpen.filter(x=>laneOf(x)===desk))}))},
+   versions:versions.map(v=>({version:v,...summary(trades.filter(x=>version(x)===v),realOpen.filter(x=>version(x)===v))})),desks:DESKS.map(desk=>({desk,recent:make('Son 60 dk',recentEvents.filter(x=>laneOf(x)===desk),recentTrades.filter(x=>laneOf(x)===desk),realOpen.filter(x=>laneOf(x)===desk),true),cohorts:[...versions.map(v=>({...make(v,realEvents.filter(x=>version(x)===v&&laneOf(x)===desk),trades.filter(x=>version(x)===v&&laneOf(x)===desk),realOpen.filter(x=>version(x)===v&&laneOf(x)===desk),v===RELEASE),version:v})),...(hasTest?[testCohort(desk)]:[])]}))};
 }
-module.exports={enrichCloses,RELEASE,laneOf,summary,decisions,performanceReport,sameEntry,reconcileCloses};
+module.exports={enrichCloses,RELEASE,laneOf,isTestRow,summary,decisions,performanceReport,sameEntry,reconcileCloses};

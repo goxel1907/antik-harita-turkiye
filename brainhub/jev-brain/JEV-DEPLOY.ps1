@@ -1,12 +1,12 @@
-# JEV-Brain DEPLOY R2544.50 - 5m/15m entries restored, burst scalper entry, free-model knowledge; includes R39-R49 fixes.
+# JEV-Brain DEPLOY R2544.51 - TEST (paper) mode + Office TEST/LIVE switch; burst TEST-only; burst stop floor 0.30 %; includes R39-R50 fixes.
 # Kaynak: bu teslim paketindeki .\source. Hedef: C:\JEV-Brain\runtime.
 # R2544.29 guvenlik ilkesi: LIVE KAPALI + ACIK POZISYON 0 olmadan deploy YAPMAZ; restart sonrasi LIVE kapali kalir.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.50-SCALPER-FREE-KNOWLEDGE'
-$EXPECTED_OFFICE = '2.5.30-R2544.50-JEV-Brain'
+$EXPECTED_RELEASE = 'R2544.51-TEST-MODE'
+$EXPECTED_OFFICE = '2.5.31-R2544.51-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null
