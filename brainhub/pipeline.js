@@ -1507,7 +1507,7 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     out.journalWarning=String(e?.message||e).slice(0,160);
   }
   if(typeof store?.recordLearning==='function'){
-    try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:null,contractVersion:plan.contractVersion||null,setupFamily:plan.setupFamily||null,entryTiming:plan.entryTiming||null,waitReason:plan.waitReason||null,edgeBasis:plan.edgeBasis||null,jevDecision:{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,waitReason:final.waitReason||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle},contextVersion:unified.version});}catch{}
+    try{store.recordLearning('PLAN_DECISION',candidate.symbol,{side:plan.side,setup:plan.setup,originTF:plan.originTF,ownerTF:plan.ownerTF,decision:plan.status,confidence:final.jevEdge?.tradePlan?.confidence??null,contractVersion:plan.contractVersion||null,setupFamily:plan.setupFamily||null,entryTiming:plan.entryTiming||null,waitReason:plan.waitReason||null,edgeBasis:plan.edgeBasis||null,jevEdge:final.jevEdge||null,jevDecision:{action:final.action,selectedPlanId:final.selectedPlanId,setupFamily:final.setupFamily||null,entryTiming:final.entryTiming||null,waitReason:final.waitReason||null,edgeBasis:final.edgeBasis||null,managementStyle:final.managementStyle},contextVersion:unified.version});}catch{}
   }
   return out;
 }

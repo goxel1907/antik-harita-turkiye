@@ -26,6 +26,7 @@ const claudeV111 = require('./claude-v111');
 const claudeV112 = require('./claude-v112');
 const tradeLanesV111 = require('./trade-lanes');
 const positionGuard = require('./position-guard');
+const jevEdgeLib = require('./jev-edge'); // R2544.55 expected-value gate from JEV's own probabilities
 const tradeLessonsLib = require('./trade-lessons');
 const caseMemoryLib = require('./case-memory');
 const {createProfitBudget}=require('./profit-budget');
@@ -4868,6 +4869,22 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,locationChase:gate};
       }
     }
+    // R2544.55 JEV_EDGE_GATE (user 07.10.2026; measured: 44.5% of entries reached +1R before the stop, fees 41% of the
+    // loss). JEV answers "+1R before the stop within 4 h?" per plan; code enters only when EV after fees >= evMinR and
+    // JEV's plan choice is not a coin flip. Only removes an entry; a missing answer never blocks (journaled).
+    {
+      const edge=advisory?.plan?.jevDecision?.jevEdge||advisory?.jevDecision?.jevEdge||null;
+      const eg=jevEdgeLib.edgeGate({edge,side:chasePlan?.side,entryPrice:freshEntryPrice,stopPrice:finite(chasePlan?.stopPrice),config:jevEdgeLib.readEdgeConfig(root)});
+      advisory.jevEdgeGate=eg;
+      try{store.journal('JEV_EDGE_GATE',candidate.symbol,{...eg,side:chasePlan?.side||null,lane:chasePlan?.lane||null,entryPrice:freshEntryPrice,stopPrice:finite(chasePlan?.stopPrice),takeProfit1:finite(chasePlan?.takeProfit1),planId:edge?.selected?.planId||null,setupFamily:chasePlan?.setupFamily||null,fastLane:Boolean(body?.claudeFastLane)});}catch{}
+      if(!eg.ok){
+        const rs=eg.reasons||[eg.reason||'JEV_EDGE_BLOCK'];
+        annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{jevEdge:eg});
+        leaderHealthEvent('JEV_FINAL_AUTHORITY',{stage:'HARD_BLOCK',symbol:candidate.symbol,reasons:rs,jevEdge:eg});
+        leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs,jevEdge:eg});
+        return {ok:false,orderPlaced:false,liveAllowed:false,retryable:true,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs,jevEdge:eg};
+      }
+    }
     const requestedNotional=Number(settings.marginQuote)*Number(settings.leverage);
     const maintenance=await maintenanceMarginRateFor(candidate.symbol,requestedNotional,creds);
     if(!maintenance.ok){
@@ -5073,7 +5090,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           source:fl?'FAST_LANE':'VISION_9TF',
           momentum:Array.isArray(fl?.momentum?.tags)?fl.momentum.tags.slice(0,8):null,
           extension:fl?.extension||null,riskGeometry:fl?.riskGeometry||null,
-          jev:jd?{veto:jd.veto===true,summaryTr:String(jd.summaryTr||'').slice(0,200),probabilities:jd.probabilities||null}:null,
+          jev:jd?{veto:jd.veto===true,summaryTr:String(jd.summaryTr||'').slice(0,200),probabilities:jd.probabilities||null,edge:jd.jevEdge||null,edgeGate:advisory?.jevEdgeGate||null}:null,
           riskPctOfEquity:finite(result?.sizing?.riskPctOfEquity),
           marketSignature:marketSignatureFromAdvisory(advisory),
           // CLAUDE_R2544_16_TRADE_LESSONS: işlem hangi dikkat katmanından geldi (ilk 10 adayı / 4–10 / 11–24 / erken ilgi /

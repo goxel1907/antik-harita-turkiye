@@ -1,4 +1,5 @@
 const fs=require('fs');
+const jevEdge=require('./jev-edge'); // R2544.55: narrow +1R-before-stop questions + kept probabilities/confidence
 const path=require('path');
 const crypto=require('node:crypto');
 const {marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest}=require('./jev-market-packet');
@@ -825,6 +826,7 @@ function compactPass2QuestionsResidual(questions){
   const out={};
   for(const [id,q] of Object.entries(src)){
     if(!q||typeof q!=='object'||Array.isArray(q)){out[id]=q;continue;}
+    if(String(id).startsWith('p1r_')){out[id]={type:q.type||'noul',instructions:String(q.instructions||'')};continue;} // R2544.55: prices must stay whole
     const x={type:q.type||'choice',instructions:instructions[id]||clipNatural(q.instructions||'',96)};
     if(q.criteria&&typeof q.criteria==='object'&&!Array.isArray(q.criteria)){
       const c={};
@@ -1449,9 +1451,11 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const liveContext=liveReasoningContext(root,unified?.learning);
     const coreMarket=marketPacket(unified);
     const boundedEvidence=compactSovereignEvidence(evidence,Math.min(9000,Math.max(4500,PASS2_TARGET_BYTES-37000)));
+    const edgeQ=jevEdge.buildEdgeQuestions(plans); // R2544.55
     const body={
       model:cfg.model,
       state:{
+        ...(Object.keys(edgeQ.questions).length?{edgeContext:jevEdge.EDGE_CONTEXT}:{}),
         description:'JEV PASS-2 final strategic choice. Read protected chartOverlayLevels trendLines and breakoutEvidence per TF; rejected breaks are observations, not a guaranteed reversal or automatic veto. 5M_SCALP is a professional scalper desk; 15M_TRADE is a professional trader desk. Choose one supplied executable plan or WAIT. WAIT is an active strategic decision that requires a concrete market reason, not generic uncertainty. Weight evidence by freshness, independence, reliability and relevance; disagreement is normal. MARKET_NOW requires coherent direction, location, invalidation, execution quality and remaining path; when those are already sound, do not demand textbook confirmation before MARKET_NOW. coreMarketPacket.levelMap lists the nearest levels for location, stop and remaining path. Read exact core-frame OB boundaries and priceAction confirmations; distinguish internal versus swing/prior10 scope, full-range versus rejection zones, origin versus confirmation time and mitigated/broken/reclaimed state. A 5m zone is not a 15m zone. These observations are not automatic trade permission. FVG lifecycle is closed-bar evidence: fillPct is penetration depth, never probability; testCount counts separate visits, ce50Touched requires actual overlap, INVALIDATED is a close beyond the far boundary. reaction is observed relative to the entry-side edge and excludes first-touch-bar extrema from subsequent excursion; it is not a prediction or a rule. Frame readout (closed candles, compact), volatility spike/extAtr/trail and order-block context are soft closed-candle context for chase risk and location, never a checklist, threshold or veto. experienceMemory.tradeLessons is YOUR OWN measured P&L and remains soft context with winners and losses.',
         decisionContract:{version:'R2544.26',authority:'JEV_FINAL',phase:'PASS2_FINAL',lanes:{'5M_SCALP':'prioritize immediate execution,1m/3m timing,5m structure,spread/flow/depth,near liquidity','15M_TRADE':'prioritize 15m structure/location/invalidation/liquidity path; lower-TF noise alone is not a veto'},rules:['NO_MANDATORY_CHECKLIST','NO_FIXED_SCORE','NO_2_OF_3','NO_HARD_15M_VETO','NUMERIC_TRUTH_OVER_VISUAL','OPTIONAL_MISSING_NOT_NEGATIVE'],microstructure:'R2544.26 PREENTRY is timing evidence only; sequence-safe local L2 is used only when healthy/confident; samplingConfidence down-weights SPARSE/VERY_SPARSE windows, depth20 is fallback, missing/resync L2 is not negative evidence or a hard gate.',memory:'MEASURED_SOFT_CONTEXT_WINNERS_PLUS_COUNTEREXAMPLES; MFE giveback, fast adverse move, repeat/flip/NONE_WAIT and exitAuthority are soft analog context only; current market evidence overrides history.',knowledge:'Do not invent unfamiliar concepts; choose WAIT when a material knowledge gap remains.'},
         professionalTraderCortex:liveContext.professionalTraderCortex,
@@ -1466,6 +1470,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         }
       },
       questions:{
+        ...edgeQ.questions,
         trade_plan:{
           type:'choice',
           instructions:'Choose the single best action now. Select one supplied executable plan only when direction, lane, timing, location and risk geometry are justified by the complete core market packet plus requested evidence; otherwise choose WAIT. Explicitly weigh the supplied geometryNote, stopAtr and formingOwnerTF: a stop inside owner-frame noise with adverse live movement is not made sound by a supportive aggregate flow label. For countertrend mean reversion distinguish observed rejection from an accepted break or squeeze; oversold/overbought alone does not establish exhaustion. JEV retains the strategic choice; these are evidence considerations, not new code vetoes.',
@@ -1615,6 +1620,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     }
     const selectedPlan=selectedId==='WAIT'?null:plans.find(x=>x.id===selectedId)||null;
     if(selectedId!=='WAIT'&&!selectedPlan)return {ok:false,configured:true,required:true,called:true,pass:2,reason:'JEV_SOVEREIGN_PLAN_NOT_FOUND',mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
+    const jevEdgeResult=jevEdge.parseEdge(answers,plans,selectedId,edgeQ.map); // R2544.55: probabilities + confidence kept
     const consistency=sovereignFinalConsistency({selectedId,selectedPlan,setupFamily,entryTiming,waitReasonRaw,edgeBasis,preEntryFlowAssessment,coreMarket});
     if(!consistency.ok){
       return {ok:false,configured:true,required:true,called:true,pass:2,finalAuthority:false,reason:'JEV_SOVEREIGN_FINAL_SEMANTIC_CONTRADICTION',consistencyIssues:consistency.issues,selectedPlanId:selectedId,setupFamily:setupFamily||null,entryTiming:entryTiming||null,waitReasonRaw:waitReasonRaw||null,edgeBasis:edgeBasis||null,preEntryFlowAssessment,mode:'SOVEREIGN_CHOICE',budget:out.budget,costUsd:out.costUsd};
@@ -1624,6 +1630,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       action:selectedId==='WAIT'?'WAIT':selectedPlan.side,
       selectedPlanId:selectedId,selectedPlan,setupFamily:setupFamily||null,entryTiming:entryTiming||null,waitReason,edgeBasis:edgeBasis||null,preEntryFlowAssessment,
       managementStyle,targetProfile,partialProfile,breakevenRule,trailRule,evidenceTrimmed:boundedEvidence.evidenceTrimmed===true,
+      jevEdge:jevEdgeResult,
       jevSeen:out.jevSeen,requestSize:out.requestSize,
       model:cfg.model,mode:'SOVEREIGN_CHOICE',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget
     };

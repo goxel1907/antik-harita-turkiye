@@ -1,12 +1,12 @@
-# JEV-Brain DEPLOY R2544.52 - one-button TEST start (OTO + arm), TEST clock from first start, TEST restart; includes R51 TEST mode and R39-R50 fixes.
+# JEV-Brain DEPLOY R2544.55 - JEV edge: narrow +1R-before-stop questions, kept probabilities/confidence, EV gate after fees; includes R51-R52 TEST mode.
 # Kaynak: bu teslim paketindeki .\source. Hedef: C:\JEV-Brain\runtime.
 # R2544.29 guvenlik ilkesi: LIVE KAPALI + ACIK POZISYON 0 olmadan deploy YAPMAZ; restart sonrasi LIVE kapali kalir.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.52-TEST-START'
-$EXPECTED_OFFICE = '2.5.32-R2544.52-JEV-Brain'
+$EXPECTED_RELEASE = 'R2544.55-JEV-EDGE'
+$EXPECTED_OFFICE = '2.5.35-R2544.55-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null

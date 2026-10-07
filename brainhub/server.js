@@ -2348,8 +2348,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.52-TEST-START';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-07 • R2544.52: TEST runs by itself (supervisor: OTO + paper arm); Office OTO aç = GO_LIVE with the real Binance balance (paper lots closed first), OTO kapat = back to TEST, Durdur = all off; no browser dialogs; JEV-TEST-DEPLOY wrapper; includes R51 TEST mode';
+const RUNTIME_RELEASE='R2544.55-JEV-EDGE';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-07 • R2544.55: JEV edge - one narrow +1R-before-stop Noul per plan with measured lessons, JEV probabilities/confidence kept, code-side EV gate after fees (fail-open on missing); includes R51-R52 TEST mode and run control';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};
