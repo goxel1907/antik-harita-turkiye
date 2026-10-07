@@ -1640,6 +1640,16 @@ const server=http.createServer(async(req,res)=>{
       const out=await live.setTradingMode({mode:want,startBalance:body?.testBalance,restart:body?.restart===true});
       return send(res,out.ok?200:409,out);
     }
+    // R2544.52 run control (Office): STOP / START_TEST / RESET_TEST / GO_LIVE (real money, confirm 'LIVE') / GO_TEST.
+    if(req.method==='POST'&&u.pathname==='/live/run'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const action=String(body?.action||'').toUpperCase();
+      if(!['STOP','START_TEST','RESET_TEST','GO_LIVE','GO_TEST'].includes(action))return send(res,400,{ok:false,reasons:['RUN_ACTION_INVALID']});
+      if(action==='GO_LIVE'&&body?.confirm!=='LIVE')return send(res,400,{ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']});
+      if(action==='RESET_TEST'&&body?.confirm!=='TEST')return send(res,400,{ok:false,reasons:['EXPLICIT_MODE_CONFIRMATION_REQUIRED']});
+      const out=await live.runControl({action,testBalance:body?.testBalance});
+      return send(res,out.ok?200:409,out);
+    }
     if(req.method==='POST'&&u.pathname==='/live/disarm'){
       let body={};try{body=JSON.parse((await readBody(req))||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
       return send(res,200,live.disarm(typeof body.reason==='string'?body.reason:'USER_DISARM'));
@@ -2339,7 +2349,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
 const RUNTIME_RELEASE='R2544.52-TEST-START';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-07 • R2544.52: Office Start = OTO + arm, Stop = both off, run proof and silent-run warning; TEST 24 h clock starts at the first start; TEST restart; includes R51 TEST mode';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-07 • R2544.52: TEST runs by itself (supervisor: OTO + paper arm); Office OTO aç = GO_LIVE with the real Binance balance (paper lots closed first), OTO kapat = back to TEST, Durdur = all off; no browser dialogs; JEV-TEST-DEPLOY wrapper; includes R51 TEST mode';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};
@@ -2373,6 +2383,12 @@ const claudeFastLaneTimer=setInterval(async()=>{
 if(typeof claudeFastLaneTimer.unref==='function')claudeFastLaneTimer.unref();
 
 // R2544.29 BURST_SCALP: JEV preauthorization refresh is slow/heavy; armed symbols are then watched at 1s from WebSocket-only evidence.
+// R2544.52: run supervisor - TEST autorun (OTO + paper arm), GO_LIVE / GO_TEST / RESET sequences; 5 s.
+const runSupervisorTimer=setInterval(async()=>{
+  try{const out=await live.testSupervisorTick();if(out?.action)log('RUN SUPERVISOR '+out.action);else if(out?.ok===false)log('RUN SUPERVISOR '+String((out.reasons||[]).join(',')).slice(0,160));}
+  catch(e){log('RUN SUPERVISOR TIMER '+String(e?.message||e).slice(0,180));}
+},5000);
+if(typeof runSupervisorTimer.unref==='function')runSupervisorTimer.unref();
 const burstArmTimer=setInterval(async()=>{
   try{const out=await live.burstArmTick();if(out?.ok===false)log('BURST ARM ERROR '+String(out?.reason||'unknown').slice(0,160));}
   catch(e){log('BURST ARM TIMER '+String(e?.message||e).slice(0,180));}

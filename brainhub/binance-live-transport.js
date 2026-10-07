@@ -280,6 +280,19 @@ class PaperExchange {
       openAlgos:s.algos.filter(a => a.algoStatus === 'NEW').length, fills:s.trades.length };
   }
   hasExposure() { return Object.keys(this.state.positions).length > 0; }
+  // R2544.52: before a switch to LIVE (or a TEST reset) every paper lot is closed at market and every open paper
+  // stop/TP is cancelled; fills, fees and realised PnL are booked like any other paper close.
+  async closeAll(tag = 'TESTCLOSE') {
+    return this._serial(async () => {
+      const now = this.clock(); let closed = 0, cancelled = 0;
+      for (const a of this.state.algos) if (a.algoStatus === 'NEW') { a.algoStatus = 'CANCELED'; a.updateTime = now; cancelled++; }
+      for (const [symbol, p] of Object.entries(this.state.positions)) {
+        try { await this._fill({ symbol, side:p.amt > 0 ? 'SELL' : 'BUY', qty:Math.abs(p.amt), reduceOnly:true, clientOrderId:`${tag}${now}${closed}`, endpoint:'/paper/closeAll' }); closed++; } catch {}
+      }
+      this._save();
+      return { closed, cancelled, open:Object.keys(this.state.positions).length };
+    });
+  }
   async handle(method, p, { params = {} } = {}) {
     const key = `${method} ${p}`, P = params || {}, sym = P.symbol ? String(P.symbol).toUpperCase() : null;
     return this._serial(async () => {

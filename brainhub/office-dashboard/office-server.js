@@ -87,7 +87,7 @@ async function getJson(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
-const CONTROL_ROUTES = { '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto' };
+const CONTROL_ROUTES = { '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run' };
 // Only these fields ever reach the core; anything else in the Office request is dropped (OTO sizing, burst switch etc.
 // stay with the user's existing config).
 const CONTROL_BODY = {
@@ -100,7 +100,15 @@ const CONTROL_BODY = {
   },
   '/api/control/arm': b => ({ confirm: String(b.confirm || '') }),
   '/api/control/disarm': () => ({ reason: 'OFFICE_USER' }),
-  '/api/control/oto': b => ({ enabled: b.enabled === true })
+  '/api/control/oto': b => ({ enabled: b.enabled === true }),
+  '/api/control/run': b => {
+    const action = String(b.action || '').toUpperCase();
+    const out = { action: ['STOP', 'START_TEST', 'RESET_TEST', 'GO_LIVE', 'GO_TEST'].includes(action) ? action : 'INVALID' };
+    if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
+    const bal = Number(b.testBalance);
+    if (b.testBalance != null && Number.isFinite(bal) && bal > 0) out.testBalance = bal;
+    return out;
+  }
 };
 function readSmallBody(req, limit) {
   return new Promise((resolve, reject) => {

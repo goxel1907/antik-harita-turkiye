@@ -375,6 +375,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const burstReviewAt=new Map();
   const leaseToken = crypto.randomBytes(32).toString('base64url');
   let armState = { armed:false, armedAt:null, expiresAt:null };
+  let armSource = null; // R2544.52: 'TEST_AUTORUN' | 'USER_GO_LIVE' | 'USER'
   let armGeneration = 0;
   const pendingFile=path.join(root,'data','r2542-pending-orders.json');
   let pendingOrders=[];
@@ -2916,6 +2917,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if (!Number.isFinite(now) || now >= armState.expiresAt) {
       registry.revokeAll();
       armState = { armed:false, armedAt:null, expiresAt:null };
+      armSource = null;
       lastDisarmReason = 'ARM_EXPIRED';
       return false;
     }
@@ -3164,7 +3166,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function tradingModeStatus(){
     const m=readTradingMode(root,defaultTradingMode),test=m.mode==='TEST',started=test?finite(m.testStartedAt):null;
     const hours=started?Math.max(0,(clock()-started)/3600000):null;
-    return {ok:true,mode:m.mode,defaulted:m.defaulted===true,changedAt:m.changedAt||null,testStarted:started!==null,testStartedAt:started?new Date(started).toISOString():null,
+    return {ok:true,mode:m.mode,defaulted:m.defaulted===true,changedAt:m.changedAt||null,run:runStatus(),testStarted:started!==null,testStartedAt:started?new Date(started).toISOString():null,
       testWindowHours:TEST_WINDOW_HOURS,testElapsedHours:hours===null?null:Number(hours.toFixed(2)),testWindowComplete:hours!==null&&hours>=TEST_WINDOW_HOURS,
       realOrdersPossible:!test,paper:test||paper.hasExposure()?paper.summary():null};
   }
@@ -3193,11 +3195,223 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     if(reasons.length)return {ok:false,mode:cur.mode,reasons:[...new Set(reasons)]};
     const now=clock();
-    writeTradingMode(root,{mode:want,changedAt:new Date(now).toISOString(),testStartedAt:null});
+    writeTradingMode(root,{mode:want,changedAt:new Date(now).toISOString(),testStartedAt:null,testAutoRun:want==='TEST'});
     if(want==='TEST')paper.reset(finite(startBalance)>0?finite(startBalance):paperStartBalance);
     paper.invalidateMode();accountSummaryCache={at:0,value:null};
     try{store.journal('TRADING_MODE_CHANGED',null,{from:cur.mode,to:want,restart:cur.mode===want,at:new Date(now).toISOString()});}catch{}
     return {ok:true,...tradingModeStatus()};
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // R2544.52 run control (user 07.10.2026: "TEST runs as if I had deposited 200 USD; when I press OTO aç it goes live
+  // with my Binance balance and margin"). One supervisor owns the start/stop sequences:
+  //   TEST autorun  : in TEST mode with testAutoRun the supervisor keeps OTO on and the controller armed (paper only;
+  //                   the transport refuses every real write in TEST). An external OTO-off (APK) counts as a stop.
+  //   GO_LIVE       : user's "OTO aç". Preflight on the REAL account (credentials, available balance >= OTO margin,
+  //                   no real position), then paper lots are closed and their closes journaled as TEST, then the
+  //                   mode becomes LIVE, OTO on, armed against Binance. Any failure returns to TEST autorun.
+  //   GO_TEST       : user's "OTO kapat". OTO off at once (no new real entries); an open real position stays
+  //                   armed and JEV-managed until flat; then the mode returns to TEST autorun (paper account kept).
+  //   STOP          : everything off (autorun, OTO, arm). START_TEST / RESET_TEST restart the paper run.
+  // A TEST arm can never survive in LIVE: the supervisor disarms it.
+  // ---------------------------------------------------------------------------------------------------------------
+  const SWITCH_TIMEOUT_MS=5*60000, AUTORUN_ARM_RETRY_MS=60000;
+  const runState={liveSwitch:null,lastError:null,autorunArmFailAt:0,sawOtoOn:false,lastTickAt:null};
+  let supervisorBusy=false;
+  const autoRunOn=m=>m.mode==='TEST'&&m.testAutoRun!==false;
+  function setAutoRun(on){
+    const m=readTradingMode(root,defaultTradingMode);if(m.mode!=='TEST')return;
+    const {defaulted,...file}=m;writeTradingMode(root,{...file,mode:'TEST',testAutoRun:on===true});
+  }
+  function applyMode(want,{resetPaper=false,balance=null,autoRun=false}={}){
+    const cur=readTradingMode(root,defaultTradingMode),now=clock();
+    writeTradingMode(root,{mode:want,changedAt:new Date(now).toISOString(),testStartedAt:null,testAutoRun:want==='TEST'&&autoRun===true});
+    if(want==='TEST'&&resetPaper)paper.reset(finite(balance)>0?finite(balance):paperStartBalance);
+    paper.invalidateMode();accountSummaryCache={at:0,value:null};
+    try{store.journal('TRADING_MODE_CHANGED',null,{from:cur.mode,to:want,via:'RUN_CONTROL',resetPaper,at:new Date(now).toISOString()});}catch{}
+  }
+  function runJournal(kind,payload){try{store.journal(kind,null,{...payload,at:new Date(clock()).toISOString()});}catch{}}
+  function switchWaitReasons(){
+    const w=[];
+    if(testModeNow()&&paper.hasExposure())w.push('TEST_POSITION_OPEN');
+    if(Array.isArray(ledgerState.open)&&ledgerState.open.length)w.push(testModeNow()?'TEST_POSITION_OPEN':'POSITION_OPEN');
+    if(burst.active.size>0)w.push('BURST_ACTIVE');
+    if(burstClosePending.length||Object.values(leaderAnalysisState.bySymbol||{}).some(r=>String(r?.state||'').toUpperCase()==='ACTIVE'))w.push('POSITION_CLOSE_PENDING');
+    return [...new Set(w)];
+  }
+  function stopEntries(reason){
+    const o=configureLeaderAuto({enabled:false});
+    for(const symbol of [...burst.armed.keys()]){burst.disarm(symbol,reason);candidateStream.localL2?.releaseReservation?.(symbol);}
+    return o;
+  }
+  function failSwitch(reason,detail){
+    const sw=runState.liveSwitch||{};
+    if(sw.state==='CLOSING_TEST'||sw.state==='RESETTING_TEST'){
+      if(readTradingMode(root,defaultTradingMode).mode!=='TEST')applyMode('TEST',{autoRun:true});else setAutoRun(true);
+      runState.sawOtoOn=false;
+    }
+    runState.liveSwitch={state:'FAILED',target:sw.target||null,reason,detail:detail||null,at:clock()};
+    runJournal('RUN_CONTROL_FAILED',{reason,detail:detail||null,target:sw.target||null});
+    return {ok:false,reasons:[reason],detail:detail||null};
+  }
+  async function liveAccountPreflight(){
+    const creds=currentCredentials();
+    if(!credentialsReady(creds))return {ok:false,reasons:['BINANCE_CREDENTIALS_REQUIRED']};
+    const la=readLeaderAutoConfig(),need=finite(la.config?.marginQuote);
+    if(!la.ok||need===null)return {ok:false,reasons:la.reasons?.length?la.reasons:['LEADER_AUTO_CONFIG_INVALID']};
+    let acc,rows;
+    try{
+      acc=await transport._fetchJsonReal('GET','/fapi/v3/account',{credentials:creds,signed:true});
+      rows=await transport._fetchJsonReal('GET','/fapi/v3/positionRisk',{credentials:creds,signed:true});
+    }catch(e){return {ok:false,reasons:['BINANCE_ACCOUNT_UNREADABLE'],detail:{error:String(e?.message||e).slice(0,120)}};}
+    const available=finite(acc?.availableBalance),wallet=finite(acc?.totalWalletBalance);
+    if(available===null||available<need)return {ok:false,reasons:['BINANCE_BALANCE_TOO_LOW'],detail:{available,wallet,required:need}};
+    if(Array.isArray(rows)&&rows.some(x=>Math.abs(finite(x?.positionAmt)||0)>0))return {ok:false,reasons:['REAL_POSITION_OPEN'],detail:{symbols:rows.filter(x=>Math.abs(finite(x?.positionAmt)||0)>0).map(x=>x.symbol)}};
+    return {ok:true,available,wallet,required:need};
+  }
+  async function progressSwitch(now){
+    const sw=runState.liveSwitch;
+    if(sw.state==='CLOSING_TEST'||sw.state==='RESETTING_TEST'){
+      if(!testModeNow())return failSwitch('MODE_CHANGED_DURING_SWITCH');
+      if(paper.hasExposure()){const c=await paper.closeAll(sw.state==='CLOSING_TEST'?'TOLIVE':'TESTRESET');sw.paperClosed=(sw.paperClosed||0)+c.closed;}
+      try{await positionLedgerTick();}catch{}
+      const wait=switchWaitReasons();
+      if(wait.length){sw.waiting=wait;if(now>sw.deadline)return failSwitch('TEST_CLOSE_NOT_CONFIRMED',{waiting:wait});return {ok:true,waiting:wait};}
+      if(sw.state==='RESETTING_TEST'){
+        applyMode('TEST',{resetPaper:true,balance:sw.balance,autoRun:true});
+        runState.sawOtoOn=false;runState.liveSwitch={state:'DONE',target:'TEST_RESET',at:now,balance:sw.balance};
+        runJournal('TEST_RESET_DONE',{balance:sw.balance});
+        return {ok:true,action:'TEST_RESET_DONE'};
+      }
+      const pre=await liveAccountPreflight(); // the account may have changed while paper lots were closing
+      if(!pre.ok)return failSwitch(pre.reasons[0],pre.detail);
+      applyMode('LIVE',{autoRun:false});
+      const o=configureLeaderAuto({enabled:true});
+      if(!o.ok)return failSwitch('LEADER_AUTO_CONFIG_INVALID',{reasons:o.reasons});
+      const a=await arm({confirmed:true,source:'USER_GO_LIVE'});
+      if(!a.ok){stopEntries('LIVE_ARM_FAILED');return failSwitch('LIVE_ARM_FAILED',{reasons:a.reasons});}
+      runState.liveSwitch={state:'LIVE_ON',target:'LIVE',at:now,available:pre.available,wallet:pre.wallet,required:pre.required};
+      runJournal('LIVE_STARTED',{available:pre.available,wallet:pre.wallet,marginQuote:pre.required,paperClosed:sw.paperClosed||0});
+      return {ok:true,action:'LIVE_STARTED'};
+    }
+    if(sw.state==='LIVE_WIND_DOWN'){
+      try{await positionLedgerTick();}catch{}
+      const wait=switchWaitReasons();
+      if(wait.length){sw.waiting=wait;return {ok:true,waiting:wait};} // a real lot is managed until it is flat; no deadline
+      if(armedNow())disarm('LIVE_WIND_DOWN_DONE');
+      applyMode('TEST',{autoRun:true});
+      runState.sawOtoOn=false;runState.liveSwitch={state:'DONE',target:'TEST',at:now};
+      runJournal('BACK_TO_TEST',{});
+      return {ok:true,action:'BACK_TO_TEST'};
+    }
+    return {ok:true,idle:true};
+  }
+  async function testSupervisorTick(){
+    if(supervisorBusy)return {ok:true,skipped:true,reason:'SUPERVISOR_BUSY'};
+    supervisorBusy=true;
+    try{
+      const now=clock();runState.lastTickAt=now;
+      let m=readTradingMode(root,defaultTradingMode);
+      // pre-R52 TEST file (no testAutoRun): TEST runs by itself only if OTO was on (the user's TEST was running); a
+      // stopped system stays stopped, so the deploy check "not armed after restart" holds. Fresh 24 h window.
+      if(m.mode==='TEST'&&!m.defaulted&&m.testAutoRun===undefined){
+        const wasOn=readLeaderAutoConfig().config?.enabled===true;
+        const {defaulted,...file}=m;writeTradingMode(root,{...file,testAutoRun:wasOn,testStartedAt:null,r52MigratedAt:new Date(now).toISOString()});
+        paper.invalidateMode();m=readTradingMode(root,defaultTradingMode);runJournal('TEST_AUTORUN_MIGRATED',{testAutoRun:wasOn});
+      }
+      const sw=runState.liveSwitch;
+      if(sw&&['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(sw.state))return await progressSwitch(now);
+      if(m.mode!=='TEST'&&armSource==='TEST_AUTORUN'&&armedNow()){disarm('TEST_AUTORUN_MODE_LEFT');return {ok:true,action:'DISARMED_TEST_ARM_IN_LIVE'};}
+      if(!autoRunOn(m))return {ok:true,idle:true,mode:m.mode};
+      const la=readLeaderAutoConfig();
+      if(la.config?.enabled!==true){
+        if(runState.sawOtoOn){ // OTO was switched off elsewhere (APK) while TEST ran: honour it as a stop
+          setAutoRun(false);runState.sawOtoOn=false;if(armedNow())disarm('TEST_STOPPED_OTO_OFF');
+          runJournal('TEST_AUTORUN_STOPPED',{reason:'OTO_TURNED_OFF'});return {ok:true,action:'STOPPED_BY_OTO_OFF'};
+        }
+        const o=configureLeaderAuto({enabled:true});
+        if(!o.ok){runState.lastError={at:now,reasons:o.reasons};return {ok:false,reasons:o.reasons};}
+      }
+      runState.sawOtoOn=true;
+      if(!armedNow()){
+        if(now-runState.autorunArmFailAt<AUTORUN_ARM_RETRY_MS)return {ok:true,waiting:'ARM_RETRY'};
+        const a=await arm({confirmed:true,source:'TEST_AUTORUN'});
+        if(!a.ok){runState.autorunArmFailAt=now;runState.lastError={at:now,reasons:a.reasons};return {ok:false,reasons:a.reasons};}
+        runState.lastError=null;
+        return {ok:true,action:'TEST_ARMED'};
+      }
+      return {ok:true,running:true};
+    }finally{supervisorBusy=false;}
+  }
+  async function runControl({action,testBalance=null}={}){
+    const act=String(action||'').toUpperCase(),now=clock(),m=readTradingMode(root,defaultTradingMode);
+    const busy=['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(runState.liveSwitch?.state);
+    const done=extra=>({ok:true,...extra,tradingMode:tradingModeStatus()});
+    if(act==='STOP'){
+      runState.liveSwitch=null;setAutoRun(false);runState.sawOtoOn=false;
+      const o=stopEntries('USER_STOP');if(armedNow())disarm('USER_STOP');
+      // TEST: a full stop also closes the virtual lots (booked as TEST) so the system is flat (deploy needs 0 positions).
+      // LIVE: real lots are never touched here; their exchange stop/TP orders stay.
+      let paperClosed=0;
+      if(m.mode==='TEST'&&paper.hasExposure()){paperClosed=(await paper.closeAll('TESTSTOP')).closed;try{await positionLedgerTick();}catch{}}
+      runJournal('RUN_CONTROL',{action:act,mode:m.mode,paperClosed});
+      return o.ok===false?{ok:false,reasons:o.reasons}:done({action:act,paperClosed});
+    }
+    if(busy)return {ok:false,reasons:['SWITCH_IN_PROGRESS'],tradingMode:tradingModeStatus()};
+    if(act==='START_TEST'){
+      if(m.mode!=='TEST')return {ok:false,reasons:['NOT_IN_TEST_MODE']};
+      setAutoRun(true);runState.sawOtoOn=false;runState.autorunArmFailAt=0;runState.liveSwitch=null;
+      runJournal('RUN_CONTROL',{action:act});
+      const r=await testSupervisorTick();
+      return r.ok===false?{ok:false,reasons:r.reasons,tradingMode:tradingModeStatus()}:done({action:act});
+    }
+    if(act==='RESET_TEST'){
+      if(m.mode!=='TEST')return {ok:false,reasons:['NOT_IN_TEST_MODE']};
+      const balance=finite(testBalance)>0?finite(testBalance):paperStartBalance;
+      setAutoRun(false);runState.sawOtoOn=false;stopEntries('TEST_RESET');if(armedNow())disarm('TEST_RESET');
+      runState.liveSwitch={state:'RESETTING_TEST',target:'TEST_RESET',requestedAt:now,deadline:now+SWITCH_TIMEOUT_MS,balance};
+      runJournal('RUN_CONTROL',{action:act,balance});
+      const r=await testSupervisorTick();
+      return r.ok===false?{ok:false,reasons:r.reasons,detail:r.detail||null,tradingMode:tradingModeStatus()}:done({action:act,progress:r});
+    }
+    if(act==='GO_LIVE'){
+      if(m.mode==='LIVE'&&armedNow()&&readLeaderAutoConfig().config?.enabled===true)return done({action:act,unchanged:true});
+      const pre=await liveAccountPreflight();
+      if(!pre.ok){runJournal('RUN_CONTROL_REFUSED',{action:act,reasons:pre.reasons,detail:pre.detail||null});return {ok:false,reasons:pre.reasons,detail:pre.detail||null,tradingMode:tradingModeStatus()};}
+      runJournal('RUN_CONTROL',{action:act,available:pre.available,wallet:pre.wallet,required:pre.required});
+      let r;
+      if(m.mode==='TEST'){
+        setAutoRun(false);runState.sawOtoOn=false;stopEntries('GO_LIVE');if(armedNow())disarm('GO_LIVE');
+        runState.liveSwitch={state:'CLOSING_TEST',target:'LIVE',requestedAt:now,deadline:now+SWITCH_TIMEOUT_MS,available:pre.available};
+        r=await testSupervisorTick();
+      }else r=await goLiveFromLive(now,pre); // LIVE but stopped: nothing paper to close
+      return r.ok===false?{ok:false,reasons:r.reasons,detail:r.detail||null,tradingMode:tradingModeStatus()}:done({action:act,progress:r});
+    }
+    if(act==='GO_TEST'){
+      if(m.mode==='TEST')return done({action:act,unchanged:true});
+      stopEntries('GO_TEST');
+      runState.liveSwitch={state:'LIVE_WIND_DOWN',target:'TEST',requestedAt:now};
+      runJournal('RUN_CONTROL',{action:act});
+      const r=await testSupervisorTick();
+      return r.ok===false?{ok:false,reasons:r.reasons,tradingMode:tradingModeStatus()}:done({action:act,progress:r});
+    }
+    return {ok:false,reasons:['RUN_ACTION_INVALID']};
+  }
+  // LIVE mode, stopped: OTO aç arms directly (nothing paper to close).
+  async function goLiveFromLive(now,pre){
+    const o=configureLeaderAuto({enabled:true});
+    if(!o.ok){runState.liveSwitch={state:'FAILED',target:'LIVE',reason:'LEADER_AUTO_CONFIG_INVALID',at:now};return {ok:false,reasons:o.reasons};}
+    const a=await arm({confirmed:true,source:'USER_GO_LIVE'});
+    if(!a.ok){stopEntries('LIVE_ARM_FAILED');runState.liveSwitch={state:'FAILED',target:'LIVE',reason:'LIVE_ARM_FAILED',detail:{reasons:a.reasons},at:now};return {ok:false,reasons:['LIVE_ARM_FAILED'],detail:{reasons:a.reasons}};}
+    runState.liveSwitch={state:'LIVE_ON',target:'LIVE',at:now,available:pre.available,wallet:pre.wallet,required:pre.required};
+    runJournal('LIVE_STARTED',{available:pre.available,wallet:pre.wallet,marginQuote:pre.required,paperClosed:0});
+    return {ok:true,action:'LIVE_STARTED'};
+  }
+  function runStatus(){
+    const m=readTradingMode(root,defaultTradingMode),armed=armedNow(),oto=readLeaderAutoConfig().config?.enabled===true;
+    const sw=runState.liveSwitch,busy=['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(sw?.state);
+    const state=busy?sw.state:armed&&oto?(m.mode==='TEST'?'TEST_RUNNING':'LIVE_RUNNING'):armed||oto?'HALF_ON':'STOPPED';
+    return {state,testAutoRun:autoRunOn(m),armSource:armed?armSource:null,switch:sw?{...sw}:null,lastError:runState.lastError,supervisorAt:runState.lastTickAt?new Date(runState.lastTickAt).toISOString():null};
   }
   function status() {
     const policy = readPolicy(root);
@@ -3664,7 +3878,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
   }
 
-  async function arm({ confirmed = false } = {}) {
+  async function arm({ confirmed = false, source = 'USER' } = {}) {
     const generation = ++armGeneration;
     registry.revokeAll();
     armState = { armed:false, armedAt:null, expiresAt:null };
@@ -3696,6 +3910,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const now = clock();
     armState = { armed:true, armedAt:now, expiresAt:now + policy.armMinutes * 60000 };
     lastDisarmReason = null;
+    armSource = String(source || 'USER');
     if (testModeNow()) markTestStarted(now);
     return {
       ok:true,
@@ -3713,6 +3928,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     armGeneration++;
     const revoked = registry.revokeAll();
     armState = { armed:false, armedAt:null, expiresAt:null };
+    armSource = null;
     lastDisarmReason = text(reason) || 'USER_DISARM';
     return { ok:true, armed:false, liveAllowed:false, execution:'LIVE_DISARMED', revokedGrants:revoked, reason:lastDisarmReason };
   }
@@ -5444,7 +5660,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

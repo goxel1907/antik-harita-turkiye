@@ -48,7 +48,7 @@ header .sub{color:var(--text-muted);font-size:12px}
 .modebar .mbtns{display:flex;flex-wrap:wrap;gap:6px}
 .modebar button{font:inherit;font-size:13px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text-primary);cursor:pointer}
 .modebar button:disabled{opacity:.45;cursor:not-allowed}
-.modebar button.go{border-color:var(--good)} .modebar button.stop{border-color:var(--critical)}
+.modebar button.go{border-color:var(--good)} .modebar button.stop{border-color:var(--critical)} .modebar button.live{border-color:var(--critical);color:var(--critical)}
 .modebar .mmsg{flex-basis:100%;font-size:12px;color:var(--text-muted)} .modebar .mmsg:empty{display:none} .modebar .mmsg.err{color:var(--critical)}
 .modebar .mwarn{color:var(--critical);font-weight:700}
 .modebar button.arm2{outline:2px solid var(--warning);outline-offset:1px}
@@ -254,7 +254,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   <header>
     <div>
       <h1>🧠 BrainHub İşlem Ofisi</h1>
-      <div class="sub"><span id="rootLine">C:\JEV-Brain</span> • izleme + TEST/LIVE, Başlat/Durdur (OTO dahil) — Office emir göndermez</div>
+      <div class="sub"><span id="rootLine">C:\JEV-Brain</span> • izleme + TEST (kendiliğinden) / OTO aç = CANLI / Durdur — Office emir göndermez</div>
     </div>
     <div class="spacer"></div>
     <span class="chip" id="chipVer"><span class="dot"></span><span>PC —</span></span>
@@ -271,10 +271,11 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="minfo" id="modeInfo">Mod durumu okunuyor…</div>
     <div class="mbtns">
       <label class="mbal" title="TEST sanal başlangıç bakiyesi">TEST bakiye <input id="testBalance" type="number" min="1" step="1" value="200"> USDT</label>
-      <button id="btnModeTest" disabled>TEST moduna geç</button>
-      <button id="btnModeLive" disabled>LIVE moduna geç</button>
-      <button class="go" id="btnArm" disabled>Başlat</button>
-      <button class="stop" id="btnDisarm" disabled>Durdur</button>
+      <button class="live" id="btnGoLive" disabled title="Binance’teki gerçek bakiye ve marjla canlı işlem">OTO aç — CANLI</button>
+      <button id="btnGoTest" disabled style="display:none">OTO kapat — TEST’e dön</button>
+      <button class="go" id="btnStartTest" disabled style="display:none">TEST’i başlat</button>
+      <button id="btnResetTest" disabled>TEST’i sıfırla</button>
+      <button class="stop" id="btnStop" disabled>Durdur</button>
     </div>
     <div class="mmsg" id="modeMsg"></div>
   </section>
@@ -1672,68 +1673,73 @@ async function renderMirror(s){
   }
 }
 
-// R2544.51/52 TEST/LIVE mod paneli. Office'in tek yazma noktası: her düğme onay ister, çekirdek ayrıca doğrular
-// (mod değişimi yalnız Durdur'dan sonra ve açık pozisyon yokken).
-// R2544.52 (07.10): TEST 19 saat OTO kapalı kaldı, hiç tarama olmadı. Artık Başlat = OTO aç + başlat, Durdur = ikisini de
-// kapat; çalışma kanıtı (son 60 dk tarama / JEV / emir) ve "çalışıyor görünüyor ama tarama yok" uyarısı mod çubuğunda.
-const MODE_REASONS={DISARM_FIRST:'Önce Durdur’a basın',BURST_ACTIVE:'Aktif vur-kaç var; kapanmasını bekleyin',TEST_POSITION_OPEN:'TEST pozisyonu açık; kapanmasını bekleyin',POSITION_OPEN:'Açık pozisyon var; kapanmasını bekleyin',REAL_POSITION_OPEN:'Binance’te gerçek pozisyon açık',EXPLICIT_MODE_CONFIRMATION_REQUIRED:'Onay eksik',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'Onay eksik',TRADING_MODE_INVALID:'Geçersiz mod',TRADING_MODE_WRITE_FAILED:'Mod dosyası yazılamadı',POSITION_CLOSE_PENDING:'Kapanan pozisyonun kaydı bekleniyor; 1 dk sonra tekrar deneyin'};
+// R2544.51/52 TEST/LIVE mod paneli. Office'in tek yazma noktası; çekirdek her adımı ayrıca doğrular.
+// R2544.52 (07.10, kullanıcı): "TEST, 200 USDT yatırmışım gibi kendiliğinden çalışsın; OTO aç'a bastığımda Binance'teki
+// bakiye ve marjla canlıya geçsin." Tek çekirdek ucu POST /live/run: GO_LIVE (OTO aç), GO_TEST (OTO kapat), START_TEST,
+// RESET_TEST, STOP. Tarayıcı penceresi (confirm/prompt) yok: onay = aynı düğmeye 6 sn içinde ikinci basış; Durdur tek basış.
+const MODE_REASONS={DISARM_FIRST:'Önce Durdur’a basın',BURST_ACTIVE:'Aktif vur-kaç var; kapanması bekleniyor',TEST_POSITION_OPEN:'Sanal pozisyon kapanıyor',POSITION_OPEN:'Açık gerçek pozisyon var (JEV yönetiyor); kapanınca TEST’e dönülür',REAL_POSITION_OPEN:'Binance’te açık gerçek pozisyon var; önce onu kapatın',EXPLICIT_MODE_CONFIRMATION_REQUIRED:'Onay eksik',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'Onay eksik',TRADING_MODE_INVALID:'Geçersiz mod',POSITION_CLOSE_PENDING:'Kapanan pozisyonun kaydı bekleniyor',BINANCE_BALANCE_TOO_LOW:'Binance bakiyesi OTO marjından az',BINANCE_ACCOUNT_UNREADABLE:'Binance hesabı okunamadı',BINANCE_CREDENTIALS_REQUIRED:'Binance API anahtarı yok',NOT_IN_TEST_MODE:'Sistem TEST modunda değil',SWITCH_IN_PROGRESS:'Bir geçiş sürüyor; bitmesini bekleyin',TEST_CLOSE_NOT_CONFIRMED:'Sanal pozisyonların kapanışı 5 dk’da doğrulanamadı; TEST’e dönüldü',LIVE_ARM_FAILED:'Canlı başlatma reddedildi; TEST’e dönüldü',LEADER_AUTO_CONFIG_INVALID:'OTO ayarı geçersiz',MODE_CHANGED_DURING_SWITCH:'Geçiş sırasında mod değişti',RUN_ACTION_INVALID:'Geçersiz işlem'};
 let modeBusy=false, modeState=null;
 const usdt=v=>{const n=num(v);return n===null?'—':n.toFixed(2)+' USDT';};
 const usdtS=v=>{const n=num(v);return n===null?'—':(n>0?'+':'')+n.toFixed(2)+' USDT';};
 const SILENT_RUN_MS=10*60000;
+const RUN_TR={TEST_RUNNING:'TEST ÇALIŞIYOR',LIVE_RUNNING:'CANLI ÇALIŞIYOR',HALF_ON:'YARIM AÇIK',STOPPED:'DURDURULDU',CLOSING_TEST:'CANLIYA GEÇİLİYOR',RESETTING_TEST:'TEST SIFIRLANIYOR',LIVE_WIND_DOWN:'CANLI KAPANIYOR'};
+const reasonsTr=xs=>(xs||[]).map(x=>MODE_REASONS[x]||trUi(x)).join(' • ');
+function detailTr(d){ if(!d) return ''; if(d.required!=null) return ` (kullanılabilir ${usdt(d.available)}, gereken en az ${usdt(d.required)})`; if(d.symbols) return ` (${d.symbols.join(', ')})`; if(d.reasons) return ` (${reasonsTr(d.reasons)})`; if(d.waiting) return ` (${reasonsTr(d.waiting)})`; return ''; }
 function renderMode(s){
-  const st=s.status?.data||{}, tm=st.tradingMode||null, mode=tm?.mode||null;
-  const armed=st.armed===true, oto=st.leaderAuto?.enabled===true, running=armed&&oto;
+  const st=s.status?.data||{}, tm=st.tradingMode||null, mode=tm?.mode||null, run=tm?.run||null;
+  const armed=st.armed===true, oto=st.leaderAuto?.enabled===true;
   const h={...(st.leaderAuto?.health||{}),...(s.derived?.decisionHealth||{})};
   const scans=num(h.scanRuns)??0, analyses=num(h.decisionAnalyses??h.deepAnalyses)??0, dirs=(num(h.sovereignLong)??0)+(num(h.sovereignShort)??0), waits=num(h.sovereignWait)??0, orders=num(h.ordersPlaced)??0;
   const armedAt=num(st.armedAt), runMs=armed&&armedAt!==null?Date.now()-armedAt:null;
-  modeState={mode,armed,oto,running,ready:!!tm};
+  const state=run?.state||(armed&&oto?(mode==='TEST'?'TEST_RUNNING':'LIVE_RUNNING'):armed||oto?'HALF_ON':'STOPPED');
+  const busy=['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(state);
+  modeState={mode,armed,oto,state,busy,ready:!!run};
   $('#modeBar').className='modebar '+(mode==='TEST'?'test':mode==='LIVE'?'live':'');
-  $('#modeTag').textContent=mode==='TEST'?'TEST (sanal)':mode==='LIVE'?'LIVE (gerçek para)':'MOD —';
+  $('#modeTag').textContent=mode==='TEST'?'TEST (sanal)':mode==='LIVE'?'CANLI (gerçek para)':'MOD —';
   let info;
   if(!s.status?.ok&&!tm) info='PC durumu okunamadı.';
-  else if(!tm) info='Çalışan PC sürümü mod bilgisini yayınlamıyor (R2544.51 öncesi); anahtarlar deploy sonrası çalışır.';
+  else if(!run) info='Çalışan PC sürümü yeni çalıştırma kontrolünü yayınlamıyor (R2544.52 öncesi); düğmeler deploy sonrası çalışır.';
   else if(mode==='TEST'){
     const p=tm.paper||{}, hr=num(tm.testElapsedHours), W=num(tm.testWindowHours)||24, pct=hr===null?0:Math.min(100,Math.round(hr/W*100));
-    const clockText=tm.testStarted===false?`Test sayacı <b>Başlat’a basınca</b> başlar (${W} saat)`:`Test <b>${hr===null?'—':hr.toFixed(1)} / ${W} saat</b> <span class="mprog"><i style="width:${pct}%"></i></span>`;
-    info=`Emirler Binance’e <b>gitmez</b>; sanal hesapta işlenir (alıcı ücreti %0,05, gerçek fiyat). <span style="white-space:nowrap">${clockText}</span>${tm.testWindowComplete?' • <b>24 saat doldu</b>':''}`
-      +`<br>Sanal bakiye ${usdt(p.wallet)} • özkaynak ${usdt(p.equity)} • net <b>${usdtS(p.net)}</b> (gerçekleşen ${usdtS(p.realized)}, ücret ${usdtS(p.fees)}) • açık ${num(p.openPositions)??0} • dolum ${num(p.fills)??0} • vur-kaç TEST’te açık`;
-  } else info='<b>Gerçek para:</b> emirler Binance’e gider. Vur-kaç gerçek parada kapalı (yalnız TEST’te çalışır).';
+    const clockText=tm.testStarted===false?`Test sayacı başlatmada başlar (${W} saat)`:`Test <b>${hr===null?'—':hr.toFixed(1)} / ${W} saat</b> <span class="mprog"><i style="width:${pct}%"></i></span>`;
+    info=`Sanal hesap, gerçek parayla çalışıyormuş gibi: emirler Binance’e <b>gitmez</b> (gerçek fiyat, alıcı ücreti %0,05). <span style="white-space:nowrap">${clockText}</span>${tm.testWindowComplete?' • <b>24 saat doldu</b>':''}`
+      +`<br>Sanal bakiye ${usdt(p.wallet)} (başlangıç ${usdt(p.startBalance)}) • özkaynak ${usdt(p.equity)} • net <b>${usdtS(p.net)}</b> (gerçekleşen ${usdtS(p.realized)}, ücret ${usdtS(p.fees)}) • açık ${num(p.openPositions)??0} • dolum ${num(p.fills)??0} • vur-kaç TEST’te açık`;
+  } else info='<b>Gerçek para:</b> emirler Binance hesabınızdaki bakiye ve marjla gider. Vur-kaç canlıda kapalı (yalnız TEST’te).';
   let warn='';
-  if(tm){
-    info+=`<br>Durum: <b>${running?'ÇALIŞIYOR':armed||oto?'YARIM AÇIK':'DURDURULDU'}</b> (başlatma ${armed?'açık':'kapalı'}, OTO ${oto?'açık':'kapalı'}) • son 60 dk: tarama <b>${scans}</b> • JEV analizi ${analyses} • JEV yön kararı ${dirs} / BEKLE ${waits} • emir ${orders}`;
-    if(armed&&!oto) warn='OTO KAPALI: tarama ve analiz yapılmıyor, işlem açılmaz. Başlat’a basın.';
-    else if(oto&&!armed) warn='Başlatma kapalı: JEV analiz yapar (kredi harcar) ama işlem açılmaz. Başlat’a ya da Durdur’a basın.';
-    else if(running&&runMs!==null&&runMs>SILENT_RUN_MS&&scans===0) warn=`ÇALIŞIYOR görünüyor ama ${Math.round(runMs/60000)} dk’dır tek tarama yok — sistem işlemiyor.`;
+  if(run){
+    info+=`<br>Durum: <b>${RUN_TR[state]||state}</b>${run.switch?.waiting?.length&&busy?' — bekleniyor: '+esc(reasonsTr(run.switch.waiting)):''} • son 60 dk: tarama <b>${scans}</b> • JEV analizi ${analyses} • JEV yön kararı ${dirs} / BEKLE ${waits} • emir ${orders}`;
+    if(run.switch?.state==='FAILED') warn=`Son geçiş yapılamadı: ${reasonsTr([run.switch.reason])}${detailTr(run.switch.detail)}`;
+    else if(run.lastError) warn=`Başlatılamadı: ${reasonsTr(run.lastError.reasons)} (1 dk sonra yeniden denenir)`;
+    else if(state==='HALF_ON'&&armed&&!oto) warn='OTO KAPALI: tarama ve analiz yapılmıyor, işlem açılmaz.';
+    else if(state==='HALF_ON'&&oto&&!armed) warn='Başlatma kapalı: JEV analiz yapar (kredi harcar) ama işlem açılmaz.';
+    else if((state==='TEST_RUNNING'||state==='LIVE_RUNNING')&&runMs!==null&&runMs>SILENT_RUN_MS&&scans===0) warn=`ÇALIŞIYOR görünüyor ama ${Math.round(runMs/60000)} dk’dır tek tarama yok — sistem işlemiyor.`;
   }
   $('#modeInfo').innerHTML=info+(warn?`<br><span class="mwarn">⚠ ${esc(warn)}</span>`:'');
-  const can=!!tm&&!modeBusy;
-  const bT=$('#btnModeTest'), bL=$('#btnModeLive'), bA=$('#btnArm'), bD=$('#btnDisarm');
-  bT.disabled=!can||armed; bL.disabled=!can||mode==='LIVE'||armed;
-  bT.textContent=mode!=='TEST'?'TEST moduna geç':tm.defaulted?'TEST bakiyesini seç':'TEST’i sıfırla (yeni 24 saat)';
-  bT.title=bL.title=armed?'Mod değiştirmek için önce Durdur’a basın':'';
-  bA.disabled=!can||running; bD.disabled=!can||(!armed&&!oto);
-  bA.textContent=mode==='TEST'?'Başlat (TEST)':'Başlat (LIVE – gerçek para)';
+  const can=!!run&&!modeBusy, show=(id,on,dis)=>{const b=$('#'+id); if(!b) return; b.style.display=on?'':'none'; b.disabled=!can||!!dis;};
+  show('btnGoLive', !(mode==='LIVE'&&state==='LIVE_RUNNING'), busy);
+  show('btnGoTest', mode==='LIVE', busy);
+  show('btnStartTest', mode==='TEST'&&!run?.testAutoRun&&!busy, false);
+  show('btnResetTest', mode==='TEST', busy);
+  show('btnStop', true, state==='STOPPED'&&!busy);
 }
 function modeMsg(text,err){ const m=$('#modeMsg'); m.textContent=text||''; m.className='mmsg'+(err?' err':''); }
-async function post(path,body){
+async function runAction(body){
   try{
-    const r=await fetch(path+location.search,{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-jev-office-control':'1'},body:JSON.stringify(body)});
+    const r=await fetch('/api/control/run'+location.search,{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-jev-office-control':'1'},body:JSON.stringify(body)});
     let d=null; try{d=await r.json();}catch{}
-    if(r.ok&&d?.ok!==false) return {ok:true};
-    return {ok:false,text:(d?.reasons||[]).map(x=>MODE_REASONS[x]||trUi(x)).join(' • ')||d?.error||('HTTP '+r.status)};
+    if(r.ok&&d?.ok!==false) return {ok:true,d};
+    return {ok:false,text:(reasonsTr(d?.reasons)||d?.error||('HTTP '+r.status))+detailTr(d?.detail)};
   }catch(e){ return {ok:false,text:'Office sunucusuna ulaşılamadı: '+(e?.message||e)}; }
 }
-async function control(path,body,okText){
+async function control(body,okText){
   modeBusy=true; if(last) renderMode(last); modeMsg('Gönderiliyor…');
-  const r=await post(path,body);
+  const r=await runAction(body);
   modeMsg(r.ok?okText:'Yapılmadı: '+r.text,!r.ok);
   modeBusy=false; await tick();
 }
 function onClick(sel,fn){ const el=$(sel); if(el&&typeof el.addEventListener==='function') el.addEventListener('click',fn); }
-// R2544.52: no browser dialogs. confirm()/prompt() can be suppressed by the browser and then return at once — the
-// button silently did nothing (07.10: OTO/Başlat never reached the core). Confirmation is a second press of the same
-// button within 6 s, shown in the mode bar; the TEST balance comes from the box in the bar. Stop needs no confirmation.
+// confirm()/prompt() can be suppressed by the browser and then the button silently does nothing (07.10). Confirmation is a
+// second press of the same button within 6 s, shown in the mode bar. Stop is never gated.
 const CONFIRM_MS=6000, pendingPress={};
 function secondPress(id,what){
   const el=$('#'+id), now=Date.now();
@@ -1743,37 +1749,25 @@ function secondPress(id,what){
   setTimeout(()=>{ if(pendingPress[id]===now){ delete pendingPress[id]; el?.classList?.remove('arm2'); modeMsg('Onaylanmadı; hiçbir şey yapılmadı.'); } },CONFIRM_MS);
   return false;
 }
-onClick('#btnModeTest',()=>{
-  const restart=modeState?.mode==='TEST';
+// OTO aç: canlıya geçiş. Çekirdek önce Binance'teki gerçek bakiyeyi ve açık pozisyonu kontrol eder, sanal pozisyonları kapatır,
+// kayıtları bekler, sonra canlıyı açar; bir adım başarısız olursa TEST kendiliğinden devam eder.
+onClick('#btnGoLive',()=>{
+  if(!secondPress('btnGoLive','OTO AÇ — CANLI: sanal pozisyonlar kapatılır, Binance bakiyenizle GERÇEK PARA işlem açılır')) return;
+  control({action:'GO_LIVE',confirm:'LIVE'},'Canlıya geçiş başladı: Binance bakiyesi doğrulandı; sanal pozisyonlar kapanınca canlı açılır (durum çubukta).');
+});
+onClick('#btnGoTest',()=>{
+  if(!secondPress('btnGoTest','OTO KAPAT: yeni canlı işlem açılmaz; açık gerçek pozisyon JEV yönetiminde kapanınca TEST’e dönülür')) return;
+  control({action:'GO_TEST'},'Canlı kapatılıyor: yeni gerçek işlem yok; açık pozisyon kapanınca TEST kendiliğinden başlar.');
+});
+onClick('#btnStartTest',()=>{ control({action:'START_TEST'},'TEST başlatıldı (OTO + başlatma). İlk tarama 1–2 dk içinde görünür.'); });
+onClick('#btnResetTest',()=>{
   const bal=Number(String($('#testBalance')?.value??'').replace(',','.'));
   if(!Number.isFinite(bal)||bal<=0){ modeMsg('Geçersiz TEST bakiyesi (kutuya USDT yazın).',true); return; }
-  if(!secondPress('btnModeTest',restart?`TEST sıfırlanacak: sanal ${bal} USDT, 24 saat Başlat’a basınca yeniden sayılır`:`TEST moduna geçilecek (sanal ${bal} USDT, gerçek emir yok)`)) return;
-  control('/api/control/mode',{mode:'TEST',confirm:'TEST',testBalance:bal,...(restart?{restart:true}:{})},`TEST ${restart?'sıfırlandı':'moduna geçildi'} (sanal ${bal} USDT). Çalıştırmak için Başlat’a basın.`);
+  if(!secondPress('btnResetTest',`TEST sıfırlanacak: sanal pozisyonlar kapatılır, yeni sanal ${bal} USDT, yeni 24 saat`)) return;
+  control({action:'RESET_TEST',confirm:'TEST',testBalance:bal},`TEST sıfırlanıyor (sanal ${bal} USDT); bitince kendiliğinden başlar.`);
 });
-onClick('#btnModeLive',()=>{
-  if(!secondPress('btnModeLive','LIVE moduna geçilecek: bundan sonra Başlat GERÇEK PARA ile işlem açar')) return;
-  control('/api/control/mode',{mode:'LIVE',confirm:'LIVE'},'LIVE moduna geçildi. Sistem durduruldu; Başlat’a basana kadar işlem açılmaz.');
-});
-// Başlat: OTO + başlatma birlikte. Başlatma reddedilirse OTO geri kapatılır (yarım açık sistem JEV kredisi harcar).
-onClick('#btnArm',async()=>{
-  const st=modeState||{}, test=st.mode==='TEST';
-  if(!secondPress('btnArm',test?'TEST başlatılacak: OTO açılır; tarama, JEV analizi ve sanal işlemler başlar':'LIVE başlatılacak: OTO açılır, GERÇEK PARA ile işlem açabilir')) return;
-  modeBusy=true; if(last) renderMode(last); modeMsg('Başlatılıyor…');
-  let msg=test?'TEST çalışıyor: OTO açık, sistem başlatıldı. İlk tarama 1–2 dk içinde görünür.':'LIVE çalışıyor (gerçek para): OTO açık, sistem başlatıldı.', err=false;
-  const otoWasOn=st.oto===true;
-  if(!otoWasOn){ const o=await post('/api/control/oto',{enabled:true}); if(!o.ok){ msg='Yapılmadı (OTO açılamadı): '+o.text; err=true; } }
-  if(!err&&!st.armed){ const a=await post('/api/control/arm',{confirm:'LIVE'}); if(!a.ok){ msg='Yapılmadı (başlatma reddedildi): '+a.text; err=true; if(!otoWasOn) await post('/api/control/oto',{enabled:false}); } }
-  modeMsg(msg,err); modeBusy=false; await tick();
-});
-// Durdur: tek basış (durdurma hiçbir zaman engellenmez); başlatma ve OTO birlikte kapanır, stop/TP emirleri yerinde kalır.
-onClick('#btnDisarm',async()=>{
-  const st=modeState||{};
-  modeBusy=true; if(last) renderMode(last); modeMsg('Durduruluyor…');
-  const errs=[];
-  if(st.armed){ const d=await post('/api/control/disarm',{}); if(!d.ok) errs.push('başlatma: '+d.text); }
-  if(st.oto){ const o=await post('/api/control/oto',{enabled:false}); if(!o.ok) errs.push('OTO: '+o.text); }
-  modeMsg(errs.length?'Tam durdurulamadı — '+errs.join(' • '):'Sistem durduruldu (OTO kapalı). Açık pozisyonun stop/TP emirleri yerinde.',errs.length>0); modeBusy=false; await tick();
-});
+// Durdur: tek basış; OTO + başlatma + TEST otomatik çalışma kapanır. Açık pozisyonun stop/TP emirleri yerinde kalır.
+onClick('#btnStop',()=>{ control({action:'STOP'},'Her şey durduruldu (OTO kapalı). Açık pozisyonun stop/TP emirleri yerinde. TEST için “TEST’i başlat”.'); });
 
 let last=null;
 async function tick(){
@@ -1785,7 +1779,7 @@ async function tick(){
     try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
-    $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yazma yalnız mod/başlat/durdur`;
+    $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yazma yalnız TEST/CANLI/Durdur`;
   }catch(e){
     chip('#chipFresh','bad','bağlantı yok');
     $('#foot').textContent = 'Office sunucusuna ulaşılamadı: '+(e?.message||e);
