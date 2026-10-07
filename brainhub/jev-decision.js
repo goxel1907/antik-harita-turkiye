@@ -1104,6 +1104,8 @@ function prepareDecisionRequest(input,opts={}){
     if(state.experienceMemory&&typeof state.experienceMemory==='object')state.experienceMemory=compactMemoryForPass2Residual(state.experienceMemory);
     fitOmitted.push('SOFT_CONTEXT_MIN');trimStepsApplied.push('FIT_BEFORE_BLOCK_SOFT_CONTEXT_MIN');serialized=refresh();
   }
+  // R2544.55: last step before a size block - drop the edge questions/context (decision proceeds without them).
+  if(byteSize(body)>hardCap&&jevEdge.dropEdgeQuestions(body)>0){fitOmitted.push('EDGE_QUESTIONS');trimStepsApplied.push('FIT_BEFORE_BLOCK_EDGE_QUESTIONS');serialized=refresh();}
   serialized=refresh();const bytes=Buffer.byteLength(serialized,'utf8');
   const coreHashAfter=hashJson(protectedCoreTruth(body));const coreTruthProtected=coreHashBefore===coreHashAfter;
   const essentialBytes=byteSize(minimalEssentialEnvelope(body));

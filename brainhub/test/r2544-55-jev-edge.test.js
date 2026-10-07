@@ -15,9 +15,9 @@ test('R55 one narrow Noul per executable plan, prices computed in code, at most 
   assert.equal(Object.keys(questions).length,5,'bad geometry skipped, six plans considered');
   assert.equal(map.LONG_5M_SCALP,'p1r_long_5m_scalp');assert.equal(map.BAD,undefined);
   const q=questions.p1r_long_5m_scalp;
-  assert.equal(q.type,'noul');assert.match(q.instructions,/from entry 100, will price touch \+1R at 101 before touching the stop 99 within 4 hours/);
-  assert.match(questions.p1r_short_5m_scalp.instructions,/\+1R at 99 before touching the stop 101/);
-  assert.match(edge.EDGE_CONTEXT.measuredHistory,/44\.5%/);assert.match(edge.EDGE_CONTEXT.breakEven,/55%/);
+  assert.equal(q.type,'noul');assert.match(q.instructions,/from entry 100, will price touch \+1R at 101 before the stop 99 within 4 hours/);
+  assert.match(questions.p1r_short_5m_scalp.instructions,/\+1R at 99 before the stop 101/);
+  assert.match(edge.EDGE_CONTEXT.ourRecord,/44\.5%/);assert.match(edge.EDGE_CONTEXT.ourRecord,/55%/);
 });
 
 test('R55 parse keeps choice probabilities, confidence and p(+1R first) for the selected plan',()=>{
@@ -81,10 +81,10 @@ test('R55 PASS-2 request carries edgeContext + one edge question per plan; the r
       breakeven_rule:{type:'choice',choice:'AFTER_TP1'},trail_rule:{type:'choice',choice:'5M_STRUCTURE'},...edgeAnswers},usage:{cost:0.00001}});}};}});
   const out=await client.sovereignFinal({candidate:{symbol:'BTCUSDT'},unified:unified(),evidence:{requested:['TRADINGVIEW_5M']},planOptions:plans});
   assert.equal(out.ok,true,JSON.stringify(out.reason||''));
-  assert.ok(seen.state.edgeContext,'edge context sent');assert.match(seen.state.edgeContext.measuredHistory,/44\.5%/);
+  assert.ok(seen.state.edgeContext,'edge context sent');assert.match(seen.state.edgeContext.ourRecord,/44\.5%/);
   const eq=Object.keys(seen.questions).filter(k=>k.startsWith('p1r_'));
   assert.equal(eq.length,Math.min(6,plans.length));assert.ok(eq.includes('p1r_long_5m_scalp'));
-  assert.match(seen.questions.p1r_long_5m_scalp.instructions,/will price touch \+1R at [0-9.]+ before touching the stop [0-9.]+ within 4 hours/);
+  assert.match(seen.questions.p1r_long_5m_scalp.instructions,/will price touch \+1R at [0-9.]+ before the stop [0-9.]+ within 4 hours/);
   assert.equal(out.jevEdge.selected.planId,'LONG_5M_SCALP');assert.equal(out.jevEdge.selected.p1R,0.64);
   assert.equal(out.jevEdge.tradePlan.confidence,0.58);assert.equal(out.jevEdge.tradePlan.probabilities.WAIT,0.2);
 });
@@ -100,4 +100,16 @@ test('R55 execution path: gate before margin/order, journaled with geometry, edg
   assert.match(pl,/confidence:final\.jevEdge\?\.tradePlan\?\.confidence\?\?null/);assert.match(pl,/jevEdge:final\.jevEdge\|\|null,jevDecision:/);
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   for(const k of ['JEV_EDGE_BELOW_BREAKEVEN','JEV_LOW_CONFIDENCE','JEV_EDGE_MISSING'])assert.ok(html.includes(k+':'),k);
+});
+
+test('R55 never causes a size block: edge questions/context are dropped as the last fit step',()=>{
+  const body={state:{edgeContext:edge.EDGE_CONTEXT,coreMarketPacket:{}},questions:{trade_plan:{type:'choice'},edge_basis:{type:'choice'},p1r_long_5m_scalp:{type:'noul'},p1r_short_5m_scalp:{type:'noul'}}};
+  assert.equal(edge.dropEdgeQuestions(body),3);
+  assert.deepEqual(Object.keys(body.questions).sort(),['edge_basis','trade_plan'],'edge_basis is not an edge question');
+  assert.equal(body.state.edgeContext,undefined);
+  const src=fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8');
+  const i=src.indexOf('jevEdge.dropEdgeQuestions(body)'),j=src.indexOf('const blockReason=!coreTruthProtected');
+  assert.ok(i>0&&j>i,'drop runs before the block decision');
+  const {questions}=edge.buildEdgeQuestions([{id:'LONG_15M_TRADE_PRIOR20',side:'LONG',lane:'15M_TRADE',entryPrice:0.123456789,stopPrice:0.120123456}]);
+  assert.ok(JSON.stringify(questions).length<=240,'compact question');assert.ok(JSON.stringify(edge.EDGE_CONTEXT).length<=1000,'compact context');
 });

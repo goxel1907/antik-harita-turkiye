@@ -21,23 +21,10 @@ const DEFAULT_CONFIG = Object.freeze({ enabled:true, mode:'ENFORCE', evMinR:0.05
 // Shared context for every edge question (one copy in state; questions stay short). Facts are BrainHub's own
 // measurements; the rest is soft guidance. Jev still decides the probability.
 const EDGE_CONTEXT = Object.freeze({
-  purpose:'Estimate, for each executable plan, the probability that price touches +1R before the stop. Code converts it into expected value after fees and takes only positive-expectancy plans. Fewer, better trades are the goal; an honest low probability is more useful than an optimistic one.',
-  measuredHistory:'BrainHub own record, 232 closed trades (2026-09-22..10-05): only 44.5% reached +1R before the stop; fees were 41% of the total loss. Measured counterfactuals: early exits saved money, wider stops did not help, waiting for a deeper pullback did not create an edge. The edge has to come from choosing WHICH trades to take.',
-  breakEven:'With a 1R target and about 0.10% round-trip taker fee, a plan needs roughly 55% or more to be worth taking; tight stops (small R) need more because the fee is a larger share of R.',
-  commonFailures:[
-    'Price first runs at least 0.5R against the entry (a sweep of the nearest liquidity on the stop side) before any move; the stop sits in front of that liquidity.',
-    'Entry after an extended leg into opposing liquidity or a higher-timeframe level, with less than 1.5R of room to the next opposing level.',
-    'Stop inside the owner-frame ATR noise, so normal oscillation reaches it.',
-    'Aggressive flow that is being absorbed: delta/CVD in the trade direction while price does not progress, or depth refilling against the side.',
-    'Late entry after the move already used most of its typical range; crowded positioning (funding/OI) on the same side.'
-  ],
-  sharedByWinners:[
-    'Entry at a fresh structural level with the stop behind real liquidity, not in front of it.',
-    'Higher-timeframe direction and structure aligned with the side.',
-    'Clear room of at least 1.5R to the next opposing level.',
-    'Flow and depth supporting the side at entry time, not only an aggregate label.'
-  ],
-  rule:'Horizon 4 hours. A touch of the stop first counts as NO. Use only the supplied market packet and evidence.'
+  task:'For each plan give the probability that price touches +1R before the stop within 4 h (stop first = NO). Code turns it into expected value after fees; honest low numbers are wanted, fewer better trades are the goal.',
+  ourRecord:'232 own trades: 44.5% reached +1R before the stop; fees were 41% of the loss; wider stops and deeper entries did not help: selection is the edge. Break-even about 55% (more when the stop is tight).',
+  losers:'stop in front of the nearest liquidity (swept first); entry after an extended leg into opposing liquidity or a higher-TF level with <1.5R room; stop inside owner-TF ATR noise; absorbed flow (delta with no progress, depth refilling against); late or crowded entry.',
+  winners:'fresh structural level with the stop behind real liquidity; higher-TF aligned; >=1.5R room to the next opposing level; flow and depth supporting the side now.'
 });
 
 const finite = v => { if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
@@ -63,7 +50,7 @@ function buildEdgeQuestions(plans) {
     map[p.id] = id;
     questions[id] = {
       type:'noul',
-      instructions:`Plan ${p.id} (${g.side}${p.lane ? ' ' + p.lane : ''}): from entry ${round(g.entry, 10)}, will price touch +1R at ${round(g.target1R, 10)} before touching the stop ${round(g.stop, 10)} within 4 hours? Apply state.edgeContext; a stop touch first is NO.`
+      instructions:`${p.id}: from entry ${round(g.entry, 10)}, will price touch +1R at ${round(g.target1R, 10)} before the stop ${round(g.stop, 10)} within 4 hours? Use state.edgeContext.`
     };
   }
   return { questions, map };
@@ -131,4 +118,13 @@ function edgeGate({ edge, side, entryPrice, stopPrice, config = DEFAULT_CONFIG }
   return c.mode === 'SHADOW' ? { ok:true, ...out, decision:'SHADOW_WOULD_BLOCK', reasons } : { ok:false, ...out, decision:'BLOCK', reason:reasons[0], reasons };
 }
 
-module.exports = { EDGE_VERSION, EDGE_HORIZON_MIN, EDGE_CONTEXT, DEFAULT_CONFIG, MAX_EDGE_QUESTIONS, edgeQuestionId, planGeometry, buildEdgeQuestions, parseEdge, readEdgeConfig, edgeGate, noulValue, choiceDetail };
+// Called by the request fitter as the very last step before a size block: the edge questions and context are
+// dropped (the decision still happens; the gate then sees a missing edge and passes). R55 never causes a block.
+function dropEdgeQuestions(body) {
+  const q = body?.questions; let n = 0;
+  if (q && typeof q === 'object') for (const k of Object.keys(q)) if (k.startsWith('p1r_')) { delete q[k]; n++; }
+  if (body?.state && body.state.edgeContext) { delete body.state.edgeContext; n++; }
+  return n;
+}
+
+module.exports = { EDGE_VERSION, dropEdgeQuestions, EDGE_HORIZON_MIN, EDGE_CONTEXT, DEFAULT_CONFIG, MAX_EDGE_QUESTIONS, edgeQuestionId, planGeometry, buildEdgeQuestions, parseEdge, readEdgeConfig, edgeGate, noulValue, choiceDetail };
