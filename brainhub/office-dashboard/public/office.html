@@ -842,8 +842,10 @@ function renderBurst(s){
 function renderKpis(s){
   const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h={...(la.health||{}),...(s.derived?.decisionHealth||{})}; const acc=s.account?.data||{};
   const armed = st.armed===true; const exp = st.expiresAt ? Math.max(0,Math.round((Date.parse(st.expiresAt)-Date.now())/60000)) : null;
-  const eq = num(acc.equity ?? acc.account?.equity ?? acc.totalWalletBalance);
-  const avail = num(acc.availableBalance ?? acc.account?.availableBalance);
+  // R2544.52: TEST'te cüzdan kartı mod çubuğuyla aynı sanal hesap anlık görüntüsünü gösterir (hesap okuması 30 sn önbellekli).
+  const paperK = st.tradingMode?.mode==='TEST' ? st.tradingMode?.paper : null;
+  const eq = paperK ? num(paperK.equity) : num(acc.equity ?? acc.account?.equity ?? acc.totalWalletBalance);
+  const avail = paperK ? num(paperK.available) : num(acc.availableBalance ?? acc.account?.availableBalance);
   const policy=st.policy||{};
   const maxDailyLossPct=num(policy?.limits?.maxDailyLossPct);
   const cfg111=s.health?.data?.claudeV111Config||{};
@@ -1064,7 +1066,12 @@ function renderLedger(s){
   const side=x=>`<span class="pill ${esc(x||'')}">${esc(trUi(x||''))}</span>`;
   if(!d){ $('#openPos').innerHTML=`<tr><td class="muted">${s.positions?.disabled?'Hesap verisi kapalı (OFFICE_ACCOUNT=0).':'Pozisyon defteri alınamadı'+(s.positions?.error?' ('+esc(s.positions.error)+')':'')+' — Brain Hub v9.5.113 gerekir.'}</td></tr>`; $('#closedPos').innerHTML=''; if($('#deskPerf'))$('#deskPerf').innerHTML='<tr><td class="muted">Masa performansı için pozisyon defteri bekleniyor.</td></tr>'; return; }
   const open=d.open||[];
-  $('#posHint').textContent=`${open.length} açık • açık PnL ${Number(d.openUnrealizedPnl||0).toFixed(2)} USDT • defter ${d.asOf?fmtTime(Date.parse(d.asOf)):'—'}${d.ledgerOk===false?' • OKUNAMIYOR: '+(d.ledgerError||''):''}`;
+  // R2544.52 (07.10 kullanıcı: "PnL üstte başka altta başka"): TEST'te açık pozisyonun anlık fiyat/PnL/R'si mod çubuğuyla
+  // aynı sanal hesap anlık görüntüsünden gelir; defter okuması 30 sn'ye kadar eski olabilir.
+  const tmL=s.status?.data?.tradingMode, livePaper=tmL?.mode==='TEST'&&Array.isArray(tmL?.paper?.positions)?new Map(tmL.paper.positions.map(x=>[x.symbol,x])):null;
+  if(livePaper) for(const p of open){ const q=livePaper.get(p.symbol); if(!q||q.markPrice==null) continue; p.markPrice=q.markPrice; p.unrealizedPnl=q.unrealizedPnl; const rq=Number(p.riskQuote); if(Number.isFinite(rq)&&rq>0) p.unrealizedR=Number((q.unrealizedPnl/rq).toFixed(2)); }
+  const openPnl=livePaper?open.reduce((a,x)=>a+(Number(x.unrealizedPnl)||0),0):Number(d.openUnrealizedPnl||0);
+  $('#posHint').textContent=`${open.length} açık • açık PnL ${openPnl.toFixed(2)} USDT${livePaper?' (anlık; mod çubuğuyla aynı)':''} • defter ${d.asOf?fmtTime(Date.parse(d.asOf)):'—'}${d.ledgerOk===false?' • OKUNAMIYOR: '+(d.ledgerError||''):''}`;
   $('#openPos').innerHTML = open.length ? `<tr><th>Sembol</th><th>Yön</th><th>Açan</th><th>Sürüm</th><th>Giriş</th><th>Anlık</th><th>PnL USDT</th><th>R</th><th>Stop</th><th>TP1</th><th>İz süren</th><th>Açılış</th><th>Hat/TF</th><th>Giriş nedeni</th></tr>`+
     open.map(p=>`<tr><td><b>${esc(p.symbol)}</b></td><td>${side(p.side)}</td><td>${p.openedBy==='BRAINHUB_AUTO'?'OTO':p.openedBy==='BRAINHUB_BURST'?'OTO vur-kaç':'dış/manuel'}${p.tradingMode==='TEST'?'<span class="tbadge">TEST</span>':''}</td><td>${esc(p.releaseContract||p.strategyVersion||'ESKİ/ETİKETSİZ')}</td><td>${num(p.entryPrice,6)}</td><td>${num(p.markPrice,6)}</td><td>${sgn(p.unrealizedPnl)}</td><td>${p.unrealizedR===null?'—':Number(p.unrealizedR).toFixed(2)}</td><td>${num(p.stopPrice,6)}${p.originalStopPrice&&p.stopPrice!==p.originalStopPrice?` <span class="muted">(ilk ${num(p.originalStopPrice,6)})</span>`:''}</td><td>${num(p.takeProfit1,6)}</td><td>${esc(trUi(p.runnerPhase||'—'))}${p.trailTf?' • '+esc(p.trailTf):''}</td><td>${p.openedAt?fmtTime(Date.parse(p.openedAt)):'—'}</td><td>${esc([p.lane,p.originTF].filter(Boolean).join(' • ')||'—')}</td><td style="max-width:360px">${esc(trUi(String(p.entryReason||'')).slice(0,160))}</td></tr>`).join('')
     : `<tr><td class="muted">${s.status?.data?.tradingMode?.mode==='TEST'?'TEST (sanal) hesapta açık pozisyon yok.':'Binance’te açık pozisyon yok.'}</td></tr>`;
@@ -1703,7 +1710,8 @@ function renderMode(s){
     const p=tm.paper||{}, hr=num(tm.testElapsedHours), W=num(tm.testWindowHours)||24, pct=hr===null?0:Math.min(100,Math.round(hr/W*100));
     const clockText=tm.testStarted===false?`Test sayacı başlatmada başlar (${W} saat)`:`Test <b>${hr===null?'—':hr.toFixed(1)} / ${W} saat</b> <span class="mprog"><i style="width:${pct}%"></i></span>`;
     info=`Sanal hesap, gerçek parayla çalışıyormuş gibi: emirler Binance’e <b>gitmez</b> (gerçek fiyat, alıcı ücreti %0,05). <span style="white-space:nowrap">${clockText}</span>${tm.testWindowComplete?' • <b>24 saat doldu</b>':''}`
-      +`<br>Sanal bakiye ${usdt(p.wallet)} (başlangıç ${usdt(p.startBalance)}) • özkaynak ${usdt(p.equity)} • net <b>${usdtS(p.net)}</b> (gerçekleşen ${usdtS(p.realized)}, ücret ${usdtS(p.fees)}) • açık ${num(p.openPositions)??0} • dolum ${num(p.fills)??0} • vur-kaç TEST’te açık`;
+      +`<br><b>Kâr/zarar: TOPLAM ${usdtS(p.total??(num(p.equity)-num(p.startBalance)))}</b> = kapanan işlem/parçalar ${usdtS(p.realized)} + ücret ${usdtS(p.fees)} + açık pozisyon (anlık) ${usdtS(p.unrealized)}`
+      +`<br>Başlangıç ${usdt(p.startBalance)} • özkaynak ${usdt(p.equity)} • nakit bakiye ${usdt(p.wallet)} • kullanılabilir ${usdt(p.available)} • açık ${num(p.openPositions)??0} • dolum ${num(p.fills)??0} • vur-kaç TEST’te açık`;
   } else info='<b>Gerçek para:</b> emirler Binance hesabınızdaki bakiye ve marjla gider. Vur-kaç canlıda kapalı (yalnız TEST’te).';
   let warn='';
   if(run){

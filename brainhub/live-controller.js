@@ -2006,9 +2006,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         entryReason:bl?burstWhy(bl):row.entryContext?.why||null,
         entryCase:caseMemoryLib.compactEntryCase(entryCase),
         caseMemory:caseAnalogs,
+        riskQuote:riskQuote!==null?Number(riskQuote.toFixed(6)):null,
         tradingMode:testModeNow()?'TEST':'LIVE'
       };
     });
+    // R2544.52: in TEST the open rows take the paper exchange's live mark/PnL (the ledger read can be 30 s old), so every
+    // screen shows the same number as the TEST summary.
+    if(testModeNow()){
+      const live=new Map((paper.summary().positions||[]).map(x=>[x.symbol,x]));
+      for(const row of open){const p=live.get(row.symbol);if(!p||p.markPrice===null)continue;
+        row.markPrice=p.markPrice;row.unrealizedPnl=p.unrealizedPnl;row.priceAt=p.priceAt;
+        row.unrealizedR=row.riskQuote>0?Number((p.unrealizedPnl/row.riskQuote).toFixed(2)):row.unrealizedR;}
+    }
     let closed=[];
     try{closed=typeof store?.recentJournal==='function'?store.recentJournal('POSITION_CLOSED',{limit:closedLimit}):[];}catch{closed=[];}
     const allOfficeRecords=typeof store.officeRecords==='function'?store.officeRecords():closed;

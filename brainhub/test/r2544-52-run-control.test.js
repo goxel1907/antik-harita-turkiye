@@ -15,7 +15,7 @@ function fixture({mode='TEST',file=null,otoEnabled=false}={}){
   const state={now:1791370000000,realAvail:250,realWallet:250,realPositions:[],calls:[]},events=[];
   const fetchImpl=async(url,o={})=>{const u=new URL(url),p=u.pathname,m=o.method||'GET';state.calls.push(`${m} ${p}`);
     if(p==='/fapi/v1/time')return ok({serverTime:state.now});
-    if(p==='/fapi/v1/ticker/bookTicker')return ok({symbol:u.searchParams.get('symbol'),bidPrice:'10',askPrice:'10.01'});
+    if(p==='/fapi/v1/ticker/bookTicker')return ok({symbol:u.searchParams.get('symbol'),bidPrice:String(state.bid??10),askPrice:String(state.ask??10.01)});
     if(p==='/fapi/v3/account')return ok({availableBalance:String(state.realAvail),totalWalletBalance:String(state.realWallet),positions:[]});
     if(p==='/fapi/v3/positionRisk')return ok(state.realPositions);
     if(p==='/fapi/v1/positionSide/dual')return ok({dualSidePosition:false});
@@ -166,4 +166,18 @@ test('R52 TEST deploy wrapper: TEST mode only, stops safely, runs JEV-DEPLOY unc
   const deploy=fs.readFileSync(path.join(__dirname,'..','jev-brain','JEV-DEPLOY.ps1'),'utf8');
   assert.match(deploy,/if \(\$liveState\.armed -eq \$true\) \{ throw/,'the deploy safety rule is unchanged');
   assert.match(deploy,/if \(\$pos\.Count -gt 0\) \{ throw/);
+});
+
+test('R52 one PnL everywhere in TEST: open rows take the paper live mark, total = equity - start',async()=>{
+  const f=fixture();await f.controller.testSupervisorTick();
+  await f.paper.handle('POST','/fapi/v1/order',{params:{symbol:'AUSDT',side:'BUY',type:'MARKET',quantity:'2'}});
+  await f.controller.positionLedgerTick();
+  const ledgerPnl=f.controller.positionsStatus().open[0].unrealizedPnl;
+  f.state.bid=10.5;f.state.ask=10.51;await f.paper.handle('GET','/fapi/v3/account'); // the paper mark moves; the ledger read is older
+  const s=f.paper.summary(),row=f.controller.positionsStatus().open[0];
+  assert.equal(row.unrealizedPnl,s.positions[0].unrealizedPnl,'table = TEST summary');assert.notEqual(row.unrealizedPnl,ledgerPnl);
+  assert.ok(Math.abs(row.markPrice-10.505)<1e-9);assert.ok(Math.abs(s.total-(s.equity-s.startBalance))<1e-9);assert.ok(Math.abs(s.total-(s.net+s.unrealized))<1e-3);
+  assert.ok(s.available>0);assert.equal(row.tradingMode,'TEST');
+  const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  for(const s2 of ['Kâr/zarar: TOPLAM','açık PnL ${openPnl.toFixed(2)}',"const paperK = st.tradingMode?.mode==='TEST'"])assert.ok(html.includes(s2),s2);
 });

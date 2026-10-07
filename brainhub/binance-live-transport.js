@@ -275,8 +275,16 @@ class PaperExchange {
     const s = this.state, upl = Object.keys(s.positions).reduce((a, x) => a + this._unrealized(x), 0);
     const realized = s.income.filter(x => x.incomeType === 'REALIZED_PNL').reduce((a, x) => a + Number(x.income), 0);
     const fees = s.income.filter(x => x.incomeType === 'COMMISSION').reduce((a, x) => a + Number(x.income), 0);
+    // R2544.52 (07.10 user: "PnL differs top and bottom"): one snapshot for every TEST number. net = closed parts only
+    // (wallet - start); total = equity - start (open positions included); positions carry their live mark and PnL.
+    const positions = Object.entries(s.positions).map(([symbol, p]) => {
+      const px = this.lastPx.get(symbol);
+      return { symbol, side:p.amt > 0 ? 'LONG' : 'SHORT', quantity:Math.abs(p.amt), entryPrice:p.entry, markPrice:px?.mid ?? null,
+        unrealizedPnl:Number(this._unrealized(symbol).toFixed(4)), priceAt:px?.at ? new Date(px.at).toISOString() : null };
+    });
     return { startedAt:s.startedAt, startBalance:s.startBalance, wallet:Number(s.wallet.toFixed(4)), equity:Number((s.wallet + upl).toFixed(4)), unrealized:Number(upl.toFixed(4)),
-      realized:Number(realized.toFixed(4)), fees:Number(fees.toFixed(4)), net:Number((s.wallet - s.startBalance).toFixed(4)), openPositions:Object.keys(s.positions).length,
+      realized:Number(realized.toFixed(4)), fees:Number(fees.toFixed(4)), net:Number((s.wallet - s.startBalance).toFixed(4)), total:Number((s.wallet + upl - s.startBalance).toFixed(4)),
+      available:Number(this._available().toFixed(4)), openPositions:Object.keys(s.positions).length, positions,
       openAlgos:s.algos.filter(a => a.algoStatus === 'NEW').length, fills:s.trades.length };
   }
   hasExposure() { return Object.keys(this.state.positions).length > 0; }
