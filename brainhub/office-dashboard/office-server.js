@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.31-R2544.51-JEV-Brain';
+const OFFICE_VERSION = '2.5.32-R2544.52-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -95,6 +95,7 @@ const CONTROL_BODY = {
     const out = { mode: String(b.mode || '').toUpperCase(), confirm: String(b.confirm || '').toUpperCase() };
     const bal = Number(b.testBalance);
     if (b.testBalance != null && Number.isFinite(bal) && bal > 0) out.testBalance = bal;
+    if (b.restart === true) out.restart = true;
     return out;
   },
   '/api/control/arm': b => ({ confirm: String(b.confirm || '') }),

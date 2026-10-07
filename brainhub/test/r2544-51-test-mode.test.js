@@ -199,7 +199,7 @@ test('R51 Office control: local header required, body rebuilt from a whitelist, 
 
 test('R51 Office page has the mode panel and badges TEST rows',()=>{
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  for(const id of ['modeBar','btnModeTest','btnModeLive','btnArm','btnDisarm','btnOto'])assert.match(html,new RegExp(`id="${id}"`));
+  for(const id of ['modeBar','btnModeTest','btnModeLive','btnArm','btnDisarm'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(html,/'x-jev-office-control':'1'/);
   assert.match(html,/tradingMode==='TEST'\?'<span class="tbadge">TEST<\/span>'/);
   assert.match(html,/BURST_LIVE_DISABLED:'Vur-kaç gerçek parada kapalı/);

@@ -3159,18 +3159,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // R2544.51 TEST / LIVE mode. TEST: every order goes to the paper exchange (no real order can leave).
   // Switching needs: disarmed, no real or paper position, no active burst, explicit confirmation.
   const TEST_WINDOW_HOURS=24;
+  // R2544.52: the 24 h TEST window starts at the first start (arm) in TEST mode, not at the mode switch
+  // (06.10: the clock ran 19 h while OTO was off and nothing was scanned).
   function tradingModeStatus(){
-    const m=readTradingMode(root,defaultTradingMode),test=m.mode==='TEST',started=finite(m.testStartedAt)??(test?finite(paper.state.startedAt):null);
-    const hours=test&&started?Math.max(0,(clock()-started)/3600000):null;
-    return {ok:true,mode:m.mode,defaulted:m.defaulted===true,changedAt:m.changedAt||null,testStartedAt:started?new Date(started).toISOString():null,
+    const m=readTradingMode(root,defaultTradingMode),test=m.mode==='TEST',started=test?finite(m.testStartedAt):null;
+    const hours=started?Math.max(0,(clock()-started)/3600000):null;
+    return {ok:true,mode:m.mode,defaulted:m.defaulted===true,changedAt:m.changedAt||null,testStarted:started!==null,testStartedAt:started?new Date(started).toISOString():null,
       testWindowHours:TEST_WINDOW_HOURS,testElapsedHours:hours===null?null:Number(hours.toFixed(2)),testWindowComplete:hours!==null&&hours>=TEST_WINDOW_HOURS,
       realOrdersPossible:!test,paper:test||paper.hasExposure()?paper.summary():null};
   }
-  async function setTradingMode({mode,startBalance=null}={}){
+  function markTestStarted(now){
+    const m=readTradingMode(root,defaultTradingMode);
+    if(m.mode!=='TEST'||finite(m.testStartedAt))return;
+    const {defaulted,...file}=m;
+    try{writeTradingMode(root,{...file,mode:'TEST',changedAt:file.changedAt||new Date(now).toISOString(),testStartedAt:now});}catch{}
+  }
+  async function setTradingMode({mode,startBalance=null,restart=false}={}){
     const want=String(mode||'').toUpperCase();
     if(!['LIVE','TEST'].includes(want))return {ok:false,reasons:['TRADING_MODE_INVALID']};
     const cur=readTradingMode(root,defaultTradingMode);
-    if(cur.mode===want&&!cur.defaulted)return {ok:true,unchanged:true,...tradingModeStatus()};
+    // TEST -> TEST with restart: new paper balance and a new 24 h window (same safety checks as a switch)
+    if(cur.mode===want&&!cur.defaulted&&!(want==='TEST'&&restart===true))return {ok:true,unchanged:true,...tradingModeStatus()};
     const reasons=[];
     if(armedNow())reasons.push('DISARM_FIRST');
     if(burst.active.size>0)reasons.push('BURST_ACTIVE');
@@ -3184,10 +3193,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     if(reasons.length)return {ok:false,mode:cur.mode,reasons:[...new Set(reasons)]};
     const now=clock();
-    writeTradingMode(root,{mode:want,changedAt:new Date(now).toISOString(),testStartedAt:want==='TEST'?now:null});
+    writeTradingMode(root,{mode:want,changedAt:new Date(now).toISOString(),testStartedAt:null});
     if(want==='TEST')paper.reset(finite(startBalance)>0?finite(startBalance):paperStartBalance);
     paper.invalidateMode();accountSummaryCache={at:0,value:null};
-    try{store.journal('TRADING_MODE_CHANGED',null,{from:cur.mode,to:want,at:new Date(now).toISOString()});}catch{}
+    try{store.journal('TRADING_MODE_CHANGED',null,{from:cur.mode,to:want,restart:cur.mode===want,at:new Date(now).toISOString()});}catch{}
     return {ok:true,...tradingModeStatus()};
   }
   function status() {
@@ -3687,6 +3696,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const now = clock();
     armState = { armed:true, armedAt:now, expiresAt:now + policy.armMinutes * 60000 };
     lastDisarmReason = null;
+    if (testModeNow()) markTestStarted(now);
     return {
       ok:true,
       armed:true,
