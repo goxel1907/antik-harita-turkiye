@@ -82,6 +82,16 @@ test('R52 Office: one Start turns OTO and arm on, Stop turns both off, warnings 
   assert.match(html,/TEST’i sıfırla \(yeni 24 saat\)/);assert.match(html,/restart:true/);
 });
 
+test('R52 Office mode panel uses no browser dialogs: second press confirms, Stop is one press, balance from the bar',()=>{
+  const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  const panel=html.slice(html.indexOf('// R2544.51/52 TEST/LIVE mod paneli.'),html.indexOf('let last=null;'));
+  assert.doesNotMatch(panel,/\b(confirm|prompt)\((?!\))/,'07.10: a suppressed confirm() made Start silently do nothing');
+  for(const id of ['btnArm','btnModeTest','btnModeLive'])assert.match(panel,new RegExp(`secondPress\\('${id}'`));
+  const stop=panel.slice(panel.indexOf("onClick('#btnDisarm'"));
+  assert.doesNotMatch(stop,/secondPress/,'stopping is never gated');
+  assert.match(html,/id="testBalance" type="number"/);assert.match(panel,/\$\('#testBalance'\)/);
+});
+
 test('R52 Office forwards the TEST restart flag and nothing else new',()=>{
   const {CONTROL_BODY}=require('../office-dashboard/office-server.js');
   assert.deepEqual(CONTROL_BODY['/api/control/mode']({mode:'test',confirm:'test',testBalance:'200',restart:true,leverage:125}),{mode:'TEST',confirm:'TEST',testBalance:200,restart:true});

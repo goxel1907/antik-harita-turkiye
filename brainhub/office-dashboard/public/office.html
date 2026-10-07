@@ -51,6 +51,9 @@ header .sub{color:var(--text-muted);font-size:12px}
 .modebar button.go{border-color:var(--good)} .modebar button.stop{border-color:var(--critical)}
 .modebar .mmsg{flex-basis:100%;font-size:12px;color:var(--text-muted)} .modebar .mmsg:empty{display:none} .modebar .mmsg.err{color:var(--critical)}
 .modebar .mwarn{color:var(--critical);font-weight:700}
+.modebar button.arm2{outline:2px solid var(--warning);outline-offset:1px}
+.modebar .mbal{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary)}
+.modebar .mbal input{width:72px;font:inherit;font-size:13px;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--text-primary)}
 .mprog{display:inline-block;width:110px;height:6px;border-radius:3px;background:var(--surface-3);vertical-align:middle;overflow:hidden}
 .mprog i{display:block;height:100%;background:var(--warning)}
 .tbadge{display:inline-block;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px;background:var(--warning);color:#1a1300;margin-left:4px;vertical-align:middle}
@@ -267,6 +270,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <span class="mtag" id="modeTag">MOD —</span>
     <div class="minfo" id="modeInfo">Mod durumu okunuyor…</div>
     <div class="mbtns">
+      <label class="mbal" title="TEST sanal başlangıç bakiyesi">TEST bakiye <input id="testBalance" type="number" min="1" step="1" value="200"> USDT</label>
       <button id="btnModeTest" disabled>TEST moduna geç</button>
       <button id="btnModeLive" disabled>LIVE moduna geç</button>
       <button class="go" id="btnArm" disabled>Başlat</button>
@@ -1727,22 +1731,33 @@ async function control(path,body,okText){
   modeBusy=false; await tick();
 }
 function onClick(sel,fn){ const el=$(sel); if(el&&typeof el.addEventListener==='function') el.addEventListener('click',fn); }
+// R2544.52: no browser dialogs. confirm()/prompt() can be suppressed by the browser and then return at once — the
+// button silently did nothing (07.10: OTO/Başlat never reached the core). Confirmation is a second press of the same
+// button within 6 s, shown in the mode bar; the TEST balance comes from the box in the bar. Stop needs no confirmation.
+const CONFIRM_MS=6000, pendingPress={};
+function secondPress(id,what){
+  const el=$('#'+id), now=Date.now();
+  if(pendingPress[id]&&now-pendingPress[id]<CONFIRM_MS){ delete pendingPress[id]; el?.classList?.remove('arm2'); return true; }
+  pendingPress[id]=now; el?.classList?.add('arm2');
+  modeMsg(`${what} — onaylamak için 6 sn içinde aynı düğmeye bir kez daha basın.`);
+  setTimeout(()=>{ if(pendingPress[id]===now){ delete pendingPress[id]; el?.classList?.remove('arm2'); modeMsg('Onaylanmadı; hiçbir şey yapılmadı.'); } },CONFIRM_MS);
+  return false;
+}
 onClick('#btnModeTest',()=>{
   const restart=modeState?.mode==='TEST';
-  const raw=prompt((restart?'TEST sıfırlanacak: sanal hesap yeni bakiyeyle açılır, 24 saat Başlat’a basınca yeniden sayılır.':'TEST moduna geçilecek: emirler Binance’e gitmez, sanal hesapta işlenir.')+'\nSanal başlangıç bakiyesi (USDT):','200');
-  if(raw===null) return;
-  const bal=Number(String(raw).replace(',','.'));
-  if(!Number.isFinite(bal)||bal<=0){ modeMsg('Geçersiz bakiye.',true); return; }
+  const bal=Number(String($('#testBalance')?.value??'').replace(',','.'));
+  if(!Number.isFinite(bal)||bal<=0){ modeMsg('Geçersiz TEST bakiyesi (kutuya USDT yazın).',true); return; }
+  if(!secondPress('btnModeTest',restart?`TEST sıfırlanacak: sanal ${bal} USDT, 24 saat Başlat’a basınca yeniden sayılır`:`TEST moduna geçilecek (sanal ${bal} USDT, gerçek emir yok)`)) return;
   control('/api/control/mode',{mode:'TEST',confirm:'TEST',testBalance:bal,...(restart?{restart:true}:{})},`TEST ${restart?'sıfırlandı':'moduna geçildi'} (sanal ${bal} USDT). Çalıştırmak için Başlat’a basın.`);
 });
 onClick('#btnModeLive',()=>{
-  if(!confirm('LIVE moduna geçilsin mi?\nBundan sonra Başlat’a basılırsa emirler GERÇEK PARA ile Binance’e gider.')) return;
+  if(!secondPress('btnModeLive','LIVE moduna geçilecek: bundan sonra Başlat GERÇEK PARA ile işlem açar')) return;
   control('/api/control/mode',{mode:'LIVE',confirm:'LIVE'},'LIVE moduna geçildi. Sistem durduruldu; Başlat’a basana kadar işlem açılmaz.');
 });
 // Başlat: OTO + başlatma birlikte. Başlatma reddedilirse OTO geri kapatılır (yarım açık sistem JEV kredisi harcar).
 onClick('#btnArm',async()=>{
   const st=modeState||{}, test=st.mode==='TEST';
-  if(!confirm(test?'Sistem TEST modunda başlatılsın mı?\nOTO açılır; tarama, JEV analizi ve sanal işlemler başlar. Gerçek emir yok.':'Sistem LIVE modunda başlatılsın mı?\nOTO açılır; GERÇEK PARA ile Binance’te işlem açabilir.')) return;
+  if(!secondPress('btnArm',test?'TEST başlatılacak: OTO açılır; tarama, JEV analizi ve sanal işlemler başlar':'LIVE başlatılacak: OTO açılır, GERÇEK PARA ile işlem açabilir')) return;
   modeBusy=true; if(last) renderMode(last); modeMsg('Başlatılıyor…');
   let msg=test?'TEST çalışıyor: OTO açık, sistem başlatıldı. İlk tarama 1–2 dk içinde görünür.':'LIVE çalışıyor (gerçek para): OTO açık, sistem başlatıldı.', err=false;
   const otoWasOn=st.oto===true;
@@ -1750,15 +1765,14 @@ onClick('#btnArm',async()=>{
   if(!err&&!st.armed){ const a=await post('/api/control/arm',{confirm:'LIVE'}); if(!a.ok){ msg='Yapılmadı (başlatma reddedildi): '+a.text; err=true; if(!otoWasOn) await post('/api/control/oto',{enabled:false}); } }
   modeMsg(msg,err); modeBusy=false; await tick();
 });
-// Durdur: başlatma ve OTO birlikte kapanır. Açık pozisyonun stop/TP emirleri yerinde kalır.
+// Durdur: tek basış (durdurma hiçbir zaman engellenmez); başlatma ve OTO birlikte kapanır, stop/TP emirleri yerinde kalır.
 onClick('#btnDisarm',async()=>{
-  if(!confirm('Sistem durdurulsun mu?\nOTO kapanır, yeni işlem açılmaz; açık pozisyonun stop/TP emirleri yerinde kalır.')) return;
   const st=modeState||{};
   modeBusy=true; if(last) renderMode(last); modeMsg('Durduruluyor…');
   const errs=[];
   if(st.armed){ const d=await post('/api/control/disarm',{}); if(!d.ok) errs.push('başlatma: '+d.text); }
   if(st.oto){ const o=await post('/api/control/oto',{enabled:false}); if(!o.ok) errs.push('OTO: '+o.text); }
-  modeMsg(errs.length?'Tam durdurulamadı — '+errs.join(' • '):'Sistem durduruldu (OTO kapalı).',errs.length>0); modeBusy=false; await tick();
+  modeMsg(errs.length?'Tam durdurulamadı — '+errs.join(' • '):'Sistem durduruldu (OTO kapalı). Açık pozisyonun stop/TP emirleri yerinde.',errs.length>0); modeBusy=false; await tick();
 });
 
 let last=null;
