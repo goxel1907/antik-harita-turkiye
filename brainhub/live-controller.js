@@ -36,6 +36,7 @@ const { locationChaseGate } = require('./chart-readout');
 const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-preparation');
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
 const {readCloseExitEvidence}=require('./close-exit-evidence');
+const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gainer hunter lane)
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -319,7 +320,7 @@ function jevFinalAuthorityPreflight({ plan, unified } = {}) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now(), defaultTradingMode = 'LIVE', paperAutoTick = true, paperStartBalance = 100 } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, top3Judge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now(), defaultTradingMode = 'LIVE', paperAutoTick = true, paperStartBalance = 100 } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
@@ -350,6 +351,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // (2 consecutive net-losing bursts -> 30 min; -3R net in an Istanbul day -> rest of the day). No revenge trading;
   // during the pause JEV is not asked for burst pre-authorizations either.
   const burstPullback=new Map();
+  // R2544.56 İlk 3 Avcısı state: own lots (data/top3-hunter-state.json, survives restarts) and the hourly rank book.
+  const TOP3_STATE_FILE=path.join(String(root),'data','top3-hunter-state.json');
+  let top3State=(()=>{try{const x=JSON.parse(fs.readFileSync(TOP3_STATE_FILE,'utf8'));if(x&&typeof x.active==='object'&&x.active&&Array.isArray(x.pendingCloses))return x;}catch{}return {version:top3Lib.TOP3_VERSION,active:{},pendingCloses:[],recentCloses:[],recentSignals:[],lastEntry:{},lastScanHour:null,lastScan:null,bootstrap:null};})();
+  const saveTop3State=()=>{try{fs.mkdirSync(path.dirname(TOP3_STATE_FILE),{recursive:true});const tmp=TOP3_STATE_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(top3State),'utf8');fs.renameSync(tmp,TOP3_STATE_FILE);}catch{}};
+  const top3Ranks=new top3Lib.RankBook({file:path.join(String(root),'data','top3-ranks.json'),keepHours:200});
+  const activeTop3For=symbol=>{const s=String(symbol||'').toUpperCase();return Object.values(top3State.active||{}).find(a=>String(a?.symbol||'').toUpperCase()===s)||null;};
+  let top3Busy=false,top3CloseCache={at:0,rows:null};
   const burstAllowedNow=()=>testModeNow()||readLeaderAutoConfig().config?.burstLiveEnabled===true;
   let burstLossCache={at:0,value:null};
   const burstNetR=p=>{const e=finite(p?.entryPrice),s=finite(p?.stopPrice),g=finite(p?.realizedR);const stopPct=e>0&&s>0?Math.abs(e-s)/e*100:null;
@@ -447,6 +455,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         .filter(x=>x.symbol&&x.at>0).sort((a,b)=>a.at-b.at);
       const seenKeys=new Set();
       for(const x of rows){
+        if(x.p.tradeLane==='TOP3_HUNTER')continue; // R2544.56: own lane, not a core loss-streak input
         const key=x.p.closeBusinessKey||x.p.eventId||(x.symbol+'|'+x.at);if(seenKeys.has(key))continue;seenKeys.add(key);
         const net=finite(x.p.netPnl);
         noteClosedForStreak(x.symbol,net,x.at);
@@ -1833,7 +1842,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       await reconcilePending(open.positions,currentCredentials(),open.snapshotStartedAt);
       const finalized=await finalizeClosedActiveRows(open.positions,{snapshotStartedAt:open.snapshotStartedAt});
       try{finalized.push(...await finalizeBurstCloses());}catch{/* burst bookkeeping is reporting only */}
-      const protectedSymbols=[...open.positions.map(x=>x.symbol),...burst.active.values()].map(x=>typeof x==='string'?x:x.symbol);
+      const protectedSymbols=[...open.positions.map(x=>x.symbol),...burst.active.values(),...Object.values(top3State.active||{})].map(x=>typeof x==='string'?x:x.symbol);
       candidateStream.protectedSymbols=new Set(protectedSymbols);
       candidateStream.localL2?.setPositionSymbols?.(protectedSymbols);
       ledgerState={at,ok:true,error:null,open:open.positions,source:open.source||null,lastFinalized:finalized.length?finalized:ledgerState.lastFinalized};
@@ -1981,13 +1990,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // (GRIFFAIN 05.10 21:35 showed "dış/manuel" and "15m" from a 04.10 core row).
       const coreRow=lifecycle[p.symbol]||{};
       const bl=String(coreRow.state||'').toUpperCase()==='ACTIVE'?null:activeBurstFor(p.symbol);
-      const row=bl?{}:coreRow;
-      const rr=bl?null:runnerState.bySymbol?.[p.symbol]||null;
+      // R2544.56: an İlk 3 Avcısı lot is BrainHub's own as well (own stop/TP/time manager).
+      const t3=bl||String(coreRow.state||'').toUpperCase()==='ACTIVE'?null:activeTop3For(p.symbol),lot=bl||t3;
+      const row=lot?{}:coreRow;
+      const rr=lot?null:runnerState.bySymbol?.[p.symbol]||null;
       const entry=finite(p.entryPrice),mark=finite(p.markPrice),qty=finite(p.quantity);
-      const stop=bl?finite(bl.stopPrice):finite(rr&&rr.phase!=='CLOSED'?rr.currentStop:null)??finite(row.stopPrice);
-      const firstStop=bl?finite(bl.stopPrice):finite(row.stopPrice)??stop;
+      const stop=lot?finite(lot.stopPrice):finite(rr&&rr.phase!=='CLOSED'?rr.currentStop:null)??finite(row.stopPrice);
+      const firstStop=lot?finite(lot.stopPrice):finite(row.stopPrice)??stop;
       // CLAUDE_R2543: açık pozisyon R'si de ilk miktar + ilk stop ile (kısmi çıkış sonrası şişmesin).
-      const initQty=bl?(finite(bl.initialQuantity)??finite(bl.quantity)??qty):finite(leaderAnalysisState.bySymbol?.[String(p.symbol||'').toUpperCase()]?.initialQuantity)??qty;
+      const initQty=lot?(finite(lot.initialQuantity)??finite(lot.quantity)??qty):finite(leaderAnalysisState.bySymbol?.[String(p.symbol||'').toUpperCase()]?.initialQuantity)??qty;
       const riskQuote=entry!==null&&firstStop!==null&&initQty!==null?Math.abs(entry-firstStop)*initQty:null;
       const own=String(row.state||'').toUpperCase()==='ACTIVE';
       const entryCase=row.entryContext?.entryCase||null;
@@ -1996,15 +2007,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         symbol:p.symbol,side:p.side,quantity:qty,entryPrice:entry,markPrice:mark,unrealizedPnl:finite(p.unrealizedPnl),
         unrealizedR:riskQuote&&riskQuote>0&&finite(p.unrealizedPnl)!==null?Number((p.unrealizedPnl/riskQuote).toFixed(2)):null,
         leverage:finite(p.leverage),notional:finite(p.notional),liquidationPrice:finite(p.liquidationPrice),
-        stopPrice:stop,originalStopPrice:bl?finite(bl.stopPrice):finite(row.stopPrice),takeProfit1:finite(row.takeProfit1),
+        stopPrice:stop,originalStopPrice:lot?finite(lot.stopPrice):finite(row.stopPrice),takeProfit1:t3?finite(t3.tpPrice):finite(row.takeProfit1),
         runnerPhase:rr&&rr.phase!=='CLOSED'?rr.phase:null,trailTf:rr?.lastDesired?.trail?.tf||null,
-        openedBy:own?'BRAINHUB_AUTO':bl?'BRAINHUB_BURST':'EXTERNAL',
-        openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():bl&&finite(bl.openedAt)?new Date(Number(bl.openedAt)).toISOString():null,
-        lane:bl?'BURST_SCALP':row.tradeLaneName||row.entryContext?.lane||null,originTF:row.originTF||null,setup:bl?'BURST_SCALP':row.setup||null,
-        strategyVersion:bl?BURST_RELEASE_CONTRACT:row.entryContext?.strategyVersion||null,
-        releaseContract:bl?BURST_RELEASE_CONTRACT:row.entryContext?.releaseContract||null,
+        openedBy:own?'BRAINHUB_AUTO':bl?'BRAINHUB_BURST':t3?'BRAINHUB_TOP3':'EXTERNAL',
+        openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():lot&&finite(lot.openedAt)?new Date(Number(lot.openedAt)).toISOString():null,
+        lane:bl?'BURST_SCALP':t3?'TOP3_HUNTER':row.tradeLaneName||row.entryContext?.lane||null,originTF:row.originTF||null,setup:bl?'BURST_SCALP':t3?'TOP3_'+t3.rule:row.setup||null,
+        strategyVersion:bl?BURST_RELEASE_CONTRACT:t3?top3Lib.TOP3_VERSION:row.entryContext?.strategyVersion||null,
+        releaseContract:bl?BURST_RELEASE_CONTRACT:t3?top3Lib.TOP3_VERSION:row.entryContext?.releaseContract||null,
         mirrorContract:row.entryContext?.mirrorContract||null,
-        entryReason:bl?burstWhy(bl):row.entryContext?.why||null,
+        entryReason:bl?burstWhy(bl):t3?top3Why(t3):row.entryContext?.why||null,
         entryCase:caseMemoryLib.compactEntryCase(entryCase),
         caseMemory:caseAnalogs,
         riskQuote:riskQuote!==null?Number(riskQuote.toFixed(6)):null,
@@ -2119,7 +2130,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       // R2544.48: a live burst lot has its own JEV exit manager; the core review must not also judge it
       // (05.10 21:35 the core review asked JEV about the GRIFFAIN burst as a "15m" trade).
-      const reviewable=open.positions.filter(p=>{const row=leaderAnalysisState.bySymbol?.[p.symbol];return String(row?.state||'').toUpperCase()==='ACTIVE'||!activeBurstFor(p.symbol);});
+      const reviewable=open.positions.filter(p=>{const row=leaderAnalysisState.bySymbol?.[p.symbol];return String(row?.state||'').toUpperCase()==='ACTIVE'||(!activeBurstFor(p.symbol)&&!activeTop3For(p.symbol));});
       if(!reviewable.length){
         positionManagerState.lastReview={action:'HOLD',actionTr:'YALNIZ VUR-KAÇ POZİSYONU (kendi JEV çıkış yöneticisi)',checkedAt:new Date(clock()).toISOString()};
         return {ok:true,skipped:true,reason:'BURST_LOT_OWN_MANAGER'};
@@ -5625,7 +5636,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(burstTickBusy)return {ok:true,skipped:true,reason:'BURST_TICK_BUSY'};burstTickBusy=true;
     try{
       // Manage active burst first. Watcher exits are confirmed, quantity-bounded reductions of standalone burst positions.
-      const protectedSymbols=[...(ledgerState.open||[]).map(x=>x.symbol),...[...burst.active.values()].map(x=>x.symbol)];
+      const protectedSymbols=[...(ledgerState.open||[]).map(x=>x.symbol),...[...burst.active.values()].map(x=>x.symbol),...Object.values(top3State.active||{}).map(x=>x.symbol)];
       candidateStream.protectedSymbols=new Set(protectedSymbols);
       candidateStream.localL2?.setPositionSymbols?.(protectedSymbols);
       for(const a of [...burst.active.values()]){
@@ -5684,9 +5695,295 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {...burst.status(lossStreakPause()),preparation,lastArmReview:burstArmReview,diagnostics,separateOtherSymbolSlot:true,sameSymbolAddonSupported:false};
   }
 
+  // =====================================================================
+  // R2544.56 İLK 3 AVCISI (TOP3_HUNTER) — hourly, PC-only, separate lane with its own slots (maxActive) and its own
+  // exchange STOP_MARKET + TAKE_PROFIT_MARKET and a time exit. Rules/evidence: top3-hunter.js. Runs in TEST without
+  // JEV; JEV mode (switch) adds a fail-closed JEV approval per signal; LIVE needs the separate liveEnabled switch
+  // (confirm 'LIVE'), an armed account and OTO, exactly like every other automatic entry. Never touches other lots.
+  // =====================================================================
+  const TOP3_HOUR=top3Lib.HOUR;
+  function top3Why(a){return `İlk 3 avcısı ${a?.rule==='LONG_6OF6'?'LONG 6/6 (hacim patlaması + ilk 7)':'SHORT tepe sonrası (ilk 3 + tepeden ≥%15 aşağı)'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
+  function top3Gate(cfg){
+    if(cfg.enabled!==true)return {ok:false,reason:'TOP3_DISABLED'};
+    const test=testModeNow();
+    if(!test&&cfg.liveEnabled!==true)return {ok:false,reason:'TOP3_LIVE_DISABLED'};
+    if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
+    if(readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'LEADER_AUTO_DISABLED'};
+    if(cfg.jevMode===true&&typeof top3Judge!=='function')return {ok:false,reason:'TOP3_JEV_UNAVAILABLE'};
+    return {ok:true,mode:test?'TEST':'LIVE'};
+  }
+  async function top3Klines(symbol,limit){
+    const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval:'1h',limit:String(limit)}});
+    return Array.isArray(k)?k.map(r=>[Number(r[0]),Number(r[1]),Number(r[2]),Number(r[3]),Number(r[4]),Number(r[5])]):[];
+  }
+  // Rank history for "top 10 in the last 7 days" / "top 3 in the last 24 h": filled once from public hourly candles
+  // (≈2 weight per symbol, ~5 requests/s), then one /ticker/24hr per hour keeps it current.
+  async function top3Bootstrap(tradable,closedOpen){
+    const from=closedOpen-168*TOP3_HOUR,syms=[...tradable],closes={};let fetched=0,failed=0;
+    for(const s of syms){
+      try{const k=await top3Klines(s,200);const m={};for(const r of k)if(r[0]<=closedOpen&&r[4]>0)m[r[0]]=r[4];closes[s]=m;fetched++;}
+      catch(e){failed++;if([418,429].includes(Number(e?.status))||failed>25)break;}
+      await new Promise(r=>setTimeout(r,180));
+    }
+    let hours=0;
+    for(let t=from;t<closedOpen;t+=TOP3_HOUR){
+      if(top3Ranks.hours[t])continue;
+      const rows=[];for(const s of Object.keys(closes)){const c=closes[s][t],c0=closes[s][t-24*TOP3_HOUR];if(c>0&&c0>0)rows.push({symbol:s,priceChangePercent:(c/c0-1)*100});}
+      if(rows.length<50)continue;
+      top3Ranks.record(t,top3Lib.ranksFromTickers(rows));hours++;
+    }
+    top3Ranks.save();
+    return {at:new Date(clock()).toISOString(),symbols:syms.length,fetched,failed,hoursAdded:hours};
+  }
+  async function top3Scan(cfg,hour,gate){
+    const T=hour-TOP3_HOUR; // open time of the candle that just closed (research index T)
+    const out={at:new Date(clock()).toISOString(),candle:new Date(T).toISOString(),mode:testModeNow()?'TEST':'LIVE',gate:gate.ok?'OPEN':gate.reason,ranked:0,checked:0,signals:[],nearMisses:[],entries:[],errors:[]};
+    let info,tick;
+    try{info=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');tick=await transport._fetchJson('GET','/fapi/v1/ticker/24hr');}
+    catch(e){out.errors.push('TOP3_MARKET_DATA_UNAVAILABLE:'+String(e?.message||e).slice(0,80));return out;}
+    const tradable=new Set((info?.symbols||[]).filter(s=>s?.contractType==='PERPETUAL'&&s?.status==='TRADING'&&s?.quoteAsset==='USDT').map(s=>String(s.symbol)));
+    const ranks=top3Lib.ranksFromTickers(tick,tradable);out.ranked=Object.keys(ranks).length;
+    if(out.ranked<50){out.errors.push('TOP3_RANKS_TOO_FEW');return out;}
+    top3Ranks.record(T,ranks);top3Ranks.save();
+    const covered=top3Ranks.hoursCovered(T,168*TOP3_HOUR);
+    if(covered<150&&clock()-(Date.parse(top3State.bootstrap?.at||'')||0)>6*TOP3_HOUR){top3State.bootstrap=await top3Bootstrap(tradable,T);saveTop3State();}
+    out.history={hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR)};
+    const btcRow=(Array.isArray(tick)?tick:[]).find(x=>x?.symbol==='BTCUSDT');const btc24=finite(btcRow?.priceChangePercent)!==null?finite(btcRow.priceChangePercent)/100:null;
+    const longC=cfg.long.enabled?Object.entries(ranks).filter(([,r])=>r<=cfg.long.maxRank).map(([s])=>s):[];
+    const shortC=cfg.short.enabled?top3Ranks.symbolsInTop(3,T-(cfg.short.top3WithinH-1)*TOP3_HOUR,T+1).filter(s=>tradable.has(s)):[];
+    const cands=[...new Set([...longC,...shortC])].slice(0,40);
+    for(const s of cands){
+      let f;try{const k=(await top3Klines(s,722)).filter(r=>r[0]<=T);f=k.length&&k.at(-1)[0]===T?top3Lib.hourlyFeatures(k):{ok:false,reason:'TOP3_CANDLE_NOT_CLOSED'};}
+      catch(e){out.errors.push(s+':KLINES');continue;}
+      out.checked++;
+      const sigs=[];
+      if(longC.includes(s))sigs.push(top3Lib.longSignal(f,{rank:ranks[s],top10In7d:top3Ranks.countInTop(s,10,T-168*TOP3_HOUR,T),btc24},cfg));
+      if(shortC.includes(s))sigs.push(top3Lib.shortSignal(f,{inTop3Within:true},cfg));
+      for(const sig of sigs){
+        const view={symbol:s,side:sig.side,rule:sig.rule||null,rank:ranks[s]??null,reasons:sig.reasons,
+          features:f?.ok?{close:f.close,r1:Number(f.r1.toFixed(4)),r24:Number(f.r24.toFixed(4)),vr1:f.vr1!==null?Number(f.vr1.toFixed(1)):null,vol30:f.vol30!==null?Number(f.vol30.toFixed(4)):null,breakout7d:f.breakout7d,dropFromPeak:Number(f.dropFromPeak.toFixed(4)),red:f.red}:null};
+        if(sig.ok){out.signals.push({...view,sig,f});try{store.journal('TOP3_SIGNAL',s,{...view,candle:out.candle,btc24,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}}
+        else if(sig.reasons.length<=2)out.nearMisses.push(view);
+      }
+      await new Promise(r=>setTimeout(r,100));
+    }
+    if(!gate.ok)return out;
+    for(const x of out.signals){
+      const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
+      if(Object.keys(top3State.active).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}
+      const key=x.symbol+':'+x.side;if(clock()-(finite(top3State.lastEntry?.[key])||0)<24*TOP3_HOUR){res.reason='TOP3_SAME_SIGNAL_24H';continue;}
+      if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
+      let jev=null;
+      if(cfg.jevMode===true){
+        let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
+        if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
+        try{jev=await top3Judge({symbol:x.symbol,signal:x.sig,features:x.f,rank:x.rank,btc24,candle:out.candle,chartContext,learning:store.learningContext?.({symbol:x.symbol})});}catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
+        const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
+        try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
+        res.jev=ev;
+        if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
+      }
+      const opened=await top3Open(x.sig,x.symbol,cfg,jev);
+      Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason});
+      if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[key]:clock()};saveTop3State();}
+      else try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:opened});}catch{}
+    }
+    return out;
+  }
+  async function top3Open(sig,symbol,cfg,jev){
+    const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    const side=sig.side,la=readLeaderAutoConfig();
+    const acct=await accountSummary({maxAgeMs:3000});const avail=finite(acct?.availableBalance);
+    if(!acct?.ok||!(avail>0))return {ok:false,reason:'TOP3_ACCOUNT_UNAVAILABLE'};
+    // Margin: the file's marginQuote when set; otherwise the panel margin capped at 25% of free balance (a -8% stop at
+    // 10x costs ~80% of this margin). Never above half of free balance; below 5 USDT no trade.
+    const margin=cfg.marginQuote!==null?cfg.marginQuote:Math.min(finite(la.config?.marginQuote)??Infinity,avail*0.25);
+    if(!(margin>=5))return {ok:false,reason:'TOP3_MARGIN_TOO_SMALL',marginQuote:margin};
+    if(margin>avail*0.5)return {ok:false,reason:'TOP3_MARGIN_ABOVE_HALF_FREE_BALANCE',marginQuote:margin,availableBalance:avail};
+    let px;try{px=await paperPrice(symbol);}catch{px=null;}
+    const price=finite(side==='LONG'?px?.ask:px?.bid);if(!(price>0))return {ok:false,reason:'TOP3_PRICE_UNAVAILABLE'};
+    const pre=top3Lib.entryLevels(sig,price);if(!pre.ok)return {ok:false,reason:pre.reason,stopPct:pre.stopPct??null};
+    let exchangeMax=null,brackets=[];
+    try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'TOP3_LEVERAGE_BRACKET_UNAVAILABLE'};}
+    if(!(exchangeMax>=1))return {ok:false,reason:'TOP3_EXCHANGE_MAX_LEVERAGE_INVALID'};
+    const safeMax=Math.max(1,Math.floor(1/(pre.stopPct+0.005)));
+    let leverage=Math.max(1,Math.min(cfg.leverage,exchangeMax,safeMax));
+    for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);leverage=Math.max(1,Math.min(leverage,Number(br?.initialLeverage)||exchangeMax));}
+    await transport._syncServerTime();
+    const info=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');const si=Array.isArray(info?.symbols)?info.symbols.find(x=>x?.symbol===symbol):null;if(!si)return {ok:false,reason:'TOP3_SYMBOL_INFO_MISSING'};
+    const f=exchangeFiltersFor(si);if(!(f.lotStep>0&&f.tickSize>0))return {ok:false,reason:'TOP3_FILTERS_MISSING'};
+    const quantity=burstFloor(margin*leverage/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||(f.maxQty&&quantity>f.maxQty))return {ok:false,reason:'TOP3_QUANTITY_INVALID'};
+    if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'TOP3_MIN_NOTIONAL_NOT_MET'};
+    const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;
+    if(!top3Gate(top3Lib.readTop3Config(root)).ok)return {ok:false,reason:'TOP3_ENTRY_PERMISSION_REVOKED'};
+    if(burstCurrentPosition(symbol))return {ok:false,reason:'TOP3_SYMBOL_BUSY'};
+    const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(leverage)}});
+    if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==leverage)return {ok:false,reason:'TOP3_LEVERAGE_REJECTED'};
+    const id='t3'+crypto.randomBytes(7).toString('hex'),startedAt=clock();
+    let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide:hedge?side:'BOTH',type:'MARKET',quantity:String(quantity),newClientOrderId:('T3E'+id).slice(0,36),newOrderRespType:'RESULT'}});}
+    catch(e){return {ok:false,reason:String(e?.message||'TOP3_ENTRY_FAILED').slice(0,120),exchangeError:e?.body||null};}
+    const executed=finite(entry?.executedQty);if(!(executed>0))return {ok:false,reason:'TOP3_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
+    let entryPrice=finite(entry?.avgPrice)>0?finite(entry.avgPrice):null;
+    if(entryPrice===null){try{const q=await transport._fetchJson('GET','/fapi/v1/order',{params:{symbol,origClientOrderId:('T3E'+id).slice(0,36)},credentials:creds,signed:true});if(finite(q?.avgPrice)>0)entryPrice=finite(q.avgPrice);}catch{}}
+    if(entryPrice===null)entryPrice=price;
+    // Levels at the real fill. SHORT keeps its structural stop, clamped into the 2%..8% band after slippage.
+    let stopRaw,tpRaw;
+    if(side==='LONG'){stopRaw=entryPrice*(1-sig.stopPct);tpRaw=entryPrice*(1+sig.tpPct);}
+    else{stopRaw=Math.min(entryPrice*(1+sig.maxStopPct),Math.max(entryPrice*(1+sig.minStopPct),finite(sig.stopRef)));tpRaw=entryPrice*(1-sig.tpPct);}
+    const stopPrice=burstTickPrice(stopRaw,f.tickSize,side==='LONG'?'down':'up'),tpPrice=burstTickPrice(tpRaw,f.tickSize,side==='LONG'?'down':'up');
+    const stop=await transport.placeRunnerStop({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:stopPrice,clientAlgoId:('T3S'+id).slice(0,36),credentials:creds});
+    if(!stop.ok){
+      const emergency=await top3CloseMarket({id,symbol,side,hedge,quantity:executed,exitAttempts:0},executed);
+      try{store.journal('TOP3_ENTRY_ABORTED',symbol,{id,side,rule:sig.rule,reason:'TOP3_STOP_PROTECTION_FAILED',stop,emergency});}catch{}
+      return {ok:false,orderPlaced:true,emergencyClose:emergency,reason:'TOP3_STOP_PROTECTION_FAILED'};
+    }
+    const tp=await transport.placeTakeProfit({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:tpPrice,clientAlgoId:('T3T'+id).slice(0,36),credentials:creds});
+    const a={id,symbol,side,rule:sig.rule,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
+      stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
+      jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0};
+    top3State.active[id]=a;saveTop3State();
+    try{candidateStream.ensureSymbol?.(symbol);}catch{}
+    try{store.journal('TOP3_ENTRY',symbol,{...a,version:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
+    return {ok:true,orderPlaced:true,active:a};
+  }
+  async function top3CloseMarket(a,qty){
+    const creds=currentCredentials();a.exitAttempts=(a.exitAttempts||0)+1;
+    const params={symbol:a.symbol,side:a.side==='LONG'?'SELL':'BUY',positionSide:a.hedge?a.side:'BOTH',type:'MARKET',quantity:String(qty),newClientOrderId:('T3X'+a.exitAttempts+a.id).slice(0,36),newOrderRespType:'RESULT'};
+    if(!a.hedge)params.reduceOnly='true';
+    try{const o=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params});return {ok:finite(o?.executedQty)>0,avgPrice:finite(o?.avgPrice)>0?finite(o.avgPrice):null,orderId:o?.orderId??null};}
+    catch(e){return {ok:false,reason:String(e?.message||'TOP3_CLOSE_FAILED').slice(0,120)};}
+  }
+  function top3Finish(a,{exitReason,exitPrice=null,closedAt=null,noIncome=false}){
+    delete top3State.active[a.id];
+    const closed={...a,exitReason,exitPrice,closedAt:finite(closedAt)||clock(),detectedAt:clock(),noIncome};
+    if(!noIncome)top3State.pendingCloses.push(closed);
+    top3State.recentCloses=[{id:a.id,symbol:a.symbol,side:a.side,rule:a.rule,exitReason,exitPrice,entryPrice:a.entryPrice,closedAt:closed.closedAt},...(top3State.recentCloses||[])].slice(0,20);
+    try{store.journal('TOP3_CLOSED',a.symbol,closed);}catch{}
+    saveTop3State();
+    return closed;
+  }
+  async function top3Manage(){
+    const list=Object.values(top3State.active||{});if(!list.length)return {active:0};
+    const creds=currentCredentials();if(!credentialsReady(creds))return {active:list.length,reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    const modeNow=testModeNow()?'TEST':'LIVE';
+    let rows;try{await transport._syncServerTime();rows=await transport._fetchJson('GET','/fapi/v3/positionRisk',{credentials:creds,signed:true});}catch{rows=null;}
+    if(!Array.isArray(rows))return {active:list.length,reason:'TOP3_POSITIONS_UNAVAILABLE'};
+    for(const a of list){
+      // A lot opened in the other trading mode lives on the other exchange (paper lots are closed by the mode switch).
+      if(a.mode!==modeNow){top3Finish(a,{exitReason:'TRADING_MODE_SWITCH',noIncome:true});continue;}
+      const r=rows.find(x=>String(x?.symbol||'').toUpperCase()===a.symbol&&Math.abs(finite(x?.positionAmt)||0)>0&&(!a.hedge||String(x?.positionSide||'').toUpperCase()===a.side));
+      const amt=finite(r?.positionAmt),held=amt!==null&&(a.side==='LONG'?amt>0:amt<0);
+      if(!held){
+        let exitReason='TOP3_EXCHANGE_EXIT',exitPrice=null,closedAt=null;
+        try{
+          const al=await transport._fetchJson('GET','/fapi/v1/allAlgoOrders',{params:{symbol:a.symbol,startTime:Math.max(0,a.startedAt-60000),endTime:clock()},credentials:creds,signed:true});
+          const byId=id=>Array.isArray(al)?al.find(y=>String(y?.algoId)===String(id)):null,done=x=>['FINISHED','TRIGGERED'].includes(String(x?.algoStatus||'').toUpperCase());
+          const st=byId(a.stopAlgoId),tp=a.tpAlgoId!=null?byId(a.tpAlgoId):null;
+          if(done(tp)){exitReason='TOP3_TAKE_PROFIT';exitPrice=finite(tp.actualPrice);closedAt=finite(tp.updateTime);}
+          else if(done(st)){exitReason='TOP3_STOP';exitPrice=finite(st.actualPrice);closedAt=finite(st.updateTime);}
+        }catch{}
+        for(const id of [a.stopAlgoId,a.tpAlgoId])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
+        top3Finish(a,{exitReason,exitPrice,closedAt:closedAt&&closedAt<=clock()?closedAt:null});continue;
+      }
+      const mark=finite(r.markPrice);a.lastMark=mark;a.checkedAt=clock();
+      // Target fallback when the exchange refused the TAKE_PROFIT order; time exit after maxHoldH. Orders only while armed.
+      const tpHit=!a.tpOnExchange&&mark>0&&(a.side==='LONG'?mark>=a.tpPrice:mark<=a.tpPrice);
+      const timeUp=clock()>=a.deadline;
+      if(!(tpHit||timeUp))continue;
+      if(!armedNow()){a.exitWaiting=tpHit?'TP_WAITING_ARM':'TIME_EXIT_WAITING_ARM';continue;}
+      const res=await top3CloseMarket(a,Math.min(Math.abs(amt),a.quantity));
+      if(!res.ok){a.exitWaiting='CLOSE_FAILED:'+String(res.reason||'').slice(0,60);try{store.journal('TOP3_EXIT_FAILED',a.symbol,{id:a.id,reason:res.reason,tpHit,timeUp});}catch{}continue;}
+      for(const id of [a.stopAlgoId,a.tpAlgoId])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
+      top3Finish(a,{exitReason:tpHit?'TOP3_TAKE_PROFIT_SOFT':'TOP3_TIME_EXIT',exitPrice:res.avgPrice});
+    }
+    saveTop3State();
+    return {active:Object.keys(top3State.active).length};
+  }
+  function top3CloseRecord(c,inc){
+    const qty=finite(c.quantity),entry=finite(c.entryPrice),stop=finite(c.stopPrice);
+    const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
+    const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
+    const netPnl=inc?inc.net:null;
+    const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL'}[c.exitReason]||'TOP3_OTHER_EXIT';
+    const setup='TOP3_'+(c.rule||'RULE');
+    return {side:c.side,setup,originTF:'1h',ownerTF:'1h',tradeLane:'TOP3_HUNTER',entryPrice:entry,stopPrice:stop,takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
+      initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
+      exitBy:'TOP3_MANAGER',realizedPnl:inc?inc.realized:null,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,
+      outcomePct:netPnl!==null&&notional>0?netPnl/notional*100:null,rMultiple:netPnl!==null&&riskQuote>0?netPnl/riskQuote:null,
+      exitType,exitEvidenceVersion:top3Lib.TOP3_VERSION,openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
+      entryContext:{why:top3Why(c),setup,setupFamily:'TOP3',entryTiming:'HOURLY_CLOSE',lane:'TOP3_HUNTER',releaseContract:top3Lib.TOP3_VERSION,strategyVersion:top3Lib.TOP3_VERSION,source:'TOP3',
+        top3:{id:c.id,rule:c.rule||null,leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),tpPrice:finite(c.tpPrice),exitPrice:finite(c.exitPrice),jevMode:c.jevMode===true,jev:c.jev||null}},
+      eventId:'TOP3:'+c.id,closeBusinessKey:'TOP3:'+c.id,incomeAvailable:inc!==null,learningAuthority:'EXCLUDED_TOP3_LANE'};
+  }
+  async function top3FinalizeCloses(){
+    if(!top3State.pendingCloses?.length)return [];
+    const creds=currentCredentials();if(!credentialsReady(creds))return [];
+    const done=[];
+    for(const c of [...top3State.pendingCloses]){
+      const closedAt=finite(c.closedAt)||clock();
+      if(clock()-closedAt<5000)continue;
+      // A close from the other trading mode cannot be booked here (its income lives on the other exchange).
+      if((c.mode||'TEST')!==(testModeNow()?'TEST':'LIVE')){const i=top3State.pendingCloses.indexOf(c);if(i>=0)top3State.pendingCloses.splice(i,1);try{store.journal('TOP3_CLOSE_UNBOOKED',c.symbol,{id:c.id,mode:c.mode,reason:'TRADING_MODE_SWITCH'});}catch{}continue;}
+      const inc=await positionIncome(c.symbol,Math.max(0,(finite(c.startedAt)||finite(c.openedAt)||closedAt)-2000),Math.min(clock(),Math.max(closedAt,finite(c.detectedAt)||closedAt)+2000),creds);
+      if(!inc&&clock()-closedAt<10*60000)continue;
+      const i=top3State.pendingCloses.indexOf(c);if(i>=0)top3State.pendingCloses.splice(i,1);
+      const record=top3CloseRecord(c,inc);
+      if(appendClosedOnce(c.symbol,record))done.push({symbol:c.symbol,...record});
+      const rc=(top3State.recentCloses||[]).find(x=>x.id===c.id);if(rc){rc.netPnl=record.netPnl;rc.rMultiple=record.rMultiple;}
+    }
+    saveTop3State();
+    return done;
+  }
+  async function top3Tick(){
+    if(top3Busy)return {ok:true,skipped:true,reason:'TOP3_BUSY'};top3Busy=true;
+    try{
+      let managed=null;try{managed=await top3Manage();}catch(e){managed={error:String(e?.message||e).slice(0,120)};}
+      try{await top3FinalizeCloses();}catch{/* reporting only */}
+      const cfg=top3Lib.readTop3Config(root);
+      if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
+      const gate=top3Gate(cfg);top3State.lastGate=gate.ok?'OPEN':gate.reason;
+      const now=clock(),hour=Math.floor(now/TOP3_HOUR)*TOP3_HOUR;
+      if(now-hour<40000)return {ok:true,skipped:true,reason:'TOP3_WAIT_CANDLE_CLOSE',managed};
+      if(top3State.lastScanHour===hour)return {ok:true,skipped:true,reason:'TOP3_HOUR_DONE',managed};
+      top3State.lastScanHour=hour;saveTop3State();
+      const scan=await top3Scan(cfg,hour,gate);
+      top3State.lastScan={...scan,signals:scan.signals.map(({sig,f,...v})=>v),nearMisses:scan.nearMisses.slice(0,8)};
+      top3State.recentSignals=[...scan.signals.map(({sig,f,...v})=>({...v,candle:scan.candle})),...(top3State.recentSignals||[])].slice(0,30);
+      saveTop3State();
+      return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed};
+    }finally{top3Busy=false;}
+  }
+  function top3Status(){
+    const cfg=top3Lib.readTop3Config(root),gate=cfg.enabled?top3Gate(cfg):{ok:false,reason:'TOP3_DISABLED'};
+    const now=clock(),T=Math.floor(now/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR;
+    let closes=top3CloseCache.at&&now-top3CloseCache.at<15000?top3CloseCache.rows:null;
+    if(!closes)try{closes=(store.recentJournal?.('POSITION_CLOSED',{limit:400,sinceTs:now-30*86400000})||[]).map(x=>({symbol:x.symbol,...(x.payload||{})})).filter(p=>p.tradeLane==='TOP3_HUNTER');top3CloseCache={at:now,rows:closes};}catch{closes=[];}
+    const measured=closes.filter(p=>finite(p.netPnl)!==null),mode=testModeNow()?'TEST':'LIVE';
+    const sum=xs=>({closed:xs.length,wins:xs.filter(p=>p.netPnl>0).length,losses:xs.filter(p=>p.netPnl<0).length,netPnl:Number(xs.reduce((a,p)=>a+p.netPnl,0).toFixed(4))});
+    const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
+    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,
+      switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled},
+      rules:{leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short},
+      gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
+      active:Object.values(top3State.active||{}).map(a=>{const p=open.get(a.symbol);return {...a,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
+      results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
+      history:{hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR),bootstrap:top3State.bootstrap||null},
+      pendingCloses:(top3State.pendingCloses||[]).length,nextScanAt:new Date(Math.floor(now/TOP3_HOUR)*TOP3_HOUR+TOP3_HOUR+40000).toISOString()};
+  }
+  // Only the user's Office buttons call this (server route). LIVE needs the explicit 'LIVE' confirmation.
+  function configureTop3(patch={}){
+    const p={};for(const k of ['enabled','jevMode','liveEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    if(!Object.keys(p).length)return {ok:false,reasons:['TOP3_SWITCH_MISSING']};
+    if(p.liveEnabled===true&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    const before=top3Lib.readTop3Config(root),after=top3Lib.writeTop3Switches(root,p);
+    try{store.journal('TOP3_CONFIG_CHANGED',null,{before:{enabled:before.enabled,jevMode:before.jevMode,liveEnabled:before.liveEnabled},after:{enabled:after.enabled,jevMode:after.jevMode,liveEnabled:after.liveEnabled},source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
+    return {...top3Status(),changed:p};
+  }
+
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, configureTop3, _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

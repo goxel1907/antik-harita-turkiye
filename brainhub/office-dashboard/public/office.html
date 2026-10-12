@@ -52,6 +52,10 @@ header .sub{color:var(--text-muted);font-size:12px}
 .modebar .mmsg{flex-basis:100%;font-size:12px;color:var(--text-muted)} .modebar .mmsg:empty{display:none} .modebar .mmsg.err{color:var(--critical)}
 .modebar .mwarn{color:var(--critical);font-weight:700}
 .modebar button.arm2{outline:2px solid var(--warning);outline-offset:1px}
+.t3btns{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.t3btns button{font:inherit;font-size:13px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--text-primary);cursor:pointer}
+.t3btns button:disabled{opacity:.45;cursor:not-allowed} .t3btns button.on{border-color:var(--good)} .t3btns button.live.on{border-color:var(--critical);color:var(--critical)} .t3btns button.arm2{outline:2px solid var(--warning);outline-offset:1px}
+.t3msg{font-size:12px;color:var(--text-muted)} .t3msg:empty{display:none} .t3msg.err{color:var(--critical)} .t3rule{font-size:12px;color:var(--text-secondary)}
 .modebar .mbal{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary)}
 .modebar .mbal input{width:72px;font:inherit;font-size:13px;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--text-primary)}
 .mprog{display:inline-block;width:110px;height:6px;border-radius:3px;background:var(--surface-3);vertical-align:middle;overflow:hidden}
@@ -286,6 +290,12 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <h2>⚡ Vur-kaç <span class="hint">JEV ön-yetkisi • ayrı işlem hattı • yalnız PC yürütür</span></h2>
     <div id="burstHost" aria-live="polite">PC vur-kaç verisi bekleniyor.</div>
   </section>
+  <section class="card" id="top3Card" aria-label="İlk 3 Avcısı" style="margin:16px 0;border-color:#4fa3d1">
+    <h2>🎯 İlk 3 Avcısı <span class="hint">saatlik • ilk 3’e giren coin LONG 6/6 + tepe sonrası SHORT • ayrı hat • yalnız PC yürütür</span></h2>
+    <div class="t3btns"><button id="btnTop3On" disabled>İlk 3 Avcısı: AÇ</button><button id="btnTop3Jev" disabled>JEV modu: KAPALI → aç</button><button class="live" id="btnTop3Live" disabled>Canlıda çalışsın: KAPALI → aç</button></div>
+    <div class="t3msg" id="top3Msg"></div>
+    <div id="top3Host" aria-live="polite">İlk 3 Avcısı verisi bekleniyor.</div>
+  </section>
   <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
   <section class="lane-strip" id="laneStrip"></section>
 
@@ -488,7 +498,7 @@ const UI_TR = {
   INVERSE_HEAD_AND_SHOULDERS:'TERS OMUZ BAŞ OMUZ', RANGE:'YATAY ARALIK',
   LONG_15M_TRADE:'15 DK ALIŞ ANA İŞLEM', SHORT_15M_TRADE:'15 DK SATIŞ ANA İŞLEM',
   LONG_5M_SCALP:'5 DK ALIŞ SCALP', SHORT_5M_SCALP:'5 DK SATIŞ SCALP',
-  '15M_TRADE':'15 DK ANA İŞLEM', '5M_SCALP':'5 DK SCALP', BURST_SCALP:'VUR-KAÇ',
+  '15M_TRADE':'15 DK ANA İŞLEM', '5M_SCALP':'5 DK SCALP', BURST_SCALP:'VUR-KAÇ', TOP3_HUNTER:'İLK 3 AVCISI',
   IDLE:'BOŞTA', DONE:'TAMAM', ERROR:'HATA', NOT_CALLED:'ÇAĞRILMADI',
   BEARISH_ENGULFING:'AYI YUTAN FORMASYONU', BULLISH_ENGULFING:'BOĞA YUTAN FORMASYONU',
   SHOOTING_STAR_REJECTION:'KAYAN YILDIZ REDDİ', HAMMER_REJECTION:'ÇEKİÇ REDDİ',
@@ -1076,7 +1086,7 @@ function renderLedger(s){
   const openPnl=livePaper?open.reduce((a,x)=>a+(Number(x.unrealizedPnl)||0),0):Number(d.openUnrealizedPnl||0);
   $('#posHint').textContent=`${open.length} açık • açık PnL ${openPnl.toFixed(2)} USDT${livePaper?' (anlık; mod çubuğuyla aynı)':''} • defter ${d.asOf?fmtTime(Date.parse(d.asOf)):'—'}${d.ledgerOk===false?' • OKUNAMIYOR: '+(d.ledgerError||''):''}`;
   $('#openPos').innerHTML = open.length ? `<tr><th>Sembol</th><th>Yön</th><th>Açan</th><th>Sürüm</th><th>Giriş</th><th>Anlık</th><th>PnL USDT</th><th>R</th><th>Stop</th><th>TP1</th><th>İz süren</th><th>Açılış</th><th>Hat/TF</th><th>Giriş nedeni</th></tr>`+
-    open.map(p=>`<tr><td><b>${esc(p.symbol)}</b></td><td>${side(p.side)}</td><td>${p.openedBy==='BRAINHUB_AUTO'?'OTO':p.openedBy==='BRAINHUB_BURST'?'OTO vur-kaç':'dış/manuel'}${p.tradingMode==='TEST'?'<span class="tbadge">TEST</span>':''}</td><td>${esc(p.releaseContract||p.strategyVersion||'ESKİ/ETİKETSİZ')}</td><td>${num(p.entryPrice,6)}</td><td>${num(p.markPrice,6)}</td><td>${sgn(p.unrealizedPnl)}</td><td>${p.unrealizedR===null?'—':Number(p.unrealizedR).toFixed(2)}</td><td>${num(p.stopPrice,6)}${p.originalStopPrice&&p.stopPrice!==p.originalStopPrice?` <span class="muted">(ilk ${num(p.originalStopPrice,6)})</span>`:''}</td><td>${num(p.takeProfit1,6)}</td><td>${esc(trUi(p.runnerPhase||'—'))}${p.trailTf?' • '+esc(p.trailTf):''}</td><td>${p.openedAt?fmtTime(Date.parse(p.openedAt)):'—'}</td><td>${esc([p.lane,p.originTF].filter(Boolean).join(' • ')||'—')}</td><td style="max-width:360px">${esc(trUi(String(p.entryReason||'')).slice(0,160))}</td></tr>`).join('')
+    open.map(p=>`<tr><td><b>${esc(p.symbol)}</b></td><td>${side(p.side)}</td><td>${p.openedBy==='BRAINHUB_AUTO'?'OTO':p.openedBy==='BRAINHUB_BURST'?'OTO vur-kaç':p.openedBy==='BRAINHUB_TOP3'?'OTO ilk 3 avcısı':'dış/manuel'}${p.tradingMode==='TEST'?'<span class="tbadge">TEST</span>':''}</td><td>${esc(p.releaseContract||p.strategyVersion||'ESKİ/ETİKETSİZ')}</td><td>${num(p.entryPrice,6)}</td><td>${num(p.markPrice,6)}</td><td>${sgn(p.unrealizedPnl)}</td><td>${p.unrealizedR===null?'—':Number(p.unrealizedR).toFixed(2)}</td><td>${num(p.stopPrice,6)}${p.originalStopPrice&&p.stopPrice!==p.originalStopPrice?` <span class="muted">(ilk ${num(p.originalStopPrice,6)})</span>`:''}</td><td>${num(p.takeProfit1,6)}</td><td>${esc(trUi(p.runnerPhase||'—'))}${p.trailTf?' • '+esc(p.trailTf):''}</td><td>${p.openedAt?fmtTime(Date.parse(p.openedAt)):'—'}</td><td>${esc([p.lane,p.originTF].filter(Boolean).join(' • ')||'—')}</td><td style="max-width:360px">${esc(trUi(String(p.entryReason||'')).slice(0,160))}</td></tr>`).join('')
     : `<tr><td class="muted">${s.status?.data?.tradingMode?.mode==='TEST'?'TEST (sanal) hesapta açık pozisyon yok.':'Binance’te açık pozisyon yok.'}</td></tr>`;
   const cl=d.closed||[], sm=d.summary||{};
   const versionKey=row=>row?.tradingMode==='TEST'?'TEST (sanal)':String(row?.entryContext?.releaseContract||row?.entryContext?.strategyVersion||'ESKİ/ETİKETSİZ');
@@ -1780,6 +1790,86 @@ onClick('#btnResetTest',()=>{
 // Durdur: tek basış; OTO + başlatma + TEST otomatik çalışma kapanır. Açık pozisyonun stop/TP emirleri yerinde kalır.
 onClick('#btnStop',()=>{ control({action:'STOP'},'Her şey durduruldu (OTO kapalı). Açık pozisyonun stop/TP emirleri yerinde. TEST için “TEST’i başlat”.'); });
 
+// R2544.56 İlk 3 Avcısı kartı: saatlik ilk-3 LONG 6/6 + tepe sonrası SHORT şeridi. Üç düğme yalnız kullanıcıya aittir:
+// Aç/Kapat (yeni giriş), JEV modu (her sinyale JEV onayı, ücretli), Canlıda çalışsın (gerçek para; iki basış + 'LIVE').
+const T3TR={TOP3_DISABLED:'Kapalı (yeni giriş yok)',TOP3_LIVE_DISABLED:'CANLI modda “Canlıda çalışsın” kapalı',LIVE_NOT_ARMED:'Başlatma kapalı',LEADER_AUTO_DISABLED:'OTO kapalı',TOP3_JEV_UNAVAILABLE:'JEV bağlı değil',OPEN:'Çalışıyor',
+  R1_BELOW:'1 saat < +%3',VOLUME_BASE_BELOW:'hacim < 3×',NO_7D_BREAKOUT:'7 günlük zirve kırılmadı',VOLUME_SURGE_BELOW:'hacim < 33,9×',R24_BELOW:'24 saat < +%13,3',RANK_NOT_TOP:'sıra 7’den geride',NOT_A_REPEAT_GAINER:'son 7 günde ilk 10’a girmemiş',
+  VOLATILITY_BELOW:'oynaklık düşük',BTC_TOO_STRONG:'BTC 24 saat > +%1,29',NOT_IN_TOP3_RECENTLY:'24 saatte ilk 3’te değil',NOT_FAR_ENOUGH_FROM_PEAK:'tepeden < %15 aşağıda',HOUR_NOT_RED:'saat kırmızı değil',VOLUME_BELOW:'hacim < 3×',
+  TOP3_HISTORY_TOO_SHORT:'mum geçmişi kısa',TOP3_CANDLE_NOT_CLOSED:'saatlik mum kapanmadı',TOP3_SLOTS_FULL:'yer dolu',TOP3_SAME_SIGNAL_24H:'aynı sinyal 24 saat içinde alındı',TOP3_SYMBOL_BUSY:'coinde başka pozisyon var',TOP3_JEV_NOT_APPROVED:'JEV onaylamadı',
+  TOP3_SHORT_STOP_OUT_OF_RANGE:'stop %2–8 aralığı dışında',TOP3_MARGIN_TOO_SMALL:'marj 5 USDT altında',TOP3_MARGIN_ABOVE_HALF_FREE_BALANCE:'marj serbest bakiyenin yarısından büyük',TOP3_STOP_PROTECTION_FAILED:'stop konamadı, pozisyon kapatıldı',
+  TOP3_STOP:'stop',TOP3_TAKE_PROFIT:'hedef',TOP3_TIME_EXIT:'24 saat doldu',TOP3_STOP_OR_EXTERNAL:'stop / dış kapanış',TOP3_OTHER_EXIT:'diğer',TIME_EXIT_WAITING_ARM:'süre doldu, başlatma bekleniyor',TP_WAITING_ARM:'hedef geldi, başlatma bekleniyor',
+  LONG_6OF6:'LONG 6/6',SHORT_TOP_FADE:'SHORT tepe sonrası',TOP3_LONG_6OF6:'LONG 6/6',TOP3_SHORT_TOP_FADE:'SHORT tepe sonrası'};
+const t3tr=v=>T3TR[v]||trUi(v||'—');
+function top3Msg(text,err){const m=document.getElementById('top3Msg');if(!m)return;m.textContent=text||'';m.className='t3msg'+(err?' err':'');}
+const t3Pending={};
+function top3Second(id,what){
+  const el=document.getElementById(id),now=Date.now();
+  if(t3Pending[id]&&now-t3Pending[id]<CONFIRM_MS){delete t3Pending[id];el?.classList?.remove('arm2');return true;}
+  t3Pending[id]=now;el?.classList?.add('arm2');top3Msg(`${what} — onaylamak için 6 sn içinde aynı düğmeye bir kez daha basın.`);
+  setTimeout(()=>{if(t3Pending[id]===now){delete t3Pending[id];el?.classList?.remove('arm2');top3Msg('Onaylanmadı; hiçbir şey değişmedi.');}},CONFIRM_MS);
+  return false;
+}
+let top3Busy=false;
+async function top3Control(body,okText){
+  top3Busy=true;top3Msg('Gönderiliyor…');
+  try{
+    const r=await fetch('/api/control/top3'+location.search,{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-jev-office-control':'1'},body:JSON.stringify(body)});
+    let d=null;try{d=await r.json();}catch{}
+    if(r.ok&&d?.ok!==false)top3Msg(okText);else top3Msg('Yapılmadı: '+(reasonsTr(d?.reasons)||d?.error||('HTTP '+r.status)),true);
+  }catch(e){top3Msg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);}
+  top3Busy=false;await tick();
+}
+function renderTop3(s){
+  const el=document.getElementById('top3Host');if(!el)return;
+  const t=s.top3;
+  const btn=(id,text,on,dis)=>{const b=document.getElementById(id);if(!b)return;if(text)b.textContent=text;b.classList.toggle('on',!!on);b.disabled=!!dis||top3Busy;};
+  if(!t||t.ok!==true){el.innerHTML='<p>İlk 3 Avcısı verisi okunamadı (PC sürümü R2544.56 öncesi olabilir).</p>';for(const id of ['btnTop3On','btnTop3Jev','btnTop3Live'])btn(id,null,false,true);return;}
+  const sw=t.switches||{},mode=t.tradingMode==='LIVE'?'CANLI':'TEST';
+  btn('btnTop3On',sw.enabled?'İlk 3 Avcısı: KAPAT':'İlk 3 Avcısı: AÇ',sw.enabled,false);
+  btn('btnTop3Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!t.jevAvailable&&!sw.jevMode);
+  btn('btnTop3Live',sw.liveEnabled?'Canlıda çalışsın: AÇIK → kapat':'Canlıda çalışsın: KAPALI → aç',sw.liveEnabled,false);
+  const fm=(v,d=6)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('tr-TR',{maximumFractionDigits:d});
+  const pnl=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+' $';
+  let html=`<p><b>Durum: ${t.running?'ÇALIŞIYOR ('+mode+')':esc(t3tr(t.gate))}</b> • JEV modu ${sw.jevMode?'<b>AÇIK</b> (her sinyal JEV onayından geçer; ücretli)':'kapalı (JEV’siz, ücretsiz)'} • canlı ${sw.liveEnabled?'<b class="mwarn">İZİNLİ</b>':'izinli değil'} • yer ${(t.active||[]).length}/${esc(t.rules?.maxActive??2)}</p>`;
+  html+=`<p class="t3rule">Kurallar (saatlik mum kapanışında): <b>LONG 6/6</b> — 1 saatte ≥ +%3, hacim ≥ 33,9× (7 gün ortancası), 7 günlük zirve kırılımı, 24 saat ≥ +%13,3, sıra ≤ 7, son 7 günde ilk 10’a girmiş, oynaklık ≥ %1,34, BTC 24 saat ≤ +%1,29 → stop −%8, hedef +%30, en çok 24 saat. <b>SHORT tepe sonrası</b> — 24 saatte ilk 3’e girmiş, 24 saatlik tepeden ≥ %15 aşağıda, kırmızı saat, hacim ≥ 3× → stop son 3 saatin tepesinin %1 üstü (%2–8), hedef −%10, en çok 24 saat. ${esc(t.rules?.leverage??10)}x; marj: panel marjı, serbest bakiyenin en çok %25’i.</p>`;
+  for(const a of t.active||[]){
+    html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.jev?.decision?' • JEV '+esc(a.jev.decision):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}</div></div>`;
+  }
+  const ls=t.lastScan;
+  if(ls){
+    html+=`<p>Son tarama: ${esc(new Date(ls.at).toLocaleString('tr-TR'))} • mum ${esc(new Date(ls.candle).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • ${Number(ls.ranked)||0} coin sıralandı • ${Number(ls.checked)||0} aday incelendi • <b>${(ls.signals||[]).length} sinyal</b>${ls.errors?.length?' • hata: '+esc(ls.errors.slice(0,3).join(', ')):''}</p>`;
+    for(const x of ls.entries||[])html+=`<p>• ${esc(x.symbol)} ${esc(x.side)}: ${x.opened?'<b>işleme girildi</b>':esc(t3tr(x.reason))}${x.jev?' (JEV '+esc(x.jev.decision)+(x.jev.reason?' — '+esc(trUi(x.jev.reason)):'')+')':''}</p>`;
+    if((ls.nearMisses||[]).length)html+='<p>Kıl payı kaçanlar: '+ls.nearMisses.slice(0,6).map(x=>`${esc(x.symbol)} ${esc(x.side)} (${(x.reasons||[]).map(t3tr).map(esc).join(', ')})`).join(' • ')+'</p>';
+  } else html+=`<p>Henüz tarama yok. İlk tarama bir sonraki saat başından ~1 dk sonra (${t.nextScanAt?esc(new Date(t.nextScanAt).toLocaleTimeString('tr-TR')):'—'}).</p>`;
+  const h=t.history||{};
+  html+=`<p>Sıra geçmişi: son 7 gün ${Number(h.hours7d)||0}/168 saat • son 24 saat ${Number(h.hours24h)||0}/24${h.bootstrap?` • ilk doldurma ${esc(new Date(h.bootstrap.at).toLocaleString('tr-TR'))} (${Number(h.bootstrap.hoursAdded)||0} saat)`:''}</p>`;
+  const sig=(t.recentSignals||[]).slice(0,6);
+  if(sig.length)html+='<p>Son sinyaller: '+sig.map(x=>`${esc(x.symbol)} ${esc(x.side)} ${esc(new Date(x.candle).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))}`).join(' • ')+'</p>';
+  const R=t.results||{},line=(n,x)=>x&&x.closed?`${n}: ${x.closed} işlem • ${x.wins} kazanç / ${x.losses} kayıp • net ${pnl(x.netPnl)}`:`${n}: henüz kapanan işlem yok`;
+  html+=`<p><b>Sonuçlar (30 gün)</b> — ${line('TEST',R.test)} • ${line('CANLI',R.live)}</p>`;
+  const rc=(t.recentCloses||[]).slice(0,5);
+  if(rc.length)html+='<p>Son kapananlar: '+rc.map(x=>`${esc(x.symbol)} ${esc(x.side)} ${esc(t3tr(x.exitType))} ${pnl(x.netPnl)}${x.tradingMode==='TEST'?' (TEST)':''}`).join(' • ')+'</p>';
+  el.innerHTML=html;
+}
+onClick('#btnTop3On',()=>{
+  const t=last?.top3,on=t?.switches?.enabled===true;
+  if(on){top3Control({enabled:false},'İlk 3 Avcısı kapatıldı: yeni giriş yok. Açık lotlar kendi stop/hedef/24 saat kuralıyla yönetilmeye devam eder.');return;}
+  if(t?.tradingMode==='LIVE'&&t?.switches?.liveEnabled===true&&!top3Second('btnTop3On','İlk 3 Avcısı AÇ — CANLI modda canlı izinli: GERÇEK PARA ile işlem açabilir'))return;
+  top3Control({enabled:true},'İlk 3 Avcısı açıldı. İlk tarama bir sonraki saat başından ~1 dk sonra; sıra geçmişi ilk seferde birkaç dakikada doldurulur.');
+});
+onClick('#btnTop3Jev',()=>{
+  const on=last?.top3?.switches?.jevMode===true;
+  if(on){top3Control({jevMode:false},'JEV modu kapatıldı: sinyaller JEV’siz (ücretsiz) kurala göre işlenir.');return;}
+  if(!top3Second('btnTop3Jev','JEV modu AÇ: her sinyal için bir JEV çağrısı yapılır (OpenRouter kredisi gerekir; kredi yoksa sinyal işleme alınmaz)'))return;
+  top3Control({jevMode:true},'JEV modu açıldı: her sinyal için JEV onayı istenir; onay yoksa işlem yok.');
+});
+onClick('#btnTop3Live',()=>{
+  const on=last?.top3?.switches?.liveEnabled===true;
+  if(on){top3Control({liveEnabled:false},'Canlı izni kapatıldı: CANLI modda yeni İlk 3 işlemi açılmaz (TEST etkilenmez).');return;}
+  if(!top3Second('btnTop3Live','CANLIDA ÇALIŞSIN: CANLI modda (başlatma + OTO açıkken) İlk 3 Avcısı GERÇEK PARA ile işlem açar'))return;
+  top3Control({liveEnabled:true,confirm:'LIVE'},'Canlı izni verildi: CANLI modda başlatma ve OTO açıkken İlk 3 Avcısı gerçek işlem açabilir.');
+});
+
 let last=null;
 async function tick(){
   try{
@@ -1787,7 +1877,7 @@ async function tick(){
     const s = await r.json(); last=s;
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
-    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yazma yalnız TEST/CANLI/Durdur`;

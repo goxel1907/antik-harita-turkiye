@@ -1557,7 +1557,7 @@ const decisionPipeline={
 function backgroundAnalysisWindowOpen(){
   return decisionPipelineActive===0&&localVisionQueueDepth===0&&(Date.now()-decisionPipelineLastFinishedAt)>=30000;
 }
-const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
+const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
 
 const server=http.createServer(async(req,res)=>{
   try{
@@ -1599,6 +1599,15 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,u.searchParams.get('compact')==='1'?require('./mobile-status').mobileStatus(report):report);
     }
     // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar (Binance) + kapanan işlemler (sonuç, R, çıkış, giriş nedeni). Salt-okunur.
+    // R2544.56 İlk 3 Avcısı: status (GET) and the three Office switches (POST; liveEnabled:true needs confirm 'LIVE').
+    if(req.method==='GET'&&u.pathname==='/live/top3'){
+      return send(res,200,live.top3Status());
+    }
+    if(req.method==='POST'&&u.pathname==='/live/top3'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const out=live.configureTop3({enabled:body?.enabled,jevMode:body?.jevMode,liveEnabled:body?.liveEnabled,confirm:body?.confirm,source:'API'});
+      return send(res,out.ok?200:400,out);
+    }
     if(req.method==='GET'&&u.pathname==='/live/burst'){
       return send(res,200,{ok:true,...live.burstStatus()});
     }
@@ -2348,8 +2357,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.55-JEV-EDGE';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-07 • R2544.55: JEV edge - one narrow +1R-before-stop Noul per plan with measured lessons, JEV probabilities/confidence kept, code-side EV gate after fees (fail-open on missing); includes R51-R52 TEST mode and run control';
+const RUNTIME_RELEASE='R2544.56-TOP3-HUNTER';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-12 • R2544.56: İlk 3 Avcısı - hourly top-3 gainer LONG 6/6 and post-top SHORT lane, own stop/TP/24 h exit, TEST without JEV, Office switches for JEV mode and LIVE; includes R2544.55: JEV edge - one narrow +1R-before-stop Noul per plan with measured lessons, JEV probabilities/confidence kept, code-side EV gate after fees (fail-open on missing); includes R51-R52 TEST mode and run control';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};
@@ -2399,6 +2408,12 @@ const burstScalpTimer=setInterval(async()=>{
   catch(e){log('BURST SCALP TIMER '+String(e?.message||e).slice(0,180));}
 },1000);
 if(typeof burstScalpTimer.unref==='function')burstScalpTimer.unref();
+// R2544.56 İlk 3 Avcısı: 30 s manager (own stop/TP/time exits, close bookkeeping); one scan per closed 1h candle.
+const top3Timer=setInterval(async()=>{
+  try{const out=await live.top3Tick();if(out?.scanned)log('TOP3 SCAN signals='+out.signals+' entries='+out.entries);}
+  catch(e){log('TOP3 TIMER '+String(e?.message||e).slice(0,180));}
+},30000);
+if(typeof top3Timer.unref==='function')top3Timer.unref();
 
 // CLAUDE_V113_POSITION_LEDGER: 30 sn'de bir, Vision/Leader meşguliyetinden bağımsız — açık pozisyon
 // görüntüsü + kapanan işlemlerin sonucu beyne (learning) yazılır. Emir göndermez.

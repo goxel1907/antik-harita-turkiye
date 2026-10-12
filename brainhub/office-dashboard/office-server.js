@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.35-R2544.55-JEV-Brain';
+const OFFICE_VERSION = '2.5.36-R2544.56-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -32,7 +32,8 @@ if (!LOOPBACK && OFFICE_KEY.length < 24) {
 // Brain Hub tarafında yalnız bu GET yollarına izin var.
 const ALLOWED_BRAIN_PATHS = new Set([
   '/health', '/live/status', '/live/burst', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png',
-  '/scanner/last', '/jev/knowledge', '/learning/case-memory' // R2544.19 read-only provenance/case memory
+  '/scanner/last', '/jev/knowledge', '/learning/case-memory', // R2544.19 read-only provenance/case memory
+  '/live/top3' // R2544.56 İlk 3 Avcısı status
 ]);
 
 const cache = new Map();
@@ -87,7 +88,7 @@ async function getJson(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
-const CONTROL_ROUTES = { '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run' };
+const CONTROL_ROUTES = { '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3' };
 // Only these fields ever reach the core; anything else in the Office request is dropped (OTO sizing, burst switch etc.
 // stay with the user's existing config).
 const CONTROL_BODY = {
@@ -107,6 +108,13 @@ const CONTROL_BODY = {
     if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
     const bal = Number(b.testBalance);
     if (b.testBalance != null && Number.isFinite(bal) && bal > 0) out.testBalance = bal;
+    return out;
+  },
+  // R2544.56 İlk 3 Avcısı: only the three switches (the core still demands confirm 'LIVE' for liveEnabled:true).
+  '/api/control/top3': b => {
+    const out = {};
+    for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof b[k] === 'boolean') out[k] = b[k];
+    if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
     return out;
   }
 };
@@ -554,6 +562,7 @@ async function buildSnapshot() {
   const knowledge = await cached('knowledge', 60000, () => brainGet('/jev/knowledge'));
   const scannerLast = await cached('scannerLast', 5000, () => brainGet('/scanner/last'));
   const burst = await cached('burst', 1000, () => brainGet('/live/burst'));
+  const top3 = await cached('top3', 5000, () => brainGet('/live/top3'));
   const router = await cached('router', 30000, () => getJson(ROUTER_URL + '/', { timeoutMs: 3000 }).then(r => ({ ok: r.status > 0 && r.status < 500, status: r.status, ms: r.ms, error: r.error || null })));
   const headroom = await cached('headroom', 15000, () => getJson(HEADROOM_URL + '/health', { timeoutMs: 2500 }).then(r => ({ ok: r.ok === true, status: r.status, ms: r.ms, data: scrub(r.data), error: r.error || (r.ok ? null : 'HTTP ' + r.status), url: HEADROOM_URL })));
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
@@ -589,6 +598,7 @@ async function buildSnapshot() {
     // CLAUDE_R2544_15: canlı Binance yükselenler merdiveni + 24 saatlik likidasyon kaydı sağlığı
     ladder: scannerLast?.ok === true ? scrub(scannerLast.data) : null,
     burst: burst?.ok === true ? scrub(burst.data) : null,
+    top3: top3?.ok === true ? scrub(top3.data) : null,
     plans: journalSummary.plans.slice(0, 40),
     lastJev: journalSummary.lastJev,
     lastRisk: journalSummary.lastRisk,
@@ -635,7 +645,7 @@ const server = http.createServer(async (req, res) => {
       try { parsed = raw ? JSON.parse(raw) : {}; } catch { return send(res, 400, { ok: false, error: 'invalid json' }); }
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
       const r = await brainPost(CONTROL_ROUTES[u.pathname], JSON.stringify(CONTROL_BODY[u.pathname](parsed)));
-      for (const k of ['status', 'account', 'positions', 'burst']) cache.delete(k); // the next snapshot shows the new state
+      for (const k of ['status', 'account', 'positions', 'burst', 'top3']) cache.delete(k); // the next snapshot shows the new state
       return send(res, r.status || 502, scrub(r.data || { ok: false, error: r.error || 'core unavailable' }));
     }
     if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'read-only' });

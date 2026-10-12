@@ -1815,6 +1815,38 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     return {ok:true,configured:true,called:true,finalAuthority:'JEV',decision,reason:['EARLY_EXPANSION','LOCATION_ADVERSE','FLOW_ADVERSE','DATA_NOT_READY','NO_EARLY_EDGE','POSITION_CONFLICT','RISK_OR_PAUSE'].includes(choiceValue(a.burst_reason))?choiceValue(a.burst_reason):'JEV_REASON_NOT_PROVIDED',dataGap:['NO_GAP','CHART','STREAM','L2','FLOW','DERIVATIVES','OTHER'].includes(choiceValue(a.burst_data_gap))?choiceValue(a.burst_data_gap):'NOT_REPORTED',side:chosenSide,ttlMs:BURST_TTL_MS[ttl],triggerThreshold:BURST_STRICTNESS[strict],leverageMode:lev,pauseExceptionAllowed:pex==='ALLOW_ONE_STRICT_EXCEPTION',model:cfg.model,mode:'BURST_PREAUTH',durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize};
   }
 
+  // R2544.56 İLK 3 AVCISI JEV modu: a deterministic hourly rule already fired (top3-hunter.js); JEV only approves or
+  // rejects that one entry. Fail-closed: anything but a clean APPROVE_ENTRY means no trade. Never places orders.
+  async function sovereignTop3Gate({symbol:requestedSymbol=null,signal,features,rank=null,btc24=null,candle=null,chartContext=null,learning=null}={}){
+    if(!configured)return {ok:false,configured:false,called:false,decision:'REJECT_ENTRY',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
+    const symbol=String(requestedSymbol||chartContext?.symbol||'').toUpperCase()||null;
+    if(!/^[A-Z0-9]{1,28}USDT$/.test(String(symbol||'')))return {ok:false,called:false,decision:'REJECT_ENTRY',reason:'TOP3_SYMBOL_INVALID'};
+    if(!signal?.ok||!['LONG','SHORT'].includes(signal.side)||!features?.ok)return {ok:false,called:false,decision:'REJECT_ENTRY',reason:'TOP3_SIGNAL_INVALID'};
+    const r4=v=>finiteNumber(v)!==null?Number(Number(v).toFixed(4)):null;
+    const record={
+      contract:'R2544.56_TOP3_GATE',symbol,side:signal.side,rule:signal.rule,candleOpenTime:candle,gainerRank:finiteNumber(rank),btc24hPct:btc24!==null?r4(btc24*100):null,
+      features:{close:finiteNumber(features.close),r1Pct:r4(features.r1*100),r3Pct:r4(features.r3*100),r24Pct:r4(features.r24*100),hourVolumeVs7dMedian:r4(features.vr1),breakout7dHigh:features.breakout7d===true,
+        vol30dHourlyPct:r4((features.vol30||0)*100),peak24h:finiteNumber(features.peak24),dropFromPeak24hPct:r4(features.dropFromPeak*100),redHour:features.red===true,high3h:finiteNumber(features.high3)},
+      plan:signal.side==='LONG'?{stopPct:r4(signal.stopPct*100),targetPct:r4(signal.tpPct*100),maxHoldH:Math.round((signal.maxHoldMs||0)/3600000)}:{stopAbove:finiteNumber(signal.stopRef),targetPct:r4(signal.tpPct*100),maxHoldH:Math.round((signal.maxHoldMs||0)/3600000)},
+      researchPrior:signal.side==='LONG'
+        ?'6 months / 659 USDT perps hourly: this LONG rule fired ~1 per day; stop -8% / target +30% / 24 h; small sample, positive in both halves. Most top-gainer signals fail after fees; the rule is a measured experiment.'
+        :'6 months hourly: after a top-3 gainer falls >=15% from its 24 h peak on a red, high-volume hour, the SHORT to -10% (stop above the last 3 h high) was positive in both halves; tail risk is a renewed squeeze.'
+    };
+    const state={description:'JEV hourly gate for the İlk 3 Avcısı lane. A fixed rule has ALREADY fired for this USDT perpetual at the close of the last 1h candle; the code will enter at market with the stated stop/target/time limit if and only if you APPROVE. Judge only this one entry: is the move still early enough (LONG) or genuinely exhausted (SHORT), is the remaining path to the target clear of nearby opposing structure, is BTC/market context adverse? Closed candles only; missing data is not confirmation. Reject when unsure.',record};
+    if(chartContext?.available===true&&chartContext.packet&&chartContext.symbol===symbol){state.coreMarketPacket=chartContext.packet;state.chartCache={asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source};}
+    if(learning)state.experienceMemory=compactExperienceMemory(learning,2500);
+    const body={model:cfg.model,state,questions:{
+      top3_decision:{type:'choice',instructions:'Approve or reject this single rule-fired entry.',criteria:{APPROVE_ENTRY:'Enter now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
+      top3_reason:{type:'choice',instructions:'Primary reason for the decision.',criteria:{EARLY_CONTINUATION:'LONG move still early with room to the target.',EXHAUSTION_CONFIRMED:'SHORT: the top is in and the fade has room.',LATE_OR_CROWDED:'Move already extended/crowded; poor remaining path.',STRUCTURE_ADVERSE:'Nearby opposing structure blocks the target.',MARKET_ADVERSE:'BTC/market context is adverse.',DATA_NOT_READY:'Material data missing or stale.',NO_EDGE:'No credible edge.'}}
+    }};
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:out.called!==false,decision:'REJECT_ENTRY',mode:'TOP3_GATE'};
+    const a=out.data?.answers||{};
+    const decision=choiceValue(a.top3_decision),reason=choiceValue(a.top3_reason);
+    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_GATE',decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+  }
+
   async function sovereignBurstExit({active,stream,progress,chartContext,learning=null}={}){
     if(!configured)return {ok:false,called:false,action:'HOLD',reason:'JEV_KEY_UNAVAILABLE'};
     if(!active?.burstId||stream?.available!==true||!(Number(stream.ageMs)<=2500))return {ok:false,called:false,action:'HOLD',reason:'BURST_STREAM_STALE'};
@@ -2060,6 +2092,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignBurstExit,sovereignExit,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignBurstExit,sovereignTop3Gate,sovereignExit,budgetStatus};
 }
 module.exports={prepareDecisionRequest,rankKnowledgeByPacket,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,sovereignFinalConsistency,createJevClient};
