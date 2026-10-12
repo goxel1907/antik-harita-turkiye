@@ -434,7 +434,10 @@ class BinanceLiveTransport {
         } catch {
           throw new TransportError('BINANCE_RESPONSE_READ_ERROR', { endpoint:path, status:response.status, requestSent:true });
         }
-        const responseLimit = isExchangeInfo ? MAX_EXCHANGE_INFO_RESPONSE_BYTES : MAX_RESPONSE_BYTES;
+        // R2544.56: the unsigned all-symbol 24 h ticker (~280 KB for ~690 contracts) gets the exchangeInfo ceiling; every
+        // other response keeps 256 KB.
+        const largePublicList = isGet && !signed && path === '/fapi/v1/ticker/24hr';
+        const responseLimit = isExchangeInfo || largePublicList ? MAX_EXCHANGE_INFO_RESPONSE_BYTES : MAX_RESPONSE_BYTES;
         if (raw.length > responseLimit) {
           throw new TransportError('BINANCE_RESPONSE_TOO_LARGE', { endpoint:path, status:response.status, requestSent:true });
         }

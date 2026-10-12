@@ -5945,8 +5945,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const now=clock(),hour=Math.floor(now/TOP3_HOUR)*TOP3_HOUR;
       if(now-hour<40000)return {ok:true,skipped:true,reason:'TOP3_WAIT_CANDLE_CLOSE',managed};
       if(top3State.lastScanHour===hour)return {ok:true,skipped:true,reason:'TOP3_HOUR_DONE',managed};
+      if(now<(finite(top3State.retryAt)||0))return {ok:true,skipped:true,reason:'TOP3_RETRY_WAIT',managed};
       top3State.lastScanHour=hour;saveTop3State();
       const scan=await top3Scan(cfg,hour,gate);
+      // No ranking (market data unavailable): the hour is not used up; retry in 2 min while the candle is still the last closed.
+      if(scan.ranked<50){top3State.lastScanHour=null;top3State.retryAt=clock()+120000;}else top3State.retryAt=null;
       top3State.lastScan={...scan,signals:scan.signals.map(({sig,f,...v})=>v),nearMisses:scan.nearMisses.slice(0,8)};
       top3State.recentSignals=[...scan.signals.map(({sig,f,...v})=>({...v,candle:scan.candle})),...(top3State.recentSignals||[])].slice(0,30);
       saveTop3State();

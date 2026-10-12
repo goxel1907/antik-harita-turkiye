@@ -105,7 +105,9 @@ function fixture({otoEnabled=false,mode='TEST',top3=null,judge=null}={}){
     if(p==='/fapi/v1/positionSide/dual')return ok({dualSidePosition:false});
     if(p==='/fapi/v1/income')return ok([]);
     if(p==='/fapi/v1/exchangeInfo')return ok({symbols:Object.keys(state.tick).map(sym)});
-    if(p==='/fapi/v1/ticker/24hr')return ok(Object.entries(state.tick).map(([symbol,v])=>({symbol,priceChangePercent:String(v)})));
+    if(p==='/fapi/v1/ticker/24hr'){if(state.tickerFail>0){state.tickerFail--;throw new Error('network down');}
+      // live size: ~690 contracts x ~400 B = ~280 KB (above the 256 KB default response cap)
+      return ok(Object.entries(state.tick).map(([symbol,v])=>({symbol,priceChangePercent:String(v),pad:'x'.repeat(4800)})));}
     if(p==='/fapi/v1/klines'){const s=u.searchParams.get('symbol'),hour=Math.floor(state.now/H)*H;const k=(state.klines[s]||(e=>candles(e,721)))(hour-H);return ok([...k,[hour,1,1,1,1,1]].map(r=>[r[0],String(r[1]),String(r[2]),String(r[3]),String(r[4]),String(r[5])]));}
     if(p==='/fapi/v1/leverageBracket')return ok([{symbol:u.searchParams.get('symbol'),brackets:[{bracket:1,initialLeverage:50,notionalCap:1000000,notionalFloor:0}]}]);
     throw new Error('UNEXPECTED '+m+' '+p);};
@@ -235,4 +237,28 @@ test('R56 Office: switch route forwards only the three switches; card, labels an
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.ok(lc.includes("t3?'BRAINHUB_TOP3'"));assert.ok(lc.includes('!activeTop3For(p.symbol)'),'core position review skips top3 lots');
   assert.ok(fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').includes('sovereignBurstExit,sovereignTop3Gate,'));
+});
+
+test('R56 live fix: the all-symbol 24 h ticker (~280 KB) passes the response cap; other public responses keep 256 KB',async()=>{
+  const {BinanceLiveTransport}=require('../binance-live-transport');const {LiveAuthorizationRegistry}=require('../live-authorization');
+  const big='[' + Array.from({length:700},(_,i)=>JSON.stringify({symbol:'C'+i+'USDT',priceChangePercent:'1.0',pad:'x'.repeat(380)})).join(',') + ']';
+  assert.ok(big.length>262144);
+  const t=new BinanceLiveTransport({registry:new LiveAuthorizationRegistry(),clock:()=>Date.now(),fetchImpl:async()=>({ok:true,status:200,async text(){return big;}})});
+  assert.equal((await t._fetchJson('GET','/fapi/v1/ticker/24hr')).length,700);
+  await assert.rejects(t._fetchJson('GET','/fapi/v1/klines',{params:{symbol:'AUSDT',interval:'1h',limit:'722'}}),/BINANCE_RESPONSE_TOO_LARGE/);
+});
+
+test('R56 live fix: a scan without market data does not use up the hour; it retries after 2 min',async()=>{
+  const f=fixture({top3:{enabled:true}});
+  f.seed({[HOUR0-H-50*H]:{SIGUSDT:5}});f.state.tick.SIGUSDT=40;f.state.px.SIGUSDT={bid:1.40,ask:1.401};f.state.klines.SIGUSDT=e=>candles(e,721,LONG_TAIL);
+  f.state.tickerFail=1;
+  await startTest(f);atScan(f);
+  const r1=await f.controller.top3Tick();
+  assert.equal(r1.scanned,true);assert.equal(r1.signals,0);
+  assert.match(f.controller.top3Status().lastScan.errors[0],/^TOP3_MARKET_DATA_UNAVAILABLE/);
+  f.state.now+=30000;assert.equal((await f.controller.top3Tick()).reason,'TOP3_RETRY_WAIT');
+  f.state.now+=95000;
+  const r2=await f.controller.top3Tick();
+  assert.equal(r2.scanned,true);assert.equal(r2.signals,1);assert.equal(r2.entries,1);
+  assert.equal((await f.controller.top3Tick()).reason,'TOP3_HOUR_DONE');
 });
