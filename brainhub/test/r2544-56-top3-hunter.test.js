@@ -262,3 +262,42 @@ test('R56 live fix: a scan without market data does not use up the hour; it retr
   assert.equal(r2.scanned,true);assert.equal(r2.signals,1);assert.equal(r2.entries,1);
   assert.equal((await f.controller.top3Tick()).reason,'TOP3_HOUR_DONE');
 });
+
+test('R56 24 h TEST window: starts with the lane, stops scanning and entries after 24 h, "Yeni 24 saat" restarts it',async()=>{
+  const f=fixture({top3:{enabled:true}});
+  f.seed({[HOUR0-H-50*H]:{SIGUSDT:5}});f.state.tick.SIGUSDT=40;f.state.px.SIGUSDT={bid:1.40,ask:1.401};f.state.klines.SIGUSDT=e=>candles(e,721,LONG_TAIL);
+  await startTest(f);atScan(f);
+  const r=await f.controller.top3Tick();assert.equal(r.entries,1);
+  let st=f.controller.top3Status();
+  assert.equal(st.testWindow.source,'FIRST_RUN','a lane already on when deployed starts its window on the first tick');
+  assert.equal(st.testWindow.done,false);assert.equal(st.testWindow.scans,1);assert.equal(st.testWindow.okScans,1);assert.equal(st.testWindow.signals,1);assert.equal(st.testWindow.entries,1);
+  assert.equal(f.kinds('TOP3_TEST_WINDOW_START').length,1);
+  // 24 h later: no scan (no ticker call), gate closed, status shows the finished window
+  const a=Object.values(f.controller._testTop3State().active)[0];a.deadline=f.state.now+30*H; // keep the lot open
+  f.state.now=st.testWindow.endsAt+60000;
+  const before=f.state.calls.filter(c=>/ticker\/24hr/.test(c)).length;
+  const done=await f.controller.top3Tick();
+  assert.equal(done.reason,'TOP3_TEST_WINDOW_DONE');
+  assert.equal(f.state.calls.filter(c=>/ticker\/24hr/.test(c)).length,before,'no scan after the window');
+  st=f.controller.top3Status();assert.equal(st.gate,'TOP3_TEST_WINDOW_DONE');assert.equal(st.testWindow.done,true);assert.equal(st.running,false);
+  assert.equal(st.active.length,1,'the open lot is still managed (own stop/target/24 h exit)');
+  assert.equal(f.kinds('TOP3_TEST_WINDOW_DONE').length,1);
+  // user presses "Yeni 24 saat başlat"
+  const again=f.controller.configureTop3({restartWindow:true});
+  assert.equal(again.ok,true);assert.equal(again.testWindow.source,'RESTART');assert.equal(again.testWindow.done,false);assert.equal(again.testWindow.scans,0);
+  await f.controller.testSupervisorTick(); // the TEST supervisor re-arms the 24 h paper arm
+  assert.equal(f.controller.top3Status().gate,'OPEN');
+  // switching off and on again also starts a fresh window
+  f.controller.configureTop3({enabled:false});f.state.now+=1000;
+  assert.equal(f.controller.configureTop3({enabled:true}).testWindow.source,'SWITCHED_ON');
+});
+
+test('R56 Office forwards restartWindow; the card has the 24 h counter and the restart label',()=>{
+  process.env.BRAINHUB_ROOT=tmp('r56-office2-');delete process.env.OFFICE_KEY;
+  const office=require('../office-dashboard/office-server.js');
+  assert.deepEqual(office.CONTROL_BODY['/api/control/top3']({restartWindow:true,startedAt:5}),{restartWindow:true});
+  assert.deepEqual(office.CONTROL_BODY['/api/control/top3']({restartWindow:'yes'}),{});
+  const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  assert.ok(html.includes("'Yeni 24 saat başlat'"));assert.ok(html.includes('24 saatlik test:'));assert.ok(html.includes('top3Control({restartWindow:true}'));
+  assert.ok(fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8').includes('restartWindow:body?.restartWindow===true'));
+});

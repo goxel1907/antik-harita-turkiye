@@ -1605,7 +1605,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&u.pathname==='/live/top3'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
-      const out=live.configureTop3({enabled:body?.enabled,jevMode:body?.jevMode,liveEnabled:body?.liveEnabled,confirm:body?.confirm,source:'API'});
+      const out=live.configureTop3({enabled:body?.enabled,jevMode:body?.jevMode,liveEnabled:body?.liveEnabled,restartWindow:body?.restartWindow===true,confirm:body?.confirm,source:'API'});
       return send(res,out.ok?200:400,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/burst'){

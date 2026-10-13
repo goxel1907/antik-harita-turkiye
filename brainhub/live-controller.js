@@ -5706,6 +5706,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function top3Gate(cfg){
     if(cfg.enabled!==true)return {ok:false,reason:'TOP3_DISABLED'};
     const test=testModeNow();
+    if(test&&top3State.window&&clock()>=top3State.window.endsAt)return {ok:false,reason:'TOP3_TEST_WINDOW_DONE'};
     if(!test&&cfg.liveEnabled!==true)return {ok:false,reason:'TOP3_LIVE_DISABLED'};
     if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
     if(readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'LEADER_AUTO_DISABLED'};
@@ -5934,6 +5935,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     saveTop3State();
     return done;
   }
+  // R2544.56 24 h TEST window (user 13.10.2026): pressing AÇ in TEST starts 24 h; when it ends the lane takes no new entry
+  // and stops scanning (open lots keep their own stop/target/24 h exit); "Yeni 24 saat başlat" starts another 24 h.
+  // A lane that was already on when this build is deployed starts its window on the first tick.
+  const TOP3_WINDOW_MS=24*TOP3_HOUR;
+  function top3StartWindow(source){
+    const now=clock();top3State.window={id:'w'+now,startedAt:now,endsAt:now+TOP3_WINDOW_MS,source,scans:0,okScans:0,signals:0,entries:0};
+    top3State.lastScanHour=null;top3State.retryAt=null;saveTop3State();
+    try{store.journal('TOP3_TEST_WINDOW_START',null,{...top3State.window});}catch{}
+    return top3State.window;
+  }
+  function top3WindowView(now=clock()){
+    const w=top3State.window;if(!w)return null;
+    return {...w,startedAtIso:new Date(w.startedAt).toISOString(),endsAtIso:new Date(w.endsAt).toISOString(),elapsedH:Number(((Math.min(now,w.endsAt)-w.startedAt)/TOP3_HOUR).toFixed(1)),
+      remainingMin:Math.max(0,Math.round((w.endsAt-now)/60000)),done:now>=w.endsAt};
+  }
   async function top3Tick(){
     if(top3Busy)return {ok:true,skipped:true,reason:'TOP3_BUSY'};top3Busy=true;
     try{
@@ -5941,6 +5957,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{await top3FinalizeCloses();}catch{/* reporting only */}
       const cfg=top3Lib.readTop3Config(root);
       if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
+      if(testModeNow()){
+        if(!top3State.window)top3StartWindow('FIRST_RUN');
+        const w=top3State.window;
+        if(clock()>=w.endsAt){
+          if(!w.doneAt){w.doneAt=clock();saveTop3State();try{store.journal('TOP3_TEST_WINDOW_DONE',null,{...w});}catch{}}
+          top3State.lastGate='TOP3_TEST_WINDOW_DONE';return {ok:true,skipped:true,reason:'TOP3_TEST_WINDOW_DONE',managed};
+        }
+      }
       const gate=top3Gate(cfg);top3State.lastGate=gate.ok?'OPEN':gate.reason;
       const now=clock(),hour=Math.floor(now/TOP3_HOUR)*TOP3_HOUR;
       if(now-hour<40000)return {ok:true,skipped:true,reason:'TOP3_WAIT_CANDLE_CLOSE',managed};
@@ -5950,6 +5974,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const scan=await top3Scan(cfg,hour,gate);
       // No ranking (market data unavailable): the hour is not used up; retry in 2 min while the candle is still the last closed.
       if(scan.ranked<50){top3State.lastScanHour=null;top3State.retryAt=clock()+120000;}else top3State.retryAt=null;
+      {const w=top3State.window;if(w&&testModeNow()&&clock()<w.endsAt){w.scans++;if(scan.ranked>=50)w.okScans++;w.signals+=scan.signals.length;w.entries+=scan.entries.filter(x=>x.opened).length;}}
       top3State.lastScan={...scan,signals:scan.signals.map(({sig,f,...v})=>v),nearMisses:scan.nearMisses.slice(0,8)};
       top3State.recentSignals=[...scan.signals.map(({sig,f,...v})=>({...v,candle:scan.candle})),...(top3State.recentSignals||[])].slice(0,30);
       saveTop3State();
@@ -5971,16 +5996,20 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       active:Object.values(top3State.active||{}).map(a=>{const p=open.get(a.symbol);return {...a,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
+      testWindow:top3WindowView(now),
+      windowResults:top3State.window?sum(measured.filter(p=>p.tradingMode==='TEST'&&Date.parse(p.closedAt||'')>=top3State.window.startedAt)):null,
       history:{hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR),bootstrap:top3State.bootstrap||null},
       pendingCloses:(top3State.pendingCloses||[]).length,nextScanAt:new Date(Math.floor(now/TOP3_HOUR)*TOP3_HOUR+TOP3_HOUR+40000).toISOString()};
   }
   // Only the user's Office buttons call this (server route). LIVE needs the explicit 'LIVE' confirmation.
   function configureTop3(patch={}){
     const p={};for(const k of ['enabled','jevMode','liveEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const restart=patch?.restartWindow===true;if(restart)p.enabled=true;
     if(!Object.keys(p).length)return {ok:false,reasons:['TOP3_SWITCH_MISSING']};
     if(p.liveEnabled===true&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=top3Lib.readTop3Config(root),after=top3Lib.writeTop3Switches(root,p);
-    try{store.journal('TOP3_CONFIG_CHANGED',null,{before:{enabled:before.enabled,jevMode:before.jevMode,liveEnabled:before.liveEnabled},after:{enabled:after.enabled,jevMode:after.jevMode,liveEnabled:after.liveEnabled},source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
+    try{store.journal('TOP3_CONFIG_CHANGED',null,{before:{enabled:before.enabled,jevMode:before.jevMode,liveEnabled:before.liveEnabled},after:{enabled:after.enabled,jevMode:after.jevMode,liveEnabled:after.liveEnabled},restartWindow:restart,source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
+    if(testModeNow()&&after.enabled===true&&(restart||(p.enabled===true&&before.enabled!==true)))top3StartWindow(restart?'RESTART':'SWITCHED_ON');
     return {...top3Status(),changed:p};
   }
 

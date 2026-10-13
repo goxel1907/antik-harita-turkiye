@@ -114,6 +114,7 @@ const CONTROL_BODY = {
   '/api/control/top3': b => {
     const out = {};
     for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof b[k] === 'boolean') out[k] = b[k];
+    if (b.restartWindow === true) out.restartWindow = true; // new 24 h TEST window
     if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
     return out;
   }

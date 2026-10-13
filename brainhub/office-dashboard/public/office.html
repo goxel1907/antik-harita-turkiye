@@ -1792,7 +1792,7 @@ onClick('#btnStop',()=>{ control({action:'STOP'},'Her şey durduruldu (OTO kapal
 
 // R2544.56 İlk 3 Avcısı kartı: saatlik ilk-3 LONG 6/6 + tepe sonrası SHORT şeridi. Üç düğme yalnız kullanıcıya aittir:
 // Aç/Kapat (yeni giriş), JEV modu (her sinyale JEV onayı, ücretli), Canlıda çalışsın (gerçek para; iki basış + 'LIVE').
-const T3TR={TOP3_DISABLED:'Kapalı (yeni giriş yok)',TOP3_LIVE_DISABLED:'CANLI modda “Canlıda çalışsın” kapalı',LIVE_NOT_ARMED:'Başlatma kapalı',LEADER_AUTO_DISABLED:'OTO kapalı',TOP3_JEV_UNAVAILABLE:'JEV bağlı değil',OPEN:'Çalışıyor',
+const T3TR={TOP3_TEST_WINDOW_DONE:'24 saatlik test bitti (yeni giriş yok)',TOP3_DISABLED:'Kapalı (yeni giriş yok)',TOP3_LIVE_DISABLED:'CANLI modda “Canlıda çalışsın” kapalı',LIVE_NOT_ARMED:'Başlatma kapalı',LEADER_AUTO_DISABLED:'OTO kapalı',TOP3_JEV_UNAVAILABLE:'JEV bağlı değil',OPEN:'Çalışıyor',
   R1_BELOW:'1 saat < +%3',VOLUME_BASE_BELOW:'hacim < 3×',NO_7D_BREAKOUT:'7 günlük zirve kırılmadı',VOLUME_SURGE_BELOW:'hacim < 33,9×',R24_BELOW:'24 saat < +%13,3',RANK_NOT_TOP:'sıra 7’den geride',NOT_A_REPEAT_GAINER:'son 7 günde ilk 10’a girmemiş',
   VOLATILITY_BELOW:'oynaklık düşük',BTC_TOO_STRONG:'BTC 24 saat > +%1,29',NOT_IN_TOP3_RECENTLY:'24 saatte ilk 3’te değil',NOT_FAR_ENOUGH_FROM_PEAK:'tepeden < %15 aşağıda',HOUR_NOT_RED:'saat kırmızı değil',VOLUME_BELOW:'hacim < 3×',
   TOP3_HISTORY_TOO_SHORT:'mum geçmişi kısa',TOP3_CANDLE_NOT_CLOSED:'saatlik mum kapanmadı',TOP3_SLOTS_FULL:'yer dolu',TOP3_SAME_SIGNAL_24H:'aynı sinyal 24 saat içinde alındı',TOP3_SYMBOL_BUSY:'coinde başka pozisyon var',TOP3_JEV_NOT_APPROVED:'JEV onaylamadı',
@@ -1825,12 +1825,18 @@ function renderTop3(s){
   const btn=(id,text,on,dis)=>{const b=document.getElementById(id);if(!b)return;if(text)b.textContent=text;b.classList.toggle('on',!!on);b.disabled=!!dis||top3Busy;};
   if(!t||t.ok!==true){el.innerHTML='<p>İlk 3 Avcısı verisi okunamadı (PC sürümü R2544.56 öncesi olabilir).</p>';for(const id of ['btnTop3On','btnTop3Jev','btnTop3Live'])btn(id,null,false,true);return;}
   const sw=t.switches||{},mode=t.tradingMode==='LIVE'?'CANLI':'TEST';
-  btn('btnTop3On',sw.enabled?'İlk 3 Avcısı: KAPAT':'İlk 3 Avcısı: AÇ',sw.enabled,false);
+  const tw=t.testWindow,twDone=sw.enabled&&t.tradingMode!=='LIVE'&&tw?.done===true;
+  btn('btnTop3On',twDone?'Yeni 24 saat başlat':sw.enabled?'İlk 3 Avcısı: KAPAT':'İlk 3 Avcısı: AÇ (24 saat)',sw.enabled&&!twDone,false);
   btn('btnTop3Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!t.jevAvailable&&!sw.jevMode);
   btn('btnTop3Live',sw.liveEnabled?'Canlıda çalışsın: AÇIK → kapat':'Canlıda çalışsın: KAPALI → aç',sw.liveEnabled,false);
   const fm=(v,d=6)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('tr-TR',{maximumFractionDigits:d});
   const pnl=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+' $';
   let html=`<p><b>Durum: ${t.running?'ÇALIŞIYOR ('+mode+')':esc(t3tr(t.gate))}</b> • JEV modu ${sw.jevMode?'<b>AÇIK</b> (her sinyal JEV onayından geçer; ücretli)':'kapalı (JEV’siz, ücretsiz)'} • canlı ${sw.liveEnabled?'<b class="mwarn">İZİNLİ</b>':'izinli değil'} • yer ${(t.active||[]).length}/${esc(t.rules?.maxActive??2)}</p>`;
+  if(tw&&t.tradingMode!=='LIVE'){
+    const pct=Math.min(100,Math.round((Number(tw.elapsedH)||0)/24*100)),wr=t.windowResults;
+    html+=`<p><b>24 saatlik test: ${tw.done?'BİTTİ':esc(String(tw.elapsedH).replace('.',','))+' / 24 saat'}</b> <span class="mprog"><i style="width:${pct}%"></i></span> ${tw.done?'':'• kalan '+Math.floor(tw.remainingMin/60)+' sa '+(tw.remainingMin%60)+' dk'} • başlangıç ${esc(new Date(tw.startedAt).toLocaleString('tr-TR'))} • bitiş ${esc(new Date(tw.endsAt).toLocaleString('tr-TR'))}</p>`;
+    html+=`<p>Bu 24 saatte: ${Number(tw.okScans)||0}/${Number(tw.scans)||0} tarama başarılı • ${Number(tw.signals)||0} sinyal • ${Number(tw.entries)||0} işlem • ${wr&&wr.closed?`kapanan ${wr.closed} (${wr.wins} kazanç / ${wr.losses} kayıp) • net ${pnl(wr.netPnl)}`:'kapanan işlem yok'}</p>`;
+  }
   html+=`<p class="t3rule">Kurallar (saatlik mum kapanışında): <b>LONG 6/6</b> — 1 saatte ≥ +%3, hacim ≥ 33,9× (7 gün ortancası), 7 günlük zirve kırılımı, 24 saat ≥ +%13,3, sıra ≤ 7, son 7 günde ilk 10’a girmiş, oynaklık ≥ %1,34, BTC 24 saat ≤ +%1,29 → stop −%8, hedef +%30, en çok 24 saat. <b>SHORT tepe sonrası</b> — 24 saatte ilk 3’e girmiş, 24 saatlik tepeden ≥ %15 aşağıda, kırmızı saat, hacim ≥ 3× → stop son 3 saatin tepesinin %1 üstü (%2–8), hedef −%10, en çok 24 saat. ${esc(t.rules?.leverage??10)}x; marj: panel marjı, serbest bakiyenin en çok %25’i.</p>`;
   for(const a of t.active||[]){
     html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.jev?.decision?' • JEV '+esc(a.jev.decision):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}</div></div>`;
@@ -1853,9 +1859,10 @@ function renderTop3(s){
 }
 onClick('#btnTop3On',()=>{
   const t=last?.top3,on=t?.switches?.enabled===true;
+  if(on&&t?.tradingMode!=='LIVE'&&t?.testWindow?.done===true){top3Control({restartWindow:true},'Yeni 24 saatlik test başladı; ilk tarama en geç bir sonraki saat başından ~1 dk sonra.');return;}
   if(on){top3Control({enabled:false},'İlk 3 Avcısı kapatıldı: yeni giriş yok. Açık lotlar kendi stop/hedef/24 saat kuralıyla yönetilmeye devam eder.');return;}
   if(t?.tradingMode==='LIVE'&&t?.switches?.liveEnabled===true&&!top3Second('btnTop3On','İlk 3 Avcısı AÇ — CANLI modda canlı izinli: GERÇEK PARA ile işlem açabilir'))return;
-  top3Control({enabled:true},'İlk 3 Avcısı açıldı. İlk tarama bir sonraki saat başından ~1 dk sonra; sıra geçmişi ilk seferde birkaç dakikada doldurulur.');
+  top3Control({enabled:true},'İlk 3 Avcısı açıldı: 24 saatlik test başladı. İlk tarama ~1 dk içinde (saat başını 40 sn geçtiyse); sıra geçmişi ilk seferde birkaç dakikada doldurulur.');
 });
 onClick('#btnTop3Jev',()=>{
   const on=last?.top3?.switches?.jevMode===true;
