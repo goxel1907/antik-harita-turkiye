@@ -1845,6 +1845,7 @@ function renderTop3(s){
   if(ls){
     html+=`<p>Son tarama: ${esc(new Date(ls.at).toLocaleString('tr-TR'))} • mum ${esc(new Date(ls.candle).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • ${Number(ls.ranked)||0} coin sıralandı • ${Number(ls.checked)||0} aday incelendi • <b>${(ls.signals||[]).length} sinyal</b>${ls.errors?.length?' • hata: '+esc(ls.errors.slice(0,3).join(', ')):''}</p>`;
     for(const x of ls.entries||[])html+=`<p>• ${esc(x.symbol)} ${esc(x.side)}: ${x.opened?'<b>işleme girildi</b>':esc(t3tr(x.reason))}${x.jev?' (JEV '+esc(x.jev.decision)+(x.jev.reason?' — '+esc(trUi(x.jev.reason)):'')+')':''}</p>`;
+    if((ls.stale||[]).length)html+='<p>Yeni sayılmayan (kural bu coinde son 24 saatte zaten tetiklenmişti): '+ls.stale.slice(0,6).map(x=>`${esc(x.symbol)} ${esc(x.side)}${x.lastCounted?' (ilk '+esc(new Date(x.lastCounted).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))+')':''}`).join(' • ')+'</p>';
     if((ls.nearMisses||[]).length)html+='<p>Kıl payı kaçanlar: '+ls.nearMisses.slice(0,6).map(x=>`${esc(x.symbol)} ${esc(x.side)} (${(x.reasons||[]).map(t3tr).map(esc).join(', ')})`).join(' • ')+'</p>';
   } else html+=`<p>Henüz tarama yok. İlk tarama bir sonraki saat başından ~1 dk sonra (${t.nextScanAt?esc(new Date(t.nextScanAt).toLocaleTimeString('tr-TR')):'—'}).</p>`;
   const h=t.history||{};

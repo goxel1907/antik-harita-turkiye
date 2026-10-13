@@ -206,7 +206,8 @@ test('R56 SHORT after a top-3 coin tops out: structural stop above the last 3 ho
   const f=fixture({top3:{enabled:true}});
   f.seed({[HOUR0-H-5*H]:{SIGUSDT:2}});
   f.state.tick.SIGUSDT=5;f.state.px.SIGUSDT={bid:1.60,ask:1.601};
-  f.state.klines.SIGUSDT=e=>candles(e,721,[[1.0,2.0,0.99,1.95,800],[1.95,1.96,1.80,1.82,600],[1.82,1.83,1.70,1.72,500],[1.72,1.72,1.66,1.66,400],[1.66,1.66,1.63,1.64,300],[1.64,1.655,1.62,1.65,300],[1.65,1.66,1.58,1.60,400]]);
+  // T-3 and T-2 are below the volume bar, so T is the rule's first hit (as the research would count it)
+  f.state.klines.SIGUSDT=e=>candles(e,721,[[1.0,2.0,0.99,1.95,800],[1.95,1.96,1.80,1.82,600],[1.82,1.83,1.70,1.72,500],[1.72,1.72,1.66,1.66,200],[1.66,1.66,1.63,1.64,200],[1.64,1.655,1.62,1.65,300],[1.65,1.66,1.58,1.60,400]]);
   await startTest(f);atScan(f);
   const r=await f.controller.top3Tick();
   assert.equal(r.entries,1);
@@ -300,4 +301,31 @@ test('R56 Office forwards restartWindow; the card has the 24 h counter and the r
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   assert.ok(html.includes("'Yeni 24 saat başlat'"));assert.ok(html.includes('24 saatlik test:'));assert.ok(html.includes('top3Control({restartWindow:true}'));
   assert.ok(fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8').includes('restartWindow:body?.restartWindow===true'));
+});
+
+test('R56 research dedupe: first hit counts, then one per coin and rule per 24 h',()=>{
+  const t0=1791367200000;
+  const hits=[t0,t0+5*H,t0+25*H,t0+30*H,t0+49*H];
+  assert.equal(T3.countedSignalAt(hits,t0).counted,true);
+  assert.equal(T3.countedSignalAt(hits,t0+5*H).counted,false);
+  assert.equal(T3.countedSignalAt(hits,t0+25*H).counted,true,'24 h after the last counted hit');
+  assert.equal(T3.countedSignalAt(hits,t0+30*H).counted,false);
+  assert.equal(T3.countedSignalAt(hits,t0+49*H).counted,true);
+  assert.equal(T3.countedSignalAt([t0+40*H],t0+40*H).counted,true,'a lone hit counts');
+  assert.equal(T3.countedSignalAt(hits,t0+30*H).lastCounted,t0+25*H);
+});
+
+test('R56 live fix: a SHORT whose rule already held hours earlier (GTC/W 13.10) is reported as stale, no entry',async()=>{
+  const f=fixture({top3:{enabled:true}});
+  f.seed({[HOUR0-H-5*H]:{SIGUSDT:2}});
+  f.state.tick.SIGUSDT=5;f.state.px.SIGUSDT={bid:1.60,ask:1.601};
+  // T-3 already satisfies the rule (red, 17% below the peak, volume 4x): T is not a new signal
+  f.state.klines.SIGUSDT=e=>candles(e,721,[[1.0,2.0,0.99,1.95,800],[1.95,1.96,1.80,1.82,600],[1.82,1.83,1.70,1.72,500],[1.72,1.72,1.66,1.66,400],[1.66,1.66,1.63,1.64,200],[1.64,1.655,1.62,1.65,300],[1.65,1.66,1.58,1.60,400]]);
+  await startTest(f);atScan(f);
+  const r=await f.controller.top3Tick();
+  assert.equal(r.signals,0);assert.equal(r.entries,0);
+  const ls=f.controller.top3Status().lastScan;
+  assert.equal(ls.stale.length,1);assert.equal(ls.stale[0].symbol,'SIGUSDT');assert.equal(ls.stale[0].side,'SHORT');
+  assert.equal(ls.stale[0].lastCounted,new Date(HOUR0-H-3*H).toISOString(),'the research entered 3 hours earlier');
+  assert.equal(f.kinds('TOP3_SIGNAL_STALE').length,1);assert.equal(f.paper.summary().openPositions,0);
 });

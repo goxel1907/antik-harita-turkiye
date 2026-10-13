@@ -119,6 +119,16 @@ function entryLevels(sig, price) {
   return { ok:true, stopPrice:sig.stopRef, tpPrice:p * (1 - sig.tpPct), stopPct:d };
 }
 
+// Research dedupe (top3*.py): per coin and rule, a hit counts only if no COUNTED hit of the same rule in the previous
+// 24 h (first hit counts, then the next hit at least 24 h later, and so on). hitTimes: candle open times where the rule
+// held. Live this keeps a lane that starts late (or after a restart) from entering a move the research entered hours ago.
+function countedSignalAt(hitTimes, T, dedupeMs = 24 * HOUR) {
+  const hits = [...new Set((hitTimes || []).map(Number).filter(Number.isFinite))].filter(h => h <= T).sort((a, b) => a - b);
+  let last = -Infinity; const counted = [];
+  for (const h of hits) if (h - last >= dedupeMs) { counted.push(h); last = h; }
+  return { counted: counted.includes(Number(T)), countedTimes: counted, firstHit: hits.length ? hits[0] : null, lastCounted: counted.filter(h => h < T).at(-1) ?? null };
+}
+
 // Hourly 24h-change ranks of USDT perpetuals (1 = biggest gainer), persisted for the "top 10 in the last 7 days" and
 // "top 3 in the last 24 hours" conditions.
 class RankBook {
@@ -153,4 +163,4 @@ function ranksFromTickers(rows, tradable = null) {
   const out = {}; list.forEach((x, i) => { out[x.s] = i + 1; }); return out;
 }
 
-module.exports = { TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, RankBook, ranksFromTickers, median };
+module.exports = { TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

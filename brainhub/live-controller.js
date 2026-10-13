@@ -5736,9 +5736,24 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     top3Ranks.save();
     return {at:new Date(clock()).toISOString(),symbols:syms.length,fetched,failed,hoursAdded:hours};
   }
+  // R2544.56 (13.10 live: the first scan after the rank bootstrap entered GTC/W SHORT whose rule had first held 19-20 h
+  // earlier): re-evaluate the same rule on the last 72 closed hours (same candles, rank book, BTC candles) and keep the
+  // signal only if the research's 24 h per-coin dedupe counts this hour.
+  function top3Freshness(s,side,k,T,cfg,btcClose){
+    const hits=[T],n=k.length;
+    for(let b=1;b<72&&n-b>=200;b++){
+      const kk=k.slice(0,n-b),t=kk.at(-1)[0];if(t!==T-b*TOP3_HOUR)continue;
+      const f=top3Lib.hourlyFeatures(kk);if(!f.ok)continue;
+      let sg;
+      if(side==='LONG'){const c=btcClose?.get(t),c0=btcClose?.get(t-24*TOP3_HOUR);sg=top3Lib.longSignal(f,{rank:finite(top3Ranks.hours[t]?.[s]),top10In7d:top3Ranks.countInTop(s,10,t-168*TOP3_HOUR,t),btc24:c>0&&c0>0?c/c0-1:null},cfg);}
+      else sg=top3Lib.shortSignal(f,{inTop3Within:top3Ranks.countInTop(s,3,t-(cfg.short.top3WithinH-1)*TOP3_HOUR,t+1)>0},cfg);
+      if(sg.ok)hits.push(t);
+    }
+    return top3Lib.countedSignalAt(hits,T);
+  }
   async function top3Scan(cfg,hour,gate){
     const T=hour-TOP3_HOUR; // open time of the candle that just closed (research index T)
-    const out={at:new Date(clock()).toISOString(),candle:new Date(T).toISOString(),mode:testModeNow()?'TEST':'LIVE',gate:gate.ok?'OPEN':gate.reason,ranked:0,checked:0,signals:[],nearMisses:[],entries:[],errors:[]};
+    const out={at:new Date(clock()).toISOString(),candle:new Date(T).toISOString(),mode:testModeNow()?'TEST':'LIVE',gate:gate.ok?'OPEN':gate.reason,ranked:0,checked:0,signals:[],stale:[],nearMisses:[],entries:[],errors:[]};
     let info,tick;
     try{info=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');tick=await transport._fetchJson('GET','/fapi/v1/ticker/24hr');}
     catch(e){out.errors.push('TOP3_MARKET_DATA_UNAVAILABLE:'+String(e?.message||e).slice(0,80));return out;}
@@ -5753,8 +5768,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const longC=cfg.long.enabled?Object.entries(ranks).filter(([,r])=>r<=cfg.long.maxRank).map(([s])=>s):[];
     const shortC=cfg.short.enabled?top3Ranks.symbolsInTop(3,T-(cfg.short.top3WithinH-1)*TOP3_HOUR,T+1).filter(s=>tradable.has(s)):[];
     const cands=[...new Set([...longC,...shortC])].slice(0,40);
+    let btcClose=null; // BTC 1h closes for past-hour LONG checks, fetched once per scan when needed
     for(const s of cands){
-      let f;try{const k=(await top3Klines(s,722)).filter(r=>r[0]<=T);f=k.length&&k.at(-1)[0]===T?top3Lib.hourlyFeatures(k):{ok:false,reason:'TOP3_CANDLE_NOT_CLOSED'};}
+      let f,k=[];try{k=(await top3Klines(s,722)).filter(r=>r[0]<=T);f=k.length&&k.at(-1)[0]===T?top3Lib.hourlyFeatures(k):{ok:false,reason:'TOP3_CANDLE_NOT_CLOSED'};}
       catch(e){out.errors.push(s+':KLINES');continue;}
       out.checked++;
       const sigs=[];
@@ -5763,7 +5779,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       for(const sig of sigs){
         const view={symbol:s,side:sig.side,rule:sig.rule||null,rank:ranks[s]??null,reasons:sig.reasons,
           features:f?.ok?{close:f.close,r1:Number(f.r1.toFixed(4)),r24:Number(f.r24.toFixed(4)),vr1:f.vr1!==null?Number(f.vr1.toFixed(1)):null,vol30:f.vol30!==null?Number(f.vol30.toFixed(4)):null,breakout7d:f.breakout7d,dropFromPeak:Number(f.dropFromPeak.toFixed(4)),red:f.red}:null};
-        if(sig.ok){out.signals.push({...view,sig,f});try{store.journal('TOP3_SIGNAL',s,{...view,candle:out.candle,btc24,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}}
+        if(sig.ok){
+          if(sig.side==='LONG'&&!btcClose){try{btcClose=new Map((await top3Klines('BTCUSDT',100)).map(r=>[r[0],r[4]]));}catch{btcClose=new Map();}}
+          const fr=top3Freshness(s,sig.side,k,T,cfg,btcClose);
+          if(!fr.counted){const st={...view,firstHit:fr.firstHit?new Date(fr.firstHit).toISOString():null,lastCounted:fr.lastCounted?new Date(fr.lastCounted).toISOString():null};out.stale.push(st);try{store.journal('TOP3_SIGNAL_STALE',s,{...st,candle:out.candle,version:top3Lib.TOP3_VERSION});}catch{}continue;}
+          out.signals.push({...view,sig,f});try{store.journal('TOP3_SIGNAL',s,{...view,candle:out.candle,btc24,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}
+        }
         else if(sig.reasons.length<=2)out.nearMisses.push(view);
       }
       await new Promise(r=>setTimeout(r,100));
@@ -5975,7 +5996,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // No ranking (market data unavailable): the hour is not used up; retry in 2 min while the candle is still the last closed.
       if(scan.ranked<50){top3State.lastScanHour=null;top3State.retryAt=clock()+120000;}else top3State.retryAt=null;
       {const w=top3State.window;if(w&&testModeNow()&&clock()<w.endsAt){w.scans++;if(scan.ranked>=50)w.okScans++;w.signals+=scan.signals.length;w.entries+=scan.entries.filter(x=>x.opened).length;}}
-      top3State.lastScan={...scan,signals:scan.signals.map(({sig,f,...v})=>v),nearMisses:scan.nearMisses.slice(0,8)};
+      top3State.lastScan={...scan,signals:scan.signals.map(({sig,f,...v})=>v),nearMisses:scan.nearMisses.slice(0,8),stale:scan.stale.slice(0,8)};
       top3State.recentSignals=[...scan.signals.map(({sig,f,...v})=>({...v,candle:scan.candle})),...(top3State.recentSignals||[])].slice(0,30);
       saveTop3State();
       return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed};
@@ -5997,7 +6018,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
-      windowResults:top3State.window?sum(measured.filter(p=>p.tradingMode==='TEST'&&Date.parse(p.closedAt||'')>=top3State.window.startedAt)):null,
+      windowResults:top3State.window?sum(measured.filter(p=>p.tradingMode==='TEST'&&Date.parse(p.openedAt||p.closedAt||'')>=top3State.window.startedAt)):null,
       history:{hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR),bootstrap:top3State.bootstrap||null},
       pendingCloses:(top3State.pendingCloses||[]).length,nextScanAt:new Date(Math.floor(now/TOP3_HOUR)*TOP3_HOUR+TOP3_HOUR+40000).toISOString()};
   }
