@@ -1691,8 +1691,14 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&u.pathname==='/live/leader-auto'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
-      const out=live.configureLeaderAuto(body||{});
-      if(out.ok&&typeof body?.enabled==='boolean')live.rememberNormalLane(body.enabled); // R2544.57: OTO switch = normal lane choice
+      // R2544.57: OTO is the normal (JEV) lane. A change of it from the APK/API is the user's lane choice; the old APK's
+      // 60 s config sync that repeats the same state is not. In LIVE, switching OTO ON needs confirm 'LIVE' (a stale phone
+      // preference must never start the JEV lane with real money while only İlk 3 is live). OFF is always accepted.
+      const {confirm:otoConfirm,source:otoSource,...otoBody}=body||{};
+      const otoWasOn=live.leaderAutoStatus()?.enabled===true;
+      if(live.laneStatus().mode==='LIVE'&&otoBody.enabled===true&&!otoWasOn&&String(otoConfirm||'').toUpperCase()!=='LIVE')return send(res,409,{ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']});
+      const out=live.configureLeaderAuto(otoBody);
+      if(out.ok&&typeof otoBody.enabled==='boolean'&&otoBody.enabled!==otoWasOn)live.rememberNormalLane(otoBody.enabled);
       return send(res,out.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
