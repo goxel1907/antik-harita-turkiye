@@ -211,7 +211,8 @@ function buildLesson(lot, close, path) {
     (tags.includes('NEVER_IN_PROFIT') ? ' Hiç kâra geçmedi.' : '');
   const round4 = v => v === null || v === undefined ? null : Number(Number(v).toFixed(4));
   return {
-    v: 1, id: lot.id, symbol: lot.symbol, side, rule: lot.rule, kind: lot.signalKind || 'UNLABELED', // lots opened before the label existed mode: lot.mode || 'TEST',
+    // kind UNLABELED: a lot opened before the signal label existed (never counted as FRESH)
+    v: 1, id: lot.id, symbol: lot.symbol, side, rule: lot.rule, kind: lot.signalKind || 'UNLABELED', mode: lot.mode || 'TEST',
     openedAt: finite(lot.openedAt), closedAt: finite(lot.closedAt), holdH: round4(holdH), entryPrice: entry, exitPrice: exit,
     stopPct: round4(stopPct), targetPct: round4(targetPct), resultPct: round4(resultPct), netPnl: net, rMultiple: round4(r), verdict, exitType,
     mfePct: round4(mfe), maePct: round4(mae), mfeR: stopPct > 0 && mfe !== null ? round4(mfe / stopPct) : null,
