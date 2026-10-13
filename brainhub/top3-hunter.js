@@ -42,6 +42,29 @@ function readTop3Config(root) {
   }
   return c;
 }
+// R2544.57: İlk 3 margin (USDT, null = automatic) and leverage (1..20) from Office/API, validated; rules stay in the file.
+function writeTop3Settings(root, patch = {}) {
+  let raw = {};
+  try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^\uFEFF/, '')) || {}; } catch {}
+  const out = { ok: true, changed: {} };
+  if (Object.prototype.hasOwnProperty.call(patch, 'marginQuote')) {
+    const m = patch.marginQuote === null || patch.marginQuote === '' ? null : finite(patch.marginQuote);
+    if (patch.marginQuote !== null && patch.marginQuote !== '' && !(m >= 5 && m <= 100000)) return { ok: false, reasons: ['TOP3_MARGIN_INVALID'] };
+    if (m === null) delete raw.marginQuote; else raw.marginQuote = Number(m.toFixed(2)); out.changed.marginQuote = m;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'leverage')) {
+    const l = finite(patch.leverage);
+    if (!(Number.isInteger(l) && l >= 1 && l <= 20)) return { ok: false, reasons: ['TOP3_LEVERAGE_INVALID'] };
+    raw.leverage = l; out.changed.leverage = l;
+  }
+  if (!Object.keys(out.changed).length) return { ok: false, reasons: ['TOP3_SETTING_MISSING'] };
+  raw.updatedAt = new Date().toISOString();
+  const file = configFile(root); fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(raw, null, 2), 'utf8'); fs.renameSync(tmp, file);
+  return { ...out, config: readTop3Config(root) };
+}
+// Highest leverage whose liquidation lies beyond the stop (same rule as the order path: floor(1 / (stop + 0.5%))).
+function safeLeverage(stopPct) { const s = finite(stopPct); return s > 0 ? Math.max(1, Math.floor(1 / (s + 0.005))) : null; }
 // Only the three switches can be changed from Office/API; numeric rules stay in the file (user edits) or defaults.
 function writeTop3Switches(root, patch = {}) {
   let raw = {};
@@ -260,4 +283,4 @@ function experienceFor(lessons, rule, { recent = 6 } = {}) {
     note: xs.length < 10 ? 'FEW_SAMPLES_TREAT_AS_ANECDOTE' : 'MEASURED_HISTORY' };
 }
 
-module.exports = { excursions, buildLesson, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
+module.exports = { writeTop3Settings, safeLeverage, excursions, buildLesson, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

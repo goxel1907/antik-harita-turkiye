@@ -359,6 +359,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const top3Ranks=new top3Lib.RankBook({file:path.join(String(root),'data','top3-ranks.json'),keepHours:200});
   const activeTop3For=symbol=>{const s=String(symbol||'').toUpperCase();return Object.values(top3State.active||{}).find(a=>String(a?.symbol||'').toUpperCase()===s)||null;};
   let top3Busy=false,top3CloseCache={at:0,rows:null};
+  // R2544.57 lane selection (user 13.10.2026: "normal sistem seçildiğinde yalnız JEV karar vererek; İlk 3 Avcısı JEV'li ya da
+  // JEV'siz; ayrı ayrı, istenildiğinde CANLI'ya"). OTO is the normal lane's on/off while the run is on (STOP turns it off),
+  // so the normal lane's selection is remembered here; İlk 3's selection is its own switch (top3-hunter.json enabled).
+  // A missing file means: normal lane NOT selected (the user's TEST measures İlk 3 only).
+  const LANES_FILE=path.join(String(root),'config','lane-selection.json');
+  function readLanes(){try{const x=JSON.parse(fs.readFileSync(LANES_FILE,'utf8').replace(/^\uFEFF/,''));return {normal:x.normal===true,updatedAt:x.updatedAt||null,defaulted:false};}catch{return {normal:false,updatedAt:null,defaulted:true};}}
+  function writeLanes(patch){const next={normal:patch.normal===true,updatedAt:new Date(clock()).toISOString()};fs.mkdirSync(path.dirname(LANES_FILE),{recursive:true});const tmp=LANES_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(next,null,2),'utf8');fs.renameSync(tmp,LANES_FILE);return next;}
   const burstAllowedNow=()=>testModeNow()||readLeaderAutoConfig().config?.burstLiveEnabled===true;
   let burstLossCache={at:0,value:null};
   const burstNetR=p=>{const e=finite(p?.entryPrice),s=finite(p?.stopPrice),g=finite(p?.realizedR);const stopPct=e>0&&s>0?Math.abs(e-s)/e*100:null;
@@ -2133,7 +2140,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // (05.10 21:35 the core review asked JEV about the GRIFFAIN burst as a "15m" trade).
       const reviewable=open.positions.filter(p=>{const row=leaderAnalysisState.bySymbol?.[p.symbol];return String(row?.state||'').toUpperCase()==='ACTIVE'||(!activeBurstFor(p.symbol)&&!activeTop3For(p.symbol));});
       if(!reviewable.length){
-        positionManagerState.lastReview={action:'HOLD',actionTr:'YALNIZ VUR-KAÇ POZİSYONU (kendi JEV çıkış yöneticisi)',checkedAt:new Date(clock()).toISOString()};
+        positionManagerState.lastReview={action:'HOLD',actionTr:'YALNIZ VUR-KAÇ / İLK 3 POZİSYONU (kendi yöneticileri)',checkedAt:new Date(clock()).toISOString()};
         return {ok:true,skipped:true,reason:'BURST_LOT_OWN_MANAGER'};
       }
       let position=reviewable.find(p=>{const r=runnerState.bySymbol?.[p.symbol];return r&&(finite(r.urgentReviewRequestedAt)||0)>(finite(r.urgentReviewConsumedAt)||0);})||reviewable[positionReviewCursor%reviewable.length];
@@ -2740,7 +2747,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // 90 sn'den eskiyse dinlenilmez (analiz sürer; emirde risk kapısı yine korur).
     const ledgerAge=ledgerState.at?clock()-Date.parse(ledgerState.at):Infinity;
     if(!ledgerState.ok||!(ledgerAge>=0&&ledgerAge<=90000)){endRest('LEDGER_STALE');return false;}
-    const slots=capacity({open:ledgerState.open||[],pending:pendingOrders,max,now:clock()});
+    const slots=capacity({open:(ledgerState.open||[]).filter(p=>!activeTop3For(p.symbol)),pending:pendingOrders,max,now:clock()}); // R2544.57: İlk 3 lots have their own slots
     const open=slots.used;
     const at=new Date(clock()).toISOString();
     const full=open>=max;
@@ -3047,7 +3054,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       burstSlots:1,
       effectiveLeverage:effective?.leverage ?? c.leverage ?? null,
       effectiveMaxOpenPositions:effective?.maxOpenPositions ?? c.maxOpenPositions ?? null,
-      capacity:{...capacity({open:ledgerState.open||[],pending:pendingOrders,max:c.maxOpenPositions||2,now:clock()}),known:ledgerState.ok&&clock()-Date.parse(ledgerState.at)<=90000},
+      capacity:{...capacity({open:(ledgerState.open||[]).filter(p=>!activeTop3For(p.symbol)),pending:pendingOrders,max:c.maxOpenPositions||2,now:clock()}),known:ledgerState.ok&&clock()-Date.parse(ledgerState.at)<=90000},
       sizingAuthority:effective?.sizingAuthority || 'USER_PANEL_EXACT',
       sizingAdjustments:[],
       allowLong:c.allowLong === true,
@@ -3259,6 +3266,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(Array.isArray(ledgerState.open)&&ledgerState.open.length)w.push(testModeNow()?'TEST_POSITION_OPEN':'POSITION_OPEN');
     if(burst.active.size>0)w.push('BURST_ACTIVE');
     if(burstClosePending.length||Object.values(leaderAnalysisState.bySymbol||{}).some(r=>String(r?.state||'').toUpperCase()==='ACTIVE'))w.push('POSITION_CLOSE_PENDING');
+    if(Object.keys(top3State.active||{}).length||(top3State.pendingCloses||[]).length)w.push('TOP3_CLOSE_PENDING'); // R2544.57: booked in their own mode
     return [...new Set(w)];
   }
   function stopEntries(reason){
@@ -3279,8 +3287,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function liveAccountPreflight(){
     const creds=currentCredentials();
     if(!credentialsReady(creds))return {ok:false,reasons:['BINANCE_CREDENTIALS_REQUIRED']};
-    const la=readLeaderAutoConfig(),need=finite(la.config?.marginQuote);
-    if(!la.ok||need===null)return {ok:false,reasons:la.reasons?.length?la.reasons:['LEADER_AUTO_CONFIG_INVALID']};
+    const la=readLeaderAutoConfig();
+    if(!la.ok||finite(la.config?.marginQuote)===null)return {ok:false,reasons:la.reasons?.length?la.reasons:['LEADER_AUTO_CONFIG_INVALID']};
+    // R2544.57: the selected lanes decide what goes live and how much free balance is needed (the larger lane margin).
+    const lanes=readLanes(),t3=top3Lib.readTop3Config(root);
+    if(lanes.normal!==true&&t3.enabled!==true)return {ok:false,reasons:['LANES_NONE_SELECTED']};
+    const need=Math.max(lanes.normal?finite(la.config.marginQuote):0,t3.enabled?(t3.marginQuote??20):0);
     let acc,rows;
     try{
       acc=await transport._fetchJsonReal('GET','/fapi/v3/account',{credentials:creds,signed:true});
@@ -3289,18 +3301,29 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const available=finite(acc?.availableBalance),wallet=finite(acc?.totalWalletBalance);
     if(available===null||available<need)return {ok:false,reasons:['BINANCE_BALANCE_TOO_LOW'],detail:{available,wallet,required:need}};
     if(Array.isArray(rows)&&rows.some(x=>Math.abs(finite(x?.positionAmt)||0)>0))return {ok:false,reasons:['REAL_POSITION_OPEN'],detail:{symbols:rows.filter(x=>Math.abs(finite(x?.positionAmt)||0)>0).map(x=>x.symbol)}};
-    return {ok:true,available,wallet,required:need};
+    return {ok:true,available,wallet,required:need,lanes:{normal:lanes.normal===true,top3:t3.enabled===true}};
   }
+  // R2544.57: what a LIVE start switches on: OTO = normal lane selection; İlk 3 live = its own selection (the user confirmed LIVE).
+  function applyLiveLanes(){
+    const lanes=readLanes(),t3=top3Lib.readTop3Config(root);
+    const o=configureLeaderAuto({enabled:lanes.normal===true});if(!o.ok)return o;
+    top3Lib.writeTop3Switches(root,{liveEnabled:t3.enabled===true});
+    runJournal('LIVE_LANES',{normal:lanes.normal===true,top3:t3.enabled===true});
+    return {ok:true};
+  }
+  async function top3Settle(){if(top3Busy)return;top3Busy=true;try{await top3Manage();await top3FinalizeCloses();}catch{}finally{top3Busy=false;}}
   async function progressSwitch(now){
     const sw=runState.liveSwitch;
     if(sw.state==='CLOSING_TEST'||sw.state==='RESETTING_TEST'){
       if(!testModeNow())return failSwitch('MODE_CHANGED_DURING_SWITCH');
       if(paper.hasExposure()){const c=await paper.closeAll(sw.state==='CLOSING_TEST'?'TOLIVE':'TESTRESET');sw.paperClosed=(sw.paperClosed||0)+c.closed;}
       try{await positionLedgerTick();}catch{}
+      await top3Settle();
       const wait=switchWaitReasons();
       if(wait.length){sw.waiting=wait;if(now>sw.deadline)return failSwitch('TEST_CLOSE_NOT_CONFIRMED',{waiting:wait});return {ok:true,waiting:wait};}
       if(sw.state==='RESETTING_TEST'){
         applyMode('TEST',{resetPaper:true,balance:sw.balance,autoRun:true});
+        if(top3Lib.readTop3Config(root).enabled===true)top3StartWindow('TEST_RESET'); // R2544.57: a fresh paper account starts a fresh İlk 3 window
         runState.sawOtoOn=false;runState.liveSwitch={state:'DONE',target:'TEST_RESET',at:now,balance:sw.balance};
         runJournal('TEST_RESET_DONE',{balance:sw.balance});
         return {ok:true,action:'TEST_RESET_DONE'};
@@ -3308,7 +3331,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const pre=await liveAccountPreflight(); // the account may have changed while paper lots were closing
       if(!pre.ok)return failSwitch(pre.reasons[0],pre.detail);
       applyMode('LIVE',{autoRun:false});
-      const o=configureLeaderAuto({enabled:true});
+      const o=applyLiveLanes();
       if(!o.ok)return failSwitch('LEADER_AUTO_CONFIG_INVALID',{reasons:o.reasons});
       const a=await arm({confirmed:true,source:'USER_GO_LIVE'});
       if(!a.ok){stopEntries('LIVE_ARM_FAILED');return failSwitch('LIVE_ARM_FAILED',{reasons:a.reasons});}
@@ -3318,6 +3341,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     if(sw.state==='LIVE_WIND_DOWN'){
       try{await positionLedgerTick();}catch{}
+      await top3Settle();
       const wait=switchWaitReasons();
       if(wait.length){sw.waiting=wait;return {ok:true,waiting:wait};} // a real lot is managed until it is flat; no deadline
       if(armedNow())disarm('LIVE_WIND_DOWN_DONE');
@@ -3345,21 +3369,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(sw&&['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(sw.state))return await progressSwitch(now);
       if(m.mode!=='TEST'&&armSource==='TEST_AUTORUN'&&armedNow()){disarm('TEST_AUTORUN_MODE_LEFT');return {ok:true,action:'DISARMED_TEST_ARM_IN_LIVE'};}
       if(!autoRunOn(m))return {ok:true,idle:true,mode:m.mode};
-      const la=readLeaderAutoConfig();
-      if(la.config?.enabled!==true){
-        if(runState.sawOtoOn){ // OTO was switched off elsewhere (APK) while TEST ran: honour it as a stop
-          setAutoRun(false);runState.sawOtoOn=false;if(armedNow())disarm('TEST_STOPPED_OTO_OFF');
-          runJournal('TEST_AUTORUN_STOPPED',{reason:'OTO_TURNED_OFF'});return {ok:true,action:'STOPPED_BY_OTO_OFF'};
-        }
-        const o=configureLeaderAuto({enabled:true});
-        if(!o.ok){runState.lastError={at:now,reasons:o.reasons};return {ok:false,reasons:o.reasons};}
-      }
+      // R2544.57: the TEST run arms the paper account; OTO follows the "Normal sistem" lane selection (an OTO change from
+      // the APK/API is recorded as that selection by the route). İlk 3 runs on its own switch.
+      {const want=readLanes().normal===true,la=readLeaderAutoConfig();
+        if(armedNow()&&(la.config?.enabled===true)!==want){const o=configureLeaderAuto({enabled:want});if(!o.ok){runState.lastError={at:now,reasons:o.reasons};return {ok:false,reasons:o.reasons};}runJournal('LANE_NORMAL_APPLIED',{enabled:want,reason:'TEST_AUTORUN'});}}
       runState.sawOtoOn=true;
       if(!armedNow()){
         if(now-runState.autorunArmFailAt<AUTORUN_ARM_RETRY_MS)return {ok:true,waiting:'ARM_RETRY'};
         const a=await arm({confirmed:true,source:'TEST_AUTORUN'});
         if(!a.ok){runState.autorunArmFailAt=now;runState.lastError={at:now,reasons:a.reasons};return {ok:false,reasons:a.reasons};}
         runState.lastError=null;
+        if(readLanes().normal===true&&readLeaderAutoConfig().config?.enabled!==true){const o=configureLeaderAuto({enabled:true});if(o.ok)runJournal('LANE_NORMAL_APPLIED',{enabled:true,reason:'TEST_ARMED'});}
         return {ok:true,action:'TEST_ARMED'};
       }
       return {ok:true,running:true};
@@ -3397,7 +3417,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return r.ok===false?{ok:false,reasons:r.reasons,detail:r.detail||null,tradingMode:tradingModeStatus()}:done({action:act,progress:r});
     }
     if(act==='GO_LIVE'){
-      if(m.mode==='LIVE'&&armedNow()&&readLeaderAutoConfig().config?.enabled===true)return done({action:act,unchanged:true});
+      if(m.mode==='LIVE'&&armedNow())return done({action:act,unchanged:true});
       const pre=await liveAccountPreflight();
       if(!pre.ok){runJournal('RUN_CONTROL_REFUSED',{action:act,reasons:pre.reasons,detail:pre.detail||null});return {ok:false,reasons:pre.reasons,detail:pre.detail||null,tradingMode:tradingModeStatus()};}
       runJournal('RUN_CONTROL',{action:act,available:pre.available,wallet:pre.wallet,required:pre.required});
@@ -3411,7 +3431,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     if(act==='GO_TEST'){
       if(m.mode==='TEST')return done({action:act,unchanged:true});
-      stopEntries('GO_TEST');
+      stopEntries('GO_TEST');top3Lib.writeTop3Switches(root,{liveEnabled:false}); // R2544.57: no new real İlk 3 entry; open lots keep their exits
       runState.liveSwitch={state:'LIVE_WIND_DOWN',target:'TEST',requestedAt:now};
       runJournal('RUN_CONTROL',{action:act});
       const r=await testSupervisorTick();
@@ -3421,7 +3441,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   // LIVE mode, stopped: OTO aç arms directly (nothing paper to close).
   async function goLiveFromLive(now,pre){
-    const o=configureLeaderAuto({enabled:true});
+    const o=applyLiveLanes();
     if(!o.ok){runState.liveSwitch={state:'FAILED',target:'LIVE',reason:'LEADER_AUTO_CONFIG_INVALID',at:now};return {ok:false,reasons:o.reasons};}
     const a=await arm({confirmed:true,source:'USER_GO_LIVE'});
     if(!a.ok){stopEntries('LIVE_ARM_FAILED');runState.liveSwitch={state:'FAILED',target:'LIVE',reason:'LIVE_ARM_FAILED',detail:{reasons:a.reasons},at:now};return {ok:false,reasons:['LIVE_ARM_FAILED'],detail:{reasons:a.reasons}};}
@@ -3432,8 +3452,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function runStatus(){
     const m=readTradingMode(root,defaultTradingMode),armed=armedNow(),oto=readLeaderAutoConfig().config?.enabled===true;
     const sw=runState.liveSwitch,busy=['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(sw?.state);
-    const state=busy?sw.state:armed&&oto?(m.mode==='TEST'?'TEST_RUNNING':'LIVE_RUNNING'):armed||oto?'HALF_ON':'STOPPED';
-    return {state,testAutoRun:autoRunOn(m),armSource:armed?armSource:null,switch:sw?{...sw}:null,lastError:runState.lastError,supervisorAt:runState.lastTickAt?new Date(runState.lastTickAt).toISOString():null};
+    // R2544.57: the run is on when armed (İlk 3 alone is a running system); OTO is the normal lane
+    const state=busy?sw.state:armed?(m.mode==='TEST'?'TEST_RUNNING':'LIVE_RUNNING'):oto?'HALF_ON':'STOPPED';
+    return {state,lanes:laneStatus(),testAutoRun:autoRunOn(m),armSource:armed?armSource:null,switch:sw?{...sw}:null,lastError:runState.lastError,supervisorAt:runState.lastTickAt?new Date(runState.lastTickAt).toISOString():null};
   }
   function status() {
     const policy = readPolicy(root);
@@ -3975,6 +3996,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     await reconcilePending(active,creds,snapshotAt);
     const slots=capacity({open:active,pending:pendingOrders,max:policy.limits.maxOpenPositions,symbol:order?.symbol,now:clock()});
     if(['SYMBOL_POSITION_ALREADY_OPEN','SYMBOL_ORDER_PENDING','PENDING_STATE_UNAVAILABLE'].includes(slots.reason))throw new Error(slots.reason);
+    // R2544.57: the core lane's position cap counts core lots only (İlk 3 has its own maxActive); same-symbol stays blocked above
+    const coreSlots=capacity({open:active.filter(x=>!activeTop3For(x?.symbol)),pending:pendingOrders,max:policy.limits.maxOpenPositions,now:clock()});
     const currentExposure = active.reduce((sum, x) => {
       const direct = finite(x?.notional);
       if (direct !== null) return sum + Math.abs(direct);
@@ -3992,8 +4015,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         equity,
         availableBalance,
         dailyRealizedPnl,
-        openPositions:slots.used,
-        capacity:slots
+        openPositions:coreSlots.used,
+        capacity:coreSlots
       },
       intent:{
         riskQuote,
@@ -5710,7 +5733,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(test&&top3State.window&&clock()>=top3State.window.endsAt)return {ok:false,reason:'TOP3_TEST_WINDOW_DONE'};
     if(!test&&cfg.liveEnabled!==true)return {ok:false,reason:'TOP3_LIVE_DISABLED'};
     if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
-    if(readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'LEADER_AUTO_DISABLED'};
+    // R2544.57: OTO is the "Normal sistem" lane; İlk 3 needs only its own switch, the run (arm) and, in LIVE, liveEnabled.
     if(cfg.jevMode===true&&typeof top3Judge!=='function')return {ok:false,reason:'TOP3_JEV_UNAVAILABLE'};
     return {ok:true,mode:test?'TEST':'LIVE'};
   }
@@ -5794,6 +5817,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       await new Promise(r=>setTimeout(r,100));
     }
     if(!gate.ok)return out;
+    let prem=null; // funding/premium at entry, one premiumIndex read per scan
     for(const x of out.signals){
       const res={symbol:x.symbol,side:x.side,rule:x.rule,kind:x.kind};out.entries.push(res);
       // R2544.56 (user 13.10: "testte sınır koyma, canlıda max poz sınırı var"): TEST enters every signal (only a coin that
@@ -5812,7 +5836,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         res.jev=ev;
         if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
       }
-      const ef=x.f?.ok?{rank:x.rank??null,btc24:btc24!==null?Number(btc24.toFixed(4)):null,r1:Number(x.f.r1.toFixed(4)),r3:Number(x.f.r3.toFixed(4)),r24:Number(x.f.r24.toFixed(4)),vr1:x.f.vr1!==null?Number(x.f.vr1.toFixed(2)):null,vol30:x.f.vol30!==null?Number(x.f.vol30.toFixed(4)):null,breakout7d:x.f.breakout7d,dropFromPeak:Number(x.f.dropFromPeak.toFixed(4)),red:x.f.red}:null;
+      if(prem===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex');prem=new Map((Array.isArray(pi)?pi:[]).map(r=>[r.symbol,r]));}catch{prem=new Map();}}
+      const pr=prem.get(x.symbol),fundNow=finite(pr?.lastFundingRate),premNow=finite(pr?.markPrice)&&finite(pr?.indexPrice)?finite(pr.markPrice)/finite(pr.indexPrice)-1:null;
+      const ef=x.f?.ok?{fund:fundNow,premium:premNow!==null?Number(premNow.toFixed(5)):null,rank:x.rank??null,btc24:btc24!==null?Number(btc24.toFixed(4)):null,r1:Number(x.f.r1.toFixed(4)),r3:Number(x.f.r3.toFixed(4)),r24:Number(x.f.r24.toFixed(4)),vr1:x.f.vr1!==null?Number(x.f.vr1.toFixed(2)):null,vol30:x.f.vol30!==null?Number(x.f.vol30.toFixed(4)):null,breakout7d:x.f.breakout7d,dropFromPeak:Number(x.f.dropFromPeak.toFixed(4)),red:x.f.red}:null;
       const opened=await top3Open(x.sig,x.symbol,cfg,jev,{signalKind:x.kind,lastCounted:x.lastCounted,entryFeatures:ef});
       Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason});
       if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[key]:clock()};saveTop3State();}
@@ -5826,10 +5852,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const acct=await accountSummary({maxAgeMs:3000});const avail=finite(acct?.availableBalance);
     if(!acct?.ok||!(avail>0))return {ok:false,reason:'TOP3_ACCOUNT_UNAVAILABLE'};
     // Margin: the file's marginQuote when set; otherwise the panel margin capped at 25% of free balance (a -8% stop at
-    // 10x costs ~80% of this margin). Never above half of free balance; below 5 USDT no trade.
+    // 10x costs ~80% of this margin). R2544.57: a margin the user set (Office) may use up to 95% of free balance; the
+    // automatic one stays at 25%. Below 5 USDT no trade.
     const margin=cfg.marginQuote!==null?cfg.marginQuote:Math.min(finite(la.config?.marginQuote)??Infinity,avail*0.25);
     if(!(margin>=5))return {ok:false,reason:'TOP3_MARGIN_TOO_SMALL',marginQuote:margin};
-    if(margin>avail*0.5)return {ok:false,reason:'TOP3_MARGIN_ABOVE_HALF_FREE_BALANCE',marginQuote:margin,availableBalance:avail};
+    if(margin>avail*0.95)return {ok:false,reason:'TOP3_MARGIN_ABOVE_FREE_BALANCE',marginQuote:margin,availableBalance:avail};
     let px;try{px=await paperPrice(symbol);}catch{px=null;}
     const price=finite(side==='LONG'?px?.ask:px?.bid);if(!(price>0))return {ok:false,reason:'TOP3_PRICE_UNAVAILABLE'};
     const pre=top3Lib.entryLevels(sig,price);if(!pre.ok)return {ok:false,reason:pre.reason,stopPct:pre.stopPct??null};
@@ -6038,15 +6065,49 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
+      settings:{marginQuote:cfg.marginQuote,marginAuto:cfg.marginQuote===null,leverage:cfg.leverage,safeLeverage:{long:top3Lib.safeLeverage(cfg.long.stopPct),shortMin:top3Lib.safeLeverage(cfg.short.maxStopPct),shortMax:top3Lib.safeLeverage(cfg.short.minStopPct)},effectiveLong:Math.min(cfg.leverage,top3Lib.safeLeverage(cfg.long.stopPct))},
       learning:{...top3Lib.experienceSummary(top3State.lessons),limitsInTest:'NONE',limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'}},
       windowResults:top3State.window?sum(measured.filter(p=>p.tradingMode==='TEST'&&Date.parse(p.openedAt||p.closedAt||'')>=top3State.window.startedAt)):null,
       history:{hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR),bootstrap:top3State.bootstrap||null},
       pendingCloses:(top3State.pendingCloses||[]).length,nextScanAt:new Date(Math.floor(now/TOP3_HOUR)*TOP3_HOUR+TOP3_HOUR+40000).toISOString()};
   }
+  function laneStatus(){
+    const m=readTradingMode(root,defaultTradingMode),armed=armedNow(),l=readLanes(),t=top3Lib.readTop3Config(root),oto=readLeaderAutoConfig().config?.enabled===true;
+    return {mode:m.mode,running:armed,normal:{selected:l.normal,active:armed&&oto,defaulted:l.defaulted,decisions:'JEV'},
+      top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:t.jevMode?'RULE_PLUS_JEV':'RULE'}};
+  }
+  // R2544.57 lane switches (Office / APK / API). Turning a lane ON in LIVE needs confirm 'LIVE'; OFF is immediate (open lots
+  // keep their own exits). The normal lane's OTO follows only while the run is on (never analysis while stopped).
+  function selectLanes(patch={}){
+    const live=readTradingMode(root,defaultTradingMode).mode==='LIVE',running=armedNow(),p={};
+    for(const k of ['normal','top3'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    if(!Object.keys(p).length)return {ok:false,reasons:['LANE_SWITCH_MISSING']};
+    if(live&&(p.normal===true||p.top3===true)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if('normal' in p){
+      writeLanes({normal:p.normal});
+      if(!p.normal||running){const o=configureLeaderAuto({enabled:p.normal&&running});if(!o.ok)return o;}
+    }
+    if('top3' in p){
+      const t=configureTop3({enabled:p.top3,...(live?{liveEnabled:p.top3,confirm:'LIVE'}:{}),source:String(patch?.source||'LANES').slice(0,40)});
+      if(t.ok===false)return t;
+    }
+    runJournal('LANES_SELECTED',{...p,mode:live?'LIVE':'TEST',running,source:String(patch?.source||'OFFICE').slice(0,40)});
+    return {ok:true,lanes:laneStatus()};
+  }
+  // The APK / old Office OTO switch (POST /live/leader-auto enabled) is the normal lane choice: remember it.
+  function rememberNormalLane(enabled){if(typeof enabled!=='boolean')return;writeLanes({normal:enabled});runJournal('LANES_SELECTED',{normal:enabled,source:'LEADER_AUTO_API'});}
   // Only the user's Office buttons call this (server route). LIVE needs the explicit 'LIVE' confirmation.
   function configureTop3(patch={}){
     const p={};for(const k of ['enabled','jevMode','liveEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     const restart=patch?.restartWindow===true;if(restart)p.enabled=true;
+    // R2544.57: margin / leverage from Office; in LIVE only with the explicit 'LIVE' confirmation
+    const sp={};for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)sp[k]=patch[k];
+    if(Object.keys(sp).length){
+      if(!testModeNow()&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+      const w=top3Lib.writeTop3Settings(root,sp);if(!w.ok)return w;
+      try{store.journal('TOP3_SETTINGS_CHANGED',null,{changed:w.changed,mode:testModeNow()?'TEST':'LIVE',source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
+      if(!Object.keys(p).length)return {...top3Status(),changed:w.changed};
+    }
     if(!Object.keys(p).length)return {ok:false,reasons:['TOP3_SWITCH_MISSING']};
     if(p.liveEnabled===true&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=top3Lib.readTop3Config(root),after=top3Lib.writeTop3Switches(root,p);
@@ -6057,7 +6118,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, configureTop3, _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, configureTop3, laneStatus, selectLanes, rememberNormalLane, _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

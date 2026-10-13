@@ -134,7 +134,8 @@ test('R56 disabled lane does nothing (no market calls); LIVE switch needs the ex
   assert.equal(r.reason,'TOP3_DISABLED');
   assert.equal(f.state.calls.filter(c=>/ticker\/24hr|klines/.test(c)).length,0);
   assert.deepEqual(f.controller.configureTop3({liveEnabled:true}).reasons,['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']);
-  assert.deepEqual(f.controller.configureTop3({leverage:50}).reasons,['TOP3_SWITCH_MISSING']);
+  assert.deepEqual(f.controller.configureTop3({leverage:50}).reasons,['TOP3_LEVERAGE_INVALID'],'R2544.57: leverage is a validated setting');
+  assert.deepEqual(f.controller.configureTop3({}).reasons,['TOP3_SWITCH_MISSING']);
   const on=f.controller.configureTop3({liveEnabled:true,confirm:'LIVE'});
   assert.equal(on.ok,true);assert.equal(on.switches.liveEnabled,true);assert.equal(on.switches.enabled,false,'LIVE permission alone does not start the lane');
   assert.equal(f.kinds('TOP3_CONFIG_CHANGED').length,1);
@@ -231,13 +232,13 @@ test('R56 Office: switch route forwards only the three switches; card, labels an
   process.env.BRAINHUB_ROOT=tmp('r56-office-');delete process.env.OFFICE_KEY;
   const office=require('../office-dashboard/office-server.js');
   assert.equal(office.CONTROL_ROUTES['/api/control/top3'],'/live/top3');
-  assert.deepEqual(office.CONTROL_BODY['/api/control/top3']({enabled:true,jevMode:'1',liveEnabled:true,confirm:'live',leverage:125,marginQuote:999}),{enabled:true,liveEnabled:true,confirm:'LIVE'});
+  assert.deepEqual(office.CONTROL_BODY['/api/control/top3']({enabled:true,jevMode:'1',liveEnabled:true,confirm:'live',leverage:125,marginQuote:999,other:1}),{enabled:true,liveEnabled:true,confirm:'LIVE',marginQuote:999,leverage:125},'R2544.57: margin/leverage pass through; the core validates them');
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  for(const id of ['top3Card','btnTop3On','btnTop3Jev','btnTop3Live','top3Host'])assert.ok(html.includes(`id="${id}"`),id);
-  assert.ok(html.includes("top3Control({liveEnabled:true,confirm:'LIVE'}"));assert.ok(html.includes("TOP3_HUNTER:'İLK 3 AVCISI'"));assert.ok(html.includes("BRAINHUB_TOP3"));
+  for(const id of ['top3Card','btnTop3On','btnTop3Jev','btnTop3Save','t3Margin','t3Lev','top3Host'])assert.ok(html.includes(`id="${id}"`),id);
+  assert.ok(html.includes("laneAction({top3:true,confirm:'LIVE'}"),'R2544.57: İlk 3 goes LIVE as a lane (double press + LIVE)');assert.ok(html.includes("TOP3_HUNTER:'İLK 3 AVCISI'"));assert.ok(html.includes("BRAINHUB_TOP3"));
   const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.ok(server.includes('top3Judge:jev.sovereignTop3Gate'));assert.ok(server.includes("u.pathname==='/live/top3'"));assert.ok(server.includes('live.top3Tick()'));
-  assert.ok(server.includes("const RUNTIME_RELEASE='R2544.56-TOP3-HUNTER'"));
+  assert.ok(server.includes("const RUNTIME_RELEASE='R2544.57-LANES'"));
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.ok(lc.includes("t3?'BRAINHUB_TOP3'"));assert.ok(lc.includes('!activeTop3For(p.symbol)'),'core position review skips top3 lots');
   assert.ok(fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').includes('sovereignBurstExit,sovereignTop3Gate,'));

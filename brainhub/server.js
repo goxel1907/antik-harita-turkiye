@@ -1596,7 +1596,8 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='GET'&&u.pathname==='/live/status'){
       const report={...live.status(),jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',releaseVersion:'R2542-JEV-TRADER-OFFICE',enabled:true,decisionOwner:'JEV',primaryLanes:['5m','15m'],passLimit:2,workerMode:'JEV_DIRECTED_EVIDENCE_ONLY',experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS_PLUS_CASE_MEMORY',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.4.0',mode:'READ_ONLY_FULL_OVERLAY_PACKET_PARITY'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',reduceRisk:'BINDING_REDUCE_ONLY_WHEN_ADVERSE_AND_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',jevProfiles:'PARTIAL_BREAKEVEN_TRAIL_EXECUTABLE',externalPositions:'ADVISORY_ONLY'}},runtimeRelease:RUNTIME_RELEASE,runtimeBuiltBy:RUNTIME_BUILT_BY,binanceRateLimit:binanceRate.status(),featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV111Marker:claudeV111.marker,claudeV111Config:claudeV111.readConfig(),claudeRunner:live.runnerStatus(),claudeFastLane:live.fastLaneStatus(),v110FeatureVersion:v110.featureVersion,v110Marker:v110.marker,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,claudeV109Config:claudeV109.readConfig(),sizingAuthority:'USER_PANEL_EXACT',visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterFreeWorker:freeWorker.status(),knowledgeResearch:knowledgeResearch.status(),openRouterBilling:jev.billingSnapshot()};
-      return send(res,200,u.searchParams.get('compact')==='1'?require('./mobile-status').mobileStatus(report):report);
+      // R2544.57: the APK also gets the lanes (in tradingMode.run) and a compact İlk 3 summary
+      return send(res,200,u.searchParams.get('compact')==='1'?require('./mobile-status').mobileStatus({...report,top3:live.top3Status()}):report);
     }
     // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar (Binance) + kapanan işlemler (sonuç, R, çıkış, giriş nedeni). Salt-okunur.
     // R2544.56 İlk 3 Avcısı: status (GET) and the three Office switches (POST; liveEnabled:true needs confirm 'LIVE').
@@ -1605,7 +1606,17 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&u.pathname==='/live/top3'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
-      const out=live.configureTop3({enabled:body?.enabled,jevMode:body?.jevMode,liveEnabled:body?.liveEnabled,restartWindow:body?.restartWindow===true,confirm:body?.confirm,source:'API'});
+      const out=live.configureTop3({enabled:body?.enabled,jevMode:body?.jevMode,liveEnabled:body?.liveEnabled,restartWindow:body?.restartWindow===true,
+        ...(Object.prototype.hasOwnProperty.call(body||{},'marginQuote')?{marginQuote:body.marginQuote}:{}),...(Object.prototype.hasOwnProperty.call(body||{},'leverage')?{leverage:body.leverage}:{}),confirm:body?.confirm,source:'API'});
+      return send(res,out.ok?200:400,out);
+    }
+    // R2544.57 lanes: "Normal sistem" (JEV) and "İlk 3 Avcısı" selected separately; ON in LIVE needs confirm 'LIVE'.
+    if(req.method==='GET'&&u.pathname==='/live/lanes'){
+      return send(res,200,{ok:true,...live.laneStatus()});
+    }
+    if(req.method==='POST'&&u.pathname==='/live/lanes'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const out=live.selectLanes({normal:body?.normal,top3:body?.top3,confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
       return send(res,out.ok?200:400,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/burst'){
@@ -1681,6 +1692,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='POST'&&u.pathname==='/live/leader-auto'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
       const out=live.configureLeaderAuto(body||{});
+      if(out.ok&&typeof body?.enabled==='boolean')live.rememberNormalLane(body.enabled); // R2544.57: OTO switch = normal lane choice
       return send(res,out.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/models/healthy'){
@@ -2357,8 +2369,8 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.56-TOP3-HUNTER';
-const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-12 • R2544.56: İlk 3 Avcısı - hourly top-3 gainer LONG 6/6 and post-top SHORT lane, own stop/TP/24 h exit, TEST without JEV, Office switches for JEV mode and LIVE; includes R2544.55: JEV edge - one narrow +1R-before-stop Noul per plan with measured lessons, JEV probabilities/confidence kept, code-side EV gate after fees (fail-open on missing); includes R51-R52 TEST mode and run control';
+const RUNTIME_RELEASE='R2544.57-LANES';
+const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-13 • R2544.57: lanes - Normal sistem (JEV) and İlk 3 Avcısı selected separately in TEST and LIVE, LIVE start with the selected lanes, İlk 3 margin/leverage from Office, İlk 3 lots outside core slots; includes R2544.56: İlk 3 Avcısı - hourly top-3 gainer LONG 6/6 and post-top SHORT lane, own stop/TP/24 h exit, TEST without JEV, Office switches for JEV mode and LIVE; includes R2544.55: JEV edge - one narrow +1R-before-stop Noul per plan with measured lessons, JEV probabilities/confidence kept, code-side EV gate after fees (fail-open on missing); includes R51-R52 TEST mode and run control';
 function fastLaneObsSuffix(result){
   try{
     const r=result||{};

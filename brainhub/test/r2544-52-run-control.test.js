@@ -7,11 +7,13 @@ const {readTradingMode,writeTradingMode}=require('../binance-live-transport');
 
 const FAKE={apiKey:'fake-test-key-r52run',apiSecret:'fake-test-secret-r52run'}; // made-up, never real
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
-function fixture({mode='TEST',file=null,otoEnabled=false}={}){
+function fixture({mode='TEST',file=null,otoEnabled=false,normalLane=true}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r52-run-'));fs.mkdirSync(path.join(root,'config'));
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:otoEnabled,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
   writeTradingMode(root,file||{mode,changedAt:'2026-10-06T12:34:13.362Z',testStartedAt:null,testAutoRun:mode==='TEST'});
+  // R2544.57: these R52 cases run the normal (JEV) lane; the lane default (not selected) is covered in r2544-57
+  if(normalLane!==null)fs.writeFileSync(path.join(root,'config','lane-selection.json'),JSON.stringify({normal:normalLane}));
   const state={now:1791370000000,realAvail:250,realWallet:250,realPositions:[],calls:[]},events=[];
   const fetchImpl=async(url,o={})=>{const u=new URL(url),p=u.pathname,m=o.method||'GET';state.calls.push(`${m} ${p}`);
     if(p==='/fapi/v1/time')return ok({serverTime:state.now});
@@ -49,14 +51,15 @@ test('R52 a pre-R52 file of a stopped system stays stopped after the restart (de
   assert.equal((await f.controller.runControl({action:'START_TEST'})).ok,true);assert.equal(f.controller.status().armed,true);
 });
 
-test('R52 OTO switched off elsewhere (APK) while TEST runs is a stop; START_TEST resumes',async()=>{
-  const f=fixture();await f.controller.testSupervisorTick();
-  f.controller.configureLeaderAuto({enabled:false});
-  assert.equal((await f.controller.testSupervisorTick()).action,'STOPPED_BY_OTO_OFF');
-  assert.equal(f.controller.status().armed,false);assert.equal(readTradingMode(f.root).testAutoRun,false);
-  assert.equal((await f.controller.testSupervisorTick()).idle,true,'stays stopped');
-  const s=await f.controller.runControl({action:'START_TEST'});
-  assert.equal(s.ok,true);assert.equal(f.controller.status().armed,true);assert.equal(f.oto(),true);
+test('R57 (was R52) OTO switched off elsewhere (APK) is the normal-lane choice: TEST keeps running for the other lane',async()=>{
+  const f=fixture();await f.controller.testSupervisorTick();assert.equal(f.oto(),true);
+  // what POST /live/leader-auto does: switch OTO and remember it as the normal lane choice
+  f.controller.configureLeaderAuto({enabled:false});f.controller.rememberNormalLane(false);
+  const r=await f.controller.testSupervisorTick();
+  assert.equal(r.running,true);assert.equal(f.controller.status().armed,true);assert.equal(readTradingMode(f.root).testAutoRun,true,'the TEST run is not stopped');
+  assert.equal(f.oto(),false,'and the supervisor does not force OTO back on');
+  // a direct OTO-off without the choice (e.g. a lost write) is put back to the user's selection
+  f.controller.rememberNormalLane(true);await f.controller.testSupervisorTick();assert.equal(f.oto(),true);
 });
 
 test('R52 STOP turns autorun, OTO and arm off, closes the virtual lots, and the supervisor leaves it off',async()=>{
@@ -150,7 +153,7 @@ test('R52 Office panel: OTO aç = CANLI behind a second press, Stop is one press
   assert.doesNotMatch(panel,/\b(confirm|prompt)\((?!\))/,'07.10: a suppressed confirm() made a button silently do nothing');
   const goLive=panel.slice(panel.indexOf("onClick('#btnGoLive'"),panel.indexOf("onClick('#btnGoTest'"));
   assert.match(goLive,/secondPress\('btnGoLive'/);assert.match(goLive,/action:'GO_LIVE',confirm:'LIVE'/);
-  const stop=panel.slice(panel.indexOf("onClick('#btnStop'"));
+  const stopAt=panel.indexOf("onClick('#btnStop'"),stop=panel.slice(stopAt,panel.indexOf('\n',stopAt)); // R2544.57: the Stop handler line only
   assert.doesNotMatch(stop,/secondPress/);assert.match(stop,/action:'STOP'/);
   assert.match(panel,/fetch\('\/api\/control\/run'/);
   assert.match(panel,/ÇALIŞIYOR görünüyor ama/);assert.match(panel,/BINANCE_BALANCE_TOO_LOW/);

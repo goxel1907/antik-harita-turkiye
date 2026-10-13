@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.36-R2544.56-JEV-Brain';
+const OFFICE_VERSION = '2.5.37-R2544.57-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -88,7 +88,7 @@ async function getJson(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
-const CONTROL_ROUTES = { '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3' };
+const CONTROL_ROUTES = { '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes' };
 // Only these fields ever reach the core; anything else in the Office request is dropped (OTO sizing, burst switch etc.
 // stay with the user's existing config).
 const CONTROL_BODY = {
@@ -111,10 +111,20 @@ const CONTROL_BODY = {
     return out;
   },
   // R2544.56 İlk 3 Avcısı: only the three switches (the core still demands confirm 'LIVE' for liveEnabled:true).
+  // R2544.57 lanes: only the two lane switches and the confirmation
+  '/api/control/lanes': b => {
+    const out = { source: 'OFFICE' };
+    for (const k of ['normal', 'top3']) if (typeof b[k] === 'boolean') out[k] = b[k];
+    if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
+    return out;
+  },
   '/api/control/top3': b => {
     const out = {};
     for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof b[k] === 'boolean') out[k] = b[k];
     if (b.restartWindow === true) out.restartWindow = true; // new 24 h TEST window
+    // R2544.57: İlk 3 margin (USDT, null = automatic) and leverage; the core validates ranges and needs 'LIVE' in LIVE
+    if (b.marginQuote === null || (typeof b.marginQuote === 'number' && Number.isFinite(b.marginQuote))) out.marginQuote = b.marginQuote;
+    if (Number.isInteger(b.leverage)) out.leverage = b.leverage;
     if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
     return out;
   }
