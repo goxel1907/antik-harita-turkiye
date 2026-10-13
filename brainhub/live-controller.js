@@ -5944,7 +5944,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       outcomePct:netPnl!==null&&notional>0?netPnl/notional*100:null,rMultiple:netPnl!==null&&riskQuote>0?netPnl/riskQuote:null,
       exitType,exitEvidenceVersion:top3Lib.TOP3_VERSION,openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
       entryContext:{why:top3Why(c),setup,setupFamily:'TOP3',entryTiming:'HOURLY_CLOSE',lane:'TOP3_HUNTER',releaseContract:top3Lib.TOP3_VERSION,strategyVersion:top3Lib.TOP3_VERSION,source:'TOP3',
-        top3:{id:c.id,rule:c.rule||null,signalKind:c.signalKind||'FRESH',leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),tpPrice:finite(c.tpPrice),exitPrice:finite(c.exitPrice),jevMode:c.jevMode===true,jev:c.jev||null,
+        top3:{id:c.id,rule:c.rule||null,signalKind:c.signalKind||'UNLABELED',leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),tpPrice:finite(c.tpPrice),exitPrice:finite(c.exitPrice),jevMode:c.jevMode===true,jev:c.jev||null,
           entryFeatures:c.entryFeatures||null,mfePct:path?Number(path.mfePct.toFixed(4)):finite(c.sampleMfePct),maePct:path?Number(path.maePct.toFixed(4)):finite(c.sampleMaePct),pathSource:path?'5m':'SAMPLES_30S'}},
       eventId:'TOP3:'+c.id,closeBusinessKey:'TOP3:'+c.id,incomeAvailable:inc!==null,learningAuthority:'EXCLUDED_TOP3_LANE'};
   }

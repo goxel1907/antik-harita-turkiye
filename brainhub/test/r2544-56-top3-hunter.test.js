@@ -386,3 +386,10 @@ test('R56 İlk 3 hafızası: a closed lot becomes a lesson (5m best/worst excurs
   // the memory is in the lane's state file: a restarted controller still has it
   const again=f.restart();assert.equal(again.top3Status().learning.lessons,1);
 });
+
+test('R56 a lot opened before the signal label existed is learned as UNLABELED, never as FRESH',()=>{
+  const now=1791370800000;
+  const l=T3.buildLesson({id:'x',symbol:'WUSDT',side:'SHORT',rule:'SHORT_TOP_FADE',mode:'TEST',entryPrice:0.019518,tpPrice:0.017567,stopPct:0.0259,openedAt:now-H,closedAt:now,exitPrice:0.0194},{netPnl:1,rMultiple:0.2,exitType:'TOP3_STOP_OR_EXTERNAL'},null);
+  assert.equal(l.kind,'UNLABELED');assert.equal(l.pathSource,'NONE');
+  assert.equal(T3.experienceSummary([l]).groups[0].kind,'UNLABELED');
+});

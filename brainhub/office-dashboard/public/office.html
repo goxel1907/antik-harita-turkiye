@@ -1856,7 +1856,7 @@ function renderTop3(s){
   const L=t.learning;
   if(L){
     html+=`<p><b>📚 İlk 3 hafızası</b> — ${Number(L.lessons)||0} ders (her kapanan işlem: giriş koşulları, en iyi/en kötü fiyat, sonuç). JEV modu açıkken JEV her kararda bunu okur; kurallar kendiliğinden değişmez. TEST: sınırsız giriş, tekrar sinyaller de (TEKRAR etiketli); CANLI: en çok ${esc(L.limitsInLive?.maxActive??2)} poz, yalnız yeni sinyal.</p>`;
-    const kindTr=k=>k==='REPEAT'?'tekrar':'yeni',pc=v=>v===null||v===undefined?'—':(v>=0?'+':'')+(v*100).toFixed(1).replace('.',',')+'%';
+    const kindTr=k=>k==='REPEAT'?'tekrar':k==='FRESH'?'yeni':'etiketsiz (eski sürüm)',pc=v=>v===null||v===undefined?'—':(v>=0?'+':'')+(v*100).toFixed(1).replace('.',',')+'%';
     for(const g of L.groups||[])html+=`<p>• ${esc(g.mode)} ${esc(t3tr(g.rule))} (${kindTr(g.kind)} sinyal): ${g.n} işlem • ${g.wins} kazanç / ${g.losses} kayıp • ort ${g.avgR===null?'—':String(g.avgR.toFixed(2)).replace('.',',')} R • ort en iyi ${pc(g.avgMfePct)} / en kötü ${pc(g.avgMaePct)} • hedef ${g.targetHit} • stop ${g.stopped} (yarı hedeften sonra ${g.stoppedAfterHalfTarget}) • süre ${g.timeExit} • net ${pnl(g.netPnl)}</p>`;
     for(const [rule,b] of Object.entries(L.buckets||{}))if(b)html+=`<p>• ${esc(t3tr(rule))} / ${esc(b.label)}: `+b.rows.filter(r=>r.n).map(r=>`${pc(r.from)}–${r.to===null?'…':pc(r.to)}: ${r.n} işlem, ${r.wins} kazanç, ort ${r.avgR===null?'—':String(r.avgR.toFixed(2)).replace('.',',')} R`).join(' • ')+'</p>';
     for(const x of (L.recent||[]).slice(0,5))html+=`<p class="t3rule">${esc(x.symbol)} — ${esc(x.lessonTr)}</p>`;
