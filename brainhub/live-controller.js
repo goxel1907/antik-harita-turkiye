@@ -353,7 +353,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const burstPullback=new Map();
   // R2544.56 İlk 3 Avcısı state: own lots (data/top3-hunter-state.json, survives restarts) and the hourly rank book.
   const TOP3_STATE_FILE=path.join(String(root),'data','top3-hunter-state.json');
-  let top3State=(()=>{try{const x=JSON.parse(fs.readFileSync(TOP3_STATE_FILE,'utf8'));if(x&&typeof x.active==='object'&&x.active&&Array.isArray(x.pendingCloses))return x;}catch{}return {version:top3Lib.TOP3_VERSION,active:{},pendingCloses:[],recentCloses:[],recentSignals:[],lastEntry:{},lastScanHour:null,lastScan:null,bootstrap:null};})();
+  let top3State=(()=>{try{const x=JSON.parse(fs.readFileSync(TOP3_STATE_FILE,'utf8'));if(x&&typeof x.active==='object'&&x.active&&Array.isArray(x.pendingCloses))return x;}catch{}return {version:top3Lib.TOP3_VERSION,active:{},pendingCloses:[],recentCloses:[],recentSignals:[],lastEntry:{},lastScanHour:null,lastScan:null,bootstrap:null,lessons:[]};})();
+  if(!Array.isArray(top3State.lessons))top3State.lessons=[];
   const saveTop3State=()=>{try{fs.mkdirSync(path.dirname(TOP3_STATE_FILE),{recursive:true});const tmp=TOP3_STATE_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(top3State),'utf8');fs.renameSync(tmp,TOP3_STATE_FILE);}catch{}};
   const top3Ranks=new top3Lib.RankBook({file:path.join(String(root),'data','top3-ranks.json'),keepHours:200});
   const activeTop3For=symbol=>{const s=String(symbol||'').toUpperCase();return Object.values(top3State.active||{}).find(a=>String(a?.symbol||'').toUpperCase()===s)||null;};
@@ -5782,8 +5783,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(sig.ok){
           if(sig.side==='LONG'&&!btcClose){try{btcClose=new Map((await top3Klines('BTCUSDT',100)).map(r=>[r[0],r[4]]));}catch{btcClose=new Map();}}
           const fr=top3Freshness(s,sig.side,k,T,cfg,btcClose);
-          if(!fr.counted){const st={...view,firstHit:fr.firstHit?new Date(fr.firstHit).toISOString():null,lastCounted:fr.lastCounted?new Date(fr.lastCounted).toISOString():null};out.stale.push(st);try{store.journal('TOP3_SIGNAL_STALE',s,{...st,candle:out.candle,version:top3Lib.TOP3_VERSION});}catch{}continue;}
-          out.signals.push({...view,sig,f});try{store.journal('TOP3_SIGNAL',s,{...view,candle:out.candle,btc24,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}
+          const kind=fr.counted?'FRESH':'REPEAT',lastCounted=fr.lastCounted?new Date(fr.lastCounted).toISOString():null;
+          // LIVE takes only what the research would count; TEST (user 13.10: "gördüğü sinyale girsin") also takes a REPEAT,
+          // labelled, so its results are measured apart from the research-equivalent FRESH ones.
+          if(!fr.counted&&!testModeNow()){const st={...view,firstHit:fr.firstHit?new Date(fr.firstHit).toISOString():null,lastCounted};out.stale.push(st);try{store.journal('TOP3_SIGNAL_STALE',s,{...st,candle:out.candle,version:top3Lib.TOP3_VERSION});}catch{}continue;}
+          out.signals.push({...view,kind,lastCounted,sig,f});try{store.journal('TOP3_SIGNAL',s,{...view,kind,lastCounted,candle:out.candle,btc24,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}
         }
         else if(sig.reasons.length<=2)out.nearMisses.push(view);
       }
@@ -5791,28 +5795,32 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     if(!gate.ok)return out;
     for(const x of out.signals){
-      const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
-      if(Object.keys(top3State.active).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}
-      const key=x.symbol+':'+x.side;if(clock()-(finite(top3State.lastEntry?.[key])||0)<24*TOP3_HOUR){res.reason='TOP3_SAME_SIGNAL_24H';continue;}
+      const res={symbol:x.symbol,side:x.side,rule:x.rule,kind:x.kind};out.entries.push(res);
+      // R2544.56 (user 13.10: "testte sınır koyma, canlıda max poz sınırı var"): TEST enters every signal (only a coin that
+      // already has a position is skipped, Binance would merge the lots); LIVE keeps maxActive and the 24 h same-signal block.
+      const liveLimits=!testModeNow();
+      if(liveLimits&&Object.keys(top3State.active).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}
+      const key=x.symbol+':'+x.side;if(liveLimits&&clock()-(finite(top3State.lastEntry?.[key])||0)<24*TOP3_HOUR){res.reason='TOP3_SAME_SIGNAL_24H';continue;}
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       let jev=null;
       if(cfg.jevMode===true){
         let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
         if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
-        try{jev=await top3Judge({symbol:x.symbol,signal:x.sig,features:x.f,rank:x.rank,btc24,candle:out.candle,chartContext,learning:store.learningContext?.({symbol:x.symbol})});}catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
+        try{jev=await top3Judge({symbol:x.symbol,signal:x.sig,features:x.f,rank:x.rank,btc24,candle:out.candle,chartContext,signalKind:x.kind,experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
         const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
         res.jev=ev;
         if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
       }
-      const opened=await top3Open(x.sig,x.symbol,cfg,jev);
+      const ef=x.f?.ok?{rank:x.rank??null,btc24:btc24!==null?Number(btc24.toFixed(4)):null,r1:Number(x.f.r1.toFixed(4)),r3:Number(x.f.r3.toFixed(4)),r24:Number(x.f.r24.toFixed(4)),vr1:x.f.vr1!==null?Number(x.f.vr1.toFixed(2)):null,vol30:x.f.vol30!==null?Number(x.f.vol30.toFixed(4)):null,breakout7d:x.f.breakout7d,dropFromPeak:Number(x.f.dropFromPeak.toFixed(4)),red:x.f.red}:null;
+      const opened=await top3Open(x.sig,x.symbol,cfg,jev,{signalKind:x.kind,lastCounted:x.lastCounted,entryFeatures:ef});
       Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason});
       if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[key]:clock()};saveTop3State();}
       else try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:opened});}catch{}
     }
     return out;
   }
-  async function top3Open(sig,symbol,cfg,jev){
+  async function top3Open(sig,symbol,cfg,jev,ctx={}){
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
     const side=sig.side,la=readLeaderAutoConfig();
     const acct=await accountSummary({maxAgeMs:3000});const avail=finite(acct?.availableBalance);
@@ -5862,7 +5870,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const tp=await transport.placeTakeProfit({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:tpPrice,clientAlgoId:('T3T'+id).slice(0,36),credentials:creds});
     const a={id,symbol,side,rule:sig.rule,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
       stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
-      jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0};
+      jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0,
+      signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0};
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
     try{store.journal('TOP3_ENTRY',symbol,{...a,version:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
@@ -5908,6 +5917,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         top3Finish(a,{exitReason,exitPrice,closedAt:closedAt&&closedAt<=clock()?closedAt:null});continue;
       }
       const mark=finite(r.markPrice);a.lastMark=mark;a.checkedAt=clock();
+      if(mark>0&&a.entryPrice>0){const fav=a.side==='LONG'?mark/a.entryPrice-1:1-mark/a.entryPrice;a.sampleMfePct=Math.max(finite(a.sampleMfePct)??0,fav);a.sampleMaePct=Math.min(finite(a.sampleMaePct)??0,fav);}
       // Target fallback when the exchange refused the TAKE_PROFIT order; time exit after maxHoldH. Orders only while armed.
       const tpHit=!a.tpOnExchange&&mark>0&&(a.side==='LONG'?mark>=a.tpPrice:mark<=a.tpPrice);
       const timeUp=clock()>=a.deadline;
@@ -5921,7 +5931,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     saveTop3State();
     return {active:Object.keys(top3State.active).length};
   }
-  function top3CloseRecord(c,inc){
+  function top3CloseRecord(c,inc,path=null){
     const qty=finite(c.quantity),entry=finite(c.entryPrice),stop=finite(c.stopPrice);
     const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
     const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
@@ -5934,7 +5944,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       outcomePct:netPnl!==null&&notional>0?netPnl/notional*100:null,rMultiple:netPnl!==null&&riskQuote>0?netPnl/riskQuote:null,
       exitType,exitEvidenceVersion:top3Lib.TOP3_VERSION,openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
       entryContext:{why:top3Why(c),setup,setupFamily:'TOP3',entryTiming:'HOURLY_CLOSE',lane:'TOP3_HUNTER',releaseContract:top3Lib.TOP3_VERSION,strategyVersion:top3Lib.TOP3_VERSION,source:'TOP3',
-        top3:{id:c.id,rule:c.rule||null,leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),tpPrice:finite(c.tpPrice),exitPrice:finite(c.exitPrice),jevMode:c.jevMode===true,jev:c.jev||null}},
+        top3:{id:c.id,rule:c.rule||null,signalKind:c.signalKind||'FRESH',leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),tpPrice:finite(c.tpPrice),exitPrice:finite(c.exitPrice),jevMode:c.jevMode===true,jev:c.jev||null,
+          entryFeatures:c.entryFeatures||null,mfePct:path?Number(path.mfePct.toFixed(4)):finite(c.sampleMfePct),maePct:path?Number(path.maePct.toFixed(4)):finite(c.sampleMaePct),pathSource:path?'5m':'SAMPLES_30S'}},
       eventId:'TOP3:'+c.id,closeBusinessKey:'TOP3:'+c.id,incomeAvailable:inc!==null,learningAuthority:'EXCLUDED_TOP3_LANE'};
   }
   async function top3FinalizeCloses(){
@@ -5949,8 +5960,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const inc=await positionIncome(c.symbol,Math.max(0,(finite(c.startedAt)||finite(c.openedAt)||closedAt)-2000),Math.min(clock(),Math.max(closedAt,finite(c.detectedAt)||closedAt)+2000),creds);
       if(!inc&&clock()-closedAt<10*60000)continue;
       const i=top3State.pendingCloses.indexOf(c);if(i>=0)top3State.pendingCloses.splice(i,1);
-      const record=top3CloseRecord(c,inc);
-      if(appendClosedOnce(c.symbol,record))done.push({symbol:c.symbol,...record});
+      let path=null;
+      try{const t0=finite(c.openedAt)||closedAt,k5=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:c.symbol,interval:'5m',startTime:String(Math.floor(t0/300000)*300000),endTime:String(closedAt),limit:'320'}});
+        path=top3Lib.excursions(c.side,c.entryPrice,Array.isArray(k5)?k5.map(r=>[Number(r[0]),Number(r[1]),Number(r[2]),Number(r[3]),Number(r[4])]):[]);}catch{path=null;}
+      const record=top3CloseRecord(c,inc,path);
+      const booked=appendClosedOnce(c.symbol,record);if(booked)done.push({symbol:c.symbol,...record});
+      if(booked||!top3State.lessons.some(l=>l.id===c.id)){
+        const lesson=top3Lib.buildLesson(c,record,path);
+        if(!top3State.lessons.some(l=>l.id===lesson.id)){top3State.lessons.push(lesson);if(top3State.lessons.length>500)top3State.lessons=top3State.lessons.slice(-500);}
+        try{store.journal('TOP3_LESSON',c.symbol,lesson);}catch{}
+        try{store.recordLearning?.('TOP3_LESSON',c.symbol,{...lesson,setup:'TOP3_'+(c.rule||''),outcomePct:lesson.resultPct!==null?lesson.resultPct*100:null,authority:'TOP3_LANE_MEMORY'});}catch{}
+      }
       const rc=(top3State.recentCloses||[]).find(x=>x.id===c.id);if(rc){rc.netPnl=record.netPnl;rc.rMultiple=record.rMultiple;}
     }
     saveTop3State();
@@ -6018,6 +6038,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
+      learning:{...top3Lib.experienceSummary(top3State.lessons),limitsInTest:'NONE',limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'}},
       windowResults:top3State.window?sum(measured.filter(p=>p.tradingMode==='TEST'&&Date.parse(p.openedAt||p.closedAt||'')>=top3State.window.startedAt)):null,
       history:{hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR),bootstrap:top3State.bootstrap||null},
       pendingCloses:(top3State.pendingCloses||[]).length,nextScanAt:new Date(Math.floor(now/TOP3_HOUR)*TOP3_HOUR+TOP3_HOUR+40000).toISOString()};

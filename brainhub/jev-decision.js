@@ -1817,14 +1817,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
 
   // R2544.56 İLK 3 AVCISI JEV modu: a deterministic hourly rule already fired (top3-hunter.js); JEV only approves or
   // rejects that one entry. Fail-closed: anything but a clean APPROVE_ENTRY means no trade. Never places orders.
-  async function sovereignTop3Gate({symbol:requestedSymbol=null,signal,features,rank=null,btc24=null,candle=null,chartContext=null,learning=null}={}){
+  async function sovereignTop3Gate({symbol:requestedSymbol=null,signal,features,rank=null,btc24=null,candle=null,chartContext=null,signalKind='FRESH',experience=null}={}){
     if(!configured)return {ok:false,configured:false,called:false,decision:'REJECT_ENTRY',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     const symbol=String(requestedSymbol||chartContext?.symbol||'').toUpperCase()||null;
     if(!/^[A-Z0-9]{1,28}USDT$/.test(String(symbol||'')))return {ok:false,called:false,decision:'REJECT_ENTRY',reason:'TOP3_SYMBOL_INVALID'};
     if(!signal?.ok||!['LONG','SHORT'].includes(signal.side)||!features?.ok)return {ok:false,called:false,decision:'REJECT_ENTRY',reason:'TOP3_SIGNAL_INVALID'};
     const r4=v=>finiteNumber(v)!==null?Number(Number(v).toFixed(4)):null;
     const record={
-      contract:'R2544.56_TOP3_GATE',symbol,side:signal.side,rule:signal.rule,candleOpenTime:candle,gainerRank:finiteNumber(rank),btc24hPct:btc24!==null?r4(btc24*100):null,
+      contract:'R2544.56_TOP3_GATE',symbol,side:signal.side,rule:signal.rule,signalKind,candleOpenTime:candle,gainerRank:finiteNumber(rank),btc24hPct:btc24!==null?r4(btc24*100):null,
       features:{close:finiteNumber(features.close),r1Pct:r4(features.r1*100),r3Pct:r4(features.r3*100),r24Pct:r4(features.r24*100),hourVolumeVs7dMedian:r4(features.vr1),breakout7dHigh:features.breakout7d===true,
         vol30dHourlyPct:r4((features.vol30||0)*100),peak24h:finiteNumber(features.peak24),dropFromPeak24hPct:r4(features.dropFromPeak*100),redHour:features.red===true,high3h:finiteNumber(features.high3)},
       plan:signal.side==='LONG'?{stopPct:r4(signal.stopPct*100),targetPct:r4(signal.tpPct*100),maxHoldH:Math.round((signal.maxHoldMs||0)/3600000)}:{stopAbove:finiteNumber(signal.stopRef),targetPct:r4(signal.tpPct*100),maxHoldH:Math.round((signal.maxHoldMs||0)/3600000)},
@@ -1832,9 +1832,11 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         ?'6 months / 659 USDT perps hourly: this LONG rule fired ~1 per day; stop -8% / target +30% / 24 h; small sample, positive in both halves. Most top-gainer signals fail after fees; the rule is a measured experiment.'
         :'6 months hourly: after a top-3 gainer falls >=15% from its 24 h peak on a red, high-volume hour, the SHORT to -10% (stop above the last 3 h high) was positive in both halves; tail risk is a renewed squeeze.'
     };
-    const state={description:'JEV hourly gate for the İlk 3 Avcısı lane. A fixed rule has ALREADY fired for this USDT perpetual at the close of the last 1h candle; the code will enter at market with the stated stop/target/time limit if and only if you APPROVE. Judge only this one entry: is the move still early enough (LONG) or genuinely exhausted (SHORT), is the remaining path to the target clear of nearby opposing structure, is BTC/market context adverse? Closed candles only; missing data is not confirmation. Reject when unsure.',record};
+    const state={description:'JEV hourly gate for the İlk 3 Avcısı lane. A fixed rule has ALREADY fired for this USDT perpetual at the close of the last 1h candle; the code will enter at market with the stated stop/target/time limit if and only if you APPROVE. Judge only this one entry: is the move still early enough (LONG) or genuinely exhausted (SHORT), is the remaining path to the target clear of nearby opposing structure, is BTC/market context adverse? Closed candles only; missing data is not confirmation. state.laneExperience is this lane\'s own measured history of the same rule (results, best/worst excursion, feature buckets, latest lessons): learn from it, but treat fewer than 10 lots as anecdote. Reject when unsure.',record};
     if(chartContext?.available===true&&chartContext.packet&&chartContext.symbol===symbol){state.coreMarketPacket=chartContext.packet;state.chartCache={asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source};}
-    if(learning)state.experienceMemory=compactExperienceMemory(learning,2500);
+    // The lane's own measured memory of this rule (closed lots, MFE/MAE, buckets, latest lessons). FRESH = the rule's first
+    // hit (as researched); REPEAT = it already fired on this coin within 24 h.
+    if(experience&&typeof experience==='object')state.laneExperience=experience;
     const body={model:cfg.model,state,questions:{
       top3_decision:{type:'choice',instructions:'Approve or reject this single rule-fired entry.',criteria:{APPROVE_ENTRY:'Enter now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
       top3_reason:{type:'choice',instructions:'Primary reason for the decision.',criteria:{EARLY_CONTINUATION:'LONG move still early with room to the target.',EXHAUSTION_CONFIRMED:'SHORT: the top is in and the fade has room.',LATE_OR_CROWDED:'Move already extended/crowded; poor remaining path.',STRUCTURE_ADVERSE:'Nearby opposing structure blocks the target.',MARKET_ADVERSE:'BTC/market context is adverse.',DATA_NOT_READY:'Material data missing or stale.',NO_EDGE:'No credible edge.'}}

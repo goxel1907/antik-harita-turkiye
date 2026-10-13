@@ -92,7 +92,7 @@ function fixture({otoEnabled=false,mode='TEST',top3=null,judge=null}={}){
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:otoEnabled,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
   if(top3)fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify(top3));
   writeTradingMode(root,{mode,changedAt:'2026-10-12T10:00:00.000Z',testStartedAt:null,testAutoRun:mode==='TEST'});
-  const state={now:HOUR0-3600000+5000,calls:[],px:{},klines:{},tick:{},streamed:[]},events=[];
+  const state={now:HOUR0-3600000+5000,calls:[],px:{},klines:{},k5:{},tick:{},streamed:[]},events=[];
   const others=Array.from({length:60},(_,i)=>'C'+String(i).padStart(2,'0')+'USDT');
   for(let i=0;i<others.length;i++)state.tick[others[i]]=10-i*0.3;
   state.tick.BTCUSDT=0.5;
@@ -108,18 +108,21 @@ function fixture({otoEnabled=false,mode='TEST',top3=null,judge=null}={}){
     if(p==='/fapi/v1/ticker/24hr'){if(state.tickerFail>0){state.tickerFail--;throw new Error('network down');}
       // live size: ~690 contracts x ~400 B = ~280 KB (above the 256 KB default response cap)
       return ok(Object.entries(state.tick).map(([symbol,v])=>({symbol,priceChangePercent:String(v),pad:'x'.repeat(4800)})));}
+    if(p==='/fapi/v1/klines'&&u.searchParams.get('interval')==='5m')return ok((state.k5[u.searchParams.get('symbol')]||[]).map(r=>r.map(String)));
     if(p==='/fapi/v1/klines'){const s=u.searchParams.get('symbol'),hour=Math.floor(state.now/H)*H;const k=(state.klines[s]||(e=>candles(e,721)))(hour-H);return ok([...k,[hour,1,1,1,1,1]].map(r=>[r[0],String(r[1]),String(r[2]),String(r[3]),String(r[4]),String(r[5])]));}
     if(p==='/fapi/v1/leverageBracket')return ok([{symbol:u.searchParams.get('symbol'),brackets:[{bracket:1,initialLeverage:50,notionalCap:1000000,notionalFloor:0}]}]);
     throw new Error('UNEXPECTED '+m+' '+p);};
-  const controller=require('../live-controller').createLiveController({root,clock:()=>state.now,store:{journal:(k,s,p)=>events.push({k,s,p})},
+  const store={journal:(k,s,p)=>events.push({k,s,p}),recordLearning:(k,s,p)=>events.push({k:'LEARN:'+k,s,p})};
+  const make=()=>require('../live-controller').createLiveController({root,clock:()=>state.now,store,
     scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),credentials:FAKE,fetchImpl,paperAutoTick:false,defaultTradingMode:mode,top3Judge:judge,
     market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol:s=>{state.streamed.push(s);}}}}); // no real WebSocket in tests
+  const controller=make();
   const paper=controller._testPaper();
   const ranks=controller._testTop3Ranks();
   // 168 hours of rank history so no bootstrap is needed: the C coins fill the top; SIG was 5th once (50 h ago).
   const seed=(extra={})=>{const T=HOUR0-H;for(let t=T-168*H;t<T;t+=H){const m={};others.slice(0,50).forEach((s,i)=>{m[s]=i+1;});for(const [s,r] of Object.entries(extra[t]||{}))m[s]=r;ranks.record(t,m);}};
   const kinds=k=>events.filter(e=>e.k===k);
-  return {root,state,events,kinds,controller,paper,ranks,seed,others};
+  return {root,state,events,kinds,controller,paper,ranks,seed,others,restart:make};
 }
 const LONG_TAIL=[[1.0,1.42,0.99,1.40,5000]];
 const startTest=async f=>{const r=await f.controller.testSupervisorTick();assert.equal(r.action,'TEST_ARMED',JSON.stringify(r));assert.equal(f.controller.status().armed,true);};
@@ -315,17 +318,71 @@ test('R56 research dedupe: first hit counts, then one per coin and rule per 24 h
   assert.equal(T3.countedSignalAt(hits,t0+30*H).lastCounted,t0+25*H);
 });
 
-test('R56 live fix: a SHORT whose rule already held hours earlier (GTC/W 13.10) is reported as stale, no entry',async()=>{
+test('R56 repeat signal (rule already fired on the coin within 24 h, GTC/W 13.10): TEST takes it labelled REPEAT, LIVE leaves it out',async()=>{
+  const tail=[[1.0,2.0,0.99,1.95,800],[1.95,1.96,1.80,1.82,600],[1.82,1.83,1.70,1.72,500],[1.72,1.72,1.66,1.66,400],[1.66,1.66,1.63,1.64,200],[1.64,1.655,1.62,1.65,300],[1.65,1.66,1.58,1.60,400]];
+  // T-3 already satisfies the rule (red, 17% below the peak, volume 4x): T is a repeat, the research entered at T-3
   const f=fixture({top3:{enabled:true}});
-  f.seed({[HOUR0-H-5*H]:{SIGUSDT:2}});
-  f.state.tick.SIGUSDT=5;f.state.px.SIGUSDT={bid:1.60,ask:1.601};
-  // T-3 already satisfies the rule (red, 17% below the peak, volume 4x): T is not a new signal
-  f.state.klines.SIGUSDT=e=>candles(e,721,[[1.0,2.0,0.99,1.95,800],[1.95,1.96,1.80,1.82,600],[1.82,1.83,1.70,1.72,500],[1.72,1.72,1.66,1.66,400],[1.66,1.66,1.63,1.64,200],[1.64,1.655,1.62,1.65,300],[1.65,1.66,1.58,1.60,400]]);
+  f.seed({[HOUR0-H-5*H]:{SIGUSDT:2}});f.state.tick.SIGUSDT=5;f.state.px.SIGUSDT={bid:1.60,ask:1.601};f.state.klines.SIGUSDT=e=>candles(e,721,tail);
   await startTest(f);atScan(f);
   const r=await f.controller.top3Tick();
-  assert.equal(r.signals,0);assert.equal(r.entries,0);
-  const ls=f.controller.top3Status().lastScan;
-  assert.equal(ls.stale.length,1);assert.equal(ls.stale[0].symbol,'SIGUSDT');assert.equal(ls.stale[0].side,'SHORT');
-  assert.equal(ls.stale[0].lastCounted,new Date(HOUR0-H-3*H).toISOString(),'the research entered 3 hours earlier');
-  assert.equal(f.kinds('TOP3_SIGNAL_STALE').length,1);assert.equal(f.paper.summary().openPositions,0);
+  assert.equal(r.signals,1);assert.equal(r.entries,1,'TEST: "gördüğü sinyale girsin"');
+  const st=f.controller.top3Status();
+  assert.equal(st.active[0].signalKind,'REPEAT');assert.equal(st.lastScan.entries[0].kind,'REPEAT');
+  assert.equal(f.kinds('TOP3_SIGNAL')[0].p.kind,'REPEAT');assert.equal(f.kinds('TOP3_SIGNAL')[0].p.lastCounted,new Date(HOUR0-H-3*H).toISOString());
+  // LIVE (lane on, live allowed, not armed: the scan still classifies): only what the research would count
+  const g=fixture({mode:'LIVE',top3:{enabled:true,liveEnabled:true}});
+  g.seed({[HOUR0-H-5*H]:{SIGUSDT:2}});g.state.tick.SIGUSDT=5;g.state.px.SIGUSDT={bid:1.60,ask:1.601};g.state.klines.SIGUSDT=e=>candles(e,721,tail);
+  atScan(g);const r2=await g.controller.top3Tick();
+  assert.equal(r2.signals,0);
+  const ls=g.controller.top3Status().lastScan;
+  assert.equal(ls.stale.length,1);assert.equal(ls.stale[0].symbol,'SIGUSDT');assert.equal(ls.stale[0].lastCounted,new Date(HOUR0-H-3*H).toISOString());
+  assert.equal(g.kinds('TOP3_SIGNAL_STALE').length,1);
+});
+
+test('R56 TEST has no slot limit (user 13.10: "testte sınır koyma"): every signal is entered; LIVE keeps maxActive',async()=>{
+  const f=fixture({top3:{enabled:true}});
+  const syms=['S1USDT','S2USDT','S3USDT'],extra={};syms.forEach(x=>{extra[x]=6;});
+  f.seed({[HOUR0-H-50*H]:extra});
+  syms.forEach((x,i)=>{f.state.tick[x]=40-i;f.state.px[x]={bid:1.40,ask:1.401};f.state.klines[x]=e=>candles(e,721,LONG_TAIL);});
+  await startTest(f);atScan(f);
+  const r=await f.controller.top3Tick();
+  assert.equal(r.signals,3);assert.equal(r.entries,3,'maxActive 2 does not apply in TEST');
+  assert.equal(f.controller.top3Status().active.length,3);
+  assert.equal(f.controller.top3Status().learning.limitsInTest,'NONE');assert.equal(f.controller.top3Status().learning.limitsInLive.maxActive,2);
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  assert.ok(lc.includes("if(liveLimits&&Object.keys(top3State.active).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}"),'LIVE slot limit kept');
+});
+
+test('R56 İlk 3 hafızası: a closed lot becomes a lesson (5m best/worst excursion), JEV mode reads it on the next signal, it survives a restart',async()=>{
+  const seen=[];
+  const f=fixture({top3:{enabled:true,jevMode:true},judge:async x=>{seen.push(x);return {ok:true,called:true,decision:'APPROVE_ENTRY',reason:'EARLY_CONTINUATION'};}});
+  f.seed({[HOUR0-H-50*H]:{SIGUSDT:5,SIG2USDT:5}});
+  f.state.tick.SIGUSDT=40;f.state.px.SIGUSDT={bid:1.40,ask:1.401};f.state.klines.SIGUSDT=e=>candles(e,721,LONG_TAIL);
+  await startTest(f);atScan(f);
+  await f.controller.top3Tick();
+  assert.equal(seen.length,1);assert.equal(seen[0].experience.closedLots,0,'no history yet');assert.equal(seen[0].signalKind,'FRESH');
+  // the lot runs to the target; 5m path: best 1.85 (+32%), worst 1.38 (-1.5%)
+  const t0=f.state.now;
+  f.state.k5.SIGUSDT=[[t0,1.40,1.41,1.38,1.40,10],[t0+300000,1.40,1.85,1.39,1.83,10]];
+  f.state.px.SIGUSDT={bid:1.83,ask:1.831};f.state.now+=1000;await f.paper.tick();
+  f.state.now+=30000;await f.controller.top3Tick();
+  const st=f.controller.top3Status();
+  assert.equal(st.learning.lessons,1);
+  const g=st.learning.groups[0];assert.deepEqual([g.mode,g.rule,g.kind,g.n,g.wins,g.targetHit],['TEST','LONG_6OF6','FRESH',1,1,1]);
+  const lesson=f.kinds('TOP3_LESSON')[0].p;
+  assert.equal(lesson.verdict,'WIN');assert.equal(lesson.pathSource,'5m');
+  assert.ok(Math.abs(lesson.mfePct-(1.85/1.401-1))<1e-4);assert.ok(Math.abs(lesson.maePct-(1.38/1.401-1))<1e-4);
+  assert.ok(lesson.tags.includes('TARGET_HIT'));assert.equal(lesson.features.rank,1);assert.ok(lesson.features.vr1>=33.9);
+  assert.ok(lesson.lessonTr.startsWith('LONG 6/6: kazanç'),lesson.lessonTr);
+  assert.equal(f.kinds('LEARN:TOP3_LESSON').length,1,'also written to the learning store');
+  const closed=f.kinds('POSITION_CLOSED')[0].p;assert.equal(closed.entryContext.top3.pathSource,'5m');assert.equal(closed.entryContext.top3.signalKind,'FRESH');
+  // next hour, a new LONG on another coin: JEV gets the lane memory with the first lesson
+  f.state.now=HOUR0+H+60000;f.state.tick.SIG2USDT=39;f.state.px.SIG2USDT={bid:1.40,ask:1.401};f.state.klines.SIG2USDT=e=>candles(e,721,LONG_TAIL);
+  f.state.klines.SIGUSDT=e=>candles(e,721);
+  await f.controller.top3Tick();
+  assert.equal(seen.length,2);
+  const ex=seen[1].experience;assert.equal(ex.rule,'LONG_6OF6');assert.equal(ex.closedLots,1);assert.equal(ex.recent[0].symbol,'SIGUSDT');assert.equal(ex.recent[0].verdict,'WIN');
+  assert.equal(ex.note,'FEW_SAMPLES_TREAT_AS_ANECDOTE');
+  // the memory is in the lane's state file: a restarted controller still has it
+  const again=f.restart();assert.equal(again.top3Status().learning.lessons,1);
 });

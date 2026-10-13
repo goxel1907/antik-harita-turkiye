@@ -163,4 +163,100 @@ function ranksFromTickers(rows, tradable = null) {
   const out = {}; list.forEach((x, i) => { out[x.s] = i + 1; }); return out;
 }
 
-module.exports = { TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
+// ---------------------------------------------------------------------------------------------------------------
+// R2544.56 İlk 3 hafızası (user 13.10.2026: "beyin öğreniyor, kesin öğrendiğine emin ol; hatalarını görsün"). Every
+// closed lot becomes a deterministic lesson (no model): entry features, the best and worst price excursion while it was
+// open (5m candles), result, exit. The lane's own memory aggregates them per rule and signal kind (FRESH = the research
+// would count it, REPEAT = the rule had already fired on this coin within 24 h); JEV mode reads it on every decision.
+// The rules themselves never change by themselves: a rule change is a measured, user-approved release.
+// ---------------------------------------------------------------------------------------------------------------
+// candles: [openTime, open, high, low, close, ...] while the lot was open. Signed in the trade's direction:
+// mfePct > 0 is the best move in favour, maePct < 0 the worst move against.
+function excursions(side, entry, candles) {
+  const e = finite(entry);
+  const rows = (Array.isArray(candles) ? candles : []).map(r => [finite(r[0]), finite(r[2]), finite(r[3])]).filter(r => r.every(x => x !== null));
+  if (!(e > 0) || !rows.length) return null;
+  let hi = -Infinity, lo = Infinity, hiAt = null, loAt = null;
+  for (const [t, h, l] of rows) { if (h > hi) { hi = h; hiAt = t; } if (l < lo) { lo = l; loAt = t; } }
+  return side === 'LONG'
+    ? { mfePct: hi / e - 1, maePct: lo / e - 1, mfeAt: hiAt, maeAt: loAt, bars: rows.length }
+    : { mfePct: 1 - lo / e, maePct: 1 - hi / e, mfeAt: loAt, maeAt: hiAt, bars: rows.length };
+}
+const pctTr = v => v === null || v === undefined ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1).replace('.', ',') + '%';
+const RULE_TR = { LONG_6OF6: 'LONG 6/6', SHORT_TOP_FADE: 'SHORT tepe sonrası' };
+const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer' };
+// lot: the closed lot (state record + exitPrice/closedAt); close: the POSITION_CLOSED record; path: excursions() or null.
+function buildLesson(lot, close, path) {
+  const side = lot.side, entry = finite(lot.entryPrice), exit = finite(lot.exitPrice) ?? null;
+  const stopPct = finite(lot.stopPct), tp = finite(lot.tpPrice);
+  const targetPct = entry > 0 && tp > 0 ? (side === 'LONG' ? tp / entry - 1 : 1 - tp / entry) : null;
+  const resultPct = entry > 0 && exit > 0 ? (side === 'LONG' ? exit / entry - 1 : 1 - exit / entry) : null;
+  const net = finite(close?.netPnl), r = finite(close?.rMultiple);
+  const mfe = path ? path.mfePct : finite(lot.sampleMfePct), mae = path ? path.maePct : finite(lot.sampleMaePct);
+  const exitType = close?.exitType || null;
+  const tags = [];
+  if (exitType === 'TOP3_TAKE_PROFIT') tags.push('TARGET_HIT');
+  if (exitType === 'TOP3_STOP' || exitType === 'TOP3_STOP_OR_EXTERNAL') tags.push('STOPPED');
+  if (exitType === 'TOP3_TIME_EXIT') tags.push('TIME_EXIT');
+  if (tags.includes('STOPPED') && targetPct > 0 && mfe !== null && mfe >= targetPct / 2) tags.push('STOPPED_AFTER_HALF_TARGET');
+  if (mfe !== null && mfe < 0.002) tags.push('NEVER_IN_PROFIT');
+  if (lot.signalKind === 'REPEAT') tags.push('REPEAT_SIGNAL');
+  const holdH = finite(lot.openedAt) && finite(lot.closedAt) ? (lot.closedAt - lot.openedAt) / HOUR : null;
+  const verdict = net === null ? 'UNKNOWN' : net > 0 ? 'WIN' : net < 0 ? 'LOSS' : 'FLAT';
+  const lessonTr = `${RULE_TR[lot.rule] || lot.rule}${lot.signalKind === 'REPEAT' ? ' (tekrar sinyal)' : ''}: ` +
+    `${verdict === 'WIN' ? 'kazanç' : verdict === 'LOSS' ? 'kayıp' : verdict === 'FLAT' ? 'başabaş' : 'sonuç bilinmiyor'} ${pctTr(resultPct)}` +
+    `${r !== null ? ' / ' + r.toFixed(2).replace('.', ',') + ' R' : ''}${holdH !== null ? ', ' + holdH.toFixed(1).replace('.', ',') + ' sa' : ''}; ` +
+    `en iyi ${pctTr(mfe)}${targetPct > 0 && mfe !== null ? ' (hedefin %' + Math.round(Math.max(0, mfe) / targetPct * 100) + "'i)" : ''}, en kötü ${pctTr(mae)}; çıkış ${EXIT_TR[exitType] || exitType || '—'}.` +
+    (tags.includes('STOPPED_AFTER_HALF_TARGET') ? ' Hedefin yarısını gördükten sonra stop oldu.' : '') +
+    (tags.includes('NEVER_IN_PROFIT') ? ' Hiç kâra geçmedi.' : '');
+  const round4 = v => v === null || v === undefined ? null : Number(Number(v).toFixed(4));
+  return {
+    v: 1, id: lot.id, symbol: lot.symbol, side, rule: lot.rule, kind: lot.signalKind || 'FRESH', mode: lot.mode || 'TEST',
+    openedAt: finite(lot.openedAt), closedAt: finite(lot.closedAt), holdH: round4(holdH), entryPrice: entry, exitPrice: exit,
+    stopPct: round4(stopPct), targetPct: round4(targetPct), resultPct: round4(resultPct), netPnl: net, rMultiple: round4(r), verdict, exitType,
+    mfePct: round4(mfe), maePct: round4(mae), mfeR: stopPct > 0 && mfe !== null ? round4(mfe / stopPct) : null,
+    pathSource: path ? '5m' : (mfe !== null ? 'SAMPLES_30S' : 'NONE'), features: lot.entryFeatures || null, jev: lot.jev?.decision || null, tags, lessonTr
+  };
+}
+const BUCKETS = {
+  SHORT_TOP_FADE: { feature: 'dropFromPeak', label: 'tepeden düşüş', edges: [0.15, 0.25, 0.40] },
+  LONG_6OF6: { feature: 'r24', label: '24 saat yükseliş', edges: [0.133, 0.30, 0.60] }
+};
+function aggregate(xs) {
+  const n = xs.length, num = k => xs.map(x => finite(x[k])).filter(v => v !== null);
+  const avg = k => { const v = num(k); return v.length ? Number((v.reduce((a, b) => a + b, 0) / v.length).toFixed(4)) : null; };
+  const has = t => xs.filter(x => (x.tags || []).includes(t)).length;
+  const wins = xs.filter(x => x.verdict === 'WIN').length, losses = xs.filter(x => x.verdict === 'LOSS').length;
+  return { n, wins, losses, winRate: n ? Number((wins / n).toFixed(3)) : null, avgR: avg('rMultiple'), avgResultPct: avg('resultPct'), avgMfePct: avg('mfePct'), avgMaePct: avg('maePct'),
+    targetHit: has('TARGET_HIT'), stopped: has('STOPPED'), timeExit: has('TIME_EXIT'), stoppedAfterHalfTarget: has('STOPPED_AFTER_HALF_TARGET'), neverInProfit: has('NEVER_IN_PROFIT'),
+    netPnl: Number(num('netPnl').reduce((a, b) => a + b, 0).toFixed(4)) };
+}
+function bucketsFor(lessons, rule) {
+  const b = BUCKETS[rule]; if (!b) return null;
+  const xs = lessons.filter(l => l.rule === rule && finite(l.features?.[b.feature]) !== null);
+  const rows = b.edges.map((lo, i) => {
+    const hi = b.edges[i + 1] ?? Infinity;
+    const g = xs.filter(l => l.features[b.feature] >= lo && l.features[b.feature] < hi);
+    return { from: lo, to: Number.isFinite(hi) ? hi : null, ...aggregate(g) };
+  });
+  return { feature: b.feature, label: b.label, rows };
+}
+function experienceSummary(lessons, { mode = null, recent = 8 } = {}) {
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => !mode || l.mode === mode);
+  const keys = [...new Set(xs.map(l => `${l.mode}|${l.rule}|${l.kind}`))].sort();
+  const groups = keys.map(k => { const [m, rule, kind] = k.split('|'); return { mode: m, rule, kind, ...aggregate(xs.filter(l => `${l.mode}|${l.rule}|${l.kind}` === k)) }; });
+  const rules = [...new Set(xs.map(l => l.rule))];
+  return { lessons: xs.length, groups, buckets: Object.fromEntries(rules.map(r => [r, bucketsFor(xs, r)]).filter(([, v]) => v)),
+    recent: xs.slice(-recent).reverse().map(l => ({ symbol: l.symbol, side: l.side, rule: l.rule, kind: l.kind, mode: l.mode, closedAt: l.closedAt, verdict: l.verdict, rMultiple: l.rMultiple, resultPct: l.resultPct, mfePct: l.mfePct, maePct: l.maePct, exitType: l.exitType, tags: l.tags, lessonTr: l.lessonTr })) };
+}
+// What JEV sees for one rule: this lane's measured history of that rule (both signal kinds, both modes), its feature
+// buckets and the latest lessons with their entry features.
+function experienceFor(lessons, rule, { recent = 6 } = {}) {
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l.rule === rule);
+  const s = experienceSummary(xs, { recent });
+  return { rule, closedLots: xs.length, groups: s.groups, buckets: s.buckets[rule] || null,
+    recent: xs.slice(-recent).reverse().map(l => ({ symbol: l.symbol, side: l.side, kind: l.kind, mode: l.mode, verdict: l.verdict, rMultiple: l.rMultiple, resultPct: l.resultPct, mfePct: l.mfePct, maePct: l.maePct, exitType: l.exitType, features: l.features, lessonTr: l.lessonTr })),
+    note: xs.length < 10 ? 'FEW_SAMPLES_TREAT_AS_ANECDOTE' : 'MEASURED_HISTORY' };
+}
+
+module.exports = { excursions, buildLesson, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

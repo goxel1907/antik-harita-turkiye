@@ -1831,7 +1831,7 @@ function renderTop3(s){
   btn('btnTop3Live',sw.liveEnabled?'Canlıda çalışsın: AÇIK → kapat':'Canlıda çalışsın: KAPALI → aç',sw.liveEnabled,false);
   const fm=(v,d=6)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('tr-TR',{maximumFractionDigits:d});
   const pnl=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+' $';
-  let html=`<p><b>Durum: ${t.running?'ÇALIŞIYOR ('+mode+')':esc(t3tr(t.gate))}</b> • JEV modu ${sw.jevMode?'<b>AÇIK</b> (her sinyal JEV onayından geçer; ücretli)':'kapalı (JEV’siz, ücretsiz)'} • canlı ${sw.liveEnabled?'<b class="mwarn">İZİNLİ</b>':'izinli değil'} • yer ${(t.active||[]).length}/${esc(t.rules?.maxActive??2)}</p>`;
+  let html=`<p><b>Durum: ${t.running?'ÇALIŞIYOR ('+mode+')':esc(t3tr(t.gate))}</b> • JEV modu ${sw.jevMode?'<b>AÇIK</b> (her sinyal JEV onayından geçer; ücretli)':'kapalı (JEV’siz, ücretsiz)'} • canlı ${sw.liveEnabled?'<b class="mwarn">İZİNLİ</b>':'izinli değil'} • ${t.tradingMode==='LIVE'?'yer '+(t.active||[]).length+'/'+esc(t.rules?.maxActive??2):'açık '+(t.active||[]).length+' (TEST’te sınır yok)'}</p>`;
   if(tw&&t.tradingMode!=='LIVE'){
     const pct=Math.min(100,Math.round((Number(tw.elapsedH)||0)/24*100)),wr=t.windowResults;
     html+=`<p><b>24 saatlik test: ${tw.done?'BİTTİ':esc(String(tw.elapsedH).replace('.',','))+' / 24 saat'}</b> <span class="mprog"><i style="width:${pct}%"></i></span> ${tw.done?'':'• kalan '+Math.floor(tw.remainingMin/60)+' sa '+(tw.remainingMin%60)+' dk'} • başlangıç ${esc(new Date(tw.startedAt).toLocaleString('tr-TR'))} • bitiş ${esc(new Date(tw.endsAt).toLocaleString('tr-TR'))}</p>`;
@@ -1839,12 +1839,12 @@ function renderTop3(s){
   }
   html+=`<p class="t3rule">Kurallar (saatlik mum kapanışında): <b>LONG 6/6</b> — 1 saatte ≥ +%3, hacim ≥ 33,9× (7 gün ortancası), 7 günlük zirve kırılımı, 24 saat ≥ +%13,3, sıra ≤ 7, son 7 günde ilk 10’a girmiş, oynaklık ≥ %1,34, BTC 24 saat ≤ +%1,29 → stop −%8, hedef +%30, en çok 24 saat. <b>SHORT tepe sonrası</b> — 24 saatte ilk 3’e girmiş, 24 saatlik tepeden ≥ %15 aşağıda, kırmızı saat, hacim ≥ 3× → stop son 3 saatin tepesinin %1 üstü (%2–8), hedef −%10, en çok 24 saat. ${esc(t.rules?.leverage??10)}x; marj: panel marjı, serbest bakiyenin en çok %25’i.</p>`;
   for(const a of t.active||[]){
-    html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.jev?.decision?' • JEV '+esc(a.jev.decision):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}</div></div>`;
+    html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.signalKind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.jev?.decision?' • JEV '+esc(a.jev.decision):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}</div></div>`;
   }
   const ls=t.lastScan;
   if(ls){
     html+=`<p>Son tarama: ${esc(new Date(ls.at).toLocaleString('tr-TR'))} • mum ${esc(new Date(ls.candle).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • ${Number(ls.ranked)||0} coin sıralandı • ${Number(ls.checked)||0} aday incelendi • <b>${(ls.signals||[]).length} sinyal</b>${ls.errors?.length?' • hata: '+esc(ls.errors.slice(0,3).join(', ')):''}</p>`;
-    for(const x of ls.entries||[])html+=`<p>• ${esc(x.symbol)} ${esc(x.side)}: ${x.opened?'<b>işleme girildi</b>':esc(t3tr(x.reason))}${x.jev?' (JEV '+esc(x.jev.decision)+(x.jev.reason?' — '+esc(trUi(x.jev.reason)):'')+')':''}</p>`;
+    for(const x of ls.entries||[])html+=`<p>• ${esc(x.symbol)} ${esc(x.side)}${x.kind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}: ${x.opened?'<b>işleme girildi</b>':esc(t3tr(x.reason))}${x.jev?' (JEV '+esc(x.jev.decision)+(x.jev.reason?' — '+esc(trUi(x.jev.reason)):'')+')':''}</p>`;
     if((ls.stale||[]).length)html+='<p>Yeni sayılmayan (kural bu coinde son 24 saatte zaten tetiklenmişti): '+ls.stale.slice(0,6).map(x=>`${esc(x.symbol)} ${esc(x.side)}${x.lastCounted?' (ilk '+esc(new Date(x.lastCounted).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))+')':''}`).join(' • ')+'</p>';
     if((ls.nearMisses||[]).length)html+='<p>Kıl payı kaçanlar: '+ls.nearMisses.slice(0,6).map(x=>`${esc(x.symbol)} ${esc(x.side)} (${(x.reasons||[]).map(t3tr).map(esc).join(', ')})`).join(' • ')+'</p>';
   } else html+=`<p>Henüz tarama yok. İlk tarama bir sonraki saat başından ~1 dk sonra (${t.nextScanAt?esc(new Date(t.nextScanAt).toLocaleTimeString('tr-TR')):'—'}).</p>`;
@@ -1852,6 +1852,15 @@ function renderTop3(s){
   html+=`<p>Sıra geçmişi: son 7 gün ${Number(h.hours7d)||0}/168 saat • son 24 saat ${Number(h.hours24h)||0}/24${h.bootstrap?` • ilk doldurma ${esc(new Date(h.bootstrap.at).toLocaleString('tr-TR'))} (${Number(h.bootstrap.hoursAdded)||0} saat)`:''}</p>`;
   const sig=(t.recentSignals||[]).slice(0,6);
   if(sig.length)html+='<p>Son sinyaller: '+sig.map(x=>`${esc(x.symbol)} ${esc(x.side)} ${esc(new Date(x.candle).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))}`).join(' • ')+'</p>';
+  // İlk 3 hafızası: what the lane learned from its own closed lots
+  const L=t.learning;
+  if(L){
+    html+=`<p><b>📚 İlk 3 hafızası</b> — ${Number(L.lessons)||0} ders (her kapanan işlem: giriş koşulları, en iyi/en kötü fiyat, sonuç). JEV modu açıkken JEV her kararda bunu okur; kurallar kendiliğinden değişmez. TEST: sınırsız giriş, tekrar sinyaller de (TEKRAR etiketli); CANLI: en çok ${esc(L.limitsInLive?.maxActive??2)} poz, yalnız yeni sinyal.</p>`;
+    const kindTr=k=>k==='REPEAT'?'tekrar':'yeni',pc=v=>v===null||v===undefined?'—':(v>=0?'+':'')+(v*100).toFixed(1).replace('.',',')+'%';
+    for(const g of L.groups||[])html+=`<p>• ${esc(g.mode)} ${esc(t3tr(g.rule))} (${kindTr(g.kind)} sinyal): ${g.n} işlem • ${g.wins} kazanç / ${g.losses} kayıp • ort ${g.avgR===null?'—':String(g.avgR.toFixed(2)).replace('.',',')} R • ort en iyi ${pc(g.avgMfePct)} / en kötü ${pc(g.avgMaePct)} • hedef ${g.targetHit} • stop ${g.stopped} (yarı hedeften sonra ${g.stoppedAfterHalfTarget}) • süre ${g.timeExit} • net ${pnl(g.netPnl)}</p>`;
+    for(const [rule,b] of Object.entries(L.buckets||{}))if(b)html+=`<p>• ${esc(t3tr(rule))} / ${esc(b.label)}: `+b.rows.filter(r=>r.n).map(r=>`${pc(r.from)}–${r.to===null?'…':pc(r.to)}: ${r.n} işlem, ${r.wins} kazanç, ort ${r.avgR===null?'—':String(r.avgR.toFixed(2)).replace('.',',')} R`).join(' • ')+'</p>';
+    for(const x of (L.recent||[]).slice(0,5))html+=`<p class="t3rule">${esc(x.symbol)} — ${esc(x.lessonTr)}</p>`;
+  }
   const R=t.results||{},line=(n,x)=>x&&x.closed?`${n}: ${x.closed} işlem • ${x.wins} kazanç / ${x.losses} kayıp • net ${pnl(x.netPnl)}`:`${n}: henüz kapanan işlem yok`;
   html+=`<p><b>Sonuçlar (30 gün)</b> — ${line('TEST',R.test)} • ${line('CANLI',R.live)}</p>`;
   const rc=(t.recentCloses||[]).slice(0,5);
