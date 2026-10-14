@@ -6028,6 +6028,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       const rc=(top3State.recentCloses||[]).find(x=>x.id===c.id);if(rc){rc.netPnl=record.netPnl;rc.rMultiple=record.rMultiple;}
     }
+    // a close left pending by an older build (deploy STOP before it was booked) gets the same repair as on load
+    {const rep=top3Lib.repairLessons(top3State.lessons);if(rep.repaired)top3State.lessons=rep.lessons;}
     saveTop3State();
     return done;
   }

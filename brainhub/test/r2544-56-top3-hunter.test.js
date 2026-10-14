@@ -418,6 +418,7 @@ test('R57 lesson labels: SYSTEM_CLOSE is cut short (not a stop); legacy deploy-S
 });
 
 test('R57 STOP in TEST: the İlk 3 lot is booked as SYSTEM_CLOSE with its real exit fill; a manual close is EXTERNAL_CLOSE; the state file is repaired on load',async()=>{
+  require('../binance-rate-limit').resetForTests();
   const f=fixture({top3:{enabled:true}});
   f.seed({[HOUR0-H-50*H]:{SIGUSDT:5}});f.state.tick.SIGUSDT=40;f.state.px.SIGUSDT={bid:1.40,ask:1.401};f.state.klines.SIGUSDT=e=>candles(e,721,LONG_TAIL);
   await startTest(f);atScan(f);
@@ -447,4 +448,22 @@ test('R57 STOP in TEST: the İlk 3 lot is booked as SYSTEM_CLOSE with its real e
   const again=g.restart();
   const groups=again.top3Status().learning.groups;assert.equal(groups.reduce((a,x)=>a+x.cutShort,0),3,'1 manual close + 2 repaired');assert.equal(groups.reduce((a,x)=>a+x.stopped,0),0);
   assert.equal(g.kinds('TOP3_LESSONS_REPAIRED')[0].p.repaired,2);
+});
+
+test('R57 closes left pending by the older build at a deploy STOP are booked and repaired to SYSTEM_CLOSE by the new build',async()=>{
+  require('../binance-rate-limit').resetForTests(); // the shared 60 s weight estimate fills up across this file's paper runs
+  const f=fixture({top3:{enabled:true}});
+  const syms=['S1USDT','S2USDT'],extra={};syms.forEach(x=>{extra[x]=6;});
+  f.seed({[HOUR0-H-50*H]:extra});
+  syms.forEach((x,i)=>{f.state.tick[x]=40-i;f.state.px[x]={bid:1.40,ask:1.401};f.state.klines[x]=e=>candles(e,721,LONG_TAIL);});
+  await startTest(f);atScan(f);
+  assert.equal((await f.controller.top3Tick()).entries,2);
+  // what R2544.57 before this fix left behind: paper closed without a mark, lots moved to pendingCloses as EXCHANGE_EXIT
+  f.state.now+=60000;await f.paper.closeAll('TESTSTOP');
+  const st=f.controller._testTop3State();
+  for(const a of Object.values(st.active)){delete st.active[a.id];st.pendingCloses.push({...a,exitReason:'TOP3_EXCHANGE_EXIT',exitPrice:null,closedAt:f.state.now,detectedAt:f.state.now,noIncome:false});}
+  f.state.now+=30000;await f.controller.top3Tick();
+  const lessons=f.controller._testTop3State().lessons;
+  assert.equal(lessons.length,2);
+  for(const l of lessons){assert.equal(l.exitType,'TOP3_SYSTEM_CLOSE');assert.equal(l.tags.includes('STOPPED'),false);assert.ok(l.tags.includes('CUT_SHORT'));}
 });
