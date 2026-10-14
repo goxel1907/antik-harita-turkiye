@@ -22,9 +22,12 @@ const DEFAULT_CONFIG = Object.freeze({
   short:Object.freeze({ enabled:true, top3WithinH:24, minDropFromPeak:0.15, minVr1:3, stopBufferPct:0.01, minStopPct:0.02, maxStopPct:0.08, tpPct:0.10, maxHoldH:24 }),
   early:Object.freeze({ enabled:true, minRank:4, maxRank:24, climbPlaces:3, climbHours:3, noTop3H:48, minR24:0.05, maxR24:0.40, volMult:3, volBars:288, minVolBars:200,
     retestBars:24, retestTol:0.004, failClose:0.01, stopBuf:0.003, minStopPct:0.012, maxStopPct:0.045, minRoomR:2, noZoneTargetR:3, zoneTpBuf:0.005, maxHoldH:24, cooldownH:24,
-    htfOnly:false, maxFunding:null, beAtR:null }),
+    // R2544.58 full research (6 months, 550 coins, fees): week/month-high breakouts and the 1R break-even were better in
+    // BOTH halves than the base (L4 -0.04/-0.13R vs L0 -0.10/-0.18R); funding filter unstable between halves (off).
+    htfOnly:true, maxFunding:null, beAtR:1 }),
   top:Object.freeze({ enabled:true, top10WithinH:24, hlBars:6, breakBars:12, stopBuf:0.003, minStopPct:0.015, maxStopPct:0.06, zoneAbovePct:0.05, targetR:2.5, maxHoldH:24,
-    requireWeeklySwept:false, cooldownH:12, cooldownAfterStopH:24, beAtR:null })
+    // a top that took out the previous week high (the short-liquidation zone): S1 -0.04/+0.10R vs S0 -0.16/+0.05R
+    requireWeeklySwept:true, cooldownH:12, cooldownAfterStopH:24, beAtR:null })
 });
 const HOUR = 3600000;
 
