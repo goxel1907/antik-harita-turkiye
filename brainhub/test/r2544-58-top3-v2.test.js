@@ -92,7 +92,7 @@ test('R58 risk-sized lots: riskPct of equity at the stop, never above margin x l
 // ---------- controller: one v2 pass in TEST (paper) ----------
 const FAKE={apiKey:'fake-test-key-r58',apiSecret:'fake-test-secret-r58'}; // made-up, never real
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
-function fixture({top3={},fund='-0.0001'}={}){
+function fixture({top3={},fund='-0.0001',strictStore=false,extraRanks={}}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r58-run-'));fs.mkdirSync(path.join(root,'config'));
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
@@ -112,12 +112,13 @@ function fixture({top3={},fund='-0.0001'}={}){
     if(p==='/fapi/v1/klines'&&u.searchParams.get('interval')==='1d')return ok(kd);
     if(p==='/fapi/v1/klines'&&u.searchParams.get('interval')==='5m'){const k=state.k5[u.searchParams.get('symbol')]||[];return ok(k.map(r=>[r[0],String(r[1]),String(r[2]),String(r[3]),String(r[4]),'0',r[0]+M5-1,String(r[5])]));}
     throw new Error('UNEXPECTED '+m+' '+p);};
-  const store={journal:(k,s,p)=>events.push({k,s,p}),recordLearning:()=>{}};
+  // strictStore: like the real store, a symbol outside [A-Z0-9] is refused
+  const store={journal:(k,s,p)=>{if(strictStore&&s&&!/^[A-Z0-9]{2,28}$/.test(s))throw new Error('invalid symbol');events.push({k,s,p});},recordLearning:()=>{}};
   const controller=require('../live-controller').createLiveController({root,clock:()=>state.now,store,scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),
     credentials:FAKE,fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol(){}}}});
   const ranks=controller._testTop3Ranks();
   // rank book: SIG climbed to 10 (11:00) / 9 (12:00); not ranked 3 h earlier; never in the top 3
-  for(let t=HOUR0-60*H;t<=HOUR0+H;t+=H){const mp={};for(let i=0;i<50;i++)mp['C'+i+'USDT']=i+1;if(t>=HOUR0)mp.SIGUSDT=t===HOUR0?10:9;ranks.record(t,mp);}
+  for(let t=HOUR0-60*H;t<=HOUR0+H;t+=H){const mp={};for(let i=0;i<50;i++)mp['C'+i+'USDT']=i+1;if(t>=HOUR0)mp.SIGUSDT=t===HOUR0?10:9;if(t>=HOUR0)Object.assign(mp,extraRanks);ranks.record(t,mp);}
   return {root,state,events,controller,paper:controller._testPaper(),kinds:k=>events.filter(e=>e.k===k)};
 }
 
@@ -192,4 +193,22 @@ test('R58 a TEST window started under the hourly rules restarts once for v2 (res
   const w=f.controller.top3Status().testWindow;assert.equal(w.source,'RULES_V2');assert.equal(w.rulesVersion,2);assert.equal(w.scans,1,'counts only v2 passes');
   assert.equal(f.kinds('TOP3_TEST_WINDOW_START').length,1);
   f.state.now+=5*60000;await f.controller.top3Tick();assert.equal(f.controller.top3Status().testWindow.source,'RULES_V2','no second restart');
+});
+
+test('R58 15.10 fix: symbols the store cannot book (我踏马来了USDT) are never traded; a close it cannot book is still learned',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const W='我踏马来了USDT';
+  const f=fixture({strictStore:true,extraRanks:{[W]:8}});
+  f.state.k5[W]=earlySeries();f.state.px[W]={bid:1.026,ask:1.0262};
+  await f.controller.testSupervisorTick();await f.controller.top3Tick();
+  const ls=f.controller.top3Status().lastScan5;
+  assert.equal(ls.skippedSymbols,1);assert.equal(ls.signals.some(x=>x.symbol===W),false);
+  assert.equal(ls.signals.filter(x=>x.symbol==='SIGUSDT').length,1,'the bookable coin still trades');
+  // a lot of such a symbol that is already open (opened by 58 before this fix) closes: learned + reported, not lost
+  const st=f.controller._testTop3State();
+  st.pendingCloses.push({id:'t3w',symbol:W,side:'SHORT',rule:'SHORT_TOP_BREAK',mode:'TEST',entryPrice:0.013184,stopPrice:0.013936,tpPrice:0.011305,stopPct:0.057,quantity:3787,
+    startedAt:f.state.now-3*H,openedAt:f.state.now-3*H,closedAt:f.state.now-11*60000,detectedAt:f.state.now-11*60000,exitReason:'TOP3_TAKE_PROFIT',exitPrice:0.0113,signalKind:'FRESH'});
+  f.state.now+=30000;await f.controller.top3Tick();
+  assert.equal(st.pendingCloses.length,0,'not stuck');assert.ok(st.lessons.some(l=>l.id==='t3w'),'learned');
+  assert.equal(f.kinds('TOP3_CLOSE_UNBOOKED')[0].p.symbol,W);
 });

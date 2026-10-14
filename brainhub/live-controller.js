@@ -358,6 +358,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const saveTop3State=()=>{try{fs.mkdirSync(path.dirname(TOP3_STATE_FILE),{recursive:true});const tmp=TOP3_STATE_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(top3State),'utf8');fs.renameSync(tmp,TOP3_STATE_FILE);}catch{}};
   {const rep=top3Lib.repairLessons(top3State.lessons);if(rep.repaired){top3State.lessons=rep.lessons;saveTop3State();try{store?.journal?.('TOP3_LESSONS_REPAIRED',null,{repaired:rep.repaired,reason:'CUT_SHORT_NOT_STOP'});}catch{}}}
   const top3Ranks=new top3Lib.RankBook({file:path.join(String(root),'data','top3-ranks.json'),keepHours:200});
+  // R2544.58 (15.10: 我踏马来了USDT was entered; the store books only [A-Z0-9] symbols, so its entry/close could not be
+  // journaled): the lane trades only symbols the system can book, like every other lane.
+  const top3SymbolOk=s=>/^[A-Z0-9]{2,24}USDT$/.test(String(s||''));
   const activeTop3For=symbol=>{const s=String(symbol||'').toUpperCase();return Object.values(top3State.active||{}).find(a=>String(a?.symbol||'').toUpperCase()===s)||null;};
   let top3Busy=false,top3CloseCache={at:0,rows:null};
   // R2544.57 lane selection (user 13.10.2026: "normal sistem seçildiğinde yalnız JEV karar vererek; İlk 3 Avcısı JEV'li ya da
@@ -5809,7 +5812,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const v1=cfg.rulesVersion===1;
     const longC=v1&&cfg.long.enabled?Object.entries(ranks).filter(([,r])=>r<=cfg.long.maxRank).map(([s])=>s):[];
     const shortC=v1&&cfg.short.enabled?top3Ranks.symbolsInTop(3,T-(cfg.short.top3WithinH-1)*TOP3_HOUR,T+1).filter(s=>tradable.has(s)):[];
-    const cands=[...new Set([...longC,...shortC])].slice(0,40);
+    const cands=[...new Set([...longC,...shortC])].filter(top3SymbolOk).slice(0,40);
     let btcClose=null; // BTC 1h closes for past-hour LONG checks, fetched once per scan when needed
     for(const s of cands){
       let f,k=[];try{k=(await top3Klines(s,722)).filter(r=>r[0]<=T);f=k.length&&k.at(-1)[0]===T?top3Lib.hourlyFeatures(k):{ok:false,reason:'TOP3_CANDLE_NOT_CLOSED'};}
@@ -5907,6 +5910,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(cfg.early.enabled)for(const T of [Tl,Tl-TOP3_HOUR,Tl-2*TOP3_HOUR])for(const [s,r] of Object.entries(top3Ranks.hours[T]||{}))if(r>=cfg.early.minRank&&r<=cfg.early.maxRank)longC.add(s);
     out.candidates={long:longC.size,short:shortC.size};
     for(const s of [...new Set([...longC,...shortC])]){
+      if(!top3SymbolOk(s)){out.skippedSymbols=(out.skippedSymbols||0)+1;continue;}
       if(activeTop3For(s))continue;
       let k5,kd;try{k5=await top3K5(s,340);kd=await top3Kd(s);}catch{out.errors.push(s+':KLINES');continue;}
       if(!k5.length||k5.at(-1)[0]!==bar){out.errors.push(s+':BAR_MISSING');continue;}
@@ -6160,7 +6164,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{const t0=finite(c.openedAt)||closedAt,k5=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:c.symbol,interval:'5m',startTime:String(Math.floor(t0/300000)*300000),endTime:String(closedAt),limit:'320'}});
         path=top3Lib.excursions(c.side,c.entryPrice,Array.isArray(k5)?k5.map(r=>[Number(r[0]),Number(r[1]),Number(r[2]),Number(r[3]),Number(r[4])]):[]);}catch{path=null;}
       const record=top3CloseRecord(c,inc,path);
-      const booked=appendClosedOnce(c.symbol,record);if(booked)done.push({symbol:c.symbol,...record});
+      // a close the store cannot book (e.g. a non-[A-Z0-9] symbol) is still learned and reported, never lost
+      let booked=false;
+      try{booked=appendClosedOnce(c.symbol,record);if(booked)done.push({symbol:c.symbol,...record});}
+      catch(e){try{store.journal('TOP3_CLOSE_UNBOOKED',null,{symbol:String(c.symbol||'').slice(0,40),id:c.id,netPnl:record.netPnl,rMultiple:record.rMultiple,exitType:record.exitType,reason:String(e?.message||e).slice(0,80)});}catch{}}
       if(booked||!top3State.lessons.some(l=>l.id===c.id)){
         const lesson=top3Lib.buildLesson(c,record,path);
         if(!top3State.lessons.some(l=>l.id===lesson.id)){top3State.lessons.push(lesson);if(top3State.lessons.length>500)top3State.lessons=top3State.lessons.slice(-500);}
