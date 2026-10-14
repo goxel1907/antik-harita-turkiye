@@ -159,3 +159,21 @@ test('R57 APK status: lanes and a compact İlk 3 summary, contract R2544.57_PC_S
   assert.deepEqual(out.top3.lastScan.signals,[{symbol:'AUSDT',side:'SHORT',kind:'REPEAT'}]);
   assert.equal(out.top3.learning.lessons,3);assert.equal(out.top3.learning.recent,undefined);assert.equal(out.top3.testWindow.id,undefined);
 });
+
+test('R57 paper ticks never queue up: one at a time, one price read per symbol, a STOP close is not stuck behind them',async()=>{
+  const {PaperExchange}=require('../binance-live-transport');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'r57-tick-'));writeTradingMode(root,{mode:'TEST'});
+  let reads=0,now=1000;const slow=async s=>{reads++;await new Promise(r=>setTimeout(r,60));return {bid:10,ask:10.01};};
+  const p=new PaperExchange({root,clock:()=>now,priceOf:slow,startBalance:1000,autoTick:false});
+  for(const s of ['AUSDT','BUSDT']){
+    await p.handle('POST','/fapi/v1/order',{params:{symbol:s,side:'BUY',type:'MARKET',quantity:'1'}});
+    await p.handle('POST','/fapi/v1/algoOrder',{params:{symbol:s,side:'SELL',type:'STOP_MARKET',triggerPrice:'9',quantity:'1',reduceOnly:'true'}});
+    await p.handle('POST','/fapi/v1/algoOrder',{params:{symbol:s,side:'SELL',type:'TAKE_PROFIT_MARKET',triggerPrice:'12',quantity:'1',reduceOnly:'true'}});
+  }
+  reads=0;
+  const t1=p.tick(),t2=p.tick(),t3=p.tick();
+  const r=await Promise.all([t1,t2,t3]);
+  assert.equal(r.filter(x=>x.reason==='PAPER_TICK_BUSY').length,2,'overlapping ticks are skipped, not queued');
+  assert.equal(reads,2,'4 orders on 2 symbols -> 2 price reads');
+  const t0=Date.now();const c=await p.closeAll('TESTSTOP');assert.equal(c.closed,2);assert.ok(Date.now()-t0<1000);
+});

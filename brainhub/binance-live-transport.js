@@ -256,10 +256,15 @@ class PaperExchange {
     if (!this.active()) return { ok:true, skipped:true };
     const open = this.state.algos.filter(a => a.algoStatus === 'NEW');
     if (!open.length) return { ok:true, triggered:0 };
-    return this._serial(async () => {
-      let n = 0, changed = false;
+    // R2544.57 (14.10 live: a STOP waited 3 min): one tick at a time - with REST prices a tick of 8 orders took longer than
+    // the 1 s timer and ticks queued up on the serial lock in front of every other paper call; one price read per symbol.
+    if (this.tickBusy) return { ok:true, skipped:true, reason:'PAPER_TICK_BUSY' };
+    this.tickBusy = true;
+    try { return await this._serial(async () => {
+      let n = 0, changed = false; const prices = new Map();
       for (const a of this.state.algos.filter(x => x.algoStatus === 'NEW')) {
-        let px; try { px = await this._px(a.symbol); } catch { continue; }
+        let px = prices.get(a.symbol);
+        if (!px) { try { px = await this._px(a.symbol); } catch { continue; } prices.set(a.symbol, px); }
         if (!this._wouldTrigger(a, px.mid)) continue;
         const now = this.clock(); a.triggeredAt = now; a.updateTime = now; changed = true;
         try {
@@ -269,7 +274,7 @@ class PaperExchange {
       }
       if (changed) this._save();
       return { ok:true, triggered:n };
-    });
+    }); } finally { this.tickBusy = false; }
   }
   summary() {
     const s = this.state, upl = Object.keys(s.positions).reduce((a, x) => a + this._unrealized(x), 0);
