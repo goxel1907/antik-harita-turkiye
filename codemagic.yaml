@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.124-r2544.57-lanes + PC LANES (Normal sistem / Ilk 3 Avcisi) + PC POSITION SYNC
+    name: Futures 15m Alarm PRO APK v9.5.125-r2544.58-top3v2 + ILK 3 v2 (5m) + PC LANES + PC POSITION SYNC
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -567,6 +567,16 @@ workflows:
             exit 1
           fi
           echo V95132_R2544_57_LANES_OK
+          # R2544.58 Ilk 3 v2 on the phone: 5m rules, risk per trade, last 5m pass; still never an order.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95133_r2544_58_top3v2.py"
+          grep -q V95133_R2544_58_TOP3_V2 /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q "versionName '9.5.125-r2544.58-top3v2'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26101401' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'post(c, "/live/execute", intent, true)\|post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_58_ANDROID_ORDER_INITIATION_FORBIDDEN'
+            exit 1
+          fi
+          echo V95133_R2544_58_TOP3_V2_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
@@ -740,7 +750,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.124-r2544.57-lanes PC-only signed APK
+      - name: Build installable v9.5.125-r2544.58-top3v2 PC-only signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -786,9 +796,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.124-R2544.57-LANES.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.125-R2544.58-TOP3V2.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.124-R2544.57-LANES.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.125-R2544.58-TOP3V2.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -799,5 +809,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.124-R2544.57-LANES.apk
+      - Futures15mAlarm-PRO-v9.5.125-R2544.58-TOP3V2.apk
       - v9595-gradle.log
