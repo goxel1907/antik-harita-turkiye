@@ -5930,6 +5930,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       if(prem===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex');prem=new Map((Array.isArray(pi)?pi:[]).map(r=>[r.symbol,r]));}catch{prem=new Map();}}
       const pr=prem.get(x.symbol),fund=finite(pr?.lastFundingRate),premium=finite(pr?.markPrice)&&finite(pr?.indexPrice)?Number((finite(pr.markPrice)/finite(pr.indexPrice)-1).toFixed(5)):null;
+      // optional crowding filter (research L5/L6): a LONG only while shorts pay (funding <= maxFunding); unknown funding fails closed
+      if(x.side==='LONG'&&finite(cfg.early.maxFunding)!==null&&!(fund!==null&&fund<=cfg.early.maxFunding)){res.reason='TOP3_FUNDING_LONGS_CROWDED';continue;}
       const T=Math.floor(clock()/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR,m=top3Ranks.hours[T]||{};
       const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
         top:finite(x.trig.top),hl:finite(x.trig.hl),pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close};
@@ -6023,7 +6025,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
       jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0,
       signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0,
-      ...(sig.v2?{rulesVersion:2,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{})};
+      ...(sig.v2?{rulesVersion:2,tickSize:f.tickSize,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{})};
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
     try{store.journal('TOP3_ENTRY',symbol,{...a,version:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
@@ -6065,6 +6067,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function top3Manage(){
     const list=Object.values(top3State.active||{});if(!list.length)return {active:0};
     const creds=currentCredentials();if(!credentialsReady(creds))return {active:list.length,reason:'BINANCE_CREDENTIALS_REQUIRED'};
+    const top3Cfg=top3Lib.readTop3Config(root);
     const modeNow=testModeNow()?'TEST':'LIVE';
     let rows;try{await transport._syncServerTime();rows=await transport._fetchJson('GET','/fapi/v3/positionRisk',{credentials:creds,signed:true});}catch{rows=null;}
     if(!Array.isArray(rows))return {active:list.length,reason:'TOP3_POSITIONS_UNAVAILABLE'};
@@ -6080,7 +6083,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           const byId=id=>Array.isArray(al)?al.find(y=>String(y?.algoId)===String(id)):null,done=x=>['FINISHED','TRIGGERED'].includes(String(x?.algoStatus||'').toUpperCase());
           const st=byId(a.stopAlgoId),tp=a.tpAlgoId!=null?byId(a.tpAlgoId):null;
           if(done(tp)){exitReason='TOP3_TAKE_PROFIT';exitPrice=finite(tp.actualPrice);closedAt=finite(tp.updateTime);}
-          else if(done(st)){exitReason='TOP3_STOP';exitPrice=finite(st.actualPrice);closedAt=finite(st.updateTime);}
+          else if(done(st)){exitReason=a.beMoved?'TOP3_BE_STOP':'TOP3_STOP';exitPrice=finite(st.actualPrice);closedAt=finite(st.updateTime);}
         }catch{}
         // R2544.57 (14.10 deploy STOP booked open lots as "stop"): neither own order filled -> the exit fill decides.
         // Closed by the core (STOP / TEST reset / switch) = SYSTEM_CLOSE; at or through the stop = stop; otherwise outside.
@@ -6088,13 +6091,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           const fill=await top3ExitFill(a,creds);
           if(fill){exitPrice=fill.price;closedAt=fill.time;}
           if(a.systemClose)exitReason='TOP3_SYSTEM_CLOSE';
-          else if(fill&&finite(a.stopPrice)>0)exitReason=(a.side==='LONG'?fill.price<=a.stopPrice*1.001:fill.price>=a.stopPrice*0.999)?'TOP3_STOP':'TOP3_EXTERNAL_CLOSE';
+          else if(fill&&finite(a.stopPrice)>0)exitReason=(a.side==='LONG'?fill.price<=a.stopPrice*1.001:fill.price>=a.stopPrice*0.999)?(a.beMoved?'TOP3_BE_STOP':'TOP3_STOP'):'TOP3_EXTERNAL_CLOSE';
         }
         for(const id of [a.stopAlgoId,a.tpAlgoId])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
         top3Finish(a,{exitReason,exitPrice,closedAt:closedAt&&closedAt<=clock()?closedAt:null});continue;
       }
       const mark=finite(r.markPrice);a.lastMark=mark;a.checkedAt=clock();
       if(mark>0&&a.entryPrice>0){const fav=a.side==='LONG'?mark/a.entryPrice-1:1-mark/a.entryPrice;a.sampleMfePct=Math.max(finite(a.sampleMfePct)??0,fav);a.sampleMaePct=Math.min(finite(a.sampleMaePct)??0,fav);}
+      // R2544.58 (user 13.10: "kârdayken sinyal geçersizse TP'yi bekleyecek mi?"): a v2 lot that reached beAtR moves its
+      // exchange stop to break-even (+0.1 % for fees). New stop first, then the old one is cancelled; orders only while armed.
+      if(a.rulesVersion===2&&!a.beMoved&&mark>0&&armedNow()){
+        const R2=a.side==='LONG'?top3Cfg.early:top3Cfg.top,be=finite(R2?.beAtR),s=finite(a.stopPct);
+        const fav=a.side==='LONG'?mark/a.entryPrice-1:1-mark/a.entryPrice;
+        if(be>0&&s>0&&fav>=be*s){
+          const tick=finite(a.tickSize)||0,bePx=burstTickPrice(a.entryPrice*(a.side==='LONG'?1.001:0.999),tick>0?tick:a.entryPrice*1e-6,a.side==='LONG'?'up':'down');
+          const ns=await transport.placeRunnerStop({symbol:a.symbol,side:a.side,hedgeMode:a.hedge,quantity:a.quantity,triggerPrice:bePx,clientAlgoId:('T3B'+a.id).slice(0,36),credentials:creds});
+          if(ns.ok){const old=a.stopAlgoId;try{await transport.cancelAlgoOrder({algoId:old,credentials:creds});}catch{}
+            Object.assign(a,{beMoved:true,beAt:clock(),initialStopPrice:a.stopPrice,stopPrice:bePx,stopAlgoId:ns.algoId});
+            try{store.journal('TOP3_BREAKEVEN',a.symbol,{id:a.id,side:a.side,stopPrice:bePx,initialStopPrice:a.initialStopPrice,mark});}catch{}}
+          else try{store.journal('TOP3_BREAKEVEN_FAILED',a.symbol,{id:a.id,reason:ns.reason||null});}catch{}
+        }
+      }
       // Target fallback when the exchange refused the TAKE_PROFIT order; time exit after maxHoldH. Orders only while armed.
       const tpHit=!a.tpOnExchange&&mark>0&&(a.side==='LONG'?mark>=a.tpPrice:mark<=a.tpPrice);
       const timeUp=clock()>=a.deadline;
@@ -6114,7 +6131,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
     const netPnl=inc?inc.net:null;
     const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
-      TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE'}[c.exitReason]||'TOP3_OTHER_EXIT';
+      TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE',TOP3_BE_STOP:'TOP3_BE_STOP'}[c.exitReason]||'TOP3_OTHER_EXIT';
     const setup='TOP3_'+(c.rule||'RULE');
     return {side:c.side,setup,originTF:'1h',ownerTF:'1h',tradeLane:'TOP3_HUNTER',entryPrice:entry,stopPrice:stop,takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
       initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,

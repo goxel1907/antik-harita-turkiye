@@ -21,9 +21,10 @@ const DEFAULT_CONFIG = Object.freeze({
   long:Object.freeze({ enabled:true, minR1:0.03, minVrBase:3, minVr1:33.9, minR24:0.133, maxRank:7, minTop10In7d:1, minVol30:0.0134, maxBtc24:0.0129, stopPct:0.08, tpPct:0.30, maxHoldH:24 }),
   short:Object.freeze({ enabled:true, top3WithinH:24, minDropFromPeak:0.15, minVr1:3, stopBufferPct:0.01, minStopPct:0.02, maxStopPct:0.08, tpPct:0.10, maxHoldH:24 }),
   early:Object.freeze({ enabled:true, minRank:4, maxRank:24, climbPlaces:3, climbHours:3, noTop3H:48, minR24:0.05, maxR24:0.40, volMult:3, volBars:288, minVolBars:200,
-    retestBars:24, retestTol:0.004, failClose:0.01, stopBuf:0.003, minStopPct:0.012, maxStopPct:0.045, minRoomR:2, noZoneTargetR:3, zoneTpBuf:0.005, maxHoldH:24, cooldownH:24 }),
+    retestBars:24, retestTol:0.004, failClose:0.01, stopBuf:0.003, minStopPct:0.012, maxStopPct:0.045, minRoomR:2, noZoneTargetR:3, zoneTpBuf:0.005, maxHoldH:24, cooldownH:24,
+    htfOnly:false, maxFunding:null, beAtR:null }),
   top:Object.freeze({ enabled:true, top10WithinH:24, hlBars:6, breakBars:12, stopBuf:0.003, minStopPct:0.015, maxStopPct:0.06, zoneAbovePct:0.05, targetR:2.5, maxHoldH:24,
-    requireWeeklySwept:false, cooldownH:12, cooldownAfterStopH:24 })
+    requireWeeklySwept:false, cooldownH:12, cooldownAfterStopH:24, beAtR:null })
 });
 const HOUR = 3600000;
 
@@ -194,7 +195,8 @@ function earlyLongTrigger(k5, levelsAt, ctxAt, cfg = DEFAULT_CONFIG) {
   for (let i = q - 1; i >= Math.max(1, q - E.retestBars); i--) {
     const lv = levelsAt(k[i][0]); if (!lv) continue;
     const pc = k[i - 1][4], c = k[i][4];
-    const brk = levelList(lv).filter(x => pc <= x && x < c); if (!brk.length) continue;
+    // htfOnly: only the previous week / month highs count as zones (not the previous day)
+    const brk = (E.htfOnly ? levelList({ pwh: lv.pwh, pmh: lv.pmh }) : levelList(lv)).filter(x => pc <= x && x < c); if (!brk.length) continue;
     const L = Math.max(...brk), t = k[i][0];
     const w = []; for (let j = i - 1; j >= 0 && j >= i - E.volBars; j--) if (k[j][0] >= t - DAY) w.push(k[j][5]);
     if (w.length < E.minVolBars) continue;
@@ -324,7 +326,7 @@ function excursions(side, entry, candles) {
 }
 const pctTr = v => v === null || v === undefined ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1).replace('.', ',') + '%';
 const RULE_TR = { LONG_6OF6: 'LONG 6/6', SHORT_TOP_FADE: 'SHORT tepe sonrası', LONG_EARLY_RETEST: 'Erken LONG (5 dk geri test)', SHORT_TOP_BREAK: 'Tepe SHORT (5 dk kırılım)' };
-const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer',
+const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_BE_STOP: 'başabaş stop (1R sonrası korunan)', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer',
   TOP3_SYSTEM_CLOSE: 'sistem kapattı (durdurma / kurulum / mod geçişi; kural sonucu değil)', TOP3_EXTERNAL_CLOSE: 'dışarıdan kapatıldı (stop / hedef değil)' };
 // R2544.57 (14.10 deploy STOP): a lot the core closed itself (STOP, TEST reset, switch to LIVE) or that was closed outside
 // the lane without its stop/target is CUT_SHORT - not a stop; the rule never reached its own exit.
@@ -344,6 +346,7 @@ function buildLesson(lot, close, path) {
   if (exitType === 'TOP3_TAKE_PROFIT') tags.push('TARGET_HIT');
   if (exitType === 'TOP3_STOP' || exitType === 'TOP3_STOP_OR_EXTERNAL') tags.push('STOPPED');
   if (exitType === 'TOP3_TIME_EXIT') tags.push('TIME_EXIT');
+  if (exitType === 'TOP3_BE_STOP') tags.push('BREAKEVEN_STOP');
   if (CUT_SHORT_EXITS.has(exitType)) tags.push('CUT_SHORT', exitType === 'TOP3_SYSTEM_CLOSE' ? 'SYSTEM_CLOSE' : 'EXTERNAL_CLOSE');
   if (tags.includes('STOPPED') && targetPct > 0 && mfe !== null && mfe >= targetPct / 2) tags.push('STOPPED_AFTER_HALF_TARGET');
   if (mfe !== null && mfe < 0.002) tags.push('NEVER_IN_PROFIT');
@@ -402,7 +405,7 @@ function aggregate(xs) {
   const wins = xs.filter(x => x.verdict === 'WIN').length, losses = xs.filter(x => x.verdict === 'LOSS').length;
   return { n, wins, losses, winRate: n ? Number((wins / n).toFixed(3)) : null, avgR: avg('rMultiple'), avgResultPct: avg('resultPct'), avgMfePct: avg('mfePct'), avgMaePct: avg('maePct'),
     targetHit: has('TARGET_HIT'), stopped: has('STOPPED'), timeExit: has('TIME_EXIT'), stoppedAfterHalfTarget: has('STOPPED_AFTER_HALF_TARGET'), neverInProfit: has('NEVER_IN_PROFIT'),
-    cutShort: has('CUT_SHORT'),
+    cutShort: has('CUT_SHORT'), breakevenStop: has('BREAKEVEN_STOP'),
     netPnl: Number(num('netPnl').reduce((a, b) => a + b, 0).toFixed(4)) };
 }
 function bucketsFor(lessons, rule) {

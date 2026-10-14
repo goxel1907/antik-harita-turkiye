@@ -92,11 +92,11 @@ test('R58 risk-sized lots: riskPct of equity at the stop, never above margin x l
 // ---------- controller: one v2 pass in TEST (paper) ----------
 const FAKE={apiKey:'fake-test-key-r58',apiSecret:'fake-test-secret-r58'}; // made-up, never real
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
-function fixture(){
+function fixture({top3={},fund='-0.0001'}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r58-run-'));fs.mkdirSync(path.join(root,'config'));
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
-  fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:true}));
+  fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:true,...top3}));
   writeTradingMode(root,{mode:'TEST',changedAt:'2026-10-14T10:00:00.000Z',testStartedAt:null,testAutoRun:true});
   const state={now:HOUR0+2*H+10*60000+10000,calls:[],px:{SIGUSDT:{bid:1.026,ask:1.0262}},k5:{SIGUSDT:earlySeries()}},events=[];
   const D=Math.floor(state.now/DAY)*DAY;
@@ -107,7 +107,7 @@ function fixture(){
     if(p==='/fapi/v1/ticker/bookTicker'){const s=u.searchParams.get('symbol'),x=state.px[s]||{bid:10,ask:10.01};return ok({symbol:s,bidPrice:String(x.bid),askPrice:String(x.ask)});}
     if(p==='/fapi/v1/exchangeInfo')return ok({symbols:['SIGUSDT','BTCUSDT'].map(sym)});
     if(p==='/fapi/v1/ticker/24hr')return ok([]);
-    if(p==='/fapi/v1/premiumIndex')return ok([{symbol:'SIGUSDT',lastFundingRate:'-0.0001',markPrice:'1.026',indexPrice:'1.0262'}]);
+    if(p==='/fapi/v1/premiumIndex')return ok([{symbol:'SIGUSDT',lastFundingRate:fund,markPrice:'1.026',indexPrice:'1.0262'}]);
     if(p==='/fapi/v1/leverageBracket')return ok([{symbol:u.searchParams.get('symbol'),brackets:[{bracket:1,initialLeverage:50,notionalCap:1000000,notionalFloor:0}]}]);
     if(p==='/fapi/v1/klines'&&u.searchParams.get('interval')==='1d')return ok(kd);
     if(p==='/fapi/v1/klines'&&u.searchParams.get('interval')==='5m'){const k=state.k5[u.searchParams.get('symbol')]||[];return ok(k.map(r=>[r[0],String(r[1]),String(r[2]),String(r[3]),String(r[4]),'0',r[0]+M5-1,String(r[5])]));}
@@ -118,7 +118,7 @@ function fixture(){
   const ranks=controller._testTop3Ranks();
   // rank book: SIG climbed to 10 (11:00) / 9 (12:00); not ranked 3 h earlier; never in the top 3
   for(let t=HOUR0-60*H;t<=HOUR0+H;t+=H){const mp={};for(let i=0;i<50;i++)mp['C'+i+'USDT']=i+1;if(t>=HOUR0)mp.SIGUSDT=t===HOUR0?10:9;ranks.record(t,mp);}
-  return {root,state,events,controller,kinds:k=>events.filter(e=>e.k===k)};
+  return {root,state,events,controller,paper:controller._testPaper(),kinds:k=>events.filter(e=>e.k===k)};
 }
 
 test('R58 controller: a closed 5m retest opens the EARLY LONG on paper with the structural stop, the zone target and a 2 % risk lot',async()=>{
@@ -162,4 +162,24 @@ test('R58 Office and JEV: v2 rules text, 5m scan line, reason labels; JEV gets t
   assert.ok(html.includes("TOP3_STOP_COOLDOWN:'aynı coinde stop sonrası 24 saat bekleme'"));
   const jev=fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8');
   assert.ok(jev.includes("contract:'R2544.58_TOP3_V2_GATE'"));assert.ok(jev.includes('previousMonthHigh'));
+});
+
+test('R58 options: LONG only while shorts pay (maxFunding), break-even after 1R moves the exchange stop and books a BE stop',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const g=fixture({top3:{early:{maxFunding:0}},fund:'0.0001'});
+  await g.controller.testSupervisorTick();await g.controller.top3Tick();
+  assert.equal(g.controller.top3Status().lastScan5.entries[0].reason,'TOP3_FUNDING_LONGS_CROWDED');assert.equal(Object.keys(g.controller._testTop3State().active).length,0);
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({top3:{early:{beAtR:1}}});
+  await f.controller.testSupervisorTick();await f.controller.top3Tick();
+  const a=Object.values(f.controller._testTop3State().active)[0];assert.ok(a,'entered');
+  const oneR=a.entryPrice*(1+a.stopPct)+0.001;
+  f.state.px.SIGUSDT={bid:oneR,ask:oneR+0.0002};f.state.now+=30000;await f.controller.top3Tick();
+  assert.equal(a.beMoved,true);assert.ok(a.stopPrice>=a.entryPrice*1.001-1e-9&&a.stopPrice<a.entryPrice*1.0012,'stop at break-even + fees: '+a.stopPrice);
+  assert.equal(f.kinds('TOP3_BREAKEVEN').length,1);
+  f.state.px.SIGUSDT={bid:a.entryPrice*0.999,ask:a.entryPrice*0.9992};f.state.now+=1000;await f.paper.tick();
+  f.state.now+=30000;await f.controller.top3Tick();f.state.now+=30000;await f.controller.top3Tick();
+  const c=f.kinds('TOP3_CLOSED')[0].p;assert.equal(c.exitReason,'TOP3_BE_STOP');
+  const l=f.kinds('TOP3_LESSON')[0].p;assert.ok(l.tags.includes('BREAKEVEN_STOP'));assert.equal(l.tags.includes('STOPPED'),false);
+  assert.equal(f.controller._testTop3Cooldown('SIGUSDT','LONG'),'TOP3_COOLDOWN','24 h after the entry still applies; a BE stop is not a stop-out');
 });
