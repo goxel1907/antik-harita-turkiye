@@ -394,3 +394,57 @@ test('R56 a lot opened before the signal label existed is learned as UNLABELED, 
   assert.equal(l.kind,'UNLABELED');assert.equal(l.pathSource,'NONE');
   assert.equal(T3.experienceSummary([l]).groups[0].kind,'UNLABELED');
 });
+
+// ---------- R2544.57 (14.10 deploy STOP): a lot the core closes itself is CUT_SHORT, never a stop ----------
+test('R57 lesson labels: SYSTEM_CLOSE is cut short (not a stop); legacy deploy-STOP lessons are repaired, real stop-outs stay',()=>{
+  const now=1791969764731;
+  const sys=T3.buildLesson({id:'a',symbol:'WALUSDT',side:'LONG',rule:'LONG_6OF6',signalKind:'FRESH',mode:'TEST',entryPrice:0.0457,tpPrice:0.0457*1.3,stopPct:0.08,openedAt:now-3*H,closedAt:now,exitPrice:0.0498},{netPnl:26.99,rMultiple:1.129,exitType:'TOP3_SYSTEM_CLOSE'},{mfePct:0.12,maePct:-0.012});
+  assert.ok(sys.tags.includes('CUT_SHORT')&&sys.tags.includes('SYSTEM_CLOSE'));assert.equal(sys.tags.includes('STOPPED'),false);
+  assert.ok(Math.abs(sys.resultPct-(0.0498/0.0457-1))<1e-4);assert.equal(sys.resultBasis,'EXIT_PRICE');
+  assert.match(sys.lessonTr,/sistem kapattı/);assert.match(sys.lessonTr,/Yarıda kesildi/);
+  // legacy: lots booked at the 14.10 deploy STOP as "stop / dış kapanış" without an exit price
+  const legacy=(id,side,r,stopPct,dt)=>({...T3.buildLesson({id,symbol:id+'USDT',side,rule:side==='LONG'?'LONG_6OF6':'SHORT_TOP_FADE',signalKind:'FRESH',mode:'TEST',entryPrice:1,tpPrice:side==='LONG'?1.3:0.9,stopPct,openedAt:now-H,closedAt:now+dt},{netPnl:r*10,rMultiple:r,exitType:'TOP3_STOP_OR_EXTERNAL'},{mfePct:0.05,maePct:-0.02}),pathSource:'5m'});
+  const lessons=[legacy('Q','LONG',0.1217,0.08,0),legacy('S','SHORT',1.3646,0.0371,5),legacy('AVA','LONG',-0.8651,0.0801,10),legacy('X','LONG',-1.05,0.08,9*H)];
+  assert.equal(lessons[0].tags.includes('STOPPED'),true,'the old labelling');assert.equal(lessons[0].resultPct,null);
+  const rep=T3.repairLessons(lessons);
+  assert.equal(rep.repaired,3,'a -1.05 R close (a real stop-out) stays as it was');
+  const [q,s,ava,x]=rep.lessons;
+  for(const l of [q,s,ava]){assert.equal(l.exitType,'TOP3_SYSTEM_CLOSE');assert.equal(l.tags.includes('STOPPED'),false);assert.ok(l.tags.includes('CUT_SHORT'));assert.equal(l.repairedFrom,'TOP3_STOP_OR_EXTERNAL');assert.equal(l.pathSource,'5m');}
+  assert.equal(s.tags.includes('STOPPED_AFTER_HALF_TARGET'),false);
+  assert.ok(Math.abs(q.resultPct-0.1217*0.08)<1e-4,'net result from R x stop distance');assert.equal(q.resultBasis,'NET_PNL');assert.equal(ava.verdict,'LOSS');
+  assert.equal(x,lessons[3]);assert.equal(T3.repairLessons(rep.lessons).repaired,0,'idempotent');
+  const g=T3.experienceSummary(rep.lessons).groups.find(y=>y.rule==='LONG_6OF6');assert.equal(g.stopped,1);assert.equal(g.cutShort,2);
+  assert.equal(T3.repairLessons([legacy('L','LONG',0.3,0.08,0)]).lessons[0].exitType,'TOP3_EXTERNAL_CLOSE','alone (no other close within 5 s) = closed outside the lane');
+});
+
+test('R57 STOP in TEST: the İlk 3 lot is booked as SYSTEM_CLOSE with its real exit fill; a manual close is EXTERNAL_CLOSE; the state file is repaired on load',async()=>{
+  const f=fixture({top3:{enabled:true}});
+  f.seed({[HOUR0-H-50*H]:{SIGUSDT:5}});f.state.tick.SIGUSDT=40;f.state.px.SIGUSDT={bid:1.40,ask:1.401};f.state.klines.SIGUSDT=e=>candles(e,721,LONG_TAIL);
+  await startTest(f);atScan(f);
+  assert.equal((await f.controller.top3Tick()).entries,1);
+  f.state.px.SIGUSDT={bid:1.50,ask:1.501};f.state.now+=20*60000;
+  const s=await f.controller.runControl({action:'STOP'});assert.equal(s.ok,true);assert.equal(s.paperClosed,1);
+  f.state.now+=30000;await f.controller.top3Tick();
+  const closed=f.kinds('TOP3_CLOSED')[0].p;assert.equal(closed.exitReason,'TOP3_SYSTEM_CLOSE');assert.equal(closed.systemClose.reason,'USER_STOP');
+  assert.ok(Math.abs(closed.exitPrice-1.50)<1e-9,'exit = the paper close fill');
+  const rec=f.kinds('POSITION_CLOSED').map(e=>e.p).find(p=>p.tradeLane==='TOP3_HUNTER');assert.equal(rec.exitType,'TOP3_SYSTEM_CLOSE');assert.equal(rec.entryContext.top3.closedBy,'USER_STOP');
+  const lesson=f.kinds('TOP3_LESSON')[0].p;assert.equal(lesson.exitType,'TOP3_SYSTEM_CLOSE');assert.ok(lesson.tags.includes('CUT_SHORT'));assert.equal(lesson.tags.includes('STOPPED'),false);
+  assert.ok(Math.abs(lesson.resultPct-(1.50/1.401-1))<1e-4);assert.equal(f.controller.top3Status().learning.groups[0].cutShort,1);
+  // a lot closed by hand (not by its stop/target, not by the core) is EXTERNAL_CLOSE; one closed at its stop price is a stop
+  const g=fixture({top3:{enabled:true}});
+  g.seed({[HOUR0-H-50*H]:{SIGUSDT:5}});g.state.tick.SIGUSDT=40;g.state.px.SIGUSDT={bid:1.40,ask:1.401};g.state.klines.SIGUSDT=e=>candles(e,721,LONG_TAIL);
+  await startTest(g);atScan(g);await g.controller.top3Tick();
+  const lot=Object.values(g.controller._testTop3State().active)[0];
+  g.state.px.SIGUSDT={bid:1.45,ask:1.451};g.state.now+=60000;
+  await g.paper.handle('POST','/fapi/v1/order',{params:{symbol:'SIGUSDT',side:'SELL',type:'MARKET',quantity:String(lot.quantity),reduceOnly:'true'}});
+  g.state.now+=30000;await g.controller.top3Tick();
+  assert.equal(g.kinds('TOP3_CLOSED')[0].p.exitReason,'TOP3_EXTERNAL_CLOSE');assert.ok(Math.abs(g.kinds('TOP3_CLOSED')[0].p.exitPrice-1.45)<1e-9);
+  // the deploy-STOP lessons already in a state file are relabelled when the controller starts
+  const st=JSON.parse(fs.readFileSync(path.join(g.root,'data','top3-hunter-state.json'),'utf8'));
+  const old=T3.buildLesson({id:'old1',symbol:'QUSDT',side:'LONG',rule:'LONG_6OF6',signalKind:'FRESH',mode:'TEST',entryPrice:1,tpPrice:1.3,stopPct:0.08,openedAt:g.state.now-6*H,closedAt:g.state.now-H},{netPnl:5.57,rMultiple:0.1217,exitType:'TOP3_STOP_OR_EXTERNAL'},null);
+  const old2={...old,id:'old2',symbol:'WALUSDT',closedAt:old.closedAt+3};
+  st.lessons.push(old,old2);fs.writeFileSync(path.join(g.root,'data','top3-hunter-state.json'),JSON.stringify(st));
+  const again=g.restart();
+  const groups=again.top3Status().learning.groups;assert.equal(groups.reduce((a,x)=>a+x.cutShort,0),3,'1 manual close + 2 repaired');assert.equal(groups.reduce((a,x)=>a+x.stopped,0),0);
+  assert.equal(g.kinds('TOP3_LESSONS_REPAIRED')[0].p.repaired,2);
+});

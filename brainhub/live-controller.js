@@ -356,6 +356,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   let top3State=(()=>{try{const x=JSON.parse(fs.readFileSync(TOP3_STATE_FILE,'utf8'));if(x&&typeof x.active==='object'&&x.active&&Array.isArray(x.pendingCloses))return x;}catch{}return {version:top3Lib.TOP3_VERSION,active:{},pendingCloses:[],recentCloses:[],recentSignals:[],lastEntry:{},lastScanHour:null,lastScan:null,bootstrap:null,lessons:[]};})();
   if(!Array.isArray(top3State.lessons))top3State.lessons=[];
   const saveTop3State=()=>{try{fs.mkdirSync(path.dirname(TOP3_STATE_FILE),{recursive:true});const tmp=TOP3_STATE_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(top3State),'utf8');fs.renameSync(tmp,TOP3_STATE_FILE);}catch{}};
+  {const rep=top3Lib.repairLessons(top3State.lessons);if(rep.repaired){top3State.lessons=rep.lessons;saveTop3State();try{store?.journal?.('TOP3_LESSONS_REPAIRED',null,{repaired:rep.repaired,reason:'CUT_SHORT_NOT_STOP'});}catch{}}}
   const top3Ranks=new top3Lib.RankBook({file:path.join(String(root),'data','top3-ranks.json'),keepHours:200});
   const activeTop3For=symbol=>{const s=String(symbol||'').toUpperCase();return Object.values(top3State.active||{}).find(a=>String(a?.symbol||'').toUpperCase()===s)||null;};
   let top3Busy=false,top3CloseCache={at:0,rows:null};
@@ -3316,7 +3317,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const sw=runState.liveSwitch;
     if(sw.state==='CLOSING_TEST'||sw.state==='RESETTING_TEST'){
       if(!testModeNow())return failSwitch('MODE_CHANGED_DURING_SWITCH');
-      if(paper.hasExposure()){const c=await paper.closeAll(sw.state==='CLOSING_TEST'?'TOLIVE':'TESTRESET');sw.paperClosed=(sw.paperClosed||0)+c.closed;}
+      if(paper.hasExposure()){top3MarkSystemClose(sw.state==='CLOSING_TEST'?'SWITCH_TO_LIVE':'TEST_RESET');const c=await paper.closeAll(sw.state==='CLOSING_TEST'?'TOLIVE':'TESTRESET');sw.paperClosed=(sw.paperClosed||0)+c.closed;}
       try{await positionLedgerTick();}catch{}
       await top3Settle();
       const wait=switchWaitReasons();
@@ -3395,7 +3396,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // TEST: a full stop also closes the virtual lots (booked as TEST) so the system is flat (deploy needs 0 positions).
       // LIVE: real lots are never touched here; their exchange stop/TP orders stay.
       let paperClosed=0;
-      if(m.mode==='TEST'&&paper.hasExposure()){paperClosed=(await paper.closeAll('TESTSTOP')).closed;try{await positionLedgerTick();}catch{}}
+      if(m.mode==='TEST'&&paper.hasExposure()){top3MarkSystemClose('USER_STOP');paperClosed=(await paper.closeAll('TESTSTOP')).closed;try{await positionLedgerTick();}catch{}}
       runJournal('RUN_CONTROL',{action:act,mode:m.mode,paperClosed});
       return o.ok===false?{ok:false,reasons:o.reasons}:done({action:act,paperClosed});
     }
@@ -5911,6 +5912,23 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{const o=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params});return {ok:finite(o?.executedQty)>0,avgPrice:finite(o?.avgPrice)>0?finite(o.avgPrice):null,orderId:o?.orderId??null};}
     catch(e){return {ok:false,reason:String(e?.message||'TOP3_CLOSE_FAILED').slice(0,120)};}
   }
+  // Exit fill of a lot that vanished: its closing-side trades since the entry order (VWAP price, last fill time).
+  async function top3ExitFill(a,creds){
+    try{
+      const t0=Math.max(0,finite(a.startedAt)||finite(a.openedAt)||clock()),side=a.side==='LONG'?'SELL':'BUY';
+      const rows=await transport._fetchJson('GET','/fapi/v1/userTrades',{params:{symbol:a.symbol,startTime:String(t0),endTime:String(clock()),limit:'100'},credentials:creds,signed:true});
+      const xs=(Array.isArray(rows)?rows:[]).filter(x=>String(x?.side||'').toUpperCase()===side&&finite(x?.price)>0&&finite(x?.qty)>0&&finite(x?.time)>=t0);
+      if(!xs.length)return null;
+      const q=xs.reduce((s,x)=>s+finite(x.qty),0),px=xs.reduce((s,x)=>s+finite(x.price)*finite(x.qty),0)/q;
+      return {price:Number(px.toPrecision(10)),time:Math.max(...xs.map(x=>finite(x.time))),qty:q};
+    }catch{return null;}
+  }
+  // R2544.57: paper lots the core is about to close itself (STOP, TEST reset, switch to LIVE) are marked first, so the lane
+  // books them as SYSTEM_CLOSE (cut short), never as a stop. Real (LIVE) lots are never closed by the core.
+  function top3MarkSystemClose(reason){
+    let n=0;for(const a of Object.values(top3State.active||{}))if(a&&a.mode==='TEST'&&!a.systemClose){a.systemClose={reason,at:clock()};n++;}
+    if(n)saveTop3State();return n;
+  }
   function top3Finish(a,{exitReason,exitPrice=null,closedAt=null,noIncome=false}){
     delete top3State.active[a.id];
     const closed={...a,exitReason,exitPrice,closedAt:finite(closedAt)||clock(),detectedAt:clock(),noIncome};
@@ -5940,6 +5958,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           if(done(tp)){exitReason='TOP3_TAKE_PROFIT';exitPrice=finite(tp.actualPrice);closedAt=finite(tp.updateTime);}
           else if(done(st)){exitReason='TOP3_STOP';exitPrice=finite(st.actualPrice);closedAt=finite(st.updateTime);}
         }catch{}
+        // R2544.57 (14.10 deploy STOP booked open lots as "stop"): neither own order filled -> the exit fill decides.
+        // Closed by the core (STOP / TEST reset / switch) = SYSTEM_CLOSE; at or through the stop = stop; otherwise outside.
+        if(exitReason==='TOP3_EXCHANGE_EXIT'){
+          const fill=await top3ExitFill(a,creds);
+          if(fill){exitPrice=fill.price;closedAt=fill.time;}
+          if(a.systemClose)exitReason='TOP3_SYSTEM_CLOSE';
+          else if(fill&&finite(a.stopPrice)>0)exitReason=(a.side==='LONG'?fill.price<=a.stopPrice*1.001:fill.price>=a.stopPrice*0.999)?'TOP3_STOP':'TOP3_EXTERNAL_CLOSE';
+        }
         for(const id of [a.stopAlgoId,a.tpAlgoId])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
         top3Finish(a,{exitReason,exitPrice,closedAt:closedAt&&closedAt<=clock()?closedAt:null});continue;
       }
@@ -5963,7 +5989,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
     const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
     const netPnl=inc?inc.net:null;
-    const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL'}[c.exitReason]||'TOP3_OTHER_EXIT';
+    const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
+      TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE'}[c.exitReason]||'TOP3_OTHER_EXIT';
     const setup='TOP3_'+(c.rule||'RULE');
     return {side:c.side,setup,originTF:'1h',ownerTF:'1h',tradeLane:'TOP3_HUNTER',entryPrice:entry,stopPrice:stop,takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
       initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
@@ -5972,6 +5999,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       exitType,exitEvidenceVersion:top3Lib.TOP3_VERSION,openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
       entryContext:{why:top3Why(c),setup,setupFamily:'TOP3',entryTiming:'HOURLY_CLOSE',lane:'TOP3_HUNTER',releaseContract:top3Lib.TOP3_VERSION,strategyVersion:top3Lib.TOP3_VERSION,source:'TOP3',
         top3:{id:c.id,rule:c.rule||null,signalKind:c.signalKind||'UNLABELED',leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),tpPrice:finite(c.tpPrice),exitPrice:finite(c.exitPrice),jevMode:c.jevMode===true,jev:c.jev||null,
+          closedBy:c.systemClose?.reason||null,
           entryFeatures:c.entryFeatures||null,mfePct:path?Number(path.mfePct.toFixed(4)):finite(c.sampleMfePct),maePct:path?Number(path.maePct.toFixed(4)):finite(c.sampleMaePct),pathSource:path?'5m':'SAMPLES_30S'}},
       eventId:'TOP3:'+c.id,closeBusinessKey:'TOP3:'+c.id,incomeAvailable:inc!==null,learningAuthority:'EXCLUDED_TOP3_LANE'};
   }

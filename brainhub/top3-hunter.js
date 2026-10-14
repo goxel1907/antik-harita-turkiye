@@ -207,13 +207,19 @@ function excursions(side, entry, candles) {
 }
 const pctTr = v => v === null || v === undefined ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1).replace('.', ',') + '%';
 const RULE_TR = { LONG_6OF6: 'LONG 6/6', SHORT_TOP_FADE: 'SHORT tepe sonrası' };
-const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer' };
+const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer',
+  TOP3_SYSTEM_CLOSE: 'sistem kapattı (durdurma / kurulum / mod geçişi; kural sonucu değil)', TOP3_EXTERNAL_CLOSE: 'dışarıdan kapatıldı (stop / hedef değil)' };
+// R2544.57 (14.10 deploy STOP): a lot the core closed itself (STOP, TEST reset, switch to LIVE) or that was closed outside
+// the lane without its stop/target is CUT_SHORT - not a stop; the rule never reached its own exit.
+const CUT_SHORT_EXITS = new Set(['TOP3_SYSTEM_CLOSE', 'TOP3_EXTERNAL_CLOSE']);
 // lot: the closed lot (state record + exitPrice/closedAt); close: the POSITION_CLOSED record; path: excursions() or null.
 function buildLesson(lot, close, path) {
   const side = lot.side, entry = finite(lot.entryPrice), exit = finite(lot.exitPrice) ?? null;
   const stopPct = finite(lot.stopPct), tp = finite(lot.tpPrice);
   const targetPct = entry > 0 && tp > 0 ? (side === 'LONG' ? tp / entry - 1 : 1 - tp / entry) : null;
-  const resultPct = entry > 0 && exit > 0 ? (side === 'LONG' ? exit / entry - 1 : 1 - exit / entry) : null;
+  // without an exit fill price the result falls back to the booked net result (net PnL / notional)
+  const outcome = finite(close?.outcomePct);
+  const resultPct = entry > 0 && exit > 0 ? (side === 'LONG' ? exit / entry - 1 : 1 - exit / entry) : outcome !== null ? outcome / 100 : null;
   const net = finite(close?.netPnl), r = finite(close?.rMultiple);
   const mfe = path ? path.mfePct : finite(lot.sampleMfePct), mae = path ? path.maePct : finite(lot.sampleMaePct);
   const exitType = close?.exitType || null;
@@ -221,6 +227,7 @@ function buildLesson(lot, close, path) {
   if (exitType === 'TOP3_TAKE_PROFIT') tags.push('TARGET_HIT');
   if (exitType === 'TOP3_STOP' || exitType === 'TOP3_STOP_OR_EXTERNAL') tags.push('STOPPED');
   if (exitType === 'TOP3_TIME_EXIT') tags.push('TIME_EXIT');
+  if (CUT_SHORT_EXITS.has(exitType)) tags.push('CUT_SHORT', exitType === 'TOP3_SYSTEM_CLOSE' ? 'SYSTEM_CLOSE' : 'EXTERNAL_CLOSE');
   if (tags.includes('STOPPED') && targetPct > 0 && mfe !== null && mfe >= targetPct / 2) tags.push('STOPPED_AFTER_HALF_TARGET');
   if (mfe !== null && mfe < 0.002) tags.push('NEVER_IN_PROFIT');
   if (lot.signalKind === 'REPEAT') tags.push('REPEAT_SIGNAL');
@@ -231,16 +238,39 @@ function buildLesson(lot, close, path) {
     `${r !== null ? ' / ' + r.toFixed(2).replace('.', ',') + ' R' : ''}${holdH !== null ? ', ' + holdH.toFixed(1).replace('.', ',') + ' sa' : ''}; ` +
     `en iyi ${pctTr(mfe)}${targetPct > 0 && mfe !== null ? ' (hedefin %' + Math.round(Math.max(0, mfe) / targetPct * 100) + "'i)" : ''}, en kötü ${pctTr(mae)}; çıkış ${EXIT_TR[exitType] || exitType || '—'}.` +
     (tags.includes('STOPPED_AFTER_HALF_TARGET') ? ' Hedefin yarısını gördükten sonra stop oldu.' : '') +
+    (tags.includes('CUT_SHORT') ? ' Yarıda kesildi: kural kendi stop / hedef / 24 saat çıkışına ulaşmadı.' : '') +
     (tags.includes('NEVER_IN_PROFIT') ? ' Hiç kâra geçmedi.' : '');
   const round4 = v => v === null || v === undefined ? null : Number(Number(v).toFixed(4));
   return {
     // kind UNLABELED: a lot opened before the signal label existed (never counted as FRESH)
     v: 1, id: lot.id, symbol: lot.symbol, side, rule: lot.rule, kind: lot.signalKind || 'UNLABELED', mode: lot.mode || 'TEST',
     openedAt: finite(lot.openedAt), closedAt: finite(lot.closedAt), holdH: round4(holdH), entryPrice: entry, exitPrice: exit,
-    stopPct: round4(stopPct), targetPct: round4(targetPct), resultPct: round4(resultPct), netPnl: net, rMultiple: round4(r), verdict, exitType,
+    stopPct: round4(stopPct), targetPct: round4(targetPct), resultPct: round4(resultPct), resultBasis: exit > 0 ? 'EXIT_PRICE' : resultPct !== null ? 'NET_PNL' : null,
+    netPnl: net, rMultiple: round4(r), verdict, exitType,
     mfePct: round4(mfe), maePct: round4(mae), mfeR: stopPct > 0 && mfe !== null ? round4(mfe / stopPct) : null,
     pathSource: path ? '5m' : (mfe !== null ? 'SAMPLES_30S' : 'NONE'), features: lot.entryFeatures || null, jev: lot.jev?.decision || null, tags, lessonTr
   };
+}
+// R2544.57 one-time repair of lessons written before the CUT_SHORT label (14.10 deploy STOP booked 4 open lots as
+// "stop / dış kapanış"): a TOP3_STOP_OR_EXTERNAL lesson without an exit price whose result is clearly not a stop-out
+// (R > -0.9) was closed by the core or outside the lane. Closed together with another lot (within 5 s) = the core's
+// STOP; alone = outside. Only the lane memory is relabelled; the closed-trade ledger keeps its raw records.
+function repairLessons(lessons) {
+  const xs = Array.isArray(lessons) ? lessons : []; let repaired = 0;
+  const out = xs.map(l => {
+    if (l?.exitType !== 'TOP3_STOP_OR_EXTERNAL' || finite(l.exitPrice) > 0) return l;
+    const r = finite(l.rMultiple); if (r === null || r <= -0.9) return l;
+    const batch = xs.some(o => o !== l && finite(o?.closedAt) !== null && Math.abs(o.closedAt - l.closedAt) <= 5000);
+    const entry = finite(l.entryPrice), t = finite(l.targetPct), stopPct = finite(l.stopPct);
+    const lot = { id: l.id, symbol: l.symbol, side: l.side, rule: l.rule, signalKind: l.kind === 'UNLABELED' ? undefined : l.kind, mode: l.mode,
+      entryPrice: entry, exitPrice: null, stopPct, tpPrice: entry > 0 && t !== null ? (l.side === 'LONG' ? entry * (1 + t) : entry * (1 - t)) : null,
+      openedAt: l.openedAt, closedAt: l.closedAt, entryFeatures: l.features, jev: l.jev ? { decision: l.jev } : null, sampleMfePct: l.mfePct, sampleMaePct: l.maePct };
+    const outcomePct = stopPct !== null ? r * stopPct * 100 : null; // net R x stop distance = net PnL / notional
+    const fixed = buildLesson(lot, { netPnl: l.netPnl, rMultiple: r, exitType: batch ? 'TOP3_SYSTEM_CLOSE' : 'TOP3_EXTERNAL_CLOSE', outcomePct }, null);
+    repaired++;
+    return { ...fixed, pathSource: l.pathSource, mfeR: l.mfeR, repairedFrom: 'TOP3_STOP_OR_EXTERNAL' };
+  });
+  return { lessons: out, repaired };
 }
 const BUCKETS = {
   SHORT_TOP_FADE: { feature: 'dropFromPeak', label: 'tepeden düşüş', edges: [0.15, 0.25, 0.40] },
@@ -253,6 +283,7 @@ function aggregate(xs) {
   const wins = xs.filter(x => x.verdict === 'WIN').length, losses = xs.filter(x => x.verdict === 'LOSS').length;
   return { n, wins, losses, winRate: n ? Number((wins / n).toFixed(3)) : null, avgR: avg('rMultiple'), avgResultPct: avg('resultPct'), avgMfePct: avg('mfePct'), avgMaePct: avg('maePct'),
     targetHit: has('TARGET_HIT'), stopped: has('STOPPED'), timeExit: has('TIME_EXIT'), stoppedAfterHalfTarget: has('STOPPED_AFTER_HALF_TARGET'), neverInProfit: has('NEVER_IN_PROFIT'),
+    cutShort: has('CUT_SHORT'),
     netPnl: Number(num('netPnl').reduce((a, b) => a + b, 0).toFixed(4)) };
 }
 function bucketsFor(lessons, rule) {
@@ -283,4 +314,4 @@ function experienceFor(lessons, rule, { recent = 6 } = {}) {
     note: xs.length < 10 ? 'FEW_SAMPLES_TREAT_AS_ANECDOTE' : 'MEASURED_HISTORY' };
 }
 
-module.exports = { writeTop3Settings, safeLeverage, excursions, buildLesson, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
+module.exports = { writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
