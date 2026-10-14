@@ -5740,7 +5740,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // (confirm 'LIVE'), an armed account and OTO, exactly like every other automatic entry. Never touches other lots.
   // =====================================================================
   const TOP3_HOUR=top3Lib.HOUR;
-  function top3Why(a){return `İlk 3 avcısı ${a?.rule==='LONG_6OF6'?'LONG 6/6 (hacim patlaması + ilk 7)':'SHORT tepe sonrası (ilk 3 + tepeden ≥%15 aşağı)'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
+  const TOP3_WHY={LONG_6OF6:'LONG 6/6 (hacim patlaması + ilk 7)',SHORT_TOP_FADE:'SHORT tepe sonrası (ilk 3 + tepeden ≥%15 aşağı)',
+    LONG_EARLY_RETEST:'erken LONG (5 dk kırılım + geri test, hedef üst likidasyon bölgesi)',SHORT_TOP_BREAK:'tepe SHORT (5 dk yeni tepe + yapı kırılımı)'};
+  function top3Why(a){return `İlk 3 avcısı ${TOP3_WHY[a?.rule]||a?.rule||'—'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
   function top3Gate(cfg){
     if(cfg.enabled!==true)return {ok:false,reason:'TOP3_DISABLED'};
     const test=testModeNow();
@@ -5803,8 +5805,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(covered<150&&clock()-(Date.parse(top3State.bootstrap?.at||'')||0)>6*TOP3_HOUR){top3State.bootstrap=await top3Bootstrap(tradable,T);saveTop3State();}
     out.history={hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR)};
     const btcRow=(Array.isArray(tick)?tick:[]).find(x=>x?.symbol==='BTCUSDT');const btc24=finite(btcRow?.priceChangePercent)!==null?finite(btcRow.priceChangePercent)/100:null;
-    const longC=cfg.long.enabled?Object.entries(ranks).filter(([,r])=>r<=cfg.long.maxRank).map(([s])=>s):[];
-    const shortC=cfg.short.enabled?top3Ranks.symbolsInTop(3,T-(cfg.short.top3WithinH-1)*TOP3_HOUR,T+1).filter(s=>tradable.has(s)):[];
+    // R2544.58: the hourly rules run only with rulesVersion 1; with v2 this hourly pass just keeps the rank book.
+    const v1=cfg.rulesVersion===1;
+    const longC=v1&&cfg.long.enabled?Object.entries(ranks).filter(([,r])=>r<=cfg.long.maxRank).map(([s])=>s):[];
+    const shortC=v1&&cfg.short.enabled?top3Ranks.symbolsInTop(3,T-(cfg.short.top3WithinH-1)*TOP3_HOUR,T+1).filter(s=>tradable.has(s)):[];
     const cands=[...new Set([...longC,...shortC])].slice(0,40);
     let btcClose=null; // BTC 1h closes for past-hour LONG checks, fetched once per scan when needed
     for(const s of cands){
@@ -5860,6 +5864,93 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     return out;
   }
+  // ---------- R2544.58 İlk 3 v2: decisions on every CLOSED 5m candle (user 14.10: never on a closed 1h candle) ----------
+  const top3Daily=new Map(); // symbol -> {day, rows}: 1d candles, read once per UTC day
+  async function top3K5(symbol,limit){
+    const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval:'5m',limit:String(limit)}});const now=clock();
+    return (Array.isArray(k)?k:[]).map(r=>[Number(r[0]),Number(r[1]),Number(r[2]),Number(r[3]),Number(r[4]),Number(r[7])]).filter(r=>r[0]+top3Lib.M5<=now); // closed only; quote volume
+  }
+  async function top3Kd(symbol){
+    const day=Math.floor(clock()/(24*TOP3_HOUR)),c=top3Daily.get(symbol);if(c&&c.day===day)return c.rows;
+    const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval:'1d',limit:'35'}});
+    const rows=(Array.isArray(k)?k:[]).map(r=>[Number(r[0]),Number(r[1]),Number(r[2]),Number(r[3]),Number(r[4])]);
+    top3Daily.set(symbol,{day,rows});if(top3Daily.size>400)top3Daily.delete(top3Daily.keys().next().value);
+    return rows;
+  }
+  // close of the 1h candle opened at T, read from the 5m candles (the one opened at T + 55 min)
+  const top3HourClose=(k5,T)=>{const b=k5.find(r=>r[0]===T+TOP3_HOUR-top3Lib.M5);return b?b[4]:null;};
+  // EARLY LONG hour context at the last closed hour before candle time t (the research's rank index), from the rank book
+  function top3EarlyCtx(s,t,k5,cfg){
+    const T=Math.floor(t/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR,E=cfg.early,m=top3Ranks.hours[T];
+    if(!m)return {ok:false,reasons:['RANK_HOUR_MISSING']};
+    const c=top3HourClose(k5,T),c0=top3HourClose(k5,T-24*TOP3_HOUR);
+    return top3Lib.earlyLongContext({rank:finite(m[s]),rankBefore:finite(top3Ranks.hours[T-E.climbHours*TOP3_HOUR]?.[s]),
+      top3Recent:top3Ranks.countInTop(s,3,T-E.noTop3H*TOP3_HOUR,T+1)>0,r24:c>0&&c0>0?c/c0-1:null},cfg);
+  }
+  // Same-coin pause (research dedupe; user 14.10: BLUAI was shorted 5 times): after an entry 24 h (LONG) / 12 h (SHORT);
+  // after a stop on the coin no re-entry on that side for 24 h.
+  function top3Cooldown(symbol,side,cfg){
+    const R=side==='LONG'?cfg.early:cfg.top,last=finite(top3State.lastEntry?.[symbol+':'+side])||0;
+    if(clock()-last<R.cooldownH*TOP3_HOUR)return 'TOP3_COOLDOWN';
+    const st=(top3State.recentCloses||[]).find(c=>c.symbol===symbol&&c.side===side&&c.exitReason==='TOP3_STOP');
+    if(st&&clock()-(finite(st.closedAt)||0)<(side==='LONG'?R.cooldownH:R.cooldownAfterStopH)*TOP3_HOUR)return 'TOP3_STOP_COOLDOWN';
+    return null;
+  }
+  async function top3V2Scan(cfg,gate,bar){
+    const out={at:new Date(clock()).toISOString(),bar:new Date(bar).toISOString(),mode:testModeNow()?'TEST':'LIVE',gate:gate.ok?'OPEN':gate.reason,
+      candidates:{long:0,short:0},checked:0,signals:[],nearMisses:[],entries:[],errors:[]};
+    const hours=Object.keys(top3Ranks.hours).map(Number).sort((a,b)=>a-b),Tl=hours.at(-1);
+    if(!Tl||clock()-Tl>3*TOP3_HOUR){out.errors.push('TOP3_RANK_BOOK_STALE');return out;}
+    // LONG: ranked 4..24 in any of the last 3 recorded hours (a breakout up to 2 h back may be retested now);
+    // SHORT: in the top 10 within 24 h.
+    const longC=new Set(),shortC=new Set(cfg.top.enabled?top3Ranks.symbolsInTop(10,Tl-(cfg.top.top10WithinH-1)*TOP3_HOUR,Tl+1):[]);
+    if(cfg.early.enabled)for(const T of [Tl,Tl-TOP3_HOUR,Tl-2*TOP3_HOUR])for(const [s,r] of Object.entries(top3Ranks.hours[T]||{}))if(r>=cfg.early.minRank&&r<=cfg.early.maxRank)longC.add(s);
+    out.candidates={long:longC.size,short:shortC.size};
+    for(const s of [...new Set([...longC,...shortC])]){
+      if(activeTop3For(s))continue;
+      let k5,kd;try{k5=await top3K5(s,340);kd=await top3Kd(s);}catch{out.errors.push(s+':KLINES');continue;}
+      if(!k5.length||k5.at(-1)[0]!==bar){out.errors.push(s+':BAR_MISSING');continue;}
+      out.checked++;
+      const lvAt=t=>top3Lib.dailyLevels(kd,t),checks=[];
+      if(longC.has(s))checks.push(['LONG',top3Lib.earlyLongTrigger(k5,lvAt,t=>top3EarlyCtx(s,t,k5,cfg),cfg)]);
+      if(shortC.has(s))checks.push(['SHORT',top3Lib.topShortTrigger(k5,cfg)]);
+      for(const [side,tr] of checks){
+        if(tr.ok){out.signals.push({symbol:s,side,rule:tr.rule,trig:tr,levels:lvAt(clock()),close:k5.at(-1)[4]});
+          try{store.journal('TOP3_SIGNAL',s,{side,rule:tr.rule,trig:tr,levels:lvAt(clock()),bar:out.bar,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}}
+        else if(!['V2_NO_BREAKOUT','V2_NO_FRESH_TOP','V2_5M_HISTORY_SHORT'].includes(tr.reason))out.nearMisses.push({symbol:s,side,reason:tr.reason,reasons:tr.reasons||null,level:finite(tr.level),top:finite(tr.top)});
+      }
+      await new Promise(r=>setTimeout(r,60));
+    }
+    if(!gate.ok)return out;
+    let prem=null;
+    for(const x of out.signals){
+      const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
+      if(!testModeNow()&&Object.keys(top3State.active).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}
+      const cd=top3Cooldown(x.symbol,x.side,cfg);if(cd){res.reason=cd;continue;}
+      if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
+      if(prem===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex');prem=new Map((Array.isArray(pi)?pi:[]).map(r=>[r.symbol,r]));}catch{prem=new Map();}}
+      const pr=prem.get(x.symbol),fund=finite(pr?.lastFundingRate),premium=finite(pr?.markPrice)&&finite(pr?.indexPrice)?Number((finite(pr.markPrice)/finite(pr.indexPrice)-1).toFixed(5)):null;
+      const T=Math.floor(clock()/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR,m=top3Ranks.hours[T]||{};
+      const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
+        top:finite(x.trig.top),hl:finite(x.trig.hl),pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close};
+      let jev=null;
+      if(cfg.jevMode===true){
+        let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
+        if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
+        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}
+        catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
+        const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
+        try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
+        res.jev=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
+      }
+      const R=x.side==='LONG'?cfg.early:cfg.top;
+      const opened=await top3Open({ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels,maxHoldMs:R.maxHoldH*TOP3_HOUR},x.symbol,cfg,jev,{signalKind:'FRESH',entryFeatures:ef});
+      Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason,stopPct:finite(opened.stopPct)});
+      if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[x.symbol+':'+x.side]:clock()};saveTop3State();}
+      else try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:opened});}catch{}
+    }
+    return out;
+  }
   async function top3Open(sig,symbol,cfg,jev,ctx={}){
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
     const side=sig.side,la=readLeaderAutoConfig();
@@ -5873,7 +5964,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(margin>avail*0.95)return {ok:false,reason:'TOP3_MARGIN_ABOVE_FREE_BALANCE',marginQuote:margin,availableBalance:avail};
     let px;try{px=await paperPrice(symbol);}catch{px=null;}
     const price=finite(side==='LONG'?px?.ask:px?.bid);if(!(price>0))return {ok:false,reason:'TOP3_PRICE_UNAVAILABLE'};
-    const pre=top3Lib.entryLevels(sig,price);if(!pre.ok)return {ok:false,reason:pre.reason,stopPct:pre.stopPct??null};
+    // v2: structural stop / zone target from the 5m trigger (plan rejects a stop outside its band or a long right under a zone)
+    const pre=sig.v2?(side==='LONG'?top3Lib.earlyLongPlan(price,sig.v2,sig.levels,cfg):top3Lib.topShortPlan(price,sig.v2,sig.levels,cfg)):top3Lib.entryLevels(sig,price);
+    if(!pre.ok)return {ok:false,reason:pre.reason,stopPct:pre.stopPct??null};
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'TOP3_LEVERAGE_BRACKET_UNAVAILABLE'};}
     if(!(exchangeMax>=1))return {ok:false,reason:'TOP3_EXCHANGE_MAX_LEVERAGE_INVALID'};
@@ -5883,7 +5976,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     await transport._syncServerTime();
     const info=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');const si=Array.isArray(info?.symbols)?info.symbols.find(x=>x?.symbol===symbol):null;if(!si)return {ok:false,reason:'TOP3_SYMBOL_INFO_MISSING'};
     const f=exchangeFiltersFor(si);if(!(f.lotStep>0&&f.tickSize>0))return {ok:false,reason:'TOP3_FILTERS_MISSING'};
-    const quantity=burstFloor(margin*leverage/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||(f.maxQty&&quantity>f.maxQty))return {ok:false,reason:'TOP3_QUANTITY_INVALID'};
+    // R2544.58 (14.10: one v1 stop cost ~20 % of the account): v2 sizes from the risk budget - riskPct of equity lost at the
+    // stop - never above margin x leverage.
+    let notional=margin*leverage,riskQuote=null;
+    if(sig.v2){
+      const eq=finite(acct?.equity)??finite(acct?.walletBalance);
+      const n=top3Lib.riskSizedNotional({equity:eq,riskPct:cfg.riskPct,stopPct:pre.stopPct,marginCap:margin,leverage});
+      if(!(n>0))return {ok:false,reason:'TOP3_RISK_SIZE_INVALID'};
+      notional=n;riskQuote=Number((n*pre.stopPct).toFixed(4));
+    }
+    const quantity=burstFloor(notional/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||(f.maxQty&&quantity>f.maxQty))return {ok:false,reason:'TOP3_QUANTITY_INVALID'};
     if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'TOP3_MIN_NOTIONAL_NOT_MET'};
     const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;
     if(!top3Gate(top3Lib.readTop3Config(root)).ok)return {ok:false,reason:'TOP3_ENTRY_PERMISSION_REVOKED'};
@@ -5899,7 +6001,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(entryPrice===null)entryPrice=price;
     // Levels at the real fill. SHORT keeps its structural stop, clamped into the 2%..8% band after slippage.
     let stopRaw,tpRaw;
-    if(side==='LONG'){stopRaw=entryPrice*(1-sig.stopPct);tpRaw=entryPrice*(1+sig.tpPct);}
+    if(sig.v2){
+      // the structural stop stays where the 5m structure is; R targets are re-measured from the real fill
+      stopRaw=pre.stopPrice;
+      const s=side==='LONG'?1-stopRaw/entryPrice:stopRaw/entryPrice-1;
+      if(!(s>0))tpRaw=pre.tpPrice;
+      else if(side==='LONG')tpRaw=pre.zone?pre.tpPrice:entryPrice*(1+cfg.early.noZoneTargetR*s);
+      else tpRaw=entryPrice*(1-cfg.top.targetR*s);
+    }
+    else if(side==='LONG'){stopRaw=entryPrice*(1-sig.stopPct);tpRaw=entryPrice*(1+sig.tpPct);}
     else{stopRaw=Math.min(entryPrice*(1+sig.maxStopPct),Math.max(entryPrice*(1+sig.minStopPct),finite(sig.stopRef)));tpRaw=entryPrice*(1-sig.tpPct);}
     const stopPrice=burstTickPrice(stopRaw,f.tickSize,side==='LONG'?'down':'up'),tpPrice=burstTickPrice(tpRaw,f.tickSize,side==='LONG'?'down':'up');
     const stop=await transport.placeRunnerStop({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:stopPrice,clientAlgoId:('T3S'+id).slice(0,36),credentials:creds});
@@ -5912,7 +6022,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const a={id,symbol,side,rule:sig.rule,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
       stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
       jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0,
-      signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0};
+      signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0,
+      ...(sig.v2?{rulesVersion:2,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{})};
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
     try{store.journal('TOP3_ENTRY',symbol,{...a,version:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
@@ -6077,19 +6188,34 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         }
       }
       const gate=top3Gate(cfg);top3State.lastGate=gate.ok?'OPEN':gate.reason;
-      const now=clock(),hour=Math.floor(now/TOP3_HOUR)*TOP3_HOUR;
-      if(now-hour<40000)return {ok:true,skipped:true,reason:'TOP3_WAIT_CANDLE_CLOSE',managed};
-      if(top3State.lastScanHour===hour)return {ok:true,skipped:true,reason:'TOP3_HOUR_DONE',managed};
-      if(now<(finite(top3State.retryAt)||0))return {ok:true,skipped:true,reason:'TOP3_RETRY_WAIT',managed};
+      let now=clock();const hour=Math.floor(now/TOP3_HOUR)*TOP3_HOUR;
+      // R2544.58 v2: one pass per closed 5m candle, >= 8 s after it closed
+      let v2=null;
+      if(cfg.rulesVersion===2){
+        const bar=Math.floor(now/top3Lib.M5)*top3Lib.M5-top3Lib.M5;
+        if(now-(bar+top3Lib.M5)>=8000&&top3State.lastV2Bar!==bar){
+          top3State.lastV2Bar=bar;
+          const r=await top3V2Scan(cfg,gate,bar);
+          {const w=top3State.window;if(w&&testModeNow()&&clock()<w.endsAt){w.scans++;if(r.checked>0)w.okScans++;w.signals+=r.signals.length;w.entries+=r.entries.filter(x=>x.opened).length;}}
+          top3State.lastScan5={...r,signals:r.signals.map(x=>({symbol:x.symbol,side:x.side,rule:x.rule,level:finite(x.trig.level),levelName:x.trig.levelName||null,top:finite(x.trig.top),hl:finite(x.trig.hl),close:x.close})),nearMisses:r.nearMisses.slice(0,10),errors:r.errors.slice(0,10)};
+          if(r.signals.length)top3State.recentSignals=[...r.signals.map(x=>({symbol:x.symbol,side:x.side,rule:x.rule,kind:'FRESH',candle:r.bar,level:finite(x.trig.level),top:finite(x.trig.top)})),...(top3State.recentSignals||[])].slice(0,30);
+          saveTop3State();
+          v2={bar:r.bar,signals:r.signals.length,entries:r.entries.filter(x=>x.opened).length};
+          now=clock();
+        }
+      }
+      if(now-hour<40000)return {ok:true,skipped:true,reason:'TOP3_WAIT_CANDLE_CLOSE',managed,v2};
+      if(top3State.lastScanHour===hour)return {ok:true,skipped:true,reason:'TOP3_HOUR_DONE',managed,v2};
+      if(now<(finite(top3State.retryAt)||0))return {ok:true,skipped:true,reason:'TOP3_RETRY_WAIT',managed,v2};
       top3State.lastScanHour=hour;saveTop3State();
       const scan=await top3Scan(cfg,hour,gate);
       // No ranking (market data unavailable): the hour is not used up; retry in 2 min while the candle is still the last closed.
       if(scan.ranked<50){top3State.lastScanHour=null;top3State.retryAt=clock()+120000;}else top3State.retryAt=null;
-      {const w=top3State.window;if(w&&testModeNow()&&clock()<w.endsAt){w.scans++;if(scan.ranked>=50)w.okScans++;w.signals+=scan.signals.length;w.entries+=scan.entries.filter(x=>x.opened).length;}}
+      {const w=top3State.window;if(cfg.rulesVersion===1&&w&&testModeNow()&&clock()<w.endsAt){w.scans++;if(scan.ranked>=50)w.okScans++;w.signals+=scan.signals.length;w.entries+=scan.entries.filter(x=>x.opened).length;}}
       top3State.lastScan={...scan,signals:scan.signals.map(({sig,f,...v})=>v),nearMisses:scan.nearMisses.slice(0,8),stale:scan.stale.slice(0,8)};
       top3State.recentSignals=[...scan.signals.map(({sig,f,...v})=>({...v,candle:scan.candle})),...(top3State.recentSignals||[])].slice(0,30);
       saveTop3State();
-      return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed};
+      return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed,v2};
     }finally{top3Busy=false;}
   }
   function top3Status(){
@@ -6102,14 +6228,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,
       switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled},
-      rules:{leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short},
+      rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
+      lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
       active:Object.values(top3State.active||{}).map(a=>{const p=open.get(a.symbol);return {...a,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
       settings:{marginQuote:cfg.marginQuote,marginAuto:cfg.marginQuote===null,leverage:cfg.leverage,safeLeverage:{long:top3Lib.safeLeverage(cfg.long.stopPct),shortMin:top3Lib.safeLeverage(cfg.short.maxStopPct),shortMax:top3Lib.safeLeverage(cfg.short.minStopPct)},effectiveLong:Math.min(cfg.leverage,top3Lib.safeLeverage(cfg.long.stopPct))},
-      learning:{...top3Lib.experienceSummary(top3State.lessons),limitsInTest:'NONE',limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'}},
+      learning:{...top3Lib.experienceSummary(top3State.lessons),limitsInTest:'NONE',limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'},
+        sameCoinPauseH:cfg.rulesVersion===2?{long:cfg.early.cooldownH,short:cfg.top.cooldownH,afterStop:cfg.top.cooldownAfterStopH}:null},
       windowResults:top3State.window?sum(measured.filter(p=>p.tradingMode==='TEST'&&Date.parse(p.openedAt||p.closedAt||'')>=top3State.window.startedAt)):null,
       history:{hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR),bootstrap:top3State.bootstrap||null},
       pendingCloses:(top3State.pendingCloses||[]).length,nextScanAt:new Date(Math.floor(now/TOP3_HOUR)*TOP3_HOUR+TOP3_HOUR+40000).toISOString()};
@@ -6161,7 +6289,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, configureTop3, laneStatus, selectLanes, rememberNormalLane, _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, configureTop3, laneStatus, selectLanes, rememberNormalLane, _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

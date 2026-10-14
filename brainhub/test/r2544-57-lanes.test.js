@@ -153,7 +153,7 @@ test('R57 APK status: lanes and a compact İlk 3 summary, contract R2544.57_PC_S
     top3:{version:'v',tradingMode:'TEST',switches:{enabled:true},gate:'OPEN',running:true,settings:{leverage:10},testWindow:{elapsedH:1,remainingMin:1380,done:false,scans:1,okScans:1,signals:2,entries:2,id:'w1'},
       active:[{symbol:'AUSDT',side:'SHORT',rule:'SHORT_TOP_FADE',signalKind:'REPEAT',entryPrice:1,stopPrice:1.05,tpPrice:0.9,markPrice:0.98,unrealizedPnl:2,leverage:10,marginQuote:20,remainingMin:100,entryFeatures:{big:1}}],
       lastScan:{at:'x',candle:'y',ranked:525,signals:[{symbol:'AUSDT',side:'SHORT',kind:'REPEAT',sig:{huge:1}}],errors:[],nearMisses:[1]},learning:{lessons:3,groups:[{n:3}],recent:[{lessonTr:'long text'}]}}});
-  assert.equal(out.mobileContract,'R2544.57_PC_STATUS');
+  assert.equal(out.mobileContract,'R2544.58_PC_STATUS');
   assert.equal(out.tradingMode.run.lanes.top3.selected,true);
   assert.equal(out.top3.active[0].signalKind,'REPEAT');assert.equal(out.top3.active[0].entryFeatures,undefined);
   assert.deepEqual(out.top3.lastScan.signals,[{symbol:'AUSDT',side:'SHORT',kind:'REPEAT'}]);

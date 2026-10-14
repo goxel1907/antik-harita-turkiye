@@ -19,11 +19,16 @@ function mobileStatus(status={}){
     const pick=(o,ks)=>o&&typeof o==='object'?Object.fromEntries(ks.filter(k=>o[k]!==undefined).map(k=>[k,o[k]])):null;
     out.top3={version:t.version,tradingMode:t.tradingMode,switches:t.switches,gate:t.gate,running:t.running,settings:t.settings||null,
       testWindow:pick(t.testWindow,['startedAt','endsAt','elapsedH','remainingMin','done','scans','okScans','signals','entries']),
-      active:(t.active||[]).slice(0,12).map(a=>pick(a,['symbol','side','rule','signalKind','mode','entryPrice','stopPrice','tpPrice','markPrice','unrealizedPnl','leverage','marginQuote','remainingMin'])),
+      active:(t.active||[]).slice(0,12).map(a=>pick(a,['symbol','side','rule','signalKind','mode','entryPrice','stopPrice','tpPrice','markPrice','unrealizedPnl','leverage','marginQuote','remainingMin','riskQuote'])),
       lastScan:t.lastScan?{at:t.lastScan.at,candle:t.lastScan.candle,ranked:t.lastScan.ranked,signals:(t.lastScan.signals||[]).slice(0,8).map(x=>({symbol:x.symbol,side:x.side,kind:x.kind||null})),errors:(t.lastScan.errors||[]).slice(0,3)}:null,
+      // R2544.58 v2: rules version, risk per trade and the last 5m pass for the phone
+      rules:t.rules?{rulesVersion:t.rules.rulesVersion??1,riskPct:t.rules.riskPct??null}:null,
+      lastScan5:t.lastScan5?{at:t.lastScan5.at,bar:t.lastScan5.bar,candidates:t.lastScan5.candidates||null,checked:t.lastScan5.checked,
+        signals:(t.lastScan5.signals||[]).slice(0,8).map(x=>({symbol:x.symbol,side:x.side,rule:x.rule})),
+        waiting:(t.lastScan5.nearMisses||[]).slice(0,6).map(x=>({symbol:x.symbol,side:x.side,reason:x.reason})),errors:(t.lastScan5.errors||[]).slice(0,3)}:null,
       results:t.results||null,windowResults:t.windowResults||null,
       learning:t.learning?{lessons:t.learning.lessons,groups:(t.learning.groups||[]).slice(0,8)}:null};
   }
-  out.compact=true;out.mobileContract='R2544.57_PC_STATUS';return out;
+  out.compact=true;out.mobileContract='R2544.58_PC_STATUS';return out;
 }
 module.exports={mobileStatus};

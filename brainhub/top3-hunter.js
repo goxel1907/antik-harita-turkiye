@@ -13,11 +13,17 @@
 const fs = require('fs');
 const path = require('path');
 
-const TOP3_VERSION = 'R2544.56_TOP3_HUNTER';
+const TOP3_VERSION = 'R2544.58_TOP3_V2';
+// rulesVersion 2 (R2544.58, default): 5m EARLY LONG + TOP SHORT at day/week/month zones, risk-sized. rulesVersion 1: the
+// R2544.56 hourly rules below (kept for the record and the tests; the hourly scan still keeps the rank book either way).
 const DEFAULT_CONFIG = Object.freeze({
-  enabled:false, jevMode:false, liveEnabled:false, leverage:10, marginQuote:null, maxActive:2,
+  enabled:false, jevMode:false, liveEnabled:false, leverage:10, marginQuote:null, maxActive:2, rulesVersion:2, riskPct:0.02,
   long:Object.freeze({ enabled:true, minR1:0.03, minVrBase:3, minVr1:33.9, minR24:0.133, maxRank:7, minTop10In7d:1, minVol30:0.0134, maxBtc24:0.0129, stopPct:0.08, tpPct:0.30, maxHoldH:24 }),
-  short:Object.freeze({ enabled:true, top3WithinH:24, minDropFromPeak:0.15, minVr1:3, stopBufferPct:0.01, minStopPct:0.02, maxStopPct:0.08, tpPct:0.10, maxHoldH:24 })
+  short:Object.freeze({ enabled:true, top3WithinH:24, minDropFromPeak:0.15, minVr1:3, stopBufferPct:0.01, minStopPct:0.02, maxStopPct:0.08, tpPct:0.10, maxHoldH:24 }),
+  early:Object.freeze({ enabled:true, minRank:4, maxRank:24, climbPlaces:3, climbHours:3, noTop3H:48, minR24:0.05, maxR24:0.40, volMult:3, volBars:288, minVolBars:200,
+    retestBars:24, retestTol:0.004, failClose:0.01, stopBuf:0.003, minStopPct:0.012, maxStopPct:0.045, minRoomR:2, noZoneTargetR:3, zoneTpBuf:0.005, maxHoldH:24, cooldownH:24 }),
+  top:Object.freeze({ enabled:true, top10WithinH:24, hlBars:6, breakBars:12, stopBuf:0.003, minStopPct:0.015, maxStopPct:0.06, zoneAbovePct:0.05, targetR:2.5, maxHoldH:24,
+    requireWeeklySwept:false, cooldownH:12, cooldownAfterStopH:24 })
 });
 const HOUR = 3600000;
 
@@ -28,12 +34,14 @@ function configFile(root) { return path.join(String(root || '.'), 'config', 'top
 function readTop3Config(root) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
-  const c = { ...DEFAULT_CONFIG, long:{ ...DEFAULT_CONFIG.long }, short:{ ...DEFAULT_CONFIG.short } };
+  const c = { ...DEFAULT_CONFIG, long:{ ...DEFAULT_CONFIG.long }, short:{ ...DEFAULT_CONFIG.short }, early:{ ...DEFAULT_CONFIG.early }, top:{ ...DEFAULT_CONFIG.top } };
   for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const mq = finite(raw.marginQuote); if (mq !== null && mq > 0) c.marginQuote = mq;
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 4) c.maxActive = Math.floor(ma);
-  for (const side of ['long', 'short']) {
+  if (raw.rulesVersion === 1 || raw.rulesVersion === 2) c.rulesVersion = raw.rulesVersion;
+  const rp = finite(raw.riskPct); if (rp !== null && rp > 0 && rp <= 0.1) c.riskPct = rp;
+  for (const side of ['long', 'short', 'early', 'top']) {
     const src = raw[side] && typeof raw[side] === 'object' ? raw[side] : {};
     for (const [k, v] of Object.entries(DEFAULT_CONFIG[side])) {
       if (typeof v === 'boolean') { if (typeof src[k] === 'boolean') c[side][k] = src[k]; continue; }
@@ -142,6 +150,115 @@ function entryLevels(sig, price) {
   return { ok:true, stopPrice:sig.stopRef, tpPrice:p * (1 - sig.tpPct), stopPct:d };
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// R2544.58 İLK 3 v2 (user 14.10.2026: "1 saatlik muma bakarak girerse sıvar; düşüşü/yükselişi erken mum seviyelerinden
+// tespit etmeli; büyük zaman dilimlerinde kurulan likidasyon oyunlarına göre gardını almalı"; 05.10: "kovalama yok, OB /
+// FVG / OTE / fibo / likidasyon bölgelerine bakacak"; 12.10: "ilk 3'e girecek coini erken yakala"; 13.10: "market maker
+// shortçuları 1G / 1H / 1A likidasyon bölgelerine götürür, sonra oradan short basar"). Decisions on CLOSED 5m candles
+// at the previous day / week / month highs (the short-liquidation zones); the same logic as the research script
+// Claud-Work gelistirme/harness/malzeme-lab/v2_bt.py (6 months, 5m, fees, no future data).
+//  EARLY LONG: a coin ranked 4..24 that climbed >= 3 places in 3 h and was not in the top 3 in 48 h; a 5m candle closes
+//    through a day/week/month high with >= 3x its 24 h median 5m volume; NO chase - entry only on the first 5m retest
+//    of that level (low within 0.4 %, close back above), stop under the retest; target just under the next higher zone
+//    (skipped when that zone is closer than 2R: no long right under a liquidation zone), 3R when no zone is above.
+//  TOP SHORT: a coin that was in the top 10 within 24 h makes a new 24 h high on 5m and within 12 candles closes under
+//    the low of the 6 candles before that top (5m structure break); stop above the top; skipped when an untaken
+//    day/week/month high lies within 5 % above (the market maker goes there first); target 2.5R.
+// ---------------------------------------------------------------------------------------------------------------
+const M5 = 5 * 60000, DAY = 24 * HOUR;
+// 1d candles [openTime, o, h, l, c] oldest first -> highs of CLOSED UTC days before `now` (research: daily highs shifted)
+function dailyLevels(kd, now) {
+  const today = Math.floor(Number(now) / DAY) * DAY;
+  const hs = (Array.isArray(kd) ? kd : []).map(r => [finite(r[0]), finite(r[2])]).filter(r => r[0] !== null && r[1] > 0 && r[0] < today).sort((a, b) => a[0] - b[0]).map(r => r[1]);
+  return { day: today, pdh: hs.length ? hs[hs.length - 1] : null, pwh: hs.length >= 3 ? Math.max(...hs.slice(-7)) : null, pmh: hs.length >= 10 ? Math.max(...hs.slice(-30)) : null };
+}
+const levelList = lv => [lv?.pdh, lv?.pwh, lv?.pmh].map(finite).filter(x => x > 0);
+// Hour context of the EARLY LONG at the last closed hour before the breakout candle (rank book + 24 h change).
+function earlyLongContext({ rank = null, rankBefore = null, top3Recent = false, r24 = null } = {}, cfg = DEFAULT_CONFIG) {
+  const E = cfg.early || DEFAULT_CONFIG.early, reasons = [];
+  const rk = finite(rank), rb = finite(rankBefore);
+  if (!(rk !== null && rk >= E.minRank && rk <= E.maxRank)) reasons.push('RANK_OUT_OF_BAND');
+  if (rk !== null && !(rb === null || rb > E.maxRank || rb - rk >= E.climbPlaces)) reasons.push('NOT_CLIMBING');
+  if (top3Recent) reasons.push('WAS_TOP3_RECENTLY');
+  const r = finite(r24); if (!(r !== null && r >= E.minR24 && r <= E.maxR24)) reasons.push('R24_OUT_OF_BAND');
+  return { ok: reasons.length === 0, reasons };
+}
+// k5: CLOSED 5m candles [t, o, h, l, c, quoteVolume] oldest first. Is the LAST candle the first valid retest of a fresh
+// breakout through a day/week/month high? levelsAt(t) -> dailyLevels at that time, ctxAt(t) -> earlyLongContext result.
+function earlyLongTrigger(k5, levelsAt, ctxAt, cfg = DEFAULT_CONFIG) {
+  const E = cfg.early || DEFAULT_CONFIG.early;
+  const k = (Array.isArray(k5) ? k5 : []).map(r => r.slice(0, 6).map(Number));
+  const q = k.length - 1;
+  if (q < E.minVolBars + 2) return { ok: false, reason: 'V2_5M_HISTORY_SHORT' };
+  let near = null;
+  for (let i = q - 1; i >= Math.max(1, q - E.retestBars); i--) {
+    const lv = levelsAt(k[i][0]); if (!lv) continue;
+    const pc = k[i - 1][4], c = k[i][4];
+    const brk = levelList(lv).filter(x => pc <= x && x < c); if (!brk.length) continue;
+    const L = Math.max(...brk), t = k[i][0];
+    const w = []; for (let j = i - 1; j >= 0 && j >= i - E.volBars; j--) if (k[j][0] >= t - DAY) w.push(k[j][5]);
+    if (w.length < E.minVolBars) continue;
+    const med = median(w); if (!(med > 0 && k[i][5] >= E.volMult * med)) { near = near || { reason: 'V2_BREAKOUT_VOLUME_LOW', level: L }; continue; }
+    const cx = ctxAt(t); if (!cx?.ok) { near = near || { reason: 'V2_CONTEXT', reasons: cx?.reasons || [], level: L }; continue; }
+    let first = null, failed = false;
+    for (let m = i + 1; m <= q; m++) {
+      if (k[m][0] - k[m - 1][0] > 3 * M5) { failed = true; break; }
+      if (k[m][4] < L * (1 - E.failClose)) { failed = true; break; }
+      if (k[m][3] <= L * (1 + E.retestTol) && k[m][4] >= L) { first = m; break; }
+    }
+    if (failed) { near = near || { reason: 'V2_BREAKOUT_FAILED', level: L }; continue; }
+    if (first === null) return { ok: false, reason: 'V2_WAITING_RETEST', level: L, breakoutAt: t };
+    if (first !== q) { near = near || { reason: 'V2_RETEST_ALREADY_PASSED', level: L }; continue; }
+    return { ok: true, side: 'LONG', rule: 'LONG_EARLY_RETEST', level: L, retestLow: k[q][3], breakoutAt: t, retestAt: k[q][0], volMult: k[i][5] / med,
+      levelName: L === finite(lv.pmh) ? 'PMH' : L === finite(lv.pwh) ? 'PWH' : 'PDH' };
+  }
+  return { ok: false, reason: near?.reason || 'V2_NO_BREAKOUT', ...(near || {}) };
+}
+// Stop under the retest (and the level), target just under the next higher zone; no long right under a zone.
+function earlyLongPlan(price, trig, lv, cfg = DEFAULT_CONFIG) {
+  const E = cfg.early || DEFAULT_CONFIG.early, p = finite(price);
+  if (!(p > 0) || !trig?.ok) return { ok: false, reason: 'V2_PRICE_INVALID' };
+  const stop = Math.min(trig.retestLow, trig.level) * (1 - E.stopBuf), s = 1 - stop / p;
+  if (!(s >= E.minStopPct && s <= E.maxStopPct)) return { ok: false, reason: 'V2_STOP_OUT_OF_RANGE', stopPct: round(s, 4) };
+  const above = levelList(lv).filter(x => x > p * 1.001);
+  let tp, zone = null;
+  if (above.length) { zone = Math.min(...above); if (zone < p * (1 + E.minRoomR * s)) return { ok: false, reason: 'V2_ZONE_TOO_CLOSE', zone, stopPct: round(s, 4) }; tp = zone * (1 - E.zoneTpBuf); }
+  else tp = p * (1 + E.noZoneTargetR * s);
+  return { ok: true, stopPrice: stop, tpPrice: tp, stopPct: s, targetR: (tp / p - 1) / s, zone };
+}
+// k5 as above (>= 24 h + 18 candles). Is the LAST candle the first close under the pre-top structure low after a fresh
+// 24 h high made within the last 12 candles?
+function topShortTrigger(k5, cfg = DEFAULT_CONFIG) {
+  const T = cfg.top || DEFAULT_CONFIG.top;
+  const k = (Array.isArray(k5) ? k5 : []).map(r => r.slice(0, 6).map(Number));
+  const q = k.length - 1, W = 288;
+  if (q < W + T.breakBars + T.hlBars) return { ok: false, reason: 'V2_5M_HISTORY_SHORT' };
+  const isTop = j => { const w0 = j - W; if (w0 < 0 || k[j][0] - k[w0][0] > DAY + 3 * M5) return false; let mx = -Infinity; for (let m = w0; m < j; m++) if (k[m][2] > mx) mx = k[m][2]; return k[j][2] > mx; };
+  if (isTop(q)) return { ok: false, reason: 'V2_NEW_HIGH_NOW' };
+  let j = null; for (let m = q - 1; m >= q - T.breakBars; m--) if (isTop(m)) { j = m; break; }
+  if (j === null) return { ok: false, reason: 'V2_NO_FRESH_TOP' };
+  const top = k[j][2]; let hl = Infinity; for (let m = Math.max(0, j - T.hlBars); m < j; m++) hl = Math.min(hl, k[m][3]);
+  for (let m = j + 1; m < q; m++) if (k[m][4] < hl) return { ok: false, reason: 'V2_BREAK_ALREADY_PASSED', top, hl };
+  if (!(k[q][4] < hl)) return { ok: false, reason: 'V2_NO_BREAK_YET', top, hl };
+  return { ok: true, side: 'SHORT', rule: 'SHORT_TOP_BREAK', top, hl, topAt: k[j][0], breakAt: k[q][0] };
+}
+function topShortPlan(price, trig, lv, cfg = DEFAULT_CONFIG) {
+  const T = cfg.top || DEFAULT_CONFIG.top, p = finite(price);
+  if (!(p > 0) || !trig?.ok) return { ok: false, reason: 'V2_PRICE_INVALID' };
+  const stop = trig.top * (1 + T.stopBuf), s = stop / p - 1;
+  if (!(s >= T.minStopPct && s <= T.maxStopPct)) return { ok: false, reason: 'V2_STOP_OUT_OF_RANGE', stopPct: round(s, 4) };
+  if (levelList(lv).some(x => x > trig.top && x <= trig.top * (1 + T.zoneAbovePct))) return { ok: false, reason: 'V2_UNSWEPT_ZONE_ABOVE', stopPct: round(s, 4) };
+  if (T.requireWeeklySwept && !(finite(lv?.pwh) > 0 && trig.top >= lv.pwh)) return { ok: false, reason: 'V2_WEEKLY_NOT_SWEPT' };
+  return { ok: true, stopPrice: stop, tpPrice: p * (1 - T.targetR * s), stopPct: s, targetR: T.targetR };
+}
+// Position size from the risk budget (user 14.10: one stop cost ~20 % of the account in v1): notional = risk / stop,
+// never above margin x leverage. riskQuote = riskPct x equity.
+function riskSizedNotional({ equity, riskPct, stopPct, marginCap, leverage }) {
+  const e = finite(equity), r = finite(riskPct), s = finite(stopPct), m = finite(marginCap), l = finite(leverage);
+  if (!(e > 0 && r > 0 && s > 0 && m > 0 && l >= 1)) return null;
+  return Math.min(e * r / s, m * l);
+}
+
 // Research dedupe (top3*.py): per coin and rule, a hit counts only if no COUNTED hit of the same rule in the previous
 // 24 h (first hit counts, then the next hit at least 24 h later, and so on). hitTimes: candle open times where the rule
 // held. Live this keeps a lane that starts late (or after a restart) from entering a move the research entered hours ago.
@@ -206,7 +323,7 @@ function excursions(side, entry, candles) {
     : { mfePct: 1 - lo / e, maePct: 1 - hi / e, mfeAt: loAt, maeAt: hiAt, bars: rows.length };
 }
 const pctTr = v => v === null || v === undefined ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1).replace('.', ',') + '%';
-const RULE_TR = { LONG_6OF6: 'LONG 6/6', SHORT_TOP_FADE: 'SHORT tepe sonrası' };
+const RULE_TR = { LONG_6OF6: 'LONG 6/6', SHORT_TOP_FADE: 'SHORT tepe sonrası', LONG_EARLY_RETEST: 'Erken LONG (5 dk geri test)', SHORT_TOP_BREAK: 'Tepe SHORT (5 dk kırılım)' };
 const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer',
   TOP3_SYSTEM_CLOSE: 'sistem kapattı (durdurma / kurulum / mod geçişi; kural sonucu değil)', TOP3_EXTERNAL_CLOSE: 'dışarıdan kapatıldı (stop / hedef değil)' };
 // R2544.57 (14.10 deploy STOP): a lot the core closed itself (STOP, TEST reset, switch to LIVE) or that was closed outside
@@ -274,7 +391,9 @@ function repairLessons(lessons) {
 }
 const BUCKETS = {
   SHORT_TOP_FADE: { feature: 'dropFromPeak', label: 'tepeden düşüş', edges: [0.15, 0.25, 0.40] },
-  LONG_6OF6: { feature: 'r24', label: '24 saat yükseliş', edges: [0.133, 0.30, 0.60] }
+  LONG_6OF6: { feature: 'r24', label: '24 saat yükseliş', edges: [0.133, 0.30, 0.60] },
+  LONG_EARLY_RETEST: { feature: 'r24', label: '24 saat yükseliş', edges: [0.05, 0.15, 0.25] },
+  SHORT_TOP_BREAK: { feature: 'r24', label: '24 saat yükseliş', edges: [0, 0.3, 0.6] }
 };
 function aggregate(xs) {
   const n = xs.length, num = k => xs.map(x => finite(x[k])).filter(v => v !== null);
@@ -314,4 +433,5 @@ function experienceFor(lessons, rule, { recent = 6 } = {}) {
     note: xs.length < 10 ? 'FEW_SAMPLES_TREAT_AS_ANECDOTE' : 'MEASURED_HISTORY' };
 }
 
-module.exports = { writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
+module.exports = { dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+  writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

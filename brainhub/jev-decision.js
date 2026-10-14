@@ -1823,6 +1823,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!/^[A-Z0-9]{1,28}USDT$/.test(String(symbol||'')))return {ok:false,called:false,decision:'REJECT_ENTRY',reason:'TOP3_SYMBOL_INVALID'};
     if(!signal?.ok||!['LONG','SHORT'].includes(signal.side)||!features?.ok)return {ok:false,called:false,decision:'REJECT_ENTRY',reason:'TOP3_SIGNAL_INVALID'};
     const r4=v=>finiteNumber(v)!==null?Number(Number(v).toFixed(4)):null;
+    // R2544.58 İlk 3 v2: the rule fired on the last CLOSED 5m candle at a previous day/week/month high
+    if(signal.v2&&typeof signal.v2==='object')return sovereignTop3V2Gate({symbol,signal,features,rank,candle,chartContext,experience,r4});
     const record={
       contract:'R2544.56_TOP3_GATE',symbol,side:signal.side,rule:signal.rule,signalKind,candleOpenTime:candle,gainerRank:finiteNumber(rank),btc24hPct:btc24!==null?r4(btc24*100):null,
       features:{close:finiteNumber(features.close),r1Pct:r4(features.r1*100),r3Pct:r4(features.r3*100),r24Pct:r4(features.r24*100),hourVolumeVs7dMedian:r4(features.vr1),breakout7dHigh:features.breakout7d===true,
@@ -1847,6 +1849,32 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const decision=choiceValue(a.top3_decision),reason=choiceValue(a.top3_reason);
     if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
     return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_GATE',decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+  }
+
+  async function sovereignTop3V2Gate({symbol,signal,features,rank,candle,chartContext,experience,r4}){
+    const t=signal.v2,lv=signal.levels||{};
+    const record={contract:'R2544.58_TOP3_V2_GATE',symbol,side:signal.side,rule:signal.rule,closed5mCandle:candle,gainerRank:finiteNumber(rank),
+      trigger:signal.side==='LONG'
+        ?{brokenLevel:finiteNumber(t.level),levelName:t.levelName||null,retestLow:finiteNumber(t.retestLow),breakoutVolumeVs24hMedian:r4(t.volMult)}
+        :{fresh24hTop:finiteNumber(t.top),preTopStructureLow:finiteNumber(t.hl)},
+      zones:{previousDayHigh:finiteNumber(lv.pdh),previousWeekHigh:finiteNumber(lv.pwh),previousMonthHigh:finiteNumber(lv.pmh)},
+      market:{fundingRate:finiteNumber(features?.fund),markVsIndex:finiteNumber(features?.premium),close:finiteNumber(features?.close)}};
+    const state={description:'JEV 5m gate for the İlk 3 Avcısı v2 lane. A fixed rule has ALREADY fired on the last CLOSED 5m candle. '+
+      'EARLY LONG: a coin ranked 4..24 and climbing broke a previous day/week/month high (where short stops and liquidations sit) on a 5m candle with >= 3x volume and has just retested that level without chasing; stop under the retest, target just under the next higher zone. '+
+      'TOP SHORT: a coin that was in the top 10 within 24 h made a fresh 24 h high and the next 5m candles broke the pre-top structure low; stop above the top, target 2.5R; skipped when an untaken day/week/month high is within 5 % above. '+
+      'The code enters at market only if you APPROVE. Judge this single entry: market makers push gainers into short-liquidation zones and then sell there; is this entry riding that move (LONG) or selling after it (SHORT), is an untaken liquidation zone still in the way, is BTC/market adverse? state.laneExperience is this lane\'s own measured history; fewer than 10 lots is anecdote. Reject when unsure.',record};
+    if(chartContext?.available===true&&chartContext.packet&&chartContext.symbol===symbol){state.coreMarketPacket=chartContext.packet;state.chartCache={asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source};}
+    if(experience&&typeof experience==='object')state.laneExperience=experience;
+    const body={model:cfg.model,state,questions:{
+      top3_decision:{type:'choice',instructions:'Approve or reject this single rule-fired entry.',criteria:{APPROVE_ENTRY:'Enter now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
+      top3_reason:{type:'choice',instructions:'Primary reason for the decision.',criteria:{EARLY_CONTINUATION:'LONG move still early with room to the next zone.',EXHAUSTION_CONFIRMED:'SHORT: the zone is taken and the top is in.',LATE_OR_CROWDED:'Move already extended/crowded; poor remaining path.',STRUCTURE_ADVERSE:'An untaken liquidation zone or nearby structure blocks the path.',MARKET_ADVERSE:'BTC/market context is adverse.',DATA_NOT_READY:'Material data missing or stale.',NO_EDGE:'No credible edge.'}}
+    }};
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:out.called!==false,decision:'REJECT_ENTRY',mode:'TOP3_V2_GATE'};
+    const a=out.data?.answers||{};
+    const decision=choiceValue(a.top3_decision),reason=choiceValue(a.top3_reason);
+    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_V2_GATE',decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
 
   async function sovereignBurstExit({active,stream,progress,chartContext,learning=null}={}){

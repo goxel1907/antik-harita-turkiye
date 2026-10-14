@@ -1,12 +1,12 @@
-# JEV-Brain DEPLOY R2544.57 - hat anahtarlari: Normal sistem (JEV) ve Ilk 3 Avcisi TEST/CANLI ayri ayri; CANLI'ya secili hatlarla gecis; Ilk 3 marj/kaldirac Office'ten; includes R2544.56 Ilk 3 Avcisi and R2544.55 JEV edge.
+# JEV-Brain DEPLOY R2544.58 - Ilk 3 Avcisi v2: 5 dk mumda erken LONG (gun/hafta/ay tepesi kirilimi + geri test, kovalamaz) ve tepe SHORT (5 dk yapi kirilimi), likidasyon bolgesi gardi, risk bazli lot; includes R2544.57 hat anahtarlari, R2544.56 Ilk 3 Avcisi and R2544.55 JEV edge.
 # Kaynak: bu teslim paketindeki .\source. Hedef: C:\JEV-Brain\runtime.
 # R2544.29 guvenlik ilkesi: LIVE KAPALI + ACIK POZISYON 0 olmadan deploy YAPMAZ; restart sonrasi LIVE kapali kalir.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.57-LANES'
-$EXPECTED_OFFICE = '2.5.37-R2544.57-JEV-Brain'
+$EXPECTED_RELEASE = 'R2544.58-TOP3-V2'
+$EXPECTED_OFFICE = '2.5.38-R2544.58-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null
