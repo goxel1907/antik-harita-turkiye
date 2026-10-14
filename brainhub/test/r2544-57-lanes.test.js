@@ -9,7 +9,7 @@ const T3=require('../top3-hunter');
 
 const FAKE={apiKey:'fake-test-key-r57',apiSecret:'fake-test-secret-r57'}; // made-up, never real
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
-function fixture({mode='TEST',lanes=undefined,top3=null,realAvail=250}={}){
+function fixture({mode='TEST',lanes=undefined,top3=null,realAvail=250,scanner=null}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r57-'));fs.mkdirSync(path.join(root,'config'));
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
@@ -26,7 +26,7 @@ function fixture({mode='TEST',lanes=undefined,top3=null,realAvail=250}={}){
     if(p==='/fapi/v1/income')return ok([]);
     throw new Error('UNEXPECTED '+m+' '+p);};
   const controller=require('../live-controller').createLiveController({root,clock:()=>state.now,store:{journal:(k,s,p)=>events.push({k,s,p})},
-    scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),credentials:FAKE,fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',
+    scanner:scanner||{scan:async()=>({})},pipeline:{},committee:async()=>({}),credentials:FAKE,fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',
     market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol(){}}}});
   const oto=()=>JSON.parse(fs.readFileSync(path.join(root,'config','leader-auto.json'),'utf8')).enabled;
   const t3=()=>T3.readTop3Config(root);
@@ -176,4 +176,23 @@ test('R57 paper ticks never queue up: one at a time, one price read per symbol, 
   assert.equal(r.filter(x=>x.reason==='PAPER_TICK_BUSY').length,2,'overlapping ticks are skipped, not queued');
   assert.equal(reads,2,'4 orders on 2 symbols -> 2 price reads');
   const t0=Date.now();const c=await p.closeAll('TESTSTOP');assert.equal(c.closed,2);assert.ok(Date.now()-t0<1000);
+});
+
+test('R57 normal lane off: a running system still scans the market (no JEV, no order); a stopped one does not (14.10 "DÜZELT TARAMA YOK")',async()=>{
+  let scans=0;
+  const f=fixture({top3:{enabled:true},scanner:{scan:async()=>{scans++;return {universeCount:520,lightweightUniverseCount:640,targetUniverseCount:24,leaders:[{symbol:'AUSDT',side:'LONG',attackRank:2}]};}}});
+  assert.equal((await f.controller.leaderAutoTick()).execution,'LEADER_AUTO_DISABLED','not running yet');assert.equal(scans,0);
+  await f.controller.testSupervisorTick();assert.equal(f.controller.status().armed,true);assert.equal(f.oto(),false);
+  const r=await f.controller.leaderAutoTick();
+  assert.equal(r.execution,'LEADER_AUTO_SCAN_ONLY');assert.equal(r.orderPlaced,false);assert.deepEqual(r.reasons,['NORMAL_LANE_OFF_SCAN_ONLY']);assert.equal(scans,1);
+  const h=f.controller.leaderAutoStatus().health;
+  assert.equal(h.scanRuns,1);assert.equal(h.latestLightweightUniverseCount,640);assert.equal(h.latestUniverseCount,24);
+  assert.equal(h.deepAnalyses,0,'no JEV evaluation');
+  assert.equal((await f.controller.leaderAutoTick()).reasons[0],'SCAN_ONLY_WAIT');assert.equal(scans,1,'one scan per minute');
+  f.state.now+=60000;await f.controller.leaderAutoTick();assert.equal(scans,2);
+  await f.controller.runControl({action:'STOP'});f.state.now+=60000;
+  assert.equal((await f.controller.leaderAutoTick()).execution,'LEADER_AUTO_DISABLED');assert.equal(scans,2,'stopped: no scan');
+  const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  assert.ok(html.includes("LEADER_AUTO_SCAN_ONLY:'yalnız tarama (Normal sistem kapalı)'"));
+  assert.ok(html.includes("runMs>SILENT_RUN_MS&&scans===0) warn="),'the no-scan warning applies to every lane selection again');
 });

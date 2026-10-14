@@ -3148,13 +3148,26 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
   }
 
+  const SCAN_ONLY_MS=60000;let scanOnlyAt=0;
+  async function scanOnlyTick(){
+    if(clock()-scanOnlyAt<SCAN_ONLY_MS)return {ok:true,skipped:true,execution:'LEADER_AUTO_SCAN_ONLY',orderPlaced:false,liveAllowed:false,reasons:['SCAN_ONLY_WAIT']};
+    scanOnlyAt=clock();
+    let scan;try{scan=await scanner.scan();}catch{return {ok:true,skipped:true,execution:'LEADER_AUTO_SCAN_ONLY',orderPlaced:false,liveAllowed:false,reasons:['SCANNER_UNAVAILABLE']};}
+    const d=setLeaderAutoDiagnostics(scan,selectDeepCandidates(scan,pipeline?.sovereignFlow===true?24:16),true,true);
+    return {ok:true,orderPlaced:false,liveAllowed:false,execution:'LEADER_AUTO_SCAN_ONLY',reasons:['NORMAL_LANE_OFF_SCAN_ONLY'],universeCount:d.universeCount,shortlistCount:d.shortlistCount};
+  }
   async function leaderAutoTick() {
     if (leaderAutoBusy) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BUSY', orderPlaced:false }; }
     if (positionReviewBusy||hasPendingUrgentReview()) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_BACKGROUND_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_BACKGROUND_BUSY', orderPlaced:false }; }
     if (typeof pipeline?.isBusy==='function' && pipeline.isBusy()) { leaderHealthEvent('SKIP',{reason:'LEADER_AUTO_PIPELINE_BUSY'}); return { ok:true, skipped:true, execution:'LEADER_AUTO_PIPELINE_BUSY', orderPlaced:false }; }
     const cfg = readLeaderAutoConfig();
     if (!cfg.ok) return recordLeaderAutoResult({ ok:false, skipped:true, execution:'LEADER_AUTO_CONFIG_INVALID', orderPlaced:false, reasons:cfg.reasons });
-    if (!cfg.config.enabled) return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });
+    if (!cfg.config.enabled) {
+      // R2544.57 (14.10 user: "DÜZELT TARAMA YOK"): with the normal lane off a running system still scans the market
+      // (deterministic Binance universe -> radar target -> attention list). No JEV call and no order: those stay the normal lane's.
+      if (armedNow()) return recordLeaderAutoResult(await scanOnlyTick());
+      return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_DISABLED', orderPlaced:false });
+    }
     try{await shadowOutcomeTick();}catch{}
     if (await positionSlotsFull(cfg.config.maxOpenPositions)) {
       return recordLeaderAutoResult({ ok:true, skipped:true, execution:'LEADER_AUTO_REST_POSITIONS_FULL', orderPlaced:false, liveAllowed:false,
