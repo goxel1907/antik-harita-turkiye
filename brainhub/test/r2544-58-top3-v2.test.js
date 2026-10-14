@@ -183,3 +183,13 @@ test('R58 options: LONG only while shorts pay (maxFunding), break-even after 1R 
   const l=f.kinds('TOP3_LESSON')[0].p;assert.ok(l.tags.includes('BREAKEVEN_STOP'));assert.equal(l.tags.includes('STOPPED'),false);
   assert.equal(f.controller._testTop3Cooldown('SIGUSDT','LONG'),'TOP3_COOLDOWN','24 h after the entry still applies; a BE stop is not a stop-out');
 });
+
+test('R58 a TEST window started under the hourly rules restarts once for v2 (results never mix)',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture();
+  const st=f.controller._testTop3State();st.window={id:'wold',startedAt:f.state.now-3*H,endsAt:f.state.now+21*H,source:'RESTART',scans:5,okScans:5,signals:2,entries:2};
+  await f.controller.testSupervisorTick();await f.controller.top3Tick();
+  const w=f.controller.top3Status().testWindow;assert.equal(w.source,'RULES_V2');assert.equal(w.rulesVersion,2);assert.equal(w.scans,1,'counts only v2 passes');
+  assert.equal(f.kinds('TOP3_TEST_WINDOW_START').length,1);
+  f.state.now+=5*60000;await f.controller.top3Tick();assert.equal(f.controller.top3Status().testWindow.source,'RULES_V2','no second restart');
+});

@@ -6179,7 +6179,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // A lane that was already on when this build is deployed starts its window on the first tick.
   const TOP3_WINDOW_MS=24*TOP3_HOUR;
   function top3StartWindow(source){
-    const now=clock();top3State.window={id:'w'+now,startedAt:now,endsAt:now+TOP3_WINDOW_MS,source,scans:0,okScans:0,signals:0,entries:0};
+    const now=clock();top3State.window={id:'w'+now,startedAt:now,endsAt:now+TOP3_WINDOW_MS,source,scans:0,okScans:0,signals:0,entries:0,rulesVersion:top3Lib.readTop3Config(root).rulesVersion};
     top3State.lastScanHour=null;top3State.retryAt=null;saveTop3State();
     try{store.journal('TOP3_TEST_WINDOW_START',null,{...top3State.window});}catch{}
     return top3State.window;
@@ -6198,6 +6198,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
       if(testModeNow()){
         if(!top3State.window)top3StartWindow('FIRST_RUN');
+        // R2544.58: new rules = a new measured 24 h (v2 results never mix with the hourly v1 window)
+        else if((top3State.window.rulesVersion||1)!==cfg.rulesVersion)top3StartWindow('RULES_V'+cfg.rulesVersion);
         const w=top3State.window;
         if(clock()>=w.endsAt){
           if(!w.doneAt){w.doneAt=clock();saveTop3State();try{store.journal('TOP3_TEST_WINDOW_DONE',null,{...w});}catch{}}
