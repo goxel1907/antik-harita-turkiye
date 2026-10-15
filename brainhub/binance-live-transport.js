@@ -138,10 +138,12 @@ function paperError(status, code, msg, endpoint) {
 const s8 = v => String(Number(Number(v).toPrecision(12)));
 
 class PaperExchange {
-  constructor({ root, clock = () => Date.now(), priceOf, defaultMode = 'LIVE', startBalance = 100, autoTick = true } = {}) {
+  // candlesOf(symbol, startMs, endMs) -> 1m candles [openTime, open, high, low, close]: lets the paper exchange catch up on
+  // the stops/targets the real exchange would have filled while the PC was off (R2544.58, 15.10 Windows Update restart).
+  constructor({ root, clock = () => Date.now(), priceOf, candlesOf = null, defaultMode = 'LIVE', startBalance = 100, autoTick = true } = {}) {
     if (!root) throw new Error('paper exchange root required');
     if (typeof priceOf !== 'function') throw new Error('paper exchange price source required');
-    this.root = root; this.clock = clock; this.priceOf = priceOf; this.defaultMode = defaultMode;
+    this.root = root; this.clock = clock; this.priceOf = priceOf; this.candlesOf = typeof candlesOf === 'function' ? candlesOf : null; this.defaultMode = defaultMode;
     this.file = path.join(String(root), 'data', 'paper-exchange.json');
     this.modeCache = { at:0, value:null };
     this.lastPx = new Map();
@@ -190,8 +192,9 @@ class PaperExchange {
     if (!amount) return;
     this.state.income.push({ symbol, incomeType:type, income:s8(amount), asset:'USDT', info:'', time, tranId:this.state.nextTranId++, tradeId:String(tradeId || '') });
   }
-  async _fill({ symbol, side, qty, reduceOnly = false, clientOrderId = null, type = 'MARKET', closePosition = false, endpoint = '/fapi/v1/order' }) {
-    const px = await this._px(symbol), now = this.clock();
+  async _fill({ symbol, side, qty, reduceOnly = false, clientOrderId = null, type = 'MARKET', closePosition = false, endpoint = '/fapi/v1/order', atPrice = null, atTime = null }) {
+    // atPrice/atTime: a catch-up fill at the price and minute the exchange would have filled it
+    const px = finite(atPrice) > 0 ? { bid:finite(atPrice), ask:finite(atPrice) } : await this._px(symbol), now = finite(atTime) ?? this.clock();
     const price = side === 'BUY' ? px.ask : px.bid, sgn = side === 'BUY' ? 1 : -1;
     const pos = this._pos(symbol);
     let q = Math.abs(finite(qty) || 0);
@@ -252,8 +255,54 @@ class PaperExchange {
     if (algo.orderType === 'TAKE_PROFIT_MARKET') return algo.side === 'SELL' ? mid >= t : mid <= t;
     return false;
   }
+  // Fill price of a triggered stop / take-profit inside one 1m candle (the exchange fills at the trigger, or at the open when
+  // the candle gapped through it). null = not triggered in this candle.
+  _candleFill(a, o, h, l) {
+    const t = finite(a.triggerPrice); if (!(t > 0)) return null;
+    if (a.orderType === 'STOP_MARKET') return a.side === 'SELL' ? (l <= t ? Math.min(t, o) : null) : (h >= t ? Math.max(t, o) : null);
+    if (a.orderType === 'TAKE_PROFIT_MARKET') return a.side === 'SELL' ? (h >= t ? Math.max(t, o) : null) : (l <= t ? Math.min(t, o) : null);
+    return null;
+  }
+  // R2544.58 (15.10: Windows Update restarted the PC at 03:59; two paper lots sat unwatched for 5.5 h): after a gap in the
+  // 1 s ticks, replay the missed 1m candles for every open stop/target - the first candle that crosses fills it at the
+  // trigger (or the gapped open), at that minute; a stop and a target in the same candle = the stop first.
+  async _catchUp(from, to) {
+    const open = this.state.algos.filter(a => a.algoStatus === 'NEW');
+    const bySym = new Map(); for (const a of open) { if (!bySym.has(a.symbol)) bySym.set(a.symbol, []); bySym.get(a.symbol).push(a); }
+    const filled = [];
+    for (const [symbol, algos] of bySym) {
+      const start = Math.max(from, Math.min(...algos.map(a => finite(a.createTime) || from)));
+      let candles = [];
+      try { candles = await this.candlesOf(symbol, Math.floor(start / 60000) * 60000, to); } catch { continue; }
+      for (const c of (Array.isArray(candles) ? candles : []).map(r => r.slice(0, 5).map(Number)).sort((x, y) => x[0] - y[0])) {
+        const [t, o, h, l] = c; if (!(t + 60000 > start) || t >= to) continue;
+        const live = algos.filter(a => a.algoStatus === 'NEW' && t + 60000 > (finite(a.createTime) || 0));
+        const hits = live.map(a => ({ a, px:this._candleFill(a, o, h, l) })).filter(x => x.px !== null)
+          .sort((x, y) => (x.a.orderType === 'STOP_MARKET' ? 0 : 1) - (y.a.orderType === 'STOP_MARKET' ? 0 : 1));
+        for (const { a, px } of hits) {
+          const at = Math.min(to - 1, Math.max(t, finite(a.createTime) || t) + 30000);
+          a.triggeredAt = at; a.updateTime = at;
+          try {
+            const o2 = await this._fill({ symbol, side:a.side, qty:a.quantity, reduceOnly:true, closePosition:a.closePosition === true, clientOrderId:a.clientAlgoId, type:a.orderType, endpoint:'/paper/catchup', atPrice:px, atTime:at });
+            a.algoStatus = 'FINISHED'; a.actualOrderId = String(o2.orderId); a.actualPrice = o2.avgPrice; a.catchUp = true; filled.push({ symbol, algoId:a.algoId, orderType:a.orderType, price:px, at });
+          } catch { a.algoStatus = 'EXPIRED'; }
+        }
+      }
+    }
+    this.state.lastCatchUp = { from, to, filled, at:this.clock() };
+    this._save();
+    return filled;
+  }
   async tick() {
     if (!this.active()) return { ok:true, skipped:true };
+    // gap since the last tick (PC off / process stopped): catch up first, persisted every 30 s so a restart sees the gap
+    const nowT = this.clock(), lastT = finite(this.state.lastTickAt);
+    if (this.candlesOf && lastT !== null && nowT - lastT > 90000 && !this.tickBusy) {
+      this.tickBusy = true;
+      try { await this._serial(() => this._catchUp(lastT, nowT)); } catch {} finally { this.tickBusy = false; }
+    }
+    if (lastT === null || nowT - lastT >= 0) this.state.lastTickAt = nowT;
+    if (nowT - (this.lastTickSave || 0) > 30000) { this.lastTickSave = nowT; try { this._save(); } catch {} }
     const open = this.state.algos.filter(a => a.algoStatus === 'NEW');
     if (!open.length) return { ok:true, triggered:0 };
     // R2544.57 (14.10 live: a STOP waited 3 min): one tick at a time - with REST prices a tick of 8 orders took longer than

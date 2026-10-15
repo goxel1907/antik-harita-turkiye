@@ -212,3 +212,36 @@ test('R58 15.10 fix: symbols the store cannot book (我踏马来了USDT) are nev
   assert.equal(st.pendingCloses.length,0,'not stuck');assert.ok(st.lessons.some(l=>l.id==='t3w'),'learned');
   assert.equal(f.kinds('TOP3_CLOSE_UNBOOKED')[0].p.symbol,W);
 });
+
+// ---------- 15.10: Windows Update restarted the PC at 03:59; paper stops/targets must behave like exchange orders ----------
+test('R58 paper catch-up after a gap: the first 1m candle that crosses fills the stop/target at the trigger (gap = open), stop first',async()=>{
+  const {PaperExchange}=require('../binance-live-transport');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'r58-gap-'));
+  writeTradingMode(root,{mode:'TEST',changedAt:'2026-10-15T00:00:00.000Z',testStartedAt:null,testAutoRun:true});
+  let now=Date.parse('2026-10-15T00:50:00Z'),px={AUSDT:{bid:1.0,ask:1.0},BUSDT:{bid:2.0,ask:2.0}};const asked=[];
+  const T=Date.parse('2026-10-15T01:00:00Z');
+  // A: short, stop 1.05 / TP 0.95; minute 01:20 spikes to 1.06 (stop), later drops to 0.90 (TP would have hit after)
+  // B: long, stop 1.90 / TP 2.10; minute 02:00 gaps open at 2.15 (TP fills at the better open)
+  const candles={AUSDT:Array.from({length:180},(_,i)=>{const t=T+i*60000;return i===20?[t,1.0,1.06,0.99,1.01]:i===100?[t,0.96,0.97,0.90,0.92]:[t,1.0,1.002,0.998,1.0];}),
+    BUSDT:Array.from({length:180},(_,i)=>{const t=T+i*60000;return i===60?[t,2.15,2.16,2.14,2.15]:[t,2.0,2.002,1.998,2.0];})};
+  const paper=new PaperExchange({root,clock:()=>now,priceOf:async s=>px[s],candlesOf:async(s,a,b)=>{asked.push([s,a,b]);return candles[s].filter(c=>c[0]>=a&&c[0]<b);},startBalance:200,autoTick:false});
+  const H2=(m,p,P)=>paper.handle(m,p,{params:P});
+  await H2('POST','/fapi/v1/order',{symbol:'AUSDT',side:'SELL',type:'MARKET',quantity:'10'});
+  await H2('POST','/fapi/v1/algoOrder',{symbol:'AUSDT',side:'BUY',algoType:'CONDITIONAL',type:'STOP_MARKET',triggerPrice:'1.05',quantity:'10',reduceOnly:'true'});
+  await H2('POST','/fapi/v1/algoOrder',{symbol:'AUSDT',side:'BUY',algoType:'CONDITIONAL',type:'TAKE_PROFIT_MARKET',triggerPrice:'0.95',quantity:'10',reduceOnly:'true'});
+  await H2('POST','/fapi/v1/order',{symbol:'BUSDT',side:'BUY',type:'MARKET',quantity:'5'});
+  await H2('POST','/fapi/v1/algoOrder',{symbol:'BUSDT',side:'SELL',algoType:'CONDITIONAL',type:'STOP_MARKET',triggerPrice:'1.90',quantity:'5',reduceOnly:'true'});
+  await H2('POST','/fapi/v1/algoOrder',{symbol:'BUSDT',side:'SELL',algoType:'CONDITIONAL',type:'TAKE_PROFIT_MARKET',triggerPrice:'2.10',quantity:'5',reduceOnly:'true'});
+  await paper.tick();assert.equal(asked.length,0,'no gap yet');
+  now=Date.parse('2026-10-15T03:59:00Z');px={AUSDT:{bid:0.92,ask:0.92},BUSDT:{bid:2.0,ask:2.0}}; // PC back: A now looks like a TP, B looks untouched
+  await paper.tick();
+  assert.equal(asked.length,2);
+  const algo=(s,t)=>paper.state.algos.find(a=>a.symbol===s&&a.orderType===t);
+  assert.equal(algo('AUSDT','STOP_MARKET').algoStatus,'FINISHED','the 01:20 spike stopped A out');
+  assert.equal(Number(algo('AUSDT','STOP_MARKET').actualPrice),1.05);assert.equal(algo('AUSDT','STOP_MARKET').updateTime,T+20*60000+30000);
+  assert.notEqual(algo('AUSDT','TAKE_PROFIT_MARKET').algoStatus,'FINISHED','the later drop to 0.90 is not a TP: the lot was already flat');
+  assert.equal(algo('BUSDT','TAKE_PROFIT_MARKET').algoStatus,'FINISHED');assert.equal(Number(algo('BUSDT','TAKE_PROFIT_MARKET').actualPrice),2.15,'gap open better than the trigger');
+  assert.equal(Object.keys(paper.state.positions).length,0);
+  assert.equal(paper.state.lastCatchUp.filled.length,2);
+  const tr=paper.state.trades.filter(x=>x.symbol==='AUSDT');assert.equal(tr.at(-1).time,T+20*60000+30000,'booked at the minute the exchange would have filled it');
+});

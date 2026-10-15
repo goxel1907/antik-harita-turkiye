@@ -331,7 +331,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const b=await transport._fetchJsonReal('GET','/fapi/v1/ticker/bookTicker',{params:{symbol}});
     return {bid:finite(b?.bidPrice),ask:finite(b?.askPrice),source:'REST'};
   };
-  const paper=new PaperExchange({root,clock,priceOf:paperPrice,defaultMode:defaultTradingMode,startBalance:paperStartBalance,autoTick:paperAutoTick});
+  // public 1m candles for the paper exchange's catch-up after a gap (PC off); up to 12 pages = 200 h
+  const paperCandles=async(symbol,start,end)=>{
+    const out=[];let t=start;
+    for(let i=0;i<12&&t<end;i++){
+      const k=await transport._fetchJsonReal('GET','/fapi/v1/klines',{params:{symbol,interval:'1m',startTime:String(t),endTime:String(end),limit:'1000'}});
+      if(!Array.isArray(k)||!k.length)break;
+      for(const r of k)out.push([Number(r[0]),Number(r[1]),Number(r[2]),Number(r[3]),Number(r[4])]);
+      t=Number(k[k.length-1][0])+60000;if(k.length<1000)break;
+    }
+    return out;
+  };
+  const paper=new PaperExchange({root,clock,priceOf:paperPrice,candlesOf:paperAutoTick?paperCandles:null,defaultMode:defaultTradingMode,startBalance:paperStartBalance,autoTick:paperAutoTick});
   transport.attachPaper(paper);
   const testModeNow=()=>paper.active();
   // Every journal/learning row written while TEST mode is active carries tradingMode:'TEST' (reports keep it apart).
