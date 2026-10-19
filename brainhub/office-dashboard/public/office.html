@@ -284,6 +284,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <button class="go" id="btnStartTest" disabled style="display:none">TEST’i başlat</button>
       <button id="btnResetTest" disabled>TEST’i sıfırla</button>
       <button class="stop" id="btnStop" disabled>Durdur</button>
+      <button class="stop" id="btnSystem" title="Sistemi (BrainHub çekirdeği) aç / kapat">Sistem: —</button>
     </div>
     <div class="mmsg" id="modeMsg"></div>
   </section>
@@ -883,6 +884,7 @@ function renderKpis(s){
   ].join('');
   const runtimeRelease=s.health?.data?.runtimeRelease||'sürüm okunamadı';
   chip('#chipVer', s.health?.ok?'good':'bad', s.health?.ok?`PC BAĞLI • ${runtimeRelease}`:'PC BAĞLANTI BEKLENİYOR');
+  systemUp=!!s.health?.ok;systemMode=st.tradingMode?.mode||null;{const b=$('#btnSystem');if(b){b.textContent=systemUp?'Sistem: AÇIK → kapat':'Sistem: KAPALI → aç';b.classList.toggle('on',systemUp);b.disabled=systemBusy;}}
   const liveName=st.tradingMode?.mode==='TEST'?'TEST':'LIVE';
   chip('#chipLive', armed?(liveName==='TEST'?'warn':'good'):'bad', armed?`${liveName} AÇIK${exp!=null?' • '+exp+' dk':''}`:`${liveName} KAPALI`);
   // CLAUDE_R2543_UX: surum adinda VISION yaziyor diye gorsel analizin calistigi sanilmasin.
@@ -1702,7 +1704,7 @@ async function renderMirror(s){
 // R2544.52 (07.10, kullanıcı): "TEST, 200 USDT yatırmışım gibi kendiliğinden çalışsın; OTO aç'a bastığımda Binance'teki
 // bakiye ve marjla canlıya geçsin." Tek çekirdek ucu POST /live/run: GO_LIVE (OTO aç), GO_TEST (OTO kapat), START_TEST,
 // RESET_TEST, STOP. Tarayıcı penceresi (confirm/prompt) yok: onay = aynı düğmeye 6 sn içinde ikinci basış; Durdur tek basış.
-const MODE_REASONS={LANES_NONE_SELECTED:'Önce en az bir hat seçin (Normal sistem veya İlk 3 Avcısı)',LANE_SWITCH_MISSING:'Hat seçimi eksik',TOP3_CLOSE_PENDING:'İlk 3 işlemlerinin kapanış kaydı bekleniyor',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'CANLI için açık onay gerekli',DISARM_FIRST:'Önce Durdur’a basın',BURST_ACTIVE:'Aktif vur-kaç var; kapanması bekleniyor',TEST_POSITION_OPEN:'Sanal pozisyon kapanıyor',POSITION_OPEN:'Açık gerçek pozisyon var (JEV yönetiyor); kapanınca TEST’e dönülür',REAL_POSITION_OPEN:'Binance’te açık gerçek pozisyon var; önce onu kapatın',EXPLICIT_MODE_CONFIRMATION_REQUIRED:'Onay eksik',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'Onay eksik',TRADING_MODE_INVALID:'Geçersiz mod',POSITION_CLOSE_PENDING:'Kapanan pozisyonun kaydı bekleniyor',BINANCE_BALANCE_TOO_LOW:'Binance bakiyesi OTO marjından az',BINANCE_ACCOUNT_UNREADABLE:'Binance hesabı okunamadı',BINANCE_CREDENTIALS_REQUIRED:'Binance API anahtarı yok',NOT_IN_TEST_MODE:'Sistem TEST modunda değil',SWITCH_IN_PROGRESS:'Bir geçiş sürüyor; bitmesini bekleyin',TEST_CLOSE_NOT_CONFIRMED:'Sanal pozisyonların kapanışı 5 dk’da doğrulanamadı; TEST’e dönüldü',LIVE_ARM_FAILED:'Canlı başlatma reddedildi; TEST’e dönüldü',LEADER_AUTO_CONFIG_INVALID:'OTO ayarı geçersiz',MODE_CHANGED_DURING_SWITCH:'Geçiş sırasında mod değişti',RUN_ACTION_INVALID:'Geçersiz işlem'};
+const MODE_REASONS={LIVE_SHUTDOWN_CONFIRMATION_REQUIRED:'CANLI’da kapatmak için LIVE onayı gerekir',LANES_NONE_SELECTED:'Önce en az bir hat seçin (Normal sistem veya İlk 3 Avcısı)',LANE_SWITCH_MISSING:'Hat seçimi eksik',TOP3_CLOSE_PENDING:'İlk 3 işlemlerinin kapanış kaydı bekleniyor',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'CANLI için açık onay gerekli',DISARM_FIRST:'Önce Durdur’a basın',BURST_ACTIVE:'Aktif vur-kaç var; kapanması bekleniyor',TEST_POSITION_OPEN:'Sanal pozisyon kapanıyor',POSITION_OPEN:'Açık gerçek pozisyon var (JEV yönetiyor); kapanınca TEST’e dönülür',REAL_POSITION_OPEN:'Binance’te açık gerçek pozisyon var; önce onu kapatın',EXPLICIT_MODE_CONFIRMATION_REQUIRED:'Onay eksik',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'Onay eksik',TRADING_MODE_INVALID:'Geçersiz mod',POSITION_CLOSE_PENDING:'Kapanan pozisyonun kaydı bekleniyor',BINANCE_BALANCE_TOO_LOW:'Binance bakiyesi OTO marjından az',BINANCE_ACCOUNT_UNREADABLE:'Binance hesabı okunamadı',BINANCE_CREDENTIALS_REQUIRED:'Binance API anahtarı yok',NOT_IN_TEST_MODE:'Sistem TEST modunda değil',SWITCH_IN_PROGRESS:'Bir geçiş sürüyor; bitmesini bekleyin',TEST_CLOSE_NOT_CONFIRMED:'Sanal pozisyonların kapanışı 5 dk’da doğrulanamadı; TEST’e dönüldü',LIVE_ARM_FAILED:'Canlı başlatma reddedildi; TEST’e dönüldü',LEADER_AUTO_CONFIG_INVALID:'OTO ayarı geçersiz',MODE_CHANGED_DURING_SWITCH:'Geçiş sırasında mod değişti',RUN_ACTION_INVALID:'Geçersiz işlem'};
 let modeBusy=false, modeState=null;
 const usdt=v=>{const n=num(v);return n===null?'—':n.toFixed(2)+' USDT';};
 const usdtS=v=>{const n=num(v);return n===null?'—':(n>0?'+':'')+n.toFixed(2)+' USDT';};
@@ -1776,6 +1778,24 @@ async function control(body,okText){
 function onClick(sel,fn){ const el=$(sel); if(el&&typeof el.addEventListener==='function') el.addEventListener('click',fn); }
 // confirm()/prompt() can be suppressed by the browser and then the button silently does nothing (07.10). Confirmation is a
 // second press of the same button within 6 s, shown in the mode bar. Stop is never gated.
+// R2544.58 (user 19.10): system on/off. Kapat: Durdur, then the core exits (TEST closes paper lots; LIVE keeps real lots with
+// their exchange stop/TP and needs 'LIVE'). Aç: Office starts the core when it is down (opening takes a few minutes).
+let systemUp=false,systemMode=null,systemBusy=false;
+async function systemAction(start){
+  systemBusy=true;modeMsg(start?'Sistem açılıyor… (açılış testi birkaç dakika sürer)':'Sistem kapatılıyor…');
+  try{
+    let body={};
+    // no browser dialog (07.10: a suppressed confirm() made a button do nothing): the second press in the mode bar is the
+    // confirmation; in LIVE its message names what stays and what stops, and the core gets confirm 'LIVE'
+    if(!start&&systemMode==='LIVE')body={confirm:'LIVE'};
+    const r=await fetch((start?'/api/control/system-start':'/api/control/system')+location.search,{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-jev-office-control':'1'},body:JSON.stringify(body)});
+    let d=null;try{d=await r.json();}catch{}
+    if(r.ok&&d?.ok!==false)modeMsg(start?(d?.alreadyRunning?'Sistem zaten açık.':'Sistem başlatıldı; birkaç dakika içinde “PC BAĞLI” görünür. CANLI kendiliğinden açılmaz.'):`Sistem kapatıldı (${d?.mode==='LIVE'?'CANLI: açık gerçek pozisyon '+(d?.openRealPositions||0)+', borsadaki stop/TP yerinde':'TEST: sanal pozisyonlar kapandı'}). Açmak için “Sistem: KAPALI → aç” ya da masaüstündeki Office kısayolu.`);
+    else modeMsg('Yapılmadı: '+(reasonsTr(d?.reasons)||d?.error||('HTTP '+r.status)),true);
+  }catch(e){modeMsg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);}
+  systemBusy=false;await tick();
+}
+onClick('#btnSystem',()=>{ if(systemUp){ if(secondPress('btnSystem',systemMode==='LIVE'?'Sistemi kapat (CANLI: yeni gerçek işlem açılmaz; açık gerçek pozisyonlar Binance’teki stop/TP ile korunur, 24 saat çıkışı ve başabaş taşıma sistem kapalıyken yapılmaz)':'Sistemi kapat (TEST: sanal pozisyonlar kapatılır)'))systemAction(false); } else systemAction(true); });
 const CONFIRM_MS=6000, pendingPress={};
 function secondPress(id,what){
   const el=$('#'+id), now=Date.now();

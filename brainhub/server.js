@@ -1661,6 +1661,17 @@ const server=http.createServer(async(req,res)=>{
       return send(res,out.ok?200:409,out);
     }
     // R2544.52 run control (Office): STOP / START_TEST / RESET_TEST / GO_LIVE (real money, confirm 'LIVE') / GO_TEST.
+    // R2544.58 (user 19.10: Office/APK aç-kapat): stop the run, then the core process. LIVE with a running arm or an open
+    // real position needs confirm 'LIVE'; real lots are never touched (their exchange stop/TP stay). TEST closes paper lots.
+    if(req.method==='POST'&&u.pathname==='/system/shutdown'){
+      let body;try{body=JSON.parse(await readBody(req)||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const lanes=live.laneStatus();let open=[];try{open=live.positionsStatus({closedLimit:0})?.open||[];}catch{open=[];}
+      if(lanes.mode==='LIVE'&&(lanes.running||open.length)&&String(body?.confirm||'').toUpperCase()!=='LIVE')return send(res,409,{ok:false,reasons:['LIVE_SHUTDOWN_CONFIRMATION_REQUIRED'],openPositions:open.length});
+      const stop=await live.runControl({action:'STOP'});
+      log('SYSTEM SHUTDOWN mode='+lanes.mode+' source='+String(body?.source||'API').slice(0,20)+' paperClosed='+(stop?.paperClosed??0));
+      send(res,200,{ok:true,shuttingDown:true,mode:lanes.mode,paperClosed:stop?.paperClosed??0,openRealPositions:lanes.mode==='LIVE'?open.length:0});
+      setTimeout(()=>process.exit(0),1500);return;
+    }
     if(req.method==='POST'&&u.pathname==='/live/run'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
       const action=String(body?.action||'').toUpperCase();

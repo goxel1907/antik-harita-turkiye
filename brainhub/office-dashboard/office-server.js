@@ -13,6 +13,7 @@ const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
 const BRAIN_URL = (process.env.BRAINHUB_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
+let lastSystemStart = 0; // R2544.58: last 'Sistemi aç' (no second start within 2 min)
 const OLLAMA_URL = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const ROUTER_URL = (process.env.ROUTER_URL || 'http://127.0.0.1:20128').replace(/\/+$/, '');
 const HEADROOM_URL = (process.env.HEADROOM_URL || 'http://127.0.0.1:8788').replace(/\/+$/, '');
@@ -88,7 +89,7 @@ async function getJson(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
-const CONTROL_ROUTES = { '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes' };
+const CONTROL_ROUTES = { '/api/control/system': '/system/shutdown', '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes' };
 // Only these fields ever reach the core; anything else in the Office request is dropped (OTO sizing, burst switch etc.
 // stay with the user's existing config).
 const CONTROL_BODY = {
@@ -102,6 +103,7 @@ const CONTROL_BODY = {
   '/api/control/arm': b => ({ confirm: String(b.confirm || '') }),
   '/api/control/disarm': () => ({ reason: 'OFFICE_USER' }),
   '/api/control/oto': b => ({ enabled: b.enabled === true }),
+  '/api/control/system': b => ({ confirm: String(b.confirm || '').toUpperCase(), source: 'OFFICE' }),
   '/api/control/run': b => {
     const action = String(b.action || '').toUpperCase();
     const out = { action: ['STOP', 'START_TEST', 'RESET_TEST', 'GO_LIVE', 'GO_TEST'].includes(action) ? action : 'INVALID' };
@@ -647,6 +649,21 @@ const server = http.createServer(async (req, res) => {
     // server-side token. Local only (HOST 127.0.0.1); JSON body + custom header, so a cross-site page cannot send it
     // without a CORS preflight (Office never answers OPTIONS); the core still demands an explicit confirmation for mode
     // and arm. The body is rebuilt from a whitelist per route.
+    // R2544.58 (user 19.10): "Sistemi aç" - the core is down, Office starts it (manage.ps1 Start, hidden, detached).
+    if (req.method === 'POST' && u.pathname === '/api/control/system-start') {
+      if (!keyOk(req, u)) return send(res, 401, { ok: false, error: 'office key required' });
+      if (req.headers['x-jev-office-control'] !== '1') return send(res, 403, { ok: false, error: 'control header required' });
+      const up = await brainGet('/health', '').catch(() => null);
+      if (up && up.ok) return send(res, 200, { ok: true, alreadyRunning: true });
+      if (Date.now() - lastSystemStart < 120000) return send(res, 200, { ok: true, starting: true, since: new Date(lastSystemStart).toISOString() });
+      const manage = path.join(BRAIN_ROOT, 'manage.ps1');
+      if (!fs.existsSync(manage)) return send(res, 500, { ok: false, error: 'manage.ps1 not found' });
+      try {
+        const child = require('child_process').spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', manage, '-Action', 'Start', '-Root', BRAIN_ROOT], { detached: true, stdio: 'ignore', windowsHide: true });
+        child.unref(); lastSystemStart = Date.now();
+      } catch (e) { return send(res, 500, { ok: false, error: clip(e?.message || e, 120) }); }
+      return send(res, 200, { ok: true, starting: true });
+    }
     if (req.method === 'POST' && CONTROL_ROUTES[u.pathname]) {
       if (!keyOk(req, u)) return send(res, 401, { ok: false, error: 'office key required' });
       if (req.headers['x-jev-office-control'] !== '1' || !String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) return send(res, 403, { ok: false, error: 'control header required' });

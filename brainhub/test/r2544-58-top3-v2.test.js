@@ -271,3 +271,19 @@ test('R58 sade chart: candles + day/week/month highs-lows + nearest volumetric O
   const os2=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');assert.ok(os2.includes("['clean','annotated','sade'].includes(mode)"));
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');assert.ok(html.includes("mode:'sade'")&&html.includes('SADE — bölgeler + İlk 3'));
 });
+
+test('R58 system on/off (user 19.10): core shutdown route needs LIVE confirm in LIVE; Office start/stop + button; desktop Office script',()=>{
+  const srv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+  assert.ok(srv.includes("u.pathname==='/system/shutdown'"));assert.ok(srv.includes("['LIVE_SHUTDOWN_CONFIRMATION_REQUIRED']"));
+  assert.ok(srv.includes("await live.runControl({action:'STOP'})")&&srv.includes('setTimeout(()=>process.exit(0),1500)'),'stops the run first, then exits');
+  process.env.BRAINHUB_ROOT=fs.mkdtempSync(path.join(os.tmpdir(),'r58-office-'));delete process.env.OFFICE_KEY;
+  const office=require('../office-dashboard/office-server.js');
+  assert.equal(office.CONTROL_ROUTES['/api/control/system'],'/system/shutdown');
+  assert.deepEqual(office.CONTROL_BODY['/api/control/system']({confirm:'live',action:'rm -rf'}),{confirm:'LIVE',source:'OFFICE'});
+  const os2=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');
+  assert.ok(os2.includes("u.pathname === '/api/control/system-start'")&&os2.includes("'-Action', 'Start'")&&os2.includes('Date.now() - lastSystemStart < 120000'));
+  const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  assert.ok(html.includes('id="btnSystem"')&&html.includes("secondPress('btnSystem',systemMode==='LIVE'?"));
+  const cmd=fs.readFileSync(path.join(__dirname,'..','jev-brain','OFFICE-AC.cmd'),'utf8');
+  assert.ok(cmd.includes('\r\n'),'cmd keeps CRLF');assert.ok(cmd.includes("manage.ps1")&&cmd.includes("'Start'")&&cmd.includes('START-OFFICE.ps1'));
+});
