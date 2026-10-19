@@ -2175,7 +2175,9 @@ const server=http.createServer(async(req,res)=>{
         const mirrorBars=tf==='15m'?180:72;
         // Tek frameSet çağrısı: JEV packet ve grafik analizi aynı kapalı mum snapshot'ını kullanır.
         const mirror=await market.atomicMirrorContext(symbol,tf,mirrorBars);
-        const [global,scan]=await Promise.all([market.globalContext(),scanner.scan()]);
+        // R2544.59_MIRROR_NO_SCAN: the mirror never used the scanner result, but awaited a full market scan whenever the
+        // 30 s scan cache expired; a timed-out scan sub-request then failed the chart with 503 after ~9 s.
+        const global=await market.globalContext();
         const sym=mirror.symbolContext;
         const chart=mirror.chart;
         const unified=pipeline.buildUnifiedContext({

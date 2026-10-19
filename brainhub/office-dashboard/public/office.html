@@ -252,6 +252,10 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 @media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-main,.row2{grid-template-columns:1fr}.row3{grid-template-columns:1fr}}
 .office #officeHost{overflow-x:auto}
 @media (max-width:560px){.office svg{min-width:820px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.tfs{grid-template-columns:repeat(5,minmax(0,1fr))}.kpi .v{font-size:18px}}
+  /* R2544.59_LEGACY_FOLD: the old JEV lanes (idle while OTO/JEV are off) are folded so the running system is clear */
+  details.legacy-jev{margin:16px 0;border:1px dashed #3a4256;border-radius:12px;padding:6px 10px}
+  details.legacy-jev>summary{cursor:pointer;font-weight:700;color:#9aa4b8;padding:6px 2px}
+  details.legacy-jev>summary .hint{font-weight:400}
 </style>
 </head>
 <body>
@@ -301,6 +305,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="t3msg" id="top3Msg"></div>
     <div id="top3Host" aria-live="polite">İlk 3 Avcısı verisi bekleniyor.</div>
   </section>
+  <details class="legacy-jev" id="legacyJevA"><summary>Eski JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Açmak için tıklayın.</span></summary>
   <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
   <section class="lane-strip" id="laneStrip"></section>
 
@@ -316,6 +321,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <div class="pipe" id="pipe"></div>
     </div>
   </section>
+  </details>
 
   <section class="mirror-wide">
     <div class="card mirror-card">
@@ -361,6 +367,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
   </section>
 
+  <details class="legacy-jev" id="legacyJevB"><summary>Eski JEV hattı — JEV kanıt/karar kartları, takip edilen setuplar, vaka hafızası, kaynaklar, giriş öncesi mikroyapı <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Açmak için tıklayın.</span></summary>
   <section class="row4">
     <div class="card">
       <h2>Grafik Kanıtı / GPU Audit (opsiyonel) <span class="hint" id="visHint"></span></h2>
@@ -430,6 +437,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
   </section>
 
+  </details>
   <!-- CLAUDE_R2544_15_GAINER_LADDER: canlı merdiven (ilk 3 / 4-10 / 11-24), erken teşhis ve erken ilgi -->
   <section><div class="card"><h2>Yükselenler merdiveni (Binance 24s, canlı)</h2><div id="ladderMeta" class="muted"></div><div style="overflow:auto"><table id="ladderTable"></table></div><div id="ladderSide" class="muted" style="margin-top:6px"></div></div></section>
   <section><div class="card"><h2>Analiz yolu ve işlem engelleri</h2><div id="cpuPolicy"></div><div id="priorityQueue"></div><div style="overflow:auto"><table id="decisionChains"></table></div></div></section>
@@ -440,7 +448,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <div style="overflow:auto"><table id="openPos"></table></div>
       <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + fonlama)</span></h2>
       <div style="overflow:auto"><table id="closedPos"></table></div>
-      <h2 style="margin-top:16px">BrainHub Trader Office • 5M Scalper / 15M Trader performansı
+      <h2 style="margin-top:16px">Masa performansı • 5M / 15M / Vur-kaç / İlk 3
         <span class="hint" id="deskPerfHint">karar → zamanlama → emir → sonuç</span>
       </h2>
       <div style="overflow:auto"><table id="deskPerf"></table></div>
@@ -1157,7 +1165,7 @@ function renderLedger(s){
     $('#deskPerfHint').textContent=`Tüm defter • son 60 dk benzersiz coin ${f.uniqueCoverage} • tekrar analiz %${n(f.reanalysisRatePct)} • aynı kanıtla atlanan ${f.dedupeSkipped}. ${perf.historyNote}`;
     $('#closedHint').textContent=`Tüm ölçülen defter: ${perf.total.closed} kapanış • net ${n(perf.total.netPnl)} USDT. ${perf.reconciliation?.excluded?.length||0} yinelenen kayıt hesap dışı (ham kayıtlar korunur). Aşağıdaki liste son ${cl.length} kayıt; masa sonuçları tüm kayıtlardır.${perf.testMode?.total?.closed?` TEST (sanal, ayrı): ${perf.testMode.total.closed} kapanış • net ${n(perf.testMode.total.netPnl)} USDT.`:''}`;
     $('#deskPerf').innerHTML=perf.desks.filter(x=>x.desk!=='UNSPECIFIED'||x.recent.analyses||x.cohorts.some(c=>c.closed)).map(desk=>{
-      const title=desk.desk==='5M_SCALP'?'5M SCALPER MASASI':desk.desk==='15M_TRADE'?'15M TRADER MASASI':'MASASI BELİRSİZ KAYITLAR';
+      const title=({'5M_SCALP':'5M SCALPER MASASI','15M_TRADE':'15M TRADER MASASI',BURST_SCALP:'VUR-KAÇ MASASI',TOP3_HUNTER:'İLK 3 AVCISI MASASI'})[desk.desk]||'MASASI BELİRSİZ KAYITLAR'; // R2544.59: İlk 3 / vur-kaç had no title and read as the 15M desk
       return `<tbody><tr><th colspan="12">${title}</th></tr><tr><th>Dönem / sürüm</th><th>Analiz / P1 / P2</th><th>Al / Sat / Bekle</th><th>Şimdi giriş</th><th>Onay / güvenlik / emir</th><th>Kapanış K/Z/N</th><th>Kazanma %</th><th>Net USDT</th><th>Ort / medyan R</th><th>R örneği</th><th>Açık PnL</th><th>Dönüşüm %</th></tr>`+
       [desk.recent,...desk.cohorts].map(x=>`<tr><td>${esc(x.name==='LEGACY'?'ESKİ / ETİKETSİZ':x.name)}</td><td>${x.telemetryAvailable?`${x.analyses} / ${x.pass1} / ${x.pass2}`:'Kayıt yok'}</td><td>${x.telemetryAvailable?`${x.long} / ${x.short} / ${x.wait}`:'—'}</td><td>${x.telemetryAvailable?x.marketNow:'—'}</td><td>${x.telemetryAvailable?`${x.approved} / ${x.safetyPassed} / ${x.orders}`:'—'}</td><td>${x.closed} (${x.wins}/${x.losses}/${x.flats})</td><td>${n(x.winRatePct)}</td><td>${n(x.netPnl)}</td><td>${n(x.avgR)} / ${n(x.medianR)}</td><td>${x.rSamples}</td><td>${n(x.openPnl)}</td><td title="Karar → güvenlik / güvenlik → emir / karar → emir">${n(x.decisionToSafetyPct)} / ${n(x.safetyToOrderPct)} / ${n(x.decisionToOrderPct)}</td></tr><tr><td colspan="12"><details><summary>Zamanlama, bekleme ve yürütme nedenleri</summary><p>Giriş zamanlaması: ${esc(dist(x.timing))}</p><p>Bekleme nedeni: ${esc(dist(x.waitReasons))}</p><p>Yürütme engelleri: ${esc(dist(x.blockedReasons))}</p><p>Kanıt değişimi: ${esc(dist(x.materialChanges))} • benzersiz coin ${x.uniqueCoverage} • tekrar %${n(x.reanalysisRatePct)}</p></details></td></tr>`).join('')+'</tbody>';
     }).join('');

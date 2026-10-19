@@ -85,3 +85,21 @@ test('R2544.59 close lists: cached learningContext/tradeLessons/caseMemory equal
     b=openStore(root);assert.equal(view(a),view(b),'new exit evidence refreshes the cached execution list');b.db.close();b=null;
   }finally{try{a.db.close();}catch{}try{b?.db?.close();}catch{}fs.rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});}
 });
+
+test('R2544.59 Office review fixes: mirror does not await the scanner, İlk 3 v2 closes are 5m, desk titles, legacy fold', () => {
+  const src=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
+  const server=src('server.js'),lc=src('live-controller.js'),html=src('office-dashboard/public/office.html');
+  const i=server.indexOf("u.pathname==='/context/jev-live-mirror'"),handler=server.slice(i,server.indexOf("u.pathname==='/chart/png'"));
+  assert.ok(i>0&&!/scanner\.scan\(\)/.test(handler),'the mirror must not wait for a full market scan');
+  assert.match(handler,/R2544\.59_MIRROR_NO_SCAN/);
+  assert.match(lc,/tf=c\.rulesVersion===2\|\|TOP3_V2_SETUPS\.has\(setup\)\?'5m':'1h'/);
+  assert.match(lc,/entryTiming:tf==='5m'\?'CLOSED_5M':'HOURLY_CLOSE'/);
+  assert.match(lc,/map\(x=>top3TfView\(\{symbol:x\.symbol/);
+  assert.match(html,/TOP3_HUNTER:'İLK 3 AVCISI MASASI'/);
+  assert.match(html,/BURST_SCALP:'VUR-KAÇ MASASI'/);
+  assert.equal((html.match(/<details class="legacy-jev"/g)||[]).length,2);
+  assert.equal((html.match(/<details/g)||[]).length-(html.match(/<\/details>/g)||[]).length,0,'details balanced');
+  const a=html.indexOf('id="legacyJevA"'),b=html.indexOf('id="legacyJevB"');
+  for(const id of ['deskCards','officeHost','blockers'])assert.ok(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a),id+' folded');
+  for(const id of ['top3Card','mirrorClean','ladderTable','openPos','closedPos'])assert.ok(html.indexOf(`id="${id}"`)>0&&!(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a))&&!(html.indexOf(`id="${id}"`)>b&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',b)),id+' stays visible');
+});

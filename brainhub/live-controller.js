@@ -2056,7 +2056,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let closed=[];
     try{closed=typeof store?.recentJournal==='function'?store.recentJournal('POSITION_CLOSED',{limit:closedLimit}):[];}catch{closed=[];}
     const allOfficeRecords=typeof store.officeRecords==='function'?store.officeRecords():closed;
-    const allRows=reconcileCloses(enrichCloses(allOfficeRecords.filter(x=>x.kind==='POSITION_CLOSED').map(x=>({symbol:x.symbol,id:x.id,ts:new Date(x.ts).toISOString(),...x.payload})),allOfficeRecords)).trades
+    const allRows=reconcileCloses(enrichCloses(allOfficeRecords.filter(x=>x.kind==='POSITION_CLOSED').map(x=>top3TfView({symbol:x.symbol,id:x.id,ts:new Date(x.ts).toISOString(),...x.payload})),allOfficeRecords)).trades
       .filter(x=>x.incomeAvailable!==undefined||Number.isFinite(Number(x.netPnl)))
       .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts));
     const rows=allRows.slice(0,closedLimit);
@@ -6140,6 +6140,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     saveTop3State();
     return {active:Object.keys(top3State.active).length};
   }
+  // R2544.59_TOP3_TF: the v2 rules decide on closed 5m candles; closes were stamped 1h / HOURLY_CLOSE (Office showed
+  // 'TOP3_HUNTER • 1h'). New closes carry 5m; stored v2 closes are shown as 5m (the journal itself is not rewritten).
+  const TOP3_V2_SETUPS=new Set(['TOP3_LONG_EARLY_RETEST','TOP3_SHORT_TOP_BREAK']);
+  function top3TfView(row){return row&&row.tradeLane==='TOP3_HUNTER'&&TOP3_V2_SETUPS.has(row.setup)&&row.originTF==='1h'?{...row,originTF:'5m',ownerTF:'5m'}:row;}
   function top3CloseRecord(c,inc,path=null){
     const qty=finite(c.quantity),entry=finite(c.entryPrice),stop=finite(c.stopPrice);
     const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
@@ -6147,13 +6151,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const netPnl=inc?inc.net:null;
     const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
       TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE',TOP3_BE_STOP:'TOP3_BE_STOP'}[c.exitReason]||'TOP3_OTHER_EXIT';
-    const setup='TOP3_'+(c.rule||'RULE');
-    return {side:c.side,setup,originTF:'1h',ownerTF:'1h',tradeLane:'TOP3_HUNTER',entryPrice:entry,stopPrice:stop,takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
+    const setup='TOP3_'+(c.rule||'RULE'),tf=c.rulesVersion===2||TOP3_V2_SETUPS.has(setup)?'5m':'1h';
+    return {side:c.side,setup,originTF:tf,ownerTF:tf,tradeLane:'TOP3_HUNTER',entryPrice:entry,stopPrice:stop,takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
       initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
       exitBy:'TOP3_MANAGER',realizedPnl:inc?inc.realized:null,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,
       outcomePct:netPnl!==null&&notional>0?netPnl/notional*100:null,rMultiple:netPnl!==null&&riskQuote>0?netPnl/riskQuote:null,
       exitType,exitEvidenceVersion:top3Lib.TOP3_VERSION,openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
-      entryContext:{why:top3Why(c),setup,setupFamily:'TOP3',entryTiming:'HOURLY_CLOSE',lane:'TOP3_HUNTER',releaseContract:top3Lib.TOP3_VERSION,strategyVersion:top3Lib.TOP3_VERSION,source:'TOP3',
+      entryContext:{why:top3Why(c),setup,setupFamily:'TOP3',entryTiming:tf==='5m'?'CLOSED_5M':'HOURLY_CLOSE',lane:'TOP3_HUNTER',releaseContract:top3Lib.TOP3_VERSION,strategyVersion:top3Lib.TOP3_VERSION,source:'TOP3',
         top3:{id:c.id,rule:c.rule||null,signalKind:c.signalKind||'UNLABELED',leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),tpPrice:finite(c.tpPrice),exitPrice:finite(c.exitPrice),jevMode:c.jevMode===true,jev:c.jev||null,
           closedBy:c.systemClose?.reason||null,
           entryFeatures:c.entryFeatures||null,mfePct:path?Number(path.mfePct.toFixed(4)):finite(c.sampleMfePct),maePct:path?Number(path.maePct.toFixed(4)):finite(c.sampleMaePct),pathSource:path?'5m':'SAMPLES_30S'}},
