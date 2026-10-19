@@ -27,6 +27,9 @@ function openStore(root) {
     );
     CREATE INDEX IF NOT EXISTS learning_events_ts ON learning_events(ts DESC);
     CREATE INDEX IF NOT EXISTS learning_events_shape ON learning_events(side,setup,origin_tf,owner_tf);
+    -- R2544.59_LEARNING_KIND_INDEX: learningContext filtered learning_events by kind with no index (8 full scans,
+    -- ~30 MB each, per analysed candidate). Additive index only.
+    CREATE INDEX IF NOT EXISTS learning_events_kind_ts ON learning_events(kind,ts DESC);
     CREATE TABLE IF NOT EXISTS leases (
       resource TEXT PRIMARY KEY, owner TEXT NOT NULL, token_hash TEXT NOT NULL,
       expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -203,10 +206,21 @@ function openStore(root) {
     attnCache.set(key,att);
     return att;
   }
-  function closeExecutionRecords(){return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY ts").all().map(x=>({...x,payload:safeLearningPayload(x.payload)}));}
-  function closeEvidenceKey(){const x=db.prepare("SELECT COUNT(*) AS n,MAX(rowid) AS last FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE')").get();return ':'+x.n+':'+x.last;}
+  // R2544.59_CLOSE_LIST_CACHE: every candidate analysis (learningContext) and every open-position view (caseMemory)
+  // re-read the close and execution lists (~20 MB per candidate, ~245 MB bursts every few seconds). These lists change
+  // only when a row is appended, so they are kept until a cheap covering-index key (count + last rowid) changes.
+  // The cached rows are shared: every consumer copies before it changes anything (enrichCloses / learningQuality).
+  const cachedOn=(keyOf,load)=>{let c={key:null,value:null};return ()=>{const key=keyOf();if(c.key!==key)c={key,value:load()};return c.value;};};
+  const closeEvidenceKeyStmt=db.prepare("SELECT COUNT(*) AS n,MAX(rowid) AS last FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE')");
+  const closedKeyStmt=db.prepare("SELECT COUNT(*) AS n,MAX(rowid) AS last FROM journal WHERE kind='POSITION_CLOSED'");
+  const learnTopStmt=db.prepare('SELECT COUNT(*) AS n,MAX(rowid) AS last FROM learning_events');
+  function closeEvidenceKey(){const x=closeEvidenceKeyStmt.get();return ':'+x.n+':'+x.last;}
+  const closedKey=()=>{const x=closedKeyStmt.get();return x.n+':'+x.last;};
+  const closeExecutionRecords=cachedOn(closeEvidenceKey,()=>db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY ts").all().map(x=>({...x,payload:safeLearningPayload(x.payload)})));
+  const closedRaw=cachedOn(closedKey,()=>db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all());
+  const learningCloses=cachedOn(()=>{const x=learnTopStmt.get();return x.n+':'+x.last;},()=>db.prepare("SELECT id,ts,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED' ORDER BY ts").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,ts:x.ts,symbol:x.symbol})));
   function tradeLessonCards(){
-    const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
+    const raw=closedRaw();
     const key=raw.length+':'+(raw.length?raw[raw.length-1].id:'')+closeEvidenceKey();
     if(lessonCache.key===key)return lessonCache.cards;
     const rows=raw.map(x=>{let p={};try{p=JSON.parse(x.payload)||{};}catch{p={};}return learningQuality({...p,id:x.id,ts:x.ts,symbol:x.symbol});});
@@ -225,7 +239,7 @@ function openStore(root) {
   }
   let caseTradeCache={key:null,trades:[]};
   function caseTrades(){
-    const raw=db.prepare("SELECT id,ts,symbol,payload FROM journal WHERE kind='POSITION_CLOSED' ORDER BY ts").all();
+    const raw=closedRaw();
     const ck=raw.length+':'+(raw.length?raw[raw.length-1].id:'')+closeEvidenceKey();
     if(caseTradeCache.key===ck)return caseTradeCache.trades;
     const rows=raw.map(x=>{let q={};try{q=JSON.parse(x.payload)||{};}catch{q={};}return learningQuality({...q,id:x.id,ts:x.ts,symbol:x.symbol});});
@@ -236,7 +250,7 @@ function openStore(root) {
     catch(e){return {version:'R2544.21',available:false,reason:'CASE_MEMORY_ERROR',detail:String(e?.message||e).slice(0,160),analogs:[],executionAuthority:false};}
   }
   function learningContext({symbol=null,candidate=null,unified=null}={}){
-    const closes=db.prepare("SELECT id,ts,symbol,payload FROM learning_events WHERE kind='POSITION_CLOSED' ORDER BY ts").all().map(x=>({...safeLearningPayload(x.payload),id:x.id,ts:x.ts,symbol:x.symbol}));
+    const closes=learningCloses();
     const enrichedCloses=enrichCloses(closes,closeExecutionRecords());
     const enrichedById=new Map(enrichedCloses.map(x=>[x.id,x]));
     const duplicateCloses=reconcileCloses(enrichedCloses).excluded,externalActorCloses=enrichedCloses.filter(x=>String(x.learningAuthority||'').startsWith('EXCLUDED_'));

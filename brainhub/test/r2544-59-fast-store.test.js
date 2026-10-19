@@ -61,7 +61,27 @@ test('R2544.59 consumers never mutate the shared rows (frozen rows pass through 
 
 test('R2544.59 release marker', () => {
   const src=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.59-FAST-STORE';/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.59B-FAST-STORE';/);
   assert.match(src('store.js'),/R2544.59_OFFICE_RECORDS_CACHE/);
-  assert.match(src('jev-brain/JEV-DEPLOY.ps1'),/\$EXPECTED_RELEASE = 'R2544.59-FAST-STORE'/);
+  assert.match(src('store.js'),/R2544.59_CLOSE_LIST_CACHE/);
+  assert.match(src('store.js'),/CREATE INDEX IF NOT EXISTS learning_events_kind_ts ON learning_events\(kind,ts DESC\)/);
+  assert.match(src('jev-brain/JEV-DEPLOY.ps1'),/\$EXPECTED_RELEASE = 'R2544.59B-FAST-STORE'/);
+});
+
+test('R2544.59 close lists: cached learningContext/tradeLessons/caseMemory equal a fresh store, and new rows show at once', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'r59b-'));
+  const a=openStore(root);let b=null;
+  const close=(sym,extra)=>{const p={side:'LONG',setup:'X',originTF:'5m',ownerTF:'5m',decision:'CLOSED',outcomePct:1,rMultiple:1,netPnl:2,exitType:'EXTERNAL_CLOSE',openedAt:'2026-10-19T10:00:00.000Z',closedAt:'2026-10-19T11:00:00.000Z',entryContext:{entryCase:{side:'LONG',tf:'5m'}},...extra};
+    const id=a.journal('POSITION_CLOSED',sym,p);a.recordLearning('POSITION_CLOSED',sym,p);return id;};
+  const view=s=>JSON.stringify({l:s.learningContext({symbol:'AAAUSDT'}),t:s.tradeLessons({symbol:'AAAUSDT',limit:400}),c:s.caseMemory({currentCase:{side:'LONG',tf:'5m'},symbol:'AAAUSDT'})});
+  try{
+    close('AAAUSDT',{});close('BBBUSDT',{outcomePct:-1,rMultiple:-1,netPnl:-2});
+    const first=view(a);assert.equal(view(a),first,'repeat call is stable');
+    b=openStore(root);assert.equal(view(b),first,'cached equals a fresh (uncached) store');b.db.close();
+    const before=a.tradeLessons({limit:400}).total;
+    const id=close('AAAUSDT',{outcomePct:2,rMultiple:2,netPnl:4});
+    assert.equal(a.tradeLessons({limit:400}).total,before+1,'a new close appears at once');
+    a.journal('CLOSE_EXIT_EVIDENCE','AAAUSDT',{closedId:id,openedAt:'2026-10-19T10:00:00.000Z',closedAt:'2026-10-19T11:00:00.000Z',evidence:{version:'R2544.40',confirmed:true,exitType:'STOP_LOSS'}});
+    b=openStore(root);assert.equal(view(a),view(b),'new exit evidence refreshes the cached execution list');b.db.close();b=null;
+  }finally{try{a.db.close();}catch{}try{b?.db?.close();}catch{}fs.rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});}
 });
