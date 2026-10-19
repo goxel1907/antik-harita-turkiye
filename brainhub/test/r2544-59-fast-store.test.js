@@ -61,11 +61,11 @@ test('R2544.59 consumers never mutate the shared rows (frozen rows pass through 
 
 test('R2544.59 release marker', () => {
   const src=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.60-SUB-LANES';/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.62-TOP3-R';/);
   assert.match(src('store.js'),/R2544.59_OFFICE_RECORDS_CACHE/);
   assert.match(src('store.js'),/R2544.59_CLOSE_LIST_CACHE/);
   assert.match(src('store.js'),/CREATE INDEX IF NOT EXISTS learning_events_kind_ts ON learning_events\(kind,ts DESC\)/);
-  assert.match(src('jev-brain/JEV-DEPLOY.ps1'),/\$EXPECTED_RELEASE = 'R2544.60-SUB-LANES'/);
+  assert.match(src('jev-brain/JEV-DEPLOY.ps1'),/\$EXPECTED_RELEASE = 'R2544.62-TOP3-R'/);
 });
 
 test('R2544.59 close lists: cached learningContext/tradeLessons/caseMemory equal a fresh store, and new rows show at once', () => {

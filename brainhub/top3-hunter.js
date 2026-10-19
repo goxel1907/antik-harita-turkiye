@@ -395,6 +395,13 @@ function buildLesson(lot, close, path) {
 function repairLessons(lessons) {
   const xs = Array.isArray(lessons) ? lessons : []; let repaired = 0;
   const out = xs.map(l => {
+    // R2544.62: a close after the break-even move was booked against the moved stop (CTR 42.6R, SIREN 69.4R); the lesson
+    // keeps the entry stop %, so R = result % / entry stop % minus the 0.1 % round-trip fee.
+    {const r = finite(l?.rMultiple), sp = finite(l?.stopPct), rp = finite(l?.resultPct);
+     if (r !== null && r > 10 && sp > 0 && rp !== null) {
+       const fixed = Number(((rp - 0.001) / sp).toFixed(4)); repaired++;
+       return { ...l, rMultiple: fixed, lessonTr: String(l.lessonTr || '').replace(/ \/ -?[0-9]+,[0-9]+ R/, ' / ' + fixed.toFixed(2).replace('.', ',') + ' R'), repairedFrom: 'R_MOVED_STOP_BASIS' };
+     }}
     if (l?.exitType !== 'TOP3_STOP_OR_EXTERNAL' || finite(l.exitPrice) > 0) return l;
     const r = finite(l.rMultiple); if (r === null || r <= -0.9) return l;
     const batch = xs.some(o => o !== l && finite(o?.closedAt) !== null && Math.abs(o.closedAt - l.closedAt) <= 5000);

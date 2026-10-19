@@ -2067,7 +2067,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     let closed=[];
     try{closed=typeof store?.recentJournal==='function'?store.recentJournal('POSITION_CLOSED',{limit:closedLimit}):[];}catch{closed=[];}
-    const allOfficeRecords=typeof store.officeRecords==='function'?store.officeRecords():closed;
+    const allOfficeRecords=(typeof store.officeRecords==='function'?store.officeRecords():closed).map(x=>x.kind==='POSITION_CLOSED'&&x.payload?.tradeLane==='TOP3_HUNTER'?{...x,payload:top3TfView(x.payload)}:x);
     const allRows=reconcileCloses(enrichCloses(allOfficeRecords.filter(x=>x.kind==='POSITION_CLOSED').map(x=>top3TfView({symbol:x.symbol,id:x.id,ts:new Date(x.ts).toISOString(),...x.payload})),allOfficeRecords)).trades
       .filter(x=>x.incomeAvailable!==undefined||Number.isFinite(Number(x.netPnl)))
       .sort((a,b)=>Date.parse(b.closedAt||b.ts)-Date.parse(a.closedAt||a.ts));
@@ -6178,16 +6178,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // R2544.59_TOP3_TF: the v2 rules decide on closed 5m candles; closes were stamped 1h / HOURLY_CLOSE (Office showed
   // 'TOP3_HUNTER • 1h'). New closes carry 5m; stored v2 closes are shown as 5m (the journal itself is not rewritten).
   const TOP3_V2_SETUPS=new Set(['TOP3_LONG_EARLY_RETEST','TOP3_SHORT_TOP_BREAK']);
-  function top3TfView(row){return row&&row.tradeLane==='TOP3_HUNTER'&&TOP3_V2_SETUPS.has(row.setup)&&row.originTF==='1h'?{...row,originTF:'5m',ownerTF:'5m'}:row;}
+  function top3TfView(row){
+    if(!row||row.tradeLane!=='TOP3_HUNTER')return row;
+    let out=TOP3_V2_SETUPS.has(row.setup)&&row.originTF==='1h'?{...row,originTF:'5m',ownerTF:'5m'}:row;
+    // R2544.62_TOP3_R_BASIS: closes after a break-even move were booked against the moved stop (risk ~0 -> CTR 42.6R,
+    // SIREN 69.4R). Shown against the entry stop kept in the lane memory: R = net / (notional x entry stop %).
+    const ls=(top3State.lessons||[]).find(l=>l&&l.id&&l.id===row.entryContext?.top3?.id),sp=finite(ls?.stopPct),n=finite(row.notional),net=finite(row.netPnl);
+    if(sp>0&&n>0&&net!==null){const r=Number((net/(n*sp)).toFixed(4));if(finite(row.rMultiple)===null||Math.abs(r-row.rMultiple)>0.05)out={...out,rMultiple:r,riskQuote:Number((n*sp).toFixed(4)),stopDistancePct:Number((sp*100).toFixed(4)),rBasisRepaired:'ENTRY_STOP'};}
+    return out;
+  }
   function top3CloseRecord(c,inc,path=null){
-    const qty=finite(c.quantity),entry=finite(c.entryPrice),stop=finite(c.stopPrice);
+    // R2544.62: risk is measured from the entry stop (initialStopPrice once the stop moved to break-even)
+    const qty=finite(c.quantity),entry=finite(c.entryPrice),stop=finite(c.initialStopPrice)??finite(c.stopPrice);
     const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
     const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
     const netPnl=inc?inc.net:null;
     const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
       TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE',TOP3_BE_STOP:'TOP3_BE_STOP'}[c.exitReason]||'TOP3_OTHER_EXIT';
     const setup='TOP3_'+(c.rule||'RULE'),tf=c.rulesVersion===2||TOP3_V2_SETUPS.has(setup)?'5m':'1h';
-    return {side:c.side,setup,originTF:tf,ownerTF:tf,tradeLane:'TOP3_HUNTER',entryPrice:entry,stopPrice:stop,takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
+    return {side:c.side,setup,originTF:tf,ownerTF:tf,tradeLane:'TOP3_HUNTER',entryPrice:entry,stopPrice:stop,...(c.beMoved?{finalStopPrice:finite(c.stopPrice)}:{}),takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
       initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
       exitBy:'TOP3_MANAGER',realizedPnl:inc?inc.realized:null,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,
       outcomePct:netPnl!==null&&notional>0?netPnl/notional*100:null,rMultiple:netPnl!==null&&riskQuote>0?netPnl/riskQuote:null,

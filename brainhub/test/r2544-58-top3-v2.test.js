@@ -303,3 +303,29 @@ test('R2544.60 user margin: a margin entered in Office is used as is (margin x l
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   assert.ok(html.includes('Büyüklük: <b>girilen marj ${esc(st.marginQuote)} USDT × ${esc(st.leverage)}x</b>'));
 });
+
+test('R2544.62 a target hit after the break-even move is measured from the entry stop (CTR 19.10 was booked 42.6R)',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({top3:{early:{beAtR:1}}});
+  await f.controller.testSupervisorTick();await f.controller.top3Tick();
+  const a=Object.values(f.controller._testTop3State().active)[0];assert.ok(a,'entered');
+  const entryStop=a.stopPrice,oneR=a.entryPrice*(1+a.stopPct)+0.001;
+  f.state.px.SIGUSDT={bid:oneR,ask:oneR+0.0002};f.state.now+=30000;await f.controller.top3Tick();
+  assert.equal(a.beMoved,true);assert.equal(a.initialStopPrice,entryStop);
+  f.state.px.SIGUSDT={bid:a.tpPrice*1.002,ask:a.tpPrice*1.0022};f.state.now+=1000;await f.paper.tick();
+  f.state.now+=30000;await f.controller.top3Tick();f.state.now+=30000;await f.controller.top3Tick();
+  const pc=f.kinds('POSITION_CLOSED').find(x=>x.p.tradeLane==='TOP3_HUNTER').p;
+  assert.equal(pc.exitType,'TOP3_TAKE_PROFIT');assert.equal(pc.stopPrice,entryStop,'risk basis = entry stop');assert.ok(pc.finalStopPrice>a.entryPrice);
+  assert.ok(pc.rMultiple>1&&pc.rMultiple<6,'a few R, not dozens: '+pc.rMultiple);
+  const l=f.kinds('TOP3_LESSON')[0].p;assert.ok(l.rMultiple>1&&l.rMultiple<6,'lesson R: '+l.rMultiple);
+});
+
+test('R2544.62 lane memory repair: lessons booked against the moved stop get R from the entry stop',()=>{
+  const r=T3.repairLessons([{id:'c',rMultiple:42.6449,stopPct:0.0147,resultPct:0.0437,lessonTr:'Erken LONG (5 dk geri test): kazanç +4,37% / 42,64 R, 0,5 sa; çıkış hedef.'},
+    {id:'s',rMultiple:69.3832,stopPct:0.0211,resultPct:0.0619},{id:'x',rMultiple:2.45,stopPct:0.03,resultPct:0.074},{id:'y',rMultiple:-1.03,stopPct:0.02,resultPct:-0.02}]);
+  assert.equal(r.repaired,2);
+  assert.equal(r.lessons[0].rMultiple,2.9048);assert.match(r.lessons[0].lessonTr,/ \/ 2,90 R/);assert.equal(r.lessons[0].repairedFrom,'R_MOVED_STOP_BASIS');
+  assert.ok(Math.abs(r.lessons[1].rMultiple-2.886)<0.01);
+  assert.equal(r.lessons[2].rMultiple,2.45);assert.equal(r.lessons[3].rMultiple,-1.03);
+  assert.equal(T3.repairLessons(r.lessons).repaired,0,'idempotent');
+});
