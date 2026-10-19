@@ -1,0 +1,168 @@
+        symbolTitle.setPadding(0, 0, 0, dp(4));
+        card.addView(symbolTitle);
+        card.addView(text("Kartın boş alanına dokun → Binance Futures'ta bu coini aç",
+                12, Color.rgb(148, 163, 184), false));
+
+        if (snap != null) {
+            int best = snap.bestScore();
+            boolean bestLong = snap.bestSetup().startsWith("LONG");
+            int bg = best >= 78 ? (bestLong ? Color.rgb(20, 83, 45) : Color.rgb(127, 29, 29))
+                    : best >= 68 ? Color.rgb(113, 63, 18) : Color.rgb(30, 41, 59);
+            TextView auto = text("🤖 AUTO HIGH ACCURACY • " + snap.regime + "\n" + snap.summary +
+                    "\nLP " + snap.longPullScore + " • LB " + snap.longBreakScore +
+                    " • SR " + snap.shortResScore + " • SB " + snap.shortBreakScore +
+                    "\nSon 15m analiz: " + formatTime(snap.updatedAt),
+                    13, Color.WHITE, true);
+            auto.setPadding(dp(10), dp(8), dp(10), dp(8));
+            auto.setBackgroundColor(bg);
+            LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            alp.setMargins(0, dp(8), 0, dp(4));
+            card.addView(auto, alp);
+        } else if (autoMode) {
+            TextView wait = text("🤖 AUTO: İlk tamamlanmış 15m analiz bekleniyor…", 13, Color.rgb(251,191,36), true);
+            wait.setPadding(0, dp(7), 0, dp(2));
+            card.addView(wait);
+        }
+
+        TextView longHead = text("🟢 LONG SİNYALLERİ", 16, Color.rgb(74, 222, 128), true);
+        longHead.setPadding(0, dp(10), 0, 0);
+        card.addView(longHead);
+        addSetup(card, "LONG PULLBACK",
+                "GİRİŞ BÖLGESİ: " + range(shown.pullbackLow, shown.pullbackHigh, shown.decimals),
+                shown.longPullDetail + autoReason(snap, "LP"), true);
+        addSetup(card, "LONG BREAKOUT",
+                "TEYİT: 15m kapanış > " + fmt(shown.breakoutClose, shown.decimals),
+                shown.longBreakDetail + autoReason(snap, "LB"), true);
+
+        TextView shortHead = text("🔴 SHORT SİNYALLERİ", 16, Color.rgb(248, 113, 113), true);
+        shortHead.setPadding(0, dp(10), 0, 0);
+        card.addView(shortHead);
+        addSetup(card, "SHORT DİRENÇ",
+                "GİRİŞ BÖLGESİ: " + range(shown.resistanceLow, shown.resistanceHigh, shown.decimals),
+                shown.shortResDetail + autoReason(snap, "SR"), false);
+        addSetup(card, "SHORT BREAKDOWN",
+                "TEYİT: 15m kapanış < " + fmt(shown.breakdownClose, shown.decimals),
+                shown.shortBreakDetail + autoReason(snap, "SB"), false);
+
+        TextView pre = text("Ön uyarı: hedef seviyeye yaklaşık %" +
+                String.format(Locale.US, "%.2f", shown.earlyWarnPercent) + " kala",
+                13, Color.rgb(251, 191, 36), true);
+        pre.setPadding(0, dp(6), 0, dp(8));
+        card.addView(pre);
+
+        Button openBinance = button("↗ BINANCE FUTURES'TA AÇ", Color.rgb(202, 138, 4));
+        openBinance.setOnClickListener(v -> openBinanceFutures(p.symbol));
+        card.addView(openBinance, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+        Button copy = button("GİRİŞ / STOP / TP PLANINI KOPYALA", Color.rgb(8, 145, 178));
+        copy.setOnClickListener(v -> copyPlan(shown));
+        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        copyLp.setMargins(0, dp(7), 0, 0);
+        card.addView(copy, copyLp);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        Button edit = button("DÜZENLE", Color.rgb(59, 130, 246));
+        edit.setOnClickListener(v -> openPlanDialog(p));
+        actions.addView(edit, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        Button del = button("SİL", Color.rgb(127, 29, 29));
+        del.setOnClickListener(v -> confirmDelete(p));
+        LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(0, dp(42), 0.55f);
+        delLp.setMargins(dp(8), 0, 0, 0);
+        actions.addView(del, delLp);
+        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionsLp.setMargins(0, dp(7), 0, 0);
+        card.addView(actions, actionsLp);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 0, dp(10));
+        card.setLayoutParams(lp);
+        return card;
+    }
+
+    private void addSetup(LinearLayout card, String title, String trigger, String detail, boolean isLong) {
+        String direction = isLong ? "🟢 LONG" : "🔴 SHORT";
+        int color = isLong ? Color.rgb(74, 222, 128) : Color.rgb(248, 113, 113);
+        TextView h = text(direction + " • " + title.replace("LONG ", "").replace("SHORT ", ""), 14, color, true);
+        h.setPadding(0, dp(6), 0, dp(2));
+        card.addView(h);
+        String d = detail == null || detail.trim().isEmpty()
+                ? "STOP/TP henüz yok — detaylı plan koduyla güncelle"
+                : detail;
+        TextView body = text(trigger + "\n" + d, 14, Color.rgb(226, 232, 240), false);
+        body.setLineSpacing(0, 1.14f);
+        card.addView(body);
+    }
+
+    private String autoReason(AutoSnapshot s, String which) {
+        if (s == null) return "";
+        int score; String reason;
+        switch (which) {
+            case "LP": score=s.longPullScore; reason=s.longPullReason; break;
+            case "LB": score=s.longBreakScore; reason=s.longBreakReason; break;
+            case "SR": score=s.shortResScore; reason=s.shortResReason; break;
+            default: score=s.shortBreakScore; reason=s.shortBreakReason; break;
+        }
+        String grade = score >= 86 ? "GÜÇLÜ SİNYAL" : score >= 78 ? "SİNYAL" : score >= 68 ? "TAKİP" : "İŞLEM YOK";
+        return "\n\nAUTO PUAN: " + score + "/100 • " + grade + "\n" + reason;
+    }
+
+    private String formatTime(long millis) {
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("dd.MM HH:mm", Locale.getDefault());
+        return f.format(new java.util.Date(millis));
+    }
+
+    private void toggleAutoMode() {
+        android.content.SharedPreferences p = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE);
+        boolean next = !p.getBoolean(MonitorService.KEY_AUTO_MODE, true);
+        p.edit().putBoolean(MonitorService.KEY_AUTO_MODE, next).apply();
+        Toast.makeText(this, next ? "AUTO HIGH ACCURACY açıldı. Yeni 15m kapanışta derin analiz yapılacak." : "AUTO kapatıldı; manuel plan seviyeleri kullanılacak.", Toast.LENGTH_LONG).show();
+        setContentView(buildUi());
+        refreshStatus();
+    }
+
+    private void openImportDialog() {
+        EditText input = new EditText(this);
+        input.setHint("Bir veya birden fazla DETAYLI plan kodunu alt alta yapıştır.\nEski 9 alanlı kodlar da çalışır; ancak Stop/TP görünmesi için v4 detaylı kod kullan.");
+        input.setTextColor(Color.WHITE);
+        input.setHintTextColor(Color.rgb(148, 163, 184));
+        input.setSingleLine(false);
+        input.setMinLines(6);
+        input.setGravity(Gravity.TOP);
+        input.setPadding(dp(18), dp(10), dp(18), dp(10));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Plan kodlarını yapıştır")
+                .setMessage("Coin kayıtlıysa otomatik güncellenir.\n\nv4 formatı: BASE 9 alan + 4 detay alanı.\nLP=stop;tp1;tp2;tp3\nLB=girişAlt;girişÜst;stop;tp1;tp2;tp3\nSR=stop;tp1;tp2;tp3\nSB=girişAlt;girişÜst;stop;tp1;tp2;tp3")
+                .setView(input)
+                .setNegativeButton("İptal", null)
+                .setPositiveButton("Güncelle / ekle", null)
+                .create();
+        dialog.setOnShowListener(x -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String rawText = input.getText().toString()
+                    .replace("```text", "")
+                    .replace("```", "")
+                    .trim();
+            if (rawText.isEmpty()) {
+                Toast.makeText(this, "Plan kodu boş.", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            String[] lines = rawText.split("\\r?\\n");
+            int success = 0;
+            int failed = 0;
+            StringBuilder failedLines = new StringBuilder();
+
+            for (String line : lines) {
+                String code = line.trim();
+                if (code.isEmpty()) continue;
+                // Madde işareti / numara ile kopyalanmışsa mümkün olduğunca temizle.
+                code = code.replaceFirst("^[\\-•*]+\\s*", "")
+                           .replaceFirst("^\\d+[\\.)]\\s*", "");
+                try {
+                    String[] a = code.replace(',', '.').split("\\|");

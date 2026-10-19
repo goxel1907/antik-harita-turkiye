@@ -1,0 +1,182 @@
+package com.futuresalarm.app;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
+import android.text.InputType;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.util.List;
+import java.util.Locale;
+
+public class MainActivity extends Activity {
+    private TextView statusView;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        MonitorService.ensureChannels(this);
+        requestNotificationPermission();
+        setContentView(buildUi());
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshStatus();
+    }
+
+    private View buildUi() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(Color.rgb(11, 15, 20));
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(18), dp(18), dp(28));
+        scroll.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        root.addView(text("15m Futures Alarm PRO v6", 28, Color.WHITE, true));
+        TextView sub = text("AUTO HIGH ACCURACY • Binance Futures • her tamamlanmış 15m mumda 15m/1h/4h/1D + hacim/OI/taker/funding analizi", 14,
+                Color.rgb(148, 163, 184), false);
+        sub.setPadding(0, dp(4), 0, dp(14));
+        root.addView(sub);
+
+        statusView = text("", 15, Color.WHITE, true);
+        statusView.setGravity(Gravity.CENTER);
+        statusView.setPadding(dp(12), dp(12), dp(12), dp(12));
+        statusView.setBackgroundColor(Color.rgb(30, 41, 59));
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        statusLp.setMargins(0, 0, 0, dp(14));
+        root.addView(statusView, statusLp);
+
+        String lastSymbol = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE)
+                .getString(MonitorService.KEY_LAST_SIGNAL_SYMBOL, "");
+        String lastDirection = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE)
+                .getString(MonitorService.KEY_LAST_SIGNAL_DIRECTION, "");
+        String lastDetail = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE)
+                .getString(MonitorService.KEY_LAST_SIGNAL_DETAIL, "");
+        if (!lastSymbol.isEmpty()) {
+            boolean isLong = lastDirection.startsWith("LONG");
+            TextView last = text("🚨 SON SİNYAL: " + lastDirection + " • " + lastSymbol +
+                    (lastDetail.isEmpty() ? "" : "\n" + lastDetail), 14, Color.WHITE, true);
+            last.setPadding(dp(12), dp(10), dp(12), dp(10));
+            last.setBackgroundColor(isLong ? Color.rgb(20, 83, 45) : Color.rgb(127, 29, 29));
+            last.setOnClickListener(v -> openBinanceFutures(lastSymbol));
+            LinearLayout.LayoutParams lastLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lastLp.setMargins(0, 0, 0, dp(12));
+            root.addView(last, lastLp);
+        }
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        Button start = button("İZLEMEYİ BAŞLAT", Color.rgb(34, 197, 94));
+        start.setOnClickListener(v -> startMonitoring());
+        buttons.addView(start, new LinearLayout.LayoutParams(0, dp(52), 1f));
+        Button stop = button("DURDUR", Color.rgb(239, 68, 68));
+        stop.setOnClickListener(v -> stopMonitoring());
+        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(0, dp(52), 0.62f);
+        stopLp.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(stop, stopLp);
+        root.addView(buttons);
+
+        Button add = button("+ YENİ COIN / SEVİYE EKLE", Color.rgb(16, 185, 129));
+        add.setOnClickListener(v -> openPlanDialog(null));
+        LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        addLp.setMargins(0, dp(10), 0, 0);
+        root.addView(add, addLp);
+
+        Button importPlan = button("DETAYLI PLAN KODU / TOPLU GÜNCELLE", Color.rgb(8, 145, 178));
+        importPlan.setOnClickListener(v -> openImportDialog());
+        LinearLayout.LayoutParams importLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        importLp.setMargins(0, dp(8), 0, 0);
+        root.addView(importPlan, importLp);
+
+        boolean autoMode = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE)
+                .getBoolean(MonitorService.KEY_AUTO_MODE, true);
+        Button autoBtn = button(autoMode ? "AUTO HIGH ACCURACY: AÇIK ✓" : "AUTO HIGH ACCURACY: KAPALI",
+                autoMode ? Color.rgb(5, 150, 105) : Color.rgb(71, 85, 105));
+        autoBtn.setOnClickListener(v -> toggleAutoMode());
+        LinearLayout.LayoutParams autoLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        autoLp.setMargins(0, dp(8), 0, 0);
+        root.addView(autoBtn, autoLp);
+
+        LinearLayout tests = new LinearLayout(this);
+        tests.setOrientation(LinearLayout.HORIZONTAL);
+        Button preTest = button("TEST ÖN UYARI", Color.rgb(245, 158, 11));
+        preTest.setOnClickListener(v -> MonitorService.sendTestApproach(this));
+        tests.addView(preTest, new LinearLayout.LayoutParams(0, dp(50), 1f));
+        Button alarmTest = button("TEST KRİTİK ALARM", Color.rgb(220, 38, 38));
+        alarmTest.setOnClickListener(v -> MonitorService.sendTestUrgent(this));
+        LinearLayout.LayoutParams alarmLp = new LinearLayout.LayoutParams(0, dp(50), 1f);
+        alarmLp.setMargins(dp(8), 0, 0, 0);
+        tests.addView(alarmTest, alarmLp);
+        LinearLayout.LayoutParams testsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        testsLp.setMargins(0, dp(10), 0, 0);
+        root.addView(tests, testsLp);
+
+        Button battery = button("PİL OPTİMİZASYONU AYARLARI", Color.rgb(71, 85, 105));
+        battery.setOnClickListener(v -> openBatterySettings());
+        LinearLayout.LayoutParams batLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        batLp.setMargins(0, dp(10), 0, dp(18));
+        root.addView(battery, batLp);
+
+        TextView h = text("İzlenen coinler • AUTO analiz ve seviyeler", 20, Color.WHITE, true);
+        h.setPadding(0, 0, 0, dp(8));
+        root.addView(h);
+
+        List<TradePlan> plans = PlanStore.load(this);
+        for (TradePlan p : plans) root.addView(planCard(p));
+
+        TextView note = text(
+                "AUTO HIGH ACCURACY mantığı: önce 1D/4h/1h piyasa yapısı ve konum; sonra 15m tetik; ardından hacim + Open Interest; son olarak RSI/ATR, taker, funding ve long/short yardımcı filtreleri. " +
+                "78 altı kritik sinyal vermez; 68–77 sadece TAKİP, 68 altı İŞLEM YOK. Dirençten trend-karşıtı SHORT için ek teyit gerekir.\n\n" +
+                "Her tamamlanmış 15m mumda dinamik seviyeler yeniden hesaplanır. Coin kartına veya alarm bildirimine dokununca ilgili sembol Binance Futures'ta açılır. " +
+                "Uygulama Giriş/STOP/TP1/TP2/TP3 planını gösterir; otomatik emir göndermez.",
+                13, Color.rgb(148, 163, 184), false);
+        note.setPadding(0, dp(8), 0, 0);
+        root.addView(note);
+        return scroll;
+    }
+
+    private View planCard(TradePlan p) {
+        boolean autoMode = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE)
+                .getBoolean(MonitorService.KEY_AUTO_MODE, true);
+        AutoSnapshot snap = autoMode ? AutoStore.get(this, p.symbol) : null;
+        TradePlan shown = snap != null ? snap.plan : p;
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setBackgroundColor(Color.rgb(17, 24, 39));
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setOnClickListener(v -> openBinanceFutures(p.symbol));
+
+        TextView symbolTitle = text(p.symbol + "   ↗ BINANCE FUTURES", 20, Color.rgb(34, 197, 94), true);

@@ -1,0 +1,1216 @@
+from pathlib import Path
+import re
+
+APP=Path('/tmp/futures15m-build/Futures15mAlarm')
+JAVA=APP/'app/src/main/java/com/futuresalarm/app'
+AUTO=JAVA/'AutoTradeEngine.java'
+MAIN=JAVA/'MainActivity.java'
+BUILD=APP/'app/build.gradle'
+for p in (AUTO,MAIN,BUILD):
+    if not p.exists(): raise SystemExit('v9.5.93 missing '+str(p))
+
+def method_bounds(src, signature_fragment):
+    a=src.find(signature_fragment)
+    if a<0:return None
+    b=src.find('{',a)
+    if b<0:return None
+    depth=1;i=b+1;ins=inc=esc=lc=bc=False
+    while i<len(src) and depth:
+        c=src[i];n=src[i+1] if i+1<len(src) else ''
+        if lc:
+            if c=='\n':lc=False
+        elif bc:
+            if c=='*' and n=='/':bc=False;i+=1
+        elif ins:
+            if esc:esc=False
+            elif c=='\\':esc=True
+            elif c=='"':ins=False
+        elif inc:
+            if esc:esc=False
+            elif c=='\\':esc=True
+            elif c=="'":inc=False
+        else:
+            if c=='/' and n=='/':lc=True;i+=1
+            elif c=='/' and n=='*':bc=True;i+=1
+            elif c=='"':ins=True
+            elif c=="'":inc=True
+            elif c=='{':depth+=1
+            elif c=='}':depth-=1
+        i+=1
+    return None if depth else (a,b,i)
+
+auto=AUTO.read_text()
+auto=auto.replace('private static final ExecutorService IO=Executors.newSingleThreadExecutor();',
+                  'private static final java.util.concurrent.ScheduledExecutorService IO=Executors.newSingleThreadScheduledExecutor();')
+
+# V110_BUILD_CHAIN_HARDENING:
+# v9579 is the authoritative Android PC-executor bridge. Older builds expected
+# v9577 to leave a V9577_DRY_RUN_LOCK comment and used that comment as the
+# replacement anchor. On clean/retried Codemagic source-prep chains the method
+# body can be semantically correct while that historical comment is absent.
+# Do not fail on the comment alone: require the v9577 BrainHub client contract,
+# then locate the actual onSignal method and replace that whole block with the
+# PC-only bridge below. This keeps the phone unable to sign Binance orders.
+brain_client = JAVA/'BrainHubClient.java'
+if not brain_client.exists() or 'V9577_OPTIONAL_PC_BRAINHUB' not in brain_client.read_text():
+    raise SystemExit('v9.5.110 requires v9577 BrainHub client preparation first')
+
+dry_marker=auto.find('    // V9577_DRY_RUN_LOCK:')
+pc_marker=auto.find('    // V9579_PC_LIVE_AUTO:')
+method=method_bounds(auto,'    public static void onSignal(Context c,String symbol)')
+if dry_marker>=0:
+    start=dry_marker
+elif pc_marker>=0:
+    start=pc_marker
+elif method is not None:
+    start=method[0]
+else:
+    raise SystemExit('v9.5.110 AutoTradeEngine onSignal anchor missing')
+
+end=auto.find('    private static void run(Context c,String s)',start)
+if end<0:
+    raise SystemExit('v9.5.110 AutoTradeEngine private run anchor changed')
+
+pc_bridge=r'''    // V9579_PC_LIVE_AUTO: phone never signs Binance orders; PC BrainHub owns the executor.
+    public static void onSignal(Context c,String symbol){
+        if(c==null||symbol==null||symbol.trim().isEmpty())return;
+        Context app=c.getApplicationContext();String s=symbol.trim().toUpperCase(Locale.US);
+        SharedPreferences p=app.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE);
+        if(!p.getBoolean("v9576_auto_enabled",false))return;
+        if(!"PC".equals(p.getString("v9576_executor_owner","PC")))return;
+        IO.execute(()->runPc(app,s));
+    }
+
+    // V9586_TICK_SAFE_LIVE_LEVELS
+    private static double ceilStep(double v,double step){
+        if(!(step>0))return v;
+        return java.math.BigDecimal.valueOf(v)
+            .divide(java.math.BigDecimal.valueOf(step),0,java.math.RoundingMode.CEILING)
+            .multiply(java.math.BigDecimal.valueOf(step)).doubleValue();
+    }
+
+    // V9587_SAFE_LIVE_RETRY
+    private static void scheduleSafeRetry(Context c,String s,long signalTs,String reason){
+        if(c==null||s==null||signalTs<=0)return;
+        SharedPreferences p=c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE);
+        long now=System.currentTimeMillis(),age=now-signalTs;
+        if(!p.getBoolean("v9576_auto_enabled",false)||age<0||age>105000L)return;
+        long seen=p.getLong("v9587_retry_signal_"+s,0L);
+        int n=(seen==signalTs)?p.getInt("v9587_retry_count_"+s,0):0;
+        if(n>=3)return;
+        n++;
+        p.edit().putLong("v9587_retry_signal_"+s,signalTs)
+            .putInt("v9587_retry_count_"+s,n).apply();
+        status(p,s,"PC LIVE GÜVENLİ RETRY "+n+"/3 • 15 sn sonra • "+(reason==null?"geçici red":reason));
+        IO.schedule(()->runPc(c,s),15L,java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    private static void runPc(Context c,String s){
+        SharedPreferences p=c.getSharedPreferences(MonitorService.PREFS,Context.MODE_PRIVATE);long now=System.currentTimeMillis();
+        long signalTsForRetry=0L;boolean safeRetry=false;String safeRetryReason="";
+        try{
+            if(!BrainHubClient.configured(c))throw new Exception("PC Brain Hub bağlı değil");
+            if(!p.getBoolean("v9576_auto_enabled",false))return;
+            if(!p.getBoolean("v9518_signal_active_"+s,false))throw new Exception("aktif sinyal yok");
+            long ts=p.getLong("v9518_signal_time_"+s,0L),age=now-ts;signalTsForRetry=ts;
+            if(ts<=0||age<0||age>120000L)throw new Exception("sinyal oto giriş için bayat (>2dk)");
+            if(p.getLong("v9522_order_sent_signal_"+s,-1L)==ts)throw new Exception("bu sinyal daha önce PC yürütücüsüne gönderildi");
+            if(p.getBoolean("v9522_order_inflight_"+s,false))throw new Exception("bu sembolde LIVE istek zaten işleniyor");
+            long last=p.getLong("v9576_last_auto_"+s,0L);if(last>0&&now-last<5L*60L*1000L)throw new Exception("sembol cooldown 5dk");
+
+            String side=p.getString("v9518_signal_side_"+s,"LONG");boolean lng="LONG".equalsIgnoreCase(side);
+            if(!lng&&!"SHORT".equalsIgnoreCase(side))throw new Exception("sinyal yönü geçersiz");
+            if(lng&&!p.getBoolean("v9576_auto_long",true))throw new Exception("LONG oto kapalı");
+            if(!lng&&!p.getBoolean("v9576_auto_short",true))throw new Exception("SHORT oto kapalı");
+            double entry=d(p,"v9518_signal_price_"+s),stop=d(p,"v9518_signal_stop_"+s);
+            double tp1=d(p,"v9518_signal_tp1_"+s),tp2=d(p,"v9518_signal_tp2_"+s),tp3=d(p,"v9518_signal_tp3_"+s);
+            if(bad(entry)||bad(stop)||bad(tp1)||bad(tp2)||bad(tp3))throw new Exception("sinyal giriş/stop/TP seviyeleri eksik");
+            if(lng&&!(stop<entry&&entry<tp1&&tp1<tp2&&tp2<tp3))throw new Exception("LONG stop/TP geometrisi geçersiz");
+            if(!lng&&!(stop>entry&&entry>tp1&&tp1>tp2&&tp2>tp3))throw new Exception("SHORT stop/TP geometrisi geçersiz");
+
+            double margin=Double.parseDouble(p.getString("v9576_auto_margin",p.getString("v9522_last_margin","0")));
+            int configuredLev=Integer.parseInt(p.getString("v9576_auto_leverage",p.getString("v9522_last_leverage","0")));
+            int maxPositions=p.getInt("v9576_auto_max_positions",1);
+            if(!(margin>0)||configuredLev<1||configuredLev>125||maxPositions<1||maxPositions>5)throw new Exception("oto marj/kaldıraç/max pozisyon ayarı geçersiz");
+
+            JSONObject liveStatus=BrainHubClient.liveStatus(c);
+            if(!liveStatus.optBoolean("liveConfigured")||!liveStatus.optBoolean("armed"))throw new Exception("PC LIVE arm kapalı");
+            JSONObject policy=liveStatus.optJSONObject("policy");
+            JSONObject limits=policy==null?null:policy.optJSONObject("limits");
+            int pcMaxPositions=limits==null?0:limits.optInt("maxOpenPositions",0);
+            if(pcMaxPositions>0&&maxPositions>pcMaxPositions)throw new Exception("telefon max pozisyon "+maxPositions+", PC güvenlik tavanı "+pcMaxPositions);
+
+            p.edit().putBoolean("v9522_order_inflight_"+s,true).apply();
+            status(p,s,"PC LIVE ÖN KONTROL • "+s+" "+side+" • risk / lineage / grant doğrulanıyor");
+
+            // Public Binance data only: no API key/secret and no signed order from Android.
+            double live=new JSONObject(http(c,"GET","/fapi/v1/ticker/price",map("symbol",s),false)).getDouble("price");
+            if(bad(live))throw new Exception("canlı fiyat alınamadı");
+            JSONObject si=symbolInfo(c,s);JSONObject lot=filter(si,"MARKET_LOT_SIZE");if(lot==null)lot=filter(si,"LOT_SIZE");
+            if(lot==null)throw new Exception("MARKET_LOT_SIZE/LOT_SIZE filtresi yok");
+            double step=lot.optDouble("stepSize",0),min=lot.optDouble("minQty",0),max=lot.optDouble("maxQty",Double.POSITIVE_INFINITY);
+            if(!(step>0)||!(min>=0)||!(max>0))throw new Exception("lot filtresi geçersiz");
+            double qty=floor(margin*configuredLev/live,step);
+            if(!(qty>0)||qty<min||qty>max)throw new Exception("hesaplanan miktar Binance lot sınırı dışında");
+
+            JSONObject pf=filter(si,"PRICE_FILTER");
+            double tick=pf==null?0.0:pf.optDouble("tickSize",0.0);
+            if(!(tick>0))throw new Exception("PRICE_FILTER/tickSize geçersiz");
+            if(lng){
+                stop=ceilStep(stop,tick);
+                tp1=floor(tp1,tick);tp2=floor(tp2,tick);tp3=floor(tp3,tick);
+                if(!(stop<live&&live<tp1&&tp1<tp2&&tp2<tp3))throw new Exception("LONG tick-normalize sonrası stop/TP geometrisi geçersiz");
+            }else{
+                stop=floor(stop,tick);
+                tp1=ceilStep(tp1,tick);tp2=ceilStep(tp2,tick);tp3=ceilStep(tp3,tick);
+                if(!(stop>live&&live>tp1&&tp1>tp2&&tp2>tp3))throw new Exception("SHORT tick-normalize sonrası stop/TP geometrisi geçersiz");
+            }
+
+            String tsText=Long.toString(ts),tail=tsText.substring(Math.max(0,tsText.length()-10));
+            String hash=Integer.toHexString(s.hashCode());
+            String clientId="F15P"+tail+hash;
+            if(clientId.length()>36)clientId=clientId.substring(0,36);
+            String lineage="SIG:"+s+":"+tsText;
+            String eventId="ANDROID:"+s+":"+tsText;
+
+            JSONObject order=new JSONObject();
+            order.put("action","OPEN");order.put("symbol",s);order.put("side",lng?"LONG":"SHORT");order.put("orderType","MARKET");
+            order.put("quantity",qty);order.put("entryPrice",entry);order.put("stopPrice",stop);
+            order.put("takeProfit1",tp1);order.put("takeProfit2",tp2);order.put("takeProfit3",tp3);
+            order.put("clientOrderId",clientId);order.put("lineageId",lineage);
+            JSONObject body=new JSONObject();body.put("eventId",eventId);body.put("order",order);
+            body.put("requestedMarginQuote",margin);body.put("requestedLeverage",configuredLev);body.put("requestedMaxOpenPositions",maxPositions);
+            // Existing deterministic signal stores one structural stop boundary; no separate buffer field exists on mobile yet.
+            body.put("structuralInvalidationPrice",stop);body.put("bufferQuote",0.0);body.put("initialStopPrice",stop);
+
+            JSONObject out=BrainHubClient.liveExecute(c,body);
+            boolean stopProtectedEntry=out.optBoolean("orderPlaced",false)&&out.optBoolean("stopProtected",false);
+            boolean tpProtected=out.optBoolean("tpProtected",false);
+            boolean fullyProtected=out.optBoolean("ok",false)&&stopProtectedEntry&&tpProtected;
+            boolean uncertain=out.optBoolean("manualReviewRequired",false)||"LIVE_ENTRY_REVIEW_REQUIRED".equals(out.optString("execution"));
+            safeRetry=out.optBoolean("retryable",false)&&!uncertain&&!out.optBoolean("orderPlaced",false);
+            if(stopProtectedEntry){
+                android.content.SharedPreferences.Editor ed=p.edit()
+                    .putLong("v9522_order_sent_signal_"+s,ts).putLong("v9576_last_auto_"+s,now)
+                    .putString("v9550_trade_margin_"+s,fmt(margin))
+                    .putString("v9550_trade_leverage_"+s,Integer.toString(configuredLev))
+                    .putString("v9550_trade_side_"+s,side)
+                    .putLong("v9550_trade_open_ts_"+s,now)
+                    .putString("v9582_trade_entry_ref_"+s,fmt(entry))
+                    .putString("v9582_trade_stop_"+s,fmt(stop))
+                    .putString("v9582_trade_qty_"+s,out.optString("executedQty",fmt(qty)))
+                    .putString("v9582_trade_entry_order_id_"+s,out.optString("entryOrderId",""))
+                    .putString("v9582_trade_stop_algo_id_"+s,out.optString("stopAlgoId",""))
+                    .putBoolean("v9582_trade_stop_protected_"+s,out.optBoolean("stopProtected",false))
+                    .putBoolean("v9582_trade_tp_protected_"+s,tpProtected)
+                    .putString("v9582_trade_tp_algo_ids_"+s,out.optJSONArray("tpAlgoIds")==null?"":out.optJSONArray("tpAlgoIds").toString())
+                    .putLong("v9582_trade_meta_ts_"+s,now);
+                if(!bad(tp1))ed.putString("v9582_trade_tp1_"+s,fmt(tp1));
+                if(!bad(tp2))ed.putString("v9582_trade_tp2_"+s,fmt(tp2));
+                if(!bad(tp3))ed.putString("v9582_trade_tp3_"+s,fmt(tp3));
+                ed.apply();
+                String msg=fullyProtected
+                    ? "PC LIVE TAM KORUMALI GİRİŞ • "+s+" "+side+" • STOP + TP1/TP2/TP3 AKTİF • "+fmt(margin)+" USDT • "+configuredLev+"x"
+                    : "PC LIVE STOP AKTİF • TP EKSİK • MANUEL KONTROL • "+s+" "+side+" • "+out.optString("execution","LIVE_TP_REVIEW");
+                status(p,s,msg);BrainLearning.recordExecution(c,s,msg);return;
+            }
+            if(uncertain){
+                // Never retry an uncertain submit automatically; Binance may have received it.
+                p.edit().putLong("v9522_order_sent_signal_"+s,ts).putLong("v9576_last_auto_"+s,now).apply();
+            }
+            String reason="";org.json.JSONArray rs=out.optJSONArray("reasons");if(rs!=null&&rs.length()>0)reason=rs.optString(0,"");
+            if(reason.isEmpty())reason=out.optString("execution","LIVE_BLOCKED");
+            safeRetryReason=reason;
+            throw new Exception((uncertain?"MANUEL KONTROL GEREKİR • ":"")+reason);
+        }catch(Throwable e){
+            String msg="PC LIVE RED/HATA • "+s+" • "+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage());
+            status(p,s,msg);BrainLearning.recordExecution(c,s,msg);
+            if(safeRetry&&signalTsForRetry>0)scheduleSafeRetry(c,s,signalTsForRetry,safeRetryReason);
+        }finally{
+            p.edit().putBoolean("v9522_order_inflight_"+s,false).putLong("v9576_executor_lease_until",0L).apply();
+        }
+    }
+
+'''
+auto=auto[:start]+pc_bridge+auto[end:]
+AUTO.write_text(auto)
+
+main=MAIN.read_text()
+repls=[
+    ('boolean v9576On=false;','boolean v9576On=getSharedPreferences(MonitorService.PREFS,MODE_PRIVATE).getBoolean("v9576_auto_enabled",false);'),
+    ('en.setChecked(false);en.setEnabled(false);en.setText("Canlı otomatik emir testler bitene kadar kilitli");','en.setChecked(sp.getBoolean("v9576_auto_enabled",false));en.setEnabled(BrainHubClient.configured(this));en.setText("PC LIVE oto yürütücü (PC arm ayrıca gerekli)");'),
+    ('if(en.isChecked())v9522Credentials(); // encrypted key/secret must exist before LIVE AUTO can be enabled','if(en.isChecked()&&!BrainHubClient.configured(this))throw new Exception("Önce PC Brain Hub bağlantısını ayarlayın");'),
+    ('.putBoolean("v9576_auto_short",sht.isChecked()).putBoolean("v9576_auto_enabled",false)','.putBoolean("v9576_auto_short",sht.isChecked()).putBoolean("v9576_auto_enabled",en.isChecked())'),
+    ('.putString("v9576_executor_owner","PHONE")','.putString("v9576_executor_owner","PC")'),
+    ('"DRY-RUN: AÇIK"','"PC LIVE: "+(v9576On?"OTO AÇIK":"KAPALI")')
+]
+for old,new in repls:
+    if old not in main: raise SystemExit('v9.5.93 MainActivity anchor missing: '+old[:70])
+    main=main.replace(old,new,1)
+
+# V9588_PC_LEADER_AUTO_SYNC
+save_anchor='Toast.makeText(this,"Oto işlem ayarı kaydedildi • "+(en.isChecked()?"CANLI AÇIK":"KAPALI"),Toast.LENGTH_LONG).show();dlg.dismiss();'
+save_new='''v9522Io.execute(()->{
+                        try{
+                            org.json.JSONObject cfg=BrainHubClient.configureLeaderAuto(this,en.isChecked(),margin,lev,max,lng.isChecked(),sht.isChecked());
+                            sp.edit().putBoolean("v9588_pc_auto_sync_ok",cfg.optBoolean("ok",false))
+                              .putString("v9588_pc_auto_sync_error",cfg.optBoolean("ok",false)?"":cfg.optJSONArray("reasons")==null?cfg.optString("error","PC_AUTO_CONFIG_REJECTED"):cfg.optJSONArray("reasons").toString())
+                              .putLong("v9588_pc_auto_sync_ts",System.currentTimeMillis()).apply();
+                        }catch(Throwable syncError){
+                            sp.edit().putBoolean("v9588_pc_auto_sync_ok",false)
+                              .putString("v9588_pc_auto_sync_error",syncError.getClass().getSimpleName())
+                              .putLong("v9588_pc_auto_sync_ts",System.currentTimeMillis()).apply();
+                        }
+                    });
+                    Toast.makeText(this,"Oto işlem ayarı kaydedildi • "+(en.isChecked()?"CANLI AÇIK":"KAPALI"),Toast.LENGTH_LONG).show();dlg.dismiss();'''
+if save_anchor not in main: raise SystemExit('v9.5.93 save sync anchor missing')
+main=main.replace(save_anchor,save_new,1)
+
+emergency_anchor='dlg.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{sp.edit().putBoolean("v9576_auto_enabled",false).apply();en.setChecked(false);st.setText("SON DURUM: ACİL DURDUR • yeni oto girişler kapalı");Toast.makeText(this,"CANLI OTO yeni girişleri durduruldu. Açık Binance pozisyonları otomatik kapatılmadı.",Toast.LENGTH_LONG).show();});'
+emergency_new='''dlg.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{
+                sp.edit().putBoolean("v9576_auto_enabled",false).apply();en.setChecked(false);
+                st.setText("SON DURUM: ACİL DURDUR • PC auto kapatılıyor ve LIVE disarm ediliyor");
+                v9522Io.execute(()->{
+                    try{
+                        double m=v9549Number(sp.getString("v9576_auto_margin","0")); if(Double.isNaN(m))m=0.0;
+                        int emergencyLev=1;try{emergencyLev=Integer.parseInt(sp.getString("v9576_auto_leverage","1"));}catch(Throwable ignored){}
+                        int emergencyMaxPositions=sp.getInt("v9576_auto_max_positions",1);
+                        BrainHubClient.configureLeaderAuto(this,false,m,emergencyLev,emergencyMaxPositions,sp.getBoolean("v9576_auto_long",true),sp.getBoolean("v9576_auto_short",true));
+                    }catch(Throwable ignored){}
+                    try{BrainHubClient.liveDisarm(this,"ANDROID_EMERGENCY_STOP");}catch(Throwable ignored){}
+                });
+                Toast.makeText(this,"ACİL DURDUR: yeni PC oto girişleri kapatılıyor ve LIVE disarm ediliyor.",Toast.LENGTH_LONG).show();
+            });'''
+if emergency_anchor not in main: raise SystemExit('v9.5.93 emergency sync anchor missing')
+main=main.replace(emergency_anchor,emergency_new,1)
+
+# V9582_VISIBLE_LIVE_STATUS_PANEL
+# Replace the historical-only real-trades card with a persistent operating-state
+# panel. It reads local radar/signal/account snapshots and probes BrainHub LIVE
+# status at a throttled interval. No order/cancel side effects live here.
+if 'V9582_VISIBLE_LIVE_STATUS_PANEL' not in main:
+    pos=main.rfind('}')
+    if pos<0: raise SystemExit('v9.5.93 MainActivity close missing')
+    helpers=r'''
+    // ============================================================
+    // V9582_VISIBLE_LIVE_STATUS_PANEL
+    // UI/read-only telemetry. No Binance order/cancel side effects.
+    // ============================================================
+    private volatile long v9582PcProbeAt=0L;
+    private volatile boolean v9582PcProbeBusy=false;
+
+    private void v9582MaybeProbePcLive(){
+        final long now=System.currentTimeMillis();
+        if(v9582PcProbeBusy||now-v9582PcProbeAt<5000L)return;
+        v9582PcProbeAt=now;v9582PcProbeBusy=true;
+        v9522Io.execute(()->{
+            android.content.SharedPreferences sp=v9522Prefs();
+            try{
+                org.json.JSONObject st=BrainHubClient.liveStatus(this);
+                org.json.JSONObject la=st.optJSONObject("leaderAuto");
+                sp.edit().putBoolean("v9582_pc_probe_ok",true)
+                    .putString("v95105_pc_feature_version",st.optString("featureVersion",""))
+                    .putString("v95105_pc_sizing_authority",st.optString("sizingAuthority",""))
+                    .putString("v9596_vision_availability",st.optJSONObject("visionAvailability")==null?"Görsel model durumu alınamadı":st.optJSONObject("visionAvailability").optString("summaryTr",""))
+                    .putBoolean("v9582_pc_armed",st.optBoolean("armed",false))
+                    .putString("v9582_pc_expires_at",st.optString("expiresAt",""))
+                    .putString("v9582_pc_execution",st.optString("execution",""))
+                    .putBoolean("v9588_pc_auto_configured",la!=null&&la.optBoolean("configured",false))
+                    .putBoolean("v9588_pc_auto_enabled",la!=null&&la.optBoolean("enabled",false))
+                    .putString("v9588_pc_auto_last_execution",la==null?"":la.optString("lastExecution",""))
+                    .putString("v9599_pc_effective_leverage",la==null?"":la.optString("effectiveLeverage",""))
+                    .putString("v9599_pc_effective_max_positions",la==null?"":la.optString("effectiveMaxOpenPositions",""))
+                    .putString("v9599_pc_sizing_adjustments",la==null||la.optJSONArray("sizingAdjustments")==null?"":la.optJSONArray("sizingAdjustments").toString())
+                    .putString("v9592_pc_auto_last_reasons",la==null||la.optJSONArray("lastReasons")==null?"":la.optJSONArray("lastReasons").toString())
+                    .putInt("v9592_pc_auto_blocked_count",la==null?0:la.optInt("consecutiveBlocked",0))
+                    .putString("v9592_pc_auto_last_tick_at",la==null?"":la.optString("lastTickAt",""))
+                    .putString("v9592_pc_auto_last_healthy_at",la==null?"":la.optString("lastHealthyAt",""))
+                    .putString("v9593_pc_auto_diagnostics",la==null||la.optJSONObject("diagnostics")==null?"":la.optJSONObject("diagnostics").toString())
+                    .putString("v9594_pc_analysis_lifecycle",la==null||la.optJSONObject("analysisLifecycle")==null?"":la.optJSONObject("analysisLifecycle").toString())
+                    .putString("v95104_pc_auto_health",la==null||la.optJSONObject("health")==null?"":la.optJSONObject("health").toString())
+                    .putString("v95107_plan_workers",la==null||la.optJSONObject("planWorkers")==null?"":la.optJSONObject("planWorkers").toString())
+                    .putLong("v9582_pc_probe_ts",System.currentTimeMillis()).apply();
+                if(now-sp.getLong("v9588_pc_auto_sync_ts",0L)>=60000L){
+                    try{
+                        double m=v9549Number(sp.getString("v9576_auto_margin","0"));if(Double.isNaN(m))m=0.0;
+                        int l=1;try{l=Integer.parseInt(sp.getString("v9576_auto_leverage","1"));}catch(Throwable ignored){}
+                        int syncMaxPositions=sp.getInt("v9576_auto_max_positions",1);
+                        org.json.JSONObject cfg=BrainHubClient.configureLeaderAuto(this,sp.getBoolean("v9576_auto_enabled",false),m,l,syncMaxPositions,
+                            sp.getBoolean("v9576_auto_long",true),sp.getBoolean("v9576_auto_short",true));
+                        sp.edit().putBoolean("v9588_pc_auto_sync_ok",cfg.optBoolean("ok",false))
+                          .putString("v9588_pc_auto_sync_error",cfg.optBoolean("ok",false)?"":cfg.optJSONArray("reasons")==null?cfg.optString("error","PC_AUTO_CONFIG_REJECTED"):cfg.optJSONArray("reasons").toString())
+                          .putLong("v9588_pc_auto_sync_ts",System.currentTimeMillis()).apply();
+                    }catch(Throwable syncError){
+                        sp.edit().putBoolean("v9588_pc_auto_sync_ok",false)
+                          .putString("v9588_pc_auto_sync_error",syncError.getClass().getSimpleName())
+                          .putLong("v9588_pc_auto_sync_ts",System.currentTimeMillis()).apply();
+                    }
+                }
+                try{
+                    org.json.JSONObject acc=BrainHubClient.liveAccount(this);
+                    sp.edit().putBoolean("v9583_pc_account_ok",acc.optBoolean("ok",false))
+                        .putString("v9583_pc_wallet",acc.has("walletBalance")?acc.optString("walletBalance",""):"")
+                        .putString("v9583_pc_equity",acc.has("equity")?acc.optString("equity",""):"")
+                        .putString("v9583_pc_available",acc.has("availableBalance")?acc.optString("availableBalance",""):"")
+                        .putString("v9583_pc_unrealized",acc.has("unrealizedPnl")?acc.optString("unrealizedPnl",""):"")
+                        .putInt("v9583_pc_open_positions",acc.optInt("openPositions",0))
+                        .putLong("v9583_pc_account_ts",System.currentTimeMillis()).apply();
+                }catch(Throwable accountError){
+                    sp.edit().putBoolean("v9583_pc_account_ok",false)
+                        .putString("v9583_pc_account_error",accountError.getClass().getSimpleName())
+                        .putLong("v9583_pc_account_ts",System.currentTimeMillis()).apply();
+                }
+            }catch(Throwable e){
+                sp.edit().putBoolean("v9582_pc_probe_ok",false)
+                    .putString("v9582_pc_probe_error",e.getClass().getSimpleName())
+                    .putLong("v9582_pc_probe_ts",System.currentTimeMillis()).apply();
+            }finally{
+                v9582PcProbeBusy=false;
+                runOnUiThread(()->{try{v9549InstallRecentTradesCard();}catch(Throwable ignored){}});
+            }
+        });
+    }
+
+    private String v9582Age(long ts){
+        if(ts<=0)return "—";
+        long sec=Math.max(0L,(System.currentTimeMillis()-ts)/1000L);
+        if(sec<60L)return sec+" sn";
+        long min=sec/60L;if(min<60L)return min+" dk";
+        return (min/60L)+" saat "+(min%60L)+" dk";
+    }
+
+    private String v9582ArmRemaining(String iso){
+        if(iso==null||iso.trim().isEmpty())return "—";
+        try{
+            java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",java.util.Locale.US);
+            f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            long ms=f.parse(iso).getTime()-System.currentTimeMillis();
+            if(ms<=0)return "süre doldu";
+            long sec=ms/1000L;return (sec/60L)+" dk "+(sec%60L)+" sn";
+        }catch(Throwable ignored){return iso;}
+    }
+
+    private int v9582ActiveSignalCount(){
+        int n=0;
+        try{
+            java.util.Map<String,?> all=v9522Prefs().getAll();
+            for(java.util.Map.Entry<String,?> e:all.entrySet())
+                if(e.getKey().startsWith("v9518_signal_active_")&&Boolean.TRUE.equals(e.getValue()))n++;
+        }catch(Throwable ignored){}
+        return n;
+    }
+
+    private boolean v9582AnyInflight(){
+        try{
+            java.util.Map<String,?> all=v9522Prefs().getAll();
+            for(java.util.Map.Entry<String,?> e:all.entrySet())
+                if(e.getKey().startsWith("v9522_order_inflight_")&&Boolean.TRUE.equals(e.getValue()))return true;
+        }catch(Throwable ignored){}
+        return false;
+    }
+
+    private String v9582RadarSummary(){
+        try{
+            String raw=V9538MarketRadarEngine.latestJson(this);
+            org.json.JSONObject j=new org.json.JSONObject(raw);
+            long at=j.optLong("updatedAt",0L);
+            org.json.JSONArray rows=j.optJSONArray("rows");
+            int n=rows==null?0:rows.length();
+            return n+" kısa liste (TOP3+6) • son tarama "+v9582Age(at)+" önce";
+        }catch(Throwable ignored){return "radar verisi bekleniyor";}
+    }
+
+    private String v9593ReasonLabel(String r){
+        if(r==null)return "";
+        if("TRADE_QUALITY_BELOW_58".equals(r))return "kalite<58";
+        if("DIRECTION_SUPPORT_MISSING".equals(r))return "yön teyidi yok";
+        if("SPREAD_ABOVE_8_BPS".equals(r))return "spread>8bps";
+        if("LONG_EXPANSION_BELOW_35".equals(r))return "LONG expansion<35";
+        if("SHORT_EXPANSION_BELOW_35".equals(r))return "SHORT expansion<35";
+        if("SIDE_NOT_LONG_OR_SHORT".equals(r))return "yön oluşmadı";
+        if("LONG_DISABLED_BY_USER".equals(r))return "LONG kullanıcı kapalı";
+        if("SHORT_DISABLED_BY_USER".equals(r))return "SHORT kullanıcı kapalı";
+        if("LEADER_PLAN_NOT_QUALIFIED".equals(r))return "9 zaman dilimli plan henüz işlem adayı değil";
+        if("QUALIFIED_WAIT_REQUIRED".equals(r))return "işlem için beklenen koşul tamamlanmadı";
+        if("QUALIFIED_ORIGIN_OWNER_VETO".equals(r))return "başlangıç/sahip zaman dilimi işlemi engelliyor";
+        if("COMMITTEE_UNAVAILABLE".equals(r))return "komite/model erişilemiyor";
+        if("SCANNER_UNAVAILABLE".equals(r))return "scanner erişilemiyor";
+        if("BINANCE_EXCHANGE_INFO_UNAVAILABLE".equals(r))return "Binance filtre verisi yok";
+        if("BINANCE_SYMBOL_FILTERS_UNAVAILABLE".equals(r))return "sembol filtreleri yok";
+        if("VISION_9TF_INCOMPLETE".equals(r))return "9TF grafik paketi eksik";
+        if("VISION_COMMITTEE_INPUT_INCOMPLETE".equals(r))return "komite 9 grafiğin tamamını alamadı";
+        if("VISION_COMMITTEE_OUTPUT_INCOMPLETE".equals(r))return "görsel analiz plan şeması eksik kaldı";
+        if("VISION_COMMITTEE_UNAVAILABLE".equals(r))return "görsel analiz/komite bu turda yanıt veremedi";
+        if("NO_ALLOWED_EXECUTION_ELIGIBLE_LEADER".equals(r))return "ön filtreden geçen uygun aday yok";
+        if("LEADER_AUTO_PIPELINE_BUSY".equals(r))return "derin analiz hattı meşgul";
+        if("LEADER_AUTO_BACKGROUND_BUSY".equals(r))return "açık pozisyon değerlendirmesi meşgul";
+        if("LEADER_AUTO_BUSY".equals(r))return "OTO yürütme hattı meşgul";
+        if("FAMILY_EXPOSURE_CAP_EXCEEDED".equals(r))return "toplam maruziyet tavanı işlemi engelledi";
+        if("REQUESTED_SIDE_NO_LONGER_EXECUTION_ELIGIBLE".equals(r))return "aday yönü canlı ön kontrolde değişti";
+        if("LEADER_APPROVAL_STALE".equals(r))return "9TF/Jev onayı canlı yürütmeye ulaşmadan eskidi";
+        if("LEADER_APPROVAL_NOT_QUALIFIED".equals(r))return "canlı yürütmeye taşınan plan işlem adayı değil";
+        if("LEADER_APPROVAL_ORDER_MISMATCH".equals(r))return "onaylı plan ile emir uyuşmuyor";
+        if("LEADER_APPROVAL_FRESH_SCAN_MISMATCH".equals(r))return "taze tarama sembol/yön onayıyla uyuşmuyor";
+        if("SCALP_COST_EDGE_NOT_VIABLE".equals(r))return "hedef işlem maliyetine göre yetersiz";
+        if("LIVE_PRICE_DEVIATION_TOO_HIGH".equals(r))return "canlı fiyat girişten fazla uzaklaştı";
+        if("SCALP_MULTI_TF_CONFIRMATION_REQUIRED".equals(r))return "scalp için 1m/3m/5m'den en az iki zaman dilimi aynı yönde gerekli";
+        if("SCALP_15M_HARD_OPPOSITION".equals(r))return "15m ana bağlamı scalp yönüne sert karşı-yapı gösteriyor";
+        if("MAIN_15M_CONFIRMATION_REQUIRED".equals(r))return "15m ana işlem hattı kapanmış-mum/yapı teyidi bekliyor";
+        if("TRADE_LANE_NOT_READY".equals(r))return "15m ana veya çoklu-TF scalp hattı henüz hazır değil";
+        if("WORKER_SCALP_SECOND_CONFIRMATION_WAIT".equals(r))return "scalp worker ikinci alt-TF teyidini ve 15m veto kontrolünü bekliyor";
+        if("WORKER_SCALP_MOMENTUM_EXHAUSTED".equals(r))return "scalp momentumu tükendi veya 15m karşı-yapısı oluştu";
+        if("WORKER_NUMERIC_TRIGGER_CLOSED".equals(r))return "sayısal kapanış tetiği gerçekleşti; taze Vision doğrulamasına yükseltiliyor";
+        if("UNSTRUCTURED_COMMITTEE_OUTPUT".equals(r))return "model plan çıktısı şemaya uymadı";
+        if("NO_FRESH_TIMEFRAME_CONTEXT".equals(r))return "taze zaman dilimi verisi yetersiz";
+        return r;
+    }
+
+    private String v9593LeaderDiagnosticsSummary(android.content.SharedPreferences sp){
+        String raw=sp.getString("v9593_pc_auto_diagnostics","");
+        if(raw==null||raw.trim().isEmpty())return "PC tarama teşhisi bekleniyor";
+        try{
+            org.json.JSONObject d=new org.json.JSONObject(raw);
+            int universe=d.optInt("universeCount",0);
+            int lightweight=d.optInt("lightweightUniverseCount",0);
+            int shortlist=d.optInt("shortlistCount",0);
+            int eligible=d.optInt("eligibleCount",0);
+            StringBuilder b=new StringBuilder();
+            b.append("PC tarama: hedef evren ").append(universe>0?String.valueOf(universe):"—");
+            if(lightweight>0)b.append(" • hafif Binance görünümü ").append(lightweight);
+            b.append(" • derin kısa liste ").append(shortlist)
+             .append(" • uygun ").append(eligible);
+            org.json.JSONObject pb=d.optJSONObject("priorityBuckets");
+            if(pb!=null){
+                b.append("\nÖncelik havuzları: ilk 3 ").append(pb.optJSONArray("previousTop3")==null?0:pb.optJSONArray("previousTop3").length())
+                 .append(" • 4-10 ").append(pb.optJSONArray("previousTop4to10")==null?0:pb.optJSONArray("previousTop4to10").length())
+                 .append(" • Binance ilk 24 yükselen ").append(pb.optJSONArray("top24Gainers")==null?0:pb.optJSONArray("top24Gainers").length())
+                 .append(" • birikim/patlama proxy ").append(pb.optJSONArray("accumulationProxy")==null?0:pb.optJSONArray("accumulationProxy").length())
+                 .append(" • erken ilgi ").append(pb.optJSONArray("appEarlyAttention")==null?0:pb.optJSONArray("appEarlyAttention").length());
+            }
+            org.json.JSONArray rows=d.optJSONArray("candidates");
+            int shown=rows==null?0:Math.min(9,rows.length());
+            for(int i=0;i<shown;i++){
+                org.json.JSONObject row=rows.optJSONObject(i);if(row==null)continue;
+                String symbol=row.optString("symbol","?");
+                String side=row.optString("side","NONE");
+                boolean ok=row.optBoolean("eligible",false);
+                boolean selected=row.optBoolean("selected",false);
+                String stage=row.optString("stage","");
+                org.json.JSONArray rs=selected&&row.optJSONArray("lastReasons")!=null&&row.optJSONArray("lastReasons").length()>0
+                    ?row.optJSONArray("lastReasons"):row.optJSONArray("reasons");
+                b.append("\n• ").append(symbol).append(" ").append(side).append(" → ");
+                if(ok&&(!selected||rs==null||rs.length()==0))b.append("UYGUN");
+                else if(selected&&stage!=null&&!stage.isEmpty())b.append(stage);
+                else b.append("ELENDİ");
+                if(rs!=null&&rs.length()>0){
+                    b.append(": ");
+                    for(int k=0;k<Math.min(3,rs.length());k++){
+                        if(k>0)b.append(", ");
+                        b.append(v9593ReasonLabel(rs.optString(k,"")));
+                    }
+                }
+            }
+            if(rows!=null&&rows.length()>shown)b.append("\n… +").append(rows.length()-shown).append(" aday");
+            return b.toString();
+        }catch(Throwable ignored){return "PC tarama teşhisi okunamadı";}
+    }
+
+
+    // V9594_DETAILED_9TF_AUTO_DIAGNOSTICS
+    // V9595_VISION_ROUTING_DIAGNOSTICS
+    // Renders model/Vision interpretation and deterministic evidence separately.
+    private String v9594Safe(String x){
+        if(x==null)return "";
+        x=x.trim();
+        return "null".equalsIgnoreCase(x)?"":x;
+    }
+
+    private String v9594ReasonList(org.json.JSONObject row){
+        if(row==null)return "";
+        org.json.JSONArray tr=row.optJSONArray("lastReasonsTr");
+        if(tr==null||tr.length()==0)tr=row.optJSONArray("reasonsTr");
+        StringBuilder b=new StringBuilder();
+        if(tr!=null){
+            for(int i=0;i<Math.min(6,tr.length());i++){
+                String x=v9594Safe(tr.optString(i,""));
+                if(x.isEmpty())continue;
+                if(b.length()>0)b.append("; ");
+                b.append(x);
+            }
+        }
+        if(b.length()>0)return b.toString();
+        org.json.JSONArray raw=row.optJSONArray("lastReasons");
+        if(raw==null||raw.length()==0)raw=row.optJSONArray("reasons");
+        if(raw!=null){
+            for(int i=0;i<Math.min(6,raw.length());i++){
+                String x=v9593ReasonLabel(raw.optString(i,""));
+                if(x==null||x.trim().isEmpty())continue;
+                if(b.length()>0)b.append("; ");
+                b.append(x);
+            }
+        }
+        return b.toString();
+    }
+
+    private String v9594Warnings(org.json.JSONObject row){
+        if(row==null)return "";
+        org.json.JSONArray a=row.optJSONArray("warningsTr");
+        if(a==null||a.length()==0)a=row.optJSONArray("warnings");
+        StringBuilder b=new StringBuilder();
+        if(a!=null){
+            for(int i=0;i<Math.min(6,a.length());i++){
+                String x=v9594Safe(a.optString(i,""));
+                if(x.isEmpty())continue;
+                if(a==row.optJSONArray("warnings"))x=v9593ReasonLabel(x);
+                if(b.length()>0)b.append("; ");
+                b.append(x);
+            }
+        }
+        return b.toString();
+    }
+
+    private String v95104OtoHealthSummary(android.content.SharedPreferences sp){
+        String raw=sp.getString("v95104_pc_auto_health","");
+        if(raw==null||raw.trim().isEmpty())return "OTO sağlık: veri birikiyor";
+        try{
+            org.json.JSONObject h=new org.json.JSONObject(raw);
+            double observed=h.optDouble("observedMinutes",0);
+            int scans=h.optInt("scanRuns",0),deep=h.optInt("deepAnalyses",0),unique=h.optInt("uniqueAnalyzedSymbols",0);
+            int preQualified=h.optInt("preJevQualified",0),jevCalled=h.optInt("jevCalled",0),jevVeto=h.optInt("jevVetoed",0),jevShadow=h.optInt("jevShadowCalled",0);
+            int qualified=h.optInt("qualified",0),watch=h.optInt("watch",0),review=h.optInt("reviewRequired",0),reject=h.optInt("reject",0);
+            int intentReady=h.optInt("intentReady",0),execResults=h.optInt("executionResults",0);
+            int vision=h.optInt("visionUnavailable",0),busy=h.optInt("skippedBusy",0),orders=h.optInt("ordersPlaced",0);
+            int workerReviews=h.optInt("workerReviews",0),workerWaits=h.optInt("workerWaits",0),workerTriggers=h.optInt("workerTriggers",0);
+            int workerRefresh=h.optInt("workerRefreshes",0),visionAvoided=h.optInt("fullVisionAvoided",0);
+            int pendingEsc=h.optInt("workerEscalationPending",0),freeFailover=h.optInt("visionFreeQuotaFallbacks",0);
+            int main15Plans=h.optInt("laneMain15Plans",0),main15Ready=h.optInt("laneMain15Ready",0);
+            int scalpPlans=h.optInt("laneScalpPlans",0),scalpReady=h.optInt("laneScalpReady",0);
+            double avgBatch=h.optDouble("avgVisionBatchSize",-1.0);
+            long avg=h.optLong("avgAnalysisMs",-1L);
+            StringBuilder b=new StringBuilder();
+            b.append("OTO sağlık • gözlenen ").append(String.format(java.util.Locale.US,"%.1f",observed)).append(" dk")
+             .append(" • tarama ").append(scans)
+             .append(" • derin 9TF ").append(deep).append(" / ").append(unique).append(" coin")
+             .append(" • Vision ön aday ").append(preQualified)
+             .append(" • Jev bağlayıcı ").append(jevCalled).append("/veto ").append(jevVeto)
+             .append(" • Jev gölge ").append(jevShadow)
+             .append(" • final aday ").append(qualified)
+             .append(" • izle ").append(watch)
+             .append(" • yeniden incele ").append(review)
+             .append(" • red ").append(reject);
+            b.append("\nİşlem hatları • 15m ana ").append(main15Ready).append(" hazır / ").append(main15Plans)
+             .append(" plan • scalp ").append(scalpReady).append(" hazır / ").append(scalpPlans)
+             .append(" plan");
+            b.append("\nKural • 15m ana işlem hattı; 1m/3m/5m tek başına final karar vermez. Scalp için en az 2 alt TF uyumu + taze 15m karşı-veto kontrolü.");
+            b.append("\nPlan worker ").append(workerReviews)
+             .append(" • bekle ").append(workerWaits)
+             .append(" • tetik ").append(workerTriggers)
+             .append(" • 9TF yenile ").append(workerRefresh)
+             .append(" • bekleyen yükseltme ").append(pendingEsc)
+             .append(" • tasarruf edilen tam 9TF ").append(visionAvoided);
+            b.append("\nVision hız/failover • Kiro free kurtarma ").append(freeFailover);
+            if(avgBatch>0)b.append(" • ort batch ").append(String.format(java.util.Locale.US,"%.2f",avgBatch));
+            b.append("\nCanlı intent ").append(intentReady)
+             .append(" • yürütme sonucu ").append(execResults)
+             .append(" • açılan emir ").append(orders)
+             .append(" • Vision kesinti ").append(vision)
+             .append(" • yoğunluk nedeniyle atlanan tur ").append(busy);
+            if(avg>=0)b.append(" • ort analiz ").append(String.format(java.util.Locale.US,"%.1f sn",avg/1000.0));
+            org.json.JSONArray top=h.optJSONArray("topReasons");
+            if(top!=null&&top.length()>0){
+                b.append("\nEn sık bekleme nedeni: ");
+                int n=Math.min(3,top.length());
+                for(int i=0;i<n;i++){
+                    if(i>0)b.append(" • ");
+                    org.json.JSONObject x=top.optJSONObject(i);if(x==null)continue;
+                    b.append(v9593ReasonLabel(x.optString("reason","?"))).append(" ×").append(x.optInt("count",0));
+                }
+            }
+            return b.toString();
+        }catch(Throwable ignored){return "OTO sağlık: veri okunamadı";}
+    }
+
+    private String v9594TfLabel(String tf){
+        if("1m".equals(tf))return "1m";
+        if("3m".equals(tf))return "3m";
+        if("5m".equals(tf))return "5m";
+        if("15m".equals(tf))return "15m";
+        if("30m".equals(tf))return "30m";
+        if("45m".equals(tf))return "45m sentetik";
+        if("1h".equals(tf))return "1h";
+        if("4h".equals(tf))return "4h";
+        if("1d".equals(tf))return "1D";
+        return tf;
+    }
+
+    private String v9594LifecycleSummary(android.content.SharedPreferences sp){
+        String raw=sp.getString("v9594_pc_analysis_lifecycle","");
+        if(raw==null||raw.trim().isEmpty())return "";
+        try{
+            org.json.JSONObject j=new org.json.JSONObject(raw);
+            int tracked=j.optInt("tracked",0),active=j.optInt("activeTracking",0);
+            StringBuilder b=new StringBuilder();
+            b.append("🔁 KALICI ANALİZ TAKİBİ • ").append(tracked).append(" setup")
+             .append(" • aktif takip ").append(active);
+            org.json.JSONArray rows=j.optJSONArray("rows");
+            if(rows==null||rows.length()==0)return b.toString();
+            int shown=Math.min(6,rows.length());
+            for(int i=0;i<shown;i++){
+                org.json.JSONObject r=rows.optJSONObject(i);if(r==null)continue;
+                String symbol=v9594Safe(r.optString("symbol","?"));
+                String side=v9594Safe(r.optString("side",""));
+                String state=v9594Safe(r.optString("state",""));
+                String plan=v9594Safe(r.optString("planStatus",""));
+                String origin=v9594Safe(r.optString("originTF",""));
+                String owner=v9594Safe(r.optString("ownerTF",""));
+                b.append("\n• ").append(symbol);
+                if(!side.isEmpty())b.append(" ").append(side);
+                if(!state.isEmpty())b.append(" → ").append(state);
+                if(!plan.isEmpty())b.append(" • plan ").append(plan);
+                if(!origin.isEmpty()||!owner.isEmpty())
+                    b.append(" • ").append(origin.isEmpty()?"—":origin).append("→").append(owner.isEmpty()?"—":owner);
+                int rb=r.optInt("rebaseCount",0),inv=r.optInt("invalidationCount",0);
+                if(rb>0||inv>0)b.append(" • rebase ").append(rb).append(" / invalidate ").append(inv);
+                String wait=v9594Safe(r.optString("waitFor",""));
+                if(!wait.isEmpty()&&!"NONE".equalsIgnoreCase(wait))b.append("\n   Beklenen: ").append(wait);
+            }
+            if(rows.length()>shown)b.append("\n… +").append(rows.length()-shown).append(" takip");
+            return b.toString();
+        }catch(Throwable ignored){return "🔁 KALICI ANALİZ TAKİBİ • veri okunamadı";}
+    }
+
+    private String v9594SelectedLeaderDetail(android.content.SharedPreferences sp){
+        String raw=sp.getString("v9593_pc_auto_diagnostics","");
+        if(raw==null||raw.trim().isEmpty())return "";
+        try{
+            org.json.JSONObject d=new org.json.JSONObject(raw);
+            org.json.JSONArray rows=d.optJSONArray("candidates");
+            if(rows==null||rows.length()==0)return "";
+            org.json.JSONObject row=null;
+            for(int i=0;i<rows.length();i++){
+                org.json.JSONObject x=rows.optJSONObject(i);
+                if(x!=null&&x.optBoolean("selected",false)){row=x;break;}
+            }
+            if(row==null)return "";
+
+            String symbol=v9594Safe(row.optString("symbol","?"));
+            String side=v9594Safe(row.optString("side","NONE"));
+            String stage=v9594Safe(row.optString("stageTr",row.optString("stage","")));
+            String planStatus=v9594Safe(row.optString("planStatus",""));
+            String setup=v9594Safe(row.optString("setup",""));
+            String execPath=v9594Safe(row.optString("execPath",""));
+            String why=v9594Safe(row.optString("planWhy",""));
+            String waitFor=v9594Safe(row.optString("waitFor",""));
+            String risk=v9594Safe(row.optString("planRisk",""));
+            String formingContext=v9594Safe(row.optString("formingContext",""));
+            String visionSummary=v9594Safe(row.optString("visionSummary",""));
+            String origin=v9594Safe(row.optString("originTF",""));
+            String owner=v9594Safe(row.optString("ownerTF",""));
+            double confidence=row.has("confidence")?row.optDouble("confidence",Double.NaN):Double.NaN;
+
+            StringBuilder b=new StringBuilder();
+            b.append("🧠 DETAYLI OTO ANALİZ • ").append(symbol).append(" ").append(side);
+            if(!stage.isEmpty())b.append("\nAşama: ").append(stage);
+            if(!planStatus.isEmpty())b.append(" • Plan ").append(planStatus);
+            if(!Double.isNaN(confidence))b.append(" • Güven ").append(String.format(java.util.Locale.US,"%.0f/100",confidence));
+
+            org.json.JSONObject vision=row.optJSONObject("vision");
+            if(vision!=null){
+                int attached=vision.optInt("attached",0),required=vision.optInt("required",9),bars=vision.optInt("barsRequested",128);
+                String mode=v9594Safe(vision.optString("mode","annotated"));
+                b.append("\nGrafik/Vision: ").append(attached).append("/").append(required)
+                    .append(" TF • ").append(bars).append(" mum/TF");
+                if(!mode.isEmpty())b.append(" • ").append(mode);
+                if(attached<required)b.append(" • EKSİK → canlı karar fail-closed");
+            }
+
+            if(!origin.isEmpty()||!owner.isEmpty()){
+                b.append("\nZaman yolu: origin ").append(origin.isEmpty()?"—":origin)
+                    .append(" → owner ").append(owner.isEmpty()?"—":owner);
+            }
+            if(!setup.isEmpty())b.append("\nSetup: ").append(setup);
+            if(!execPath.isEmpty())b.append(" • Yol: ").append(execPath);
+            if(!why.isEmpty())b.append("\nNeden: ").append(why);
+            if(!waitFor.isEmpty())b.append("\n🎯 Sinyal için beklenen: ").append(waitFor);
+
+            org.json.JSONObject jevDecision=row.optJSONObject("jevDecision");
+            if(jevDecision!=null)b.append("\nJev: ").append(jevDecision.optString("summaryTr",jevDecision.optString("reason","Henüz değerlendirilmedi")));
+            org.json.JSONArray supportTf=row.optJSONArray("supportTFs");
+            org.json.JSONArray vetoTf=row.optJSONArray("vetoTFs");
+            if(supportTf!=null||vetoTf!=null){
+                StringBuilder sbSup=new StringBuilder(),sbVeto=new StringBuilder();
+                if(supportTf!=null)for(int i=0;i<supportTf.length();i++){
+                    String x=v9594Safe(supportTf.optString(i,""));if(x.isEmpty())continue;
+                    if(sbSup.length()>0)sbSup.append(", ");sbSup.append(x);
+                }
+                if(vetoTf!=null)for(int i=0;i<vetoTf.length();i++){
+                    String x=v9594Safe(vetoTf.optString(i,""));if(x.isEmpty())continue;
+                    if(sbVeto.length()>0)sbVeto.append(", ");sbVeto.append(x);
+                }
+                b.append("\n✅ Destek TF: ").append(sbSup.length()==0?"NONE":sbSup.toString());
+                b.append(" • ⛔ Veto TF: ").append(sbVeto.length()==0?"NONE":sbVeto.toString());
+            }
+            org.json.JSONArray roleWarnings=row.optJSONArray("visionContractWarnings");
+            if(roleWarnings!=null&&roleWarnings.length()>0){
+                StringBuilder wb=new StringBuilder();
+                for(int i=0;i<roleWarnings.length();i++){
+                    String x=v9594Safe(roleWarnings.optString(i,""));if(x.isEmpty())continue;
+                    if(wb.length()>0)wb.append(", ");wb.append(x);
+                }
+                if(wb.length()>0)b.append("\n🟡 Model rol-özeti tutarsızlığı: ").append(wb)
+                    .append(" • gösterilen destek/veto, TF bazlı ROLE alanlarından türetildi");
+            }
+            if(!formingContext.isEmpty())b.append("\n🕯 Forming bağlamı: ").append(formingContext);
+            if(!visionSummary.isEmpty())b.append("\n👁 9TF grafik özeti: ").append(visionSummary);
+            if(!risk.isEmpty())b.append("\n⚠ Risk: ").append(risk);
+
+            org.json.JSONObject cost=row.optJSONObject("costModel");
+            if(cost!=null){
+                double feeRt=cost.optDouble("feeRoundTripBps",Double.NaN);
+                double spreadRt=cost.optDouble("spreadRoundTripBps",Double.NaN);
+                double slipRt=cost.optDouble("slippageRoundTripBps",Double.NaN);
+                double total=cost.optDouble("estimatedRoundTripCostBps",Double.NaN);
+                double edge=cost.optDouble("tp1DistanceBps",Double.NaN);
+                double multiple=cost.optDouble("costEdgeMultiple",Double.NaN);
+                boolean scalpGate=cost.optBoolean("scalpGateApplied",false);
+                StringBuilder cb=new StringBuilder("\n💸 İşlem maliyeti");
+                if(scalpGate)cb.append(" • SCALP KAPISI");
+                if(!Double.isNaN(feeRt))cb.append(" • komisyon RT ").append(String.format(java.util.Locale.US,"%.2f bps",feeRt));
+                if(!Double.isNaN(spreadRt))cb.append(" • spread ").append(String.format(java.util.Locale.US,"%.2f bps",spreadRt));
+                if(!Double.isNaN(slipRt))cb.append(" • slippage ").append(String.format(java.util.Locale.US,"%.2f bps",slipRt));
+                if(!Double.isNaN(total))cb.append("\n   Toplam tahmin: ").append(String.format(java.util.Locale.US,"%.2f bps",total));
+                if(!Double.isNaN(edge))cb.append(" • TP1 edge ").append(String.format(java.util.Locale.US,"%.2f bps",edge));
+                if(!Double.isNaN(multiple))cb.append(" • edge/maliyet ").append(String.format(java.util.Locale.US,"%.2fx",multiple));
+                b.append(cb);
+            }
+            org.json.JSONObject commission=row.optJSONObject("commission");
+            if(commission!=null&&commission.optBoolean("ok",false)){
+                double rate=commission.optDouble("rate",Double.NaN);
+                if(!Double.isNaN(rate)){
+                    b.append("\n   Binance taker oranı: ").append(String.format(java.util.Locale.US,"%.5f%%",rate*100.0));
+                    if(commission.optBoolean("cached",false))b.append(" • cache");
+                    if(commission.optBoolean("stale",false))b.append(" • geçici eski cache");
+                }
+            }
+
+            String reasons=v9594ReasonList(row);
+            if(!reasons.isEmpty())b.append("\n⛔ İşlem açmama / blok nedeni: ").append(reasons);
+            String warnings=v9594Warnings(row);
+            if(!warnings.isEmpty())b.append("\n🟡 Ön uyarılar: ").append(warnings);
+
+            org.json.JSONObject committee=row.optJSONObject("committee");
+            if(committee!=null){
+                String model=v9594Safe(committee.optString("model",""));
+                String mode=v9594Safe(committee.optString("mode",""));
+                String error=v9594Safe(committee.optString("error",""));
+                String detail=v9594Safe(committee.optString("detail",""));
+                boolean degraded=committee.optBoolean("degraded",false);
+                boolean available=committee.has("available")?committee.optBoolean("available",true):(!"unavailable".equalsIgnoreCase(mode)&&error.isEmpty());
+                int requiredReplies=committee.optInt("requiredAnalystReplies",0);
+                int receivedReplies=committee.optInt("receivedAnalystReplies",0);
+                if(!available){
+                    b.append("\nKomite/Vision: ❌ GÖRSEL OKUMA TAMAMLANMADI");
+                    if(receivedReplies>0||requiredReplies>0)b.append(" • yanıt ").append(receivedReplies).append("/").append(requiredReplies);
+                    if(!error.isEmpty())b.append("\n   Hata: ").append(error);
+                    if(!detail.isEmpty())b.append("\n   Teknik: ").append(detail.length()>420?detail.substring(0,420)+"…":detail);
+                    org.json.JSONArray failed=committee.optJSONArray("failed");
+                    if(failed!=null&&failed.length()>0){
+                        int n=Math.min(3,failed.length());
+                        for(int i=0;i<n;i++){
+                            org.json.JSONObject fx=failed.optJSONObject(i);if(fx==null)continue;
+                            String fm=v9594Safe(fx.optString("model","?"));
+                            String fe=v9594Safe(fx.optString("error",""));
+                            if(fe.length()>180)fe=fe.substring(0,180)+"…";
+                            b.append("\n   • ").append(fm).append(": ").append(fe);
+                        }
+                    }
+                    if(vision!=null&&vision.optInt("attached",0)>=vision.optInt("required",9))
+                        b.append("\n⚠ 9 grafik paketi hazır; fakat model Vision katmanı grafikleri okuyup tamamlanmış analiz üretemedi.");
+                }else if(!model.isEmpty()||!mode.isEmpty()||degraded){
+                    b.append("\nKomite: ");
+                    if(!model.isEmpty())b.append(model);
+                    if(!mode.isEmpty())b.append(model.isEmpty()?"":" • ").append(mode);
+                    if(degraded)b.append(" • TEK ANALİST/DEGRADED");
+                }
+            }
+
+            org.json.JSONArray missingVision=row.optJSONArray("missingVisionFields");
+            if(missingVision!=null&&missingVision.length()>0){
+                StringBuilder mb=new StringBuilder();
+                for(int i=0;i<missingVision.length();i++){
+                    String x=v9594Safe(missingVision.optString(i,""));
+                    if(x.isEmpty())continue;
+                    if(mb.length()>0)mb.append(", ");
+                    mb.append(x);
+                }
+                if(mb.length()>0)b.append("\n⚠ Eksik Vision alanları: ").append(mb);
+            }
+
+            org.json.JSONObject notes=row.optJSONObject("timeframeNotes");
+            org.json.JSONObject modelTf=row.optJSONObject("timeframeDiagnostics");
+            org.json.JSONObject evidence=row.optJSONObject("timeframeEvidence");
+            String[] tfs=new String[]{"1m","3m","5m","15m","30m","45m","1h","4h","1d"};
+            boolean anyModelTf=false;
+            for(String tf:tfs){
+                org.json.JSONObject md=modelTf==null?null:modelTf.optJSONObject(tf);
+                String summary=md==null?"":v9594Safe(md.optString("summary",""));
+                if(summary.isEmpty()&&notes!=null)summary=v9594Safe(notes.optString(tf,""));
+                if(md!=null||!summary.isEmpty()){anyModelTf=true;break;}
+            }
+            boolean anyTf=false;
+            for(String tf:tfs){
+                org.json.JSONObject md=modelTf==null?null:modelTf.optJSONObject(tf);
+                String note=md==null?"":v9594Safe(md.optString("summary",""));
+                if(note.isEmpty()&&notes!=null)note=v9594Safe(notes.optString(tf,""));
+                String tfWhy=md==null?"":v9594Safe(md.optString("why",""));
+                String tfWait=md==null?"":v9594Safe(md.optString("waitFor",""));
+                String tfRole=md==null?"":v9594Safe(md.optString("role",""));
+                String tfForming=md==null?"":v9594Safe(md.optString("formingContext",""));
+                String tfRisk=md==null?"":v9594Safe(md.optString("risk",""));
+                org.json.JSONObject ev=evidence==null?null:evidence.optJSONObject(tf);
+                String evSummary=ev==null?"":v9594Safe(ev.optString("summaryTr",""));
+                if(note.isEmpty()&&tfWhy.isEmpty()&&tfWait.isEmpty()&&tfRole.isEmpty()&&tfForming.isEmpty()&&tfRisk.isEmpty()&&evSummary.isEmpty())continue;
+                if(!anyTf){
+                    b.append(anyModelTf?"\n\n📊 1m → 1D • MODEL YORUMU / DETERMINİSTİK KANIT AYRI":"\n\n📊 1m → 1D • SADECE DETERMINİSTİK KANIT (VISION YORUMU YOK)");
+                    anyTf=true;
+                }
+                b.append("\n\n[").append(v9594TfLabel(tf)).append("]");
+                if(!note.isEmpty())b.append("\n   Model özet: ").append(note);
+                if(!tfWhy.isEmpty())b.append("\n   Neden: ").append(tfWhy);
+                if(!tfWait.isEmpty())b.append("\n   Bekle: ").append(tfWait);
+                if(!tfRole.isEmpty()){
+                    String roleTr="SUPPORT".equalsIgnoreCase(tfRole)?"DESTEK":"VETO".equalsIgnoreCase(tfRole)?"VETO":"NÖTR";
+                    b.append("\n   Rol: ").append(roleTr);
+                }
+                if(!tfForming.isEmpty())b.append("\n   Forming: ").append(tfForming);
+                if(!tfRisk.isEmpty())b.append("\n   TF riski: ").append(tfRisk);
+                if(!evSummary.isEmpty())b.append("\n   ↳ Deterministik veri: ").append(evSummary);
+            }
+
+            if(!anyTf){
+                String fallback=v9594Safe(row.optString("explanationTr",""));
+                if(!fallback.isEmpty())b.append("\n\nPC açıklaması: ").append(fallback);
+                else b.append("\n\n9TF ayrıntısı: bu aday henüz Vision/plan aşamasına ulaşmadı.");
+            }
+            b.append("\n\nKural: forming mum görüntüde/anlık bağlamda vardır; kapanmış mum teyidi yerine kullanılamaz.");
+            return b.toString();
+        }catch(Throwable ignored){return "DETAYLI OTO ANALİZ • PC diagnostik JSON okunamadı";}
+    }
+
+    private double v9582PrefNumber(android.content.SharedPreferences sp,String primary,String fallback){
+        double x=v9549Number(sp.getString(primary,""));
+        if(Double.isNaN(x)&&fallback!=null)x=v9549Number(sp.getString(fallback,""));
+        return x;
+    }
+
+    private String v9582Level(double x){
+        if(Double.isNaN(x)||Double.isInfinite(x)||x<=0.0)return "—";
+        return java.math.BigDecimal.valueOf(x).stripTrailingZeros().toPlainString();
+    }
+
+    // V9583_BINANCE_BALANCE_SUMMARY
+    // Reads the existing foreground account-sync snapshot only. No extra signed
+    // Binance request is made here and credentials are never rendered/logged.
+    private double v9583JsonNumber(String raw,String key){
+        if(raw==null||raw.trim().isEmpty()||key==null)return Double.NaN;
+        try{
+            org.json.JSONObject j=new org.json.JSONObject(raw);
+            Object v=j.opt(key);
+            if(v!=null&&v!=org.json.JSONObject.NULL){
+                double x=v9549Number(String.valueOf(v));
+                if(!Double.isNaN(x))return x;
+            }
+        }catch(Throwable ignored){}
+        try{
+            String needle=String.valueOf((char)34)+key+(char)34;
+            int p=raw.indexOf(needle);
+            if(p<0)return Double.NaN;
+            int c=raw.indexOf(':',p+needle.length());
+            if(c<0)return Double.NaN;
+            int i=c+1;
+            while(i<raw.length()&&(raw.charAt(i)==' '||raw.charAt(i)=='\t'||raw.charAt(i)==(char)34))i++;
+            int j=i;
+            while(j<raw.length()){
+                char ch=raw.charAt(j);
+                if((ch>='0'&&ch<='9')||ch=='+'||ch=='-'||ch=='.'||ch==',')j++;
+                else break;
+            }
+            if(j>i)return v9549Number(raw.substring(i,j));
+        }catch(Throwable ignored){}
+        return Double.NaN;
+    }
+
+    private String v9583BinanceBalanceSummary(){
+        android.content.SharedPreferences sp=v9522Prefs();
+        long accountTs=sp.getLong("v9583_pc_account_ts",0L);
+        if(sp.getBoolean("v9583_pc_account_ok",false)&&accountTs>0&&System.currentTimeMillis()-accountTs<=15000L){
+            double wallet=v9549Number(sp.getString("v9583_pc_wallet",""));
+            double equity=v9549Number(sp.getString("v9583_pc_equity",""));
+            double available=v9549Number(sp.getString("v9583_pc_available",""));
+            StringBuilder pc=new StringBuilder("Binance Futures");
+            if(!Double.isNaN(wallet))pc.append(" • Cüzdan ").append(String.format(java.util.Locale.US,"%.2f USDT",wallet));
+            if(!Double.isNaN(equity))pc.append(" • Equity ").append(String.format(java.util.Locale.US,"%.2f USDT",equity));
+            if(!Double.isNaN(available))pc.append(" • Kullanılabilir ").append(String.format(java.util.Locale.US,"%.2f USDT",available));
+            if(pc.length()>"Binance Futures".length())return pc.toString();
+        }
+        double wallet=Double.NaN,equity=Double.NaN,available=Double.NaN;
+        int best=-1;
+        try{
+            java.util.Map<String,?> all=sp.getAll();
+            for(java.util.Map.Entry<String,?> e:all.entrySet()){
+                Object v=e.getValue();
+                if(!(v instanceof String))continue;
+                String raw=((String)v).trim();
+                if(raw.isEmpty())continue;
+                double w=v9583JsonNumber(raw,"totalWalletBalance");
+                double q=v9583JsonNumber(raw,"totalMarginBalance");
+                double a=v9583JsonNumber(raw,"availableBalance");
+                if(Double.isNaN(w)&&Double.isNaN(q)&&Double.isNaN(a))continue;
+                String k=e.getKey()==null?"":e.getKey().toLowerCase(java.util.Locale.US);
+                int score=0;
+                if(k.startsWith("v9527")||k.startsWith("v9543"))score+=8;
+                if(k.contains("account")||k.contains("portfolio")||k.contains("balance"))score+=4;
+                if(raw.contains("positions")||raw.contains("\"canTrade\""))score+=3;
+                if(score>best){
+                    best=score;wallet=w;equity=q;available=a;
+                }
+            }
+        }catch(Throwable ignored){}
+        if(Double.isNaN(wallet)&&Double.isNaN(equity)&&Double.isNaN(available))
+            return "Binance Futures bakiye: senkron bekleniyor";
+        StringBuilder b=new StringBuilder("Binance Futures");
+        if(!Double.isNaN(wallet))b.append(" • Cüzdan ").append(String.format(java.util.Locale.US,"%.2f USDT",wallet));
+        if(!Double.isNaN(equity))b.append(" • Equity ").append(String.format(java.util.Locale.US,"%.2f USDT",equity));
+        if(!Double.isNaN(available))b.append(" • Kullanılabilir ").append(String.format(java.util.Locale.US,"%.2f USDT",available));
+        return b.toString();
+    }
+'''
+    main=main[:pos]+helpers+'\n'+main[pos:]
+
+b=method_bounds(main,'private void v9549FillRecentTradesCard(')
+if not b: raise SystemExit('v9.5.93 recent trades renderer missing')
+a,_,e=b
+renderer=r'''private void v9549FillRecentTradesCard(android.widget.LinearLayout box) {
+        if(box==null)return;
+        box.removeAllViews();
+        v9582MaybeProbePcLive();
+        android.content.SharedPreferences sp=v9522Prefs();
+        long now=System.currentTimeMillis();
+        boolean autoOn=sp.getBoolean("v9576_auto_enabled",false);
+        long probeTs=sp.getLong("v9582_pc_probe_ts",0L);
+        boolean pcFresh=probeTs>0&&now-probeTs<=15000L&&sp.getBoolean("v9582_pc_probe_ok",false);
+        boolean armed=pcFresh&&sp.getBoolean("v9582_pc_armed",false);
+        boolean pcAutoConfigured=pcFresh&&sp.getBoolean("v9588_pc_auto_configured",false);
+        boolean pcAutoEnabled=pcFresh&&sp.getBoolean("v9588_pc_auto_enabled",false);
+        boolean inflight=v9582AnyInflight();
+        int activeSignals=v9582ActiveSignalCount();
+
+        android.widget.TextView head=text("🤖 OTO İŞLEM DURUMU • SABİT",14f,android.graphics.Color.WHITE,true);
+        box.addView(head,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        String margin=sp.getString("v9576_auto_margin","—");
+        String lev=sp.getString("v9576_auto_leverage","—");
+        int max=sp.getInt("v9576_auto_max_positions",1);
+        boolean lng=sp.getBoolean("v9576_auto_long",true),sht=sp.getBoolean("v9576_auto_short",true);
+        String lastPcExecution=sp.getString("v9588_pc_auto_last_execution","");
+        String lastPcReasons=sp.getString("v9592_pc_auto_last_reasons","");
+        int blockedCount=sp.getInt("v9592_pc_auto_blocked_count",0);
+        boolean pcBlocked="LEADER_AUTO_BLOCKED".equals(lastPcExecution)||"LEADER_AUTO_TICK_FAILED".equals(lastPcExecution)||"LEADER_AUTO_CONFIG_INVALID".equals(lastPcExecution);
+        String state;
+        if(!autoOn) state="⏹ OTO MOTOR KAPALI";
+        else if(!pcFresh) state="🟡 OTO AÇIK • PC LIVE DURUMU YENİLENİYOR";
+        else if(!pcAutoConfigured||!pcAutoEnabled) state="🟡 OTO AÇIK • PC AUTO SENKRON BEKLİYOR";
+        else if(!armed) state="🟠 OTO HAZIR • PC ARM KAPALI";
+        else if(inflight) state="🔵 SİNYAL İŞLENİYOR • RİSK / LINEAGE / GRANT KONTROLÜ";
+        else if(pcBlocked) state=(blockedCount>=3?"🔴":"🟠")+" PC LEADER AUTO BLOCKED • "+(lastPcReasons==null||lastPcReasons.trim().isEmpty()?lastPcExecution:lastPcReasons);
+        else if("LEADER_AUTO_WAIT".equals(lastPcExecution)) state="🟢 PC LEADER AUTO TARIYOR • UYGUN/QUALIFIED FIRSAT BEKLİYOR";
+        else state="🟢 PC LEADER AUTO TARIYOR • TAZE FIRSAT BEKLİYOR";
+
+        StringBuilder st=new StringBuilder(state);
+        st.append("\n").append(v9583BinanceBalanceSummary());
+        st.append("\nRadar ekranı: ").append(v9582RadarSummary());
+        st.append(" • aktif sinyal ").append(activeSignals);
+        st.append("\nAyar: ").append(margin).append(" USDT • ").append(lev).append("x • max ").append(max)
+          .append(" • ").append(lng?"LONG ":"").append(sht?"SHORT":"");
+        if(pcFresh){
+            st.append("\nBoyutlandırma: uygulamadaki marj / kaldıraç / azami pozisyon değerleri aynen kullanılır.");
+            String pcFeatureVersion=sp.getString("v95105_pc_feature_version","");
+            if(pcFeatureVersion!=null&&!pcFeatureVersion.trim().isEmpty())st.append("\nPC Brain Hub sürümü: ").append(pcFeatureVersion.trim());
+            // V9596_MODEL_AVAILABILITY: configuration alone is not a successful model response.
+            st.append("\n").append(sp.getString("v9596_vision_availability","Görsel model durumu bekleniyor"));
+            st.append("\n").append(sp.getString("v9597_jev_status","Jev durumu bekleniyor"));
+            st.append("\nBrain Hub marj veya kaldıraç değerini sessizce düşürmez.");
+            st.append("\nPC LIVE: ").append(armed?"ARMED":"KAPALI");
+            if(armed)st.append(" • kalan ").append(v9582ArmRemaining(sp.getString("v9582_pc_expires_at","")));
+            st.append("\nPC LEADER AUTO: ").append(pcAutoEnabled&&pcAutoConfigured?"AKTİF":"KAPALI/SENKRON");
+            st.append("\nPC otomasyon motoru PC BrainHub zamanlayıcısında çalışır; telefon ekranının açık kalması gerekmez.");
+            st.append("\nKarar mimarisi: 15m ana işlem hattı • 1m/3m/5m scalp momentum hattı (tek alt TF karar vermez; en az 2 alt TF + 15m karşı-veto kontrolü) • 30m+ yapı/likidite/formasyon/tükenme bağlamı.");
+            String lex=lastPcExecution;
+            if(lex!=null&&!lex.trim().isEmpty())st.append(" • son ").append(lex.trim());
+            if(lastPcReasons!=null&&!lastPcReasons.trim().isEmpty())st.append("\nNeden: ").append(lastPcReasons.trim());
+            if(blockedCount>0)st.append(" • üst üste ").append(blockedCount).append(" tur");
+            String tickAt=sp.getString("v9592_pc_auto_last_tick_at","");
+            if(tickAt!=null&&!tickAt.trim().isEmpty())st.append("\nSon PC tick: ").append(tickAt.trim());
+            st.append("\n").append(v9593LeaderDiagnosticsSummary(sp));
+            st.append("\n").append(v95104OtoHealthSummary(sp));
+        }
+        String last=sp.getString("v9576_auto_last_status","");
+        if(last!=null&&!last.trim().isEmpty())st.append("\nSon motor durumu: ").append(last.trim());
+        int stateBg=!autoOn?android.graphics.Color.rgb(51,65,85)
+                :(!armed?android.graphics.Color.rgb(120,74,18)
+                :(pcBlocked?android.graphics.Color.rgb(blockedCount>=3?127:120,blockedCount>=3?29:74,blockedCount>=3?29:18)
+                :(inflight?android.graphics.Color.rgb(30,64,175):android.graphics.Color.rgb(20,83,45))));
+        android.widget.TextView status=text(st.toString(),11.8f,android.graphics.Color.WHITE,false);
+        status.setPadding(dp(9),dp(7),dp(9),dp(7));status.setBackgroundColor(stateBg);
+        android.widget.LinearLayout.LayoutParams slp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.setMargins(0,dp(6),0,0);box.addView(status,slp);
+
+        String detailedAuto=v9594SelectedLeaderDetail(sp);
+        if(detailedAuto!=null&&!detailedAuto.trim().isEmpty()){
+            android.widget.TextView detail=text(detailedAuto,11.15f,android.graphics.Color.WHITE,false);
+            detail.setPadding(dp(10),dp(9),dp(10),dp(9));
+            detail.setTextIsSelectable(true);
+            detail.setBackgroundColor(android.graphics.Color.rgb(15,44,68));
+            android.widget.LinearLayout.LayoutParams dlp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            dlp.setMargins(0,dp(7),0,0);box.addView(detail,dlp);
+        }
+        String lifecycleText=v9594LifecycleSummary(sp);
+        if(lifecycleText!=null&&!lifecycleText.trim().isEmpty()){
+            android.widget.TextView life=text(lifecycleText,10.9f,android.graphics.Color.WHITE,false);
+            life.setPadding(dp(10),dp(8),dp(10),dp(8));
+            life.setTextIsSelectable(true);
+            life.setBackgroundColor(android.graphics.Color.rgb(30,41,59));
+            android.widget.LinearLayout.LayoutParams llp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            llp.setMargins(0,dp(7),0,0);box.addView(life,llp);
+        }
+
+        // V9589_MOBILE_REARM: explicit user tap only; never auto-rearms after expiry/restart.
+        android.widget.Button armButton=new android.widget.Button(this);
+        armButton.setAllCaps(false);
+        armButton.setText(armed?"✅ LIVE AÇIK":"▶ LIVE 24 SAAT BAŞLAT / YENİDEN BAŞLAT");
+        boolean armReady=!armed&&autoOn&&pcFresh&&pcAutoConfigured&&pcAutoEnabled&&BrainHubClient.configured(this);
+        armButton.setEnabled(armReady);
+        armButton.setOnClickListener(v->{
+            if(!armReady){
+                Toast.makeText(this,"Önce OTO ayarlarını PC'ye senkronlayın; PC bağlantısı ve Leader Auto aktif olmalı.",Toast.LENGTH_LONG).show();
+                return;
+            }
+            armButton.setEnabled(false);armButton.setText("LIVE BAŞLATILIYOR…");
+            v9522Io.execute(()->{
+                try{
+                    org.json.JSONObject out=BrainHubClient.liveArm(this);
+                    if(!out.optBoolean("ok",false)||!out.optBoolean("armed",false)){
+                        String reason=out.optString("execution","LIVE_BLOCKED");
+                        org.json.JSONArray rs=out.optJSONArray("reasons");
+                        if(rs!=null&&rs.length()>0)reason=rs.optString(0,reason);
+                        final String msg=reason;
+                        runOnUiThread(()->{
+                            Toast.makeText(this,"LIVE başlatılamadı: "+msg,Toast.LENGTH_LONG).show();
+                            try{v9582PcProbeAt=0L;v9549InstallRecentTradesCard();}catch(Throwable ignored){}
+                        });
+                        return;
+                    }
+                    sp.edit().putBoolean("v9582_pc_probe_ok",true)
+                        .putBoolean("v9582_pc_armed",true)
+                        .putString("v9582_pc_expires_at",out.optString("expiresAt",""))
+                        .putString("v9582_pc_execution",out.optString("execution",""))
+                        .putLong("v9582_pc_probe_ts",System.currentTimeMillis()).apply();
+                    runOnUiThread(()->{
+                        Toast.makeText(this,"PC LIVE 24 saat başlatıldı.",Toast.LENGTH_LONG).show();
+                        try{v9582PcProbeAt=0L;v9549InstallRecentTradesCard();}catch(Throwable ignored){}
+                    });
+                }catch(Throwable ex){
+                    final String msg=ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();
+                    runOnUiThread(()->{
+                        Toast.makeText(this,"LIVE başlatma hatası: "+msg,Toast.LENGTH_LONG).show();
+                        try{v9582PcProbeAt=0L;v9549InstallRecentTradesCard();}catch(Throwable ignored){}
+                    });
+                }
+            });
+        });
+        android.widget.LinearLayout.LayoutParams alp=new android.widget.LinearLayout.LayoutParams(-1,dp(46));
+        alp.setMargins(0,dp(6),0,0);box.addView(armButton,alp);
+
+        java.util.ArrayList<V9549TradeRow> rows=v9549RecentTradeRows();
+        int openShown=0;
+        for(V9549TradeRow r:rows){
+            v9550EnrichTradeRow(r);
+            boolean open="AÇIK".equalsIgnoreCase(r.status)||"ACIK".equalsIgnoreCase(r.status)||"OPEN".equalsIgnoreCase(r.status);
+            if(!open)continue;
+            openShown++;
+            double shownMargin=v9552OpeningMargin(r.symbol);
+            if(Double.isNaN(shownMargin)||shownMargin<=0.0)shownMargin=r.margin;
+            double shownPnl=v9552LiveOpenPnl(r.symbol);
+            double shownRoi=(!Double.isNaN(shownPnl)&&!Double.isNaN(shownMargin)&&shownMargin>0.0)?(shownPnl/shownMargin)*100.0:Double.NaN;
+            double entry=v9582PrefNumber(sp,"v9582_trade_entry_ref_"+r.symbol,"v9518_signal_price_"+r.symbol);
+            double stop=v9582PrefNumber(sp,"v9582_trade_stop_"+r.symbol,"v9518_signal_stop_"+r.symbol);
+            double tp1=v9582PrefNumber(sp,"v9582_trade_tp1_"+r.symbol,"v9518_signal_tp1_"+r.symbol);
+            double tp2=v9582PrefNumber(sp,"v9582_trade_tp2_"+r.symbol,"v9518_signal_tp2_"+r.symbol);
+            double tp3=v9582PrefNumber(sp,"v9582_trade_tp3_"+r.symbol,"v9518_signal_tp3_"+r.symbol);
+            boolean stopProtected=sp.getBoolean("v9582_trade_stop_protected_"+r.symbol,false);
+            boolean tpProtected=sp.getBoolean("v9582_trade_tp_protected_"+r.symbol,false);
+            StringBuilder x=new StringBuilder();
+            x.append("⚡ AUTO POZİSYON • ").append(r.symbol);
+            if(r.side!=null&&!r.side.isEmpty())x.append(" • ").append(r.side);
+            x.append("\nMarj: ").append((Double.isNaN(shownMargin)||shownMargin<=0.0)?"—":String.format(java.util.Locale.US,"%.2f USDT",shownMargin));
+            x.append(" • Kaldıraç: ").append(Double.isNaN(r.leverage)?lev+"x":String.format(java.util.Locale.US,"%.0fx",r.leverage));
+            x.append("\nCanlı PnL: ").append(Double.isNaN(shownPnl)?"—":v9549Fmt(shownPnl," USDT"));
+            x.append(" • ROI: ").append(v9549Fmt(shownRoi,"%"));
+            x.append("\nGiriş ref: ").append(v9582Level(entry));
+            x.append(" • STOP: ").append(v9582Level(stop)).append(stopProtected?" ✓ KORUMALI":" • doğrulama bekliyor");
+            x.append("\n").append(tpProtected?"TP AKTİF • ":"PLAN TP • ");
+            x.append("TP1: ").append(v9582Level(tp1)).append(" • TP2: ").append(v9582Level(tp2)).append(" • TP3: ").append(v9582Level(tp3));
+            android.widget.TextView tv=text(x.toString(),12.2f,android.graphics.Color.WHITE,true);
+            tv.setPadding(dp(9),dp(7),dp(9),dp(7));
+            int bg=Double.isNaN(shownPnl)?android.graphics.Color.rgb(22,36,51)
+                    :(shownPnl>=0?android.graphics.Color.rgb(20,83,45):android.graphics.Color.rgb(127,29,29));
+            tv.setBackgroundColor(bg);
+            android.widget.LinearLayout.LayoutParams lp=new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0,dp(7),0,0);box.addView(tv,lp);
+        }
+        if(openShown==0){
+            android.widget.TextView wait=text("Açık oto pozisyon yok • uygun sinyal oluşursa burada coin / yön / canlı PnL / STOP / TP durumları görünür.",
+                    11.2f,android.graphics.Color.rgb(148,163,184),false);
+            wait.setPadding(0,dp(6),0,0);
+            box.addView(wait,new android.widget.LinearLayout.LayoutParams(-1,android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+    }'''
+main=main[:a]+renderer+main[e:]
+MAIN.write_text(main)
+
+build=BUILD.read_text()
+build=re.sub(r'versionCode\s+\d+','versionCode 26091901',build,count=1)
+build=re.sub(r"versionName\s+['\"][^'\"]+['\"]","versionName '9.5.96'",build,count=1)
+BUILD.write_text(build)
+
+checks={
+    'PC signal executor':'V9579_PC_LIVE_AUTO' in AUTO.read_text() and 'BrainHubClient.liveExecute(c,body)' in AUTO.read_text(),
+    'old live run unreachable':'IO.execute(()->run(app,s))' not in AUTO.read_text(),
+    'no signed Binance order in PC path':'runPc(app,s)' in AUTO.read_text(),
+    'PC executor owner':'putString("v9576_executor_owner","PC")' in MAIN.read_text(),
+    'phone live toggle enabled only with BrainHub':'en.setEnabled(BrainHubClient.configured(this))' in MAIN.read_text(),
+    'phone credentials not required for auto':'if(en.isChecked())v9522Credentials()' not in MAIN.read_text(),
+    'live toggle persists':'putBoolean("v9576_auto_short",sht.isChecked()).putBoolean("v9576_auto_enabled",en.isChecked())' in MAIN.read_text(),
+    'emergency stop disarms PC':'ANDROID_EMERGENCY_STOP' in MAIN.read_text() and 'BrainHubClient.liveDisarm(this' in MAIN.read_text(),
+    'dynamic trade settings':'requestedMarginQuote' in AUTO.read_text() and 'requestedLeverage' in AUTO.read_text() and 'requestedMaxOpenPositions' in AUTO.read_text(),
+    'visible live status panel':'V9582_VISIBLE_LIVE_STATUS_PANEL' in MAIN.read_text() and 'PC LEADER AUTO TARIYOR • TAZE FIRSAT BEKLİYOR' in MAIN.read_text(),
+    'active trade detail':'AUTO POZİSYON' in MAIN.read_text() and 'TP AKTİF' in MAIN.read_text() and 'KORUMALI' in MAIN.read_text(),
+    'live metadata persisted':'v9582_trade_stop_protected_' in AUTO.read_text() and 'v9582_trade_tp_protected_' in AUTO.read_text() and 'v9582_trade_tp1_' in AUTO.read_text(),
+    'balance summary':'V9583_BINANCE_BALANCE_SUMMARY' in MAIN.read_text() and 'v9583_pc_wallet' in MAIN.read_text() and 'v9583_pc_equity' in MAIN.read_text() and 'v9583_pc_available' in MAIN.read_text(),
+    'TPs bound into LIVE intent':'takeProfit1' in AUTO.read_text() and 'takeProfit2' in AUTO.read_text() and 'takeProfit3' in AUTO.read_text() and 'stop/TP geometrisi' in AUTO.read_text(),
+    'tick-safe live levels':'V9586_TICK_SAFE_LIVE_LEVELS' in AUTO.read_text() and 'PRICE_FILTER/tickSize geçersiz' in AUTO.read_text() and 'ceilStep(stop,tick)' in AUTO.read_text(),
+    'safe retry':'V9587_SAFE_LIVE_RETRY' in AUTO.read_text() and 'newSingleThreadScheduledExecutor' in AUTO.read_text() and 'retryable' in AUTO.read_text(),
+    'PC leader auto sync':'BrainHubClient.configureLeaderAuto(this' in MAIN.read_text() and 'v9588_pc_auto_enabled' in MAIN.read_text() and 'PC LEADER AUTO:' in MAIN.read_text(),
+    'explicit mobile rearm':'V9589_MOBILE_REARM' in MAIN.read_text() and 'BrainHubClient.liveArm(this)' in MAIN.read_text() and 'LIVE 24 SAAT BAŞLAT / YENİDEN BAŞLAT' in MAIN.read_text(),
+    'blocked telemetry visible':'v9592_pc_auto_last_reasons' in MAIN.read_text() and 'üst üste' in MAIN.read_text() and 'Son PC tick:' in MAIN.read_text(),
+    'per coin diagnostics':'v9593_pc_auto_diagnostics' in MAIN.read_text() and 'PC tarama: hedef evren' in MAIN.read_text() and 'derin kısa liste' in MAIN.read_text(),
+    'detailed 9TF diagnostics':'V9594_DETAILED_9TF_AUTO_DIAGNOSTICS' in MAIN.read_text() and 'DETAYLI OTO ANALİZ' in MAIN.read_text() and 'timeframeNotes' in MAIN.read_text() and 'timeframeDiagnostics' in MAIN.read_text() and 'timeframeEvidence' in MAIN.read_text() and 'Destek TF:' in MAIN.read_text() and 'Veto TF:' in MAIN.read_text() and 'Model özet:' in MAIN.read_text() and 'Deterministik veri:' in MAIN.read_text() and 'Grafik/Vision:' in MAIN.read_text(),
+    'persistent lifecycle visible':'v9594_pc_analysis_lifecycle' in MAIN.read_text() and 'KALICI ANALİZ TAKİBİ' in MAIN.read_text() and 'rebaseCount' in MAIN.read_text() and 'invalidationCount' in MAIN.read_text(),
+    'scalp cost detail visible':'İşlem maliyeti' in MAIN.read_text() and 'edge/maliyet' in MAIN.read_text() and 'Binance taker oranı' in MAIN.read_text(),
+    'forming candle disclosure':'forming mum görüntüde/anlık bağlamda vardır' in MAIN.read_text(),
+    'identity':"versionName '9.5.96'" in BUILD.read_text() and 'versionCode 26091901' in BUILD.read_text(),
+    'vision failure diagnostic':'V9595_VISION_ROUTING_DIAGNOSTICS' in MAIN.read_text() and 'GÖRSEL OKUMA TAMAMLANMADI' in MAIN.read_text() and 'SADECE DETERMINİSTİK KANIT' in MAIN.read_text(),
+}
+for name,ok in checks.items(): print(('OK   ' if ok else 'FAIL '),name)
+if not all(checks.values()): raise SystemExit('v9.5.96 Vision routing integration check failed')
+print('v9.5.96 OK: 9TF Vision routing failures are explicit, deterministic evidence is never mislabeled as model chart reading, and PC remains the only LIVE executor.')

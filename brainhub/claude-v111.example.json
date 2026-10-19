@@ -1,0 +1,13 @@
+{
+  "_comment": "CLAUDE_V111 (Claude, Anthropic) - v9.5.111-CLAUDE. triggerRevalidation: worker sayisal tetigi -> saklanan 9TF plani Vision'siz yeniden dogrulanir (uygulama claude-v109.json deterministicTriggerMode'a baglidir). runnerMode: OFF | SHADOW | BINDING (BINDING = TP3 yerine iz suren stop).",
+  "triggerRevalidation": true,
+  "revalidationMaxAgeMinScalp": 20,
+  "revalidationMaxAgeMinMain": 120,
+  "momentumScalpTriggers": true,
+  "runnerMode": "SHADOW",
+  "runnerBreakevenBufferPct": 0.12,
+  "runnerMinImprovePct": 0.08,
+  "runnerReplaceCooldownSec": 45,
+  "runnerAtrBufferMultiple": 0.15,
+  "runnerMaxFailuresBeforeTp3": 3
+}

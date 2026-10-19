@@ -1,0 +1,131 @@
+                "SHORT BREAKDOWN | 15m < " + fmt(p.breakdownClose, p.decimals) + " | " +
+                safeDetail(p.shortBreakDetail);
+        ClipboardManager cb = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (cb != null) cb.setPrimaryClip(ClipData.newPlainText(p.symbol + " plan", text));
+        Toast.makeText(this, p.symbol + " giriş/STOP/TP planı kopyalandı", Toast.LENGTH_SHORT).show();
+    }
+
+    private String safeDetail(String s) {
+        return s == null || s.trim().isEmpty() ? "STOP/TP yok" : s.replace("\n", " • ");
+    }
+
+    private void confirmDelete(TradePlan p) {
+        new AlertDialog.Builder(this)
+                .setTitle(p.symbol + " silinsin mi?")
+                .setMessage("Bu coin artık takip edilmeyecek.")
+                .setNegativeButton("İptal", null)
+                .setPositiveButton("Sil", (d, w) -> {
+                    PlanStore.delete(this, p.symbol);
+                    setContentView(buildUi());
+                    refreshStatus();
+                }).show();
+    }
+
+    private EditText field(String hint, String value, boolean numeric) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setText(value);
+        e.setTextColor(Color.WHITE);
+        e.setHintTextColor(Color.rgb(148, 163, 184));
+        e.setSingleLine(true);
+        e.setPadding(dp(8), dp(10), dp(8), dp(10));
+        if (numeric) e.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(4), 0, dp(4));
+        e.setLayoutParams(lp);
+        return e;
+    }
+
+    private double number(EditText e) {
+        return Double.parseDouble(e.getText().toString().trim().replace(',', '.'));
+    }
+
+    private void startMonitoring() {
+        getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
+                .putBoolean(MonitorService.KEY_ENABLED, true).apply();
+        Intent i = new Intent(this, MonitorService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
+        Toast.makeText(this, "15m seviye takibi başlatıldı", Toast.LENGTH_SHORT).show();
+        refreshStatus();
+    }
+
+    private void stopMonitoring() {
+        getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).edit()
+                .putBoolean(MonitorService.KEY_ENABLED, false).apply();
+        stopService(new Intent(this, MonitorService.class));
+        Toast.makeText(this, "Takip durduruldu", Toast.LENGTH_SHORT).show();
+        refreshStatus();
+    }
+
+    private void refreshStatus() {
+        if (statusView == null) return;
+        boolean enabled = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE)
+                .getBoolean(MonitorService.KEY_ENABLED, false);
+        boolean running = isServiceRunning(MonitorService.class);
+        int count = PlanStore.load(this).size();
+        if (enabled && running) {
+            boolean auto = getSharedPreferences(MonitorService.PREFS, MODE_PRIVATE).getBoolean(MonitorService.KEY_AUTO_MODE, true);
+            statusView.setText("● AKTİF — " + count + " coin • " + (auto ? "AUTO HIGH ACCURACY • her 15m kapanış" : "MANUEL") + " • 15 sn yaklaşma takibi");
+            statusView.setTextColor(Color.rgb(74, 222, 128));
+        } else if (enabled) {
+            statusView.setText("● TAKİP AÇIK — servis yeniden başlatılıyor olabilir");
+            statusView.setTextColor(Color.rgb(251, 191, 36));
+        } else {
+            statusView.setText("● KAPALI — " + count + " coin kayıtlı");
+            statusView.setTextColor(Color.rgb(248, 113, 113));
+        }
+    }
+
+    private boolean isServiceRunning(Class<?> cls) {
+        ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (am == null) return false;
+        for (ActivityManager.RunningServiceInfo s : am.getRunningServices(Integer.MAX_VALUE)) {
+            if (cls.getName().equals(s.service.getClassName())) return true;
+        }
+        return false;
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1001);
+        }
+    }
+
+    private void openBatterySettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+        } catch (Exception e) {
+            try {
+                Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName()));
+                startActivity(i);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private Button button(String label, int color) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(13);
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        b.setBackgroundColor(color);
+        b.setAllCaps(false);
+        return b;
+    }
+
+    private TextView text(String s, float sp, int color, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(sp);
+        t.setTextColor(color);
+        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return t;
+    }
+
+    private String range(double a, double b, int d) { return fmt(a, d) + " – " + fmt(b, d); }
+    private String fmt(double v, int d) { return String.format(Locale.US, "%." + d + "f", v); }
+    private String raw(double v) { return String.format(Locale.US, "%.8f", v).replaceAll("0+$", "").replaceAll("\\.$", ""); }
+    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+}
