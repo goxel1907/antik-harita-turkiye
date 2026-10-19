@@ -2237,15 +2237,20 @@ const server=http.createServer(async(req,res)=>{
           rememberMirrorSnapshot(resolvedSnapshotId,{symbol,tf,chart,observedLiquidations,htfLevels});
         }
         // CLAUDE_R2544_9_POSITION_OVERLAY: açık pozisyon grafikte (yalnız görsel). htf=0 / pos=0 ile kapatılabilir.
-        let position=null;
-        if(mode==='annotated'&&u.searchParams.get('pos')!=='0'){try{position=(live.positionsStatus({closedLimit:0})?.open||[]).find(p=>String(p?.symbol||'').toUpperCase()===symbol)||null;}catch{position=null;}}
-        const png=market.renderChartPng(chart,mode,{observedLiquidations,htfLevels:u.searchParams.get('htf')==='0'?[]:htfLevels,position});
+        let position=null,sade=null;
+        if((mode==='annotated'||mode==='sade')&&u.searchParams.get('pos')!=='0'){try{position=(live.positionsStatus({closedLimit:0})?.open||[]).find(p=>String(p?.symbol||'').toUpperCase()===symbol)||null;}catch{position=null;}}
+        // R2544.58 sade: previous day/week/month highs/lows + the İlk 3 view; an İlk 3 lot draws its own entry/stop/target box
+        if(mode==='sade'){
+          try{sade=await live.top3ChartView(symbol);}catch{sade=null;}
+          if(sade?.lot)position={side:sade.lot.side,entryPrice:sade.lot.entryPrice,stopPrice:sade.lot.stopPrice,takeProfit1:sade.lot.tpPrice,markPrice:sade.lot.markPrice,openedAt:new Date(sade.lot.openedAt).toISOString()};
+        }
+        const png=market.renderChartPng(chart,mode,{observedLiquidations:mode==='sade'?[]:observedLiquidations,htfLevels:mode==='sade'||u.searchParams.get('htf')==='0'?[]:htfLevels,position,sade});
         return sendBuffer(res,200,png,'image/png',{
           'x-brainhub-symbol':symbol,
           'x-brainhub-timeframe':tf,
           'x-brainhub-chart-mode':mode,
           'x-brainhub-snapshot-id':resolvedSnapshotId,
-          'x-brainhub-overlay-contract':mode==='annotated'?'R2541_ATOMIC_FULL_SMC_TURKISH_LABELS':'R2541_ATOMIC_CLEAN'
+          'x-brainhub-overlay-contract':mode==='annotated'?'R2541_ATOMIC_FULL_SMC_TURKISH_LABELS':mode==='sade'?'R2544_58_SADE':'R2541_ATOMIC_CLEAN'
         });
       }catch(e){return send(res,400,{ok:false,error:String(e.message||e)});}
     }

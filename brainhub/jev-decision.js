@@ -1856,7 +1856,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const record={contract:'R2544.58_TOP3_V2_GATE',symbol,side:signal.side,rule:signal.rule,closed5mCandle:candle,gainerRank:finiteNumber(rank),
       trigger:signal.side==='LONG'
         ?{brokenLevel:finiteNumber(t.level),levelName:t.levelName||null,retestLow:finiteNumber(t.retestLow),breakoutVolumeVs24hMedian:r4(t.volMult)}
-        :{fresh24hTop:finiteNumber(t.top),preTopStructureLow:finiteNumber(t.hl)},
+        :{fresh24hTop:finiteNumber(t.top),preTopStructureLow:finiteNumber(t.hl),topCandleVolumeVs24hMedian:r4(t.topVolMult)},
       zones:{previousDayHigh:finiteNumber(lv.pdh),previousWeekHigh:finiteNumber(lv.pwh),previousMonthHigh:finiteNumber(lv.pmh)},
       market:{fundingRate:finiteNumber(features?.fund),markVsIndex:finiteNumber(features?.premium),close:finiteNumber(features?.close)}};
     const state={description:'JEV 5m gate for the İlk 3 Avcısı v2 lane. A fixed rule has ALREADY fired on the last CLOSED 5m candle. '+

@@ -39,9 +39,9 @@ test('R2541 Office mirror remains GET-only, Turkish and snapshot-bound',()=>{
   assert.match(server,/2.5.38-R2544.58/);
   assert.match(server,/req\.method !== 'GET'/);
   assert.match(server,/\['5m','15m'\]\.includes\(tf\)/);
-  assert.match(server,/\['clean','annotated'\]\.includes\(mode\)/);
+  assert.match(server,/\['clean','annotated','sade'\]\.includes\(mode\)/); // R2544.58: upper chart is SADE
   assert.match(html,/JEV Canlı Görüş Aynası/);
-  assert.match(html,/Piyasa \/ TEMİZ/);
+  assert.match(html,/SADE — bölgeler \+ İlk 3/);
   assert.match(html,/JEV \+ Vision \/ TAM AÇIKLAMALI/);
   assert.match(html,/renderMirror\(s\)/);
   assert.match(html,/const mirrorBars=tf==='15m'\?180:72/);

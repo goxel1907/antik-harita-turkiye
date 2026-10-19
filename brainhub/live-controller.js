@@ -5949,7 +5949,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(x.side==='LONG'&&finite(cfg.early.maxFunding)!==null&&!(fund!==null&&fund<=cfg.early.maxFunding)){res.reason='TOP3_FUNDING_LONGS_CROWDED';continue;}
       const T=Math.floor(clock()/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR,m=top3Ranks.hours[T]||{};
       const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
-        top:finite(x.trig.top),hl:finite(x.trig.hl),pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close};
+        top:finite(x.trig.top),hl:finite(x.trig.hl),topVolMult:finite(x.trig.topVolMult)!==null?Number(x.trig.topVolMult.toFixed(2)):null,pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close};
       let jev=null;
       if(cfg.jevMode===true){
         let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
@@ -6255,6 +6255,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed,v2};
     }finally{top3Busy=false;}
   }
+  // R2544.58 sade chart (user 15.10: "grafik çizgilere boğulmasın, baktığımda net göreyim"): the previous day/week/month
+  // highs and lows and this lane's own view of the coin (open lot, or the level it is waiting on). Display only.
+  async function top3ChartView(symbol){
+    const s=String(symbol||'').toUpperCase();if(!top3SymbolOk(s))return {ok:false};
+    let levels=null;try{levels=top3Lib.dailyLevels(await top3Kd(s),clock());}catch{levels=null;}
+    const a=activeTop3For(s);
+    const ls=top3State.lastScan5||{};
+    const sig=(ls.signals||[]).find(x=>x.symbol===s)||null,wait=(ls.nearMisses||[]).find(x=>x.symbol===s)||null;
+    return {ok:true,symbol:s,levels,
+      lot:a?{side:a.side,rule:a.rule,entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,openedAt:a.openedAt,markPrice:finite(a.lastMark),level:finite(a.level),zone:finite(a.zone),top:finite(a.top)}:null,
+      waiting:!a&&(sig||wait)?{side:(sig||wait).side,reason:sig?'SIGNAL':wait.reason,level:finite((sig||wait).level),top:finite((sig||wait).top),hl:finite(sig?.hl),at:ls.at||null}:null};
+  }
   function top3Status(){
     const cfg=top3Lib.readTop3Config(root),gate=cfg.enabled?top3Gate(cfg):{ok:false,reason:'TOP3_DISABLED'};
     const now=clock(),T=Math.floor(now/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR;
@@ -6326,7 +6338,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, configureTop3, laneStatus, selectLanes, rememberNormalLane, _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, laneStatus, selectLanes, rememberNormalLane, _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

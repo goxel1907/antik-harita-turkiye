@@ -27,7 +27,9 @@ const DEFAULT_CONFIG = Object.freeze({
     htfOnly:true, maxFunding:null, beAtR:1 }),
   top:Object.freeze({ enabled:true, top10WithinH:24, hlBars:6, breakBars:12, stopBuf:0.003, minStopPct:0.015, maxStopPct:0.06, zoneAbovePct:0.05, targetR:2.5, maxHoldH:24,
     // a top that took out the previous week high (the short-liquidation zone): S1 -0.04/+0.10R vs S0 -0.16/+0.05R
-    requireWeeklySwept:true, cooldownH:12, cooldownAfterStopH:24, beAtR:null })
+    // R2544.58 (15.10 indicator test, BigBeluga-style volumetric order block): the last green candle at/before the top has
+    // >= 2x the 24 h median volume (distribution at the zone). S1 -0.04/+0.10R -> -0.01/+0.10R, bad days 56 % -> 52 %.
+    requireWeeklySwept:true, cooldownH:12, cooldownAfterStopH:24, beAtR:null, minTopVolMult:2 })
 });
 const HOUR = 3600000;
 
@@ -173,8 +175,11 @@ const M5 = 5 * 60000, DAY = 24 * HOUR;
 // 1d candles [openTime, o, h, l, c] oldest first -> highs of CLOSED UTC days before `now` (research: daily highs shifted)
 function dailyLevels(kd, now) {
   const today = Math.floor(Number(now) / DAY) * DAY;
-  const hs = (Array.isArray(kd) ? kd : []).map(r => [finite(r[0]), finite(r[2])]).filter(r => r[0] !== null && r[1] > 0 && r[0] < today).sort((a, b) => a[0] - b[0]).map(r => r[1]);
-  return { day: today, pdh: hs.length ? hs[hs.length - 1] : null, pwh: hs.length >= 3 ? Math.max(...hs.slice(-7)) : null, pmh: hs.length >= 10 ? Math.max(...hs.slice(-30)) : null };
+  const rows = (Array.isArray(kd) ? kd : []).map(r => [finite(r[0]), finite(r[2]), finite(r[3])]).filter(r => r[0] !== null && r[1] > 0 && r[2] > 0 && r[0] < today).sort((a, b) => a[0] - b[0]);
+  const hs = rows.map(r => r[1]), ls = rows.map(r => r[2]);
+  // highs drive the rules (research parity); lows are shown on the chart (long-liquidation zones)
+  return { day: today, pdh: hs.length ? hs[hs.length - 1] : null, pwh: hs.length >= 3 ? Math.max(...hs.slice(-7)) : null, pmh: hs.length >= 10 ? Math.max(...hs.slice(-30)) : null,
+    pdl: ls.length ? ls[ls.length - 1] : null, pwl: ls.length >= 3 ? Math.min(...ls.slice(-7)) : null, pml: ls.length >= 10 ? Math.min(...ls.slice(-30)) : null };
 }
 const levelList = lv => [lv?.pdh, lv?.pwh, lv?.pmh].map(finite).filter(x => x > 0);
 // Hour context of the EARLY LONG at the last closed hour before the breakout candle (rank book + 24 h change).
@@ -245,7 +250,16 @@ function topShortTrigger(k5, cfg = DEFAULT_CONFIG) {
   const top = k[j][2]; let hl = Infinity; for (let m = Math.max(0, j - T.hlBars); m < j; m++) hl = Math.min(hl, k[m][3]);
   for (let m = j + 1; m < q; m++) if (k[m][4] < hl) return { ok: false, reason: 'V2_BREAK_ALREADY_PASSED', top, hl };
   if (!(k[q][4] < hl)) return { ok: false, reason: 'V2_NO_BREAK_YET', top, hl };
-  return { ok: true, side: 'SHORT', rule: 'SHORT_TOP_BREAK', top, hl, topAt: k[j][0], breakAt: k[q][0] };
+  // volumetric top (research F1): the last green candle at/before the top vs the 24 h median 5m volume
+  let topVolMult = null;
+  if (T.minTopVolMult > 0) {
+    let ob = null; for (let m = j; m >= Math.max(0, j - 6); m--) if (k[m][4] > k[m][1]) { ob = m; break; }
+    const w = []; for (let m = j - 1; m >= 0 && m >= j - W; m--) if (k[m][0] >= k[j][0] - DAY) w.push(k[m][5]);
+    const med = w.length >= 100 ? median(w) : null;
+    topVolMult = ob !== null && med > 0 ? k[ob][5] / med : null;
+    if (!(topVolMult !== null && topVolMult >= T.minTopVolMult)) return { ok: false, reason: 'V2_TOP_VOLUME_LOW', top, hl, topVolMult };
+  }
+  return { ok: true, side: 'SHORT', rule: 'SHORT_TOP_BREAK', top, hl, topAt: k[j][0], breakAt: k[q][0], topVolMult };
 }
 function topShortPlan(price, trig, lv, cfg = DEFAULT_CONFIG) {
   const T = cfg.top || DEFAULT_CONFIG.top, p = finite(price);

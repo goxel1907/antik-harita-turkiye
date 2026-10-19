@@ -681,7 +681,7 @@ const server = http.createServer(async (req, res) => {
       const snapshotId=String(u.searchParams.get('snapshotId')||'').trim();
       if(!/^[A-Z0-9]{1,28}USDT$/.test(symbol)) return send(res,400,{ok:false,error:'invalid symbol'});
       if(!['5m','15m'].includes(tf)) return send(res,400,{ok:false,error:'invalid tf'});
-      if(!['clean','annotated'].includes(mode)) return send(res,400,{ok:false,error:'invalid mode'});
+      if(!['clean','annotated','sade'].includes(mode)) return send(res,400,{ok:false,error:'invalid mode'});
       const upstream=await brainBinary('/chart/png',new URLSearchParams({symbol,tf,mode,bars:String(bars),...(snapshotId?{snapshotId}:{}),...(u.searchParams.get('htf')==='0'?{htf:'0'}:{}),...(u.searchParams.get('pos')==='0'?{pos:'0'}:{})}).toString());
       if(!upstream.ok)return send(res,upstream.status||503,{ok:false,error:upstream.error||'chart unavailable'});
       return send(res,200,upstream.data,'image/png');

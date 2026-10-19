@@ -16,7 +16,8 @@ test('R58 daily levels come from CLOSED days only: previous day / 7 days / 30 da
   const kd=Array.from({length:35},(_,i)=>{const t=D-(34-i)*DAY;const h=t===D-DAY?1.02:t===D-20*DAY?1.15:t===D?9.99:1.0;return [t,1,h,0.9,1];});
   const lv=T3.dailyLevels(kd,HOUR0+2*H);
   assert.equal(lv.pdh,1.02);assert.equal(lv.pwh,1.02);assert.equal(lv.pmh,1.15,'today (9.99) is not closed and never counts');
-  assert.deepEqual(T3.dailyLevels(kd.slice(-3),HOUR0+2*H),{day:D,pdh:1.02,pwh:null,pmh:null},'week needs 3 days, month 10');
+  assert.deepEqual(T3.dailyLevels(kd.slice(-3),HOUR0+2*H),{day:D,pdh:1.02,pwh:null,pmh:null,pdl:0.9,pwl:null,pml:null},'week needs 3 days, month 10');
+  assert.equal(lv.pdl,0.9);assert.equal(lv.pwl,0.9);assert.equal(lv.pml,0.9);
 });
 
 // breakout at bar q-2 through 1.02 with 5x volume, then a retest at q
@@ -73,6 +74,10 @@ test('R58 TOP SHORT fires on the first 5m close under the pre-top structure low;
   assert.equal(T3.topShortTrigger(topSeries({breakEarly:true})).reason,'V2_BREAK_ALREADY_PASSED','a passed break is not chased');
   assert.equal(T3.topShortTrigger(topSeries({newHighNow:true})).reason,'V2_NEW_HIGH_NOW');
   assert.equal(T3.topShortTrigger(topSeries().slice(0,-1)).reason,'V2_NO_BREAK_YET');
+  assert.equal(t.topVolMult,8,'the top candle (green, 800) vs the 100 median');
+  const thin=topSeries();for(let m=thin.length-10;m<thin.length-3;m++)thin[m][5]=150;
+  assert.equal(T3.topShortTrigger(thin).reason,'V2_TOP_VOLUME_LOW','no volume at the top = no distribution = no short');
+  assert.equal(T3.topShortTrigger(thin,{...T3.DEFAULT_CONFIG,top:{...T3.DEFAULT_CONFIG.top,minTopVolMult:0}}).ok,true,'0 switches the filter off');
   const p=T3.topShortPlan(1.04,t,{pdh:1.07,pwh:1.07,pmh:1.20});
   assert.equal(p.ok,true,JSON.stringify(p));assert.ok(Math.abs(p.stopPrice-1.08*1.003)<1e-12);assert.ok(Math.abs(p.tpPrice-1.04*(1-2.5*p.stopPct))<1e-12);
   assert.equal(T3.topShortPlan(1.04,t,{pdh:1.07,pwh:1.10,pmh:1.20}).reason,'V2_UNSWEPT_ZONE_ABOVE','the week high 1.10 is within 5 % above the top: the market maker goes there first');
@@ -244,4 +249,25 @@ test('R58 paper catch-up after a gap: the first 1m candle that crosses fills the
   assert.equal(Object.keys(paper.state.positions).length,0);
   assert.equal(paper.state.lastCatchUp.filled.length,2);
   const tr=paper.state.trades.filter(x=>x.symbol==='AUSDT');assert.equal(tr.at(-1).time,T+20*60000+30000,'booked at the minute the exchange would have filled it');
+});
+
+test('R58 sade chart: candles + day/week/month highs-lows + nearest volumetric OB + İlk 3 level / lot; Office shows it on top',async()=>{
+  const m=require('../market');
+  const t0=Date.parse('2026-10-15T00:00:00Z');let p=0.195;const candles=[];
+  for(let i=0;i<96;i++){const o=p;p=p*(1+Math.sin(i/7)*0.004);candles.push({openTime:t0+i*M5,closeTime:t0+(i+1)*M5-1,open:o,high:Math.max(o,p)*1.003,low:Math.min(o,p)*0.997,close:p,volume:100});}
+  const last=candles.at(-1).close;
+  const chart={candles,analysis:{orderBlocks:{bullish:[{low:last*0.98,high:last*0.99,at:candles[40].closeTime,volRel:2.4}],bearish:[]}}};
+  const png=m.renderChartPng(chart,'sade',{sade:{levels:{pdh:last*1.02,pwh:last*1.05,pdl:last*0.97},waiting:{side:'SHORT',reason:'V2_NO_BREAK_YET',top:last*1.03,hl:last*0.995}}});
+  assert.ok(Buffer.isBuffer(png)&&png.slice(1,4).toString()==='PNG');
+  assert.ok(m.renderChartPng(chart,'sade',{}).length>1000,'no overlay data still renders');
+  assert.throws(()=>m.renderChartPng(chart,'cluttered',{}),/invalid chart mode/);
+  // controller view for the chart: an open İlk 3 lot is returned (the route draws its box), levels from the 1d candles
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture();await f.controller.testSupervisorTick();await f.controller.top3Tick();
+  const v=await f.controller.top3ChartView('SIGUSDT');
+  assert.equal(v.ok,true);assert.equal(v.lot.side,'LONG');assert.equal(v.levels.pdh,1.02);assert.equal(v.levels.pmh,1.15);assert.equal(v.waiting,null);
+  assert.equal((await f.controller.top3ChartView('我踏马来了USDT')).ok,false);
+  const srv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.ok(srv.includes("if(mode==='sade'){")&&srv.includes('live.top3ChartView(symbol)'));
+  const os2=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');assert.ok(os2.includes("['clean','annotated','sade'].includes(mode)"));
+  const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');assert.ok(html.includes("mode:'sade'")&&html.includes('SADE — bölgeler + İlk 3'));
 });

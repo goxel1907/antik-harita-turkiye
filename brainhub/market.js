@@ -1210,12 +1210,14 @@ function encodePng(width, height, rgba) {
 }
 function renderChartPng(chart, mode = 'clean', options = {}) {
   mode = String(mode || 'clean').toLowerCase();
-  if (!['clean','annotated'].includes(mode)) throw new Error('invalid chart mode');
+  // R2544.58 'sade' (user 15.10: "grafik çizgilere boğulmasın"): candles + previous day/week/month highs/lows, the nearest
+  // order block on each side with its volume ratio, the İlk 3 level / lot - nothing else.
+  if (!['clean','annotated','sade'].includes(mode)) throw new Error('invalid chart mode');
   const candles = Array.isArray(chart?.candles) ? chart.candles : [];
   if (candles.length < 2) throw new Error('chart candles required');
   const width = 1280, height = 720;
   // CLAUDE_R2544_8_LABEL_GUTTER: sağ etiket sütunu 190→270 px (fiyat büyük yazı + ad küçük yazı; Office'te okunabilirlik).
-  const left = 24, right = width - (String(mode||'').toLowerCase()==='annotated' ? 330 : 190), top = 22, priceBottom = 555, volumeTop = 585, bottom = 700;
+  const left = 24, right = width - (mode==='annotated'||mode==='sade' ? 330 : 190), top = 22, priceBottom = 555, volumeTop = 585, bottom = 700;
   const pixels = Buffer.alloc(width * height * 4);
   const bg=[13,17,23,255], grid=[42,49,62,255], wick=[174,183,196,255];
   const bull=[46,204,113,255], bear=[231,76,60,255], volume=[76,106,146,255];
@@ -1298,7 +1300,8 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     const vh=(Number(c.volume)||0)/maxVol*(bottom-volumeTop);
     fillRect(x-half,bottom-vh,x+half,bottom,volume);
   }
-  if(mode==='annotated'){
+  if(mode==='annotated'||mode==='sade'){
+    const full=mode==='annotated';
     const closes=candles.map(x=>Number(x.close));
     function emaSeries(period){
       const a=2/(period+1), out=[];let v=closes[0];
@@ -1391,6 +1394,7 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
         if(Math.abs(ty-my)>2)line(right,ty,right+4,my,g.col);
       }
     };
+    if(full){
     path(emaSeries(20),[255,193,7,255]);
     path(emaSeries(50),[156,92,204,255]);
     const a=chart.analysis||{};
@@ -1497,6 +1501,33 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       }
     }
 
+    }
+    if(!full){
+      const so=options?.sade||{},lv=so.levels||{};
+      // previous day / week / month highs and lows: dashed over the right 40 %, the same price only once
+      const sx0=Math.round(right-(right-left)*0.40),seen=[];
+      const zl=[['pmh','ONCEKI AY TEPE',[255,82,82,255],1],['pwh','ONCEKI HAFTA TEPE',[255,138,101,255],1],['pdh','ONCEKI GUN TEPE',[255,183,77,255],2],
+        ['pdl','ONCEKI GUN DIP',[129,212,250,255],2],['pwl','ONCEKI HAFTA DIP',[79,195,247,255],1],['pml','ONCEKI AY DIP',[41,182,246,255],1]];
+      for(const [k,name,col,prio] of zl){const p=Number(lv[k]);if(!Number.isFinite(p)||p<pmin||p>pmax)continue;
+        if(!seen.some(q=>Math.abs(q-p)<=Math.abs(p)*0.0005)){seen.push(p);hline(p,col,sx0,true);}addLevel(p,name,col,prio);}
+      // the nearest unbroken order block below and above price, with its volume ratio (volumetric OB, display only)
+      const a0=chart.analysis||{},lastC=Number(candles.at(-1)?.close);
+      const pick=(list,below)=>(Array.isArray(list)?list:[]).filter(o=>!o?.broken&&Number.isFinite(Number(o?.low))&&Number.isFinite(Number(o?.high))&&(below?Number(o.high)<=lastC*1.002:Number(o.low)>=lastC*0.998))
+        .sort((x,y)=>below?Number(y.high)-Number(x.high):Number(x.low)-Number(y.low))[0]||null;
+      for(const [o,isBull] of [[pick(a0?.orderBlocks?.bullish,true),true],[pick(a0?.orderBlocks?.bearish,false),false]]){
+        if(!o)continue;const lo=Number(o.low),hi=Number(o.high),vr=Number(o.volRel);
+        blendRect(fromX(o.confirmedAt??o.at),yPrice(hi),right,yPrice(lo),isBull?[0,150,136]:[244,67,54],0.16);
+        addLevel((lo+hi)/2,`${isBull?'BOGA':'AYI'} OB${Number.isFinite(vr)?' '+vr.toFixed(1)+'X HCM':''}`,isBull?[64,224,208,255]:[255,110,100,255],2);
+      }
+      // İlk 3: the level the lane waits on (an open lot's box is the position overlay below)
+      const w=so.waiting;
+      if(w){const col=w.side==='LONG'?[105,240,174,255]:[255,138,128,255];
+        const lp=Number(w.level);if(Number.isFinite(lp)){hline(lp,col,sx0);line(sx0,yPrice(lp)+1,right,yPrice(lp)+1,col);addLevel(lp,'ILK3 KIRILIM',col,0);}
+        const tp=Number(w.top);if(Number.isFinite(tp)){hline(tp,col,sx0);addLevel(tp,'ILK3 TEPE',col,0);}
+        const hl=Number(w.hl);if(Number.isFinite(hl)){hline(hl,col,sx0,true);addLevel(hl,'ILK3 YAPI DIBI',col,1);}
+        text57(left+90,top+6,`ILK 3: ${w.side==='LONG'?'ERKEN LONG':'TEPE SHORT'} ${w.reason==='SIGNAL'?'SINYAL':'BEKLIYOR'}`,col,2);}
+      else if(so.lot)text57(left+90,top+6,`ILK 3: ${so.lot.side==='LONG'?'ERKEN LONG':'TEPE SHORT'} ACIK`,so.lot.side==='LONG'?[105,240,174,255]:[255,138,128,255],2);
+    }
     // CLAUDE_R2544_9_POSITION_OVERLAY: açık pozisyon (TradingView uzun/kısa pozisyon aracı gibi): girişten sağa yeşil hedef ve
     // kırmızı risk kutusu, giriş/stop/TP çizgileri ve LONG/SHORT etiketi. Yalnız görselleştirme; emir veya karar üretmez.
     const posn=options?.position;
@@ -1529,9 +1560,9 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     const gridCol=[120,132,150,255];
     const fmtA=p=>{const n=Number(p);const d=Math.abs(n)>=100?2:Math.abs(n)>=1?4:6;return n.toFixed(d);};
     for(let i=0;i<=6;i++){const y=Math.round(top+(priceBottom-top)*i/6);const pv=pmax-(pmax-pmin)*i/6;
-      if(mode==='annotated'){const t=fmtA(pv);fillRect(left+2,y+2,left+6+t.length*6,y+11,[13,17,23,255]);text57(left+4,y+3,t,gridCol,1);}
+      if(mode!=='clean'){const t=fmtA(pv);fillRect(left+2,y+2,left+6+t.length*6,y+11,[13,17,23,255]);text57(left+4,y+3,t,gridCol,1);}
       else{const lp0=Number(candles.at(-1)?.close);if(Number.isFinite(lp0)&&Math.abs(yPrice(lp0)-y)<16)continue;text57(right+10,Math.max(top,Math.min(priceBottom-14,y-7)),fmtA(pv),gridCol,2);}}
-    if(mode!=='annotated'){const lp=Number(candles.at(-1)?.close),lo=Number(candles.at(-1)?.open);if(Number.isFinite(lp)){const y=Math.round(yPrice(lp));const c=lp>=lo?[38,166,154,255]:[239,83,80,255];
+    if(mode==='clean'){const lp=Number(candles.at(-1)?.close),lo=Number(candles.at(-1)?.open);if(Number.isFinite(lp)){const y=Math.round(yPrice(lp));const c=lp>=lo?[38,166,154,255]:[239,83,80,255];
       for(let x=left;x<right;x+=6)line(x,y,Math.min(right,x+3),y,c);const t=fmtA(lp);fillRect(right+4,y-9,right+14+t.length*12,y+9,c);text57(right+9,y-6,t,[255,255,255,255],2);}}
   }
   line(left,volumeTop-8,right,volumeTop-8,grid);

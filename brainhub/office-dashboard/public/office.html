@@ -334,8 +334,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       </div>
       <div class="mirror-charts stacked" id="mirrorCharts">
         <figure class="mirror-figure">
-          <div class="mh"><b>Piyasa / TEMİZ</b><span id="mirrorCleanLabel">—</span></div>
-          <div class="mirror-vp"><img id="mirrorClean" alt="Seçilen coinin temiz canlı grafiği" draggable="false"></div>
+          <div class="mh"><b>SADE — bölgeler + İlk 3</b><span id="mirrorCleanLabel">—</span></div>
+          <div class="mirror-vp"><img id="mirrorClean" alt="Sade grafik: önceki gün/hafta/ay tepe-dip, en yakın hacimli OB, İlk 3 seviyesi ve açık işlem" draggable="false"></div>
         </figure>
         <figure class="mirror-figure">
           <div class="mh"><b>JEV + Vision / TAM AÇIKLAMALI</b><span id="mirrorAnnotatedLabel">—</span></div>
@@ -349,7 +349,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
         <span>Premium/Discount/Aralık dışı</span><span>FVG + CE50</span><span>Boğa/Ayı OB</span>
         <span>OTE Alış/Satış</span><span>Fib .382/.5/.618/.705/.786</span>
         <span>Önceki20 + Eşit Tepe/Dip</span><span>Swing + BOS/CHoCH referansı</span>
-        <span>Gözlenen tasfiye bölgeleri</span>
+        <span>Gözlenen tasfiye bölgeleri</span><span>SADE: kesikli = önceki gün/hafta/ay tepe-dip • kalın yeşil/kırmızı = İlk 3 kırılım/tepe • OB “2.4X HCM” = hacim, 24 saat ortancasının katı • kutu = açık işlem</span>
         <span>Seviyeler oluştuğu mumdan sağa çizilir</span><span>Kesikli = üst TF / fiyat / tasfiye</span><span>Yeşil/kırmızı kutu = açık pozisyon hedef/risk</span>
       </div>
       <div class="mirror-details">
@@ -1586,7 +1586,8 @@ async function renderMirror(s){
     if(seq!==mirrorSeq)return;
     if(!r.ok||!j?.ok)throw new Error(j?.error||'mirror unavailable');
     const snapshotId=String(j.snapshotId||'');
-    const cleanUrl='/api/chart'+mirrorQuery({symbol,tf,mode:'clean',bars:mirrorBars,snapshotId,_:stamp});
+    // R2544.58: the upper chart is SADE (zones + İlk 3 only); the full SMC chart stays below
+    const cleanUrl='/api/chart'+mirrorQuery({symbol,tf,mode:'sade',bars:mirrorBars,snapshotId,_:stamp,...(mirrorOpts.pos?{}:{pos:'0'})});
     const annotatedUrl='/api/chart'+mirrorQuery({symbol,tf,mode:'annotated',bars:mirrorBars,snapshotId,_:stamp,...(mirrorOpts.htf?{}:{htf:'0'}),...(mirrorOpts.pos?{}:{pos:'0'})});
     await Promise.all([
       loadMirrorImage(clean,cleanUrl,seq),
@@ -1597,7 +1598,7 @@ async function renderMirror(s){
     // during loading/error; never publish one half of a new pair or an old request.
     if(clean){clean.src=cleanUrl;clean.style.opacity='1';}
     if(annotated){annotated.src=annotatedUrl;annotated.style.opacity='1';}
-    $('#mirrorCleanLabel').textContent=`${symbol} • ${tf}`;
+    $('#mirrorCleanLabel').textContent=`${symbol} • ${tf} • gün/hafta/ay tepe-dip • en yakın OB (hacim) • İlk 3`;
     $('#mirrorAnnotatedLabel').textContent=`${symbol} • ${tf} • TAM SMC + LİKİDİTE`;
     const p=j.packet||{}, f=p?.coreFrames?.[tf]||{}, smc=f?.smcContext||{};
     const ob=f?.orderBlocks||{}, ms=p?.microstructure||{}, der=p?.derivatives||{}, liq=p?.observedLiquidations||{};
@@ -1819,7 +1820,7 @@ const T3TR={TOP3_MARGIN_INVALID:'marj en az 5 USDT olmalı',TOP3_LEVERAGE_INVALI
   LONG_EARLY_RETEST:'Erken LONG (5 dk geri test)',SHORT_TOP_BREAK:'Tepe SHORT (5 dk kırılım)',TOP3_LONG_EARLY_RETEST:'Erken LONG (5 dk geri test)',TOP3_SHORT_TOP_BREAK:'Tepe SHORT (5 dk kırılım)',
   V2_WAITING_RETEST:'kırılım var, geri test bekleniyor (kovalamaz)',V2_RETEST_ALREADY_PASSED:'geri test geçti (kaçırıldı, kovalanmaz)',V2_BREAKOUT_FAILED:'kırılım geri alındı',V2_BREAKOUT_VOLUME_LOW:'kırılım hacmi 3×’in altında',
   V2_CONTEXT:'sıra / tırmanış koşulu yok',V2_NO_BREAK_YET:'yeni tepe var, 5 dk yapı kırılımı bekleniyor',V2_BREAK_ALREADY_PASSED:'yapı kırılımı geçti (kovalanmaz)',V2_NEW_HIGH_NOW:'şu an yeni tepe yapıyor',
-  V2_STOP_OUT_OF_RANGE:'stop mesafesi bant dışında',V2_ZONE_TOO_CLOSE:'üstteki likidasyon bölgesi 2R’den yakın (LONG yok)',V2_UNSWEPT_ZONE_ABOVE:'hemen üstte alınmamış bölge var (SHORT yok)',V2_WEEKLY_NOT_SWEPT:'haftalık tepe alınmadı',
+  V2_STOP_OUT_OF_RANGE:'stop mesafesi bant dışında',V2_ZONE_TOO_CLOSE:'üstteki likidasyon bölgesi 2R’den yakın (LONG yok)',V2_UNSWEPT_ZONE_ABOVE:'hemen üstte alınmamış bölge var (SHORT yok)',V2_WEEKLY_NOT_SWEPT:'haftalık tepe alınmadı',V2_TOP_VOLUME_LOW:'tepede hacim yok (dağıtım görünmüyor)',
   TOP3_COOLDOWN:'aynı coinde bekleme süresi',TOP3_STOP_COOLDOWN:'aynı coinde stop sonrası 24 saat bekleme',TOP3_RISK_SIZE_INVALID:'risk büyüklüğü hesaplanamadı',TOP3_RANK_BOOK_STALE:'sıra defteri eski',
   RANK_OUT_OF_BAND:'sıra 4–24 dışında',NOT_CLIMBING:'3 saatte tırmanmıyor',WAS_TOP3_RECENTLY:'48 saatte ilk 3’te bulunmuş',R24_OUT_OF_BAND:'24 saat +%5…+%40 dışında',RANK_HOUR_MISSING:'sıra saati yok',
   PDH:'önceki gün tepesi',PWH:'önceki hafta tepesi',PMH:'önceki ay tepesi',TOP3_BE_STOP:'başabaş stop (1R sonrası korundu)',TOP3_FUNDING_LONGS_CROWDED:'fonlama pozitif: longçular kalabalık (LONG yok)'};
@@ -1866,7 +1867,7 @@ function renderTop3(s){
   const v2=t.rules?.rulesVersion===2,rk=Number(t.rules?.riskPct);
   if(st&&v2)html+=`<p>Büyüklük: <b>stopta hesabın %${esc((rk*100).toLocaleString('tr-TR',{maximumFractionDigits:2}))}’i</b> kaybedilecek kadar (stop mesafesine göre); en çok marj ${st.marginAuto?'otomatik (panel marjı, serbest bakiyenin en çok %25’i)':esc(st.marginQuote)+' USDT'} × <b>${esc(st.leverage)}x</b>. Kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür.</p>`;
   else if(st)html+=`<p>Marj: <b>${st.marginAuto?'otomatik':esc(st.marginQuote)+' USDT'}</b>${st.marginAuto?' (panel marjı, serbest bakiyenin en çok %25’i)':' (serbest bakiyenin en çok %95’i)'} • kaldıraç <b>${esc(st.leverage)}x</b> → LONG etkin <b>${esc(st.effectiveLong)}x</b> (stop −%8: tasfiyeden önce stop için en çok ${esc(st.safeLeverage?.long)}x) • SHORT stop mesafesine göre işlem başına en çok ${esc(st.safeLeverage?.shortMin)}–${esc(st.safeLeverage?.shortMax)}x</p>`;
-  if(v2)html+=`<p class="t3rule">Kurallar (v2, her kapanan <b>5 dk</b> mumda; saatlik mum beklenmez): <b>Erken LONG</b> — coin 4–24. sırada ve 3 saatte en az 3 sıra tırmanmış, 48 saatte ilk 3’e girmemiş, 24 saat +%5…+%40; 5 dk mum ${t.rules?.early?.htfOnly?'önceki hafta/ay tepesini':'önceki gün/hafta/ay tepesini'} (short likidasyon bölgesi) 24 saatlik ortancanın ≥ 3× hacmiyle kırar. <b>Kovalamaz</b>: yalnız kırılan seviyeye ilk geri testte girer (geri test gelmezse işlem yok). Stop geri testin altı (%1,2–4,5); hedef bir üstteki gün/hafta/ay tepesinin hemen altı. O bölge 2R’den yakınsa LONG yok; üstte bölge yoksa 3R.${t.rules?.early?.beAtR?' '+esc(t.rules.early.beAtR)+'R kârdan sonra borsadaki stop başabaşa çekilir.':''} <b>Tepe SHORT</b> — 24 saatte ilk 10’a girmiş coin 5 dk’da yeni 24 saatlik tepe yapar ve 12 mum içinde tepeden önceki 6 mumun dibinin altında kapanır.${t.rules?.top?.requireWeeklySwept?' Tepe önceki haftanın tepesini almış olmalı (likidasyon bölgesi süpürülmüş).':''} Stop tepenin üstü (%1,5–6), hedef 2,5R; tepenin %5 üstünde alınmamış gün/hafta/ay tepesi varsa SHORT yok. Aynı coinde girişten sonra 24 sa (LONG) / 12 sa (SHORT) bekler; stop sonrası 24 saat aynı yöne girmez. En çok 24 saat.</p>`;
+  if(v2)html+=`<p class="t3rule">Kurallar (v2, her kapanan <b>5 dk</b> mumda; saatlik mum beklenmez): <b>Erken LONG</b> — coin 4–24. sırada ve 3 saatte en az 3 sıra tırmanmış, 48 saatte ilk 3’e girmemiş, 24 saat +%5…+%40; 5 dk mum ${t.rules?.early?.htfOnly?'önceki hafta/ay tepesini':'önceki gün/hafta/ay tepesini'} (short likidasyon bölgesi) 24 saatlik ortancanın ≥ 3× hacmiyle kırar. <b>Kovalamaz</b>: yalnız kırılan seviyeye ilk geri testte girer (geri test gelmezse işlem yok). Stop geri testin altı (%1,2–4,5); hedef bir üstteki gün/hafta/ay tepesinin hemen altı. O bölge 2R’den yakınsa LONG yok; üstte bölge yoksa 3R.${t.rules?.early?.beAtR?' '+esc(t.rules.early.beAtR)+'R kârdan sonra borsadaki stop başabaşa çekilir.':''} <b>Tepe SHORT</b> — 24 saatte ilk 10’a girmiş coin 5 dk’da yeni 24 saatlik tepe yapar ve 12 mum içinde tepeden önceki 6 mumun dibinin altında kapanır.${t.rules?.top?.requireWeeklySwept?' Tepe önceki haftanın tepesini almış olmalı (likidasyon bölgesi süpürülmüş).':''}${Number(t.rules?.top?.minTopVolMult)>0?' Tepedeki son yeşil mumun hacmi 24 saat ortancasının en az '+esc(t.rules.top.minTopVolMult)+' katı (hacimli tepe = dağıtım).':''} Stop tepenin üstü (%1,5–6), hedef 2,5R; tepenin %5 üstünde alınmamış gün/hafta/ay tepesi varsa SHORT yok. Aynı coinde girişten sonra 24 sa (LONG) / 12 sa (SHORT) bekler; stop sonrası 24 saat aynı yöne girmez. En çok 24 saat.</p>`;
   else html+=`<p class="t3rule">Kurallar (saatlik mum kapanışında): <b>LONG 6/6</b> — 1 saatte ≥ +%3, hacim ≥ 33,9× (7 gün ortancası), 7 günlük zirve kırılımı, 24 saat ≥ +%13,3, sıra ≤ 7, son 7 günde ilk 10’a girmiş, oynaklık ≥ %1,34, BTC 24 saat ≤ +%1,29 → stop −%8, hedef +%30, en çok 24 saat. <b>SHORT tepe sonrası</b> — 24 saatte ilk 3’e girmiş, 24 saatlik tepeden ≥ %15 aşağıda, kırmızı saat, hacim ≥ 3× → stop son 3 saatin tepesinin %1 üstü (%2–8), hedef −%10, en çok 24 saat. ${esc(t.rules?.leverage??10)}x; marj: panel marjı, serbest bakiyenin en çok %25’i.</p>`;
   for(const a of t.active||[]){
     html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.signalKind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.jev?.decision?' • JEV '+esc(a.jev.decision):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}</div></div>`;
