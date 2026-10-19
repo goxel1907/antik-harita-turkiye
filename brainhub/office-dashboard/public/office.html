@@ -1521,7 +1521,17 @@ function mirrorCandidates(s){
   };
   // CLAUDE_R2544_8: AÇIK POZİSYONLAR her zaman listenin başında (Office'te açılan işlem aynada kendiliğinden görünür).
   for(const p of s?.positions?.data?.open||[])add(p?.symbol);
-  // Sonra şu an grafik/kanıt hattında okunan coin, sonra son JEV kararı.
+  // R2544.61_MIRROR_LIST (user 19.10: "grafik ekranındaki coinler ile top 24 uymuyor"): after open positions the İlk 3
+  // coins (open lots, this 5 m scan's signals / waiting coins, recent signals), then the live top 24 gainer ladder.
+  // The old JEV lane's plans / analysis rows only while the normal system (OTO) is actually running.
+  const t3=s?.top3||{};
+  for(const a of t3.active||[])add(a?.symbol);
+  for(const x of t3.lastScan5?.signals||[])add(x?.symbol);
+  for(const x of t3.lastScan5?.nearMisses||[])add(x?.symbol);
+  for(const x of t3.recentSignals||[])add(x?.symbol);
+  for(const r of s?.ladder?.gainerLadder?.rows||[])add(r?.symbol);
+  if(s?.status?.data?.tradingMode?.run?.lanes?.normal?.active!==true){if(!out.length)add('BTCUSDT');return out;}
+  // Normal system on: also the coin the chart/evidence lane reads now and the last JEV decision.
   add(s?.visionProgress?.data?.symbol);
   add(s?.status?.data?.leaderAuto?.currentSymbol);
   add(s?.lastJev?.symbol);
@@ -1551,7 +1561,9 @@ function syncMirrorSymbol(s){
     const openSig=sig+'#'+(s?.positions?.data?.open||[]).map(p=>String(p?.symbol||'').toUpperCase()).join(',');
     if(sel.dataset.sig!==openSig){
       const openSet=new Set((s?.positions?.data?.open||[]).map(p=>String(p?.symbol||'').toUpperCase()));
-      sel.innerHTML=choices.map(x=>`<option value="${esc(x)}">${openSet.has(x)?'● ':''}${esc(x.replace(/USDT$/,''))}/USDT${openSet.has(x)?' — AÇIK POZİSYON':''}</option>`).join('');
+      const rankOf=new Map((s?.ladder?.gainerLadder?.rows||[]).map(r=>[String(r?.symbol||'').toUpperCase(),r?.rank]));
+      const t3Set=new Set([...(s?.top3?.active||[]),...(s?.top3?.lastScan5?.signals||[]),...(s?.top3?.lastScan5?.nearMisses||[]),...(s?.top3?.recentSignals||[])].map(x=>String(x?.symbol||'').toUpperCase()));
+      sel.innerHTML=choices.map(x=>`<option value="${esc(x)}">${openSet.has(x)?'● ':''}${rankOf.has(x)?'#'+esc(rankOf.get(x))+' ':''}${esc(x.replace(/USDT$/,''))}/USDT${openSet.has(x)?' — AÇIK POZİSYON':t3Set.has(x)?' — İlk 3':''}</option>`).join('');
       sel.dataset.sig=sig+'#'+[...openSet].join(',');
     }
     sel.value=mirrorSymbol;
@@ -1904,6 +1916,10 @@ function renderTop3(s){
   if(st&&v2&&!st.marginAuto)html+=`<p>Büyüklük: <b>girilen marj ${esc(st.marginQuote)} USDT × ${esc(st.leverage)}x</b> (TEST’te sanal cüzdan, CANLI’da Binance bakiyesi okunur; marj serbest bakiyenin en çok %95’i). Kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür; stopta kayıp ≈ marj × kaldıraç × stop %.</p>`;
   else if(st&&v2)html+=`<p>Büyüklük: <b>stopta hesabın %${esc((rk*100).toLocaleString('tr-TR',{maximumFractionDigits:2}))}’i</b> kaybedilecek kadar (stop mesafesine göre); en çok marj ${st.marginAuto?'otomatik (panel marjı, serbest bakiyenin en çok %25’i)':esc(st.marginQuote)+' USDT'} × <b>${esc(st.leverage)}x</b>. Kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür.</p>`;
   else if(st)html+=`<p>Marj: <b>${st.marginAuto?'otomatik':esc(st.marginQuote)+' USDT'}</b>${st.marginAuto?' (panel marjı, serbest bakiyenin en çok %25’i)':' (serbest bakiyenin en çok %95’i)'} • kaldıraç <b>${esc(st.leverage)}x</b> → LONG etkin <b>${esc(st.effectiveLong)}x</b> (stop −%8: tasfiyeden önce stop için en çok ${esc(st.safeLeverage?.long)}x) • SHORT stop mesafesine göre işlem başına en çok ${esc(st.safeLeverage?.shortMin)}–${esc(st.safeLeverage?.shortMax)}x</p>`;
+  // R2544.61_MARGIN_WARN: an entered margin above 95 % of the free balance (TEST wallet / Binance) opens nothing
+  {const sd=last?.status?.data||{},pk=sd.tradingMode?.mode==='TEST'?sd.tradingMode?.paper:null,ac=last?.account?.data||{};
+   const av=pk?Number(pk.available):Number(ac.availableBalance??ac.account?.availableBalance),mq=Number(t.settings?.marginQuote);
+   if(t.settings&&!t.settings.marginAuto&&Number.isFinite(av)&&mq>av*0.95)html+=`<p class="bad"><b>Uyarı: marj ${esc(mq)} USDT, kullanılabilir bakiye ${esc(av.toFixed(2))} USDT.</b> Marj serbest bakiyenin en çok %95’i (${esc((av*0.95).toFixed(2))} USDT) olabilir; bu ayarla İlk 3 işlem AÇAMAZ (sinyal “marj serbest bakiyeyi aşıyor” diye engellenir). Marjı düşürün${pk?' ya da TEST bakiyesini yükseltip “TEST’i sıfırla”ya basın':''}.</p>`;}
   if(v2)html+=`<p class="t3rule">Kurallar (v2, her kapanan <b>5 dk</b> mumda; saatlik mum beklenmez): <b>Erken LONG</b> — coin 4–24. sırada ve 3 saatte en az 3 sıra tırmanmış, 48 saatte ilk 3’e girmemiş, 24 saat +%5…+%40; 5 dk mum ${t.rules?.early?.htfOnly?'önceki hafta/ay tepesini':'önceki gün/hafta/ay tepesini'} (short likidasyon bölgesi) 24 saatlik ortancanın ≥ 3× hacmiyle kırar. <b>Kovalamaz</b>: yalnız kırılan seviyeye ilk geri testte girer (geri test gelmezse işlem yok). Stop geri testin altı (%1,2–4,5); hedef bir üstteki gün/hafta/ay tepesinin hemen altı. O bölge 2R’den yakınsa LONG yok; üstte bölge yoksa 3R.${t.rules?.early?.beAtR?' '+esc(t.rules.early.beAtR)+'R kârdan sonra borsadaki stop başabaşa çekilir.':''} <b>Tepe SHORT</b> — 24 saatte ilk 10’a girmiş coin 5 dk’da yeni 24 saatlik tepe yapar ve 12 mum içinde tepeden önceki 6 mumun dibinin altında kapanır.${t.rules?.top?.requireWeeklySwept?' Tepe önceki haftanın tepesini almış olmalı (likidasyon bölgesi süpürülmüş).':''}${Number(t.rules?.top?.minTopVolMult)>0?' Tepedeki son yeşil mumun hacmi 24 saat ortancasının en az '+esc(t.rules.top.minTopVolMult)+' katı (hacimli tepe = dağıtım).':''} Stop tepenin üstü (%1,5–6), hedef 2,5R; tepenin %5 üstünde alınmamış gün/hafta/ay tepesi varsa SHORT yok. Aynı coinde girişten sonra 24 sa (LONG) / 12 sa (SHORT) bekler; stop sonrası 24 saat aynı yöne girmez. En çok 24 saat.</p>`;
   else html+=`<p class="t3rule">Kurallar (saatlik mum kapanışında): <b>LONG 6/6</b> — 1 saatte ≥ +%3, hacim ≥ 33,9× (7 gün ortancası), 7 günlük zirve kırılımı, 24 saat ≥ +%13,3, sıra ≤ 7, son 7 günde ilk 10’a girmiş, oynaklık ≥ %1,34, BTC 24 saat ≤ +%1,29 → stop −%8, hedef +%30, en çok 24 saat. <b>SHORT tepe sonrası</b> — 24 saatte ilk 3’e girmiş, 24 saatlik tepeden ≥ %15 aşağıda, kırmızı saat, hacim ≥ 3× → stop son 3 saatin tepesinin %1 üstü (%2–8), hedef −%10, en çok 24 saat. ${esc(t.rules?.leverage??10)}x; marj: panel marjı, serbest bakiyenin en çok %25’i.</p>`;
   for(const a of t.active||[]){
