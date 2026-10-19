@@ -88,8 +88,21 @@ function openStore(root) {
       return { id:row.id, ts:row.ts, kind:row.kind, symbol:row.symbol, payload };
     }).filter(x => x.payload);
   }
+  // R2544.59_OFFICE_RECORDS_CACHE: every Office/phone/chart poll re-read ~79k rows (61 MB) and re-parsed them
+  // (core ~80 MB/s disk reads). The journal is append-only (only `outcome`, not selected here, is updated), so the
+  // parsed rows are kept and only rows added since the last call are read. Rows are shared: callers read, never mutate.
+  const officeMaxRowid = db.prepare('SELECT MAX(rowid) AS m FROM journal');
+  const officeSince = db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE rowid>? AND rowid<=? AND kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY rowid");
+  let officeCache = { lastRowid:0, rows:[] };
   function officeRecords() {
-    return db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY ts DESC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
+    const top = Number(officeMaxRowid.get().m) || 0;
+    if (top < officeCache.lastRowid) officeCache = { lastRowid:0, rows:[] };
+    if (top > officeCache.lastRowid) {
+      const fresh = officeSince.all(officeCache.lastRowid, top).map(x => ({ ...x, payload:JSON.parse(x.payload) }));
+      if (fresh.length) { officeCache.rows.push(...fresh); officeCache.rows.sort((a, b) => b.ts - a.ts); }
+      officeCache.lastRowid = top;
+    }
+    return officeCache.rows.slice();
   }
   function getJournal(limit = 50) {
     return list.all(Math.max(1, Math.min(200, Number(limit) || 50))).map(x => ({ ...x, payload: JSON.parse(x.payload) }));

@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.58-TOP3-V2'
+$EXPECTED_RELEASE = 'R2544.59-FAST-STORE'
 $EXPECTED_OFFICE = '2.5.38-R2544.58-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
