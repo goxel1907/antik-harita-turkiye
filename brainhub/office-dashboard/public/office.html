@@ -282,6 +282,9 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="mbtns">
       <label class="mbal" title="TEST sanal başlangıç bakiyesi">TEST bakiye <input id="testBalance" type="number" min="1" step="1" value="200"> USDT</label>
       <button id="btnLaneNormal" disabled title="5 dk / 15 dk / vur-kaç: kararı yalnız JEV verir">Normal sistem (JEV): —</button>
+      <button id="btnLaneScalp" disabled title="Normal sistemin 5 dk scalp hattı (hızlı hat dahil)">5 dk scalp: —</button>
+      <button id="btnLane15m" disabled title="Normal sistemin 15 dk ana işlem hattı">15 dk ana işlem: —</button>
+      <button id="btnLaneBurst" disabled title="Normal sistemin vur-kaç hattı (canlıda ayrıca izin gerekir)">Vur-kaç: —</button>
       <button id="btnLaneTop3" disabled title="İlk 3 Avcısı: kural (JEV modu açıksa kural + JEV)">İlk 3 Avcısı: —</button>
       <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button>
       <button id="btnGoTest" disabled style="display:none">CANLI’yı kapat — TEST’e dön</button>
@@ -1712,7 +1715,7 @@ async function renderMirror(s){
 // R2544.52 (07.10, kullanıcı): "TEST, 200 USDT yatırmışım gibi kendiliğinden çalışsın; OTO aç'a bastığımda Binance'teki
 // bakiye ve marjla canlıya geçsin." Tek çekirdek ucu POST /live/run: GO_LIVE (OTO aç), GO_TEST (OTO kapat), START_TEST,
 // RESET_TEST, STOP. Tarayıcı penceresi (confirm/prompt) yok: onay = aynı düğmeye 6 sn içinde ikinci basış; Durdur tek basış.
-const MODE_REASONS={LIVE_SHUTDOWN_CONFIRMATION_REQUIRED:'CANLI’da kapatmak için LIVE onayı gerekir',LANES_NONE_SELECTED:'Önce en az bir hat seçin (Normal sistem veya İlk 3 Avcısı)',LANE_SWITCH_MISSING:'Hat seçimi eksik',TOP3_CLOSE_PENDING:'İlk 3 işlemlerinin kapanış kaydı bekleniyor',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'CANLI için açık onay gerekli',DISARM_FIRST:'Önce Durdur’a basın',BURST_ACTIVE:'Aktif vur-kaç var; kapanması bekleniyor',TEST_POSITION_OPEN:'Sanal pozisyon kapanıyor',POSITION_OPEN:'Açık gerçek pozisyon var (JEV yönetiyor); kapanınca TEST’e dönülür',REAL_POSITION_OPEN:'Binance’te açık gerçek pozisyon var; önce onu kapatın',EXPLICIT_MODE_CONFIRMATION_REQUIRED:'Onay eksik',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'Onay eksik',TRADING_MODE_INVALID:'Geçersiz mod',POSITION_CLOSE_PENDING:'Kapanan pozisyonun kaydı bekleniyor',BINANCE_BALANCE_TOO_LOW:'Binance bakiyesi OTO marjından az',BINANCE_ACCOUNT_UNREADABLE:'Binance hesabı okunamadı',BINANCE_CREDENTIALS_REQUIRED:'Binance API anahtarı yok',NOT_IN_TEST_MODE:'Sistem TEST modunda değil',SWITCH_IN_PROGRESS:'Bir geçiş sürüyor; bitmesini bekleyin',TEST_CLOSE_NOT_CONFIRMED:'Sanal pozisyonların kapanışı 5 dk’da doğrulanamadı; TEST’e dönüldü',LIVE_ARM_FAILED:'Canlı başlatma reddedildi; TEST’e dönüldü',LEADER_AUTO_CONFIG_INVALID:'OTO ayarı geçersiz',MODE_CHANGED_DURING_SWITCH:'Geçiş sırasında mod değişti',RUN_ACTION_INVALID:'Geçersiz işlem'};
+const MODE_REASONS={LIVE_SHUTDOWN_CONFIRMATION_REQUIRED:'CANLI’da kapatmak için LIVE onayı gerekir',LANES_NONE_SELECTED:'Önce en az bir hat seçin (Normal sistem veya İlk 3 Avcısı)',LANE_SWITCH_MISSING:'Hat seçimi eksik',LANE_NOT_SELECTED_5M_SCALP:'5 dk scalp hattı seçili değil',LANE_NOT_SELECTED_15M_TRADE:'15 dk ana işlem hattı seçili değil',LANE_UNKNOWN_SUB_LANE_OFF:'hattı belirsiz plan (5 dk veya 15 dk kapalıyken girilmez)',BURST_LANE_NOT_SELECTED:'vur-kaç hattı seçili değil',TOP3_CLOSE_PENDING:'İlk 3 işlemlerinin kapanış kaydı bekleniyor',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'CANLI için açık onay gerekli',DISARM_FIRST:'Önce Durdur’a basın',BURST_ACTIVE:'Aktif vur-kaç var; kapanması bekleniyor',TEST_POSITION_OPEN:'Sanal pozisyon kapanıyor',POSITION_OPEN:'Açık gerçek pozisyon var (JEV yönetiyor); kapanınca TEST’e dönülür',REAL_POSITION_OPEN:'Binance’te açık gerçek pozisyon var; önce onu kapatın',EXPLICIT_MODE_CONFIRMATION_REQUIRED:'Onay eksik',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'Onay eksik',TRADING_MODE_INVALID:'Geçersiz mod',POSITION_CLOSE_PENDING:'Kapanan pozisyonun kaydı bekleniyor',BINANCE_BALANCE_TOO_LOW:'Binance bakiyesi OTO marjından az',BINANCE_ACCOUNT_UNREADABLE:'Binance hesabı okunamadı',BINANCE_CREDENTIALS_REQUIRED:'Binance API anahtarı yok',NOT_IN_TEST_MODE:'Sistem TEST modunda değil',SWITCH_IN_PROGRESS:'Bir geçiş sürüyor; bitmesini bekleyin',TEST_CLOSE_NOT_CONFIRMED:'Sanal pozisyonların kapanışı 5 dk’da doğrulanamadı; TEST’e dönüldü',LIVE_ARM_FAILED:'Canlı başlatma reddedildi; TEST’e dönüldü',LEADER_AUTO_CONFIG_INVALID:'OTO ayarı geçersiz',MODE_CHANGED_DURING_SWITCH:'Geçiş sırasında mod değişti',RUN_ACTION_INVALID:'Geçersiz işlem'};
 let modeBusy=false, modeState=null;
 const usdt=v=>{const n=num(v);return n===null?'—':n.toFixed(2)+' USDT';};
 const usdtS=v=>{const n=num(v);return n===null?'—':(n>0?'+':'')+n.toFixed(2)+' USDT';};
@@ -1746,9 +1749,14 @@ function renderMode(s){
   if(lanes){
     const lb=(id,label,on,extra)=>{const b=$('#'+id);if(!b)return;b.textContent=`${label}: ${on?'AÇIK':'KAPALI'}${extra||''}`;b.classList.add('lane');b.classList.toggle('on',!!on);b.disabled=modeBusy;b.style.display='';};
     lb('btnLaneNormal','Normal sistem (JEV)',lanes.normal?.selected);
+    // R2544.60_SUB_LANES: the normal system's sub-lanes; each one can be on/off before going LIVE (1 or all lanes)
+    const sub=lanes.normal?.sub||{};
+    lb('btnLaneScalp','5 dk scalp',sub.scalp5m?.selected);
+    lb('btnLane15m','15 dk ana işlem',sub.trade15m?.selected);
+    lb('btnLaneBurst','Vur-kaç',sub.burst?.selected,mode==='LIVE'&&sub.burst?.selected&&!sub.burst?.liveAllowed?' • canlıda kapalı':'');
     lb('btnLaneTop3','İlk 3 Avcısı',lanes.top3?.selected,lanes.top3?.selected?(lanes.top3.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz'):'');
     info+=`<br>Hatlar: Normal sistem (yalnız JEV karar verir) <b>${lanes.normal?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.normal?.active?' • çalışıyor':''} • İlk 3 Avcısı <b>${lanes.top3?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.top3?.active?' • çalışıyor':''}${mode==='LIVE'&&lanes.top3?.selected&&!lanes.top3?.liveAllowed?' • (canlıda değil)':''}`;
-  } else for(const id of ['btnLaneNormal','btnLaneTop3']){const b=$('#'+id);if(b)b.style.display='none';}
+  } else for(const id of ['btnLaneNormal','btnLaneScalp','btnLane15m','btnLaneBurst','btnLaneTop3']){const b=$('#'+id);if(b)b.style.display='none';}
   let warn='';
   if(run){
     info+=`<br>Durum: <b>${RUN_TR[state]||state}</b>${run.switch?.waiting?.length&&busy?' — bekleniyor: '+esc(reasonsTr(run.switch.waiting)):''} • son 60 dk: tarama <b>${scans}</b> • JEV analizi ${analyses} • JEV yön kararı ${dirs} / BEKLE ${waits} • emir ${orders}`
@@ -1893,7 +1901,8 @@ function renderTop3(s){
     html+=`<p>Bu 24 saatte: ${Number(tw.okScans)||0}/${Number(tw.scans)||0} tarama başarılı • ${Number(tw.signals)||0} sinyal • ${Number(tw.entries)||0} işlem • ${wr&&wr.closed?`kapanan ${wr.closed} (${wr.wins} kazanç / ${wr.losses} kayıp) • net ${pnl(wr.netPnl)}`:'kapanan işlem yok'}</p>`;
   }
   const v2=t.rules?.rulesVersion===2,rk=Number(t.rules?.riskPct);
-  if(st&&v2)html+=`<p>Büyüklük: <b>stopta hesabın %${esc((rk*100).toLocaleString('tr-TR',{maximumFractionDigits:2}))}’i</b> kaybedilecek kadar (stop mesafesine göre); en çok marj ${st.marginAuto?'otomatik (panel marjı, serbest bakiyenin en çok %25’i)':esc(st.marginQuote)+' USDT'} × <b>${esc(st.leverage)}x</b>. Kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür.</p>`;
+  if(st&&v2&&!st.marginAuto)html+=`<p>Büyüklük: <b>girilen marj ${esc(st.marginQuote)} USDT × ${esc(st.leverage)}x</b> (TEST’te sanal cüzdan, CANLI’da Binance bakiyesi okunur; marj serbest bakiyenin en çok %95’i). Kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür; stopta kayıp ≈ marj × kaldıraç × stop %.</p>`;
+  else if(st&&v2)html+=`<p>Büyüklük: <b>stopta hesabın %${esc((rk*100).toLocaleString('tr-TR',{maximumFractionDigits:2}))}’i</b> kaybedilecek kadar (stop mesafesine göre); en çok marj ${st.marginAuto?'otomatik (panel marjı, serbest bakiyenin en çok %25’i)':esc(st.marginQuote)+' USDT'} × <b>${esc(st.leverage)}x</b>. Kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür.</p>`;
   else if(st)html+=`<p>Marj: <b>${st.marginAuto?'otomatik':esc(st.marginQuote)+' USDT'}</b>${st.marginAuto?' (panel marjı, serbest bakiyenin en çok %25’i)':' (serbest bakiyenin en çok %95’i)'} • kaldıraç <b>${esc(st.leverage)}x</b> → LONG etkin <b>${esc(st.effectiveLong)}x</b> (stop −%8: tasfiyeden önce stop için en çok ${esc(st.safeLeverage?.long)}x) • SHORT stop mesafesine göre işlem başına en çok ${esc(st.safeLeverage?.shortMin)}–${esc(st.safeLeverage?.shortMax)}x</p>`;
   if(v2)html+=`<p class="t3rule">Kurallar (v2, her kapanan <b>5 dk</b> mumda; saatlik mum beklenmez): <b>Erken LONG</b> — coin 4–24. sırada ve 3 saatte en az 3 sıra tırmanmış, 48 saatte ilk 3’e girmemiş, 24 saat +%5…+%40; 5 dk mum ${t.rules?.early?.htfOnly?'önceki hafta/ay tepesini':'önceki gün/hafta/ay tepesini'} (short likidasyon bölgesi) 24 saatlik ortancanın ≥ 3× hacmiyle kırar. <b>Kovalamaz</b>: yalnız kırılan seviyeye ilk geri testte girer (geri test gelmezse işlem yok). Stop geri testin altı (%1,2–4,5); hedef bir üstteki gün/hafta/ay tepesinin hemen altı. O bölge 2R’den yakınsa LONG yok; üstte bölge yoksa 3R.${t.rules?.early?.beAtR?' '+esc(t.rules.early.beAtR)+'R kârdan sonra borsadaki stop başabaşa çekilir.':''} <b>Tepe SHORT</b> — 24 saatte ilk 10’a girmiş coin 5 dk’da yeni 24 saatlik tepe yapar ve 12 mum içinde tepeden önceki 6 mumun dibinin altında kapanır.${t.rules?.top?.requireWeeklySwept?' Tepe önceki haftanın tepesini almış olmalı (likidasyon bölgesi süpürülmüş).':''}${Number(t.rules?.top?.minTopVolMult)>0?' Tepedeki son yeşil mumun hacmi 24 saat ortancasının en az '+esc(t.rules.top.minTopVolMult)+' katı (hacimli tepe = dağıtım).':''} Stop tepenin üstü (%1,5–6), hedef 2,5R; tepenin %5 üstünde alınmamış gün/hafta/ay tepesi varsa SHORT yok. Aynı coinde girişten sonra 24 sa (LONG) / 12 sa (SHORT) bekler; stop sonrası 24 saat aynı yöne girmez. En çok 24 saat.</p>`;
   else html+=`<p class="t3rule">Kurallar (saatlik mum kapanışında): <b>LONG 6/6</b> — 1 saatte ≥ +%3, hacim ≥ 33,9× (7 gün ortancası), 7 günlük zirve kırılımı, 24 saat ≥ +%13,3, sıra ≤ 7, son 7 günde ilk 10’a girmiş, oynaklık ≥ %1,34, BTC 24 saat ≤ +%1,29 → stop −%8, hedef +%30, en çok 24 saat. <b>SHORT tepe sonrası</b> — 24 saatte ilk 3’e girmiş, 24 saatlik tepeden ≥ %15 aşağıda, kırmızı saat, hacim ≥ 3× → stop son 3 saatin tepesinin %1 üstü (%2–8), hedef −%10, en çok 24 saat. ${esc(t.rules?.leverage??10)}x; marj: panel marjı, serbest bakiyenin en çok %25’i.</p>`;
@@ -1964,13 +1973,16 @@ async function laneAction(body,okText){
   modeBusy=false; await tick();
 }
 function laneToggle(key,id,label){
-  const ln=last?.status?.data?.tradingMode?.run?.lanes,on=ln?.[key]?.selected===true,live=last?.status?.data?.tradingMode?.mode==='LIVE';
+  const ln=last?.status?.data?.tradingMode?.run?.lanes,on=(ln?.[key]||ln?.normal?.sub?.[key])?.selected===true,live=last?.status?.data?.tradingMode?.mode==='LIVE';
   if(on){laneAction({[key]:false},`${label} kapatıldı: yeni giriş yok; açık işlemler kendi kurallarıyla yönetilir.`);return;}
   if(live&&!secondPress(id,`${label} AÇ — CANLI modda GERÇEK PARA ile işlem açar`))return;
   laneAction({[key]:true,...(live?{confirm:'LIVE'}:{})},`${label} açıldı${live?' (CANLI)':' (TEST)'}.`);
 }
 onClick('#btnLaneNormal',()=>laneToggle('normal','btnLaneNormal','Normal sistem (JEV)'));
 onClick('#btnLaneTop3',()=>laneToggle('top3','btnLaneTop3','İlk 3 Avcısı'));
+onClick('#btnLaneScalp',()=>laneToggle('scalp5m','btnLaneScalp','5 dk scalp hattı'));
+onClick('#btnLane15m',()=>laneToggle('trade15m','btnLane15m','15 dk ana işlem hattı'));
+onClick('#btnLaneBurst',()=>laneToggle('burst','btnLaneBurst','Vur-kaç hattı'));
 
 let last=null;
 async function tick(){

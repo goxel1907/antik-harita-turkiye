@@ -287,3 +287,19 @@ test('R58 system on/off (user 19.10): core shutdown route needs LIVE confirm in 
   const cmd=fs.readFileSync(path.join(__dirname,'..','jev-brain','OFFICE-AC.cmd'),'utf8');
   assert.ok(cmd.includes('\r\n'),'cmd keeps CRLF');assert.ok(cmd.includes("manage.ps1")&&cmd.includes("'Start'")&&cmd.includes('START-OFFICE.ps1'));
 });
+
+test('R2544.60 user margin: a margin entered in Office is used as is (margin x leverage), TEST reads the paper wallet',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({top3:{marginQuote:30,leverage:10}});
+  assert.equal((await f.controller.testSupervisorTick()).action,'TEST_ARMED');
+  const r=await f.controller.top3Tick();assert.equal(r.v2?.entries,1,JSON.stringify(r));
+  const a=Object.values(f.controller._testTop3State().active)[0];
+  assert.equal(a.marginQuote,30);
+  assert.ok(Math.abs(a.notional-a.marginQuote*a.leverage)<1.1,'notional = margin x leverage (lot step): '+a.notional+' vs '+a.marginQuote*a.leverage);
+  assert.ok(a.riskQuote>100*0.02+1,'not the 2 % risk lot any more: '+a.riskQuote);
+  const g=fixture({top3:{marginQuote:99,leverage:10}});await g.controller.testSupervisorTick();
+  const r2=await g.controller.top3Tick();assert.equal(r2.v2?.entries,0);
+  assert.equal(g.controller.top3Status().lastScan5.entries[0].reason,'TOP3_MARGIN_ABOVE_FREE_BALANCE','paper wallet 100: 99 > 95 %');
+  const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  assert.ok(html.includes('Büyüklük: <b>girilen marj ${esc(st.marginQuote)} USDT × ${esc(st.leverage)}x</b>'));
+});

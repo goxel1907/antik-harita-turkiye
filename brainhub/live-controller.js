@@ -379,9 +379,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // so the normal lane's selection is remembered here; İlk 3's selection is its own switch (top3-hunter.json enabled).
   // A missing file means: normal lane NOT selected (the user's TEST measures İlk 3 only).
   const LANES_FILE=path.join(String(root),'config','lane-selection.json');
-  function readLanes(){try{const x=JSON.parse(fs.readFileSync(LANES_FILE,'utf8').replace(/^\uFEFF/,''));return {normal:x.normal===true,updatedAt:x.updatedAt||null,defaulted:false};}catch{return {normal:false,updatedAt:null,defaulted:true};}}
-  function writeLanes(patch){const next={normal:patch.normal===true,updatedAt:new Date(clock()).toISOString()};fs.mkdirSync(path.dirname(LANES_FILE),{recursive:true});const tmp=LANES_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(next,null,2),'utf8');fs.renameSync(tmp,LANES_FILE);return next;}
+  // R2544.60_SUB_LANES (user 19.10: "oto live a geçilmeden hangi hattın çalışacağı seçilmeli, ister 1 hat ister 3 hat"):
+  // the normal system (OTO) carries three sub-lanes: 5M scalp (also the fast lane), 15M main trade, burst. A sub-lane that
+  // was never chosen is ON (old files and TEST keep testing everything); a deselected sub-lane gets no new entry.
+  const SUB_LANES=['scalp5m','trade15m','burst'];
+  function readLanes(){try{const x=JSON.parse(fs.readFileSync(LANES_FILE,'utf8').replace(/^\uFEFF/,''));const o={normal:x.normal===true,updatedAt:x.updatedAt||null,defaulted:false};for(const k of SUB_LANES)o[k]=x[k]!==false;return o;}catch{return {normal:false,scalp5m:true,trade15m:true,burst:true,updatedAt:null,defaulted:true};}}
+  function writeLanes(patch){const cur=readLanes(),next={normal:'normal' in patch?patch.normal===true:cur.normal};for(const k of SUB_LANES)next[k]=k in patch?patch[k]===true:cur[k];next.updatedAt=new Date(clock()).toISOString();fs.mkdirSync(path.dirname(LANES_FILE),{recursive:true});const tmp=LANES_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(next,null,2),'utf8');fs.renameSync(tmp,LANES_FILE);return next;}
   const burstAllowedNow=()=>testModeNow()||readLeaderAutoConfig().config?.burstLiveEnabled===true;
+  // R2544.60: which sub-lane a normal-system plan belongs to; an unknown lane enters only while both 5M and 15M are on.
+  function subLaneGate(plan={},fastLane=false){
+    const l=readLanes();if(l.scalp5m&&l.trade15m)return {ok:true};
+    const desk=fastLane?'5M_SCALP':laneOf({lane:plan?.lane,tradeLaneName:plan?.tradeLaneName||plan?.tradeLane?.name,entryContext:plan?.entryContext});
+    if(desk==='5M_SCALP')return l.scalp5m?{ok:true,desk}:{ok:false,desk,reason:'LANE_NOT_SELECTED_5M_SCALP'};
+    if(desk==='15M_TRADE')return l.trade15m?{ok:true,desk}:{ok:false,desk,reason:'LANE_NOT_SELECTED_15M_TRADE'};
+    return {ok:false,desk,reason:'LANE_UNKNOWN_SUB_LANE_OFF'};
+  }
   let burstLossCache={at:0,value:null};
   const burstNetR=p=>{const e=finite(p?.entryPrice),s=finite(p?.stopPrice),g=finite(p?.realizedR);const stopPct=e>0&&s>0?Math.abs(e-s)/e*100:null;
     const gross=g??(finite(p?.mfeR)>0?0:-0.1);return stopPct>0?gross-0.10/stopPct:gross;};
@@ -3322,8 +3334,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!la.ok||finite(la.config?.marginQuote)===null)return {ok:false,reasons:la.reasons?.length?la.reasons:['LEADER_AUTO_CONFIG_INVALID']};
     // R2544.57: the selected lanes decide what goes live and how much free balance is needed (the larger lane margin).
     const lanes=readLanes(),t3=top3Lib.readTop3Config(root);
-    if(lanes.normal!==true&&t3.enabled!==true)return {ok:false,reasons:['LANES_NONE_SELECTED']};
-    const need=Math.max(lanes.normal?finite(la.config.marginQuote):0,t3.enabled?(t3.marginQuote??20):0);
+    // R2544.60: the normal system counts only with at least one of its sub-lanes chosen (burst alone stays TEST-only)
+    const normalLive=lanes.normal===true&&(lanes.scalp5m||lanes.trade15m||(lanes.burst&&la.config?.burstLiveEnabled===true));
+    if(!normalLive&&t3.enabled!==true)return {ok:false,reasons:['LANES_NONE_SELECTED']};
+    const need=Math.max(normalLive?finite(la.config.marginQuote):0,t3.enabled?(t3.marginQuote??20):0);
     let acc,rows;
     try{
       acc=await transport._fetchJsonReal('GET','/fapi/v3/account',{credentials:creds,signed:true});
@@ -4920,6 +4934,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         }
       }
     }
+    // R2544.60_SUB_LANE_GATE: the user's sub-lane choice (5M scalp / 15M main); a deselected lane opens nothing.
+    {
+      const lg=subLaneGate(chasePlan,!!body?.claudeFastLane);
+      if(!lg.ok){
+        const rs=[lg.reason];
+        try{store.journal('LANE_NOT_SELECTED',candidate.symbol,{reason:lg.reason,desk:lg.desk||null,lane:chasePlan?.lane||null,side:chasePlan?.side||null});}catch{}
+        annotateLeaderDiagnostic(candidate.symbol,'INTENT_NOT_READY',rs,{subLane:lg});
+        leaderHealthEvent('EXECUTION_STAGE',{stage:'HARD_BLOCK',symbol:candidate.symbol,reason:rs[0],reasons:rs});
+        return {ok:false,orderPlaced:false,liveAllowed:false,retryable:false,execution:'LEADER_AUTO_BLOCKED',symbol:candidate.symbol,plan:advisory.plan,reasons:rs};
+      }
+    }
     // R45 LOCATION_CHASE_GUARD (binding, user rule 05.10.2026): no chasing, LONG or SHORT. A stretched owner-TF
     // leg with price in the wrong zone (confirmed by the other TF) or HIGH chase risk is not entered at market
     // unless price is inside the side's own OTE/OB/FVG; the plan waits for its zone. Live 05.10: BR SHORT was
@@ -5551,6 +5576,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // R2544.51 (user 06.10: apply the recommendation): no burst with real money until it shows an edge after fees;
       // TEST mode keeps it running so JEV-filtered bursts are measured without money. LIVE needs burstLiveEnabled:true.
       if(!burstAllowedNow())return skipped('BURST_LIVE_DISABLED');
+      if(!readLanes().burst){for(const symbol of [...burstPreparation.pending.keys()])releaseBurstPreparation(symbol);return skipped('BURST_LANE_NOT_SELECTED');} // R2544.60
       let scan;try{scan=await scanner.scan();}catch{return skipped('SCANNER_UNAVAILABLE',false);}
       const pool=burstCandidatePool(scan);if(!pool.length)return skipped('BURST_NO_CANDIDATES');
       const vacancies=Math.max(0,4-burst.status(lossStreakPause()).armed.length);if(!vacancies)return skipped('BURST_ARM_FULL');
@@ -5643,6 +5669,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function burstOpen(auth,ev,plan=null){
     if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
     if(readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'LEADER_AUTO_DISABLED'};
+    if(!readLanes().burst)return {ok:false,reason:'BURST_LANE_NOT_SELECTED'}; // R2544.60
     const creds=currentCredentials(),symbol=auth.symbol,side=auth.side,snap=(market?.marketStream||marketStream).snapshot(symbol,clock());
     const price=finite(side==='LONG'?snap?.ask:snap?.bid)??finite((finite(snap?.ask)+finite(snap?.bid))/2);if(!(price>0))return {ok:false,reason:'BURST_PRICE_UNAVAILABLE'};
     const current=burstCurrentPosition(symbol),sameAddon=!!current;
@@ -5998,8 +6025,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const f=exchangeFiltersFor(si);if(!(f.lotStep>0&&f.tickSize>0))return {ok:false,reason:'TOP3_FILTERS_MISSING'};
     // R2544.58 (14.10: one v1 stop cost ~20 % of the account): v2 sizes from the risk budget - riskPct of equity lost at the
     // stop - never above margin x leverage.
+    // R2544.60_USER_MARGIN (user 19.10: "testte ne kadar marj girersem onu direk okumalı"): a margin the user entered in
+    // Office is used as is - notional = margin x leverage (leverage still lowered so the stop comes before liquidation),
+    // TEST and LIVE alike (the balance check above reads the TEST wallet / Binance). Only the automatic margin keeps the
+    // risk-budget size (riskPct of equity lost at the stop).
     let notional=margin*leverage,riskQuote=null;
-    if(sig.v2){
+    if(sig.v2&&cfg.marginQuote!==null)riskQuote=Number((notional*pre.stopPct).toFixed(4));
+    else if(sig.v2){
       const eq=finite(acct?.equity)??finite(acct?.walletBalance);
       const n=top3Lib.riskSizedNotional({equity:eq,riskPct:cfg.riskPct,stopPct:pre.stopPct,marginCap:margin,leverage});
       if(!(n>0))return {ok:false,reason:'TOP3_RISK_SIZE_INVALID'};
@@ -6300,16 +6332,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   function laneStatus(){
     const m=readTradingMode(root,defaultTradingMode),armed=armedNow(),l=readLanes(),t=top3Lib.readTop3Config(root),oto=readLeaderAutoConfig().config?.enabled===true;
-    return {mode:m.mode,running:armed,normal:{selected:l.normal,active:armed&&oto,defaulted:l.defaulted,decisions:'JEV'},
+    return {mode:m.mode,running:armed,normal:{selected:l.normal,active:armed&&oto,defaulted:l.defaulted,decisions:'JEV',
+        sub:{scalp5m:{selected:l.scalp5m,active:armed&&oto&&l.scalp5m},trade15m:{selected:l.trade15m,active:armed&&oto&&l.trade15m},
+          burst:{selected:l.burst,active:armed&&oto&&l.burst&&burstAllowedNow(),liveAllowed:readLeaderAutoConfig().config?.burstLiveEnabled===true}}},
       top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:t.jevMode?'RULE_PLUS_JEV':'RULE'}};
   }
   // R2544.57 lane switches (Office / APK / API). Turning a lane ON in LIVE needs confirm 'LIVE'; OFF is immediate (open lots
   // keep their own exits). The normal lane's OTO follows only while the run is on (never analysis while stopped).
   function selectLanes(patch={}){
     const live=readTradingMode(root,defaultTradingMode).mode==='LIVE',running=armedNow(),p={};
-    for(const k of ['normal','top3'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    for(const k of ['normal','top3',...SUB_LANES])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['LANE_SWITCH_MISSING']};
-    if(live&&(p.normal===true||p.top3===true)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if(live&&Object.values(p).some(v=>v===true)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    {const sp={};for(const k of SUB_LANES)if(k in p)sp[k]=p[k];if(Object.keys(sp).length)writeLanes(sp);}
     if('normal' in p){
       writeLanes({normal:p.normal});
       if(!p.normal||running){const o=configureLeaderAuto({enabled:p.normal&&running});if(!o.ok)return o;}
@@ -6345,7 +6380,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, laneStatus, selectLanes, rememberNormalLane, _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,_testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

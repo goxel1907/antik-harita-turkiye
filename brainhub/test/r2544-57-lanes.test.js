@@ -106,7 +106,7 @@ test('R57 the APK/old OTO switch is recorded as the normal-lane choice by the ro
   const srv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.ok(srv.includes("if(out.ok&&typeof otoBody.enabled==='boolean'&&otoBody.enabled!==otoWasOn)live.rememberNormalLane(otoBody.enabled);"),'only a real change is a lane choice (the old APK repeats its state every 60 s)');
   assert.ok(srv.includes("if(live.laneStatus().mode==='LIVE'&&otoBody.enabled===true&&!otoWasOn&&String(otoConfirm||'').toUpperCase()!=='LIVE')"),'a stale phone preference cannot start the JEV lane in LIVE');
-  assert.ok(srv.includes("u.pathname==='/live/lanes'"));assert.ok(srv.includes('live.selectLanes({normal:body?.normal,top3:body?.top3,confirm:body?.confirm'));
+  assert.ok(srv.includes("u.pathname==='/live/lanes'"));assert.ok(srv.includes('live.selectLanes({normal:body?.normal,top3:body?.top3,scalp5m:body?.scalp5m,trade15m:body?.trade15m,burst:body?.burst,confirm:body?.confirm'));
   const f=fixture();f.controller.rememberNormalLane(true);assert.equal(f.controller.laneStatus().normal.selected,true);
 });
 

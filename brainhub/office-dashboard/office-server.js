@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.39-R2544.59-JEV-Brain';
+const OFFICE_VERSION = '2.5.40-R2544.60-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -116,7 +116,7 @@ const CONTROL_BODY = {
   // R2544.57 lanes: only the two lane switches and the confirmation
   '/api/control/lanes': b => {
     const out = { source: 'OFFICE' };
-    for (const k of ['normal', 'top3']) if (typeof b[k] === 'boolean') out[k] = b[k];
+    for (const k of ['normal', 'top3', 'scalp5m', 'trade15m', 'burst']) if (typeof b[k] === 'boolean') out[k] = b[k]; // R2544.60 sub-lanes
     if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
     return out;
   },
