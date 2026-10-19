@@ -188,11 +188,12 @@ test('R57 normal lane off: a running system still scans the market (no JEV, no o
   const h=f.controller.leaderAutoStatus().health;
   assert.equal(h.scanRuns,1);assert.equal(h.latestLightweightUniverseCount,640);assert.equal(h.latestUniverseCount,24);
   assert.equal(h.deepAnalyses,0,'no JEV evaluation');
-  assert.equal((await f.controller.leaderAutoTick()).reasons[0],'SCAN_ONLY_WAIT');assert.equal(scans,1,'one scan per minute');
-  f.state.now+=60000;await f.controller.leaderAutoTick();assert.equal(scans,2);
-  await f.controller.runControl({action:'STOP'});f.state.now+=60000;
+  assert.equal((await f.controller.leaderAutoTick()).reasons[0],'SCAN_ONLY_WAIT');assert.equal(scans,1,'one scan per 5 min');
+  f.state.now+=60000;await f.controller.leaderAutoTick();assert.equal(scans,1,'R2544.59: not every minute any more');
+  f.state.now+=240000;await f.controller.leaderAutoTick();assert.equal(scans,2);
+  await f.controller.runControl({action:'STOP'});f.state.now+=300000;
   assert.equal((await f.controller.leaderAutoTick()).execution,'LEADER_AUTO_DISABLED');assert.equal(scans,2,'stopped: no scan');
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  assert.ok(html.includes("LEADER_AUTO_SCAN_ONLY:'yalnız tarama (Normal sistem kapalı)'"));
+  assert.ok(html.includes("LEADER_AUTO_SCAN_ONLY:'yalnız tarama, 5 dakikada bir (Normal sistem kapalı)'"));
   assert.ok(html.includes("runMs>SILENT_RUN_MS&&scans===0) warn="),'the no-scan warning applies to every lane selection again');
 });

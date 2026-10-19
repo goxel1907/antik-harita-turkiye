@@ -3162,7 +3162,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
   }
 
-  const SCAN_ONLY_MS=60000;let scanOnlyAt=0;
+  // R2544.59_SCAN_ONLY_5M: with the normal lane (OTO) off nothing trades on this scan; it only keeps the market view
+  // (radar/attention/ladder) alive. A full scan pulls ~36 coins' detail, so it runs once per 5 min instead of every minute.
+  // OTO on (TEST or LIVE), burst and the fast lane keep calling scanner.scan() directly, unchanged.
+  const SCAN_ONLY_MS=300000;let scanOnlyAt=0;
   async function scanOnlyTick(){
     if(clock()-scanOnlyAt<SCAN_ONLY_MS)return {ok:true,skipped:true,execution:'LEADER_AUTO_SCAN_ONLY',orderPlaced:false,liveAllowed:false,reasons:['SCAN_ONLY_WAIT']};
     scanOnlyAt=clock();

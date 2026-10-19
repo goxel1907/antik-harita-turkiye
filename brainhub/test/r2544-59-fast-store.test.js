@@ -103,3 +103,12 @@ test('R2544.59 Office review fixes: mirror does not await the scanner, İlk 3 v2
   for(const id of ['deskCards','officeHost','blockers'])assert.ok(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a),id+' folded');
   for(const id of ['top3Card','mirrorClean','ladderTable','openPos','closedPos'])assert.ok(html.indexOf(`id="${id}"`)>0&&!(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a))&&!(html.indexOf(`id="${id}"`)>b&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',b)),id+' stays visible');
 });
+
+test('R2544.59 scan-only (OTO off) every 5 min; the OTO-on path and burst/fast lane are not throttled', () => {
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  assert.match(lc,/const SCAN_ONLY_MS=300000;/);
+  assert.equal((lc.match(/SCAN_ONLY_MS/g)||[]).length,2,'used only inside scanOnlyTick');
+  const i=lc.indexOf('async function leaderAutoTick()'),body=lc.slice(i,lc.indexOf('\n  }\n',lc.indexOf('if (!cfg.config.enabled)',i)));
+  assert.match(body,/if \(armedNow\(\)\) return recordLeaderAutoResult\(await scanOnlyTick\(\)\);/,'scan-only runs only when OTO is off');
+  for(const fn of ['async function burstArmTick','async function scalpFastLaneTick'])assert.ok(!lc.slice(lc.indexOf(fn),lc.indexOf(fn)+3000).includes('SCAN_ONLY'),fn+' unthrottled');
+});
