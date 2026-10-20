@@ -315,6 +315,14 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="t3msg" id="z5Msg"></div>
     <div id="z5Host" aria-live="polite">ZİRVE-5 verisi bekleniyor.</div>
   </section>
+  <section class="card" id="researchCard" aria-label="Referans projeler ve test sonuçları" style="margin:16px 0;border-color:#58a6ff">
+    <h2>📚 Referans projeler ve test sonuçları <span class="hint">GitHub / TradingView / YouTube kaynaklarından ne alındı, nerede kullanılıyor, aynı veride ölçülen sonuç • kod çalıştırılmaz, mantık yeniden yazılıp ölçülür</span></h2>
+    <div id="researchHost" aria-live="polite">Kayıt bekleniyor.</div>
+    <details style="margin-top:10px"><summary><b>Açık Kaynak Bilgi Provenance — JEV bilgi tabanı (31 repo)</b> <span class="hint">REFERENCE_ONLY • emir/strateji otoritesi yok • JEV çalışırken okunur</span></summary>
+      <div id="ossMeta" class="muted"></div>
+      <div style="overflow:auto;max-height:360px"><table id="ossTable"></table></div>
+    </details>
+  </section>
   <section class="card" id="moverCard" aria-label="Kaçan hareket denetimi" style="margin:16px 0;border-color:#9a7bd8">
     <h2>🔎 Kaçan hareket denetimi <span class="hint">her kapanan 15 dk mumda: 24 sa en çok yükselen 6 / düşen 4 + ZİRVE-5 listesi • her hat O ANDA ne gördü, neden girmedi • emir vermez</span></h2>
     <div id="moverHost" aria-live="polite">Denetim verisi bekleniyor.</div>
@@ -434,11 +442,6 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <h2>Veri Kalitesi & Context Bütçesi <span class="hint">canlı piyasa verisi önce • öğrenme/OSS sonra</span></h2>
       <dl class="kv" id="dataQualityKv"></dl>
       <div id="contextTrim" class="muted"></div>
-    </div>
-    <div class="card">
-      <h2>Açık Kaynak Bilgi Provenance <span class="hint">REFERENCE_ONLY • emir/strateji otoritesi yok</span></h2>
-      <div id="ossMeta" class="muted"></div>
-      <div style="overflow:auto;max-height:360px"><table id="ossTable"></table></div>
     </div>
   </section>
 
@@ -2065,6 +2068,17 @@ onClick('#btnZ5Live',()=>{
   if(!z5Second('btnZ5Live','ZİRVE-5 CANLI izni — canlı moddayken GERÇEK PARA ile işlem açar'))return;
   z5Control({liveEnabled:true,confirm:'LIVE'},'CANLI izni verildi');
 });
+// ===== R2544.66 referans projeler ve test sonuçları =====
+function renderResearch(s){
+  const el=document.getElementById('researchHost');if(!el)return;const r=s.research;
+  if(!r||!Array.isArray(r.entries)){el.innerHTML='<p>Kayıt okunamadı (Office klasöründe research-registry.json yok).</p>';return;}
+  const L=r.statusLabels||{},cls={USED:'good',DRAWN:'good',WATCH:'warn',TESTED_NO_EDGE:'bad',REFERENCE:''};
+  const n=k=>r.entries.filter(e=>e.status===k).length;
+  let html=`<p>${esc(r.note||'')}</p><p>Durum: <b>${n('USED')}</b> kullanılıyor • ${n('DRAWN')} grafikte • ${n('WATCH')} izleniyor • ${n('TESTED_NO_EDGE')} test edildi, kenar yok • ${n('REFERENCE')} JEV referansı • güncelleme ${esc(r.updatedAt||'—')}</p>`;
+  html+='<div style="overflow-x:auto"><table class="perf"><thead><tr><th>Kaynak</th><th>Ne alındı</th><th>Nerede</th><th>Test</th><th>Sonuç</th><th>Durum</th></tr></thead><tbody>';
+  for(const e of r.entries)html+=`<tr><td><b>${esc(e.source)}</b><br><span class="muted">${esc(e.kind||'')}</span></td><td>${esc(e.taken||'—')}</td><td>${esc(e.where||'—')}</td><td>${esc(e.test||'—')}</td><td>${esc(e.result||'—')}</td><td><span class="${cls[e.status]||''}">${esc(L[e.status]||e.status)}</span></td></tr>`;
+  el.innerHTML=html+'</tbody></table></div>';
+}
 // ===== R2544.65 kaçan hareket denetimi =====
 const AUD_TR={SIGNAL:'SİNYAL',V2_NO_BREAKOUT:'kırılım yok',V2_WAITING_RETEST:'kırıldı, geri test bekleniyor',V2_RETEST_ALREADY_PASSED:'geri test geçti (kovalamaz)',V2_BREAKOUT_FAILED:'kırılım bozuldu',
   V2_BREAKOUT_VOLUME_LOW:'kırılım hacmi düşük',V2_5M_HISTORY_SHORT:'5 dk geçmiş kısa',V2_NO_FRESH_TOP:'yeni 24 sa tepe yok',RANK_OUT_OF_BAND:'sıra bant dışı',NOT_CLIMBING:'sıra tırmanmıyor',WAS_TOP3_RECENTLY:'son 48 sa ilk 3’teydi',
@@ -2113,7 +2127,7 @@ async function tick(){
     const s = await r.json(); last=s;
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
-    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderZ5(s);}catch(e){console.warn('zirve5',e);} try{renderMovers(s);}catch(e){console.warn('movers',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderZ5(s);}catch(e){console.warn('zirve5',e);} try{renderMovers(s);}catch(e){console.warn('movers',e);} try{renderResearch(s);}catch(e){console.warn('research',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yazma yalnız TEST/CANLI/Durdur`;

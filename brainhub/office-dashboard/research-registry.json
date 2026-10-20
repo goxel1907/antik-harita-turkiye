@@ -1,0 +1,140 @@
+{
+  "version": "R2544.66",
+  "updatedAt": "2026-10-20",
+  "note": "GitHub / TradingView / YouTube kaynaklarından alınan fikirler ve ölçülen sonuçları. Kod çalıştırılmaz; mantık yeniden yazılıp aynı veride ölçülür. Ölçüm evreni (ZİRVE-5): her 15 dk'da Binance USDT-M piyasa geneli 24 sa en volatil 5 coin (hacim >= 20M), 20.09-20.10.2026, ücret+kayma %0,12, fonlama dahil olduğu belirtilenlerde dahil. R = stop mesafesi biriminde işlem başı sonuç.",
+  "statusLabels": {
+    "USED": "KULLANILIYOR",
+    "DRAWN": "GRAFİKTE",
+    "TESTED_NO_EDGE": "TEST EDİLDİ - KENAR YOK",
+    "WATCH": "İZLENİYOR",
+    "REFERENCE": "JEV REFERANSI"
+  },
+  "entries": [
+    {
+      "source": "FiboBuLL — Fibo Bull Origins (YouTube, kullanıcı videosu)",
+      "kind": "YouTube",
+      "taken": "Tepe/dip kırılımı bölgesi: kırılımı yapan dip/tepe ile kırılan seviye arası; bölge ortasından giriş",
+      "where": "fibo-zones.js, zirve5.js (ZİRVE-5 SHORT hattı), Office sade grafik",
+      "test": "ZİRVE-5, 15 dk, k1.5 ZigZag, denge limiti, 2R",
+      "result": "SHORT +0,27R (n 120, 4/5 hafta, fonlama dahil); LONG her ayarda eksi (−0,06…−0,40R)",
+      "status": "USED"
+    },
+    {
+      "source": "TradingView ZigZag (yerleşik) + ChartPrime Swing High/Low",
+      "kind": "TradingView",
+      "taken": "Dip/tepe seçimi: sapma eşiği (k × ATR14), sırayla gelen pivotlar",
+      "where": "fibo-zones.js (grafik çizimi + ZİRVE-5)",
+      "test": "Fraktal pivotla karşılaştırma (42 coin havuzu, 1 ay) + canlı=laboratuvar eşleşmesi",
+      "result": "Fraktal P6–7 de artıydı (havuz testinde ~+0,30R, az işlem); ZigZag grafikteki çizimle aynı kural olduğu için seçildi. Canlı bölgeler laboratuvarla 5/5 aynı (20.10)",
+      "status": "USED"
+    },
+    {
+      "source": "LuxAlgo Smart Money Concepts (premium / discount / equilibrium)",
+      "kind": "TradingView",
+      "taken": "Bölgenin ortası = DENGE (premium/discount sınırı)",
+      "where": "ZİRVE-5 giriş seviyesi, grafikte FIBO DENGE",
+      "test": "Denge vs OTE girişi",
+      "result": "2R hedefte denge ≈ OTE (+0,10R / +0,10R, havuz testi); likidite hedefiyle denge +0,16R. ZİRVE-5 dengeyi kullanır",
+      "status": "USED"
+    },
+    {
+      "source": "LunqFX Auto Fib Golden Zone / OTE (.618–.786)",
+      "kind": "TradingView",
+      "taken": "OTE bandı",
+      "where": "Office grafikte altın bant",
+      "test": "OTE girişi (42 coin havuzu)",
+      "result": "+0,10…+0,15R (havuz aynı ayla seçilmişti, iyimser); ZİRVE-5'te ayrıca ölçülmedi",
+      "status": "DRAWN"
+    },
+    {
+      "source": "Ret mumu teyidi (kapanış konumu, iğne, CVD) — dönüş analizi",
+      "kind": "Laboratuvar",
+      "taken": "Dokunuş mumunun kapanış yeri, iğne, mum CVD'si",
+      "where": "JEV ZİRVE-5 kapısının karar rehberi",
+      "test": "Bölge tuttu/kırıldı ayrımı (AUC)",
+      "result": "Kapanış konumu AUC 0,61, iğne 0,59, CVD 0,56; OI/fonlama/L-S ayırmadı",
+      "status": "USED"
+    },
+    {
+      "source": "freqtrade/freqtrade-strategies (FAdxSma, FOtt, FReinforced, FSample, FSupertrend, TrendFollowing, VolatilitySystem)",
+      "kind": "GitHub",
+      "taken": "Sinyal mantıkları (varsayılan parametreler)",
+      "where": "—",
+      "test": "ZİRVE-5, 5 dk ve 15 dk, stop son 3 mum ucu, 1,5R / ters çevir",
+      "result": "5 dk: −0,18…+0,02R; 15 dk: çoğu eksi, FAdxSma +0,41R ama n 22",
+      "status": "TESTED_NO_EDGE"
+    },
+    {
+      "source": "hummingbot directional_trading (bollinger_v1, macd_bb_v1, supertrend_v1)",
+      "kind": "GitHub",
+      "taken": "Sinyal mantıkları",
+      "where": "—",
+      "test": "ZİRVE-5, 5 dk ve 15 dk",
+      "result": "bollinger −0,31/−0,38R; ters çevir modunda SHORT +%2,1/işlem ama son 2 hafta eksi; macd_bb −0,25/−0,33R; supertrend −0,27/−0,32R",
+      "status": "WATCH"
+    },
+    {
+      "source": "TradingView UT Bot, Squeeze Momentum (LazyBear), Chandelier Exit",
+      "kind": "TradingView",
+      "taken": "Sinyal mantıkları",
+      "where": "—",
+      "test": "ZİRVE-5, 5 dk ve 15 dk",
+      "result": "UT Bot −0,04/−0,03R; Squeeze −0,12/−0,07R; Chandelier −0,08 / +0,10R (15 dk, 3/5 hafta)",
+      "status": "TESTED_NO_EDGE"
+    },
+    {
+      "source": "Devis'So Trend (paramuhendisligi)",
+      "kind": "GitHub",
+      "taken": "Pine kodunun birebir Python çevirisi",
+      "where": "—",
+      "test": "ZİRVE-5, 5 dk ve 15 dk",
+      "result": "−0,015R / +0,03R (15 dk, 3/5 hafta)",
+      "status": "TESTED_NO_EDGE"
+    },
+    {
+      "source": "Lazarus (kullanıcının eski botu)",
+      "kind": "Yerel",
+      "taken": "108 günlük sonuç dosyası",
+      "where": "—",
+      "test": "Gelecek bilgisi ayıklama",
+      "result": "Ham PF 2,60 → zamanında bilinen veriyle PF 1,37; canlı 92 işlem −163 USDT",
+      "status": "TESTED_NO_EDGE"
+    },
+    {
+      "source": "OI / fonlama / L-S aileleri (devam, kalabalık, tasfiye)",
+      "kind": "Laboratuvar",
+      "taken": "Binance futures/data",
+      "where": "—",
+      "test": "ZİRVE-5, eşik ızgarası",
+      "result": "−0,17…+0,05R; tutarlı değil",
+      "status": "TESTED_NO_EDGE"
+    },
+    {
+      "source": "İlk 3 erken LONG — gevşetilmiş (JCT +%100 sonrası)",
+      "kind": "Laboratuvar",
+      "taken": "Canlı top3-hunter.js; sıra gecikmesiz / gün tepesi / sıra şartsız",
+      "where": "Kaçan hareket denetimi (R2544.65) 3 görüşü kaydeder",
+      "test": "30 gün, 520 coin, 5 dk; canlı sinyallerle eşleşme %86/%96",
+      "result": "Canlı LONG −0,31R; gevşek (JCT'yi yakalar) −0,22R n 1.417; İlk 3 SHORT +0,09R",
+      "status": "TESTED_NO_EDGE"
+    },
+    {
+      "source": "Sıkışma sonrası hacimli kırılım (JCT tipi pompa)",
+      "kind": "Laboratuvar",
+      "taken": "24 sa sıkışma + 24 sa tepe kırılımı + hacim katı",
+      "where": "—",
+      "test": "30 gün, 520 coin, 15 dk",
+      "result": "−0,09R, kazanma %25, 0/5 hafta (1.751 sinyal)",
+      "status": "TESTED_NO_EDGE"
+    },
+    {
+      "source": "Açık kaynak bilgi tabanı (31 repo: ccxt, hummingbot, freqtrade, LEAN, nautilus, smart-money-concepts …)",
+      "kind": "GitHub",
+      "taken": "Kavramlar ve doğrulama yöntemleri (backtest-guard, purgedcv, mikroyapı)",
+      "where": "JEV bilgi paketi (yalnız referans, emir yetkisi yok); aşağıdaki provenance tablosu",
+      "test": "—",
+      "result": "JEV çalıştığında okunur; şu an JEV erişimi kapalı (9Router / OpenRouter 402)",
+      "status": "REFERENCE"
+    }
+  ]
+}

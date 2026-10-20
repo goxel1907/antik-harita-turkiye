@@ -64,3 +64,15 @@ test('R2544.65 wiring: route, timer, Office card and table; deploy script versio
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   for(const id of ['moverCard','moverHost'])assert.ok(html.includes(`id="${id}"`),id);assert.ok(html.includes('function renderMovers('));assert.ok(html.includes('renderMovers(s)'));
 });
+
+test('R2544.66 Office: research card shows the referenced projects with measured results; the open-source provenance card is visible (not inside the folded legacy section)',()=>{
+  const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  for(const id of ['researchCard','researchHost','ossTable','ossMeta'])assert.ok(html.includes(`id="${id}"`),id);
+  const legacyB=html.slice(html.indexOf('id="legacyJevB"'),html.indexOf('</details>',html.indexOf('id="legacyJevB"')));
+  assert.ok(!legacyB.includes('id="ossTable"'),'provenance table is not folded away');
+  assert.ok(html.includes('renderResearch(s)'));
+  const reg=JSON.parse(fs.readFileSync(path.join(__dirname,'..','office-dashboard','research-registry.json'),'utf8'));
+  assert.ok(reg.entries.length>=10);for(const e of reg.entries){assert.ok(e.source&&e.result&&reg.statusLabels[e.status],e.source);}
+  assert.ok(reg.entries.some(e=>e.status==='USED'&&/zirve5/i.test(e.where)),'the ZİRVE-5 lane is listed as using its sources');
+  const off=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');assert.ok(off.includes("'research-registry.json'"));
+});
