@@ -203,3 +203,11 @@ test('R2544.64 Office: switch routes forward only the ZİRVE-5 switches; lanes r
   for(const id of ['btnLaneZirve5','z5Card','btnZ5On','btnZ5Jev','btnZ5Live','z5Host'])assert.ok(html.includes(`id="${id}"`),id);
   assert.ok(html.includes("ZIRVE5:'ZİRVE-5 SHORT'"));assert.ok(html.includes('/api/control/zirve5'));
 });
+
+test('R2544.64 deploy script expects exactly the Office and core versions this build ships (20.10 deploy stopped on a stale Office version)',()=>{
+  const dep=fs.readFileSync(path.join(__dirname,'..','jev-brain','JEV-DEPLOY.ps1'),'utf8');
+  const office=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8').match(/const OFFICE_VERSION = '([^']+)'/)[1];
+  const core=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8').match(/const RUNTIME_RELEASE='([^']+)'/)[1];
+  assert.equal(dep.match(/\$EXPECTED_OFFICE = '([^']+)'/)[1],office,'JEV-DEPLOY.ps1 $EXPECTED_OFFICE = office-server OFFICE_VERSION');
+  assert.equal(dep.match(/\$EXPECTED_RELEASE = '([^']+)'/)[1],core,'JEV-DEPLOY.ps1 $EXPECTED_RELEASE = server RUNTIME_RELEASE');
+});
