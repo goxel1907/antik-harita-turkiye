@@ -5,6 +5,7 @@ const { FRAMES, NATIVE_FRAMES, analyzeFrames, microstructure, parseKlines, aggre
 const { combinePreMove } = require('./premove');
 const { LocalL2Manager } = require('./local-l2');
 const binanceRate = require('./binance-rate-limit');
+const { fiboZones } = require('./fibo-zones');
 
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
@@ -1527,6 +1528,34 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
         const hl=Number(w.hl);if(Number.isFinite(hl)){hline(hl,col,sx0,true);addLevel(hl,'ILK3 YAPI DIBI',col,1);}
         text57(left+90,top+6,`ILK 3: ${w.side==='LONG'?'ERKEN LONG':'TEPE SHORT'} ${w.reason==='SIGNAL'?'SINYAL':'BEKLIYOR'}`,col,2);}
       else if(so.lot)text57(left+90,top+6,`ILK 3: ${so.lot.side==='LONG'?'ERKEN LONG':'TEPE SHORT'} ACIK`,so.lot.side==='LONG'?[105,240,174,255]:[255,138,128,255],2);
+      // R2544.63 FiboBuLL: ATR ZigZag dip/tepeleri + son iki bölge (üst/alt, DENGE, OTE .618-.786) - kapanmış mumlardan, laboratuvar
+      // testiyle birebir aynı kural (fibo-zones.js). Yalnız görsel; emir/karar üretmez.
+      if(options?.fibo!==false){
+        let fz=null;try{fz=fiboZones(candles);}catch{fz=null;}
+        if(fz&&fz.pivots.length){
+          const zzCol=[100,181,246,255],pts=fz.pivots.map(p=>({x:xForAt(p.at),y:yPrice(p.price),kind:p.kind})).filter(p=>p.x!==null);
+          for(let i=1;i<pts.length;i++){line(pts[i-1].x,pts[i-1].y,pts[i].x,pts[i].y,zzCol);line(pts[i-1].x,pts[i-1].y+1,pts[i].x,pts[i].y+1,zzCol);}
+          for(const p of pts)fillRect(p.x-2,p.y-2,p.x+2,p.y+2,p.kind==='H'?[255,138,128,255]:[105,240,174,255]);
+          const ST={WAITING:'DENGE BEKLENIYOR',OPEN:'DENGEDE DOLDU',BROKEN:'BOLGE KIRILDI',EXPIRED:'SURE DOLDU',SKIP:'HEDEF 1R ALTI ATLA',STOPPED:'STOP OLDU',TARGET:'HEDEF ALINDI',TIMEOUT:'SURE BITTI'};
+          const shown=fz.zones.filter(z=>xForAt(z.at)!==null).slice(-2);
+          for(const z of shown){
+            // only the newest zone is live on the chart; an older one ends (dim) where the newer one was born
+            const newer=fz.zones.find(y=>y.index>z.index),isL=z.side==='LONG',col=isL?[38,166,154]:[239,83,80];
+            const active=!newer&&(z.state==='WAITING'||z.state==='OPEN');
+            const x0=xForAt(z.originAt)??left,x1=active?right:Math.min(xForAt(z.endAt)??right,newer?(xForAt(newer.at)??right):right);
+            blendRect(x0,yPrice(z.top),x1,yPrice(z.bottom),col,active?0.16:0.07);
+            if(z.ote){blendRect(xForAt(z.at)??x0,yPrice(z.ote.to),x1,yPrice(z.ote.from),[255,193,7],active?0.13:0.05);}
+            const edge=[...col,255],gold=[255,213,79,255];
+            line(x0,yPrice(z.top),x1,yPrice(z.top),edge);line(x0,yPrice(z.bottom),x1,yPrice(z.bottom),edge);
+            for(let x=x0;x<x1;x+=9)line(x,yPrice(z.equilibrium),Math.min(x1,x+5),yPrice(z.equilibrium),gold);
+            if(!active)continue;
+            addLevel(z.top,'FIBO UST',edge,1);addLevel(z.bottom,'FIBO ALT',edge,1);addLevel(z.equilibrium,'FIBO DENGE',gold,0);
+            if(z.state==='OPEN'){addLevel(z.stop,'FIBO STOP',[239,83,80,255],0);addLevel(z.target,`FIBO HEDEF ${Number(z.rr).toFixed(1)}R`,[38,166,154,255],0);}
+          }
+          const last=fz.zones.at(-1);
+          if(last)text57(left+90,top+26,`FIBO ${last.side}: ${ST[last.state]||last.state}`,last.side==='LONG'?[105,240,174,255]:[255,138,128,255],2);
+        }
+      }
     }
     // CLAUDE_R2544_9_POSITION_OVERLAY: açık pozisyon (TradingView uzun/kısa pozisyon aracı gibi): girişten sağa yeşil hedef ve
     // kırmızı risk kutusu, giriş/stop/TP çizgileri ve LONG/SHORT etiketi. Yalnız görselleştirme; emir veya karar üretmez.
