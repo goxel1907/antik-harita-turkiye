@@ -42,11 +42,11 @@ test('R2544.64 armed zones are the chart\'s waiting SHORT zones (fibo-zones.js):
 
 const FAKE={apiKey:'fake-test-key-r64',apiSecret:'fake-test-secret-r64'}; // made-up, never real
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
-function fixture({z5=null,judge=undefined,mode='TEST'}={}){
+function fixture({z5=null,judge=undefined,mode='TEST',top3={}}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r64-'));fs.mkdirSync(path.join(root,'config'));
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
-  fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:false}));   // İlk 3 off: ZİRVE-5 runs on its own switch
+  fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:false,...top3}));   // İlk 3 off: ZİRVE-5 runs on its own switch
   if(z5)fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify(z5));
   writeTradingMode(root,{mode,changedAt:'2026-10-20T08:00:00.000Z',testStartedAt:null,testAutoRun:mode==='TEST'});
   const bar=Date.UTC(2026,9,20,10,0),state={now:bar+M15+10000,calls:[],px:{Z5USDT:{bid:95.8,ask:95.81}},k15:{Z5USDT:series(PTS,bar)}},events=[];
@@ -212,4 +212,22 @@ test('R2544.64 deploy script expects exactly the Office and core versions this b
   const core=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8').match(/const RUNTIME_RELEASE='([^']+)'/)[1];
   assert.equal(dep.match(/\$EXPECTED_OFFICE = '([^']+)'/)[1],office,'JEV-DEPLOY.ps1 $EXPECTED_OFFICE = office-server OFFICE_VERSION');
   assert.equal(dep.match(/\$EXPECTED_RELEASE = '([^']+)'/)[1],core,'JEV-DEPLOY.ps1 $EXPECTED_RELEASE = server RUNTIME_RELEASE');
+});
+
+test('R2544.67.3 self-audit: without its own margin ZİRVE-5 sizes by risk (2 % of equity at the stop) - it never borrows İlk 3\'s fixed margin (BTW 20.10: 70 USDT x 10x put ~30 % of the TEST account at risk)',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({top3:{marginQuote:70,leverage:10}});await f.controller.testSupervisorTick();
+  assert.equal(f.controller.z5Status().sizing.automatic,true);assert.equal(f.controller.z5Status().sizing.riskPct,0.02);
+  await f.controller.z5Tick();f.state.now+=5000;f.state.px.Z5USDT={bid:99.76,ask:99.77};
+  assert.equal((await f.controller.z5Tick()).entries,1);
+  const a=Object.values(f.controller._testTop3State().active)[0],equity=100;
+  assert.ok(Math.abs(a.riskQuote-equity*0.02)<0.1,'about 2 USDT lost at the stop, got '+a.riskQuote);
+  assert.ok(a.notional<70*10,'not the İlk 3 margin x leverage ('+a.notional+')');
+  // its own margin is used as is (the user's choice), like İlk 3
+  require('../binance-rate-limit').resetForTests();
+  const g=fixture({top3:{marginQuote:70,leverage:10},z5:{enabled:true,marginQuote:10,leverage:5}});await g.controller.testSupervisorTick();
+  assert.equal(g.controller.z5Status().sizing.automatic,false);
+  await g.controller.z5Tick();g.state.now+=5000;g.state.px.Z5USDT={bid:99.76,ask:99.77};
+  assert.equal((await g.controller.z5Tick()).entries,1);
+  const b=Object.values(g.controller._testTop3State().active)[0];assert.ok(Math.abs(b.notional-50)<1,'10 USDT x 5x = 50, got '+b.notional);
 });

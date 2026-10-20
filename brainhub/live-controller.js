@@ -3340,7 +3340,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // R2544.67.2 (self-audit): İlk 3 counts only with a sub-strategy on; ZİRVE-5 is a lane of its own (alone it may go LIVE)
     const t3Live=t3.enabled===true&&(t3.rulesVersion!==2||t3.early?.enabled===true||t3.top?.enabled===true),z5=z5Lib.readConfig(root),z5Live=z5.enabled===true;
     if(!normalLive&&!t3Live&&!z5Live)return {ok:false,reasons:['LANES_NONE_SELECTED']};
-    const need=Math.max(normalLive?finite(la.config.marginQuote):0,t3Live?(t3.marginQuote??20):0,z5Live?(z5.marginQuote??t3.marginQuote??20):0);
+    const need=Math.max(normalLive?finite(la.config.marginQuote):0,t3Live?(t3.marginQuote??20):0,z5Live?(z5.marginQuote??20):0);
     let acc,rows;
     try{
       acc=await transport._fetchJsonReal('GET','/fapi/v3/account',{credentials:creds,signed:true});
@@ -6392,7 +6392,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const zone=live.find(x=>z5Lib.touched(x,px?.bid));if(!zone)continue;
         z.armed[sym]=live.filter(x=>x!==zone);                                   // one try per zone
         const t3=top3Lib.readTop3Config(root);
-        const sizing={marginQuote:cfg.marginQuote??t3.marginQuote,leverage:cfg.leverage??t3.leverage,riskPct:t3.riskPct};
+        // R2544.67.3 (self-audit, BTW 20.10: İlk 3's 70 USDT x 10x margin = 699 USDT notional, ~34 USDT (~30 % of the TEST
+        // account) at a 4.8 % stop): without its OWN margin ZİRVE-5 sizes by risk - riskPct of equity lost at the stop, never
+        // above margin x leverage - like the lab's R results; it no longer borrows İlk 3's fixed margin.
+        const sizing={marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,riskPct:cfg.riskPct??t3.riskPct};
         const ef={rank:zone.rank,range24:zone.range24,change24:zone.change24,bid:finite(px?.bid),equilibrium:zone.equilibrium,top:zone.top,bottom:zone.bottom,zoneAt:new Date(zone.zoneAt).toISOString()};
         let jev=null;
         if(cfg.jevMode===true){
@@ -6425,7 +6428,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {ok:true,name:'ZİRVE-5 SHORT',lane:'ZIRVE5',setup:z5Lib.SETUP,version:z5Lib.ZIRVE5_VERSION,tf:'15m',
       tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode},jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',rules:{k:cfg.k,targetR:cfg.targetR,maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,side:'SHORT',liveAllowed:cfg.liveEnabled,maxActiveLive:cfg.maxActive},
       // R2544.67.2 (self-audit): the size it would use - its own margin/leverage if set, else İlk 3's (shown before going LIVE)
-      sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote??t3.marginQuote,leverage:cfg.leverage??t3.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'TOP3',automatic:(cfg.marginQuote??t3.marginQuote)===null,riskPct:t3.riskPct};})(),
+      sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,expiresAt:new Date(x.expiresAt).toISOString()}))})),
       active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,openedAt:new Date(a.openedAt).toISOString(),
