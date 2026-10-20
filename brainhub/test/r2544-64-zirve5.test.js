@@ -108,6 +108,8 @@ test('R2544.64 switches: ZİRVE-5 off stops it at once (no scan, armed zones cle
   f.state.now+=M15;f.state.px.Z5USDT={bid:99.8,ask:99.81};
   assert.equal((await f.controller.z5Tick()).reason,'ZIRVE5_DISABLED');assert.equal(Object.keys(f.controller._testTop3State().active).length,0,'no entry while off');
   const on=f.controller.configureZ5({enabled:true,source:'OFFICE'});assert.equal(on.switches.enabled,true);assert.equal(on.gate,'OPEN');
+  f.state.k15.Z5USDT=series(PTS,Date.UTC(2026,9,20,10,15));f.state.px.Z5USDT={bid:95.9,ask:95.91};
+  const re=await f.controller.z5Tick();assert.equal(re.scanned,true,'switching ON rescans the last closed candle at once');assert.equal(f.controller.z5Status().armed.length,1);
   assert.equal(f.controller.laneStatus().zirve5.selected,true);assert.equal(f.controller.laneStatus().zirve5.active,true);
   assert.equal(f.kinds('ZIRVE5_CONFIG_CHANGED').length,2);
 });

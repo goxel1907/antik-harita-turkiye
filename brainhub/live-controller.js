@@ -6428,6 +6428,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if((p.liveEnabled===true||(p.enabled===true&&!testModeNow()))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=z5Lib.readConfig(root),after=z5Lib.writeConfig(root,p);
     if(after.enabled!==true||(!testModeNow()&&after.liveEnabled!==true))z5State().armed={};
+    // R2544.64.1 (20.10 Office: after OFF/ON the card showed no armed zone until the next 15m candle): switching ON rescans the
+    // last closed candle on the next tick instead of waiting up to 15 min
+    if(p.enabled===true&&before.enabled!==true)z5State().lastBar=null;
     try{store.journal('ZIRVE5_CONFIG_CHANGED',null,{before:{enabled:before.enabled,liveEnabled:before.liveEnabled,jevMode:before.jevMode},after:{enabled:after.enabled,liveEnabled:after.liveEnabled,jevMode:after.jevMode},mode:testModeNow()?'TEST':'LIVE',source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
     saveTop3State();
     return {...z5Status(),changed:p};
