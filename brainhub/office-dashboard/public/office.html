@@ -280,7 +280,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <span class="mtag" id="modeTag">MOD —</span>
     <div class="minfo" id="modeInfo">Mod durumu okunuyor…</div>
     <div class="mbtns">
-      <label class="mbal" title="TEST sanal başlangıç bakiyesi">TEST bakiye <input id="testBalance" type="number" min="1" step="1" value="200"> USDT</label>
+      <label class="mbal" title="Yalnız “TEST’i sıfırla”ya basınca başlanacak sanal bakiye; şimdiki bakiye yanında yazar">Sıfırlama bakiyesi <input id="testBalance" type="number" min="1" step="1" value="200"> USDT <span id="testBalNow" class="muted"></span></label>
       <button id="btnLaneNormal" disabled title="5 dk / 15 dk / vur-kaç: kararı yalnız JEV verir">Normal sistem (JEV): —</button>
       <button id="btnLaneScalp" disabled title="Normal sistemin 5 dk scalp hattı (hızlı hat dahil)">5 dk scalp: —</button>
       <button id="btnLane15m" disabled title="Normal sistemin 15 dk ana işlem hattı">15 dk ana işlem: —</button>
@@ -1769,8 +1769,11 @@ function renderMode(s){
   else if(!run) info='Çalışan PC sürümü yeni çalıştırma kontrolünü yayınlamıyor (R2544.52 öncesi); düğmeler deploy sonrası çalışır.';
   else if(mode==='TEST'){
     const p=tm.paper||{}, hr=num(tm.testElapsedHours), W=num(tm.testWindowHours)||24, pct=hr===null?0:Math.min(100,Math.round(hr/W*100));
-    const clockText=tm.testStarted===false?`Test sayacı başlatmada başlar (${W} saat)`:`Test <b>${hr===null?'—':hr.toFixed(1)} / ${W} saat</b> <span class="mprog"><i style="width:${pct}%"></i></span>`;
-    info=`Sanal hesap, gerçek parayla çalışıyormuş gibi: emirler Binance’e <b>gitmez</b> (gerçek fiyat, alıcı ücreti %0,05). <span style="white-space:nowrap">${clockText}</span>${tm.testWindowComplete?' • <b>24 saat doldu</b>':''}`
+    const dur=h=>{const d=Math.floor(h/24),r=Math.floor(h%24),mi=Math.floor((h*60)%60);return d?`${d} gün ${r} sa`:`${r} sa ${mi} dk`;};
+    const since=tm.testStartedAt?new Date(tm.testStartedAt).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):null;
+    const clockText=tm.testStarted===false?'TEST sayacı ilk başlatmada başlar':`TEST süresi <b>${hr===null?'—':dur(hr)}</b>${since?` (${esc(since)}’den beri, “TEST’i sıfırla” ile sıfırlanır)`:''}`;
+    {const bn=document.getElementById('testBalNow');if(bn)bn.textContent=num(p.equity)!==null?`• şimdi ${Number(p.equity).toFixed(2)} USDT`:'';}
+    info=`Sanal hesap, gerçek parayla çalışıyormuş gibi: emirler Binance’e <b>gitmez</b> (gerçek fiyat, alıcı ücreti %0,05). <span style="white-space:nowrap">${clockText}</span>`
       +`<br><b>Kâr/zarar: TOPLAM ${usdtS(p.total??(num(p.equity)-num(p.startBalance)))}</b> = kapanan işlem/parçalar ${usdtS(p.realized)} + ücret ${usdtS(p.fees)} + açık pozisyon (anlık) ${usdtS(p.unrealized)}`
       +`<br>Başlangıç ${usdt(p.startBalance)} • özkaynak ${usdt(p.equity)} • nakit bakiye ${usdt(p.wallet)} • kullanılabilir ${usdt(p.available)} • açık ${num(p.openPositions)??0} • dolum ${num(p.fills)??0} • vur-kaç TEST’te açık`;
   } else info='<b>Gerçek para:</b> emirler Binance hesabınızdaki bakiye ve marjla gider. Vur-kaç canlıda kapalı (yalnız TEST’te).';

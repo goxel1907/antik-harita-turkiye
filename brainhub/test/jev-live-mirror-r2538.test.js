@@ -36,7 +36,7 @@ test('R2538 decision journal preserves exact JEV-seen digest and Vision evidence
 test('R2541 Office mirror remains GET-only, Turkish and snapshot-bound',()=>{
   const server=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  assert.match(server,/2.5.45-R2544.67/);
+  assert.match(server,/2.5.46-R2544.67/);
   assert.match(server,/req\.method !== 'GET'/);
   assert.match(server,/\['5m','15m'\]\.includes\(tf\)/);
   assert.match(server,/\['clean','annotated','sade'\]\.includes\(mode\)/); // R2544.58: upper chart is SADE
