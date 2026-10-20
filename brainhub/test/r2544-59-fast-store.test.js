@@ -61,11 +61,11 @@ test('R2544.59 consumers never mutate the shared rows (frozen rows pass through 
 
 test('R2544.59 release marker', () => {
   const src=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.63-FIBO-ZONES';/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.64-ZIRVE5-SHORT';/);
   assert.match(src('store.js'),/R2544.59_OFFICE_RECORDS_CACHE/);
   assert.match(src('store.js'),/R2544.59_CLOSE_LIST_CACHE/);
   assert.match(src('store.js'),/CREATE INDEX IF NOT EXISTS learning_events_kind_ts ON learning_events\(kind,ts DESC\)/);
-  assert.match(src('jev-brain/JEV-DEPLOY.ps1'),/\$EXPECTED_RELEASE = 'R2544.63-FIBO-ZONES'/);
+  assert.match(src('jev-brain/JEV-DEPLOY.ps1'),/\$EXPECTED_RELEASE = 'R2544.64-ZIRVE5-SHORT'/);
 });
 
 test('R2544.59 close lists: cached learningContext/tradeLessons/caseMemory equal a fresh store, and new rows show at once', () => {
@@ -92,8 +92,8 @@ test('R2544.59 Office review fixes: mirror does not await the scanner, İlk 3 v2
   const i=server.indexOf("u.pathname==='/context/jev-live-mirror'"),handler=server.slice(i,server.indexOf("u.pathname==='/chart/png'"));
   assert.ok(i>0&&!/scanner\.scan\(\)/.test(handler),'the mirror must not wait for a full market scan');
   assert.match(handler,/R2544\.59_MIRROR_NO_SCAN/);
-  assert.match(lc,/tf=c\.rulesVersion===2\|\|TOP3_V2_SETUPS\.has\(setup\)\?'5m':'1h'/);
-  assert.match(lc,/entryTiming:tf==='5m'\?'CLOSED_5M':'HOURLY_CLOSE'/);
+  assert.match(lc,/tf=z5\?'15m':c\.rulesVersion===2\|\|TOP3_V2_SETUPS\.has\(setup\)\?'5m':'1h'/);
+  assert.match(lc,/entryTiming:z5\?'ZONE_EQUILIBRIUM_TOUCH':tf==='5m'\?'CLOSED_5M':'HOURLY_CLOSE'/);
   assert.match(lc,/map\(x=>top3TfView\(\{symbol:x\.symbol/);
   assert.match(html,/TOP3_HUNTER:'İLK 3 AVCISI MASASI'/);
   assert.match(html,/BURST_SCALP:'VUR-KAÇ MASASI'/);

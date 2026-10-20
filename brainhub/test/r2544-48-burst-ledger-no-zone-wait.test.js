@@ -60,7 +60,7 @@ test('R48 source contract: core review skips live burst lots, Office names the o
   const live=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(live,/const reviewable=open\.positions\.filter\(p=>\{const row=leaderAnalysisState\.bySymbol\?\.\[p\.symbol\];return String\(row\?\.state\|\|''\)\.toUpperCase\(\)==='ACTIVE'\|\|\(!activeBurstFor\(p\.symbol\)&&!activeTop3For\(p\.symbol\)\);\}\);/);
   assert.match(live,/reason:'BURST_LOT_OWN_MANAGER'/);
-  assert.match(live,/openedBy:own\?'BRAINHUB_AUTO':bl\?'BRAINHUB_BURST':t3\?'BRAINHUB_TOP3':'EXTERNAL'/);
+  assert.match(live,/openedBy:own\?'BRAINHUB_AUTO':bl\?'BRAINHUB_BURST':t3\?\(t3\.lane==='ZIRVE5'\?'BRAINHUB_ZIRVE5':'BRAINHUB_TOP3'\):'EXTERNAL'/);
   assert.match(live,/const t3=bl\|\|String\(coreRow\.state\|\|''\)\.toUpperCase\(\)==='ACTIVE'\?null:activeTop3For\(p\.symbol\),lot=bl\|\|t3;\n      const row=lot\?\{\}:coreRow;/,'a stale core lifecycle row is never read for a burst (or R56 top-3) lot');
   const stopAt=live.indexOf("const stop=await transport.placeRunnerStop({symbol,side,hedgeMode:hedge,quantity:executed");
   const measureAt=live.indexOf("params:{symbol,origClientOrderId:clientId}");

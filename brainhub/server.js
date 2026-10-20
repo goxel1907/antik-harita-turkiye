@@ -1557,7 +1557,7 @@ const decisionPipeline={
 function backgroundAnalysisWindowOpen(){
   return decisionPipelineActive===0&&localVisionQueueDepth===0&&(Date.now()-decisionPipelineLastFinishedAt)>=30000;
 }
-const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
+const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,zirve5Judge:jev.sovereignZirve5Gate,credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
 
 const server=http.createServer(async(req,res)=>{
   try{
@@ -1610,13 +1610,22 @@ const server=http.createServer(async(req,res)=>{
         ...(Object.prototype.hasOwnProperty.call(body||{},'marginQuote')?{marginQuote:body.marginQuote}:{}),...(Object.prototype.hasOwnProperty.call(body||{},'leverage')?{leverage:body.leverage}:{}),confirm:body?.confirm,source:'API'});
       return send(res,out.ok?200:400,out);
     }
+    // R2544.64 ZİRVE-5 SHORT: status (GET) and its switches (POST {enabled, liveEnabled, confirm}); LIVE ON needs confirm 'LIVE'.
+    if(req.method==='GET'&&u.pathname==='/live/zirve5'){
+      return send(res,200,live.z5Status());
+    }
+    if(req.method==='POST'&&u.pathname==='/live/zirve5'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const out=live.configureZ5({enabled:body?.enabled,liveEnabled:body?.liveEnabled,jevMode:body?.jevMode,confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
+      return send(res,out.ok?200:400,out);
+    }
     // R2544.57 lanes: "Normal sistem" (JEV) and "İlk 3 Avcısı" selected separately; ON in LIVE needs confirm 'LIVE'.
     if(req.method==='GET'&&u.pathname==='/live/lanes'){
       return send(res,200,{ok:true,...live.laneStatus()});
     }
     if(req.method==='POST'&&u.pathname==='/live/lanes'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
-      const out=live.selectLanes({normal:body?.normal,top3:body?.top3,scalp5m:body?.scalp5m,trade15m:body?.trade15m,burst:body?.burst,confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
+      const out=live.selectLanes({normal:body?.normal,top3:body?.top3,zirve5:body?.zirve5,scalp5m:body?.scalp5m,trade15m:body?.trade15m,burst:body?.burst,confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
       return send(res,out.ok?200:400,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/burst'){
@@ -2393,7 +2402,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.63-FIBO-ZONES';
+const RUNTIME_RELEASE='R2544.64-ZIRVE5-SHORT';
 const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-13 • R2544.57: lanes - Normal sistem (JEV) and İlk 3 Avcısı selected separately in TEST and LIVE, LIVE start with the selected lanes, İlk 3 margin/leverage from Office, İlk 3 lots outside core slots; includes R2544.56: İlk 3 Avcısı - hourly top-3 gainer LONG 6/6 and post-top SHORT lane, own stop/TP/24 h exit, TEST without JEV, Office switches for JEV mode and LIVE; includes R2544.55: JEV edge - one narrow +1R-before-stop Noul per plan with measured lessons, JEV probabilities/confidence kept, code-side EV gate after fees (fail-open on missing); includes R51-R52 TEST mode and run control';
 function fastLaneObsSuffix(result){
   try{
@@ -2450,6 +2459,12 @@ const top3Timer=setInterval(async()=>{
   catch(e){log('TOP3 TIMER '+String(e?.message||e).slice(0,180));}
 },30000);
 if(typeof top3Timer.unref==='function')top3Timer.unref();
+// R2544.64 ZİRVE-5 SHORT: 5 s (one market scan per closed 15m candle; between scans only the armed top-5 coins' bid).
+const z5Timer=setInterval(async()=>{
+  try{const out=await live.z5Tick();if(out?.scanned||out?.entries)log('ZIRVE5 scanned='+(out.scanned===true)+' entries='+(out.entries||0));}
+  catch(e){log('ZIRVE5 TIMER '+String(e?.message||e).slice(0,180));}
+},5000);
+if(typeof z5Timer.unref==='function')z5Timer.unref();
 
 // CLAUDE_V113_POSITION_LEDGER: 30 sn'de bir, Vision/Leader meşguliyetinden bağımsız — açık pozisyon
 // görüntüsü + kapanan işlemlerin sonucu beyne (learning) yazılır. Emir göndermez.

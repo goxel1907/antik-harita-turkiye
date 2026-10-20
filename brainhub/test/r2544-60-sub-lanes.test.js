@@ -79,7 +79,7 @@ test('R2544.60 wiring: gate before the chase guard in the leader execution, burs
   assert.match(lc.slice(lc.indexOf('async function burstArmTick'),lc.indexOf('async function burstArmTick')+1600),/BURST_LANE_NOT_SELECTED/);
   assert.match(lc.slice(lc.indexOf('async function burstOpen'),lc.indexOf('async function burstOpen')+400),/BURST_LANE_NOT_SELECTED/);
   assert.match(src('server.js'),/scalp5m:body\?\.scalp5m,trade15m:body\?\.trade15m,burst:body\?\.burst/);
-  assert.match(src('office-dashboard/office-server.js'),/\['normal', 'top3', 'scalp5m', 'trade15m', 'burst'\]/);
+  assert.match(src('office-dashboard/office-server.js'),/\['normal', 'top3', 'zirve5', 'scalp5m', 'trade15m', 'burst'\]/);
   const html=src('office-dashboard/public/office.html');
   for(const id of ['btnLaneScalp','btnLane15m','btnLaneBurst'])assert.ok(html.includes(`id="${id}"`)&&html.includes(`onClick('#${id}'`),id);
   assert.ok(!/confirm\(|prompt\(/.test(html.slice(html.indexOf('function laneToggle'),html.indexOf('function laneToggle')+800)),'no browser dialogs');

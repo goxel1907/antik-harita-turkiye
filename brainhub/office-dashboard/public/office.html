@@ -286,6 +286,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <button id="btnLane15m" disabled title="Normal sistemin 15 dk ana işlem hattı">15 dk ana işlem: —</button>
       <button id="btnLaneBurst" disabled title="Normal sistemin vur-kaç hattı (canlıda ayrıca izin gerekir)">Vur-kaç: —</button>
       <button id="btnLaneTop3" disabled title="İlk 3 Avcısı: kural (JEV modu açıksa kural + JEV)">İlk 3 Avcısı: —</button>
+      <button id="btnLaneZirve5" disabled title="ZİRVE-5 SHORT: piyasa geneli ilk 5 volatil coin, 15 dk Fibo dip kırılımı bölgesinin dengesinde SHORT (JEV modu açıksa kural + JEV)">ZİRVE-5 SHORT: —</button>
       <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button>
       <button id="btnGoTest" disabled style="display:none">CANLI’yı kapat — TEST’e dön</button>
       <button class="go" id="btnStartTest" disabled style="display:none">TEST’i başlat</button>
@@ -307,6 +308,12 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="t3btns"><button id="btnTop3On" disabled>İlk 3 Avcısı: AÇ</button><button id="btnTop3Jev" disabled>JEV modu: KAPALI → aç</button><label class="t3set">Marj <input id="t3Margin" type="number" min="5" step="1" placeholder="otomatik"> USDT</label><label class="t3set">Kaldıraç <input id="t3Lev" type="number" min="1" max="20" step="1"> x</label><button id="btnTop3Save" disabled>Marj/kaldıraç kaydet</button></div>
     <div class="t3msg" id="top3Msg"></div>
     <div id="top3Host" aria-live="polite">İlk 3 Avcısı verisi bekleniyor.</div>
+  </section>
+  <section class="card" id="z5Card" aria-label="ZİRVE-5 SHORT" style="margin:16px 0;border-color:#e0607e">
+    <h2>🔻 ZİRVE-5 SHORT <span class="hint">piyasa geneli en volatil 5 coin (24 sa aralık, hacim ≥ 20M) • 15 dk Fibo dip kırılımı → bölgenin DENGESİNDE SHORT • stop bölge üstü, hedef 2R, en çok 24 sa • kendi adıyla kayıt ve öğrenme • yalnız PC yürütür</span></h2>
+    <div class="t3btns"><button id="btnZ5On" disabled>ZİRVE-5 SHORT: AÇ</button><button id="btnZ5Jev" disabled>JEV modu: KAPALI → aç</button><button id="btnZ5Live" disabled>CANLI’da: seçili değil</button></div>
+    <div class="t3msg" id="z5Msg"></div>
+    <div id="z5Host" aria-live="polite">ZİRVE-5 verisi bekleniyor.</div>
   </section>
   <details class="legacy-jev" id="legacyJevA"><summary>Eski JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Açmak için tıklayın.</span></summary>
   <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
@@ -514,7 +521,7 @@ const UI_TR = {
   INVERSE_HEAD_AND_SHOULDERS:'TERS OMUZ BAŞ OMUZ', RANGE:'YATAY ARALIK',
   LONG_15M_TRADE:'15 DK ALIŞ ANA İŞLEM', SHORT_15M_TRADE:'15 DK SATIŞ ANA İŞLEM',
   LONG_5M_SCALP:'5 DK ALIŞ SCALP', SHORT_5M_SCALP:'5 DK SATIŞ SCALP',
-  '15M_TRADE':'15 DK ANA İŞLEM', '5M_SCALP':'5 DK SCALP', BURST_SCALP:'VUR-KAÇ', TOP3_HUNTER:'İLK 3 AVCISI',
+  '15M_TRADE':'15 DK ANA İŞLEM', '5M_SCALP':'5 DK SCALP', BURST_SCALP:'VUR-KAÇ', TOP3_HUNTER:'İLK 3 AVCISI', ZIRVE5:'ZİRVE-5 SHORT',
   IDLE:'BOŞTA', DONE:'TAMAM', ERROR:'HATA', NOT_CALLED:'ÇAĞRILMADI',
   BEARISH_ENGULFING:'AYI YUTAN FORMASYONU', BULLISH_ENGULFING:'BOĞA YUTAN FORMASYONU',
   SHOOTING_STAR_REJECTION:'KAYAN YILDIZ REDDİ', HAMMER_REJECTION:'ÇEKİÇ REDDİ',
@@ -1168,7 +1175,7 @@ function renderLedger(s){
     $('#deskPerfHint').textContent=`Tüm defter • son 60 dk benzersiz coin ${f.uniqueCoverage} • tekrar analiz %${n(f.reanalysisRatePct)} • aynı kanıtla atlanan ${f.dedupeSkipped}. ${perf.historyNote}`;
     $('#closedHint').textContent=`Tüm ölçülen defter: ${perf.total.closed} kapanış • net ${n(perf.total.netPnl)} USDT. ${perf.reconciliation?.excluded?.length||0} yinelenen kayıt hesap dışı (ham kayıtlar korunur). Aşağıdaki liste son ${cl.length} kayıt; masa sonuçları tüm kayıtlardır.${perf.testMode?.total?.closed?` TEST (sanal, ayrı): ${perf.testMode.total.closed} kapanış • net ${n(perf.testMode.total.netPnl)} USDT.`:''}`;
     $('#deskPerf').innerHTML=perf.desks.filter(x=>x.desk!=='UNSPECIFIED'||x.recent.analyses||x.cohorts.some(c=>c.closed)).map(desk=>{
-      const title=({'5M_SCALP':'5M SCALPER MASASI','15M_TRADE':'15M TRADER MASASI',BURST_SCALP:'VUR-KAÇ MASASI',TOP3_HUNTER:'İLK 3 AVCISI MASASI'})[desk.desk]||'MASASI BELİRSİZ KAYITLAR'; // R2544.59: İlk 3 / vur-kaç had no title and read as the 15M desk
+      const title=({'5M_SCALP':'5M SCALPER MASASI','15M_TRADE':'15M TRADER MASASI',BURST_SCALP:'VUR-KAÇ MASASI',TOP3_HUNTER:'İLK 3 AVCISI MASASI',ZIRVE5:'ZİRVE-5 SHORT MASASI'})[desk.desk]||'MASASI BELİRSİZ KAYITLAR'; // R2544.59: İlk 3 / vur-kaç had no title and read as the 15M desk
       return `<tbody><tr><th colspan="12">${title}</th></tr><tr><th>Dönem / sürüm</th><th>Analiz / P1 / P2</th><th>Al / Sat / Bekle</th><th>Şimdi giriş</th><th>Onay / güvenlik / emir</th><th>Kapanış K/Z/N</th><th>Kazanma %</th><th>Net USDT</th><th>Ort / medyan R</th><th>R örneği</th><th>Açık PnL</th><th>Dönüşüm %</th></tr>`+
       [desk.recent,...desk.cohorts].map(x=>`<tr><td>${esc(x.name==='LEGACY'?'ESKİ / ETİKETSİZ':x.name)}</td><td>${x.telemetryAvailable?`${x.analyses} / ${x.pass1} / ${x.pass2}`:'Kayıt yok'}</td><td>${x.telemetryAvailable?`${x.long} / ${x.short} / ${x.wait}`:'—'}</td><td>${x.telemetryAvailable?x.marketNow:'—'}</td><td>${x.telemetryAvailable?`${x.approved} / ${x.safetyPassed} / ${x.orders}`:'—'}</td><td>${x.closed} (${x.wins}/${x.losses}/${x.flats})</td><td>${n(x.winRatePct)}</td><td>${n(x.netPnl)}</td><td>${n(x.avgR)} / ${n(x.medianR)}</td><td>${x.rSamples}</td><td>${n(x.openPnl)}</td><td title="Karar → güvenlik / güvenlik → emir / karar → emir">${n(x.decisionToSafetyPct)} / ${n(x.safetyToOrderPct)} / ${n(x.decisionToOrderPct)}</td></tr><tr><td colspan="12"><details><summary>Zamanlama, bekleme ve yürütme nedenleri</summary><p>Giriş zamanlaması: ${esc(dist(x.timing))}</p><p>Bekleme nedeni: ${esc(dist(x.waitReasons))}</p><p>Yürütme engelleri: ${esc(dist(x.blockedReasons))}</p><p>Kanıt değişimi: ${esc(dist(x.materialChanges))} • benzersiz coin ${x.uniqueCoverage} • tekrar %${n(x.reanalysisRatePct)}</p></details></td></tr>`).join('')+'</tbody>';
     }).join('');
@@ -1767,8 +1774,10 @@ function renderMode(s){
     lb('btnLane15m','15 dk ana işlem',sub.trade15m?.selected);
     lb('btnLaneBurst','Vur-kaç',sub.burst?.selected,mode==='LIVE'&&sub.burst?.selected&&!sub.burst?.liveAllowed?' • canlıda kapalı':'');
     lb('btnLaneTop3','İlk 3 Avcısı',lanes.top3?.selected,lanes.top3?.selected?(lanes.top3.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz'):'');
+    // R2544.64 ZİRVE-5 SHORT: own switch; in LIVE it trades only after its own LIVE confirmation
+    lb('btnLaneZirve5','ZİRVE-5 SHORT',lanes.zirve5?.selected,lanes.zirve5?.selected?(lanes.zirve5.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz')+(mode==='LIVE'&&!lanes.zirve5.liveAllowed?' • canlıda kapalı':''):'');
     info+=`<br>Hatlar: Normal sistem (yalnız JEV karar verir) <b>${lanes.normal?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.normal?.active?' • çalışıyor':''} • İlk 3 Avcısı <b>${lanes.top3?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.top3?.active?' • çalışıyor':''}${mode==='LIVE'&&lanes.top3?.selected&&!lanes.top3?.liveAllowed?' • (canlıda değil)':''}`;
-  } else for(const id of ['btnLaneNormal','btnLaneScalp','btnLane15m','btnLaneBurst','btnLaneTop3']){const b=$('#'+id);if(b)b.style.display='none';}
+  } else for(const id of ['btnLaneNormal','btnLaneScalp','btnLane15m','btnLaneBurst','btnLaneTop3','btnLaneZirve5']){const b=$('#'+id);if(b)b.style.display='none';}
   let warn='';
   if(run){
     info+=`<br>Durum: <b>${RUN_TR[state]||state}</b>${run.switch?.waiting?.length&&busy?' — bekleniyor: '+esc(reasonsTr(run.switch.waiting)):''} • son 60 dk: tarama <b>${scans}</b> • JEV analizi ${analyses} • JEV yön kararı ${dirs} / BEKLE ${waits} • emir ${orders}`
@@ -1979,6 +1988,79 @@ onClick('#btnTop3Save',()=>{
   if(live&&!top3Second('btnTop3Save',`CANLI: İlk 3 marjı ${m===null?'otomatik':m+' USDT'}, kaldıraç ${l}x — gerçek para`))return;
   top3Control({marginQuote:m,leverage:l,...(live?{confirm:'LIVE'}:{})},`Kaydedildi: marj ${m===null?'otomatik':m+' USDT'}, kaldıraç ${l}x (her işlemde güvenli üst sınıra göre düşürülebilir).`).then(()=>{if(mEl)delete mEl.dataset.dirty;if(lEl)delete lEl.dataset.dirty;});
 });
+// ===== R2544.64 ZİRVE-5 SHORT card =====
+const Z5TR={OPEN:'AÇIK',ZIRVE5_DISABLED:'kapalı',ZIRVE5_LIVE_DISABLED:'CANLI’da seçili değil (yalnız TEST)',LIVE_NOT_ARMED:'sistem durdu (Sistem: AÇ gerekir)',ZIRVE5_JEV_UNAVAILABLE:'JEV modu açık ama JEV bağlı değil → işlem yok',
+  ZIRVE5_JEV_NOT_APPROVED:'JEV onaylamadı',ZIRVE5_STOP_OUT_OF_BAND:'stop mesafesi %0,2–%8 dışında',ZIRVE5_ENTRY_PERMISSION_REVOKED:'giriş anında hat kapandı',TOP3_MARGIN_TOO_SMALL:'marj 5 USDT altında',TOP3_MARGIN_ABOVE_FREE_BALANCE:'marj serbest bakiyeden fazla',
+  TOP3_PRICE_UNAVAILABLE:'fiyat okunamadı',TOP3_ACCOUNT_UNAVAILABLE:'hesap okunamadı',ZIRVE5_STOP:'stop',ZIRVE5_TAKE_PROFIT:'hedef',ZIRVE5_TIME_EXIT:'süre (24 sa)',ZIRVE5_SYSTEM_CLOSE:'sistem kapattı',ZIRVE5_EXTERNAL_CLOSE:'dışarıdan kapandı',ZIRVE5_STOP_OR_EXTERNAL:'stop / dış kapanış'};
+const z5tr=x=>Z5TR[x]||t3tr(x);
+function z5Msg(text,err){const m=document.getElementById('z5Msg');if(!m)return;m.textContent=text||'';m.className='t3msg'+(err?' err':'');}
+const z5Pending={};
+function z5Second(id,what){
+  const el=document.getElementById(id),now=Date.now();
+  if(z5Pending[id]&&now-z5Pending[id]<CONFIRM_MS){delete z5Pending[id];el?.classList?.remove('arm2');return true;}
+  z5Pending[id]=now;el?.classList?.add('arm2');z5Msg(`${what} — onaylamak için 6 sn içinde aynı düğmeye bir kez daha basın.`);
+  setTimeout(()=>{if(z5Pending[id]===now){delete z5Pending[id];el?.classList?.remove('arm2');z5Msg('Onaylanmadı; hiçbir şey değişmedi.');}},CONFIRM_MS);
+  return false;
+}
+let z5Busy=false;
+async function z5Control(body,okText){
+  z5Busy=true;z5Msg('Gönderiliyor…');
+  try{
+    const r=await fetch('/api/control/zirve5'+location.search,{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-jev-office-control':'1'},body:JSON.stringify(body)});
+    let d=null;try{d=await r.json();}catch{}
+    // the answer carries the new switches: show what the core really has now, not what was asked
+    if(r.ok&&d?.ok!==false){const sw=d?.switches||{};z5Msg(`${okText} — şu an: ${sw.enabled?'AÇIK':'KAPALI'} • JEV ${sw.jevMode?'açık':'kapalı'} • CANLI ${sw.liveEnabled?'seçili':'seçili değil'}`);}
+    else z5Msg('Yapılmadı: '+(reasonsTr(d?.reasons)||d?.error||('HTTP '+r.status)),true);
+  }catch(e){z5Msg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);}
+  z5Busy=false;await tick();
+}
+function renderZ5(s){
+  const el=document.getElementById('z5Host');if(!el)return;
+  const z=s.zirve5;
+  const btn=(id,text,on,dis)=>{const b=document.getElementById(id);if(!b)return;if(text)b.textContent=text;b.classList.toggle('on',!!on);b.disabled=!!dis||z5Busy;};
+  if(!z||z.ok!==true){el.innerHTML='<p>ZİRVE-5 verisi okunamadı (PC sürümü R2544.64 öncesi olabilir).</p>';for(const id of ['btnZ5On','btnZ5Jev','btnZ5Live'])btn(id,null,false,true);return;}
+  const sw=z.switches||{},live=z.tradingMode==='LIVE';
+  btn('btnZ5On',sw.enabled?'ZİRVE-5 SHORT: AÇIK → kapat':'ZİRVE-5 SHORT: KAPALI → aç',sw.enabled,false);
+  btn('btnZ5Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!z.jevAvailable&&!sw.jevMode);
+  btn('btnZ5Live',sw.liveEnabled?'CANLI’da: SEÇİLİ → kaldır':'CANLI’da: seçili değil → seç',sw.liveEnabled,false);
+  const fm=(v,d=6)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('tr-TR',{maximumFractionDigits:d});
+  const pnl=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+' $';
+  const rr=v=>v===null||v===undefined?'—':(v>=0?'+':'')+String(Number(v).toFixed(2)).replace('.',',')+' R';
+  let html=`<p><b>Durum: ${z.running?'ÇALIŞIYOR ('+(live?'CANLI':'TEST')+')':esc(z5tr(z.gate))}</b> • karar: ${sw.jevMode?'<b>kural + JEV</b> (her giriş JEV onayından geçer)':'yalnız kural (JEV’siz)'} • CANLI’da ${sw.liveEnabled?'<b class="mwarn">SEÇİLİ</b>':'seçili değil'} • kayıt adı <b>ZIRVE5 / ${esc(z.setup)}</b> • ${esc(z.version)}</p>`;
+  html+=`<p class="t3rule">Kural: her kapanan <b>15 dk</b> mumda Binance USDT-M’de son 24 saatin (yüksek−düşük)/fiyat sırasına göre <b>ilk ${esc(z.rules?.topN)}</b> coin (hacim ≥ ${fm((z.rules?.minQuote24h||0)/1e6,0)}M). Grafikteki Fibo çizimiyle (ZigZag ${esc(String(z.rules?.k).replace('.',','))}×ATR) son dip kırılınca bölge = [kırılan dip, kırılımı yapan tepe]; fiyat bölgenin <b>DENGESİNE</b> (orta) gelince piyasa emriyle SHORT. Stop bölge üstü %0,1 (%${fm((z.rules?.minStopPct||0)*100,1)}–%${fm((z.rules?.maxStopPct||0)*100,0)} dışı işlem yok), hedef ${esc(z.rules?.targetR)}R, en çok ${esc(z.rules?.maxHoldH)} saat; bölge ${esc(z.rules?.windowBars)} mumda dolmazsa veya 15 dk bölge üstünde kapanırsa iptal. Laboratuvar (20.09–20.10, ücret+fonlama dahil): +0,27 R/işlem, 120 işlem, 4/5 hafta artı; LONG tarafı her ayarda zararlıydı.</p>`;
+  for(const a of z.active||[])html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ZİRVE-5${live?'':' <span class="tbadge">TEST</span>'}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} (%${fm((a.stopPct||0)*100,2)}) • hedef ${fm(a.tpPrice)} • ${esc(a.leverage)}x • marj ${fm(a.marginQuote,2)} • anlık ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk</div></div>`;
+  const ls=z.lastScan;
+  if(ls){
+    html+=`<p>Son tarama: ${esc(new Date(ls.at).toLocaleTimeString('tr-TR'))} • mum ${esc(new Date(ls.bar).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • ilk 5: `+(ls.top||[]).map(x=>`#${esc(x.rank)} ${esc(String(x.symbol).replace(/USDT$/,''))} (%${fm((x.range24||0)*100,1)}${x.zones?.length?' • '+x.zones.length+' bölge':''})`).join(' • ')+(ls.errors?.length?` • hata: ${ls.errors.map(esc).join(', ')}`:'')+'</p>';
+  } else html+=`<p>15 dk tarama henüz yapılmadı; ilki ${z.nextScanAt?esc(new Date(z.nextScanAt).toLocaleTimeString('tr-TR')):'—'}.</p>`;
+  if((z.armed||[]).length)html+='<p>Dengeyi bekleyen: '+z.armed.map(a=>`${esc(String(a.symbol).replace(/USDT$/,''))} `+a.zones.map(x=>`denge ${fm(x.equilibrium)} (bölge ${fm(x.bottom)}–${fm(x.top)}, iptal ${esc(new Date(x.expiresAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))})`).join(', ')).join(' • ')+'</p>';
+  else if(sw.enabled)html+='<p>Şu an dengeyi bekleyen bölge yok.</p>';
+  const re=(z.recentEntries||[]).slice(0,6);
+  if(re.length)html+='<p>Son girişler: '+re.map(x=>`${esc(String(x.symbol).replace(/USDT$/,''))} ${esc(new Date(x.at).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))}: ${x.opened?'<b>işleme girildi</b>':esc(z5tr(x.reason))}`).join(' • ')+'</p>';
+  const R=z.results||{},line=(n,x)=>x&&x.closed?`${n}: ${x.closed} işlem • ${x.wins} kazanç / ${x.losses} kayıp • net ${pnl(x.netPnl)} • ort ${rr(x.avgR)}`:`${n}: henüz kapanan işlem yok`;
+  html+=`<p><b>Sonuçlar (30 gün, yalnız ZİRVE-5)</b> — ${line('TEST',R.test)} • ${line('CANLI',R.live)} • 📚 hafıza ${Number(z.learning?.lessons)||0} ders${sw.jevMode?' (JEV her kararda okur)':''}</p>`;
+  const rc=(z.recentCloses||[]).slice(0,5);
+  if(rc.length)html+='<p>Son kapananlar: '+rc.map(x=>`${esc(x.symbol)} ${esc(z5tr(x.exitType))} ${pnl(x.netPnl)} ${rr(x.rMultiple)}`).join(' • ')+'</p>';
+  el.innerHTML=html;
+}
+onClick('#btnZ5On',()=>{
+  const z=last?.zirve5,on=z?.switches?.enabled===true;
+  if(on){laneAction({zirve5:false},'ZİRVE-5 SHORT kapatıldı: yeni giriş yok, bekleyen bölgeler silindi. Açık işlemler kendi stop/hedef/24 saat kuralıyla yönetilir.');return;}
+  if(z?.tradingMode==='LIVE'){if(!z5Second('btnZ5On','ZİRVE-5 SHORT AÇ — CANLI modda GERÇEK PARA ile işlem açar'))return;laneAction({zirve5:true,confirm:'LIVE'},'ZİRVE-5 SHORT CANLI’da açıldı.');return;}
+  z5Control({enabled:true},'ZİRVE-5 SHORT açıldı (TEST); ilk tarama bir sonraki 15 dk mum kapanışından ~8 sn sonra');
+});
+onClick('#btnZ5Jev',()=>{
+  const on=last?.zirve5?.switches?.jevMode===true;
+  if(on){z5Control({jevMode:false},'JEV modu kapatıldı: girişler yalnız kurala göre');return;}
+  if(!z5Second('btnZ5Jev','JEV modu AÇ: her giriş için bir JEV çağrısı (OpenRouter kredisi gerekir; JEV yanıt vermezse işlem açılmaz)'))return;
+  z5Control({jevMode:true},'JEV modu açıldı: her giriş JEV onayı ister');
+});
+onClick('#btnZ5Live',()=>{
+  const on=last?.zirve5?.switches?.liveEnabled===true;
+  if(on){z5Control({liveEnabled:false},'CANLI izni kaldırıldı: ZİRVE-5 canlıda işlem açmaz');return;}
+  if(!z5Second('btnZ5Live','ZİRVE-5 CANLI izni — canlı moddayken GERÇEK PARA ile işlem açar'))return;
+  z5Control({liveEnabled:true,confirm:'LIVE'},'CANLI izni verildi');
+});
 // R2544.57 lanes from the mode bar (ON in LIVE: double press + 'LIVE')
 async function laneAction(body,okText){
   modeBusy=true; if(last) renderMode(last); modeMsg('Gönderiliyor…');
@@ -1996,6 +2078,7 @@ function laneToggle(key,id,label){
 }
 onClick('#btnLaneNormal',()=>laneToggle('normal','btnLaneNormal','Normal sistem (JEV)'));
 onClick('#btnLaneTop3',()=>laneToggle('top3','btnLaneTop3','İlk 3 Avcısı'));
+onClick('#btnLaneZirve5',()=>laneToggle('zirve5','btnLaneZirve5','ZİRVE-5 SHORT'));
 onClick('#btnLaneScalp',()=>laneToggle('scalp5m','btnLaneScalp','5 dk scalp hattı'));
 onClick('#btnLane15m',()=>laneToggle('trade15m','btnLane15m','15 dk ana işlem hattı'));
 onClick('#btnLaneBurst',()=>laneToggle('burst','btnLaneBurst','Vur-kaç hattı'));
@@ -2007,7 +2090,7 @@ async function tick(){
     const s = await r.json(); last=s;
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
-    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderZ5(s);}catch(e){console.warn('zirve5',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yazma yalnız TEST/CANLI/Durdur`;

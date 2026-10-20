@@ -1877,6 +1877,47 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_V2_GATE',decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
 
+  // R2544.64 ZİRVE-5 SHORT gate (user 20.10: "istenirse JEV aktif edildiğinde bu stratejiler JEV ile çalışmalı, istenildiğinde
+  // JEV'siz"): the rule has already armed the zone and price has reached its equilibrium; JEV approves or rejects this one entry.
+  async function sovereignZirve5Gate({symbol:requestedSymbol=null,signal,features,candle=null,chartContext=null,experience=null}={}){
+    if(!configured)return {ok:false,configured:false,called:false,decision:'REJECT_ENTRY',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
+    const symbol=String(requestedSymbol||chartContext?.symbol||'').toUpperCase()||null;
+    if(!/^[A-Z0-9]{1,28}USDT$/.test(String(symbol||'')))return {ok:false,called:false,decision:'REJECT_ENTRY',reason:'ZIRVE5_SYMBOL_INVALID'};
+    if(!signal?.ok||signal.side!=='SHORT'||!signal.zone||!features?.ok)return {ok:false,called:false,decision:'REJECT_ENTRY',reason:'ZIRVE5_SIGNAL_INVALID'};
+    const r4=v=>finiteNumber(v)!==null?Number(Number(v).toFixed(4)):null,z=signal.zone;
+    const record={contract:'R2544.64_ZIRVE5_GATE',symbol,side:'SHORT',rule:signal.rule||'ZIRVE5_FIBO_SHORT',lastClosed15mCandle:candle,
+      universe:{volatilityRank:finiteNumber(features.rank),range24hPct:r4((finiteNumber(features.range24)||0)*100),change24hPct:r4(features.change24)},
+      zone:{brokenDip:finiteNumber(z.bottom),breakTop:finiteNumber(z.top),equilibrium:finiteNumber(z.equilibrium),zoneBornAt:finiteNumber(z.zoneAt)},
+      plan:{entry:'market at the equilibrium touch',stopAboveZonePct:0.1,targetR:finiteNumber(signal.targetR)||2,maxHoldH:Math.round((signal.maxHoldMs||0)/3600000)},
+      market:{bid:finiteNumber(features.bid)},
+      // measured in the lab, decision time = first touch of the equilibrium (40 % of zones held, 60 % broke)
+      researchPrior:'ZİRVE-5 lab 20.09-20.10.2026 (Binance USDT-M, top 5 by 24 h range, >= 20M volume, 15m, fees+funding): SHORT at the equilibrium after a confirmed dip break, stop above the zone, 2R = +0.27R per trade (n 120, win 44 %, 4 of 5 weeks positive). The LONG mirror lost in every setting. These coins move almost independently of BTC (15m correlation 0.06) and fell ~3 % on average in the 24 h after entering the top 5. One month of data.',
+      decisionGuide:{
+        approveWhen:['the touch candle closes in its LOWER part and leaves an UPPER wick at the equilibrium (sellers rejected the retest; lab: close-position quartile hold rate 29 % -> 53 %, wick 29 % -> 49 %)',
+          'the touch candle CVD / taker flow is SELLING (lab: 35 % -> 48 %)',
+          'the dip-break leg was SMALL relative to ATR (a small, orderly break holds more often; a huge leg has already spent its move: 49 % -> 32 %)',
+          'the coin is already falling over 24 h (in the lab the SHORT averaged about +0.6R when the 24 h change was <= 0, and about 0 when it was > 0)'],
+        rejectWhen:['buyers are absorbing at the equilibrium: strong BUY CVD, a large green touch candle closing near its high, or a 5m close back above the zone top',
+          'the coin is up strongly over 24 h and still printing higher 5m highs (squeeze risk)',
+          'a large untaken short-liquidation cluster sits just above the zone top, inside the stop',
+          'data is stale or missing'],
+        notInformativeInLab:'open interest, funding, long/short ratios, top-trader ratio and BTC 4 h direction did not separate holds from breaks; do not reject on them alone'}};
+    const state={description:'JEV 15m gate for the ZİRVE-5 SHORT lane. A fixed rule has ALREADY fired: this coin is one of the 5 most volatile USDT perpetuals; a 15m close broke its last confirmed swing low (ATR ZigZag); price has now come back up to the MIDDLE (equilibrium) of the zone between that broken dip and the swing top that made the break. The code shorts at market only if you APPROVE (stop 0.1 % above the zone top, target 2R, 24 h limit). Decide with record.decisionGuide: approve a weak retest that sellers are rejecting; reject when buyers are absorbing and a squeeze back through the zone is likely. The rule is profitable on average, so do not reject without concrete evidence against this entry.',
+      record};
+    if(chartContext?.available===true&&chartContext.packet&&chartContext.symbol===symbol){state.coreMarketPacket=chartContext.packet;state.chartCache={asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source};}
+    if(experience&&typeof experience==='object')state.laneExperience=experience;
+    const body={model:cfg.model,state,questions:{
+      zirve5_decision:{type:'choice',instructions:'Approve or reject this single rule-fired SHORT.',criteria:{APPROVE_ENTRY:'Short now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
+      zirve5_reason:{type:'choice',instructions:'Primary reason for the decision.',criteria:{WEAK_RETEST:'The pullback is a weak retest into supply; the break should continue.',SQUEEZE_RISK:'Buyers are absorbing; a squeeze back through the zone is likely.',STRUCTURE_ADVERSE:'Higher-timeframe structure or a nearby level argues against the short.',MARKET_ADVERSE:'Market-wide flow argues against the short.',DATA_NOT_READY:'Data is missing or stale.',NO_EDGE:'No clear edge either way.'}}
+    }};
+    const out=await decisions(body,{reserve:true});
+    if(!out.ok)return {...out,called:out.called!==false,decision:'REJECT_ENTRY',mode:'ZIRVE5_GATE'};
+    const a=out.data?.answers||{};
+    const decision=choiceValue(a.zirve5_decision),reason=choiceValue(a.zirve5_reason);
+    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_ZIRVE5_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'ZIRVE5_GATE',decision,reason:['WEAK_RETEST','SQUEEZE_RISK','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+  }
+
   async function sovereignBurstExit({active,stream,progress,chartContext,learning=null}={}){
     if(!configured)return {ok:false,called:false,action:'HOLD',reason:'JEV_KEY_UNAVAILABLE'};
     if(!active?.burstId||stream?.available!==true||!(Number(stream.ageMs)<=2500))return {ok:false,called:false,action:'HOLD',reason:'BURST_STREAM_STALE'};
@@ -2122,6 +2163,6 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignBurstExit,sovereignTop3Gate,sovereignExit,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignBurstExit,sovereignTop3Gate,sovereignZirve5Gate,sovereignExit,budgetStatus};
 }
 module.exports={prepareDecisionRequest,rankKnowledgeByPacket,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,sovereignFinalConsistency,createJevClient};

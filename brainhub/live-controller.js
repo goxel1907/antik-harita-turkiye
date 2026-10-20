@@ -37,6 +37,7 @@ const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-pr
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
 const {readCloseExitEvidence}=require('./close-exit-evidence');
 const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gainer hunter lane)
+const z5Lib=require('./zirve5'); // R2544.64 ZİRVE-5 SHORT (piyasa geneli ilk 5 volatil, 15 dk Fibo dip kırılımı)
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
 const LIVE_OWNER = 'BRAINHUB_PC';
@@ -320,7 +321,7 @@ function jevFinalAuthorityPreflight({ plan, unified } = {}) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, top3Judge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now(), defaultTradingMode = 'LIVE', paperAutoTick = true, paperStartBalance = 100 } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, top3Judge = null, zirve5Judge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now(), defaultTradingMode = 'LIVE', paperAutoTick = true, paperStartBalance = 100 } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
@@ -490,7 +491,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         .filter(x=>x.symbol&&x.at>0).sort((a,b)=>a.at-b.at);
       const seenKeys=new Set();
       for(const x of rows){
-        if(x.p.tradeLane==='TOP3_HUNTER')continue; // R2544.56: own lane, not a core loss-streak input
+        if(x.p.tradeLane==='TOP3_HUNTER'||x.p.tradeLane==='ZIRVE5')continue; // R2544.56/64: own lanes, not core loss-streak inputs
         const key=x.p.closeBusinessKey||x.p.eventId||(x.symbol+'|'+x.at);if(seenKeys.has(key))continue;seenKeys.add(key);
         const net=finite(x.p.netPnl);
         noteClosedForStreak(x.symbol,net,x.at);
@@ -2044,10 +2045,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         leverage:finite(p.leverage),notional:finite(p.notional),liquidationPrice:finite(p.liquidationPrice),
         stopPrice:stop,originalStopPrice:lot?finite(lot.stopPrice):finite(row.stopPrice),takeProfit1:t3?finite(t3.tpPrice):finite(row.takeProfit1),
         runnerPhase:rr&&rr.phase!=='CLOSED'?rr.phase:null,trailTf:rr?.lastDesired?.trail?.tf||null,
-        openedBy:own?'BRAINHUB_AUTO':bl?'BRAINHUB_BURST':t3?'BRAINHUB_TOP3':'EXTERNAL',
+        openedBy:own?'BRAINHUB_AUTO':bl?'BRAINHUB_BURST':t3?(t3.lane==='ZIRVE5'?'BRAINHUB_ZIRVE5':'BRAINHUB_TOP3'):'EXTERNAL',
         openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():lot&&finite(lot.openedAt)?new Date(Number(lot.openedAt)).toISOString():null,
-        lane:bl?'BURST_SCALP':t3?'TOP3_HUNTER':row.tradeLaneName||row.entryContext?.lane||null,originTF:row.originTF||null,setup:bl?'BURST_SCALP':t3?'TOP3_'+t3.rule:row.setup||null,
-        strategyVersion:bl?BURST_RELEASE_CONTRACT:t3?top3Lib.TOP3_VERSION:row.entryContext?.strategyVersion||null,
+        lane:bl?'BURST_SCALP':t3?(t3.lane==='ZIRVE5'?'ZIRVE5':'TOP3_HUNTER'):row.tradeLaneName||row.entryContext?.lane||null,originTF:t3?.lane==='ZIRVE5'?'15m':row.originTF||null,setup:bl?'BURST_SCALP':t3?(t3.lane==='ZIRVE5'?z5Lib.SETUP:'TOP3_'+t3.rule):row.setup||null,
+        strategyVersion:bl?BURST_RELEASE_CONTRACT:t3?(t3.lane==='ZIRVE5'?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION):row.entryContext?.strategyVersion||null,
         releaseContract:bl?BURST_RELEASE_CONTRACT:t3?top3Lib.TOP3_VERSION:row.entryContext?.releaseContract||null,
         mirrorContract:row.entryContext?.mirrorContract||null,
         entryReason:bl?burstWhy(bl):t3?top3Why(t3):row.entryContext?.why||null,
@@ -5786,7 +5787,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const TOP3_HOUR=top3Lib.HOUR;
   const TOP3_WHY={LONG_6OF6:'LONG 6/6 (hacim patlaması + ilk 7)',SHORT_TOP_FADE:'SHORT tepe sonrası (ilk 3 + tepeden ≥%15 aşağı)',
     LONG_EARLY_RETEST:'erken LONG (5 dk kırılım + geri test, hedef üst likidasyon bölgesi)',SHORT_TOP_BREAK:'tepe SHORT (5 dk yeni tepe + yapı kırılımı)'};
-  function top3Why(a){return `İlk 3 avcısı ${TOP3_WHY[a?.rule]||a?.rule||'—'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
+  function top3Why(a){if(a?.lane==='ZIRVE5')return `ZİRVE-5 SHORT: ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk dip kırılımı bölgesinin dengesinde SHORT, stop bölge üstü, hedef ${finite(a?.targetR)??2}R, ${finite(a?.leverage)??'—'}x`;
+    return `İlk 3 avcısı ${TOP3_WHY[a?.rule]||a?.rule||'—'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
   function top3Gate(cfg){
     if(cfg.enabled!==true)return {ok:false,reason:'TOP3_DISABLED'};
     const test=testModeNow();
@@ -6012,7 +6014,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let px;try{px=await paperPrice(symbol);}catch{px=null;}
     const price=finite(side==='LONG'?px?.ask:px?.bid);if(!(price>0))return {ok:false,reason:'TOP3_PRICE_UNAVAILABLE'};
     // v2: structural stop / zone target from the 5m trigger (plan rejects a stop outside its band or a long right under a zone)
-    const pre=sig.v2?(side==='LONG'?top3Lib.earlyLongPlan(price,sig.v2,sig.levels,cfg):top3Lib.topShortPlan(price,sig.v2,sig.levels,cfg)):top3Lib.entryLevels(sig,price);
+    // R2544.64 ZİRVE-5: the plan comes from the armed 15m zone (stop above the zone, targetR x stop)
+    const pre=sig.z5?z5Lib.plan(price,sig.zone,sig.z5cfg):sig.v2?(side==='LONG'?top3Lib.earlyLongPlan(price,sig.v2,sig.levels,cfg):top3Lib.topShortPlan(price,sig.v2,sig.levels,cfg)):top3Lib.entryLevels(sig,price);
     if(!pre.ok)return {ok:false,reason:pre.reason,stopPct:pre.stopPct??null};
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'TOP3_LEVERAGE_BRACKET_UNAVAILABLE'};}
@@ -6030,8 +6033,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // TEST and LIVE alike (the balance check above reads the TEST wallet / Binance). Only the automatic margin keeps the
     // risk-budget size (riskPct of equity lost at the stop).
     let notional=margin*leverage,riskQuote=null;
-    if(sig.v2&&cfg.marginQuote!==null)riskQuote=Number((notional*pre.stopPct).toFixed(4));
-    else if(sig.v2){
+    if((sig.v2||sig.z5)&&cfg.marginQuote!==null)riskQuote=Number((notional*pre.stopPct).toFixed(4));
+    else if(sig.v2||sig.z5){
       const eq=finite(acct?.equity)??finite(acct?.walletBalance);
       const n=top3Lib.riskSizedNotional({equity:eq,riskPct:cfg.riskPct,stopPct:pre.stopPct,marginCap:margin,leverage});
       if(!(n>0))return {ok:false,reason:'TOP3_RISK_SIZE_INVALID'};
@@ -6040,11 +6043,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const quantity=burstFloor(notional/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||(f.maxQty&&quantity>f.maxQty))return {ok:false,reason:'TOP3_QUANTITY_INVALID'};
     if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'TOP3_MIN_NOTIONAL_NOT_MET'};
     const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;
-    if(!top3Gate(top3Lib.readTop3Config(root)).ok)return {ok:false,reason:'TOP3_ENTRY_PERMISSION_REVOKED'};
+    if(!(sig.z5?z5Gate(z5Lib.readConfig(root)).ok:top3Gate(top3Lib.readTop3Config(root)).ok))return {ok:false,reason:sig.z5?'ZIRVE5_ENTRY_PERMISSION_REVOKED':'TOP3_ENTRY_PERMISSION_REVOKED'};
     if(burstCurrentPosition(symbol))return {ok:false,reason:'TOP3_SYMBOL_BUSY'};
     const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(leverage)}});
     if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==leverage)return {ok:false,reason:'TOP3_LEVERAGE_REJECTED'};
-    const id='t3'+crypto.randomBytes(7).toString('hex'),startedAt=clock();
+    const id=(sig.z5?'z5':'t3')+crypto.randomBytes(7).toString('hex'),startedAt=clock();
     let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide:hedge?side:'BOTH',type:'MARKET',quantity:String(quantity),newClientOrderId:('T3E'+id).slice(0,36),newOrderRespType:'RESULT'}});}
     catch(e){return {ok:false,reason:String(e?.message||'TOP3_ENTRY_FAILED').slice(0,120),exchangeError:e?.body||null};}
     const executed=finite(entry?.executedQty);if(!(executed>0))return {ok:false,reason:'TOP3_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
@@ -6053,7 +6056,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(entryPrice===null)entryPrice=price;
     // Levels at the real fill. SHORT keeps its structural stop, clamped into the 2%..8% band after slippage.
     let stopRaw,tpRaw;
-    if(sig.v2){
+    if(sig.z5){stopRaw=pre.stopPrice;const s=stopRaw/entryPrice-1;tpRaw=s>0?entryPrice*(1-sig.z5cfg.targetR*s):pre.tpPrice;}
+    else if(sig.v2){
       // the structural stop stays where the 5m structure is; R targets are re-measured from the real fill
       stopRaw=pre.stopPrice;
       const s=side==='LONG'?1-stopRaw/entryPrice:stopRaw/entryPrice-1;
@@ -6075,10 +6079,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
       jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0,
       signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0,
-      ...(sig.v2?{rulesVersion:2,tickSize:f.tickSize,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{})};
+      ...(sig.v2?{rulesVersion:2,tickSize:f.tickSize,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{}),
+      ...(sig.z5?{lane:'ZIRVE5',strategy:z5Lib.SETUP,tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:sig.z5cfg.targetR,level:finite(sig.zone.equilibrium),top:finite(sig.zone.top),
+        z5zone:{top:sig.zone.top,bottom:sig.zone.bottom,equilibrium:sig.zone.equilibrium,zoneAt:sig.zone.zoneAt,expiresAt:sig.zone.expiresAt}}:{})};
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
-    try{store.journal('TOP3_ENTRY',symbol,{...a,version:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
+    try{store.journal(sig.z5?'ZIRVE5_ENTRY':'TOP3_ENTRY',symbol,{...a,version:sig.z5?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
     return {ok:true,orderPlaced:true,active:a};
   }
   async function top3CloseMarket(a,qty){
@@ -6195,17 +6201,22 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const netPnl=inc?inc.net:null;
     const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
       TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE',TOP3_BE_STOP:'TOP3_BE_STOP'}[c.exitReason]||'TOP3_OTHER_EXIT';
-    const setup='TOP3_'+(c.rule||'RULE'),tf=c.rulesVersion===2||TOP3_V2_SETUPS.has(setup)?'5m':'1h';
-    return {side:c.side,setup,originTF:tf,ownerTF:tf,tradeLane:'TOP3_HUNTER',entryPrice:entry,stopPrice:stop,...(c.beMoved?{finalStopPrice:finite(c.stopPrice)}:{}),takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
+    // R2544.64: a ZİRVE-5 lot is booked under its own name (lane ZIRVE5, setup ZIRVE5_FIBO_SHORT, 15m) so TEST shows which
+    // strategy made or lost money and learns per strategy
+    const z5=c.lane==='ZIRVE5',lane=z5?'ZIRVE5':'TOP3_HUNTER',xt=z5?exitType.replace(/^TOP3_/,'ZIRVE5_'):exitType;
+    const setup=z5?z5Lib.SETUP:'TOP3_'+(c.rule||'RULE'),tf=z5?'15m':c.rulesVersion===2||TOP3_V2_SETUPS.has(setup)?'5m':'1h';
+    const ver=z5?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION;
+    return {side:c.side,setup,originTF:tf,ownerTF:tf,tradeLane:lane,entryPrice:entry,stopPrice:stop,...(c.beMoved?{finalStopPrice:finite(c.stopPrice)}:{}),takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
       initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
-      exitBy:'TOP3_MANAGER',realizedPnl:inc?inc.realized:null,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,
+      exitBy:z5?'ZIRVE5_MANAGER':'TOP3_MANAGER',realizedPnl:inc?inc.realized:null,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,
       outcomePct:netPnl!==null&&notional>0?netPnl/notional*100:null,rMultiple:netPnl!==null&&riskQuote>0?netPnl/riskQuote:null,
-      exitType,exitEvidenceVersion:top3Lib.TOP3_VERSION,openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
-      entryContext:{why:top3Why(c),setup,setupFamily:'TOP3',entryTiming:tf==='5m'?'CLOSED_5M':'HOURLY_CLOSE',lane:'TOP3_HUNTER',releaseContract:top3Lib.TOP3_VERSION,strategyVersion:top3Lib.TOP3_VERSION,source:'TOP3',
+      exitType:xt,exitEvidenceVersion:ver,openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
+      entryContext:{why:top3Why(c),setup,setupFamily:z5?'ZIRVE5':'TOP3',entryTiming:z5?'ZONE_EQUILIBRIUM_TOUCH':tf==='5m'?'CLOSED_5M':'HOURLY_CLOSE',lane,releaseContract:ver,strategyVersion:ver,source:z5?'ZIRVE5':'TOP3',
+        ...(z5?{zirve5:{zone:c.z5zone||null,rank:finite(c.entryFeatures?.rank),range24:finite(c.entryFeatures?.range24),targetR:finite(c.targetR)}}:{}),
         top3:{id:c.id,rule:c.rule||null,signalKind:c.signalKind||'UNLABELED',leverage:finite(c.leverage),marginQuote:finite(c.marginQuote),tpPrice:finite(c.tpPrice),exitPrice:finite(c.exitPrice),jevMode:c.jevMode===true,jev:c.jev||null,
           closedBy:c.systemClose?.reason||null,
           entryFeatures:c.entryFeatures||null,mfePct:path?Number(path.mfePct.toFixed(4)):finite(c.sampleMfePct),maePct:path?Number(path.maePct.toFixed(4)):finite(c.sampleMaePct),pathSource:path?'5m':'SAMPLES_30S'}},
-      eventId:'TOP3:'+c.id,closeBusinessKey:'TOP3:'+c.id,incomeAvailable:inc!==null,learningAuthority:'EXCLUDED_TOP3_LANE'};
+      eventId:(z5?'ZIRVE5:':'TOP3:')+c.id,closeBusinessKey:(z5?'ZIRVE5:':'TOP3:')+c.id,incomeAvailable:inc!==null,learningAuthority:z5?'EXCLUDED_ZIRVE5_LANE':'EXCLUDED_TOP3_LANE'};
   }
   async function top3FinalizeCloses(){
     if(!top3State.pendingCloses?.length)return [];
@@ -6227,7 +6238,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let booked=false;
       try{booked=appendClosedOnce(c.symbol,record);if(booked)done.push({symbol:c.symbol,...record});}
       catch(e){try{store.journal('TOP3_CLOSE_UNBOOKED',null,{symbol:String(c.symbol||'').slice(0,40),id:c.id,netPnl:record.netPnl,rMultiple:record.rMultiple,exitType:record.exitType,reason:String(e?.message||e).slice(0,80)});}catch{}}
-      if(booked||!top3State.lessons.some(l=>l.id===c.id)){
+      if(c.lane==='ZIRVE5'){
+        // R2544.64: ZİRVE-5 learns in its own memory (never mixed into İlk 3's lessons)
+        const z=z5State(),lesson={...top3Lib.buildLesson(c,record,path),lane:'ZIRVE5',setup:z5Lib.SETUP,zone:c.z5zone||null,rank:finite(c.entryFeatures?.rank)};
+        if(!z.lessons.some(l=>l.id===lesson.id)){z.lessons.push(lesson);if(z.lessons.length>500)z.lessons=z.lessons.slice(-500);}
+        try{store.journal('ZIRVE5_LESSON',c.symbol,lesson);}catch{}
+        try{store.recordLearning?.('ZIRVE5_LESSON',c.symbol,{...lesson,outcomePct:lesson.resultPct!==null?lesson.resultPct*100:null,authority:'ZIRVE5_LANE_MEMORY'});}catch{}
+      }
+      else if(booked||!top3State.lessons.some(l=>l.id===c.id)){
         const lesson=top3Lib.buildLesson(c,record,path);
         if(!top3State.lessons.some(l=>l.id===lesson.id)){top3State.lessons.push(lesson);if(top3State.lessons.length>500)top3State.lessons=top3State.lessons.slice(-500);}
         try{store.journal('TOP3_LESSON',c.symbol,lesson);}catch{}
@@ -6303,6 +6321,117 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed,v2};
     }finally{top3Busy=false;}
   }
+  // ===== R2544.64 ZİRVE-5 SHORT (own name, own Office switches, own results/learning; LIVE only with the user's liveEnabled + 'LIVE') =====
+  // Every closed 15m candle (+8 s): market-wide top 5 by 24 h range (volume >= 20M) and, per coin, the waiting SHORT zones of
+  // fibo-zones.js (the chart's drawing). Every 5 s: a coin whose best bid reaches a zone's equilibrium is shorted at market
+  // through the İlk 3 order path (paper exchange in TEST; stop above the zone, 2R target, 24 h time exit). One try per zone.
+  const z5State=()=>{const z=top3State.z5||(top3State.z5={});if(!z.armed||typeof z.armed!=='object')z.armed={};if(!Array.isArray(z.lessons))z.lessons=[];if(!Array.isArray(z.recent))z.recent=[];return z;};
+  let z5Busy=false,z5Tradable={at:0,set:null},z5CloseCache={at:0,rows:[]};
+  function z5Gate(cfg){
+    if(cfg.enabled!==true)return {ok:false,reason:'ZIRVE5_DISABLED'};
+    if(!testModeNow()&&cfg.liveEnabled!==true)return {ok:false,reason:'ZIRVE5_LIVE_DISABLED'};
+    if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
+    // JEV mode: every entry needs JEV's approval; JEV not wired -> the lane takes no entry (fail closed)
+    if(cfg.jevMode===true&&typeof zirve5Judge!=='function')return {ok:false,reason:'ZIRVE5_JEV_UNAVAILABLE'};
+    return {ok:true,mode:testModeNow()?'TEST':'LIVE'};
+  }
+  async function z5Scan(cfg,bar){
+    const z=z5State(),out={at:new Date(clock()).toISOString(),bar:new Date(bar).toISOString(),top:[],armed:0,errors:[]};
+    if(!z5Tradable.set||clock()-z5Tradable.at>6*TOP3_HOUR){
+      try{const info=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');z5Tradable={at:clock(),set:new Set((info?.symbols||[]).filter(x=>x?.contractType==='PERPETUAL'&&x?.quoteAsset==='USDT'&&x?.status==='TRADING').map(x=>x.symbol))};}
+      catch{out.errors.push('EXCHANGE_INFO');}
+    }
+    let tick;try{tick=await transport._fetchJson('GET','/fapi/v1/ticker/24hr');}catch{out.errors.push('TICKER_24HR');return out;}
+    const top=z5Lib.rankByRange(tick,cfg,z5Tradable.set),armed={};
+    for(const r of top){
+      const row={symbol:r.symbol,rank:r.rank,range24:r.range,change24:r.change,zones:[]};out.top.push(row);
+      if(!top3SymbolOk(r.symbol))continue;
+      let k;try{k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:r.symbol,interval:'15m',limit:'200'}});}catch{out.errors.push(r.symbol+':KLINES');continue;}
+      const c=(Array.isArray(k)?k:[]).map(x=>({openTime:Number(x[0]),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4]),closeTime:Number(x[6])})).filter(x=>x.openTime+z5Lib.M15<=clock());
+      if(c.length<60||c.at(-1).openTime!==bar){out.errors.push(r.symbol+':BAR_MISSING');continue;}
+      const zs=z5Lib.armedShortZones(c,cfg);row.zones=zs.map(x=>({top:x.top,bottom:x.bottom,equilibrium:x.equilibrium,zoneAt:x.zoneAt}));
+      if(zs.length)armed[r.symbol]=zs.map(x=>({...x,rank:r.rank,range24:r.range,change24:r.change}));
+      await new Promise(res=>setTimeout(res,40));
+    }
+    // a coin that left the top 5 is no longer armed (the lab entered only while the coin was in the top 5)
+    z.armed=armed;out.armed=Object.values(armed).reduce((a,x)=>a+x.length,0);
+    return out;
+  }
+  async function z5Tick(){
+    if(z5Busy)return {ok:true,skipped:true,reason:'ZIRVE5_BUSY'};z5Busy=true;
+    try{
+      const cfg=z5Lib.readConfig(root),z=z5State();
+      if(cfg.enabled!==true){z.lastGate='ZIRVE5_DISABLED';return {ok:true,skipped:true,reason:'ZIRVE5_DISABLED'};}
+      const gate=z5Gate(cfg);z.lastGate=gate.ok?'OPEN':gate.reason;
+      const now=clock(),bar=Math.floor(now/z5Lib.M15)*z5Lib.M15-z5Lib.M15;
+      let scanned=false;
+      if(now-(bar+z5Lib.M15)>=8000&&z.lastBar!==bar){
+        z.lastBar=bar;const r=await z5Scan(cfg,bar);z.lastScan=r;scanned=true;
+        try{store.journal('ZIRVE5_SCAN',null,{bar:r.bar,top:r.top.map(x=>({symbol:x.symbol,rank:x.rank,range24:x.range24,zones:x.zones.length})),armed:r.armed,errors:r.errors.slice(0,6),gate:z.lastGate,version:z5Lib.ZIRVE5_VERSION});}catch{}
+        saveTop3State();
+      }
+      if(!gate.ok)return {ok:true,scanned,entries:0,reason:gate.reason};
+      let entries=0;
+      for(const [sym,zones] of Object.entries(z.armed)){
+        if(activeTop3For(sym)||burstCurrentPosition(sym)||activeBurstFor(sym)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sym))continue;
+        const live=zones.filter(x=>clock()<x.expiresAt);if(!live.length){delete z.armed[sym];continue;}
+        let px;try{px=await paperPrice(sym);}catch{px=null;}
+        const zone=live.find(x=>z5Lib.touched(x,px?.bid));if(!zone)continue;
+        z.armed[sym]=live.filter(x=>x!==zone);                                   // one try per zone
+        const t3=top3Lib.readTop3Config(root);
+        const sizing={marginQuote:cfg.marginQuote??t3.marginQuote,leverage:cfg.leverage??t3.leverage,riskPct:t3.riskPct};
+        const ef={rank:zone.rank,range24:zone.range24,change24:zone.change24,bid:finite(px?.bid),equilibrium:zone.equilibrium,top:zone.top,bottom:zone.bottom,zoneAt:new Date(zone.zoneAt).toISOString()};
+        let jev=null;
+        if(cfg.jevMode===true){
+          let chartContext=market?.cachedChartContext?.(sym,clock())||null;
+          if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(sym),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(sym,clock())||null;}
+          try{jev=await zirve5Judge({symbol:sym,signal:{ok:true,side:'SHORT',rule:z5Lib.RULE,zone,targetR:cfg.targetR,maxHoldMs:cfg.maxHoldH*TOP3_HOUR},features:{ok:true,...ef},candle:z.lastBar,chartContext,experience:top3Lib.experienceSummary(z.lessons)});}
+          catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
+          const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null};
+          try{store.journal('ZIRVE5_JEV_REVIEW',sym,ev);}catch{}
+          if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){z.recent=[{symbol:sym,at:new Date(clock()).toISOString(),opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,equilibrium:zone.equilibrium,rank:zone.rank},...z.recent].slice(0,30);continue;}
+        }
+        const opened=await top3Open({z5:true,side:'SHORT',rule:z5Lib.RULE,zone,z5cfg:cfg,maxHoldMs:cfg.maxHoldH*TOP3_HOUR},sym,sizing,jev,{signalKind:'FRESH',entryFeatures:ef});
+        const res={symbol:sym,at:new Date(clock()).toISOString(),opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,stopPct:finite(opened.stopPct)??finite(opened.active?.stopPct),equilibrium:zone.equilibrium,rank:zone.rank};
+        z.recent=[res,...z.recent].slice(0,30);
+        if(opened.ok)entries++;else try{store.journal('ZIRVE5_BLOCKED',sym,{...res,result:opened});}catch{}
+      }
+      saveTop3State();
+      return {ok:true,scanned,entries};
+    }finally{z5Busy=false;}
+  }
+  function z5Status(){
+    const cfg=z5Lib.readConfig(root),z=z5State(),now=clock();
+    let closes=z5CloseCache.at&&now-z5CloseCache.at<15000?z5CloseCache.rows:null;
+    if(!closes)try{closes=(store.recentJournal?.('POSITION_CLOSED',{limit:400,sinceTs:now-30*86400000})||[]).map(x=>({symbol:x.symbol,...(x.payload||{})})).filter(p=>p.tradeLane==='ZIRVE5');z5CloseCache={at:now,rows:closes};}catch{closes=[];}
+    const m=closes.filter(p=>finite(p.netPnl)!==null);
+    const sum=xs=>{const rr=xs.map(p=>finite(p.rMultiple)).filter(x=>x!==null);return {closed:xs.length,wins:xs.filter(p=>p.netPnl>0).length,losses:xs.filter(p=>p.netPnl<0).length,
+      netPnl:Number(xs.reduce((a,p)=>a+p.netPnl,0).toFixed(4)),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};
+    const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
+    const gate=cfg.enabled?z5Gate(cfg):{ok:false,reason:'ZIRVE5_DISABLED'};
+    return {ok:true,name:'ZİRVE-5 SHORT',lane:'ZIRVE5',setup:z5Lib.SETUP,version:z5Lib.ZIRVE5_VERSION,tf:'15m',
+      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode},jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',rules:{k:cfg.k,targetR:cfg.targetR,maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,side:'SHORT',liveAllowed:cfg.liveEnabled},
+      gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
+      armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,expiresAt:new Date(x.expiresAt).toISOString()}))})),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,openedAt:new Date(a.openedAt).toISOString(),
+        markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      recentEntries:(z.recent||[]).slice(0,12),
+      recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt||null,holdMinutes:finite(p.holdMinutes)})),
+      results:{test:sum(m.filter(p=>p.tradingMode!=='LIVE')),live:sum(m.filter(p=>p.tradingMode==='LIVE')),all:sum(m)},
+      learning:{lessons:z.lessons.length}};
+  }
+  // Office / API switches, like İlk 3: OFF is immediate in any mode (open lots keep their own stop/target/24 h exit);
+  // ON in LIVE (enabled while LIVE, or liveEnabled) needs the explicit 'LIVE' confirmation.
+  function configureZ5(patch={}){
+    const p={};for(const k of ['enabled','liveEnabled','jevMode'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    if(!Object.keys(p).length)return {ok:false,reasons:['ZIRVE5_SWITCH_MISSING']};
+    if((p.liveEnabled===true||(p.enabled===true&&!testModeNow()))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    const before=z5Lib.readConfig(root),after=z5Lib.writeConfig(root,p);
+    if(after.enabled!==true||(!testModeNow()&&after.liveEnabled!==true))z5State().armed={};
+    try{store.journal('ZIRVE5_CONFIG_CHANGED',null,{before:{enabled:before.enabled,liveEnabled:before.liveEnabled,jevMode:before.jevMode},after:{enabled:after.enabled,liveEnabled:after.liveEnabled,jevMode:after.jevMode},mode:testModeNow()?'TEST':'LIVE',source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
+    saveTop3State();
+    return {...z5Status(),changed:p};
+  }
   // R2544.58 sade chart (user 15.10: "grafik çizgilere boğulmasın, baktığımda net göreyim"): the previous day/week/month
   // highs and lows and this lane's own view of the coin (open lot, or the level it is waiting on). Display only.
   async function top3ChartView(symbol){
@@ -6328,7 +6457,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
       lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
-      active:Object.values(top3State.active||{}).map(a=>{const p=open.get(a.symbol);return {...a,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
@@ -6344,13 +6473,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {mode:m.mode,running:armed,normal:{selected:l.normal,active:armed&&oto,defaulted:l.defaulted,decisions:'JEV',
         sub:{scalp5m:{selected:l.scalp5m,active:armed&&oto&&l.scalp5m},trade15m:{selected:l.trade15m,active:armed&&oto&&l.trade15m},
           burst:{selected:l.burst,active:armed&&oto&&l.burst&&burstAllowedNow(),liveAllowed:readLeaderAutoConfig().config?.burstLiveEnabled===true}}},
-      top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:t.jevMode?'RULE_PLUS_JEV':'RULE'}};
+      top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:t.jevMode?'RULE_PLUS_JEV':'RULE'},
+      zirve5:(()=>{const c=z5Lib.readConfig(root);return {selected:c.enabled,liveAllowed:c.liveEnabled,active:armed&&c.enabled&&(m.mode==='TEST'||c.liveEnabled),decisions:c.jevMode?'RULE_PLUS_JEV':'RULE',name:'ZİRVE-5 SHORT'};})()};
   }
   // R2544.57 lane switches (Office / APK / API). Turning a lane ON in LIVE needs confirm 'LIVE'; OFF is immediate (open lots
   // keep their own exits). The normal lane's OTO follows only while the run is on (never analysis while stopped).
   function selectLanes(patch={}){
     const live=readTradingMode(root,defaultTradingMode).mode==='LIVE',running=armedNow(),p={};
-    for(const k of ['normal','top3',...SUB_LANES])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    for(const k of ['normal','top3','zirve5',...SUB_LANES])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['LANE_SWITCH_MISSING']};
     if(live&&Object.values(p).some(v=>v===true)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     {const sp={};for(const k of SUB_LANES)if(k in p)sp[k]=p[k];if(Object.keys(sp).length)writeLanes(sp);}
@@ -6362,6 +6492,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const t=configureTop3({enabled:p.top3,...(live?{liveEnabled:p.top3,confirm:'LIVE'}:{}),source:String(patch?.source||'LANES').slice(0,40)});
       if(t.ok===false)return t;
     }
+    // R2544.64 ZİRVE-5 SHORT: its own switch (TEST-only lane; in LIVE the choice is kept but the gate stays closed)
+    if('zirve5' in p){const z=configureZ5({enabled:p.zirve5,...(live?{liveEnabled:p.zirve5,confirm:'LIVE'}:{}),source:String(patch?.source||'LANES').slice(0,40)});if(z.ok===false)return z;}
     runJournal('LANES_SELECTED',{...p,mode:live?'LIVE':'TEST',running,source:String(patch?.source||'OFFICE').slice(0,40)});
     return {ok:true,lanes:laneStatus()};
   }
@@ -6389,7 +6521,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,_testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,_testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }
