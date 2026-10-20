@@ -9,12 +9,14 @@ const T3=require('../top3-hunter');
 
 const FAKE={apiKey:'fake-test-key-r57',apiSecret:'fake-test-secret-r57'}; // made-up, never real
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
-function fixture({mode='TEST',lanes=undefined,top3=null,realAvail=250,scanner=null}={}){
+function fixture({mode='TEST',lanes=undefined,top3=null,realAvail=250,scanner=null,zirve5=null}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r57-'));fs.mkdirSync(path.join(root,'config'));
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
   if(lanes!==undefined)fs.writeFileSync(path.join(root,'config','lane-selection.json'),JSON.stringify(lanes));
   if(top3)fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify(top3));
+  // R2544.67.2: ZİRVE-5 is a lane of its own (default ON); a 'no lane' fixture switches it off
+  if(zirve5||(top3&&top3.enabled===false))fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify(zirve5||{enabled:false}));
   writeTradingMode(root,{mode,changedAt:'2026-10-13T10:00:00.000Z',testStartedAt:null,testAutoRun:mode==='TEST'});
   const state={now:1791370000000,realAvail,realWallet:realAvail,realPositions:[],calls:[]},events=[];
   const fetchImpl=async(url,o={})=>{const u=new URL(url),p=u.pathname,m=o.method||'GET';state.calls.push(`${m} ${p}`);
@@ -80,6 +82,19 @@ test('R57 LIVE with İlk 3 only: balance checked against the İlk 3 margin, OTO 
   assert.equal(f.t3().liveEnabled,false);
   await f.settle(()=>readTradingMode(f.root).mode==='TEST'&&f.controller.status().armed);
   assert.equal(readTradingMode(f.root).mode,'TEST');assert.equal(f.oto(),false);
+});
+
+test('R2544.67.2 self-audit: GO_LIVE with only ZİRVE-5 selected goes live and gives ZİRVE-5 its LIVE permission; GO_TEST takes it back; ZİRVE-5 margin counts in the balance check',async()=>{
+  const f=fixture({lanes:{normal:false},top3:{enabled:false},zirve5:{enabled:true,marginQuote:300}});
+  await f.controller.testSupervisorTick();
+  const low=await f.controller.runControl({action:'GO_LIVE'});assert.deepEqual(low.reasons,['BINANCE_BALANCE_TOO_LOW'],'the ZİRVE-5 margin (300) is above the real free balance (250)');
+  fs.writeFileSync(path.join(f.root,'config','zirve5.json'),JSON.stringify({enabled:true}));
+  const a=await f.controller.runControl({action:'GO_LIVE'});assert.equal(a.ok,true,JSON.stringify(a));
+  await f.settle(()=>readTradingMode(f.root).mode==='LIVE'&&f.controller.status().armed);
+  assert.equal(readTradingMode(f.root).mode,'LIVE');assert.equal(f.controller.z5Status().switches.liveEnabled,true);assert.equal(f.oto(),false,'normal lane not selected: OTO stays off');
+  const b=await f.controller.runControl({action:'GO_TEST'});assert.equal(b.ok,true);assert.equal(f.controller.z5Status().switches.liveEnabled,false,'GO_TEST withdraws the ZİRVE-5 LIVE permission');
+  const src=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');assert.ok(src.includes("if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';break;}"),'ZİRVE-5 LIVE lot limit');
+  assert.equal(require('../zirve5').readConfig(f.root).maxActive,2);
 });
 
 test('R57 LIVE needs at least one lane and enough balance for the selected lanes; ON in LIVE needs the LIVE confirmation',async()=>{

@@ -352,7 +352,7 @@ test('R56 TEST has no slot limit (user 13.10: "testte sınır koyma"): every sig
   assert.equal(f.controller.top3Status().active.length,3);
   assert.equal(f.controller.top3Status().learning.limitsInTest,'NONE');assert.equal(f.controller.top3Status().learning.limitsInLive.maxActive,2);
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
-  assert.ok(lc.includes("if(liveLimits&&Object.keys(top3State.active).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}"),'LIVE slot limit kept');
+  assert.ok(lc.includes("if(liveLimits&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}"),'LIVE slot limit kept (ZİRVE-5 lots counted separately)');
 });
 
 test('R56 İlk 3 hafızası: a closed lot becomes a lesson (5m best/worst excursion), JEV mode reads it on the next signal, it survives a restart',async()=>{

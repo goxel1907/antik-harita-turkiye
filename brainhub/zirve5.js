@@ -15,7 +15,9 @@ const ZIRVE5_VERSION = 'R2544.64-ZIRVE5-SHORT';
 const LANE = 'ZIRVE5', SETUP = 'ZIRVE5_FIBO_SHORT', RULE = 'ZIRVE5_FIBO_SHORT';
 const M15 = 900000;
 const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:false, k:1.5, windowBars:48, targetR:2, maxHoldH:24, minStopPct:0.002, maxStopPct:0.08,
-  topN:5, minQuote24h:20e6, marginQuote:null, leverage:null });
+  topN:5, minQuote24h:20e6, marginQuote:null, leverage:null,
+  // R2544.67.2 (self-audit): at most maxActive open ZİRVE-5 lots in LIVE (İlk 3 has 2); TEST has no limit
+  maxActive:2 });
 const finite = v => { if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 
 function configFile(root) { return path.join(String(root || '.'), 'config', 'zirve5.json'); }
@@ -26,6 +28,7 @@ function readConfig(root) {
   for (const k of ['enabled', 'liveEnabled', 'jevMode']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   const mq = finite(raw.marginQuote); if (mq !== null && mq >= 5) c.marginQuote = mq;
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
+  const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 5) c.maxActive = Math.floor(ma);
   return c;
 }
 function writeConfig(root, patch = {}) {

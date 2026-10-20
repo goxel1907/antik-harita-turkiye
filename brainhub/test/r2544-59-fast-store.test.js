@@ -100,7 +100,9 @@ test('R2544.59 Office review fixes: mirror does not await the scanner, İlk 3 v2
   assert.equal((html.match(/<details class="legacy-jev"/g)||[]).length,2);
   assert.equal((html.match(/<details/g)||[]).length-(html.match(/<\/details>/g)||[]).length,0,'details balanced');
   const a=html.indexOf('id="legacyJevA"'),b=html.indexOf('id="legacyJevB"');
-  for(const id of ['deskCards','officeHost','blockers'])assert.ok(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a),id+' folded');
+  for(const id of ['deskCards','officeHost','blockers'])assert.ok(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a),id+' in the JEV section');
+  // R2544.67.2 (user 20.10: "office katını da kaldırmışsın"): the JEV sections (desks, office floor, sources) are OPEN by default
+  assert.match(html,/<details class="legacy-jev" id="legacyJevA" open>/);assert.match(html,/<details class="legacy-jev" id="legacyJevB" open>/);
   for(const id of ['top3Card','mirrorClean','ladderTable','openPos','closedPos'])assert.ok(html.indexOf(`id="${id}"`)>0&&!(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a))&&!(html.indexOf(`id="${id}"`)>b&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',b)),id+' stays visible');
 });
 

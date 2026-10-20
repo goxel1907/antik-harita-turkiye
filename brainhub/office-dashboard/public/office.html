@@ -331,7 +331,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <h2>🔎 Kaçan hareket denetimi <span class="hint">her kapanan 15 dk mumda: 24 sa en çok yükselen 6 / düşen 4 + ZİRVE-5 listesi • her hat O ANDA ne gördü, neden girmedi • emir vermez</span></h2>
     <div id="moverHost" aria-live="polite">Denetim verisi bekleniyor.</div>
   </section>
-  <details class="legacy-jev" id="legacyJevA"><summary>Eski JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Açmak için tıklayın.</span></summary>
+  <!-- R2544.67.2 (user 20.10: "office katını da kaldırmışsın"): R2544.59 folded these sections closed; they are OPEN by default again -->
+  <details class="legacy-jev" id="legacyJevA" open><summary>JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
   <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
   <section class="lane-strip" id="laneStrip"></section>
 
@@ -393,7 +394,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     </div>
   </section>
 
-  <details class="legacy-jev" id="legacyJevB"><summary>Eski JEV hattı — JEV kanıt/karar kartları, takip edilen setuplar, vaka hafızası, kaynaklar, giriş öncesi mikroyapı <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Açmak için tıklayın.</span></summary>
+  <details class="legacy-jev" id="legacyJevB" open><summary>JEV hattı — JEV kanıt/karar kartları, takip edilen setuplar, vaka hafızası, kaynaklar, giriş öncesi mikroyapı <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
   <section class="row4">
     <div class="card">
       <h2>Grafik Kanıtı / GPU Audit (opsiyonel) <span class="hint" id="visHint"></span></h2>
@@ -1861,8 +1862,10 @@ function secondPress(id,what){
 // kayıtları bekler, sonra canlıyı açar; bir adım başarısız olursa TEST kendiliğinden devam eder.
 onClick('#btnGoLive',()=>{
   const ln=last?.status?.data?.tradingMode?.run?.lanes;
-  if(ln&&!ln.normal?.selected&&!ln.top3?.selected){ modeMsg('Önce en az bir hat seçin: Normal sistem (JEV) veya İlk 3 Avcısı.',true); return; }
-  const which=ln?`Normal sistem (JEV) ${ln.normal?.selected?'AÇIK':'KAPALI'} • İlk 3 Avcısı ${ln.top3?.selected?'AÇIK':'KAPALI'}`:'seçili hatlar';
+  // R2544.67.2 (self-audit): ZİRVE-5 is a lane of its own; İlk 3 names its sub-strategies
+  if(ln&&!ln.normal?.selected&&!ln.top3?.selected&&!ln.zirve5?.selected){ modeMsg('Önce en az bir hat seçin: Normal sistem (JEV), İlk 3 Avcısı veya ZİRVE-5 SHORT.',true); return; }
+  const t3s=ln?.top3?.sub?[ln.top3.sub.early?.selected?'ERKEN LONG':null,ln.top3.sub.top?.selected?'TEPE SHORT':null].filter(Boolean).join('+')||'alt strateji yok':'';
+  const which=ln?`Normal sistem (JEV) ${ln.normal?.selected?'AÇIK':'KAPALI'} • İlk 3 Avcısı ${ln.top3?.selected?'AÇIK'+(t3s?' ('+t3s+')':''):'KAPALI'} • ZİRVE-5 SHORT ${ln.zirve5?.selected?'AÇIK':'KAPALI'}`:'seçili hatlar';
   if(!secondPress('btnGoLive',`CANLI’YA GEÇ (${which}): sanal pozisyonlar kapatılır, Binance bakiyenizle GERÇEK PARA işlem açılır`)) return;
   control({action:'GO_LIVE',confirm:'LIVE'},'Canlıya geçiş başladı: Binance bakiyesi doğrulandı; sanal pozisyonlar kapanınca canlı açılır (durum çubukta).');
 });
@@ -1928,7 +1931,7 @@ function renderTop3(s){
   btn('btnTop3Save','Marj/kaldıraç kaydet',false,false);
   // R2544.67: the two sub-strategies, each with its own switch, JEV choice and results
   {const subs=Array.isArray(t.subs)?t.subs:[];const live=t.tradingMode==='LIVE';
-   const res=x=>x&&x.closed?`${x.closed} işlem • ${x.wins} kazanç / ${x.losses} kayıp • net ${(x.netPnl>=0?'+':'')+Number(x.netPnl).toFixed(2)} $${x.avgR!==null&&x.avgR!==undefined?' • ort '+String(Number(x.avgR).toFixed(2)).replace('.',',')+' R':''}`:'kapanan işlem yok';
+   const res=x=>x&&x.closed?`${x.closed} işlem • ${x.wins} kazanç / ${x.losses} kayıp • net ${(x.netPnl>=0?'+':'')+Number(x.netPnl).toFixed(2).replace('.',',')} $${x.avgR!==null&&x.avgR!==undefined?' • ort '+String(Number(x.avgR).toFixed(2)).replace('.',',')+' R':''}`:'kapanan işlem yok';
    for(const [sk,bId,jId,rId] of [['early','btnT3Early','btnT3EarlyJev','t3EarlyRes'],['top','btnT3Top','btnT3TopJev','t3TopRes']]){
      const x=subs.find(y=>y.key===sk);if(!x){btn(bId,'PC sürümü R2544.67 öncesi',false,true);btn(jId,'JEV: —',false,true);continue;}
      btn(bId,x.enabled?'AÇIK → kapat':'KAPALI → aç',x.enabled,false);
@@ -2062,6 +2065,8 @@ function renderZ5(s){
   const rr=v=>v===null||v===undefined?'—':(v>=0?'+':'')+String(Number(v).toFixed(2)).replace('.',',')+' R';
   let html=`<p><b>Durum: ${z.running?'ÇALIŞIYOR ('+(live?'CANLI':'TEST')+')':esc(z5tr(z.gate))}</b> • karar: ${sw.jevMode?'<b>kural + JEV</b> (her giriş JEV onayından geçer)':'yalnız kural (JEV’siz)'} • CANLI’da ${sw.liveEnabled?'<b class="mwarn">SEÇİLİ</b>':'seçili değil'} • kayıt adı <b>ZIRVE5 / ${esc(z.setup)}</b> • ${esc(z.version)}</p>`;
   html+=`<p class="t3rule">Kural: her kapanan <b>15 dk</b> mumda Binance USDT-M’de son 24 saatin (yüksek−düşük)/fiyat sırasına göre <b>ilk ${esc(z.rules?.topN)}</b> coin (hacim ≥ ${fm((z.rules?.minQuote24h||0)/1e6,0)}M). Grafikteki Fibo çizimiyle (ZigZag ${esc(String(z.rules?.k).replace('.',','))}×ATR) son dip kırılınca bölge = [kırılan dip, kırılımı yapan tepe]; fiyat bölgenin <b>DENGESİNE</b> (orta) gelince piyasa emriyle SHORT. Stop bölge üstü %0,1 (%${fm((z.rules?.minStopPct||0)*100,1)}–%${fm((z.rules?.maxStopPct||0)*100,0)} dışı işlem yok), hedef ${esc(z.rules?.targetR)}R, en çok ${esc(z.rules?.maxHoldH)} saat; bölge ${esc(z.rules?.windowBars)} mumda dolmazsa veya 15 dk bölge üstünde kapanırsa iptal. Laboratuvar (20.09–20.10, ücret+fonlama dahil): +0,27 R/işlem, 120 işlem, 4/5 hafta artı; LONG tarafı her ayarda zararlıydı.</p>`;
+  // R2544.67.2 (self-audit): the size it uses and the LIVE lot limit, visible before going LIVE
+  {const zs=z.sizing;if(zs)html+=`<p>Büyüklük: <b>${zs.automatic?'otomatik (stopta hesabın %'+esc(String(((zs.riskPct||0)*100).toFixed(1)).replace('.',','))+'’i)':'marj '+esc(zs.marginQuote)+' USDT × '+esc(zs.leverage)+'x'}</b> ${zs.source==='TOP3'?'(İlk 3 kartındaki marj/kaldıraç kullanılır; ZİRVE-5’in ayrı ayarı yok)':'(ZİRVE-5’in kendi ayarı)'} • kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür • CANLI’da en çok <b>${esc(z.rules?.maxActiveLive??2)}</b> açık lot, TEST’te sınır yok</p>`;}
   for(const a of z.active||[])html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ZİRVE-5${live?'':' <span class="tbadge">TEST</span>'}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} (%${fm((a.stopPct||0)*100,2)}) • hedef ${fm(a.tpPrice)} • ${esc(a.leverage)}x • marj ${fm(a.marginQuote,2)} • anlık ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk</div></div>`;
   const ls=z.lastScan;
   if(ls){

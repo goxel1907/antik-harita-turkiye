@@ -3337,8 +3337,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const lanes=readLanes(),t3=top3Lib.readTop3Config(root);
     // R2544.60: the normal system counts only with at least one of its sub-lanes chosen (burst alone stays TEST-only)
     const normalLive=lanes.normal===true&&(lanes.scalp5m||lanes.trade15m||(lanes.burst&&la.config?.burstLiveEnabled===true));
-    if(!normalLive&&t3.enabled!==true)return {ok:false,reasons:['LANES_NONE_SELECTED']};
-    const need=Math.max(normalLive?finite(la.config.marginQuote):0,t3.enabled?(t3.marginQuote??20):0);
+    // R2544.67.2 (self-audit): İlk 3 counts only with a sub-strategy on; ZİRVE-5 is a lane of its own (alone it may go LIVE)
+    const t3Live=t3.enabled===true&&(t3.rulesVersion!==2||t3.early?.enabled===true||t3.top?.enabled===true),z5=z5Lib.readConfig(root),z5Live=z5.enabled===true;
+    if(!normalLive&&!t3Live&&!z5Live)return {ok:false,reasons:['LANES_NONE_SELECTED']};
+    const need=Math.max(normalLive?finite(la.config.marginQuote):0,t3Live?(t3.marginQuote??20):0,z5Live?(z5.marginQuote??t3.marginQuote??20):0);
     let acc,rows;
     try{
       acc=await transport._fetchJsonReal('GET','/fapi/v3/account',{credentials:creds,signed:true});
@@ -3347,14 +3349,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const available=finite(acc?.availableBalance),wallet=finite(acc?.totalWalletBalance);
     if(available===null||available<need)return {ok:false,reasons:['BINANCE_BALANCE_TOO_LOW'],detail:{available,wallet,required:need}};
     if(Array.isArray(rows)&&rows.some(x=>Math.abs(finite(x?.positionAmt)||0)>0))return {ok:false,reasons:['REAL_POSITION_OPEN'],detail:{symbols:rows.filter(x=>Math.abs(finite(x?.positionAmt)||0)>0).map(x=>x.symbol)}};
-    return {ok:true,available,wallet,required:need,lanes:{normal:lanes.normal===true,top3:t3.enabled===true}};
+    return {ok:true,available,wallet,required:need,lanes:{normal:lanes.normal===true,top3:t3Live,zirve5:z5Live}};
   }
   // R2544.57: what a LIVE start switches on: OTO = normal lane selection; İlk 3 live = its own selection (the user confirmed LIVE).
   function applyLiveLanes(){
     const lanes=readLanes(),t3=top3Lib.readTop3Config(root);
     const o=configureLeaderAuto({enabled:lanes.normal===true});if(!o.ok)return o;
     top3Lib.writeTop3Switches(root,{liveEnabled:t3.enabled===true});
-    runJournal('LIVE_LANES',{normal:lanes.normal===true,top3:t3.enabled===true});
+    // R2544.67.2 (self-audit): "CANLI'ya geç (seçili hatlar)" also takes a selected ZİRVE-5 live (the user confirmed LIVE)
+    const z5=z5Lib.readConfig(root);z5Lib.writeConfig(root,{liveEnabled:z5.enabled===true});
+    runJournal('LIVE_LANES',{normal:lanes.normal===true,top3:t3.enabled===true,zirve5:z5.enabled===true});
     return {ok:true};
   }
   async function top3Settle(){if(top3Busy)return;top3Busy=true;try{await top3Manage();await top3FinalizeCloses();}catch{}finally{top3Busy=false;}}
@@ -3478,6 +3482,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(act==='GO_TEST'){
       if(m.mode==='TEST')return done({action:act,unchanged:true});
       stopEntries('GO_TEST');top3Lib.writeTop3Switches(root,{liveEnabled:false}); // R2544.57: no new real İlk 3 entry; open lots keep their exits
+      z5Lib.writeConfig(root,{liveEnabled:false});z5State().armed={}; // R2544.67.2: the same for ZİRVE-5
       runState.liveSwitch={state:'LIVE_WIND_DOWN',target:'TEST',requestedAt:now};
       runJournal('RUN_CONTROL',{action:act});
       const r=await testSupervisorTick();
@@ -5891,7 +5896,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // R2544.56 (user 13.10: "testte sınır koyma, canlıda max poz sınırı var"): TEST enters every signal (only a coin that
       // already has a position is skipped, Binance would merge the lots); LIVE keeps maxActive and the 24 h same-signal block.
       const liveLimits=!testModeNow();
-      if(liveLimits&&Object.keys(top3State.active).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}
+      if(liveLimits&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit
       const key=x.symbol+':'+x.side;if(liveLimits&&clock()-(finite(top3State.lastEntry?.[key])||0)<24*TOP3_HOUR){res.reason='TOP3_SAME_SIGNAL_24H';continue;}
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       let jev=null;
@@ -5976,7 +5981,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let prem=null;
     for(const x of out.signals){
       const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
-      if(!testModeNow()&&Object.keys(top3State.active).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}
+      if(!testModeNow()&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit
       const cd=top3Cooldown(x.symbol,x.side,cfg);if(cd){res.reason=cd;continue;}
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       if(prem===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex');prem=new Map((Array.isArray(pi)?pi:[]).map(r=>[r.symbol,r]));}catch{prem=new Map();}}
@@ -6377,7 +6382,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       if(!gate.ok)return {ok:true,scanned,entries:0,reason:gate.reason};
       let entries=0;
+      // R2544.67.2 (self-audit): LIVE keeps a lot limit like İlk 3 (default 2); TEST has none (TEST tests everything)
+      const z5Open=()=>Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').length;
       for(const [sym,zones] of Object.entries(z.armed)){
+        if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';break;}
         if(activeTop3For(sym)||burstCurrentPosition(sym)||activeBurstFor(sym)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sym))continue;
         const live=zones.filter(x=>clock()<x.expiresAt);if(!live.length){delete z.armed[sym];continue;}
         let px;try{px=await paperPrice(sym);}catch{px=null;}
@@ -6415,7 +6423,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     const gate=cfg.enabled?z5Gate(cfg):{ok:false,reason:'ZIRVE5_DISABLED'};
     return {ok:true,name:'ZİRVE-5 SHORT',lane:'ZIRVE5',setup:z5Lib.SETUP,version:z5Lib.ZIRVE5_VERSION,tf:'15m',
-      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode},jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',rules:{k:cfg.k,targetR:cfg.targetR,maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,side:'SHORT',liveAllowed:cfg.liveEnabled},
+      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode},jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',rules:{k:cfg.k,targetR:cfg.targetR,maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,side:'SHORT',liveAllowed:cfg.liveEnabled,maxActiveLive:cfg.maxActive},
+      // R2544.67.2 (self-audit): the size it would use - its own margin/leverage if set, else İlk 3's (shown before going LIVE)
+      sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote??t3.marginQuote,leverage:cfg.leverage??t3.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'TOP3',automatic:(cfg.marginQuote??t3.marginQuote)===null,riskPct:t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,expiresAt:new Date(x.expiresAt).toISOString()}))})),
       active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,openedAt:new Date(a.openedAt).toISOString(),

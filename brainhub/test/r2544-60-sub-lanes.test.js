@@ -7,12 +7,14 @@ const T3=require('../top3-hunter');
 
 const FAKE={apiKey:'fake-test-key-r57',apiSecret:'fake-test-secret-r57'}; // made-up, never real
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
-function fixture({mode='TEST',lanes=undefined,top3=null,realAvail=250,scanner=null}={}){
+function fixture({mode='TEST',lanes=undefined,top3=null,realAvail=250,scanner=null,zirve5=null}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r57-'));fs.mkdirSync(path.join(root,'config'));
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
   if(lanes!==undefined)fs.writeFileSync(path.join(root,'config','lane-selection.json'),JSON.stringify(lanes));
   if(top3)fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify(top3));
+  // R2544.67.2: ZİRVE-5 is a lane of its own (default ON); a 'no lane' fixture switches it off
+  if(zirve5||(top3&&top3.enabled===false))fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify(zirve5||{enabled:false}));
   writeTradingMode(root,{mode,changedAt:'2026-10-13T10:00:00.000Z',testStartedAt:null,testAutoRun:mode==='TEST'});
   const state={now:1791370000000,realAvail,realWallet:realAvail,realPositions:[],calls:[]},events=[];
   const fetchImpl=async(url,o={})=>{const u=new URL(url),p=u.pathname,m=o.method||'GET';state.calls.push(`${m} ${p}`);

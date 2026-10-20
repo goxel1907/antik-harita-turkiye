@@ -1553,7 +1553,11 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
             if(z.state==='OPEN'){addLevel(z.stop,'FIBO STOP',[239,83,80,255],0);addLevel(z.target,`FIBO HEDEF ${Number(z.rr).toFixed(1)}R`,[38,166,154,255],0);}
           }
           const last=fz.zones.at(-1);
-          if(last)text57(left+90,top+26,`FIBO ${last.side}: ${ST[last.state]||last.state}`,last.side==='LONG'?[105,240,174,255]:[255,138,128,255],2);
+          // R2544.67.2 (self-audit): the header names the timeframe and whether a lane trades it - ZİRVE-5 trades only 15m SHORT
+          // zones of the top-5 coins; a LONG zone or a 5m zone is a drawing only
+          const tfu=String(chart?.frame||'').toUpperCase(),note=last?(last.side==='SHORT'&&chart?.frame==='15m'?'ZIRVE-5 KURALI (ILK 5 ISE)':'YALNIZ CIZIM - ISLEM YOK'):'';
+          if(last){const ht=`FIBO ${tfu} ${last.side}: ${ST[last.state]||last.state} - ${note}`;fillRect(left+86,top+22,left+94+asciiLabel(ht).length*12,top+43,[13,17,23,255]);
+            text57(left+90,top+26,ht,last.side==='LONG'?[105,240,174,255]:[255,138,128,255],2);}
         }
       }
     }
