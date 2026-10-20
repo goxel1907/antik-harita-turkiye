@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.42-R2544.64-JEV-Brain';
+const OFFICE_VERSION = '2.5.43-R2544.65-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -35,7 +35,8 @@ const ALLOWED_BRAIN_PATHS = new Set([
   '/health', '/live/status', '/live/burst', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png',
   '/scanner/last', '/jev/knowledge', '/learning/case-memory', // R2544.19 read-only provenance/case memory
   '/live/top3', // R2544.56 İlk 3 Avcısı status
-  '/live/zirve5' // R2544.64 ZİRVE-5 SHORT status
+  '/live/zirve5', // R2544.64 ZİRVE-5 SHORT status
+  '/live/movers' // R2544.65 kaçan hareket denetimi
 ]);
 
 const cache = new Map();
@@ -585,6 +586,7 @@ async function buildSnapshot() {
   const burst = await cached('burst', 1000, () => brainGet('/live/burst'));
   const top3 = await cached('top3', 5000, () => brainGet('/live/top3'));
   const zirve5 = await cached('zirve5', 5000, () => brainGet('/live/zirve5'));
+  const movers = await cached('movers', 15000, () => brainGet('/live/movers'));
   const router = await cached('router', 30000, () => getJson(ROUTER_URL + '/', { timeoutMs: 3000 }).then(r => ({ ok: r.status > 0 && r.status < 500, status: r.status, ms: r.ms, error: r.error || null })));
   const headroom = await cached('headroom', 15000, () => getJson(HEADROOM_URL + '/health', { timeoutMs: 2500 }).then(r => ({ ok: r.ok === true, status: r.status, ms: r.ms, data: scrub(r.data), error: r.error || (r.ok ? null : 'HTTP ' + r.status), url: HEADROOM_URL })));
   const logTail = await cached('log', 8000, async () => tailFile(path.join(BRAIN_ROOT, 'logs', 'brainpub.log')));
@@ -622,6 +624,7 @@ async function buildSnapshot() {
     burst: burst?.ok === true ? scrub(burst.data) : null,
     top3: top3?.ok === true ? scrub(top3.data) : null,
     zirve5: zirve5?.ok === true ? scrub(zirve5.data) : null,
+    movers: movers?.ok === true ? scrub(movers.data) : null,
     plans: journalSummary.plans.slice(0, 40),
     lastJev: journalSummary.lastJev,
     lastRisk: journalSummary.lastRisk,

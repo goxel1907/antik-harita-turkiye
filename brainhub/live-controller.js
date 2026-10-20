@@ -6435,6 +6435,66 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     saveTop3State();
     return {...z5Status(),changed:p};
   }
+  // ===== R2544.65 KAÇAN HAREKET DENETİMİ (user 20.10: JCT +%100 was missed and nothing in the records said why; "testler o
+  // anki durumu yakalamıyor"). Every closed 15m candle (+20 s), read-only, no orders: the biggest 24 h gainers / losers and the
+  // ZİRVE-5 top 5, and for each coin what every lane saw AT THAT MOMENT - İlk 3 through its live trigger with its live context
+  // (top3EarlyCtx, the same hour-old rank the lane uses) and once with the context switched off (did the pattern form at all?),
+  // ZİRVE-5 (in the top 5? armed zone?), the normal system (lane on? JEV decides). Journal MOVER_AUDIT + Office table.
+  let auditBusy=false,tickerCache={at:0,rows:null};
+  async function ticker24(){if(tickerCache.rows&&clock()-tickerCache.at<60000)return tickerCache.rows;const t=await transport._fetchJson('GET','/fapi/v1/ticker/24hr');tickerCache={at:clock(),rows:Array.isArray(t)?t:[]};return tickerCache.rows;}
+  const auditState=()=>{const a=top3State.audit||(top3State.audit={});if(!Array.isArray(a.history))a.history=[];return a;};
+  function auditReason(tr){if(!tr)return null;if(tr.ok)return 'SIGNAL';return tr.reason==='V2_CONTEXT'?'V2_CONTEXT:'+(tr.reasons||[]).join('+'):tr.reason||null;}
+  async function moverAuditTick(){
+    if(auditBusy)return {ok:true,skipped:true};auditBusy=true;
+    try{
+      const now=clock(),a=auditState();
+      const b15=Math.floor(now/900000)*900000-900000;
+      if(now-(b15+900000)<20000||a.lastBar===b15)return {ok:true,skipped:true,reason:'AUDIT_WAIT'};
+      a.lastBar=b15;
+      let tk;try{tk=await ticker24();}catch{a.last={at:new Date(now).toISOString(),error:'TICKER_24HR'};saveTop3State();return {ok:false,reason:'TICKER_24HR'};}
+      const rows=tk.map(t=>({symbol:String(t?.symbol||'').toUpperCase(),chg:finite(t?.priceChangePercent),qv:finite(t?.quoteVolume)})).filter(r=>top3SymbolOk(r.symbol)&&r.chg!==null&&r.qv>=1e6);
+      const gain=[...rows].sort((x,y)=>y.chg-x.chg).slice(0,6),lose=[...rows].sort((x,y)=>x.chg-y.chg).slice(0,4);
+      const z5c=z5Lib.readConfig(root),z5top=z5Lib.rankByRange(tk,z5c,z5Tradable.set);
+      const pick=new Map();for(const r of gain)pick.set(r.symbol,{symbol:r.symbol,group:'YUKSELEN',chg24:r.chg,qv24:Math.round(r.qv)});
+      for(const r of lose)if(!pick.has(r.symbol))pick.set(r.symbol,{symbol:r.symbol,group:'DUSEN',chg24:r.chg,qv24:Math.round(r.qv)});
+      for(const r of z5top){const x=pick.get(r.symbol);if(x)x.z5rank=r.rank;else{const t=rows.find(y=>y.symbol===r.symbol);pick.set(r.symbol,{symbol:r.symbol,group:'ZIRVE5',chg24:t?.chg??null,qv24:t?Math.round(t.qv):null,z5rank:r.rank});}}
+      const t3=top3Lib.readTop3Config(root),hours=Object.keys(top3Ranks.hours).map(Number).sort((x,y)=>x-y),Tl=hours.at(-1)||null;
+      const lanes=laneStatus(),z=z5State(),out=[];
+      for(const x of pick.values()){
+        const s=x.symbol,row={...x,ilk3:{},zirve5:{},normal:{}};
+        // İlk 3: candidacy with the lane's own (hour-old) rank book, then the live triggers on the closed 5m candles
+        const rk=Tl?finite(top3Ranks.hours[Tl]?.[s]):null;
+        let candL=false;if(Tl)for(const T of [Tl,Tl-TOP3_HOUR,Tl-2*TOP3_HOUR]){const v=finite(top3Ranks.hours[T]?.[s]);if(v!==null&&v>=t3.early.minRank&&v<=t3.early.maxRank)candL=true;}
+        const candS=Tl?top3Ranks.countInTop(s,10,Tl-(t3.top.top10WithinH-1)*TOP3_HOUR,Tl+1)>0:false;
+        row.ilk3={on:t3.enabled===true,rankUsed:rk,rankHour:Tl?new Date(Tl).toISOString():null,longCandidate:candL,shortCandidate:candS};
+        try{
+          const k5=await top3K5(s,340),kd=await top3Kd(s);
+          if(k5.length>=300){
+            const lvAt=t=>top3Lib.dailyLevels(kd,t);
+            // live = what the lane saw; day = previous-day highs counted too (live: week/month only), live rank context;
+            // pattern = previous-day highs counted and no rank context (did the breakout + retest form at all?)
+            const t3day={...t3,early:{...t3.early,htfOnly:false}};
+            const live=top3Lib.earlyLongTrigger(k5,lvAt,t=>top3EarlyCtx(s,t,k5,t3),t3),day=top3Lib.earlyLongTrigger(k5,lvAt,t=>top3EarlyCtx(s,t,k5,t3day),t3day),free=top3Lib.earlyLongTrigger(k5,lvAt,()=>({ok:true,reasons:[]}),t3day);
+            const sh=top3Lib.topShortTrigger(k5,t3);
+            row.ilk3.long=auditReason(live);row.ilk3.longDay=auditReason(day);row.ilk3.longPattern=auditReason(free);row.ilk3.short=auditReason(sh);
+            if(free?.level){const L=finite(free.level);row.ilk3.level=L;
+              // breakout candle volume vs the previous 24 h median (the trigger's own volume test), for the Office table
+              for(let i=k5.length-1;i>=Math.max(1,k5.length-25);i--)if(k5[i-1][4]<=L&&L<k5[i][4]){const w=k5.slice(Math.max(0,i-288),i).map(r=>r[5]).sort((x,y)=>x-y),md=w.length?w[w.length>>1]:0;if(md>0)row.ilk3.volMult=Number((k5[i][5]/md).toFixed(1));break;}}
+          }else row.ilk3.long='V2_5M_HISTORY_SHORT';
+        }catch{row.ilk3.error='KLINES';}
+        row.zirve5={on:z5c.enabled===true,rank:x.z5rank??null,armed:(z.armed?.[s]||[]).length,why:x.z5rank?((z.armed?.[s]||[]).length?'SHORT_ZONE_ARMED':'NO_WAITING_SHORT_ZONE'):((x.qv24||0)<z5c.minQuote24h?'VOLUME_BELOW_20M':'NOT_IN_TOP5')};
+        row.normal={selected:lanes.normal?.selected===true,active:lanes.normal?.active===true,why:lanes.normal?.active?'JEV_DECIDES':lanes.normal?.selected?'RUN_STOPPED':'NORMAL_LANE_OFF'};
+        out.push(row);
+        await new Promise(r=>setTimeout(r,40));
+      }
+      const audit={at:new Date(now).toISOString(),bar:new Date(b15).toISOString(),rankHour:Tl?new Date(Tl).toISOString():null,rows:out};
+      a.last=audit;a.history=[{at:audit.at,rows:out.map(r=>({symbol:r.symbol,group:r.group,chg24:r.chg24,ilk3:r.ilk3.long,pattern:r.ilk3.longPattern,z5:r.zirve5.why}))},...a.history].slice(0,8);
+      try{store.journal('MOVER_AUDIT',null,{bar:audit.bar,rankHour:audit.rankHour,rows:out.map(r=>({s:r.symbol,g:r.group,c:r.chg24,rk:r.ilk3.rankUsed,L:r.ilk3.long,D:r.ilk3.longDay,P:r.ilk3.longPattern,S:r.ilk3.short,lv:r.ilk3.level??null,vm:r.ilk3.volMult??null,z:r.zirve5.why,n:r.normal.why}))});}catch{}
+      saveTop3State();
+      return {ok:true,audited:out.length};
+    }finally{auditBusy=false;}
+  }
+  function moverAuditStatus(){const a=auditState();return {ok:true,version:'R2544.65-MOVER-AUDIT',last:a.last||null,history:a.history.slice(0,8),nextAt:new Date(Math.floor(clock()/900000)*900000+900000+20000).toISOString()};}
   // R2544.58 sade chart (user 15.10: "grafik çizgilere boğulmasın, baktığımda net göreyim"): the previous day/week/month
   // highs and lows and this lane's own view of the coin (open lot, or the level it is waiting on). Display only.
   async function top3ChartView(symbol){
@@ -6524,7 +6584,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,_testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,_testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

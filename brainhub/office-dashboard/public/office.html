@@ -315,6 +315,10 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="t3msg" id="z5Msg"></div>
     <div id="z5Host" aria-live="polite">ZİRVE-5 verisi bekleniyor.</div>
   </section>
+  <section class="card" id="moverCard" aria-label="Kaçan hareket denetimi" style="margin:16px 0;border-color:#9a7bd8">
+    <h2>🔎 Kaçan hareket denetimi <span class="hint">her kapanan 15 dk mumda: 24 sa en çok yükselen 6 / düşen 4 + ZİRVE-5 listesi • her hat O ANDA ne gördü, neden girmedi • emir vermez</span></h2>
+    <div id="moverHost" aria-live="polite">Denetim verisi bekleniyor.</div>
+  </section>
   <details class="legacy-jev" id="legacyJevA"><summary>Eski JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Açmak için tıklayın.</span></summary>
   <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
   <section class="lane-strip" id="laneStrip"></section>
@@ -2061,6 +2065,25 @@ onClick('#btnZ5Live',()=>{
   if(!z5Second('btnZ5Live','ZİRVE-5 CANLI izni — canlı moddayken GERÇEK PARA ile işlem açar'))return;
   z5Control({liveEnabled:true,confirm:'LIVE'},'CANLI izni verildi');
 });
+// ===== R2544.65 kaçan hareket denetimi =====
+const AUD_TR={SIGNAL:'SİNYAL',V2_NO_BREAKOUT:'kırılım yok',V2_WAITING_RETEST:'kırıldı, geri test bekleniyor',V2_RETEST_ALREADY_PASSED:'geri test geçti (kovalamaz)',V2_BREAKOUT_FAILED:'kırılım bozuldu',
+  V2_BREAKOUT_VOLUME_LOW:'kırılım hacmi düşük',V2_5M_HISTORY_SHORT:'5 dk geçmiş kısa',V2_NO_FRESH_TOP:'yeni 24 sa tepe yok',RANK_OUT_OF_BAND:'sıra bant dışı',NOT_CLIMBING:'sıra tırmanmıyor',WAS_TOP3_RECENTLY:'son 48 sa ilk 3’teydi',
+  R24_OUT_OF_BAND:'24 sa değişim bant dışı',RANK_HOUR_MISSING:'sıra kaydı yok',SHORT_ZONE_ARMED:'SHORT bölgesi bekliyor',NO_WAITING_SHORT_ZONE:'bekleyen SHORT bölgesi yok',VOLUME_BELOW_20M:'hacim 20M altı',NOT_IN_TOP5:'ilk 5’te değil',
+  JEV_DECIDES:'açık, karar JEV’de',RUN_STOPPED:'sistem durdu',NORMAL_LANE_OFF:'Normal sistem KAPALI'};
+const audTr=x=>{if(!x)return '—';const [a,b]=String(x).split(':');return (AUD_TR[a]||t3tr(a))+(b?' ('+b.split('+').map(y=>AUD_TR[y]||t3tr(y)).join(', ')+')':'');};
+function renderMovers(s){
+  const el=document.getElementById('moverHost');if(!el)return;const m=s.movers;
+  if(!m||m.ok!==true){el.innerHTML='<p>Denetim verisi okunamadı (PC sürümü R2544.65 öncesi olabilir).</p>';return;}
+  const L=m.last;if(!L){el.innerHTML=`<p>İlk denetim ${m.nextAt?esc(new Date(m.nextAt).toLocaleTimeString('tr-TR')):'—'} civarında.</p>`;return;}
+  if(L.error){el.innerHTML=`<p>Son denetim okunamadı: ${esc(L.error)}</p>`;return;}
+  const pc=v=>v===null||v===undefined?'—':(v>=0?'+':'')+Number(v).toFixed(1).replace('.',',')+'%';
+  let html=`<p>Son denetim ${esc(new Date(L.at).toLocaleTimeString('tr-TR'))} • mum ${esc(new Date(L.bar).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • İlk 3’ün kullandığı sıra saati ${L.rankHour?esc(new Date(L.rankHour).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})):'—'} (bir saat geriden)</p>`;
+  html+='<div style="overflow-x:auto"><table class="perf"><thead><tr><th>Coin</th><th>24 sa</th><th>İlk 3 sıra</th><th>İlk 3 LONG (canlı ayar)</th><th>Gün tepesi dahil + canlı sıra</th><th>Desen (gün tepesi dahil, sıra şartsız)</th><th>İlk 3 SHORT</th><th>ZİRVE-5</th><th>Normal sistem</th></tr></thead><tbody>';
+  for(const r of L.rows||[]){const i=r.ilk3||{};
+    html+=`<tr><td>${esc(String(r.symbol).replace(/USDT$/,''))}${r.group==='ZIRVE5'?' <span class="tbadge">Z5</span>':''}</td><td>${pc(r.chg24)}</td><td>${i.rankUsed??'—'}${i.longCandidate?' • aday':''}</td><td>${i.on?esc(audTr(i.long)):'kapalı'}</td><td>${esc(audTr(i.longDay))}</td><td>${esc(audTr(i.longPattern))}${i.level?' • seviye '+esc(i.level):''}${i.volMult?' • hacim ×'+esc(i.volMult):''}</td><td>${i.shortCandidate?esc(audTr(i.short)):'aday değil'}</td><td>${r.zirve5?.on?esc(audTr(r.zirve5.why))+(r.zirve5.rank?' (#'+r.zirve5.rank+')':''):'kapalı'}</td><td>${esc(audTr(r.normal?.why))}</td></tr>`;}
+  html+='</tbody></table></div><p class="t3rule">Canlı ayar yalnız önceki hafta/ay tepesi kırılımını sayar; ikinci sütun önceki gün tepesini de sayar (sıra kuralı canlıdaki gibi), üçüncü sütun gün tepesini sayar ve sıra şartı koymaz. Desen oluşmuş ama soldaki sütunlar neden yazıyorsa, kaçışın nedeni o kuraldır. 30 günlük ölçüm (20.10): sıra şartını kaldırmak JCT’yi yakalar ama 1.417 LONG’da ort −0,22R, kazanma %8 — kural bu yüzden gevşetilmedi.</p>';
+  el.innerHTML=html;
+}
 // R2544.57 lanes from the mode bar (ON in LIVE: double press + 'LIVE')
 async function laneAction(body,okText){
   modeBusy=true; if(last) renderMode(last); modeMsg('Gönderiliyor…');
@@ -2090,7 +2113,7 @@ async function tick(){
     const s = await r.json(); last=s;
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
-    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderZ5(s);}catch(e){console.warn('zirve5',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderZ5(s);}catch(e){console.warn('zirve5',e);} try{renderMovers(s);}catch(e){console.warn('movers',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yazma yalnız TEST/CANLI/Durdur`;
