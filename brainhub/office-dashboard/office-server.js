@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.44-R2544.66-JEV-Brain';
+const OFFICE_VERSION = '2.5.45-R2544.67-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -131,7 +131,8 @@ const CONTROL_BODY = {
   },
   '/api/control/top3': b => {
     const out = {};
-    for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof b[k] === 'boolean') out[k] = b[k];
+    for (const k of ['enabled', 'jevMode', 'liveEnabled', 'earlyEnabled', 'topEnabled']) if (typeof b[k] === 'boolean') out[k] = b[k];
+    for (const k of ['earlyJev', 'topJev']) if (typeof b[k] === 'boolean' || b[k] === null) out[k] = b[k]; // R2544.67 sub-strategy JEV choice (null = lane)
     if (b.restartWindow === true) out.restartWindow = true; // new 24 h TEST window
     // R2544.57: İlk 3 margin (USDT, null = automatic) and leverage; the core validates ranges and needs 'LIVE' in LIVE
     if (b.marginQuote === null || (typeof b.marginQuote === 'number' && Number.isFinite(b.marginQuote))) out.marginQuote = b.marginQuote;

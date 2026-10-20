@@ -59,7 +59,7 @@ test('R2544.65 audit replays JCT 20.10 03:30: live İlk 3 saw no breakout (week/
 
 test('R2544.65 wiring: route, timer, Office card and table; deploy script versions',()=>{
   const srv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
-  assert.ok(srv.includes("u.pathname==='/live/movers'"));assert.ok(srv.includes('live.moverAuditTick()'));assert.ok(srv.includes("const RUNTIME_RELEASE='R2544.65-MOVER-AUDIT'"));
+  assert.ok(srv.includes("u.pathname==='/live/movers'"));assert.ok(srv.includes('live.moverAuditTick()'));assert.ok(srv.includes("const RUNTIME_RELEASE='R2544.67-TOP3-SUBS'"));
   const off=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');assert.ok(off.includes("'/live/movers'"));assert.ok(off.includes("brainGet('/live/movers')"));
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   for(const id of ['moverCard','moverHost'])assert.ok(html.includes(`id="${id}"`),id);assert.ok(html.includes('function renderMovers('));assert.ok(html.includes('renderMovers(s)'));

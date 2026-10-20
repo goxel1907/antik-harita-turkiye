@@ -5796,7 +5796,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!test&&cfg.liveEnabled!==true)return {ok:false,reason:'TOP3_LIVE_DISABLED'};
     if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
     // R2544.57: OTO is the "Normal sistem" lane; İlk 3 needs only its own switch, the run (arm) and, in LIVE, liveEnabled.
-    if(cfg.jevMode===true&&typeof top3Judge!=='function')return {ok:false,reason:'TOP3_JEV_UNAVAILABLE'};
+    if(cfg.rulesVersion===2){
+      const subs=[['LONG',cfg.early],['SHORT',cfg.top]].filter(([,R])=>R?.enabled===true);
+      if(!subs.length)return {ok:false,reason:'TOP3_NO_SUB_STRATEGY'};
+      if(typeof top3Judge!=='function'&&subs.every(([side])=>top3Lib.subJev(cfg,side)))return {ok:false,reason:'TOP3_JEV_UNAVAILABLE'};
+    } else if(cfg.jevMode===true&&typeof top3Judge!=='function')return {ok:false,reason:'TOP3_JEV_UNAVAILABLE'};
     return {ok:true,mode:test?'TEST':'LIVE'};
   }
   async function top3Klines(symbol,limit){
@@ -5982,11 +5986,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const T=Math.floor(clock()/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR,m=top3Ranks.hours[T]||{};
       const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
         top:finite(x.trig.top),hl:finite(x.trig.hl),topVolMult:finite(x.trig.topVolMult)!==null?Number(x.trig.topVolMult.toFixed(2)):null,pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close};
-      let jev=null;
-      if(cfg.jevMode===true){
+      let jev=null;const sub=top3Lib.subOf(x.side);res.strategy=sub.name;
+      if(top3Lib.subJev(cfg,x.side)){
+        if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}
         let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
         if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
-        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}
+        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}
         catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
         const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
@@ -6466,7 +6471,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const rk=Tl?finite(top3Ranks.hours[Tl]?.[s]):null;
         let candL=false;if(Tl)for(const T of [Tl,Tl-TOP3_HOUR,Tl-2*TOP3_HOUR]){const v=finite(top3Ranks.hours[T]?.[s]);if(v!==null&&v>=t3.early.minRank&&v<=t3.early.maxRank)candL=true;}
         const candS=Tl?top3Ranks.countInTop(s,10,Tl-(t3.top.top10WithinH-1)*TOP3_HOUR,Tl+1)>0:false;
-        row.ilk3={on:t3.enabled===true,rankUsed:rk,rankHour:Tl?new Date(Tl).toISOString():null,longCandidate:candL,shortCandidate:candS};
+        row.ilk3={on:t3.enabled===true,longOn:t3.enabled===true&&t3.early.enabled===true,shortOn:t3.enabled===true&&t3.top.enabled===true,rankUsed:rk,rankHour:Tl?new Date(Tl).toISOString():null,longCandidate:candL,shortCandidate:candS};
         try{
           const k5=await top3K5(s,340),kd=await top3Kd(s);
           if(k5.length>=300){
@@ -6517,6 +6522,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,
       switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled},
+      subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
+        const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};
+        return {key:sb.key,name:sb.name,side:sb.side,rule:sb.rule,setup:sb.setup,enabled:R?.enabled===true,jev:top3Lib.subJev(cfg,sb.side),jevSetting:typeof R?.jev==='boolean'?R.jev:null,
+          results:{test:sumR(xs.filter(p=>p.tradingMode==='TEST')),live:sumR(xs.filter(p=>p.tradingMode!=='TEST'))}};}),
       rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
       lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
@@ -6536,7 +6545,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {mode:m.mode,running:armed,normal:{selected:l.normal,active:armed&&oto,defaulted:l.defaulted,decisions:'JEV',
         sub:{scalp5m:{selected:l.scalp5m,active:armed&&oto&&l.scalp5m},trade15m:{selected:l.trade15m,active:armed&&oto&&l.trade15m},
           burst:{selected:l.burst,active:armed&&oto&&l.burst&&burstAllowedNow(),liveAllowed:readLeaderAutoConfig().config?.burstLiveEnabled===true}}},
-      top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:t.jevMode?'RULE_PLUS_JEV':'RULE'},
+      top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:t.jevMode?'RULE_PLUS_JEV':'RULE',
+        sub:{early:{name:top3Lib.TOP3_SUBS.early.name,selected:t.early.enabled===true,jev:top3Lib.subJev(t,'LONG')},top:{name:top3Lib.TOP3_SUBS.top.name,selected:t.top.enabled===true,jev:top3Lib.subJev(t,'SHORT')}}},
       zirve5:(()=>{const c=z5Lib.readConfig(root);return {selected:c.enabled,liveAllowed:c.liveEnabled,active:armed&&c.enabled&&(m.mode==='TEST'||c.liveEnabled),decisions:c.jevMode?'RULE_PLUS_JEV':'RULE',name:'ZİRVE-5 SHORT'};})()};
   }
   // R2544.57 lane switches (Office / APK / API). Turning a lane ON in LIVE needs confirm 'LIVE'; OFF is immediate (open lots
@@ -6564,8 +6574,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function rememberNormalLane(enabled){if(typeof enabled!=='boolean')return;writeLanes({normal:enabled});runJournal('LANES_SELECTED',{normal:enabled,source:'LEADER_AUTO_API'});}
   // Only the user's Office buttons call this (server route). LIVE needs the explicit 'LIVE' confirmation.
   function configureTop3(patch={}){
-    const p={};for(const k of ['enabled','jevMode','liveEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    for(const k of ['earlyJev','topJev'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&(typeof patch[k]==='boolean'||patch[k]===null))p[k]=patch[k];
     const restart=patch?.restartWindow===true;if(restart)p.enabled=true;
+    // R2544.67: a sub-strategy switched ON in LIVE needs the explicit 'LIVE' confirmation (OFF is immediate)
+    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     // R2544.57: margin / leverage from Office; in LIVE only with the explicit 'LIVE' confirmation
     const sp={};for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)sp[k]=patch[k];
     if(Object.keys(sp).length){
@@ -6577,7 +6590,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!Object.keys(p).length)return {ok:false,reasons:['TOP3_SWITCH_MISSING']};
     if(p.liveEnabled===true&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=top3Lib.readTop3Config(root),after=top3Lib.writeTop3Switches(root,p);
-    try{store.journal('TOP3_CONFIG_CHANGED',null,{before:{enabled:before.enabled,jevMode:before.jevMode,liveEnabled:before.liveEnabled},after:{enabled:after.enabled,jevMode:after.jevMode,liveEnabled:after.liveEnabled},restartWindow:restart,source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
+    try{store.journal('TOP3_CONFIG_CHANGED',null,{before:{enabled:before.enabled,jevMode:before.jevMode,liveEnabled:before.liveEnabled,early:before.early.enabled,top:before.top.enabled,earlyJev:before.early.jev??null,topJev:before.top.jev??null},after:{enabled:after.enabled,jevMode:after.jevMode,liveEnabled:after.liveEnabled,early:after.early.enabled,top:after.top.enabled,earlyJev:after.early.jev??null,topJev:after.top.jev??null},restartWindow:restart,source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
     if(testModeNow()&&after.enabled===true&&(restart||(p.enabled===true&&before.enabled!==true)))top3StartWindow(restart?'RESTART':'SWITCHED_ON');
     return {...top3Status(),changed:p};
   }

@@ -49,6 +49,8 @@ function readTop3Config(root) {
   const rp = finite(raw.riskPct); if (rp !== null && rp > 0 && rp <= 0.1) c.riskPct = rp;
   for (const side of ['long', 'short', 'early', 'top']) {
     const src = raw[side] && typeof raw[side] === 'object' ? raw[side] : {};
+    // R2544.67: per sub-strategy JEV choice (true / false; absent = the lane's JEV mode)
+    if ((side === 'early' || side === 'top') && typeof src.jev === 'boolean') c[side].jev = src.jev;
     for (const [k, v] of Object.entries(DEFAULT_CONFIG[side])) {
       if (typeof v === 'boolean') { if (typeof src[k] === 'boolean') c[side][k] = src[k]; continue; }
       const n = finite(src[k]); if (n !== null && n >= 0) c[side][k] = n;
@@ -84,6 +86,13 @@ function writeTop3Switches(root, patch = {}) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
   for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  // R2544.67 sub-strategies: İLK 3 ERKEN LONG (early) / İLK 3 TEPE SHORT (top) on/off and their own JEV choice (null = lane's)
+  for (const [k, side, field] of [['earlyEnabled', 'early', 'enabled'], ['topEnabled', 'top', 'enabled'], ['earlyJev', 'early', 'jev'], ['topJev', 'top', 'jev']]) {
+    if (!Object.prototype.hasOwnProperty.call(patch, k)) continue;
+    const v = patch[k]; if (typeof v !== 'boolean' && !(field === 'jev' && v === null)) continue;
+    raw[side] = raw[side] && typeof raw[side] === 'object' ? raw[side] : {};
+    if (v === null) delete raw[side][field]; else raw[side][field] = v;
+  }
   raw.updatedAt = new Date().toISOString();
   const file = configFile(root); fs.mkdirSync(path.dirname(file), { recursive:true });
   const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(raw, null, 2), 'utf8'); fs.renameSync(tmp, file);
@@ -460,5 +469,11 @@ function experienceFor(lessons, rule, { recent = 6 } = {}) {
     note: xs.length < 10 ? 'FEW_SAMPLES_TREAT_AS_ANECDOTE' : 'MEASURED_HISTORY' };
 }
 
-module.exports = { dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+// R2544.67: İlk 3's two rules are two named strategies (own switch, own JEV choice, own results; user 20.10)
+const TOP3_SUBS = Object.freeze({ early: Object.freeze({ key: 'early', name: 'İLK 3 ERKEN LONG', side: 'LONG', rule: 'LONG_EARLY_RETEST', setup: 'TOP3_LONG_EARLY_RETEST' }),
+  top: Object.freeze({ key: 'top', name: 'İLK 3 TEPE SHORT', side: 'SHORT', rule: 'SHORT_TOP_BREAK', setup: 'TOP3_SHORT_TOP_BREAK' }) });
+const subOf = side => (side === 'LONG' ? TOP3_SUBS.early : TOP3_SUBS.top);
+// effective JEV use of a sub-strategy: its own choice, else the lane's JEV mode
+function subJev(cfg, side) { const R = side === 'LONG' ? cfg?.early : cfg?.top; return typeof R?.jev === 'boolean' ? R.jev : cfg?.jevMode === true; }
+module.exports = { TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

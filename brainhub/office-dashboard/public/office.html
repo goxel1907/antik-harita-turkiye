@@ -306,6 +306,10 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   <section class="card" id="top3Card" aria-label="İlk 3 Avcısı" style="margin:16px 0;border-color:#4fa3d1">
     <h2>🎯 İlk 3 Avcısı <span class="hint">5 dk mum • erken LONG (gün/hafta/ay tepesi kırılımı + geri test, kovalamaz) + tepe SHORT (5 dk yapı kırılımı) • likidasyon bölgesi gardı • ayrı hat • yalnız PC yürütür</span></h2>
     <div class="t3btns"><button id="btnTop3On" disabled>İlk 3 Avcısı: AÇ</button><button id="btnTop3Jev" disabled>JEV modu: KAPALI → aç</button><label class="t3set">Marj <input id="t3Margin" type="number" min="5" step="1" placeholder="otomatik"> USDT</label><label class="t3set">Kaldıraç <input id="t3Lev" type="number" min="1" max="20" step="1"> x</label><button id="btnTop3Save" disabled>Marj/kaldıraç kaydet</button></div>
+    <div class="t3subs" id="t3Subs" style="margin:8px 0;display:grid;gap:6px">
+      <div class="t3sub"><b>İLK 3 ERKEN LONG</b> <button id="btnT3Early" disabled>—</button> <button id="btnT3EarlyJev" disabled>JEV: —</button> <span id="t3EarlyRes" class="muted"></span></div>
+      <div class="t3sub"><b>İLK 3 TEPE SHORT</b> <button id="btnT3Top" disabled>—</button> <button id="btnT3TopJev" disabled>JEV: —</button> <span id="t3TopRes" class="muted"></span></div>
+    </div>
     <div class="t3msg" id="top3Msg"></div>
     <div id="top3Host" aria-live="polite">İlk 3 Avcısı verisi bekleniyor.</div>
   </section>
@@ -1780,7 +1784,8 @@ function renderMode(s){
     lb('btnLaneScalp','5 dk scalp',sub.scalp5m?.selected);
     lb('btnLane15m','15 dk ana işlem',sub.trade15m?.selected);
     lb('btnLaneBurst','Vur-kaç',sub.burst?.selected,mode==='LIVE'&&sub.burst?.selected&&!sub.burst?.liveAllowed?' • canlıda kapalı':'');
-    lb('btnLaneTop3','İlk 3 Avcısı',lanes.top3?.selected,lanes.top3?.selected?(lanes.top3.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz'):'');
+    {const sb=lanes.top3?.sub,parts=sb?[sb.early?.selected?'LONG':null,sb.top?.selected?'SHORT':null].filter(Boolean):null;
+     lb('btnLaneTop3','İlk 3 Avcısı',lanes.top3?.selected,lanes.top3?.selected?(parts?(parts.length?' • '+parts.join('+'):' • alt strateji yok'):'')+(lanes.top3.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz'):'');}
     // R2544.64 ZİRVE-5 SHORT: own switch; in LIVE it trades only after its own LIVE confirmation
     lb('btnLaneZirve5','ZİRVE-5 SHORT',lanes.zirve5?.selected,lanes.zirve5?.selected?(lanes.zirve5.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz')+(mode==='LIVE'&&!lanes.zirve5.liveAllowed?' • canlıda kapalı':''):'');
     info+=`<br>Hatlar: Normal sistem (yalnız JEV karar verir) <b>${lanes.normal?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.normal?.active?' • çalışıyor':''} • İlk 3 Avcısı <b>${lanes.top3?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.top3?.active?' • çalışıyor':''}${mode==='LIVE'&&lanes.top3?.selected&&!lanes.top3?.liveAllowed?' • (canlıda değil)':''}`;
@@ -1874,7 +1879,7 @@ onClick('#btnStop',()=>{ control({action:'STOP'},'Her şey durduruldu (OTO kapal
 
 // R2544.56 İlk 3 Avcısı kartı: saatlik ilk-3 LONG 6/6 + tepe sonrası SHORT şeridi. Üç düğme yalnız kullanıcıya aittir:
 // Aç/Kapat (yeni giriş), JEV modu (her sinyale JEV onayı, ücretli), Canlıda çalışsın (gerçek para; iki basış + 'LIVE').
-const T3TR={TOP3_MARGIN_INVALID:'marj en az 5 USDT olmalı',TOP3_LEVERAGE_INVALID:'kaldıraç 1–20 arası olmalı',TOP3_MARGIN_ABOVE_FREE_BALANCE:'marj serbest bakiyeyi aşıyor',TOP3_TEST_WINDOW_DONE:'24 saatlik test bitti (yeni giriş yok)',TOP3_DISABLED:'Kapalı (yeni giriş yok)',TOP3_LIVE_DISABLED:'CANLI modda “Canlıda çalışsın” kapalı',LIVE_NOT_ARMED:'Başlatma kapalı',LEADER_AUTO_DISABLED:'OTO kapalı',LEADER_AUTO_SCAN_ONLY:'yalnız tarama, 5 dakikada bir (Normal sistem kapalı)',NORMAL_LANE_OFF_SCAN_ONLY:'Normal sistem kapalı: tarama sürer, JEV çağrılmaz, emir açılmaz',SCAN_ONLY_WAIT:'sonraki tarama 1 dk içinde',TOP3_JEV_UNAVAILABLE:'JEV bağlı değil',OPEN:'Çalışıyor',
+const T3TR={TOP3_NO_SUB_STRATEGY:'İlk 3’ün iki alt stratejisi de kapalı',TOP3_MARGIN_INVALID:'marj en az 5 USDT olmalı',TOP3_LEVERAGE_INVALID:'kaldıraç 1–20 arası olmalı',TOP3_MARGIN_ABOVE_FREE_BALANCE:'marj serbest bakiyeyi aşıyor',TOP3_TEST_WINDOW_DONE:'24 saatlik test bitti (yeni giriş yok)',TOP3_DISABLED:'Kapalı (yeni giriş yok)',TOP3_LIVE_DISABLED:'CANLI modda “Canlıda çalışsın” kapalı',LIVE_NOT_ARMED:'Başlatma kapalı',LEADER_AUTO_DISABLED:'OTO kapalı',LEADER_AUTO_SCAN_ONLY:'yalnız tarama, 5 dakikada bir (Normal sistem kapalı)',NORMAL_LANE_OFF_SCAN_ONLY:'Normal sistem kapalı: tarama sürer, JEV çağrılmaz, emir açılmaz',SCAN_ONLY_WAIT:'sonraki tarama 1 dk içinde',TOP3_JEV_UNAVAILABLE:'JEV bağlı değil',OPEN:'Çalışıyor',
   R1_BELOW:'1 saat < +%3',VOLUME_BASE_BELOW:'hacim < 3×',NO_7D_BREAKOUT:'7 günlük zirve kırılmadı',VOLUME_SURGE_BELOW:'hacim < 33,9×',R24_BELOW:'24 saat < +%13,3',RANK_NOT_TOP:'sıra 7’den geride',NOT_A_REPEAT_GAINER:'son 7 günde ilk 10’a girmemiş',
   VOLATILITY_BELOW:'oynaklık düşük',BTC_TOO_STRONG:'BTC 24 saat > +%1,29',NOT_IN_TOP3_RECENTLY:'24 saatte ilk 3’te değil',NOT_FAR_ENOUGH_FROM_PEAK:'tepeden < %15 aşağıda',HOUR_NOT_RED:'saat kırmızı değil',VOLUME_BELOW:'hacim < 3×',
   TOP3_HISTORY_TOO_SHORT:'mum geçmişi kısa',TOP3_CANDLE_NOT_CLOSED:'saatlik mum kapanmadı',TOP3_SLOTS_FULL:'yer dolu',TOP3_SAME_SIGNAL_24H:'aynı sinyal 24 saat içinde alındı',TOP3_SYMBOL_BUSY:'coinde başka pozisyon var',TOP3_JEV_NOT_APPROVED:'JEV onaylamadı',
@@ -1918,6 +1923,14 @@ function renderTop3(s){
   btn('btnTop3On',twDone?'Yeni 24 saat başlat':sw.enabled?'İlk 3 Avcısı: KAPAT':'İlk 3 Avcısı: AÇ (24 saat)',sw.enabled&&!twDone,false);
   btn('btnTop3Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!t.jevAvailable&&!sw.jevMode);
   btn('btnTop3Save','Marj/kaldıraç kaydet',false,false);
+  // R2544.67: the two sub-strategies, each with its own switch, JEV choice and results
+  {const subs=Array.isArray(t.subs)?t.subs:[];const live=t.tradingMode==='LIVE';
+   const res=x=>x&&x.closed?`${x.closed} işlem • ${x.wins} kazanç / ${x.losses} kayıp • net ${(x.netPnl>=0?'+':'')+Number(x.netPnl).toFixed(2)} $${x.avgR!==null&&x.avgR!==undefined?' • ort '+String(Number(x.avgR).toFixed(2)).replace('.',',')+' R':''}`:'kapanan işlem yok';
+   for(const [sk,bId,jId,rId] of [['early','btnT3Early','btnT3EarlyJev','t3EarlyRes'],['top','btnT3Top','btnT3TopJev','t3TopRes']]){
+     const x=subs.find(y=>y.key===sk);if(!x){btn(bId,'PC sürümü R2544.67 öncesi',false,true);btn(jId,'JEV: —',false,true);continue;}
+     btn(bId,x.enabled?'AÇIK → kapat':'KAPALI → aç',x.enabled,false);
+     btn(jId,x.jev?`JEV’li${x.jevSetting===null?' (hat ayarı)':''} → JEV’siz yap`:`JEV’siz${x.jevSetting===null?' (hat ayarı)':''} → JEV’li yap`,x.jev,!t.jevAvailable&&!x.jev);
+     const el=document.getElementById(rId);if(el)el.textContent=`TEST: ${res(x.results?.test)} • CANLI: ${res(x.results?.live)}${!sw.enabled?' • (İlk 3 Avcısı kapalı)':''}${live&&!sw.liveEnabled?' • canlıda İlk 3 seçili değil':''}`;}}
   const st=t.settings||null,fillIn=(id,v)=>{const el=document.getElementById(id);if(el&&document.activeElement!==el&&!el.dataset.dirty)el.value=v===null||v===undefined?'':String(v);};
   if(st){fillIn('t3Margin',st.marginAuto?null:st.marginQuote);fillIn('t3Lev',st.leverage);}
   const fm=(v,d=6)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('tr-TR',{maximumFractionDigits:d});
@@ -1980,6 +1993,17 @@ onClick('#btnTop3On',()=>{
   if(t?.tradingMode==='LIVE'){if(!top3Second('btnTop3On','İlk 3 Avcısı AÇ — CANLI modda GERÇEK PARA ile işlem açar'))return;laneAction({top3:true,confirm:'LIVE'},'İlk 3 Avcısı CANLI’da açıldı.');return;}
   top3Control({enabled:true},'İlk 3 Avcısı açıldı: 24 saatlik test başladı. İlk tarama ~1 dk içinde (saat başını 40 sn geçtiyse); sıra geçmişi ilk seferde birkaç dakikada doldurulur.');
 });
+// R2544.67 sub-strategy switches (ON in LIVE: double press + LIVE; OFF immediate) and JEV choice
+for(const [sk,bId,jId,label] of [['early','btnT3Early','btnT3EarlyJev','İLK 3 ERKEN LONG'],['top','btnT3Top','btnT3TopJev','İLK 3 TEPE SHORT']]){
+  onClick('#'+bId,()=>{const t=last?.top3,x=(t?.subs||[]).find(y=>y.key===sk),key=sk==='early'?'earlyEnabled':'topEnabled';if(!x)return;
+    if(x.enabled){top3Control({[key]:false},`${label} kapatıldı: yeni giriş yok; açık lotlar kendi stop/hedef/24 saat kuralıyla yönetilir.`);return;}
+    if(t?.tradingMode==='LIVE'){if(!top3Second(bId,`${label} AÇ — CANLI modda GERÇEK PARA ile işlem açar`))return;top3Control({[key]:true,confirm:'LIVE'},`${label} CANLI’da açıldı.`);return;}
+    top3Control({[key]:true},`${label} açıldı (TEST).`);});
+  onClick('#'+jId,()=>{const t=last?.top3,x=(t?.subs||[]).find(y=>y.key===sk),key=sk==='early'?'earlyJev':'topJev';if(!x)return;
+    if(x.jev){top3Control({[key]:false},`${label}: JEV’siz (yalnız kural).`);return;}
+    if(!top3Second(jId,`${label} JEV’li: her sinyal için bir JEV çağrısı (OpenRouter kredisi gerekir; JEV yanıt vermezse işlem açılmaz)`))return;
+    top3Control({[key]:true},`${label}: JEV’li (her sinyal JEV onayından geçer).`);});
+}
 onClick('#btnTop3Jev',()=>{
   const on=last?.top3?.switches?.jevMode===true;
   if(on){top3Control({jevMode:false},'JEV modu kapatıldı: sinyaller JEV’siz (ücretsiz) kurala göre işlenir.');return;}
@@ -2094,7 +2118,7 @@ function renderMovers(s){
   let html=`<p>Son denetim ${esc(new Date(L.at).toLocaleTimeString('tr-TR'))} • mum ${esc(new Date(L.bar).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • İlk 3’ün kullandığı sıra saati ${L.rankHour?esc(new Date(L.rankHour).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})):'—'} (bir saat geriden)</p>`;
   html+='<div style="overflow-x:auto"><table class="perf"><thead><tr><th>Coin</th><th>24 sa</th><th>İlk 3 sıra</th><th>İlk 3 LONG (canlı ayar)</th><th>Gün tepesi dahil + canlı sıra</th><th>Desen (gün tepesi dahil, sıra şartsız)</th><th>İlk 3 SHORT</th><th>ZİRVE-5</th><th>Normal sistem</th></tr></thead><tbody>';
   for(const r of L.rows||[]){const i=r.ilk3||{};
-    html+=`<tr><td>${esc(String(r.symbol).replace(/USDT$/,''))}${r.group==='ZIRVE5'?' <span class="tbadge">Z5</span>':''}</td><td>${pc(r.chg24)}</td><td>${i.rankUsed??'—'}${i.longCandidate?' • aday':''}</td><td>${i.on?esc(audTr(i.long)):'kapalı'}</td><td>${esc(audTr(i.longDay))}</td><td>${esc(audTr(i.longPattern))}${i.level?' • seviye '+esc(i.level):''}${i.volMult?' • hacim ×'+esc(i.volMult):''}</td><td>${i.shortCandidate?esc(audTr(i.short)):'aday değil'}</td><td>${r.zirve5?.on?esc(audTr(r.zirve5.why))+(r.zirve5.rank?' (#'+r.zirve5.rank+')':''):'kapalı'}</td><td>${esc(audTr(r.normal?.why))}</td></tr>`;}
+    html+=`<tr><td>${esc(String(r.symbol).replace(/USDT$/,''))}${r.group==='ZIRVE5'?' <span class="tbadge">Z5</span>':''}</td><td>${pc(r.chg24)}</td><td>${i.rankUsed??'—'}${i.longCandidate?' • aday':''}</td><td>${(i.longOn??i.on)?esc(audTr(i.long)):'kapalı'}</td><td>${esc(audTr(i.longDay))}</td><td>${esc(audTr(i.longPattern))}${i.level?' • seviye '+esc(i.level):''}${i.volMult?' • hacim ×'+esc(i.volMult):''}</td><td>${(i.shortOn??i.on)===false?'kapalı':i.shortCandidate?esc(audTr(i.short)):'aday değil'}</td><td>${r.zirve5?.on?esc(audTr(r.zirve5.why))+(r.zirve5.rank?' (#'+r.zirve5.rank+')':''):'kapalı'}</td><td>${esc(audTr(r.normal?.why))}</td></tr>`;}
   html+='</tbody></table></div><p class="t3rule">Canlı ayar yalnız önceki hafta/ay tepesi kırılımını sayar; ikinci sütun önceki gün tepesini de sayar (sıra kuralı canlıdaki gibi), üçüncü sütun gün tepesini sayar ve sıra şartı koymaz. Desen oluşmuş ama soldaki sütunlar neden yazıyorsa, kaçışın nedeni o kuraldır. 30 günlük ölçüm (20.10): sıra şartını kaldırmak JCT’yi yakalar ama 1.417 LONG’da ort −0,22R, kazanma %8 — kural bu yüzden gevşetilmedi.</p>';
   el.innerHTML=html;
 }

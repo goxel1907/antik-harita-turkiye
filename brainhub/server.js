@@ -1607,6 +1607,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='POST'&&u.pathname==='/live/top3'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
       const out=live.configureTop3({enabled:body?.enabled,jevMode:body?.jevMode,liveEnabled:body?.liveEnabled,restartWindow:body?.restartWindow===true,
+        earlyEnabled:body?.earlyEnabled,topEnabled:body?.topEnabled,...(Object.prototype.hasOwnProperty.call(body||{},'earlyJev')?{earlyJev:body.earlyJev}:{}),...(Object.prototype.hasOwnProperty.call(body||{},'topJev')?{topJev:body.topJev}:{}),
         ...(Object.prototype.hasOwnProperty.call(body||{},'marginQuote')?{marginQuote:body.marginQuote}:{}),...(Object.prototype.hasOwnProperty.call(body||{},'leverage')?{leverage:body.leverage}:{}),confirm:body?.confirm,source:'API'});
       return send(res,out.ok?200:400,out);
     }
@@ -2406,7 +2407,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.65-MOVER-AUDIT';
+const RUNTIME_RELEASE='R2544.67-TOP3-SUBS';
 const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-13 • R2544.57: lanes - Normal sistem (JEV) and İlk 3 Avcısı selected separately in TEST and LIVE, LIVE start with the selected lanes, İlk 3 margin/leverage from Office, İlk 3 lots outside core slots; includes R2544.56: İlk 3 Avcısı - hourly top-3 gainer LONG 6/6 and post-top SHORT lane, own stop/TP/24 h exit, TEST without JEV, Office switches for JEV mode and LIVE; includes R2544.55: JEV edge - one narrow +1R-before-stop Noul per plan with measured lessons, JEV probabilities/confidence kept, code-side EV gate after fees (fail-open on missing); includes R51-R52 TEST mode and run control';
 function fastLaneObsSuffix(result){
   try{

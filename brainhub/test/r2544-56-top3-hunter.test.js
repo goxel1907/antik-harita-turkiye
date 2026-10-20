@@ -239,7 +239,7 @@ test('R56 Office: switch route forwards only the three switches; card, labels an
   assert.ok(html.includes("laneAction({top3:true,confirm:'LIVE'}"),'R2544.57: İlk 3 goes LIVE as a lane (double press + LIVE)');assert.ok(html.includes("TOP3_HUNTER:'İLK 3 AVCISI'"));assert.ok(html.includes("BRAINHUB_TOP3"));
   const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.ok(server.includes('top3Judge:jev.sovereignTop3Gate'));assert.ok(server.includes("u.pathname==='/live/top3'"));assert.ok(server.includes('live.top3Tick()'));
-  assert.ok(server.includes("const RUNTIME_RELEASE='R2544.65-MOVER-AUDIT'"));
+  assert.ok(server.includes("const RUNTIME_RELEASE='R2544.67-TOP3-SUBS'"));
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.ok(lc.includes("'BRAINHUB_TOP3'")&&lc.includes("'BRAINHUB_ZIRVE5'"));assert.ok(lc.includes('!activeTop3For(p.symbol)'),'core position review skips top3 lots');
   assert.ok(fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').includes('sovereignBurstExit,sovereignTop3Gate,'));

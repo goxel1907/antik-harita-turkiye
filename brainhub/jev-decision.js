@@ -1853,7 +1853,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
 
   async function sovereignTop3V2Gate({symbol,signal,features,rank,candle,chartContext,experience,r4}){
     const t=signal.v2,lv=signal.levels||{};
-    const record={contract:'R2544.58_TOP3_V2_GATE',symbol,side:signal.side,rule:signal.rule,closed5mCandle:candle,gainerRank:finiteNumber(rank),
+    const record={contract:'R2544.58_TOP3_V2_GATE',symbol,side:signal.side,rule:signal.rule,strategy:signal.strategy||null,closed5mCandle:candle,gainerRank:finiteNumber(rank),
       trigger:signal.side==='LONG'
         ?{brokenLevel:finiteNumber(t.level),levelName:t.levelName||null,retestLow:finiteNumber(t.retestLow),breakoutVolumeVs24hMedian:r4(t.volMult)}
         :{fresh24hTop:finiteNumber(t.top),preTopStructureLow:finiteNumber(t.hl),topCandleVolumeVs24hMedian:r4(t.topVolMult)},
