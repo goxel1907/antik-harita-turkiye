@@ -902,7 +902,11 @@ function renderKpis(s){
   const budgetBlocked=s.derived?.budgetBlocked===true;
   $('#kpis').innerHTML = [
     kpi(st.tradingMode?.mode==='TEST'?'TEST (sanal)':'LIVE', armed?'AÇIK':'KAPALI', armed?(exp!=null?`kalan ${exp} dk`:'süre bilinmiyor'):'emir gönderilmez', armed?'good':'critical'),
-    kpi('JEV çağrı bütçesi', budgetBlocked?'UTC RESET BEKLİYOR':'ÇAĞRI İZNİ '+(budget.canReserveNextCall===true?'VAR':'BİLİNMİYOR'), `kalan ${num(budget.remainingUsd)?.toFixed(6)??'—'} / rezerv ${budget.reservePerCallUsd??'—'} USD • sınır ${budget.dailyCapUsd??'—'} USD • reset ${budget.nextResetAt??'—'}`, budgetBlocked?'warn':null),
+    // R2544.67.4 (self-audit): the internal daily budget is not the provider - when the last JEV call failed (402 = no
+    // OpenRouter credit) the card says so instead of "ÇAĞRI İZNİ VAR"
+    (()=>{const pv=s.jevBudget?.data?.provider,fail=pv?.failing===true,d=t=>t?new Date(t).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+      if(fail)return kpi('JEV erişimi',pv.noCredit?'KREDİ YOK':'SAĞLAYICI HATASI',`son JEV çağrısı ${d(pv.lastError?.at)}: HTTP ${pv.lastError?.httpStatus??'—'} ${pv.noCredit?'(OpenRouter kredisi bitti)':esc(String(pv.lastError?.category||''))} • son başarılı ${d(pv.lastOkAt)} • JEV’li hatlar karar alamaz • günlük iç bütçe kalan ${num(budget.remainingUsd)?.toFixed(2)??'—'} USD`,'critical');
+      return kpi('JEV çağrı bütçesi', budgetBlocked?'UTC RESET BEKLİYOR':'ÇAĞRI İZNİ '+(budget.canReserveNextCall===true?'VAR':'BİLİNMİYOR'), `kalan ${num(budget.remainingUsd)?.toFixed(6)??'—'} / rezerv ${budget.reservePerCallUsd??'—'} USD • sınır ${budget.dailyCapUsd??'—'} USD • reset ${budget.nextResetAt??'—'}${pv?.lastOkAt?' • son başarılı JEV çağrısı '+d(pv.lastOkAt):''}`, budgetBlocked?'warn':null);})(),
     kpi('Tarayıcı (60 dk)', `${h.scanRuns??0} tarama / ${h.tickResults??0} tur`, `${h.deepAnalyses??0} analiz • ${h.uniqueAnalyzedSymbols??0} coin • evren ${h.latestLightweightUniverseCount??'—'} / kısa liste ${h.latestShortlistCount??'—'}`),
     kpi('OTO ayar', la.enabled?`${la.marginQuote??'?'} USDT • ${la.leverage??'?'}x`:'KAPALI', la.enabled?`en fazla ${la.maxOpenPositions??'?'} pozisyon • ${[la.allowLong?'ALIŞ (LONG)':'',la.allowShort?'SATIŞ (SHORT)':''].filter(Boolean).join(' ')}`:'Otomatik lider etkin değil', la.enabled?null:'critical'),
     kpi(st.tradingMode?.mode==='TEST'?'Cüzdan (TEST sanal)':'Cüzdan', eq!=null?`${eq.toFixed(2)} USDT`:'—', avail!=null?`kullanılabilir ${avail.toFixed(2)}`:(s.account?.disabled?'hesap okuma kapalı':'Binance okunamadı')),
@@ -1785,9 +1789,13 @@ function renderMode(s){
     lb('btnLaneNormal','Normal sistem (JEV)',lanes.normal?.selected);
     // R2544.60_SUB_LANES: the normal system's sub-lanes; each one can be on/off before going LIVE (1 or all lanes)
     const sub=lanes.normal?.sub||{};
-    lb('btnLaneScalp','5 dk scalp',sub.scalp5m?.selected);
-    lb('btnLane15m','15 dk ana işlem',sub.trade15m?.selected);
-    lb('btnLaneBurst','Vur-kaç',sub.burst?.selected,mode==='LIVE'&&sub.burst?.selected&&!sub.burst?.liveAllowed?' • canlıda kapalı':'');
+    // R2544.67.4 (self-audit): a sub-lane is green only when it can actually work - with the normal system off it was
+    // shown "AÇIK" in green although it does nothing; the choice stays visible, marked as idle
+    const nOn=lanes.normal?.selected===true;
+    const lbs=(id,label,sel,extra)=>{lb(id,label,sel&&nOn,extra);const b=$('#'+id);if(b&&sel&&!nOn)b.textContent=`${label}: SEÇİLİ • Normal kapalı, çalışmaz${extra||''}`;};
+    lbs('btnLaneScalp','5 dk scalp',sub.scalp5m?.selected);
+    lbs('btnLane15m','15 dk ana işlem',sub.trade15m?.selected);
+    lbs('btnLaneBurst','Vur-kaç',sub.burst?.selected,mode==='LIVE'&&sub.burst?.selected&&!sub.burst?.liveAllowed?' • canlıda kapalı':'');
     {const sb=lanes.top3?.sub,parts=sb?[sb.early?.selected?'LONG':null,sb.top?.selected?'SHORT':null].filter(Boolean):null;
      lb('btnLaneTop3','İlk 3 Avcısı',lanes.top3?.selected,lanes.top3?.selected?(parts?(parts.length?' • '+parts.join('+'):' • alt strateji yok'):'')+(lanes.top3.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz'):'');}
     // R2544.64 ZİRVE-5 SHORT: own switch; in LIVE it trades only after its own LIVE confirmation

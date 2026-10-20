@@ -1578,7 +1578,9 @@ const server=http.createServer(async(req,res)=>{
       return send(res,out.ok?200:503,out);
     }
     if(req.method==='GET'&&u.pathname==='/jev/budget'){
-      return send(res,200,{ok:true,...jev.budgetStatus(),model:jev.config.model,mode:jev.config.mode});
+      // R2544.67.4 (self-audit): the budget alone said "ÇAĞRI İZNİ VAR" while every JEV call since 09.10 got HTTP 402
+      // (no OpenRouter credit). The provider's last error / last success survive restarts in the request logs.
+      return send(res,200,{ok:true,...jev.budgetStatus(),model:jev.config.model,mode:jev.config.mode,provider:jevProviderTruth()});
     }
     if(req.method==='GET'&&u.pathname==='/openrouter/billing'){
       const force=u.searchParams.get('force')==='1';
@@ -2408,6 +2410,19 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
 const RUNTIME_RELEASE='R2544.67-TOP3-SUBS';
+// R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
+function jevLogTail(name){
+  try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
+    const lines=b.toString('utf8').split('\n').map(x=>x.trim()).filter(Boolean);for(let i=lines.length-1;i>=0;i--){try{return JSON.parse(lines[i]);}catch{}}}finally{fs.closeSync(fd);}}catch{}
+  return null;
+}
+function jevProviderTruth(){
+  const e=jevLogTail('jev-http-error.log'),ok=jevLogTail('jev-request-result.log');
+  const lastError=e?{at:e.at||null,httpStatus:Number(e.httpStatus)||null,category:e.providerCategory||e.reason||null}:null;
+  const okAt=ok&&Number(ok.httpStatus)===200?ok.at||null:null;
+  const failing=!!(lastError&&lastError.at&&(!okAt||Date.parse(lastError.at)>Date.parse(okAt)));
+  return {lastError,lastOkAt:okAt,failing,noCredit:failing&&(lastError.httpStatus===402||/CREDIT/i.test(String(lastError.category||'')))};
+}
 const RUNTIME_BUILT_BY='Claude (Cowork) • 2026-10-13 • R2544.57: lanes - Normal sistem (JEV) and İlk 3 Avcısı selected separately in TEST and LIVE, LIVE start with the selected lanes, İlk 3 margin/leverage from Office, İlk 3 lots outside core slots; includes R2544.56: İlk 3 Avcısı - hourly top-3 gainer LONG 6/6 and post-top SHORT lane, own stop/TP/24 h exit, TEST without JEV, Office switches for JEV mode and LIVE; includes R2544.55: JEV edge - one narrow +1R-before-stop Noul per plan with measured lessons, JEV probabilities/confidence kept, code-side EV gate after fees (fail-open on missing); includes R51-R52 TEST mode and run control';
 function fastLaneObsSuffix(result){
   try{
