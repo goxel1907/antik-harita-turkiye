@@ -577,6 +577,7 @@ function protectedCoreTruth(body){
   if(!p||typeof p!=='object')return null;
   return {
     contract:p.contract??null,symbol:p.symbol??null,livePrice:p.livePrice??null,levelMap:p.levelMap??null,liquidationHistory:p.liquidationHistory??null,
+    priceActionSetups:p.priceActionSetups??null, // R2544.69: ZİRVE-5 zone state + İlk 3 levels survive every trim step
     chartOverlayLevels:p.chartOverlayLevels??null,
     coreFrames:Object.fromEntries(['5m','15m'].map(tf=>[tf,frameTruth(p?.coreFrames?.[tf],{detail:true})])),
     timingFrames:Object.fromEntries(['1m','3m'].map(tf=>[tf,frameTruth(p?.timingFrames?.[tf],{timing:true})])),
@@ -1858,6 +1859,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         ?{brokenLevel:finiteNumber(t.level),levelName:t.levelName||null,retestLow:finiteNumber(t.retestLow),breakoutVolumeVs24hMedian:r4(t.volMult)}
         :{fresh24hTop:finiteNumber(t.top),preTopStructureLow:finiteNumber(t.hl),topCandleVolumeVs24hMedian:r4(t.topVolMult)},
       zones:{previousDayHigh:finiteNumber(lv.pdh),previousWeekHigh:finiteNumber(lv.pwh),previousMonthHigh:finiteNumber(lv.pmh)},
+      profitProtection:signal.partial?.enabled===true?{rule:'take '+Math.round((signal.partial.share||0.5)*100)+' % of the lot at +'+(signal.partial.atR||1)+'R with an exchange take-profit; then the stop of the remaining lot moves to break-even + fees',atR:signal.partial.atR||1,share:signal.partial.share||0.5}:{rule:'none: one stop, one target'}, // R2544.69
       market:{fundingRate:finiteNumber(features?.fund),markVsIndex:finiteNumber(features?.premium),close:finiteNumber(features?.close)}};
     const state={description:'JEV 5m gate for the İlk 3 Avcısı v2 lane. A fixed rule has ALREADY fired on the last CLOSED 5m candle. '+
       'EARLY LONG: a coin ranked 4..24 and climbing broke a previous day/week/month high (where short stops and liquidations sit) on a 5m candle with >= 3x volume and has just retested that level without chasing; stop under the retest, target just under the next higher zone. '+
@@ -1890,8 +1892,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       universe:{volatilityRank:finiteNumber(features.rank),range24hPct:r4((finiteNumber(features.range24)||0)*100),change24hPct:r4(features.change24)},
       zone:{kind:long?'TOP_BREAK_LONG_ZONE':'DIP_BREAK_SHORT_ZONE',top:finiteNumber(z.top),bottom:finiteNumber(z.bottom),equilibrium:finiteNumber(z.equilibrium),liquidityTarget:finiteNumber(z.liquidity),zoneBornAt:finiteNumber(z.zoneAt)},
       confirmation:{candleClose:finiteNumber(features.confirmClose),bodyShareOfRange:finiteNumber(features.confirmBody),volumeVsMedian24h:finiteNumber(features.confirmVolMult),closedAt:finiteNumber(z.confirmAt)},
+      profitProtection:signal.partial?.enabled===true?{rule:'take '+Math.round((signal.partial.share||0.5)*100)+' % of the lot at +'+(signal.partial.atR||1)+'R with an exchange take-profit; then the stop of the remaining lot moves to break-even + fees',atR:signal.partial.atR||1,share:signal.partial.share||0.5}:{rule:'none: one stop, one target'}, // R2544.69
       plan:{entry:'market right after the confirmation candle closed',stop:long?'0.1 % below the zone bottom':'0.1 % above the zone top',target:'the liquidity extreme made after the break, at least 1R',maxHoldH:Math.round((signal.maxHoldMs||0)/3600000)},
-      researchPrior:'ZİRVE-5 lab 20.09-20.10.2026 (Binance USDT-M, top 5 by 24 h range, >= 20M volume, 15m, fees 0.12 %), this exact rule: n 55, +0.10R per trade, 4 of 5 weeks positive, LONG +0.03R n36, SHORT +0.22R n19; no stop inside the first 15 min (blind entry at the zone middle: 20 % such stops, and 5 of 5 live SHORTs stopped within 5 min on 21.10). Small sample, one month: the live TEST result decides.',
+      researchPrior:'ZİRVE-5 lab 20.09-20.10.2026 (Binance USDT-M, top 5 by 24 h range, >= 20M volume, 15m, fees 0.12 %), this exact rule counted like the live lane: n 62, about -0.02R per trade (first 3 weeks +0.12R, last week -0.44R) - no proven edge yet; an earlier +0.10R (n 55) figure was optimistic; no stop inside the first 15 min (blind entry at the zone middle: 20 % such stops, and 5 of 5 live SHORTs stopped within 5 min on 21.10). Small sample, one month: the live TEST result decides.',
       decisionGuide:{
         approveWhen:['the confirmation candle is a clean '+(long?'bull':'bear')+' candle with real volume and the zone held: price reacted from inside the zone in the trade direction',
           'the break that made the zone was decisive and structure is moving '+(long?'up (higher highs/lows)':'down (lower highs/lows)')+' ("trend is my friend")',

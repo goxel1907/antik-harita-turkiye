@@ -113,6 +113,8 @@ function levelMap(u){
   const items=[];
   const add=(p,k)=>{const v=finite(p);if(v>0&&Math.abs(v-price)/price<=0.35)items.push({p:v,k});};
   const edge=z=>{const lo=finite(z?.low),hi=finite(z?.high);if(lo===null||hi===null)return null;return lo>price?lo:hi<price?hi:(lo+hi)/2;};
+  // R2544.69: ZİRVE-5 zone edges / liquidity target and İlk 3 highs-lows on the same level map
+  for(const [p,k] of require('./pa-setups').levelItems(u?.paSetups))add(p,k);
   for(const tf of ['5m','15m','30m','1h','4h','1d']){
     const f=u?.frames?.[tf];
     if(!f||f.available===false)continue;
@@ -180,6 +182,9 @@ function marketPacket(u){
     chartNarrative:narrateChart(u),
     // CLAUDE_R2544_15: tek seviye haritası + 24 saatlik likidasyon kümeleri (kırpma adımları dokunmaz).
     levelMap:levelMap(u),
+    // R2544.69: the price-action setups of the rule lanes (ZİRVE-5 FiboBuLL zone state, İlk 3 day/7d/30d highs-lows), computed by
+    // the very functions those lanes trade with - the normal system's JEV sees the same map
+    priceActionSetups:u?.paSetups||null,
     chartOverlayLevels:chartOverlayLevels(u?.frames),
     liquidationHistory:liquidationHistoryDigest(u?.microstructure?.liquidationHistory),
     coreFrames:{

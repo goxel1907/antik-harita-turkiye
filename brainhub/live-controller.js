@@ -5996,7 +5996,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}
         let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
         if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
-        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}
+        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels,partial:top3PartialCfg({v2:true},cfg)},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}
         catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
         const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
@@ -6087,7 +6087,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {ok:false,orderPlaced:true,emergencyClose:emergency,reason:'TOP3_STOP_PROTECTION_FAILED'};
     }
     const tp=await transport.placeTakeProfit({symbol,side,hedgeMode:hedge,quantity:executed,triggerPrice:tpPrice,clientAlgoId:('T3T'+id).slice(0,36),credentials:creds});
-    const a={id,symbol,side,rule:sig.rule,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
+    // R2544.69 kâr koruma: a reduce-only take-profit for `share` of the lot at +atR (TEST = paper exchange, LIVE = Binance, same call);
+    // when it fills top3Manage moves the rest's stop to break-even + fees and re-places the target for the rest.
+    const part=await top3PlacePartial({sig,side,symbol,hedge,executed,entryPrice,stopPrice,tpPrice,f,id,creds,cfg});
+    const a={id,symbol,side,rule:sig.rule,initialQuantity:executed,part,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
       stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
       jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0,
       signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0,
@@ -6098,6 +6101,53 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
     try{store.journal(sig.z5?'ZIRVE5_ENTRY':'TOP3_ENTRY',symbol,{...a,version:sig.z5?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
     return {ok:true,orderPlaced:true,active:a};
+  }
+  // R2544.69: the partial plan of a lane (İlk 3: top3 config `partial`; ZİRVE-5: its own switches). v1 İlk 3 lots: none.
+  function top3PartialCfg(sig,cfg){
+    if(sig?.z5){const z=sig.z5cfg||{};return {enabled:z.partialEnabled===true,atR:finite(z.partAtR)??1,share:finite(z.partShare)??0.5,beFee:finite(z.partBeFee)??0.0012};}
+    if(sig?.v2){const p=cfg?.partial||{};return {enabled:p.enabled===true,atR:finite(p.atR)??1,share:finite(p.share)??0.5,beFee:finite(p.beFee)??0.0012};}
+    return {enabled:false};
+  }
+  async function top3PlacePartial({sig,side,symbol,hedge,executed,entryPrice,stopPrice,tpPrice,f,id,creds,cfg}){
+    const p=top3PartialCfg(sig,cfg);if(!p.enabled)return null;
+    const L=side==='LONG',s=L?1-stopPrice/entryPrice:stopPrice/entryPrice-1;
+    if(!(s>0))return {skipped:'PART_STOP_INVALID'};
+    const tpR=L?(tpPrice/entryPrice-1)/s:(1-tpPrice/entryPrice)/s;
+    if(!(tpR>p.atR+0.05))return {skipped:'PART_TARGET_WITHIN_PART_R',tpR:Number(tpR.toFixed(3))};      // target ~ at 1R: the target itself takes it
+    const qty=burstFloor(executed*p.share,f.lotStep),rest=Number((executed-qty).toFixed(12));
+    const price=burstTickPrice(entryPrice*(L?1+p.atR*s:1-p.atR*s),f.tickSize,L?'down':'up');
+    if(!(qty>0&&rest>0)||qty<(f.minQty||0)||rest<(f.minQty||0)||(f.minNotional&&(qty*price<f.minNotional||rest*price<f.minNotional)))return {skipped:'PART_SIZE_TOO_SMALL',qty};
+    const o=await transport.placeTakeProfit({symbol,side,hedgeMode:hedge,quantity:qty,triggerPrice:price,clientAlgoId:('T3P'+id).slice(0,36),credentials:creds});
+    return {atR:p.atR,share:p.share,beFee:p.beFee,qty,rest,price,algoId:o.ok?o.algoId:null,onExchange:o.ok===true,error:o.ok?null:String(o.reason||'').slice(0,80),done:false,bePending:false};
+  }
+  // R2544.69: the partial filled (position smaller than the lot) -> rest: stop to break-even + fees, target re-placed for the rest.
+  // Fallback when the partial order was refused: mark through the partial price -> close the share at market. Orders only while armed.
+  async function top3ManagePartial(a,amt,mark,creds){
+    const p=a.part;if(!p||p.skipped||p.bePending===false&&p.done&&p.beDone)return null;
+    const held=Math.abs(amt),L=a.side==='LONG';
+    if(!p.done&&held<=a.quantity-p.qty*0.5){p.done=true;p.filledAt=clock();p.restQty=held;p.bePending=true;a.quantity=held;
+      try{store.journal(a.lane==='ZIRVE5'?'ZIRVE5_PARTIAL':'TOP3_PARTIAL',a.symbol,{id:a.id,side:a.side,price:p.price,qty:p.qty,rest:held,mark,how:p.onExchange?'EXCHANGE_ORDER':'MARKET_FALLBACK'});}catch{}}
+    if(!p.done&&!p.onExchange&&mark>0&&(L?mark>=p.price:mark<=p.price)){
+      if(!armedNow()){a.exitWaiting='PARTIAL_WAITING_ARM';return null;}
+      const r=await top3CloseMarket(a,p.qty);if(!r.ok)try{store.journal('TOP3_PARTIAL_FAILED',a.symbol,{id:a.id,reason:r.reason});}catch{}
+      return 'SOFT_PARTIAL';                                                    // the next tick sees the smaller position
+    }
+    if(!(p.done&&p.bePending))return null;
+    if(!armedNow()){a.exitWaiting='PARTIAL_BE_WAITING_ARM';return null;}
+    const tick=finite(a.tickSize)||0,bePx=burstTickPrice(a.entryPrice*(L?1+p.beFee:1-p.beFee),tick>0?tick:a.entryPrice*1e-6,L?'up':'down');
+    // already back through break-even: close the rest now (a stop there would trigger at once / be refused)
+    if(mark>0&&(L?mark<=bePx:mark>=bePx)){const r=await top3CloseMarket(a,a.quantity);if(r.ok){p.bePending=false;p.beDone=true;a.beMoved=true;a.initialStopPrice=a.initialStopPrice??a.stopPrice;a.stopPrice=bePx;a.closeAfterPartial={price:r.avgPrice,at:clock()};}return 'PART_REST_CLOSED';}
+    const ns=await transport.placeRunnerStop({symbol:a.symbol,side:a.side,hedgeMode:a.hedge,quantity:a.quantity,triggerPrice:bePx,clientAlgoId:('T3Q'+a.id).slice(0,36),credentials:creds});
+    if(!ns.ok){try{store.journal('TOP3_PARTIAL_BE_FAILED',a.symbol,{id:a.id,reason:ns.reason||null});}catch{}return null;}
+    const oldStop=a.stopAlgoId;try{await transport.cancelAlgoOrder({algoId:oldStop,credentials:creds});}catch{}
+    Object.assign(a,{beMoved:true,beAt:clock(),initialStopPrice:a.initialStopPrice??a.stopPrice,stopPrice:bePx,stopAlgoId:ns.algoId});
+    if(a.tpAlgoId!==null&&a.tpAlgoId!==undefined){
+      const nt=await transport.placeTakeProfit({symbol:a.symbol,side:a.side,hedgeMode:a.hedge,quantity:a.quantity,triggerPrice:a.tpPrice,clientAlgoId:('T3U'+a.id).slice(0,36),credentials:creds});
+      if(nt.ok){const oldTp=a.tpAlgoId;try{await transport.cancelAlgoOrder({algoId:oldTp,credentials:creds});}catch{}a.tpAlgoId=nt.algoId;}
+    }
+    p.bePending=false;p.beDone=true;
+    try{store.journal(a.lane==='ZIRVE5'?'ZIRVE5_PARTIAL_BE':'TOP3_PARTIAL_BE',a.symbol,{id:a.id,side:a.side,stopPrice:bePx,rest:a.quantity});}catch{}
+    return 'PART_BE';
   }
   async function top3CloseMarket(a,qty){
     const creds=currentCredentials();a.exitAttempts=(a.exitAttempts||0)+1;
@@ -6161,14 +6211,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           if(a.systemClose)exitReason='TOP3_SYSTEM_CLOSE';
           else if(fill&&finite(a.stopPrice)>0)exitReason=(a.side==='LONG'?fill.price<=a.stopPrice*1.001:fill.price>=a.stopPrice*0.999)?(a.beMoved?'TOP3_BE_STOP':'TOP3_STOP'):'TOP3_EXTERNAL_CLOSE';
         }
-        for(const id of [a.stopAlgoId,a.tpAlgoId])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
+        for(const id of [a.stopAlgoId,a.tpAlgoId,a.part&&!a.part.done?a.part.algoId:null])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
         top3Finish(a,{exitReason,exitPrice,closedAt:closedAt&&closedAt<=clock()?closedAt:null});continue;
       }
       const mark=finite(r.markPrice);a.lastMark=mark;a.checkedAt=clock();
       if(mark>0&&a.entryPrice>0){const fav=a.side==='LONG'?mark/a.entryPrice-1:1-mark/a.entryPrice;a.sampleMfePct=Math.max(finite(a.sampleMfePct)??0,fav);a.sampleMaePct=Math.min(finite(a.sampleMaePct)??0,fav);}
+      // R2544.69 kâr koruma (partial take + break-even for the rest)
+      if(a.part&&!a.part.skipped){const pr=await top3ManagePartial(a,amt,mark,creds);if(pr==='PART_REST_CLOSED'){
+        for(const id of [a.stopAlgoId,a.tpAlgoId])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
+        top3Finish(a,{exitReason:'TOP3_BE_STOP',exitPrice:a.closeAfterPartial?.price??null});continue;}}
       // R2544.58 (user 13.10: "kârdayken sinyal geçersizse TP'yi bekleyecek mi?"): a v2 lot that reached beAtR moves its
       // exchange stop to break-even (+0.1 % for fees). New stop first, then the old one is cancelled; orders only while armed.
-      if(a.rulesVersion===2&&!a.beMoved&&mark>0&&armedNow()){
+      // R2544.69: not while a partial plan is live (the partial moves the rest to break-even after taking its share).
+      if(a.rulesVersion===2&&!a.beMoved&&!(a.part&&!a.part.skipped)&&mark>0&&armedNow()){
         const R2=a.side==='LONG'?top3Cfg.early:top3Cfg.top,be=finite(R2?.beAtR),s=finite(a.stopPct);
         const fav=a.side==='LONG'?mark/a.entryPrice-1:1-mark/a.entryPrice;
         if(be>0&&s>0&&fav>=be*s){
@@ -6187,7 +6242,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(!armedNow()){a.exitWaiting=tpHit?'TP_WAITING_ARM':'TIME_EXIT_WAITING_ARM';continue;}
       const res=await top3CloseMarket(a,Math.min(Math.abs(amt),a.quantity));
       if(!res.ok){a.exitWaiting='CLOSE_FAILED:'+String(res.reason||'').slice(0,60);try{store.journal('TOP3_EXIT_FAILED',a.symbol,{id:a.id,reason:res.reason,tpHit,timeUp});}catch{}continue;}
-      for(const id of [a.stopAlgoId,a.tpAlgoId])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
+      for(const id of [a.stopAlgoId,a.tpAlgoId,a.part&&!a.part.done?a.part.algoId:null])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
       top3Finish(a,{exitReason:tpHit?'TOP3_TAKE_PROFIT_SOFT':'TOP3_TIME_EXIT',exitPrice:res.avgPrice});
     }
     saveTop3State();
@@ -6207,7 +6262,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   function top3CloseRecord(c,inc,path=null){
     // R2544.62: risk is measured from the entry stop (initialStopPrice once the stop moved to break-even)
-    const qty=finite(c.quantity),entry=finite(c.entryPrice),stop=finite(c.initialStopPrice)??finite(c.stopPrice);
+    // R2544.69: after a partial the lot quantity is the rest; risk / notional stay on the quantity that was opened
+    const qty=finite(c.initialQuantity)??finite(c.quantity),entry=finite(c.entryPrice),stop=finite(c.initialStopPrice)??finite(c.stopPrice);
     const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
     const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
     const netPnl=inc?inc.net:null;
@@ -6219,7 +6275,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const setup=z5?(/^ZIRVE5_FIBO_(LONG|SHORT)$/.test(String(c.rule))?c.rule:z5Lib.SETUP_SHORT):'TOP3_'+(c.rule||'RULE'),tf=z5?'15m':c.rulesVersion===2||TOP3_V2_SETUPS.has(setup)?'5m':'1h';
     const ver=z5?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION;
     return {side:c.side,setup,originTF:tf,ownerTF:tf,tradeLane:lane,entryPrice:entry,stopPrice:stop,...(c.beMoved?{finalStopPrice:finite(c.stopPrice)}:{}),takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
-      initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
+      initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',partial:c.part?(c.part.skipped?{skipped:c.part.skipped}:{atR:c.part.atR,share:c.part.share,qty:c.part.qty,price:c.part.price,taken:c.part.done===true,filledAt:c.part.filledAt??null,restToBreakEven:c.part.beDone===true,onExchange:c.part.onExchange===true}):null,stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
       exitBy:z5?'ZIRVE5_MANAGER':'TOP3_MANAGER',realizedPnl:inc?inc.realized:null,commission:inc?inc.commission:null,funding:inc?inc.funding:null,netPnl,
       outcomePct:netPnl!==null&&notional>0?netPnl/notional*100:null,rMultiple:netPnl!==null&&riskQuote>0?netPnl/riskQuote:null,
       exitType:xt,exitEvidenceVersion:ver,openedAt:new Date(openedAt).toISOString(),closedAt:new Date(closedAt).toISOString(),holdMinutes:Math.round((closedAt-openedAt)/60000),
@@ -6411,7 +6467,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(cfg.jevMode===true){
           let chartContext=market?.cachedChartContext?.(sym,clock())||null;
           if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(sym),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(sym,clock())||null;}
-          try{jev=await zirve5Judge({symbol:sym,signal:{ok:true,side,rule,zone:sg,target:'LIQUIDITY_MIN_1R',maxHoldMs:cfg.maxHoldH*TOP3_HOUR},features:{ok:true,...ef},candle:z.lastBar,chartContext,experience:top3Lib.experienceSummary(z.lessons)});}
+          try{jev=await zirve5Judge({symbol:sym,signal:{ok:true,side,rule,zone:sg,target:'LIQUIDITY_MIN_1R',maxHoldMs:cfg.maxHoldH*TOP3_HOUR,partial:top3PartialCfg({z5:true,z5cfg:cfg})},features:{ok:true,...ef},candle:z.lastBar,chartContext,experience:top3Lib.experienceSummary(z.lessons)});}
           catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
           const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null};
           try{store.journal('ZIRVE5_JEV_REVIEW',sym,{...ev,side});}catch{}
@@ -6439,7 +6495,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     const gate=cfg.enabled?z5Gate(cfg):{ok:false,reason:'ZIRVE5_DISABLED'};
     return {ok:true,name:'ZİRVE-5',lane:'ZIRVE5',setup:z5Lib.SETUP,setups:{LONG:z5Lib.SETUP_LONG,SHORT:z5Lib.SETUP_SHORT},version:z5Lib.ZIRVE5_VERSION,tf:'15m',
-      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,longEnabled:cfg.longEnabled,shortEnabled:cfg.shortEnabled},
+      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,longEnabled:cfg.longEnabled,shortEnabled:cfg.shortEnabled,partialEnabled:cfg.partialEnabled},
+      partial:{enabled:cfg.partialEnabled===true,atR:cfg.partAtR,share:cfg.partShare,beFee:cfg.partBeFee},
       jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',
       rules:{k:cfg.k,entry:'VOLUME_CONFIRMATION',volMult:cfg.volMult,bodyMin:cfg.bodyMin,volLookback:cfg.volLookback,target:'LIQUIDITY_MIN_1R',maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,sides:['LONG','SHORT'],liveAllowed:cfg.liveEnabled,maxActiveLive:cfg.maxActive},
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
@@ -6456,17 +6513,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // Office / API switches, like İlk 3: OFF is immediate in any mode (open lots keep their own stop/target/24 h exit);
   // ON in LIVE (the lane or a side while LIVE, or liveEnabled) and a margin/leverage change in LIVE need the explicit 'LIVE'.
   function configureZ5(patch={}){
-    const p={};for(const k of ['enabled','liveEnabled','jevMode','longEnabled','shortEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const p={};for(const k of ['enabled','liveEnabled','jevMode','longEnabled','shortEnabled','partialEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['ZIRVE5_SWITCH_MISSING']};
     const live=!testModeNow(),sizingChange=('marginQuote' in p)||('leverage' in p);
-    if((p.liveEnabled===true||(live&&(p.enabled===true||p.longEnabled===true||p.shortEnabled===true||sizingChange)))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if((p.liveEnabled===true||(live&&(p.enabled===true||p.longEnabled===true||p.shortEnabled===true||sizingChange||typeof p.partialEnabled==='boolean')))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=z5Lib.readConfig(root),after=z5Lib.writeConfig(root,p);
     if(after?.ok===false)return {ok:false,reasons:after.reasons};
     if(after.enabled!==true||(live&&after.liveEnabled!==true)){z5State().armed={};z5State().pending=[];}
     // switching ON rescans the last closed candle on the next tick instead of waiting up to 15 min
     if(p.enabled===true&&before.enabled!==true)z5State().lastBar=null;
-    const pick=c=>({enabled:c.enabled,liveEnabled:c.liveEnabled,jevMode:c.jevMode,longEnabled:c.longEnabled,shortEnabled:c.shortEnabled,marginQuote:c.marginQuote,leverage:c.leverage});
+    const pick=c=>({enabled:c.enabled,liveEnabled:c.liveEnabled,jevMode:c.jevMode,longEnabled:c.longEnabled,shortEnabled:c.shortEnabled,partialEnabled:c.partialEnabled,marginQuote:c.marginQuote,leverage:c.leverage});
     try{store.journal('ZIRVE5_CONFIG_CHANGED',null,{before:pick(before),after:pick(after),mode:testModeNow()?'TEST':'LIVE',source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
     saveTop3State();
     return {...z5Status(),changed:p};
@@ -6552,7 +6609,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const sum=xs=>({closed:xs.length,wins:xs.filter(p=>p.netPnl>0).length,losses:xs.filter(p=>p.netPnl<0).length,netPnl:Number(xs.reduce((a,p)=>a+p.netPnl,0).toFixed(4))});
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,
-      switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled},
+      switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true},partial:{...(cfg.partial||{})},
       subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
         const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};
         return {key:sb.key,name:sb.name,side:sb.side,rule:sb.rule,setup:sb.setup,enabled:R?.enabled===true,jev:top3Lib.subJev(cfg,sb.side),jevSetting:typeof R?.jev==='boolean'?R.jev:null,
@@ -6605,11 +6662,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function rememberNormalLane(enabled){if(typeof enabled!=='boolean')return;writeLanes({normal:enabled});runJournal('LANES_SELECTED',{normal:enabled,source:'LEADER_AUTO_API'});}
   // Only the user's Office buttons call this (server route). LIVE needs the explicit 'LIVE' confirmation.
   function configureTop3(patch={}){
-    const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled','partialEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     for(const k of ['earlyJev','topJev'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&(typeof patch[k]==='boolean'||patch[k]===null))p[k]=patch[k];
     const restart=patch?.restartWindow===true;if(restart)p.enabled=true;
     // R2544.67: a sub-strategy switched ON in LIVE needs the explicit 'LIVE' confirmation (OFF is immediate)
-    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true||typeof p.partialEnabled==='boolean')&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     // R2544.57: margin / leverage from Office; in LIVE only with the explicit 'LIVE' confirmation
     const sp={};for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)sp[k]=patch[k];
     if(Object.keys(sp).length){

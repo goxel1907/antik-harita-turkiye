@@ -18,6 +18,10 @@ const TOP3_VERSION = 'R2544.58_TOP3_V2';
 // R2544.56 hourly rules below (kept for the record and the tests; the hourly scan still keeps the rank book either way).
 const DEFAULT_CONFIG = Object.freeze({
   enabled:false, jevMode:false, liveEnabled:false, leverage:10, marginQuote:null, maxActive:2, rulesVersion:2, riskPct:0.02,
+  // R2544.69 kâr koruma (user 21.10 PARTI: 2.29R seen, closed -0.12R): at +atR take `share` of the lot (reduce-only take-profit
+  // placed at entry), then the rest's stop goes to break-even + fees. 1-month top-5 study (~490 entries, 5m): -0.08R -> +0.10R,
+  // both halves of the month, 'saw 1.5R and closed <= 0' 61 -> 0. Office switch per lane.
+  partial:Object.freeze({ enabled:true, atR:1, share:0.5, beFee:0.0012 }),
   long:Object.freeze({ enabled:true, minR1:0.03, minVrBase:3, minVr1:33.9, minR24:0.133, maxRank:7, minTop10In7d:1, minVol30:0.0134, maxBtc24:0.0129, stopPct:0.08, tpPct:0.30, maxHoldH:24 }),
   short:Object.freeze({ enabled:true, top3WithinH:24, minDropFromPeak:0.15, minVr1:3, stopBufferPct:0.01, minStopPct:0.02, maxStopPct:0.08, tpPct:0.10, maxHoldH:24 }),
   early:Object.freeze({ enabled:true, minRank:4, maxRank:24, climbPlaces:3, climbHours:3, noTop3H:48, minR24:0.05, maxR24:0.40, volMult:3, volBars:288, minVolBars:200,
@@ -40,7 +44,8 @@ function configFile(root) { return path.join(String(root || '.'), 'config', 'top
 function readTop3Config(root) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
-  const c = { ...DEFAULT_CONFIG, long:{ ...DEFAULT_CONFIG.long }, short:{ ...DEFAULT_CONFIG.short }, early:{ ...DEFAULT_CONFIG.early }, top:{ ...DEFAULT_CONFIG.top } };
+  const c = { ...DEFAULT_CONFIG, long:{ ...DEFAULT_CONFIG.long }, short:{ ...DEFAULT_CONFIG.short }, early:{ ...DEFAULT_CONFIG.early }, top:{ ...DEFAULT_CONFIG.top }, partial:{ ...DEFAULT_CONFIG.partial } };
+  if (raw.partial && typeof raw.partial === 'object' && typeof raw.partial.enabled === 'boolean') c.partial.enabled = raw.partial.enabled;
   for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const mq = finite(raw.marginQuote); if (mq !== null && mq > 0) c.marginQuote = mq;
@@ -86,6 +91,7 @@ function writeTop3Switches(root, patch = {}) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
   for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  if (typeof patch.partialEnabled === 'boolean') { raw.partial = raw.partial && typeof raw.partial === 'object' ? raw.partial : {}; raw.partial.enabled = patch.partialEnabled; }
   // R2544.67 sub-strategies: İLK 3 ERKEN LONG (early) / İLK 3 TEPE SHORT (top) on/off and their own JEV choice (null = lane's)
   for (const [k, side, field] of [['earlyEnabled', 'early', 'enabled'], ['topEnabled', 'top', 'enabled'], ['earlyJev', 'early', 'jev'], ['topJev', 'top', 'jev']]) {
     if (!Object.prototype.hasOwnProperty.call(patch, k)) continue;

@@ -991,6 +991,8 @@ async function symbolContext(symbol, options = {}) {
     ok: true, symbol, generatedAt: new Date(now).toISOString(),
     source: 'Binance USDT-M public REST + public WebSocket when fresh; closed candles only; 45m causally aggregated from three closed 15m candles',
     timeframes: frames.value.frames, timeframeErrors: frames.value.errors,
+    // R2544.69: ZİRVE-5 / İlk 3 price-action state from the same raw candles, same functions the lanes trade with (read-only)
+    paSetups: (()=>{try{return require('./pa-setups').paSetups({rawFrames:frames.value.rawFrames||null,now});}catch{return null;}})(),
     microstructure: micro,
     derivatives,
     streamHealth: marketStream.health(),

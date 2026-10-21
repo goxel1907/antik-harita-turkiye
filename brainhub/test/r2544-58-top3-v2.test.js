@@ -176,7 +176,7 @@ test('R58 options: LONG only while shorts pay (maxFunding), break-even after 1R 
   await g.controller.testSupervisorTick();await g.controller.top3Tick();
   assert.equal(g.controller.top3Status().lastScan5.entries[0].reason,'TOP3_FUNDING_LONGS_CROWDED');assert.equal(Object.keys(g.controller._testTop3State().active).length,0);
   require('../binance-rate-limit').resetForTests();
-  const f=fixture({top3:{early:{beAtR:1}}});
+  const f=fixture({top3:{early:{beAtR:1},partial:{enabled:false}}});   // R2544.69: the old break-even rule (active when the partial plan is off)
   await f.controller.testSupervisorTick();await f.controller.top3Tick();
   const a=Object.values(f.controller._testTop3State().active)[0];assert.ok(a,'entered');
   const oneR=a.entryPrice*(1+a.stopPct)+0.001;
@@ -306,7 +306,7 @@ test('R2544.60 user margin: a margin entered in Office is used as is (margin x l
 
 test('R2544.62 a target hit after the break-even move is measured from the entry stop (CTR 19.10 was booked 42.6R)',async()=>{
   require('../binance-rate-limit').resetForTests();
-  const f=fixture({top3:{early:{beAtR:1}}});
+  const f=fixture({top3:{early:{beAtR:1},partial:{enabled:false}}});   // R2544.69: the old break-even rule (active when the partial plan is off)
   await f.controller.testSupervisorTick();await f.controller.top3Tick();
   const a=Object.values(f.controller._testTop3State().active)[0];assert.ok(a,'entered');
   const entryStop=a.stopPrice,oneR=a.entryPrice*(1+a.stopPct)+0.001;
@@ -328,4 +328,27 @@ test('R2544.62 lane memory repair: lessons booked against the moved stop get R f
   assert.ok(Math.abs(r.lessons[1].rMultiple-2.886)<0.01);
   assert.equal(r.lessons[2].rMultiple,2.45);assert.equal(r.lessons[3].rMultiple,-1.03);
   assert.equal(T3.repairLessons(r.lessons).repaired,0,'idempotent');
+});
+
+test('R2544.69 İlk 3 ERKEN LONG with kâr koruma (default ON): half at +1R through the exchange order, rest to break-even + fees, target for the rest; the 1R break-even rule stays out of the way',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({top3:{early:{beAtR:1}}});
+  await f.controller.testSupervisorTick();await f.controller.top3Tick();
+  const a=Object.values(f.controller._testTop3State().active)[0];assert.ok(a,'entered');
+  assert.ok(a.part&&a.part.onExchange===true,JSON.stringify(a.part));
+  const entry=a.entryPrice,entryStop=a.stopPrice,full=a.quantity,R=entry-entryStop;
+  assert.ok(Math.abs(a.part.price-(entry+R))<=a.tickSize*1.01,'partial at +1R');
+  // +1R on the exchange: the partial fills; the manager sets the rest to break-even + fees
+  f.state.px.SIGUSDT={bid:entry+1.05*R,ask:entry+1.05*R+0.0002};f.state.now+=1000;await f.paper.tick();
+  f.state.now+=30000;await f.controller.top3Tick();
+  assert.equal(a.part.done,true);assert.equal(a.part.beDone,true);assert.equal(a.beMoved,true);assert.equal(a.initialStopPrice,entryStop);
+  assert.ok(a.stopPrice>entry&&a.stopPrice<=entry*1.0012+a.tickSize,'stop at break-even + fees: '+a.stopPrice);
+  assert.ok(Math.abs(a.quantity-(full-a.part.qty))<1e-9);assert.equal(f.kinds('TOP3_BREAKEVEN').length,0,'the old 1R rule did not fire on top');
+  assert.equal(f.kinds('TOP3_PARTIAL').length,1);assert.equal(f.kinds('TOP3_PARTIAL_BE').length,1);
+  // the target takes the rest
+  f.state.px.SIGUSDT={bid:a.tpPrice*1.002,ask:a.tpPrice*1.0022};f.state.now+=1000;await f.paper.tick();
+  f.state.now+=30000;await f.controller.top3Tick();f.state.now+=30000;await f.controller.top3Tick();
+  const pc=f.kinds('POSITION_CLOSED').find(x=>x.p.tradeLane==='TOP3_HUNTER').p;
+  assert.equal(pc.exitType,'TOP3_TAKE_PROFIT');assert.equal(pc.quantity,full,'the opened quantity');assert.equal(pc.stopPrice,entryStop);
+  assert.equal(pc.partial.taken,true);assert.ok(pc.rMultiple>0.5&&pc.rMultiple<a.targetR,'half at 1R + half at the target: '+pc.rMultiple);
 });

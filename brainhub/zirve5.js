@@ -9,8 +9,9 @@
 //    boyunun >= bodyMin'i, yön doğru, kapanış alanı kaybetmemiş.
 //  - Stop alanın altı (SHORT: üstü) %0,1; hedef kırılımdan sonraki uç (likidite), 1R'den yakınsa 1R. En çok 24 sa.
 //  - Alan, kapanışla kaybedilirse ya da 48 mumda (12 sa) onay gelmezse biter. Her alana tek deneme.
-// Laboratuvar (ZİRVE-5 verisi 20.09-20.10, ücret %0,12, kod: harness/zirve5/z5_video.py): n 55, +0,10 R, 4/5 hafta artı,
-// ilk 15 dk içinde stop %0 (kör denge girişinde %20). Küçük örnek: karar canlı TEST sonucuyla verilir.
+// Laboratuvar (ZİRVE-5 verisi 20.09-20.10, ücret %0,12, kod: harness/zirve5/z5_video.py, mgmt3.js): canlıya uygun sayımla (aynı coinde
+// açık lot varken doğan alanlar da sayılır) n 62, -0,02 R (ilk 3 hafta +0,12 R, son hafta -0,44 R); 21.10'a kadar söylenen n 55 +0,10 R
+// iyimserdi (o alanları atlıyordu). İlk 15 dk içinde stop %0 (kör denge girişinde %20). Küçük örnek: karar canlı TEST sonucuyla verilir.
 const fs = require('fs');
 const path = require('path');
 const { fiboZones } = require('./fibo-zones');
@@ -27,14 +28,16 @@ const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:
   volMult:1.5, bodyMin:0.5, volLookback:96,                   // onay mumu
   topN:5, minQuote24h:20e6, marginQuote:null, leverage:null,
   maxActive:2,                                                // CANLI'da en çok açık lot; TEST'te sınır yok
-  riskPct:0.02 });                                            // kendi marjı yokken stopta hesabın bu payı
+  riskPct:0.02,                                               // kendi marjı yokken stopta hesabın bu payı
+  // R2544.69 kâr koruma: +1R'de lotun yarısı (girişte konan reduce-only hedef), kalanın stopu başabaş + ücret (Office anahtarı)
+  partialEnabled:true, partAtR:1, partShare:0.5, partBeFee:0.0012 });
 const finite = v => { if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 
 function configFile(root) { return path.join(String(root || '.'), 'config', 'zirve5.json'); }
 function readRaw(root) { try { return JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch { return {}; } }
 function readConfig(root) {
   const raw = readRaw(root), c = { ...DEFAULT_CONFIG };
-  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   const mq = finite(raw.marginQuote); if (mq !== null && mq >= 5) c.marginQuote = mq;
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 5) c.maxActive = Math.floor(ma);
@@ -43,7 +46,7 @@ function readConfig(root) {
 }
 function writeConfig(root, patch = {}) {
   const raw = readRaw(root);
-  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
   delete raw.requireFalling24h;                               // R2544.67.5'in yanlış şartı: dosyada kalmışsa silinir
   // ZİRVE-5'in kendi marjı (null = riske göre) ve kaldıracı (null = İlk 3'ünki)
   if (Object.prototype.hasOwnProperty.call(patch, 'marginQuote')) {

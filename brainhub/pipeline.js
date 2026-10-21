@@ -261,6 +261,7 @@ function buildUnifiedContext({ symbol, global, candidate = null, now = Date.now(
     frames,
     opportunityPaths:{ LONG:sidePath(frames, 'LONG'), SHORT:sidePath(frames, 'SHORT') },
     tradeLanes:null,
+    paSetups:symbol?.paSetups || null, // R2544.69 ZİRVE-5 / İlk 3 price-action state (same functions as the lanes)
     microstructure:symbol?.microstructure || { available:false, reason:'UNAVAILABLE' },
     derivatives,
     marketMakerEvidence,
