@@ -315,7 +315,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   </section>
   <section class="card" id="z5Card" aria-label="ZİRVE-5 SHORT" style="margin:16px 0;border-color:#e0607e">
     <h2>🔻 ZİRVE-5 SHORT <span class="hint">piyasa geneli en volatil 5 coin (24 sa aralık, hacim ≥ 20M) • 15 dk Fibo dip kırılımı → bölgenin DENGESİNDE SHORT • stop bölge üstü, hedef 2R, en çok 24 sa • kendi adıyla kayıt ve öğrenme • yalnız PC yürütür</span></h2>
-    <div class="t3btns"><button id="btnZ5On" disabled>ZİRVE-5 SHORT: AÇ</button><button id="btnZ5Jev" disabled>JEV modu: KAPALI → aç</button><button id="btnZ5Live" disabled>CANLI’da: seçili değil</button></div>
+    <div class="t3btns"><button id="btnZ5On" disabled>ZİRVE-5 SHORT: AÇ</button><button id="btnZ5Jev" disabled>JEV modu: KAPALI → aç</button><button id="btnZ5Live" disabled>CANLI’da: seçili değil</button><button id="btnZ5Fall" disabled>24 sa düşüş şartı: —</button></div>
+    <div class="t3btns"><label class="t3set">ZİRVE-5 marj <input id="z5Margin" type="number" min="5" step="1" placeholder="riske göre"> USDT</label><label class="t3set">Kaldıraç <input id="z5Lev" type="number" min="1" max="20" step="1" placeholder="İlk 3"> x</label><button id="btnZ5Save" disabled>ZİRVE-5 marj/kaldıraç kaydet</button><span class="muted">boş marj = riske göre (stopta hesabın %2’si) • TEST’te istediğin an, CANLI’da iki kez basıp onayla</span></div>
     <div class="t3msg" id="z5Msg"></div>
     <div id="z5Host" aria-live="polite">ZİRVE-5 verisi bekleniyor.</div>
   </section>
@@ -2054,7 +2055,7 @@ async function z5Control(body,okText){
     const r=await fetch('/api/control/zirve5'+location.search,{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-jev-office-control':'1'},body:JSON.stringify(body)});
     let d=null;try{d=await r.json();}catch{}
     // the answer carries the new switches: show what the core really has now, not what was asked
-    if(r.ok&&d?.ok!==false){const sw=d?.switches||{};z5Msg(`${okText} — şu an: ${sw.enabled?'AÇIK':'KAPALI'} • JEV ${sw.jevMode?'açık':'kapalı'} • CANLI ${sw.liveEnabled?'seçili':'seçili değil'}`);}
+    if(r.ok&&d?.ok!==false){const sw=d?.switches||{},zs=d?.sizing||{};z5Msg(`${okText} — şu an: ${sw.enabled?'AÇIK':'KAPALI'} • JEV ${sw.jevMode?'açık':'kapalı'} • CANLI ${sw.liveEnabled?'seçili':'seçili değil'}${typeof sw.requireFalling24h==='boolean'?' • 24 sa düşüş şartı '+(sw.requireFalling24h?'açık':'kapalı'):''} • marj ${zs.automatic?'riske göre':zs.marginQuote+' USDT'} × ${zs.leverage}x`);}
     else z5Msg('Yapılmadı: '+(reasonsTr(d?.reasons)||d?.error||('HTTP '+r.status)),true);
   }catch(e){z5Msg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);}
   z5Busy=false;await tick();
@@ -2063,22 +2064,32 @@ function renderZ5(s){
   const el=document.getElementById('z5Host');if(!el)return;
   const z=s.zirve5;
   const btn=(id,text,on,dis)=>{const b=document.getElementById(id);if(!b)return;if(text)b.textContent=text;b.classList.toggle('on',!!on);b.disabled=!!dis||z5Busy;};
-  if(!z||z.ok!==true){el.innerHTML='<p>ZİRVE-5 verisi okunamadı (PC sürümü R2544.64 öncesi olabilir).</p>';for(const id of ['btnZ5On','btnZ5Jev','btnZ5Live'])btn(id,null,false,true);return;}
+  if(!z||z.ok!==true){el.innerHTML='<p>ZİRVE-5 verisi okunamadı (PC sürümü R2544.64 öncesi olabilir).</p>';for(const id of ['btnZ5On','btnZ5Jev','btnZ5Live','btnZ5Fall','btnZ5Save'])btn(id,null,false,true);return;}
   const sw=z.switches||{},live=z.tradingMode==='LIVE';
   btn('btnZ5On',sw.enabled?'ZİRVE-5 SHORT: AÇIK → kapat':'ZİRVE-5 SHORT: KAPALI → aç',sw.enabled,false);
   btn('btnZ5Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!z.jevAvailable&&!sw.jevMode);
   btn('btnZ5Live',sw.liveEnabled?'CANLI’da: SEÇİLİ → kaldır':'CANLI’da: seçili değil → seç',sw.liveEnabled,false);
+  // R2544.67.5: the 24 h falling condition (PC before R2544.67.5 has no such switch -> disabled) and ZİRVE-5's own margin box
+  const hasFall=typeof sw.requireFalling24h==='boolean';
+  btn('btnZ5Fall',!hasFall?'24 sa düşüş şartı: PC sürümü eski':sw.requireFalling24h?'24 sa düşüş şartı: AÇIK → kapat':'24 sa düşüş şartı: KAPALI → aç',sw.requireFalling24h===true,!hasFall);
+  btn('btnZ5Save','ZİRVE-5 marj/kaldıraç kaydet',false,!hasFall);
+  {const zs=z.sizing||{},fill=(id,v)=>{const e=document.getElementById(id);if(e&&document.activeElement!==e&&!e.dataset.dirty)e.value=v===null||v===undefined?'':String(v);};
+   fill('z5Margin',zs.automatic?null:zs.marginQuote);fill('z5Lev',zs.ownLeverage??null);}
   const fm=(v,d=6)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('tr-TR',{maximumFractionDigits:d});
   const pnl=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+' $';
   const rr=v=>v===null||v===undefined?'—':(v>=0?'+':'')+String(Number(v).toFixed(2)).replace('.',',')+' R';
   let html=`<p><b>Durum: ${z.running?'ÇALIŞIYOR ('+(live?'CANLI':'TEST')+')':esc(z5tr(z.gate))}</b> • karar: ${sw.jevMode?'<b>kural + JEV</b> (her giriş JEV onayından geçer)':'yalnız kural (JEV’siz)'} • CANLI’da ${sw.liveEnabled?'<b class="mwarn">SEÇİLİ</b>':'seçili değil'} • kayıt adı <b>ZIRVE5 / ${esc(z.setup)}</b> • ${esc(z.version)}</p>`;
-  html+=`<p class="t3rule">Kural: her kapanan <b>15 dk</b> mumda Binance USDT-M’de son 24 saatin (yüksek−düşük)/fiyat sırasına göre <b>ilk ${esc(z.rules?.topN)}</b> coin (hacim ≥ ${fm((z.rules?.minQuote24h||0)/1e6,0)}M). Grafikteki Fibo çizimiyle (ZigZag ${esc(String(z.rules?.k).replace('.',','))}×ATR) son dip kırılınca bölge = [kırılan dip, kırılımı yapan tepe]; fiyat bölgenin <b>DENGESİNE</b> (orta) gelince piyasa emriyle SHORT. Stop bölge üstü %0,1 (%${fm((z.rules?.minStopPct||0)*100,1)}–%${fm((z.rules?.maxStopPct||0)*100,0)} dışı işlem yok), hedef ${esc(z.rules?.targetR)}R, en çok ${esc(z.rules?.maxHoldH)} saat; bölge ${esc(z.rules?.windowBars)} mumda dolmazsa veya 15 dk bölge üstünde kapanırsa iptal. Laboratuvar (20.09–20.10, ücret+fonlama dahil): +0,27 R/işlem, 120 işlem, 4/5 hafta artı; LONG tarafı her ayarda zararlıydı.</p>`;
+  html+=`<p class="t3rule">Kural: her kapanan <b>15 dk</b> mumda Binance USDT-M’de son 24 saatin (yüksek−düşük)/fiyat sırasına göre <b>ilk ${esc(z.rules?.topN)}</b> coin (hacim ≥ ${fm((z.rules?.minQuote24h||0)/1e6,0)}M). Grafikteki Fibo çizimiyle (ZigZag ${esc(String(z.rules?.k).replace('.',','))}×ATR) son dip kırılınca bölge = [kırılan dip, kırılımı yapan tepe]; fiyat bölgenin <b>DENGESİNE</b> (orta) gelince piyasa emriyle SHORT. Stop bölge üstü %0,1 (%${fm((z.rules?.minStopPct||0)*100,1)}–%${fm((z.rules?.maxStopPct||0)*100,0)} dışı işlem yok), hedef ${esc(z.rules?.targetR)}R, en çok ${esc(z.rules?.maxHoldH)} saat; bölge ${esc(z.rules?.windowBars)} mumda dolmazsa veya 15 dk bölge üstünde kapanırsa iptal. Laboratuvar (20.09–20.10, ücret+fonlama dahil): +0,27 R/işlem, 120 işlem, 4/5 hafta artı; LONG tarafı her ayarda zararlıydı.${sw.requireFalling24h===true?' <b>24 sa düşüş şartı AÇIK:</b> yalnız son 24 saatte düşmüş coinde SHORT (laboratuvar: düşende +0,57 R n66 5/5 hafta, yükselende −0,09 R; 21.10 gecesi yükselen DOOD/JCT/IOST SHORT’ları dakikalar içinde stop oldu).':sw.requireFalling24h===false?' <span class="mwarn">24 sa düşüş şartı KAPALI: yükselişteki coinlerde de SHORT açar.</span>':''}</p>`;
   // R2544.67.2 (self-audit): the size it uses and the LIVE lot limit, visible before going LIVE
-  {const zs=z.sizing;if(zs)html+=`<p>Büyüklük: <b>${zs.automatic?'riske göre: stopa giderse hesabın %'+esc(String(((zs.riskPct||0)*100).toFixed(1)).replace('.',','))+'’i kaybedilir':'marj '+esc(zs.marginQuote)+' USDT × '+esc(zs.leverage)+'x'}</b> ${zs.automatic?'(ZİRVE-5’in kendi marjı girilmedi; İlk 3’ün marjı kullanılmaz; lot en çok '+esc(zs.leverage)+'x kaldıraçla)':'(ZİRVE-5’in kendi ayarı)'} • kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür • CANLI’da en çok <b>${esc(z.rules?.maxActiveLive??2)}</b> açık lot, TEST’te sınır yok</p>`;}
+  {const zs=z.sizing;if(zs)html+=`<p>Büyüklük: <b>${zs.automatic?'riske göre: stopa giderse hesabın %'+esc(String(((zs.riskPct||0)*100).toFixed(1)).replace('.',','))+'’i kaybedilir':'marj '+esc(zs.marginQuote)+' USDT × '+esc(zs.leverage)+'x'}</b> ${zs.automatic?'(ZİRVE-5’in kendi marjı girilmedi; İlk 3’ün marjı kullanılmaz; lot en çok '+esc(zs.leverage)+'x kaldıraçla)':'(ZİRVE-5’in kendi ayarı)'} • kaldıraç stop mesafesine göre tasfiyeden önce stop olacak şekilde düşürülür • CANLI’da en çok <b>${esc(z.rules?.maxActiveLive??2)}</b> açık lot, TEST’te sınır yok</p>`;
+   // R2544.67.5: an entered margin above 95 % of the free balance opens nothing (same rule as İlk 3)
+   const sd=last?.status?.data||{},pk=sd.tradingMode?.mode==='TEST'?sd.tradingMode?.paper:null,ac=last?.account?.data||{};
+   const av=pk?Number(pk.available):Number(ac.availableBalance??ac.account?.availableBalance);
+   if(zs&&!zs.automatic&&Number.isFinite(av)&&Number(zs.marginQuote)>av*0.95)html+=`<p class="bad"><b>Uyarı: ZİRVE-5 marjı ${esc(zs.marginQuote)} USDT, kullanılabilir bakiye ${esc(av.toFixed(2))} USDT.</b> Bu ayarla ZİRVE-5 işlem AÇAMAZ (marj serbest bakiyenin en çok %95’i). Marjı düşürün ya da boş bırakıp riske göre çalıştırın.</p>`;}
   for(const a of z.active||[])html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ZİRVE-5${live?'':' <span class="tbadge">TEST</span>'}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} (%${fm((a.stopPct||0)*100,2)}) • hedef ${fm(a.tpPrice)} • ${esc(a.leverage)}x • marj ${fm(a.marginQuote,2)} • anlık ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk</div></div>`;
   const ls=z.lastScan;
   if(ls){
-    html+=`<p>Son tarama: ${esc(new Date(ls.at).toLocaleTimeString('tr-TR'))} • mum ${esc(new Date(ls.bar).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • ilk 5: `+(ls.top||[]).map(x=>`#${esc(x.rank)} ${esc(String(x.symbol).replace(/USDT$/,''))} (%${fm((x.range24||0)*100,1)}${x.zones?.length?' • '+x.zones.length+' bölge':''})`).join(' • ')+(ls.errors?.length?` • hata: ${ls.errors.map(esc).join(', ')}`:'')+'</p>';
+    html+=`<p>Son tarama: ${esc(new Date(ls.at).toLocaleTimeString('tr-TR'))} • mum ${esc(new Date(ls.bar).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • ilk 5: `+(ls.top||[]).map(x=>`#${esc(x.rank)} ${esc(String(x.symbol).replace(/USDT$/,''))} (aralık %${fm((x.range24||0)*100,1)}${x.change24!==null&&x.change24!==undefined?' • 24 sa '+(x.change24>=0?'+':'')+fm(x.change24,1)+'%':''}${x.zones?.length?' • '+x.zones.length+' bölge':''}${x.skip==='ZIRVE5_24H_NOT_FALLING'?' • <b>24 sa yükselişte → SHORT yok</b>':''})`).join(' • ')+(ls.errors?.length?` • hata: ${ls.errors.map(esc).join(', ')}`:'')+'</p>';
   } else html+=`<p>15 dk tarama henüz yapılmadı; ilki ${z.nextScanAt?esc(new Date(z.nextScanAt).toLocaleTimeString('tr-TR')):'—'}.</p>`;
   if((z.armed||[]).length)html+='<p>Dengeyi bekleyen: '+z.armed.map(a=>`${esc(String(a.symbol).replace(/USDT$/,''))} `+a.zones.map(x=>`denge ${fm(x.equilibrium)} (bölge ${fm(x.bottom)}–${fm(x.top)}, iptal ${esc(new Date(x.expiresAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))})`).join(', ')).join(' • ')+'</p>';
   else if(sw.enabled)html+='<p>Şu an dengeyi bekleyen bölge yok.</p>';
@@ -2107,6 +2118,23 @@ onClick('#btnZ5Live',()=>{
   if(on){z5Control({liveEnabled:false},'CANLI izni kaldırıldı: ZİRVE-5 canlıda işlem açmaz');return;}
   if(!z5Second('btnZ5Live','ZİRVE-5 CANLI izni — canlı moddayken GERÇEK PARA ile işlem açar'))return;
   z5Control({liveEnabled:true,confirm:'LIVE'},'CANLI izni verildi');
+});
+// R2544.67.5: 24 h falling condition (OFF = SHORT also on coins up over 24 h) and ZİRVE-5's own margin / leverage
+onClick('#btnZ5Fall',()=>{
+  const z=last?.zirve5,on=z?.switches?.requireFalling24h===true;
+  if(on){if(!z5Second('btnZ5Fall','24 sa düşüş şartını KAPAT: 24 saatte yükselen coinlerde de SHORT açılır (laboratuvarda yükselende −0,09 R)'))return;z5Control({requireFalling24h:false},'24 sa düşüş şartı kapatıldı');return;}
+  z5Control({requireFalling24h:true},'24 sa düşüş şartı açıldı: yalnız 24 saatte düşen coinde SHORT; bekleyen bölgeler bir sonraki taramada yeniden seçilir');
+});
+if(typeof document!=='undefined')for(const id of ['z5Margin','z5Lev']){const el=document.getElementById(id);if(el&&typeof el.addEventListener==='function')el.addEventListener('input',()=>{el.dataset.dirty='1';});}
+onClick('#btnZ5Save',()=>{
+  const mEl=document.getElementById('z5Margin'),lEl=document.getElementById('z5Lev'),live=last?.zirve5?.tradingMode==='LIVE';
+  const mRaw=String(mEl?.value??'').trim().replace(',','.'),m=mRaw===''?null:Number(mRaw);
+  const lRaw=String(lEl?.value??'').trim(),l=lRaw===''?null:Number(lRaw);
+  if(m!==null&&!(m>=5)){z5Msg('Marj en az 5 USDT olmalı (boş = riske göre).',true);return;}
+  if(l!==null&&!(Number.isInteger(l)&&l>=1&&l<=20)){z5Msg('Kaldıraç 1–20 arası tam sayı olmalı (boş = İlk 3’ün kaldıracı).',true);return;}
+  const what=`marj ${m===null?'riske göre (%2)':m+' USDT'}, kaldıraç ${l===null?'İlk 3 ayarı':l+'x'}`;
+  if(live&&!z5Second('btnZ5Save',`CANLI: ZİRVE-5 ${what} — gerçek para`))return;
+  z5Control({marginQuote:m,leverage:l,...(live?{confirm:'LIVE'}:{})},`Kaydedildi: ${what}`).then(()=>{if(mEl)delete mEl.dataset.dirty;if(lEl)delete lEl.dataset.dirty;});
 });
 // ===== R2544.66 referans projeler ve test sonuçları =====
 function renderResearch(s){

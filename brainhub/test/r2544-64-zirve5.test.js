@@ -195,7 +195,7 @@ test('R2544.64 JEV ZİRVE-5 gate: the request with a real 86 kB market packet st
 test('R2544.64 Office: switch routes forward only the ZİRVE-5 switches; lanes route carries zirve5; status cached and refreshed after a press',()=>{
   const {CONTROL_ROUTES,CONTROL_BODY}=require('../office-dashboard/office-server');
   assert.equal(CONTROL_ROUTES['/api/control/zirve5'],'/live/zirve5');
-  assert.deepEqual(CONTROL_BODY['/api/control/zirve5']({enabled:false,jevMode:true,liveEnabled:true,confirm:'live',marginQuote:5,junk:1}),{source:'OFFICE',enabled:false,liveEnabled:true,jevMode:true,confirm:'LIVE'});
+  assert.deepEqual(CONTROL_BODY['/api/control/zirve5']({enabled:false,jevMode:true,liveEnabled:true,confirm:'live',marginQuote:5,junk:1}),{source:'OFFICE',enabled:false,liveEnabled:true,jevMode:true,marginQuote:5,confirm:'LIVE'},'R2544.67.5: ZİRVE-5 margin is forwarded (core validates, LIVE needs LIVE); junk is dropped');
   assert.deepEqual(CONTROL_BODY['/api/control/lanes']({zirve5:true,top3:false,junk:true}),{source:'OFFICE',top3:false,zirve5:true});
   const src=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');
   assert.ok(src.includes("'/live/zirve5'"));assert.ok(src.includes("'top3', 'zirve5']) cache.delete(k)"));

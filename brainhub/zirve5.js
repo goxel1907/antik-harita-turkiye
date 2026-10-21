@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { fiboZones } = require('./fibo-zones');
 
-const ZIRVE5_VERSION = 'R2544.64-ZIRVE5-SHORT';
+const ZIRVE5_VERSION = 'R2544.67.5-ZIRVE5-SHORT';
 const LANE = 'ZIRVE5', SETUP = 'ZIRVE5_FIBO_SHORT', RULE = 'ZIRVE5_FIBO_SHORT';
 const M15 = 900000;
 const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:false, k:1.5, windowBars:48, targetR:2, maxHoldH:24, minStopPct:0.002, maxStopPct:0.08,
@@ -19,7 +19,11 @@ const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:
   // R2544.67.2 (self-audit): at most maxActive open ZİRVE-5 lots in LIVE (İlk 3 has 2); TEST has no limit
   maxActive:2,
   // R2544.67.3 (self-audit): without its own margin the lot is sized by risk - this share of equity lost at the stop
-  riskPct:0.02 });
+  riskPct:0.02,
+  // R2544.67.5 (21.10 night: 5 of 5 SHORTs stopped, 3 of them on coins up +37..+131 % over 24 h): SHORT only a coin that is
+  // DOWN over 24 h. Lab (ZİRVE-5, 30 d): 24 h <= 0 +0.57 R n66 5/5 weeks; 24 h > 0 -0.09 R n54; > +30 % -0.31 R n21. On by
+  // default, switchable in Office (it was found on the same month's data, so the live result decides).
+  requireFalling24h:true });
 const finite = v => { if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 
 function configFile(root) { return path.join(String(root || '.'), 'config', 'zirve5.json'); }
@@ -27,7 +31,7 @@ function readConfig(root) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
   const c = { ...DEFAULT_CONFIG };
-  for (const k of ['enabled', 'liveEnabled', 'jevMode']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'requireFalling24h']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   const mq = finite(raw.marginQuote); if (mq !== null && mq >= 5) c.marginQuote = mq;
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 5) c.maxActive = Math.floor(ma);
@@ -37,7 +41,16 @@ function readConfig(root) {
 function writeConfig(root, patch = {}) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
-  for (const k of ['enabled', 'liveEnabled', 'jevMode']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'requireFalling24h']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  // R2544.67.5 (user 21.10 "marj ayarını istediğim zaman testte değiştiremiyorum"): ZİRVE-5's own margin (null = by risk) and leverage
+  if (Object.prototype.hasOwnProperty.call(patch, 'marginQuote')) {
+    const m = patch.marginQuote === null || patch.marginQuote === '' ? null : finite(patch.marginQuote);
+    if (m === null) delete raw.marginQuote; else if (m >= 5 && m <= 100000) raw.marginQuote = Number(m.toFixed(2)); else return { ok:false, reasons:['ZIRVE5_MARGIN_INVALID'] };
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'leverage')) {
+    const l = patch.leverage === null || patch.leverage === '' ? null : finite(patch.leverage);
+    if (l === null) delete raw.leverage; else if (Number.isInteger(l) && l >= 1 && l <= 20) raw.leverage = l; else return { ok:false, reasons:['ZIRVE5_LEVERAGE_INVALID'] };
+  }
   raw.updatedAt = new Date().toISOString();
   const file = configFile(root); fs.mkdirSync(path.dirname(file), { recursive:true });
   const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(raw, null, 2), 'utf8'); fs.renameSync(tmp, file);

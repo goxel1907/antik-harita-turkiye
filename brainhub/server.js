@@ -1623,7 +1623,8 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&u.pathname==='/live/zirve5'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
-      const out=live.configureZ5({enabled:body?.enabled,liveEnabled:body?.liveEnabled,jevMode:body?.jevMode,confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
+      const own=k=>Object.prototype.hasOwnProperty.call(body||{},k)?{[k]:body[k]}:{};
+      const out=live.configureZ5({enabled:body?.enabled,liveEnabled:body?.liveEnabled,jevMode:body?.jevMode,requireFalling24h:body?.requireFalling24h,...own('marginQuote'),...own('leverage'),confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
       return send(res,out.ok?200:400,out);
     }
     // R2544.57 lanes: "Normal sistem" (JEV) and "İlk 3 Avcısı" selected separately; ON in LIVE needs confirm 'LIVE'.

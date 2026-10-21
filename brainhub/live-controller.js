@@ -6360,7 +6360,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const c=(Array.isArray(k)?k:[]).map(x=>({openTime:Number(x[0]),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4]),closeTime:Number(x[6])})).filter(x=>x.openTime+z5Lib.M15<=clock());
       if(c.length<60||c.at(-1).openTime!==bar){out.errors.push(r.symbol+':BAR_MISSING');continue;}
       const zs=z5Lib.armedShortZones(c,cfg);row.zones=zs.map(x=>({top:x.top,bottom:x.bottom,equilibrium:x.equilibrium,zoneAt:x.zoneAt}));
-      if(zs.length)armed[r.symbol]=zs.map(x=>({...x,rank:r.rank,range24:r.range,change24:r.change}));
+      // R2544.67.5 (21.10 night: DOOD +83 %, JCT +131 %, IOST +37 % shorted and stopped in minutes): with requireFalling24h the
+      // zone is shown but NOT armed unless the coin is down over 24 h (unknown change -> not armed, fail closed)
+      const falling=finite(r.change)!==null&&r.change<=0;
+      if(zs.length&&cfg.requireFalling24h===true&&!falling)row.skip='ZIRVE5_24H_NOT_FALLING';
+      else if(zs.length)armed[r.symbol]=zs.map(x=>({...x,rank:r.rank,range24:r.range,change24:r.change}));
       await new Promise(res=>setTimeout(res,40));
     }
     // a coin that left the top 5 is no longer armed (the lab entered only while the coin was in the top 5)
@@ -6377,7 +6381,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let scanned=false;
       if(now-(bar+z5Lib.M15)>=8000&&z.lastBar!==bar){
         z.lastBar=bar;const r=await z5Scan(cfg,bar);z.lastScan=r;scanned=true;
-        try{store.journal('ZIRVE5_SCAN',null,{bar:r.bar,top:r.top.map(x=>({symbol:x.symbol,rank:x.rank,range24:x.range24,zones:x.zones.length})),armed:r.armed,errors:r.errors.slice(0,6),gate:z.lastGate,version:z5Lib.ZIRVE5_VERSION});}catch{}
+        try{store.journal('ZIRVE5_SCAN',null,{bar:r.bar,top:r.top.map(x=>({symbol:x.symbol,rank:x.rank,range24:x.range24,change24:x.change24,zones:x.zones.length,skip:x.skip||null})),armed:r.armed,errors:r.errors.slice(0,6),gate:z.lastGate,version:z5Lib.ZIRVE5_VERSION});}catch{}
         saveTop3State();
       }
       if(!gate.ok)return {ok:true,scanned,entries:0,reason:gate.reason};
@@ -6426,9 +6430,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     const gate=cfg.enabled?z5Gate(cfg):{ok:false,reason:'ZIRVE5_DISABLED'};
     return {ok:true,name:'ZİRVE-5 SHORT',lane:'ZIRVE5',setup:z5Lib.SETUP,version:z5Lib.ZIRVE5_VERSION,tf:'15m',
-      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode},jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',rules:{k:cfg.k,targetR:cfg.targetR,maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,side:'SHORT',liveAllowed:cfg.liveEnabled,maxActiveLive:cfg.maxActive},
+      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,requireFalling24h:cfg.requireFalling24h},jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',rules:{k:cfg.k,targetR:cfg.targetR,maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,side:'SHORT',liveAllowed:cfg.liveEnabled,maxActiveLive:cfg.maxActive},
       // R2544.67.2 (self-audit): the size it would use - its own margin/leverage if set, else İlk 3's (shown before going LIVE)
-      sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
+      sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,expiresAt:new Date(x.expiresAt).toISOString()}))})),
       active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,openedAt:new Date(a.openedAt).toISOString(),
@@ -6441,15 +6445,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // Office / API switches, like İlk 3: OFF is immediate in any mode (open lots keep their own stop/target/24 h exit);
   // ON in LIVE (enabled while LIVE, or liveEnabled) needs the explicit 'LIVE' confirmation.
   function configureZ5(patch={}){
-    const p={};for(const k of ['enabled','liveEnabled','jevMode'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const p={};for(const k of ['enabled','liveEnabled','jevMode','requireFalling24h'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    // R2544.67.5: own margin / leverage (null or '' = back to risk-based / İlk 3 leverage). TEST: any time. LIVE: 'LIVE' confirm.
+    for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['ZIRVE5_SWITCH_MISSING']};
-    if((p.liveEnabled===true||(p.enabled===true&&!testModeNow()))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    const sizingChange=('marginQuote' in p)||('leverage' in p);
+    if((p.liveEnabled===true||(p.enabled===true&&!testModeNow())||(sizingChange&&!testModeNow()))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=z5Lib.readConfig(root),after=z5Lib.writeConfig(root,p);
+    if(after?.ok===false)return {ok:false,reasons:after.reasons};
+    // the 24 h condition changes which zones are armed: rescan the last closed candle on the next tick
+    if(typeof p.requireFalling24h==='boolean'&&p.requireFalling24h!==before.requireFalling24h){z5State().lastBar=null;if(p.requireFalling24h)z5State().armed={};}
     if(after.enabled!==true||(!testModeNow()&&after.liveEnabled!==true))z5State().armed={};
     // R2544.64.1 (20.10 Office: after OFF/ON the card showed no armed zone until the next 15m candle): switching ON rescans the
     // last closed candle on the next tick instead of waiting up to 15 min
     if(p.enabled===true&&before.enabled!==true)z5State().lastBar=null;
-    try{store.journal('ZIRVE5_CONFIG_CHANGED',null,{before:{enabled:before.enabled,liveEnabled:before.liveEnabled,jevMode:before.jevMode},after:{enabled:after.enabled,liveEnabled:after.liveEnabled,jevMode:after.jevMode},mode:testModeNow()?'TEST':'LIVE',source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
+    try{store.journal('ZIRVE5_CONFIG_CHANGED',null,{before:{enabled:before.enabled,liveEnabled:before.liveEnabled,jevMode:before.jevMode,requireFalling24h:before.requireFalling24h,marginQuote:before.marginQuote,leverage:before.leverage},after:{enabled:after.enabled,liveEnabled:after.liveEnabled,jevMode:after.jevMode,requireFalling24h:after.requireFalling24h,marginQuote:after.marginQuote,leverage:after.leverage},mode:testModeNow()?'TEST':'LIVE',source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
     saveTop3State();
     return {...z5Status(),changed:p};
   }

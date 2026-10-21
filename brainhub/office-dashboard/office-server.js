@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.49-R2544.67-JEV-Brain';
+const OFFICE_VERSION = '2.5.50-R2544.67-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -125,7 +125,10 @@ const CONTROL_BODY = {
   // R2544.64 ZİRVE-5 SHORT: its two switches (TEST on/off, LIVE permission) and the confirmation; the core demands 'LIVE'
   '/api/control/zirve5': b => {
     const out = { source: 'OFFICE' };
-    for (const k of ['enabled', 'liveEnabled', 'jevMode']) if (typeof b[k] === 'boolean') out[k] = b[k];
+    for (const k of ['enabled', 'liveEnabled', 'jevMode', 'requireFalling24h']) if (typeof b[k] === 'boolean') out[k] = b[k];
+    // R2544.67.5: ZİRVE-5's own margin (USDT) and leverage; null = back to risk-based sizing / İlk 3 leverage. The core validates.
+    if (b.marginQuote === null || (typeof b.marginQuote === 'number' && Number.isFinite(b.marginQuote))) out.marginQuote = b.marginQuote;
+    if (b.leverage === null || Number.isInteger(b.leverage)) out.leverage = b.leverage;
     if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
     return out;
   },
