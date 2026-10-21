@@ -29,7 +29,7 @@ function fixture({side='SHORT',z5={enabled:true},top3={}}={}){
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
   fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:false,...top3}));
-  fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify(z5));
+  fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify({requireSweep:false,...z5}));   // R2544.70: sweep rule tested in r2544-70
   writeTradingMode(root,{mode:'TEST',changedAt:'2026-10-21T08:00:00.000Z',testStartedAt:null,testAutoRun:true});
   const bar=Date.UTC(2026,9,21,10,0),k=scenario(side,bar),c0=k.at(-1).close;
   const state={now:bar+M15+10000,px:{Z5USDT:{bid:c0,ask:c0+0.01}},k15:{Z5USDT:k},orders:[]};

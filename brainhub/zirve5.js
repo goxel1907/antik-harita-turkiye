@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { fiboZones } = require('./fibo-zones');
+const PA = require('./pa-core'); // R2544.70 price-action core
 
 const ZIRVE5_VERSION = 'R2544.68-ZIRVE5-VIDEO';
 const LANE = 'ZIRVE5';
@@ -30,14 +31,18 @@ const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:
   maxActive:2,                                                // CANLI'da en çok açık lot; TEST'te sınır yok
   riskPct:0.02,                                               // kendi marjı yokken stopta hesabın bu payı
   // R2544.69 kâr koruma: +1R'de lotun yarısı (girişte konan reduce-only hedef), kalanın stopu başabaş + ücret (Office anahtarı)
-  partialEnabled:true, partAtR:1, partShare:0.5, partBeFee:0.0012 });
+  partialEnabled:true, partAtR:1, partShare:0.5, partBeFee:0.0012,
+  // R2544.70 süpürme şartı (kullanıcının PDF'i RektProof: süpürme + yapı kırılımı = yüksek güven; ölçüm 21.10, ilk-5 1 ay: -0,02R n62 ->
+  // +0,21R n36, LONG ve SHORT ikisi de daha iyi): onay mumu dahil son 24 mumda (15 dk) bir salınım ucunun ötesine FİTİL atıp geri içeri
+  // kapanan mum (SFP) yoksa giriş yok. Office anahtarı.
+  requireSweep:true, sweepN:3, sweepWithin:24, sweepLookback:96 });
 const finite = v => { if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 
 function configFile(root) { return path.join(String(root || '.'), 'config', 'zirve5.json'); }
 function readRaw(root) { try { return JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch { return {}; } }
 function readConfig(root) {
   const raw = readRaw(root), c = { ...DEFAULT_CONFIG };
-  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled', 'requireSweep']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   const mq = finite(raw.marginQuote); if (mq !== null && mq >= 5) c.marginQuote = mq;
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 5) c.maxActive = Math.floor(ma);
@@ -46,7 +51,7 @@ function readConfig(root) {
 }
 function writeConfig(root, patch = {}) {
   const raw = readRaw(root);
-  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled', 'requireSweep']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
   delete raw.requireFalling24h;                               // R2544.67.5'in yanlış şartı: dosyada kalmışsa silinir
   // ZİRVE-5'in kendi marjı (null = riske göre) ve kaldıracı (null = İlk 3'ünki)
   if (Object.prototype.hasOwnProperty.call(patch, 'marginQuote')) {
@@ -126,8 +131,13 @@ function videoScan(candles, cfg = DEFAULT_CONFIG) {
     if (!(z.top > z.bottom) || z.index + cfg.windowBars < n - 1 || z.index >= n - 1) continue;   // süresi geçmiş / henüz takip yok
     const long = z.side === 'LONG', v = trackVideo(candles, z, cfg), base = { side:z.side, top:z.top, bottom:z.bottom, equilibrium:(z.top + z.bottom) / 2,
       liquidity:v.liquidity, zoneAt:Number(candles[z.index].closeTime) };
-    if (v.state === 'CONFIRMED' && v.confirmIndex === n - 1)                                     // onay mumu SON kapanan mum: şimdi gir
-      out.signals.push({ ...base, stopPrice:long ? z.bottom * 0.999 : z.top * 1.001, confirmAt:Number(candles[n - 1].closeTime), confirm:v.confirm, refPrice:Number(candles[n - 1].close) });
+    if (v.state === 'CONFIRMED' && v.confirmIndex === n - 1) {                                   // onay mumu SON kapanan mum: şimdi gir
+      // R2544.70: SFP sweep on the zone side within the last sweepWithin candles (the confirmation candle included) + price-action context
+      const sw = PA.sweeps(candles, n - 1, z.side, { n:cfg.sweepN || 3, within:cfg.sweepWithin || 24, lookback:cfg.sweepLookback || 96 }), last = sw[sw.length - 1];
+      out.signals.push({ ...base, stopPrice:long ? z.bottom * 0.999 : z.top * 1.001, confirmAt:Number(candles[n - 1].closeTime), confirm:v.confirm, refPrice:Number(candles[n - 1].close),
+        sweep:last ? { at:Number(candles[last.at].closeTime), level:last.level, extreme:last.extreme, barsAgo:n - 1 - last.at } : null,
+        pa:PA.context(candles, n - 1, Number(candles[n - 1].close), { n:cfg.sweepN || 3, lookback:cfg.sweepLookback || 96, within:cfg.sweepWithin || 24 }) });
+    }
     else if (v.state === 'WAITING' || v.state === 'EXPIRED') out.waiting.push({ ...base, expiresAt:base.zoneAt + cfg.windowBars * M15 });
   }
   return out;

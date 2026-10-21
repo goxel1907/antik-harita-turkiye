@@ -7,6 +7,7 @@
 // Salt okunur bağlam: emir/karar üretmez. Normal sistemde kararı JEV verir; bu bölüm JEV'in aynı haritayı görmesi içindir.
 const z5Lib = require('./zirve5');
 const top3Lib = require('./top3-hunter');
+const PA = require('./pa-core');
 
 const VERSION = 'R2544.69-PA-SETUPS';
 const finite = v => { const n = Number(v); return v === null || v === undefined || v === '' || !Number.isFinite(n) ? null : n; };
@@ -40,7 +41,11 @@ function paSetups({ rawFrames = null, now = Date.now(), z5cfg = z5Lib.DEFAULT_CO
   let zirve5 = null, ilk3 = null;
   try { zirve5 = zirve5View(rawFrames['15m'], now, z5cfg); } catch (e) { zirve5 = { available:false, reason:String(e?.message || e).slice(0, 80) }; }
   try { ilk3 = ilk3View(rawFrames['1d'], now); } catch (e) { ilk3 = { available:false, reason:String(e?.message || e).slice(0, 80) }; }
-  return { version:VERSION, readOnly:true, zirve5, ilk3 };
+  // R2544.70: the price-action core (sweeps of highs/lows, nearest untaken liquidity, range position) on the same closed 15m candles
+  let core15m = null;
+  try { const c = candlesFromKlines(rawFrames['15m'], now, z5Lib.M15); core15m = c.length >= 100 ? PA.context(c, c.length - 1, c.at(-1).close, { n:3, lookback:96, within:24 }) : { available:false, reason:'NEED_100_CLOSED_15M_CANDLES', have:c.length }; }
+  catch (e) { core15m = { available:false, reason:String(e?.message || e).slice(0, 80) }; }
+  return { version:VERSION, readOnly:true, zirve5, ilk3, core15m };
 }
 // levelMap items (price, label) for the JEV level map: zone edges / liquidity target and the İlk 3 highs/lows
 function levelItems(pa) {

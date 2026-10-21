@@ -72,7 +72,8 @@ function fixture({z5=null,judge=undefined,mode='TEST',top3={},side='SHORT'}={}){
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
   fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:false,...top3}));   // İlk 3 off: ZİRVE-5 runs on its own switch
-  if(z5)fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify(z5));
+  // R2544.70: the synthetic charts carry no SFP sweep; these tests are about the order path -> the sweep rule is tested in r2544-70
+  fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify({requireSweep:false,...(z5||{})}));
   writeTradingMode(root,{mode,changedAt:'2026-10-20T08:00:00.000Z',testStartedAt:null,testAutoRun:mode==='TEST'});
   const bar=Date.UTC(2026,9,20,10,0),k=scenario(side,bar),lastClose=k.at(-1).close;
   const state={now:bar+M15+10000,calls:[],px:{Z5USDT:{bid:lastClose,ask:lastClose+0.01}},k15:{Z5USDT:k}},events=[];

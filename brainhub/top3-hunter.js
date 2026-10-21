@@ -12,6 +12,7 @@
 // This module is pure: features, rules, rank history and config. Orders, stops and bookkeeping live in live-controller.
 const fs = require('fs');
 const path = require('path');
+const PA = require('./pa-core'); // R2544.70 price-action core (sweeps / liquidity / range)
 
 const TOP3_VERSION = 'R2544.58_TOP3_V2';
 // rulesVersion 2 (R2544.58, default): 5m EARLY LONG + TOP SHORT at day/week/month zones, risk-sized. rulesVersion 1: the
@@ -33,7 +34,10 @@ const DEFAULT_CONFIG = Object.freeze({
     // a top that took out the previous week high (the short-liquidation zone): S1 -0.04/+0.10R vs S0 -0.16/+0.05R
     // R2544.58 (15.10 indicator test, BigBeluga-style volumetric order block): the last green candle at/before the top has
     // >= 2x the 24 h median volume (distribution at the zone). S1 -0.04/+0.10R -> -0.01/+0.10R, bad days 56 % -> 52 %.
-    requireWeeklySwept:true, cooldownH:12, cooldownAfterStopH:24, beAtR:null, minTopVolMult:2 })
+    requireWeeklySwept:true, cooldownH:12, cooldownAfterStopH:24, beAtR:null, minTopVolMult:2,
+    // R2544.70 süpürme şartı (kullanıcının PDF'i RektProof + ölçüm 21.10: TEPE SHORT +0,51R n14 -> +0,86R n10, iki yarıda da daha iyi):
+    // son 24 mumda bir salınım tepesinin üstüne FİTİL atıp geri içeri kapanan mum (SFP) yoksa SHORT yok. pa-core.sweeps, 5 dk, n=3, 24 sa geriye.
+    requireSweep:true, sweepN:3, sweepWithin:24, sweepLookback:288 })
 });
 const HOUR = 3600000;
 
@@ -91,6 +95,7 @@ function writeTop3Switches(root, patch = {}) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
   for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  if (typeof patch.topSweep === 'boolean') { raw.top = raw.top && typeof raw.top === 'object' ? raw.top : {}; raw.top.requireSweep = patch.topSweep; } // R2544.70
   if (typeof patch.partialEnabled === 'boolean') { raw.partial = raw.partial && typeof raw.partial === 'object' ? raw.partial : {}; raw.partial.enabled = patch.partialEnabled; }
   // R2544.67 sub-strategies: İLK 3 ERKEN LONG (early) / İLK 3 TEPE SHORT (top) on/off and their own JEV choice (null = lane's)
   for (const [k, side, field] of [['earlyEnabled', 'early', 'enabled'], ['topEnabled', 'top', 'enabled'], ['earlyJev', 'early', 'jev'], ['topJev', 'top', 'jev']]) {
@@ -274,7 +279,15 @@ function topShortTrigger(k5, cfg = DEFAULT_CONFIG) {
     topVolMult = ob !== null && med > 0 ? k[ob][5] / med : null;
     if (!(topVolMult !== null && topVolMult >= T.minTopVolMult)) return { ok: false, reason: 'V2_TOP_VOLUME_LOW', top, hl, topVolMult };
   }
-  return { ok: true, side: 'SHORT', rule: 'SHORT_TOP_BREAK', top, hl, topAt: k[j][0], breakAt: k[q][0], topVolMult };
+  // R2544.70: liquidity sweep (SFP) before the short - a candle wicked above a known swing high and closed back below it
+  let sweep = null;
+  if (T.requireSweep !== false) {
+    const cs = k.map(r => ({ openTime:r[0], open:r[1], high:r[2], low:r[3], close:r[4] }));
+    const sw = PA.sweeps(cs, q, 'SHORT', { n:T.sweepN || 3, within:T.sweepWithin || 24, lookback:T.sweepLookback || 288 });
+    if (!sw.length) return { ok: false, reason: 'V2_NO_SWEEP', top, hl, topVolMult };
+    const x = sw[sw.length - 1]; sweep = { at:k[x.at][0] + M5 - 1, level:x.level, extreme:x.extreme, barsAgo:q - x.at };   // at = close of the sweep candle
+  }
+  return { ok: true, side: 'SHORT', rule: 'SHORT_TOP_BREAK', top, hl, topAt: k[j][0], breakAt: k[q][0], topVolMult, sweep };
 }
 function topShortPlan(price, trig, lv, cfg = DEFAULT_CONFIG) {
   const T = cfg.top || DEFAULT_CONFIG.top, p = finite(price);

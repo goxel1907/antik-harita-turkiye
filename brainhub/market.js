@@ -6,7 +6,8 @@ const { combinePreMove } = require('./premove');
 const { LocalL2Manager } = require('./local-l2');
 const binanceRate = require('./binance-rate-limit');
 const { fiboZones } = require('./fibo-zones');
-const z5Lib = require('./zirve5'); // R2544.68: 15m chart shows the ZİRVE-5 video-rule state of each zone
+const z5Lib = require('./zirve5');
+const PA = require('./pa-core'); // R2544.70 chart: SFP sweeps + untaken liquidity (same core as the lanes) // R2544.68: 15m chart shows the ZİRVE-5 video-rule state of each zone
 
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
@@ -1567,6 +1568,17 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
             text57(left+90,top+26,ht,last.side==='LONG'?[105,240,174,255]:[255,138,128,255],2);}
         }
       }
+    }
+    // R2544.70 price-action core on the chart (user 21.10: "fitil dahil tüm yapıları görmesi gerekiyor"): SFP sweeps (wick marker) and the
+    // nearest untaken liquidity above/below (equal highs/lows counted) - the same pa-core.context the lanes and JEV use, closed candles only
+    if(options?.fibo!==false&&(chart?.frame==='15m'||chart?.frame==='5m')){
+      try{
+        const closed=candles.filter(x=>x&&x.forming!==true),ctx=PA.context(closed,closed.length-1,null,{n:3,lookback:chart.frame==='15m'?96:288,within:24});
+        const mark=(list,up)=>{for(const w of list){const x=xForAt(w.at);if(x===null)continue;const y=yPrice(w.wick);fillRect(x-3,y-3,x+3,y+3,[255,213,79,255]);text57(x-12,up?y-16:y+6,'SFP',[255,213,79,255],1);}};
+        mark(ctx.sweepsOfHighs,true);mark(ctx.sweepsOfLows,false);
+        for(const q of ctx.liquidityAbove.slice(0,1))addLevel(q.price,`LIK UST${q.touches>1?' X'+q.touches:''}`,[255,138,128,255],2);
+        for(const q of ctx.liquidityBelow.slice(0,1))addLevel(q.price,`LIK ALT${q.touches>1?' X'+q.touches:''}`,[105,240,174,255],2);
+      }catch{}
     }
     // CLAUDE_R2544_9_POSITION_OVERLAY: açık pozisyon (TradingView uzun/kısa pozisyon aracı gibi): girişten sağa yeşil hedef ve
     // kırmızı risk kutusu, giriş/stop/TP çizgileri ve LONG/SHORT etiketi. Yalnız görselleştirme; emir veya karar üretmez.

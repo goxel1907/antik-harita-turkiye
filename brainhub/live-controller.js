@@ -37,6 +37,7 @@ const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-pr
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
 const {readCloseExitEvidence}=require('./close-exit-evidence');
 const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gainer hunter lane)
+const PA=require('./pa-core'); // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
 const z5Lib=require('./zirve5'); // R2544.64 ZİRVE-5 SHORT (piyasa geneli ilk 5 volatil, 15 dk Fibo dip kırılımı)
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
@@ -5971,7 +5972,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(longC.has(s))checks.push(['LONG',top3Lib.earlyLongTrigger(k5,lvAt,t=>top3EarlyCtx(s,t,k5,cfg),cfg)]);
       if(shortC.has(s))checks.push(['SHORT',top3Lib.topShortTrigger(k5,cfg)]);
       for(const [side,tr] of checks){
-        if(tr.ok){out.signals.push({symbol:s,side,rule:tr.rule,trig:tr,levels:lvAt(clock()),close:k5.at(-1)[4]});
+        if(tr.ok){out.signals.push({symbol:s,side,rule:tr.rule,trig:tr,levels:lvAt(clock()),close:k5.at(-1)[4],
+          pa:(()=>{try{const cs=PA.toCandles(k5,300000);return PA.context(cs,cs.length-1,k5.at(-1)[4],{n:3,lookback:288,within:24});}catch{return null;}})()});
           try{store.journal('TOP3_SIGNAL',s,{side,rule:tr.rule,trig:tr,levels:lvAt(clock()),bar:out.bar,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}}
         else if(!['V2_NO_BREAKOUT','V2_NO_FRESH_TOP','V2_5M_HISTORY_SHORT'].includes(tr.reason))out.nearMisses.push({symbol:s,side,reason:tr.reason,reasons:tr.reasons||null,level:finite(tr.level),top:finite(tr.top)});
       }
@@ -5996,7 +5998,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}
         let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
         if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
-        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels,partial:top3PartialCfg({v2:true},cfg)},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}
+        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels,partial:top3PartialCfg({v2:true},cfg),pa:x.pa||null},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}
         catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
         const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
@@ -6455,6 +6457,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       for(const sg of z.pending.splice(0)){
         const sym=sg.symbol,side=sg.side,rule=z5Lib.setupFor(side);
         if(!z5SideOn(cfg,side)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIDE_OFF',rank:sg.rank});continue;}
+        // R2544.70: no liquidity sweep (SFP) on the zone side in the last 24 closed 15m candles -> no entry (the zone is used up, like the lab)
+        if(cfg.requireSweep!==false&&!sg.sweep){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank,zone:{top:sg.top,bottom:sg.bottom},pa:sg.pa||null});}catch{}continue;}
         if(clock()-sg.confirmAt>5*60000){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIGNAL_STALE',rank:sg.rank});continue;}
         if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SLOTS_FULL',rank:sg.rank});continue;}
         if(activeTop3For(sym)||burstCurrentPosition(sym)||activeBurstFor(sym)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sym)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SYMBOL_BUSY',rank:sg.rank});continue;}
@@ -6462,7 +6466,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         // without its OWN margin ZİRVE-5 sizes by risk (riskPct of equity lost at the stop); it never borrows İlk 3's fixed margin
         const sizing={marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,riskPct:cfg.riskPct??t3.riskPct};
         const ef={side,rank:sg.rank,range24:sg.range24,change24:sg.change24,top:sg.top,bottom:sg.bottom,equilibrium:sg.equilibrium,liquidity:sg.liquidity,
-          confirmBody:sg.confirm?.body??null,confirmVolMult:sg.confirm?.volMult??null,confirmClose:sg.refPrice,zoneAt:new Date(sg.zoneAt).toISOString(),confirmAt:new Date(sg.confirmAt).toISOString()};
+          confirmBody:sg.confirm?.body??null,confirmVolMult:sg.confirm?.volMult??null,confirmClose:sg.refPrice,zoneAt:new Date(sg.zoneAt).toISOString(),confirmAt:new Date(sg.confirmAt).toISOString(),
+          sweep:sg.sweep||null,pa:sg.pa||null};
         let jev=null;
         if(cfg.jevMode===true){
           let chartContext=market?.cachedChartContext?.(sym,clock())||null;
@@ -6495,7 +6500,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     const gate=cfg.enabled?z5Gate(cfg):{ok:false,reason:'ZIRVE5_DISABLED'};
     return {ok:true,name:'ZİRVE-5',lane:'ZIRVE5',setup:z5Lib.SETUP,setups:{LONG:z5Lib.SETUP_LONG,SHORT:z5Lib.SETUP_SHORT},version:z5Lib.ZIRVE5_VERSION,tf:'15m',
-      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,longEnabled:cfg.longEnabled,shortEnabled:cfg.shortEnabled,partialEnabled:cfg.partialEnabled},
+      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,longEnabled:cfg.longEnabled,shortEnabled:cfg.shortEnabled,partialEnabled:cfg.partialEnabled,requireSweep:cfg.requireSweep},
       partial:{enabled:cfg.partialEnabled===true,atR:cfg.partAtR,share:cfg.partShare,beFee:cfg.partBeFee},
       jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',
       rules:{k:cfg.k,entry:'VOLUME_CONFIRMATION',volMult:cfg.volMult,bodyMin:cfg.bodyMin,volLookback:cfg.volLookback,target:'LIQUIDITY_MIN_1R',maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,sides:['LONG','SHORT'],liveAllowed:cfg.liveEnabled,maxActiveLive:cfg.maxActive},
@@ -6513,17 +6518,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // Office / API switches, like İlk 3: OFF is immediate in any mode (open lots keep their own stop/target/24 h exit);
   // ON in LIVE (the lane or a side while LIVE, or liveEnabled) and a margin/leverage change in LIVE need the explicit 'LIVE'.
   function configureZ5(patch={}){
-    const p={};for(const k of ['enabled','liveEnabled','jevMode','longEnabled','shortEnabled','partialEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const p={};for(const k of ['enabled','liveEnabled','jevMode','longEnabled','shortEnabled','partialEnabled','requireSweep'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['ZIRVE5_SWITCH_MISSING']};
     const live=!testModeNow(),sizingChange=('marginQuote' in p)||('leverage' in p);
-    if((p.liveEnabled===true||(live&&(p.enabled===true||p.longEnabled===true||p.shortEnabled===true||sizingChange||typeof p.partialEnabled==='boolean')))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if((p.liveEnabled===true||(live&&(p.enabled===true||p.longEnabled===true||p.shortEnabled===true||sizingChange||typeof p.partialEnabled==='boolean'||typeof p.requireSweep==='boolean')))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=z5Lib.readConfig(root),after=z5Lib.writeConfig(root,p);
     if(after?.ok===false)return {ok:false,reasons:after.reasons};
     if(after.enabled!==true||(live&&after.liveEnabled!==true)){z5State().armed={};z5State().pending=[];}
     // switching ON rescans the last closed candle on the next tick instead of waiting up to 15 min
     if(p.enabled===true&&before.enabled!==true)z5State().lastBar=null;
-    const pick=c=>({enabled:c.enabled,liveEnabled:c.liveEnabled,jevMode:c.jevMode,longEnabled:c.longEnabled,shortEnabled:c.shortEnabled,partialEnabled:c.partialEnabled,marginQuote:c.marginQuote,leverage:c.leverage});
+    const pick=c=>({enabled:c.enabled,liveEnabled:c.liveEnabled,jevMode:c.jevMode,longEnabled:c.longEnabled,shortEnabled:c.shortEnabled,partialEnabled:c.partialEnabled,requireSweep:c.requireSweep,marginQuote:c.marginQuote,leverage:c.leverage});
     try{store.journal('ZIRVE5_CONFIG_CHANGED',null,{before:pick(before),after:pick(after),mode:testModeNow()?'TEST':'LIVE',source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
     saveTop3State();
     return {...z5Status(),changed:p};
@@ -6609,7 +6614,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const sum=xs=>({closed:xs.length,wins:xs.filter(p=>p.netPnl>0).length,losses:xs.filter(p=>p.netPnl<0).length,netPnl:Number(xs.reduce((a,p)=>a+p.netPnl,0).toFixed(4))});
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,
-      switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true},partial:{...(cfg.partial||{})},
+      switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true,topSweep:cfg.top?.requireSweep!==false},partial:{...(cfg.partial||{})},
       subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
         const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};
         return {key:sb.key,name:sb.name,side:sb.side,rule:sb.rule,setup:sb.setup,enabled:R?.enabled===true,jev:top3Lib.subJev(cfg,sb.side),jevSetting:typeof R?.jev==='boolean'?R.jev:null,
@@ -6662,11 +6667,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function rememberNormalLane(enabled){if(typeof enabled!=='boolean')return;writeLanes({normal:enabled});runJournal('LANES_SELECTED',{normal:enabled,source:'LEADER_AUTO_API'});}
   // Only the user's Office buttons call this (server route). LIVE needs the explicit 'LIVE' confirmation.
   function configureTop3(patch={}){
-    const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled','partialEnabled'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled','partialEnabled','topSweep'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     for(const k of ['earlyJev','topJev'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&(typeof patch[k]==='boolean'||patch[k]===null))p[k]=patch[k];
     const restart=patch?.restartWindow===true;if(restart)p.enabled=true;
     // R2544.67: a sub-strategy switched ON in LIVE needs the explicit 'LIVE' confirmation (OFF is immediate)
-    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true||typeof p.partialEnabled==='boolean')&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true||typeof p.partialEnabled==='boolean'||typeof p.topSweep==='boolean')&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     // R2544.57: margin / leverage from Office; in LIVE only with the explicit 'LIVE' confirmation
     const sp={};for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)sp[k]=patch[k];
     if(Object.keys(sp).length){

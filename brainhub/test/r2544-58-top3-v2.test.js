@@ -58,9 +58,11 @@ test('R58 EARLY LONG plan: stop under the retest, target under the next zone; no
 });
 
 // a fresh 24 h high at q-3, then a close under the low of the 6 candles before it
-function topSeries({breakEarly=false,newHighNow=false}={}){
+function topSeries({breakEarly=false,newHighNow=false,noSweep=false}={}){
   const q0=HOUR0+2*H,start=q0-339*M5;const k=flat(start,340,1.0);
   const j=k.length-4;
+  // R2544.70: an earlier swing high (1.078) that the top candle wicks above (1.08) and closes back under (1.075) = the SFP sweep
+  if(!noSweep)k[j-20]=[k[j-20][0],1.0,1.078,0.999,1.0,100];
   for(let m=j-6;m<j;m++)k[m]=[k[m][0],1.06,1.075,1.05+(m-j+6)*0.002,1.07,300];
   k[j]=[k[j][0],1.07,1.08,1.065,1.075,800];
   k[j+1]=[k[j+1][0],1.075,1.076,1.055,breakEarly?1.04:1.06,400];
@@ -75,6 +77,10 @@ test('R58 TOP SHORT fires on the first 5m close under the pre-top structure low;
   assert.equal(T3.topShortTrigger(topSeries({newHighNow:true})).reason,'V2_NEW_HIGH_NOW');
   assert.equal(T3.topShortTrigger(topSeries().slice(0,-1)).reason,'V2_NO_BREAK_YET');
   assert.equal(t.topVolMult,8,'the top candle (green, 800) vs the 100 median');
+  // R2544.70 SFP sweep: the top candle took the 1.078 swing high with a wick and closed back below it
+  assert.equal(t.sweep.level,1.078);assert.equal(t.sweep.extreme,1.08);
+  assert.equal(T3.topShortTrigger(topSeries({noSweep:true})).reason,'V2_NO_SWEEP','no liquidity sweep before the short = no short');
+  assert.equal(T3.topShortTrigger(topSeries({noSweep:true}),{...T3.DEFAULT_CONFIG,top:{...T3.DEFAULT_CONFIG.top,requireSweep:false}}).ok,true,'switch off = old rule');
   const thin=topSeries();for(let m=thin.length-10;m<thin.length-3;m++)thin[m][5]=150;
   assert.equal(T3.topShortTrigger(thin).reason,'V2_TOP_VOLUME_LOW','no volume at the top = no distribution = no short');
   assert.equal(T3.topShortTrigger(thin,{...T3.DEFAULT_CONFIG,top:{...T3.DEFAULT_CONFIG.top,minTopVolMult:0}}).ok,true,'0 switches the filter off');
