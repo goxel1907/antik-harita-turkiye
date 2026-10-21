@@ -46,9 +46,19 @@ try {
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'JEV-DEPLOY.ps1')
   if ($LASTEXITCODE -ne 0) { throw "JEV-DEPLOY basarisiz (exit $LASTEXITCODE). TEST durdurulmus durumda; Office'te 'TEST'i baslat' ile yeniden baslatin." }
   Write-Host '== TEST yeniden baslatiliyor'
-  Start-Sleep -Seconds 5
-  $r = Core-Post '/live/run' @{ action = 'START_TEST' }
-  if ($r.ok -ne $true) { throw "TEST baslatilamadi: $(@($r.reasons) -join ','). Office'te 'TEST'i baslat'a basin." }
+  # R2544.68.1 (21.10): 5 s after the core restart the account probe can still fail (BINANCE_FUTURES_CREDENTIAL_PROBE_FAILED);
+  # the core supervisor then starts TEST by itself ~1.5 min later. Retry up to 6 times (~2 min); stop early if it is already running.
+  $r = $null; $why = ''
+  for ($i = 1; $i -le 6; $i++) {
+    if ($i -eq 1) { Start-Sleep -Seconds 5 } else { Start-Sleep -Seconds 20 }
+    try { $r = Core-Post '/live/run' @{ action = 'START_TEST' } } catch { $r = $null; $why = $_.Exception.Message }
+    if ($r -and $r.ok -eq $true) { break }
+    if ($r) { $why = (@($r.reasons) -join ',') }
+    $st0 = $null; try { $st0 = Core-Get '/live/status' } catch { $st0 = $null }
+    if ($st0 -and $st0.armed -eq $true -and $st0.tradingMode.mode -eq 'TEST') { $r = @{ ok = $true }; Write-Host 'TEST zaten baslamis (gozetmen).'; break }
+    Write-Host "TEST baslatma denemesi $i/6 olmadi ($why); tekrar denenecek"
+  }
+  if (-not $r -or $r.ok -ne $true) { throw "TEST baslatilamadi (6 deneme, ~2 dk): $why. Office'te 'TEST'i baslat'a basin." }
   $st = Core-Get '/live/status'
   Write-Host "JEV_TEST_DEPLOY_OK surum=$($st.runtimeRelease) mod=$($st.tradingMode.mode) baslatma=$($st.armed) OTO=$($st.leaderAuto.enabled)"
 } catch { Write-Host "JEV_TEST_DEPLOY_FAILED: $($_.Exception.Message)"; throw }
