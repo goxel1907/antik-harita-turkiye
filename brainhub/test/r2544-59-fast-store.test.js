@@ -93,7 +93,7 @@ test('R2544.59 Office review fixes: mirror does not await the scanner, İlk 3 v2
   assert.ok(i>0&&!/scanner\.scan\(\)/.test(handler),'the mirror must not wait for a full market scan');
   assert.match(handler,/R2544\.59_MIRROR_NO_SCAN/);
   assert.match(lc,/tf=z5\?'15m':c\.rulesVersion===2\|\|TOP3_V2_SETUPS\.has\(setup\)\?'5m':'1h'/);
-  assert.match(lc,/entryTiming:z5\?'ZONE_EQUILIBRIUM_TOUCH':tf==='5m'\?'CLOSED_5M':'HOURLY_CLOSE'/);
+  assert.match(lc,/entryTiming:z5\?\(c\.z5zone\?\.confirmAt\?'ZONE_VOLUME_CONFIRMATION':'ZONE_EQUILIBRIUM_TOUCH'\):tf==='5m'\?'CLOSED_5M':'HOURLY_CLOSE'/); // R2544.68: ZİRVE-5 confirmation entry; İlk 3 v2 still 5m
   assert.match(lc,/map\(x=>top3TfView\(\{symbol:x\.symbol/);
   assert.match(html,/TOP3_HUNTER:'İLK 3 AVCISI MASASI'/);
   assert.match(html,/BURST_SCALP:'VUR-KAÇ MASASI'/);

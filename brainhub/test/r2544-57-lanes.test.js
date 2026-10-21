@@ -93,7 +93,7 @@ test('R2544.67.2 self-audit: GO_LIVE with only ZİRVE-5 selected goes live and g
   await f.settle(()=>readTradingMode(f.root).mode==='LIVE'&&f.controller.status().armed);
   assert.equal(readTradingMode(f.root).mode,'LIVE');assert.equal(f.controller.z5Status().switches.liveEnabled,true);assert.equal(f.oto(),false,'normal lane not selected: OTO stays off');
   const b=await f.controller.runControl({action:'GO_TEST'});assert.equal(b.ok,true);assert.equal(f.controller.z5Status().switches.liveEnabled,false,'GO_TEST withdraws the ZİRVE-5 LIVE permission');
-  const src=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');assert.ok(src.includes("if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';break;}"),'ZİRVE-5 LIVE lot limit');
+  const src=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');assert.ok(src.includes("if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SLOTS_FULL',rank:sg.rank});continue;}"),'ZİRVE-5 LIVE lot limit');
   assert.equal(require('../zirve5').readConfig(f.root).maxActive,2);
 });
 

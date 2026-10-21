@@ -6,6 +6,7 @@ const { combinePreMove } = require('./premove');
 const { LocalL2Manager } = require('./local-l2');
 const binanceRate = require('./binance-rate-limit');
 const { fiboZones } = require('./fibo-zones');
+const z5Lib = require('./zirve5'); // R2544.68: 15m chart shows the ZİRVE-5 video-rule state of each zone
 
 const FUTURES = 'https://fapi.binance.com';
 const SPOT = 'https://api.binance.com';
@@ -1531,7 +1532,9 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       // R2544.63 FiboBuLL: ATR ZigZag dip/tepeleri + son iki bölge (üst/alt, DENGE, OTE .618-.786) - kapanmış mumlardan, laboratuvar
       // testiyle birebir aynı kural (fibo-zones.js). Yalnız görsel; emir/karar üretmez.
       if(options?.fibo!==false){
-        let fz=null;try{fz=fiboZones(candles);}catch{fz=null;}
+        // R2544.68: on 15m the zones carry the ZİRVE-5 video-rule state (volume-confirmed entry), the same function the live scan uses
+        const m15=chart?.frame==='15m';
+        let fz=null;try{fz=m15?z5Lib.videoStates(candles):fiboZones(candles);}catch{fz=null;}
         if(fz&&fz.pivots.length){
           const zzCol=[100,181,246,255],pts=fz.pivots.map(p=>({x:xForAt(p.at),y:yPrice(p.price),kind:p.kind})).filter(p=>p.x!==null);
           for(let i=1;i<pts.length;i++){line(pts[i-1].x,pts[i-1].y,pts[i].x,pts[i].y,zzCol);line(pts[i-1].x,pts[i-1].y+1,pts[i].x,pts[i].y+1,zzCol);}
@@ -1541,7 +1544,7 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
           for(const z of shown){
             // only the newest zone is live on the chart; an older one ends (dim) where the newer one was born
             const newer=fz.zones.find(y=>y.index>z.index),isL=z.side==='LONG',col=isL?[38,166,154]:[239,83,80];
-            const active=!newer&&(z.state==='WAITING'||z.state==='OPEN');
+            const vs=z.video?.state,active=!newer&&(m15?(vs==='WAITING'||vs==='CONFIRMED'):(z.state==='WAITING'||z.state==='OPEN'));
             const x0=xForAt(z.originAt)??left,x1=active?right:Math.min(xForAt(z.endAt)??right,newer?(xForAt(newer.at)??right):right);
             blendRect(x0,yPrice(z.top),x1,yPrice(z.bottom),col,active?0.16:0.07);
             if(z.ote){blendRect(xForAt(z.at)??x0,yPrice(z.ote.to),x1,yPrice(z.ote.from),[255,193,7],active?0.13:0.05);}
@@ -1550,13 +1553,15 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
             for(let x=x0;x<x1;x+=9)line(x,yPrice(z.equilibrium),Math.min(x1,x+5),yPrice(z.equilibrium),gold);
             if(!active)continue;
             addLevel(z.top,'FIBO UST',edge,1);addLevel(z.bottom,'FIBO ALT',edge,1);addLevel(z.equilibrium,'FIBO DENGE',gold,0);
-            if(z.state==='OPEN'){addLevel(z.stop,'FIBO STOP',[239,83,80,255],0);addLevel(z.target,`FIBO HEDEF ${Number(z.rr).toFixed(1)}R`,[38,166,154,255],0);}
+            if(m15){if(vs==='CONFIRMED'){addLevel(z.video.stopPrice,'Z5 STOP',[239,83,80,255],0);addLevel(z.video.liquidity,'Z5 HEDEF (LIKIDITE)',[38,166,154,255],0);}}
+            else if(z.state==='OPEN'){addLevel(z.stop,'FIBO STOP',[239,83,80,255],0);addLevel(z.target,`FIBO HEDEF ${Number(z.rr).toFixed(1)}R`,[38,166,154,255],0);}
           }
           const last=fz.zones.at(-1);
-          // R2544.67.2 (self-audit): the header names the timeframe and whether a lane trades it - ZİRVE-5 trades only 15m SHORT
-          // zones of the top-5 coins; a LONG zone or a 5m zone is a drawing only
-          const tfu=String(chart?.frame||'').toUpperCase(),note=last?(last.side==='SHORT'&&chart?.frame==='15m'?'ZIRVE-5 KURALI (ILK 5 ISE)':'YALNIZ CIZIM - ISLEM YOK'):'';
-          if(last){const ht=`FIBO ${tfu} ${last.side}: ${ST[last.state]||last.state} - ${note}`;fillRect(left+86,top+22,left+94+asciiLabel(ht).length*12,top+43,[13,17,23,255]);
+          // the header names the timeframe and whether a lane trades it: ZİRVE-5 trades 15m LONG and SHORT zones of the top-5 coins
+          // (R2544.68, entry on a volume-confirmed candle inside the zone); a 5m zone is a drawing only
+          const ST15={WAITING:'HACIMLI MUM BEKLENIYOR',CONFIRMED:'ONAY MUMU GELDI',BROKEN:'ALAN KAYBEDILDI',EXPIRED:'SURE DOLDU',INVALID:'GECERSIZ'};
+          const tfu=String(chart?.frame||'').toUpperCase(),note=last?(m15?'ZIRVE-5 KURALI (ILK 5 ISE)':'YALNIZ CIZIM - ISLEM YOK'):'';
+          if(last){const ht=`FIBO ${tfu} ${last.side}: ${m15?(ST15[last.video?.state]||last.video?.state):(ST[last.state]||last.state)} - ${note}`;fillRect(left+86,top+22,left+94+asciiLabel(ht).length*12,top+43,[13,17,23,255]);
             text57(left+90,top+26,ht,last.side==='LONG'?[105,240,174,255]:[255,138,128,255],2);}
         }
       }

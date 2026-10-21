@@ -1,37 +1,40 @@
 'use strict';
-// R2544.64 ZİRVE-5 SHORT (kullanıcı 20.10: "bu yeni strateji 15 m de çalışacak", "stratejilere isim ver"). Kendi adıyla kayıt:
-// hat ZIRVE5, kurulum ZIRVE5_FIBO_SHORT. Laboratuvar (ZİRVE-5 testi, 20.09-20.10, piyasa geneli ilk 5 volatil, 15 dk, ücret %0,12,
-// fonlama dahil): FiboBuLL SHORT k1.5 2R +0,27R n120 4/5 hafta; LONG her ayarda eksi -> yalnız SHORT.
-//  Evren: her kapanan 15 dk mumda Binance USDT-M 24 sa (yüksek-düşük)/son fiyat sırası, 24 sa hacim >= 20M USDT, ilk 5.
-//  Bölge: fibo-zones.js (grafikte çizilenle aynı). Dip kırılımı -> SHORT bölgesi [kırılan dip, kırılımı yapan tepe];
-//  DENGE (orta) beklenir. Fiyat dengeye değince piyasa emriyle SHORT (laboratuvarda limit dolumu; kayma ücrete dahil).
-//  Stop: bölge üstü %0,1 (stop %0,2..%8 dışı -> işlem yok). Hedef 2R. En çok 24 sa. Bölge 48 mum (12 sa) dolmazsa / 15 dk
-//  kapanış bölge üstünde -> iptal. Coin başına tek lot. TEST: kendi anahtarı; LIVE: ayrıca liveEnabled (kullanıcı, 'LIVE' onayıyla).
+// R2544.68 ZİRVE-5 (FiboBuLL videosu, sesli transkriptiyle birebir; kullanıcı 21.10: "ilk 5'e yapacağız ve LONG SHORT olacak").
+// Evren: her kapanan 15 dk mumda Binance USDT-M 24 sa (yüksek-düşük)/son fiyat sırası, 24 sa hacim >= 20M USDT, ilk 5.
+// Videodaki kural ("trend is my friend"):
+//  - TEPE kırılımı (15 dk kapanış son onaylı tepenin üstünde) -> LONG alanı = [tepeyi kırdıran dip, kırılan tepe].
+//  - DİP kırılımı -> SHORT alanı = [kırılan dip, dibi kırdıran tepe] (aynası). Dip/tepe = fibo-zones.js ATR ZigZag (grafikle aynı).
+//  - Giriş körlemesine değil: alanın başı/ortası/dibi olabilir; alanın içinde "hacimli, güçlü, kaslı bir boğa" (SHORT: ayı) mumu
+//    kapanınca girilir. Hacimli = mumun USDT hacmi önceki 96 mumun (24 sa) ortancasının >= volMult katı; güçlü = gövde mum
+//    boyunun >= bodyMin'i, yön doğru, kapanış alanı kaybetmemiş.
+//  - Stop alanın altı (SHORT: üstü) %0,1; hedef kırılımdan sonraki uç (likidite), 1R'den yakınsa 1R. En çok 24 sa.
+//  - Alan, kapanışla kaybedilirse ya da 48 mumda (12 sa) onay gelmezse biter. Her alana tek deneme.
+// Laboratuvar (ZİRVE-5 verisi 20.09-20.10, ücret %0,12, kod: harness/zirve5/z5_video.py): n 55, +0,10 R, 4/5 hafta artı,
+// ilk 15 dk içinde stop %0 (kör denge girişinde %20). Küçük örnek: karar canlı TEST sonucuyla verilir.
 const fs = require('fs');
 const path = require('path');
 const { fiboZones } = require('./fibo-zones');
 
-const ZIRVE5_VERSION = 'R2544.67.5-ZIRVE5-SHORT';
-const LANE = 'ZIRVE5', SETUP = 'ZIRVE5_FIBO_SHORT', RULE = 'ZIRVE5_FIBO_SHORT';
+const ZIRVE5_VERSION = 'R2544.68-ZIRVE5-VIDEO';
+const LANE = 'ZIRVE5';
+const SETUP_LONG = 'ZIRVE5_FIBO_LONG', SETUP_SHORT = 'ZIRVE5_FIBO_SHORT';
+const SETUP = 'ZIRVE5_FIBO', RULE = 'ZIRVE5_FIBO';
+const setupFor = side => side === 'LONG' ? SETUP_LONG : SETUP_SHORT;
 const M15 = 900000;
-const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:false, k:1.5, windowBars:48, targetR:2, maxHoldH:24, minStopPct:0.002, maxStopPct:0.08,
+const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:false,
+  longEnabled:true, shortEnabled:true,                       // her yön kendi anahtarıyla (Office)
+  k:1.5, windowBars:48, maxHoldH:24, minStopPct:0.002, maxStopPct:0.08,
+  volMult:1.5, bodyMin:0.5, volLookback:96,                   // onay mumu
   topN:5, minQuote24h:20e6, marginQuote:null, leverage:null,
-  // R2544.67.2 (self-audit): at most maxActive open ZİRVE-5 lots in LIVE (İlk 3 has 2); TEST has no limit
-  maxActive:2,
-  // R2544.67.3 (self-audit): without its own margin the lot is sized by risk - this share of equity lost at the stop
-  riskPct:0.02,
-  // R2544.67.5 (21.10 night: 5 of 5 SHORTs stopped, 3 of them on coins up +37..+131 % over 24 h): SHORT only a coin that is
-  // DOWN over 24 h. Lab (ZİRVE-5, 30 d): 24 h <= 0 +0.57 R n66 5/5 weeks; 24 h > 0 -0.09 R n54; > +30 % -0.31 R n21. On by
-  // default, switchable in Office (it was found on the same month's data, so the live result decides).
-  requireFalling24h:true });
+  maxActive:2,                                                // CANLI'da en çok açık lot; TEST'te sınır yok
+  riskPct:0.02 });                                            // kendi marjı yokken stopta hesabın bu payı
 const finite = v => { if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 
 function configFile(root) { return path.join(String(root || '.'), 'config', 'zirve5.json'); }
+function readRaw(root) { try { return JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch { return {}; } }
 function readConfig(root) {
-  let raw = {};
-  try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
-  const c = { ...DEFAULT_CONFIG };
-  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'requireFalling24h']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
+  const raw = readRaw(root), c = { ...DEFAULT_CONFIG };
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   const mq = finite(raw.marginQuote); if (mq !== null && mq >= 5) c.marginQuote = mq;
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 5) c.maxActive = Math.floor(ma);
@@ -39,10 +42,10 @@ function readConfig(root) {
   return c;
 }
 function writeConfig(root, patch = {}) {
-  let raw = {};
-  try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
-  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'requireFalling24h']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
-  // R2544.67.5 (user 21.10 "marj ayarını istediğim zaman testte değiştiremiyorum"): ZİRVE-5's own margin (null = by risk) and leverage
+  const raw = readRaw(root);
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  delete raw.requireFalling24h;                               // R2544.67.5'in yanlış şartı: dosyada kalmışsa silinir
+  // ZİRVE-5'in kendi marjı (null = riske göre) ve kaldıracı (null = İlk 3'ünki)
   if (Object.prototype.hasOwnProperty.call(patch, 'marginQuote')) {
     const m = patch.marginQuote === null || patch.marginQuote === '' ? null : finite(patch.marginQuote);
     if (m === null) delete raw.marginQuote; else if (m >= 5 && m <= 100000) raw.marginQuote = Number(m.toFixed(2)); else return { ok:false, reasons:['ZIRVE5_MARGIN_INVALID'] };
@@ -71,24 +74,74 @@ function rankByRange(tickers, cfg = DEFAULT_CONFIG, tradable = null) {
   return rows.slice(0, cfg.topN).map((r, i) => ({ ...r, rank:i + 1, range:Number(r.range.toFixed(5)) }));
 }
 
-// Kapanmış 15 dk mumlarından bekleyen SHORT bölgeleri (grafikteki ve laboratuvardaki kural; her bölge bağımsız izlenir):
-// dolmamış, kırılmamış, süresi geçmemiş olanlar, eskiden yeniye. candles: [{openTime, closeTime, open, high, low, close}].
-function armedShortZones(candles, cfg = DEFAULT_CONFIG) {
-  const r = fiboZones(candles, { k:cfg.k, window:cfg.windowBars });
-  return r.zones.filter(z => z.side === 'SHORT' && z.state === 'WAITING').map(z => ({ side:'SHORT', top:z.top, bottom:z.bottom,
-    equilibrium:z.equilibrium, stopPrice:z.top * 1.001, liquidity:z.liquidity, zoneAt:z.at, expiresAt:z.at + cfg.windowBars * M15, ote:z.ote }));
+const median = xs => { const a = xs.filter(Number.isFinite).sort((x, y) => x - y); if (!a.length) return null; const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+// Onay mumu: yönde, gövde >= bodyMin x boy, hacim >= volMult x önceki volLookback mumun ortancası (en az yarısı dolu), alanın içine
+// dokunmuş ve alanı kapanışla kaybetmemiş.
+function confirmation(candles, m, zone, cfg = DEFAULT_CONFIG) {
+  const x = candles[m], o = Number(x.open), h = Number(x.high), l = Number(x.low), c = Number(x.close), qv = Number(x.quoteVolume);
+  const prev = candles.slice(Math.max(0, m - cfg.volLookback), m).map(y => Number(y.quoteVolume));
+  if (prev.length < cfg.volLookback / 2) return { ok:false, reason:'VOLUME_HISTORY_SHORT' };
+  const med = median(prev), rng = h - l;
+  if (!(med > 0) || !(rng > 0) || !Number.isFinite(qv)) return { ok:false, reason:'DATA' };
+  const long = zone.side === 'LONG';
+  const dirOk = long ? c > o : c < o, body = Math.abs(c - o) / rng, vol = qv / med;
+  const inZone = long ? (l <= zone.top && c >= zone.bottom) : (h >= zone.bottom && c <= zone.top);
+  return { ok:dirOk && body >= cfg.bodyMin && vol >= cfg.volMult && inZone, body:Number(body.toFixed(3)), volMult:Number(vol.toFixed(2)), inZone, dirOk };
 }
 
-// Dengeye değen fiyattan plan: stop bölge üstü %0,1; hedef targetR x stop mesafesi.
-function plan(price, zone, cfg = DEFAULT_CONFIG) {
-  const p = finite(price), st = finite(zone?.stopPrice);
+// Kapanmış 15 dk mumlarından (quoteVolume dahil): son mumda onay gelen alanlar (signals) ve hâlâ onay bekleyenler (waiting).
+// Laboratuvarla aynı sıra: önce kapanışla kayıp (alan biter), sonra onay mumu, sonra likidite ucu güncellenir.
+// Bir alanın video kuralına göre durumu: BROKEN (kapanışla kaybedildi), CONFIRMED (onay mumu; tek deneme), EXPIRED, WAITING.
+function trackVideo(candles, z, cfg = DEFAULT_CONFIG) {
+  const n = candles.length, long = z.side === 'LONG';
+  const H = i => Number(candles[i].high), L = i => Number(candles[i].low), C = i => Number(candles[i].close);
+  let ext = long ? H(z.index) : L(z.index);
+  for (let m = z.index + 1; m < n && m <= z.index + cfg.windowBars; m++) {
+    if (long ? C(m) < z.bottom : C(m) > z.top) return { state:'BROKEN', endIndex:m, liquidity:ext };
+    const cf = confirmation(candles, m, z, cfg);
+    if (cf.ok) return { state:'CONFIRMED', confirmIndex:m, liquidity:ext, confirm:{ body:cf.body, volMult:cf.volMult } };
+    ext = long ? Math.max(ext, H(m)) : Math.min(ext, L(m));
+  }
+  return { state:z.index + cfg.windowBars < n - 1 ? 'EXPIRED' : 'WAITING', liquidity:ext };
+}
+// Kapanmış mumlar (forming olanlar atılır) -> fibo-zones bölgeleri + her birinin video durumu (grafik ve canlı tarama aynı kaynak).
+function videoStates(allCandles, cfg = DEFAULT_CONFIG) {
+  const candles = (Array.isArray(allCandles) ? allCandles : []).filter(x => x && x.forming !== true);
+  const fz = fiboZones(candles, { k:cfg.k, window:cfg.windowBars });
+  return { ...fz, candles, zones:fz.zones.map(z => {
+    if (!(z.top > z.bottom)) return { ...z, video:{ state:'INVALID' } };
+    const v = trackVideo(candles, z, cfg), long = z.side === 'LONG';
+    return { ...z, video:{ ...v, confirmAt:v.confirmIndex !== undefined ? Number(candles[v.confirmIndex].closeTime) : null,
+      stopPrice:long ? z.bottom * 0.999 : z.top * 1.001 } };
+  }) };
+}
+function videoScan(candles, cfg = DEFAULT_CONFIG) {
+  const n = candles.length, out = { signals:[], waiting:[] };
+  if (n < 60) return out;
+  const fz = fiboZones(candles, { k:cfg.k, window:cfg.windowBars });
+  for (const z of fz.zones) {
+    if (!(z.top > z.bottom) || z.index + cfg.windowBars < n - 1 || z.index >= n - 1) continue;   // süresi geçmiş / henüz takip yok
+    const long = z.side === 'LONG', v = trackVideo(candles, z, cfg), base = { side:z.side, top:z.top, bottom:z.bottom, equilibrium:(z.top + z.bottom) / 2,
+      liquidity:v.liquidity, zoneAt:Number(candles[z.index].closeTime) };
+    if (v.state === 'CONFIRMED' && v.confirmIndex === n - 1)                                     // onay mumu SON kapanan mum: şimdi gir
+      out.signals.push({ ...base, stopPrice:long ? z.bottom * 0.999 : z.top * 1.001, confirmAt:Number(candles[n - 1].closeTime), confirm:v.confirm, refPrice:Number(candles[n - 1].close) });
+    else if (v.state === 'WAITING' || v.state === 'EXPIRED') out.waiting.push({ ...base, expiresAt:base.zoneAt + cfg.windowBars * M15 });
+  }
+  return out;
+}
+
+// Gerçek giriş fiyatından plan: stop alan dışı %0,1 (bant %0,2..%8), hedef likidite, 1R'den yakınsa 1R.
+function target(entry, stop, liq, long) {
+  const s = long ? 1 - stop / entry : stop / entry - 1, oneR = long ? entry * (1 + s) : entry * (1 - s);
+  const tp = liq > 0 ? (long ? Math.max(liq, oneR) : Math.min(liq, oneR)) : oneR;
+  return { tpPrice:tp, targetR:Number(((long ? tp / entry - 1 : 1 - tp / entry) / s).toFixed(3)) };
+}
+function plan(price, sig, cfg = DEFAULT_CONFIG) {
+  const p = finite(price), st = finite(sig?.stopPrice), liq = finite(sig?.liquidity), long = sig?.side === 'LONG';
   if (!(p > 0 && st > 0)) return { ok:false, reason:'ZIRVE5_PRICE_OR_ZONE_MISSING' };
-  const stopPct = st / p - 1;
+  const stopPct = long ? 1 - st / p : st / p - 1;
   if (!(stopPct >= cfg.minStopPct && stopPct <= cfg.maxStopPct)) return { ok:false, reason:'ZIRVE5_STOP_OUT_OF_BAND', stopPct:Number(stopPct.toFixed(5)) };
-  return { ok:true, side:'SHORT', stopPrice:st, stopPct:Number(stopPct.toFixed(5)), tpPrice:p * (1 - cfg.targetR * stopPct), targetR:cfg.targetR };
+  return { ok:true, side:long ? 'LONG' : 'SHORT', stopPrice:st, stopPct:Number(stopPct.toFixed(5)), ...target(p, st, liq, long) };
 }
 
-// Dengeye dokunuş: SHORT için en iyi alış (bid) dengeye eşit/üstünde ve bölge üstü kırılmamış.
-function touched(zone, bid) { const b = finite(bid); return b !== null && b >= zone.equilibrium && b < zone.stopPrice; }
-
-module.exports = { ZIRVE5_VERSION, LANE, SETUP, RULE, M15, DEFAULT_CONFIG, configFile, readConfig, writeConfig, rankByRange, armedShortZones, plan, touched };
+module.exports = { ZIRVE5_VERSION, LANE, SETUP, RULE, SETUP_LONG, SETUP_SHORT, setupFor, M15, DEFAULT_CONFIG, configFile, readConfig, writeConfig, rankByRange, confirmation, trackVideo, videoStates, videoScan, plan, target };

@@ -1,22 +1,23 @@
 {
   "version": "R2544.66",
-  "updatedAt": "2026-10-20",
+  "updatedAt": "2026-10-21",
   "note": "GitHub / TradingView / YouTube kaynaklarından alınan fikirler ve ölçülen sonuçları. Kod çalıştırılmaz; mantık yeniden yazılıp aynı veride ölçülür. Ölçüm evreni (ZİRVE-5): her 15 dk'da Binance USDT-M piyasa geneli 24 sa en volatil 5 coin (hacim >= 20M), 20.09-20.10.2026, ücret+kayma %0,12, fonlama dahil olduğu belirtilenlerde dahil. R = stop mesafesi biriminde işlem başı sonuç.",
   "statusLabels": {
     "USED": "KULLANILIYOR",
     "DRAWN": "GRAFİKTE",
     "TESTED_NO_EDGE": "TEST EDİLDİ - KENAR YOK",
     "WATCH": "İZLENİYOR",
-    "REFERENCE": "JEV REFERANSI"
+    "REFERENCE": "JEV REFERANSI",
+    "NOT_FOUND": "DEPO YOK / SAHTE"
   },
   "entries": [
     {
       "source": "FiboBuLL — Fibo Bull Origins (YouTube, kullanıcı videosu)",
       "kind": "YouTube",
-      "taken": "Tepe/dip kırılımı bölgesi: kırılımı yapan dip/tepe ile kırılan seviye arası; bölge ortasından giriş",
-      "where": "fibo-zones.js, zirve5.js (ZİRVE-5 SHORT hattı), Office sade grafik",
-      "test": "ZİRVE-5, 15 dk, k1.5 ZigZag, denge limiti, 2R",
-      "result": "SHORT +0,27R (n 120, 4/5 hafta, fonlama dahil); LONG her ayarda eksi (−0,06…−0,40R)",
+      "taken": "Videonun sesli anlatımı (21.10 transkript): tepe kırılımı -> [kırdıran dip, kırılan tepe] LONG alanı; dip kırılımı -> aynası SHORT alanı ('trend is my friend'); alanda hacimli güçlü boğa/ayı mumu kapanınca giriş; stop alan dışı, hedef likidite",
+      "where": "fibo-zones.js, zirve5.js (ZİRVE-5 LONG + SHORT, R2544.68), Office 15 dk grafik",
+      "test": "ZİRVE-5, 15 dk, k1.5 ZigZag, hacim >= 1,5x 24 sa ortanca, gövde >= %50, hedef likidite (en az 1R); canlı kod = laboratuvar 152/152 sinyal",
+      "result": "Video kuralı: n 55, +0,10R, 4/5 hafta (LONG +0,03R n36, SHORT +0,22R n19), ilk 15 dk'da stop %0. Eski kör denge SHORT (+0,27R lab) canlıda 21.10 gecesi 0/6, 5'i 0-5 dk'da stop. Küçük örnek: TEST karar verir",
       "status": "USED"
     },
     {
@@ -135,6 +136,15 @@
       "test": "—",
       "result": "JEV çalıştığında okunur; şu an JEV erişimi kapalı (9Router / OpenRouter 402)",
       "status": "REFERENCE"
+    },
+    {
+      "source": "YouTube kLeVo7KMhEc — 'Top 10 AI trading GitHub' listesi (Finance-RL, Quantum-Trade, GPT-Signals, Alpha-Agent, Timefold-Transformer, Trading-Gym, Risk-Vista, Senti-Flow, Neo-Alpha, ai-trading)",
+      "kind": "YouTube / GitHub",
+      "taken": "—",
+      "where": "—",
+      "test": "GitHub API ile varlık kontrolü (21.10.2026, salt okuma; hiçbir şey indirilmedi/çalıştırılmadı)",
+      "result": "10 deponun hiçbiri yok: 6'sının hesabı ya yok ya da deposu yok; quantum-trade/timefold hesaplarında yalnız alakasız boş depolar. Liste uydurma; test edilecek kod yok",
+      "status": "NOT_FOUND"
     }
   ]
 }
