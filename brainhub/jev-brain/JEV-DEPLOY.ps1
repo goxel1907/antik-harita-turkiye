@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
 $EXPECTED_RELEASE = 'R2544.67-TOP3-SUBS'
-$EXPECTED_OFFICE = '2.5.53-R2544.70-JEV-Brain'
+$EXPECTED_OFFICE = '2.5.54-R2544.71-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null
@@ -21,11 +21,18 @@ try {
   if ($s) { throw 'Kaynak temiz degil; deploy durduruldu.' }
   try { $liveState = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/status' -Headers (Core-Headers $RT) -TimeoutSec 8 }
   catch { throw "BrainHub LIVE durumu okunamadi; guvenlik icin deploy durduruldu: $($_.Exception.Message)" }
-  if ($liveState.armed -eq $true) { throw 'LIVE ACIK. Once LIVE kapatin, sonra deploy edin.' }
+  $tmode = ''; try { $tmode = [string]$liveState.tradingMode.mode } catch { $tmode = '' }
+  if ($liveState.armed -eq $true) {
+    if ($tmode -eq 'TEST') { throw 'TEST CALISIYOR (baslatma acik). TEST modunda JEV-TEST-DEPLOY.cmd kullanin; o TEST girislerini durdurup bu deployu calistirir.' }
+    throw 'LIVE ACIK. Once LIVE kapatin, sonra deploy edin.'
+  }
   $pos = Open-Positions $RT
   if ($null -eq $pos) { throw 'Acik pozisyon durumu okunamadi; guvenlik icin deploy durduruldu.' }
-  if ($pos.Count -gt 0) { throw "ACIK POZISYON VAR: $($pos -join ', '). Tum pozisyonlar kapandiktan sonra tekrar calistirin." }
-  Write-Host 'PRECHECK_OK LIVE_KAPALI ACIK_POZISYON_0'
+  # R2544.71: in TEST the open lots are VIRTUAL (paper exchange file); they stay open through the restart with their stop/TP
+  # and the gap is caught up from 1m candles. In LIVE (real money) the R2544.29 rule is unchanged: no deploy with a position.
+  if ($pos.Count -gt 0 -and $tmode -ne 'TEST') { throw "ACIK POZISYON VAR: $($pos -join ', '). Tum pozisyonlar kapandiktan sonra tekrar calistirin." }
+  if ($pos.Count -gt 0) { Write-Host "PRECHECK_OK BASLATMA_KAPALI TEST_SANAL_LOT_KORUNUR: $($pos -join ', ')" }
+  else { Write-Host 'PRECHECK_OK LIVE_KAPALI ACIK_POZISYON_0' }
   try {
     $preHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -Headers (Core-Headers $RT) -TimeoutSec 8
     $br = $preHealth.binanceRateLimit

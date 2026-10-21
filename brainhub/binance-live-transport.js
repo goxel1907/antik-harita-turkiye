@@ -175,6 +175,22 @@ class PaperExchange {
     const tmp = this.file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(s), 'utf8'); fs.renameSync(tmp, this.file);
   }
   reset(balance) { this.state = this._blank(balance); this._save(); return this.summary(); }
+  // R2544.71 (user 21.10: "teste marj açısından işlemleri frenleyen birşey olmasın"): a virtual deposit into the TEST account.
+  // startBalance rises by the same amount, so net/total (wallet - startBalance) stay the trading result only; booked as a
+  // TRANSFER income row (no symbol), never as realised PnL.
+  async deposit(amount, reason = 'TEST_TOPUP') {
+    const a = Math.round(Number(amount) * 100) / 100;
+    if (!(a > 0)) return { ok:false, reason:'DEPOSIT_INVALID' };
+    return this._serial(async () => {
+      const now = this.clock();
+      this.state.wallet += a; this.state.startBalance += a;
+      this.state.deposits = [...(Array.isArray(this.state.deposits) ? this.state.deposits : []), { amount:a, reason:String(reason).slice(0, 40), at:now }].slice(-500);
+      this._income('', 'TRANSFER', a, now, null);
+      this._save();
+      return { ok:true, amount:a, wallet:Number(this.state.wallet.toFixed(4)), available:Number(this._available().toFixed(4)) };
+    });
+  }
+  async freeBalance() { return this._serial(async () => { await this._refreshOpen(); return this._available(); }); }
   _serial(fn) { const run = this.lock.then(fn, fn); this.lock = run.catch(() => {}); return run; }
   async _px(symbol) {
     const p = await this.priceOf(symbol);
@@ -297,10 +313,14 @@ class PaperExchange {
     if (!this.active()) return { ok:true, skipped:true };
     // gap since the last tick (PC off / process stopped): catch up first, persisted every 30 s so a restart sees the gap
     const nowT = this.clock(), lastT = finite(this.state.lastTickAt);
-    if (this.candlesOf && lastT !== null && nowT - lastT > 90000 && !this.tickBusy) {
+    // R2544.71: the first tick of a new process (deploy restart with open TEST lots) catches up any gap over 5 s - the
+    // stop/target a real exchange would have filled while the core restarted; later ticks keep the 90 s threshold.
+    const gapMs = this.startTicked ? 90000 : 5000;
+    if (this.candlesOf && lastT !== null && nowT - lastT > gapMs && !this.tickBusy) {
       this.tickBusy = true;
       try { await this._serial(() => this._catchUp(lastT, nowT)); } catch {} finally { this.tickBusy = false; }
     }
+    this.startTicked = true;
     if (lastT === null || nowT - lastT >= 0) this.state.lastTickAt = nowT;
     if (nowT - (this.lastTickSave || 0) > 30000) { this.lastTickSave = nowT; try { this._save(); } catch {} }
     const open = this.state.algos.filter(a => a.algoStatus === 'NEW');
@@ -339,7 +359,8 @@ class PaperExchange {
     return { startedAt:s.startedAt, startBalance:s.startBalance, wallet:Number(s.wallet.toFixed(4)), equity:Number((s.wallet + upl).toFixed(4)), unrealized:Number(upl.toFixed(4)),
       realized:Number(realized.toFixed(4)), fees:Number(fees.toFixed(4)), net:Number((s.wallet - s.startBalance).toFixed(4)), total:Number((s.wallet + upl - s.startBalance).toFixed(4)),
       available:Number(this._available().toFixed(4)), openPositions:Object.keys(s.positions).length, positions,
-      openAlgos:s.algos.filter(a => a.algoStatus === 'NEW').length, fills:s.trades.length };
+      openAlgos:s.algos.filter(a => a.algoStatus === 'NEW').length, fills:s.trades.length,
+      deposited:Number((Array.isArray(s.deposits) ? s.deposits : []).reduce((a, x) => a + (Number(x.amount) || 0), 0).toFixed(2)), deposits:(Array.isArray(s.deposits) ? s.deposits : []).length };
   }
   hasExposure() { return Object.keys(this.state.positions).length > 0; }
   // R2544.52: before a switch to LIVE (or a TEST reset) every paper lot is closed at market and every open paper

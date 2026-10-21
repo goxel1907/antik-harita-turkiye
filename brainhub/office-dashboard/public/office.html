@@ -1781,7 +1781,7 @@ function renderMode(s){
     {const bn=document.getElementById('testBalNow');if(bn)bn.textContent=num(p.equity)!==null?`• şimdi ${Number(p.equity).toFixed(2)} USDT`:'';}
     info=`Sanal hesap, gerçek parayla çalışıyormuş gibi: emirler Binance’e <b>gitmez</b> (gerçek fiyat, alıcı ücreti %0,05). <span style="white-space:nowrap">${clockText}</span>`
       +`<br><b>Kâr/zarar: TOPLAM ${usdtS(p.total??(num(p.equity)-num(p.startBalance)))}</b> = kapanan işlem/parçalar ${usdtS(p.realized)} + ücret ${usdtS(p.fees)} + açık pozisyon (anlık) ${usdtS(p.unrealized)}`
-      +`<br>Başlangıç ${usdt(p.startBalance)} • özkaynak ${usdt(p.equity)} • nakit bakiye ${usdt(p.wallet)} • kullanılabilir ${usdt(p.available)} • açık ${num(p.openPositions)??0} • dolum ${num(p.fills)??0} • vur-kaç TEST’te açık`;
+      +`<br>Başlangıç ${usdt(p.startBalance)}${num(p.deposited)>0?` (içinde marj için eklenen sanal ${usdt(p.deposited)}, ${num(p.deposits)} kez — sonuca katılmaz)`:''} • özkaynak ${usdt(p.equity)} • nakit bakiye ${usdt(p.wallet)} • kullanılabilir ${usdt(p.available)} • açık ${num(p.openPositions)??0} • dolum ${num(p.fills)??0} • vur-kaç TEST’te açık`;
   } else info='<b>Gerçek para:</b> emirler Binance hesabınızdaki bakiye ve marjla gider. Vur-kaç canlıda kapalı (yalnız TEST’te).';
   // R2544.57 lanes
   const lanes=run?.lanes||null;

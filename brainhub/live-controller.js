@@ -3451,6 +3451,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return o.ok===false?{ok:false,reasons:o.reasons}:done({action:act,paperClosed});
     }
     if(busy)return {ok:false,reasons:['SWITCH_IN_PROGRESS'],tradingMode:tradingModeStatus()};
+    if(act==='PAUSE_TEST'){
+      // R2544.71 (user 21.10: "açık olan pozları beyine yaz deploy sonrası kapanacağından garantiye alalım"): the TEST deploy
+      // stops NEW entries only. Open virtual lots stay open with their stop/TP on the paper exchange and their manager (as a
+      // real account keeps its positions through a PC restart); the restart gap is caught up from 1m candles. Their state
+      // at this moment is written to the brain first. STOP (Office "Durdur") still closes them.
+      if(m.mode!=='TEST')return {ok:false,reasons:['NOT_IN_TEST_MODE']};
+      runState.liveSwitch=null;setAutoRun(false);runState.sawOtoOn=false;
+      const o=stopEntries('TEST_PAUSE');if(armedNow())disarm('TEST_PAUSE');
+      let snap=[];try{snap=await top3OpenSnapshot('TEST_PAUSE');}catch{}
+      const paperOpen=Object.keys(paper.state?.positions||{});
+      runJournal('RUN_CONTROL',{action:act,mode:m.mode,keptOpen:paperOpen,lotsToBrain:snap.length});
+      return o.ok===false?{ok:false,reasons:o.reasons}:done({action:act,keptOpen:paperOpen,lotsToBrain:snap.length});
+    }
     if(act==='START_TEST'){
       if(m.mode!=='TEST')return {ok:false,reasons:['NOT_IN_TEST_MODE']};
       setAutoRun(true);runState.sawOtoOn=false;runState.autorunArmFailAt=0;runState.liveSwitch=null;
@@ -3826,6 +3839,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     };
 
     let accountRisk;
+    if(settings?.dynamic===true)await testTopUp(settings.marginQuote,'NORMAL'); // panel margin = fixed; PC default sizing follows the account
     try { accountRisk=await accountRiskFor(order,policy,creds); }
     catch (e) {
       return {
@@ -5281,6 +5295,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if (!settings.ok) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:settings.reasons };
 
     let accountRisk;
+    if(settings?.dynamic===true)await testTopUp(settings.marginQuote,'NORMAL'); // panel margin = fixed; PC default sizing follows the account
     try { accountRisk = await accountRiskFor(order, policy, creds); }
     catch (e) {
       return {
@@ -5641,6 +5656,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function burstLeverageAndSizing(symbol,side,mode,price,stopPct,flat,currentPosition=null){
     const creds=currentCredentials(),policy=readPolicy(root),la=readLeaderAutoConfig();
     if(!credentialsReady(creds)||!policy.ok||!la.ok)return {ok:false,reason:'BURST_CONFIG_OR_CREDENTIALS_UNAVAILABLE'};
+    if(flat)await testTopUp((finite(la.config?.marginQuote)||0)*0.5,'BURST'); // flat = half the panel margin (fixed); in position = half of free margin (follows the account)
     const acct=await accountSummary({maxAgeMs:3000});if(!acct?.ok||!(finite(acct.availableBalance)>0))return {ok:false,reason:'BURST_ACCOUNT_UNAVAILABLE'};
     // R43 (user rule 05.10.2026): burstMarginRule — flat: half of the panel margin; in position: half of free margin.
     const rule=burstMarginRule({flat,panelMarginQuote:la.config.marginQuote,availableBalance:acct.availableBalance});
@@ -6012,9 +6028,28 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     return out;
   }
+  // R2544.71 TEST balance (user 21.10: "marj ayarlarını marja göre düzelt ... teste yetecek miktarı kendin yaz ... canlıda marj
+  // ve kaldıraç max poza göre işlem açacak, teste marj açısından işlemleri frenleyen birşey olmasın"): in TEST a FIXED margin
+  // (entered in Office / the panel) never stops on the virtual balance - when it is above the free balance the paper account
+  // is topped up (in 100 USDT steps) so the entry opens exactly as set. Automatic sizing (% of equity: risk 2 %, 25 % cap,
+  // burst half of free margin) is NOT topped up: it follows the account like LIVE does (TEST = LIVE). A deposit is a TRANSFER
+  // that raises startBalance, so the TEST result stays trades only. LIVE: never runs (the real balance decides).
+  async function testTopUp(fixedMargin,lane){
+    const need=finite(fixedMargin);
+    if(!(need>0)||!testModeNow()||!paper.active())return null;
+    try{
+      const free=await paper.freeBalance(),want=need/0.95+5;
+      if(!Number.isFinite(free)||free>=want)return null;
+      const amount=Math.ceil((want-free)/100)*100,d=await paper.deposit(amount,'TOPUP_'+String(lane||'LANE'));
+      accountSummaryCache={at:0,value:null};
+      try{store.journal('TEST_BALANCE_TOPUP',null,{lane:lane||null,margin:need,freeBefore:Number(free.toFixed(4)),amount,freeAfter:d?.available??null,tradingMode:'TEST'});}catch{}
+      return d;
+    }catch{return null;}
+  }
   async function top3Open(sig,symbol,cfg,jev,ctx={}){
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
     const side=sig.side,la=readLeaderAutoConfig();
+    if(cfg.marginQuote!==null&&cfg.marginQuote!==undefined)await testTopUp(cfg.marginQuote,sig.z5?'ZIRVE5':'TOP3');
     const acct=await accountSummary({maxAgeMs:3000});const avail=finite(acct?.availableBalance);
     if(!acct?.ok||!(avail>0))return {ok:false,reason:'TOP3_ACCOUNT_UNAVAILABLE'};
     // Margin: the file's marginQuote when set; otherwise the panel margin capped at 25% of free balance (a -8% stop at
@@ -6102,6 +6137,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
     try{store.journal(sig.z5?'ZIRVE5_ENTRY':'TOP3_ENTRY',symbol,{...a,version:sig.z5?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
+    if(top3RecordOpened(a,'ENTRY'))saveTop3State();
     return {ok:true,orderPlaced:true,active:a};
   }
   // R2544.69: the partial plan of a lane (İlk 3: top3 config `partial`; ZİRVE-5: its own switches). v1 İlk 3 lots: none.
@@ -6174,6 +6210,40 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function top3MarkSystemClose(reason){
     let n=0;for(const a of Object.values(top3State.active||{}))if(a&&a.mode==='TEST'&&!a.systemClose){a.systemClose={reason,at:clock()};n++;}
     if(n)saveTop3State();return n;
+  }
+  // R2544.71 (user 21.10: "açılan işlemlerin hepsini beyine yazmamız lazım ayrıca açık olan pozları beyine yaz"): every
+  // ZİRVE-5 / İlk 3 lot is written to the brain (learning_events) when it opens - the close adds its lesson later. A lot
+  // opened by an older build is written once on the next tick (BACKFILL). OPENED rows carry no outcome (never PnL samples).
+  function top3RecordOpened(a,reason='ENTRY'){
+    if(!a||a.brainOpenedAt||typeof store.recordLearning!=='function')return false;
+    const z5=a.lane==='ZIRVE5';
+    try{store.recordLearning(z5?'ZIRVE5_OPENED':'TOP3_OPENED',a.symbol,{v:1,id:a.id,symbol:a.symbol,side:a.side,setup:z5?(a.strategy||a.rule):'TOP3_'+(a.rule||''),rule:a.rule,
+      strategy:z5?'ZİRVE-5 '+a.side:top3Lib.subOf(a.side).name,mode:a.mode,reason,entryPrice:a.entryPrice,stopPrice:finite(a.initialStopPrice)??a.stopPrice,tpPrice:a.tpPrice,
+      targetR:finite(a.targetR),stopPct:finite(a.stopPct),leverage:a.leverage,marginQuote:a.marginQuote,quantity:a.quantity,notional:finite(a.notional),partial:a.part||null,
+      jev:a.jev||null,jevMode:a.jevMode===true,openedAt:finite(a.openedAt)?new Date(a.openedAt).toISOString():null,why:top3Why(a),entryFeatures:a.entryFeatures||null,zone:a.z5zone||null,
+      decision:'OPENED',outcomePct:null,authority:z5?'ZIRVE5_LANE_MEMORY':'TOP3_LANE_MEMORY'});}catch{return false;}
+    a.brainOpenedAt=clock();return true;
+  }
+  function top3BackfillOpened(){
+    let n=0;for(const a of Object.values(top3State.active||{}))if(a&&!a.brainOpenedAt&&top3RecordOpened(a,'BACKFILL'))n++;
+    if(n)saveTop3State();return n;
+  }
+  // the open lots at a TEST pause (deploy): their state at that moment goes to the brain (mark, R so far, partial taken)
+  async function top3OpenSnapshot(reason){
+    const out=[];
+    for(const a of Object.values(top3State.active||{})){
+      if(!a)continue;top3RecordOpened(a,'BACKFILL');
+      let mark=null;try{const p=await paperPrice(a.symbol);mark=finite(a.side==='LONG'?p?.bid:p?.ask);}catch{}
+      const s0=finite(a.initialStopPrice)??finite(a.stopPrice),R=s0!==null?Math.abs(a.entryPrice-s0):null,sg=a.side==='LONG'?1:-1;
+      const row={v:1,id:a.id,symbol:a.symbol,side:a.side,setup:a.lane==='ZIRVE5'?(a.strategy||a.rule):'TOP3_'+(a.rule||''),rule:a.rule,mode:a.mode,reason,entryPrice:a.entryPrice,
+        initialStopPrice:s0,stopPrice:a.stopPrice,tpPrice:a.tpPrice,mark,unrealizedR:mark!==null&&R>0?Number((sg*(mark-a.entryPrice)/R).toFixed(3)):null,
+        partialTaken:a.part?.done===true,breakEven:a.beMoved===true,openedAt:finite(a.openedAt)?new Date(a.openedAt).toISOString():null,
+        at:new Date(clock()).toISOString(),decision:'OPEN_AT_PAUSE',outcomePct:null,keptOpen:true};
+      try{store.recordLearning?.(a.lane==='ZIRVE5'?'ZIRVE5_OPEN_SNAPSHOT':'TOP3_OPEN_SNAPSHOT',a.symbol,row);}catch{}
+      try{store.journal('LOT_OPEN_SNAPSHOT',a.symbol,row);}catch{}
+      out.push(row);
+    }
+    saveTop3State();return out;
   }
   function top3Finish(a,{exitReason,exitPrice=null,closedAt=null,noIncome=false}){
     delete top3State.active[a.id];
@@ -6348,6 +6418,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{
       let managed=null;try{managed=await top3Manage();}catch(e){managed={error:String(e?.message||e).slice(0,120)};}
       try{await top3FinalizeCloses();}catch{/* reporting only */}
+      try{top3BackfillOpened();}catch{}
       const cfg=top3Lib.readTop3Config(root);
       if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
       if(testModeNow()){
@@ -6690,7 +6761,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,_testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,
+    _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }

@@ -1692,7 +1692,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='POST'&&u.pathname==='/live/run'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
       const action=String(body?.action||'').toUpperCase();
-      if(!['STOP','START_TEST','RESET_TEST','GO_LIVE','GO_TEST'].includes(action))return send(res,400,{ok:false,reasons:['RUN_ACTION_INVALID']});
+      if(!['STOP','START_TEST','PAUSE_TEST','RESET_TEST','GO_LIVE','GO_TEST'].includes(action))return send(res,400,{ok:false,reasons:['RUN_ACTION_INVALID']});
       if(action==='GO_LIVE'&&body?.confirm!=='LIVE')return send(res,400,{ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']});
       if(action==='RESET_TEST'&&body?.confirm!=='TEST')return send(res,400,{ok:false,reasons:['EXPLICIT_MODE_CONFIRMATION_REQUIRED']});
       const out=await live.runControl({action,testBalance:body?.testBalance});

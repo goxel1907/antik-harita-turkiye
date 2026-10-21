@@ -162,13 +162,15 @@ test('R52 Office panel: OTO aç = CANLI behind a second press, Stop is one press
 test('R52 TEST deploy wrapper: TEST mode only, stops safely, runs JEV-DEPLOY unchanged, restarts TEST',()=>{
   const ps=fs.readFileSync(path.join(__dirname,'..','jev-brain','JEV-TEST-DEPLOY.ps1'),'utf8');
   assert.match(ps,/tradingMode\.mode -ne 'TEST'\) \{ throw/,'never touches LIVE');
-  assert.match(ps,/'\/live\/run' @\{ action = 'STOP' \}/);assert.match(ps,/Open-Positions \$RT/);
+  // R2544.71: the TEST deploy pauses NEW entries only (open virtual lots stay open); STOP is no longer used there
+  assert.match(ps,/'\/live\/run' @\{ action = 'PAUSE_TEST' \}/);assert.doesNotMatch(ps,/action = 'STOP'/);assert.match(ps,/Open-Positions \$RT/);
   assert.match(ps,/-File \(Join-Path \$PSScriptRoot 'JEV-DEPLOY\.ps1'\)/);assert.match(ps,/if \(\$LASTEXITCODE -ne 0\) \{ throw/);
   assert.match(ps,/'\/live\/run' @\{ action = 'START_TEST' \}/);
   assert.doesNotMatch(ps,/[^\x00-\x7F]/,'ASCII like the other scripts');
   const deploy=fs.readFileSync(path.join(__dirname,'..','jev-brain','JEV-DEPLOY.ps1'),'utf8');
-  assert.match(deploy,/if \(\$liveState\.armed -eq \$true\) \{ throw/,'the deploy safety rule is unchanged');
-  assert.match(deploy,/if \(\$pos\.Count -gt 0\) \{ throw/);
+  // armed (TEST running or LIVE) still stops the deploy; R2544.71 only words the TEST case (use JEV-TEST-DEPLOY)
+  assert.match(deploy,/if \(\$liveState\.armed -eq \$true\) \{\n    if \(\$tmode -eq 'TEST'\) \{ throw '[^']+' \}\n    throw 'LIVE ACIK\. Once LIVE kapatin, sonra deploy edin\.'\n  \}/,'the deploy safety rule is unchanged');
+  assert.match(deploy,/if \(\$pos\.Count -gt 0 -and \$tmode -ne 'TEST'\) \{ throw/,'LIVE: no deploy with an open position (R2544.29); TEST: virtual lots stay open (R2544.71)');
 });
 
 test('R52 one PnL everywhere in TEST: open rows take the paper live mark, total = equity - start',async()=>{

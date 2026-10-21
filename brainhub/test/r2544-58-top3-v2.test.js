@@ -304,8 +304,11 @@ test('R2544.60 user margin: a margin entered in Office is used as is (margin x l
   assert.ok(Math.abs(a.notional-a.marginQuote*a.leverage)<1.1,'notional = margin x leverage (lot step): '+a.notional+' vs '+a.marginQuote*a.leverage);
   assert.ok(a.riskQuote>100*0.02+1,'not the 2 % risk lot any more: '+a.riskQuote);
   const g=fixture({top3:{marginQuote:99,leverage:10}});await g.controller.testSupervisorTick();
-  const r2=await g.controller.top3Tick();assert.equal(r2.v2?.entries,0);
-  assert.equal(g.controller.top3Status().lastScan5.entries[0].reason,'TOP3_MARGIN_ABOVE_FREE_BALANCE','paper wallet 100: 99 > 95 %');
+  // R2544.71 (user 21.10: "teste marj açısından işlemleri frenleyen birşey olmasın"): in TEST a fixed margin above the free
+  // balance tops the paper account up (TRANSFER) and the lot opens as set; LIVE keeps the real balance check (top-up is TEST only)
+  const r2=await g.controller.top3Tick();assert.equal(r2.v2?.entries,1,JSON.stringify(g.controller.top3Status().lastScan5));
+  assert.equal(Object.values(g.controller._testTop3State().active)[0].marginQuote,99);
+  const sm=g.controller._testPaper().summary();assert.ok(sm.deposited>=100,'topped up: '+sm.deposited);assert.equal(sm.net,Number((sm.wallet-sm.startBalance).toFixed(4)));
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   assert.ok(html.includes('Büyüklük: <b>girilen marj ${esc(st.marginQuote)} USDT × ${esc(st.leverage)}x</b>'));
 });
