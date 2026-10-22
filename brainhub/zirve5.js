@@ -31,7 +31,7 @@ const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:
   maxActive:2,                                                // CANLI'da en çok açık lot; TEST'te sınır yok
   riskPct:0.02,                                               // kendi marjı yokken stopta hesabın bu payı
   // R2544.69 kâr koruma: +1R'de lotun yarısı (girişte konan reduce-only hedef), kalanın stopu başabaş + ücret (Office anahtarı)
-  partialEnabled:true, partAtR:1, partShare:0.5, partBeFee:0.0012,
+  partialEnabled:true, partAtR:2, partShare:0.5, partBeFee:0.0012, // R2544.73 (user 22.10: "1R'ı erken mi alıyor" -> 1 ay ölçüm, bugünkü kurallar n74: 1R yarısı +0,27R, 2R yarısı +0,41R, hiç +0,44R)
   // R2544.70 süpürme şartı (kullanıcının PDF'i RektProof: süpürme + yapı kırılımı = yüksek güven; ölçüm 21.10, ilk-5 1 ay: -0,02R n62 ->
   // +0,21R n36, LONG ve SHORT ikisi de daha iyi): onay mumu dahil son 24 mumda (15 dk) bir salınım ucunun ötesine FİTİL atıp geri içeri
   // kapanan mum (SFP) yoksa giriş yok. Office anahtarı.
@@ -47,6 +47,8 @@ function readConfig(root) {
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 5) c.maxActive = Math.floor(ma);
   const rp = finite(raw.riskPct); if (rp !== null && rp > 0 && rp <= 0.05) c.riskPct = rp;
+  const pr = finite(raw.partAtR); if (pr !== null && pr >= 0.5 && pr <= 5) c.partAtR = pr;      // R2544.73: Office-set level/share
+  const ps = finite(raw.partShare); if (ps !== null && ps >= 0.1 && ps <= 0.9) c.partShare = ps;
   return c;
 }
 function writeConfig(root, patch = {}) {
@@ -61,6 +63,15 @@ function writeConfig(root, patch = {}) {
   if (Object.prototype.hasOwnProperty.call(patch, 'leverage')) {
     const l = patch.leverage === null || patch.leverage === '' ? null : finite(patch.leverage);
     if (l === null) delete raw.leverage; else if (Number.isInteger(l) && l >= 1 && l <= 20) raw.leverage = l; else return { ok:false, reasons:['ZIRVE5_LEVERAGE_INVALID'] };
+  }
+  // R2544.73 kâr koruma seviyesi (R) ve payı (0,1-0,9); null = varsayılan (2R, %50)
+  if (Object.prototype.hasOwnProperty.call(patch, 'partAtR')) {
+    const v = patch.partAtR === null || patch.partAtR === '' ? null : finite(patch.partAtR);
+    if (v === null) delete raw.partAtR; else if (v >= 0.5 && v <= 5) raw.partAtR = Number(v.toFixed(2)); else return { ok:false, reasons:['ZIRVE5_PARTIAL_LEVEL_INVALID'] };
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'partShare')) {
+    const v = patch.partShare === null || patch.partShare === '' ? null : finite(patch.partShare);
+    if (v === null) delete raw.partShare; else if (v >= 0.1 && v <= 0.9) raw.partShare = Number(v.toFixed(2)); else return { ok:false, reasons:['ZIRVE5_PARTIAL_SHARE_INVALID'] };
   }
   raw.updatedAt = new Date().toISOString();
   const file = configFile(root); fs.mkdirSync(path.dirname(file), { recursive:true });

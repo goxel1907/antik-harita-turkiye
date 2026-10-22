@@ -2048,7 +2048,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         symbol:p.symbol,side:p.side,quantity:qty,entryPrice:entry,markPrice:mark,unrealizedPnl:finite(p.unrealizedPnl),
         unrealizedR:riskQuote&&riskQuote>0&&finite(p.unrealizedPnl)!==null?Number((p.unrealizedPnl/riskQuote).toFixed(2)):null,
         leverage:finite(p.leverage),notional:finite(p.notional),liquidationPrice:finite(p.liquidationPrice),
-        stopPrice:stop,originalStopPrice:lot?(finite(lot.initialStopPrice)??finite(lot.stopPrice)):finite(row.stopPrice),partialTaken:t3?.part?.done===true,
+        stopPrice:stop,originalStopPrice:lot?(finite(lot.initialStopPrice)??finite(lot.stopPrice)):finite(row.stopPrice),partialTaken:t3?.part?.done===true,partAtR:finite(t3?.part?.atR),partShare:finite(t3?.part?.share),
         // price distance in R from the entry stop (the chart's R); unrealizedR is the open quantity's PnL over the full entry risk
         priceR:entry!==null&&mark!==null&&firstStop!==null&&entry!==firstStop?Number(((String(p.side).toUpperCase()==='LONG'?1:-1)*(mark-entry)/Math.abs(entry-firstStop)).toFixed(2)):null,takeProfit1:t3?finite(t3.tpPrice):finite(row.takeProfit1),
         runnerPhase:rr&&rr.phase!=='CLOSED'?rr.phase:null,trailTf:rr?.lastDesired?.trail?.tf||null,
@@ -6597,16 +6597,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // ON in LIVE (the lane or a side while LIVE, or liveEnabled) and a margin/leverage change in LIVE need the explicit 'LIVE'.
   function configureZ5(patch={}){
     const p={};for(const k of ['enabled','liveEnabled','jevMode','longEnabled','shortEnabled','partialEnabled','requireSweep'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
-    for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)p[k]=patch[k];
+    for(const k of ['marginQuote','leverage','partAtR','partShare'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['ZIRVE5_SWITCH_MISSING']};
-    const live=!testModeNow(),sizingChange=('marginQuote' in p)||('leverage' in p);
+    const live=!testModeNow(),sizingChange=('marginQuote' in p)||('leverage' in p)||('partAtR' in p)||('partShare' in p);
     if((p.liveEnabled===true||(live&&(p.enabled===true||p.longEnabled===true||p.shortEnabled===true||sizingChange||typeof p.partialEnabled==='boolean'||typeof p.requireSweep==='boolean')))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=z5Lib.readConfig(root),after=z5Lib.writeConfig(root,p);
     if(after?.ok===false)return {ok:false,reasons:after.reasons};
     if(after.enabled!==true||(live&&after.liveEnabled!==true)){z5State().armed={};z5State().pending=[];}
     // switching ON rescans the last closed candle on the next tick instead of waiting up to 15 min
     if(p.enabled===true&&before.enabled!==true)z5State().lastBar=null;
-    const pick=c=>({enabled:c.enabled,liveEnabled:c.liveEnabled,jevMode:c.jevMode,longEnabled:c.longEnabled,shortEnabled:c.shortEnabled,partialEnabled:c.partialEnabled,requireSweep:c.requireSweep,marginQuote:c.marginQuote,leverage:c.leverage});
+    const pick=c=>({enabled:c.enabled,liveEnabled:c.liveEnabled,jevMode:c.jevMode,longEnabled:c.longEnabled,shortEnabled:c.shortEnabled,partialEnabled:c.partialEnabled,requireSweep:c.requireSweep,marginQuote:c.marginQuote,leverage:c.leverage,partAtR:c.partAtR,partShare:c.partShare});
     try{store.journal('ZIRVE5_CONFIG_CHANGED',null,{before:pick(before),after:pick(after),mode:testModeNow()?'TEST':'LIVE',source:String(patch?.source||'OFFICE').slice(0,40)});}catch{}
     saveTop3State();
     return {...z5Status(),changed:p};
@@ -6748,8 +6748,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled','partialEnabled','topSweep'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     for(const k of ['earlyJev','topJev'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&(typeof patch[k]==='boolean'||patch[k]===null))p[k]=patch[k];
     const restart=patch?.restartWindow===true;if(restart)p.enabled=true;
+    // R2544.73: kâr koruma level (R 0,5-5) / share (0,1-0,9); null = default 2R / 50 %. LIVE needs the 'LIVE' confirmation.
+    for(const [k,lo,hi] of [['partAtR',0.5,5],['partShare',0.1,0.9]])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined){
+      const v=patch[k]===null||patch[k]===''?null:finite(patch[k]);if(v!==null&&!(v>=lo&&v<=hi))return {ok:false,reasons:[k==='partAtR'?'TOP3_PARTIAL_LEVEL_INVALID':'TOP3_PARTIAL_SHARE_INVALID']};p[k]=v;}
     // R2544.67: a sub-strategy switched ON in LIVE needs the explicit 'LIVE' confirmation (OFF is immediate)
-    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true||typeof p.partialEnabled==='boolean'||typeof p.topSweep==='boolean')&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true||typeof p.partialEnabled==='boolean'||typeof p.topSweep==='boolean'||'partAtR' in p||'partShare' in p)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     // R2544.57: margin / leverage from Office; in LIVE only with the explicit 'LIVE' confirmation
     const sp={};for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)sp[k]=patch[k];
     if(Object.keys(sp).length){

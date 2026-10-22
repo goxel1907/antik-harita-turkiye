@@ -341,7 +341,7 @@ test('R2544.62 lane memory repair: lessons booked against the moved stop get R f
 
 test('R2544.69 İlk 3 ERKEN LONG with kâr koruma (default ON): half at +1R through the exchange order, rest to break-even + fees, target for the rest; the 1R break-even rule stays out of the way',async()=>{
   require('../binance-rate-limit').resetForTests();
-  const f=fixture({top3:{early:{beAtR:1}}});
+  const f=fixture({top3:{early:{beAtR:1},partial:{atR:1}}}); // R2544.73: default 2R; this mechanics test pins 1R
   await f.controller.testSupervisorTick();await f.controller.top3Tick();
   const a=Object.values(f.controller._testTop3State().active)[0];assert.ok(a,'entered');
   assert.ok(a.part&&a.part.onExchange===true,JSON.stringify(a.part));

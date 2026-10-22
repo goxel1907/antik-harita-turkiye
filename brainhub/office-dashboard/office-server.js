@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.55-R2544.72-JEV-Brain';
+const OFFICE_VERSION = '2.5.56-R2544.73-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -129,6 +129,7 @@ const CONTROL_BODY = {
     // R2544.67.5: ZİRVE-5's own margin (USDT) and leverage; null = back to risk-based sizing / İlk 3 leverage. The core validates.
     if (b.marginQuote === null || (typeof b.marginQuote === 'number' && Number.isFinite(b.marginQuote))) out.marginQuote = b.marginQuote;
     if (b.leverage === null || Number.isInteger(b.leverage)) out.leverage = b.leverage;
+    for (const k of ['partAtR', 'partShare']) if (b[k] === null || (typeof b[k] === 'number' && Number.isFinite(b[k]))) out[k] = b[k]; // R2544.73 kâr koruma level/share
     if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
     return out;
   },
@@ -140,6 +141,7 @@ const CONTROL_BODY = {
     // R2544.57: İlk 3 margin (USDT, null = automatic) and leverage; the core validates ranges and needs 'LIVE' in LIVE
     if (b.marginQuote === null || (typeof b.marginQuote === 'number' && Number.isFinite(b.marginQuote))) out.marginQuote = b.marginQuote;
     if (Number.isInteger(b.leverage)) out.leverage = b.leverage;
+    for (const k of ['partAtR', 'partShare']) if (b[k] === null || (typeof b[k] === 'number' && Number.isFinite(b[k]))) out[k] = b[k]; // R2544.73
     if (typeof b.confirm === 'string') out.confirm = b.confirm.toUpperCase();
     return out;
   }
