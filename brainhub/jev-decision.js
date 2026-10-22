@@ -1896,6 +1896,12 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       // R2544.70 price action (pa-core, wicks included, closed 15m candles only): the liquidity sweep (SFP) the rule required, the nearest
       // untaken liquidity above/below (equal highs/lows counted) and where price sits in the 24 h range
       priceAction:{sweep:features.sweep||z.sweep||null,context:features.pa||z.pa||null},
+      // R2544.74: 1h/4h structure and the 5m confirmation inside the 15m candle - INFORMATION (measured 1 month: 5m early entry worse,
+      // 1h/4h filters inconsistent), never a rule; JEV may weigh it
+      multiTimeframe:features.mtf&&!features.mtf.error?{note:'information only; as hard filters they were inconsistent over 1 month',
+        h1:features.mtf.h1?{trend:features.mtf.h1.trend,aboveEma50:features.mtf.h1.aboveEma50,freshBreakUp:features.mtf.h1.freshBreakUp,freshBreakDown:features.mtf.h1.freshBreakDown}:null,
+        h4:features.mtf.h4?{trend:features.mtf.h4.trend,aboveEma50:features.mtf.h4.aboveEma50,freshBreakUp:features.mtf.h4.freshBreakUp,freshBreakDown:features.mtf.h4.freshBreakDown}:null,
+        against1h:features.mtf.against1h===true,against4h:features.mtf.against4h===true,m5:features.mtf.m5?{confirmed:features.mtf.m5.confirmed===true,minutesEarly:finiteNumber(features.mtf.m5.minutesEarly)}:null}:null,
       profitProtection:signal.partial?.enabled===true?{rule:'take '+Math.round((signal.partial.share||0.5)*100)+' % of the lot at +'+(signal.partial.atR||1)+'R with an exchange take-profit; then the stop of the remaining lot moves to break-even + fees',atR:signal.partial.atR||1,share:signal.partial.share||0.5}:{rule:'none: one stop, one target'}, // R2544.69
       plan:{entry:'market right after the confirmation candle closed',stop:long?'0.1 % below the zone bottom':'0.1 % above the zone top',target:'the liquidity extreme made after the break, at least 1R',maxHoldH:Math.round((signal.maxHoldMs||0)/3600000)},
       researchPrior:'ZİRVE-5 lab 20.09-20.10.2026 (Binance USDT-M, top 5 by 24 h range, >= 20M volume, 15m, fees 0.12 %), this exact rule counted like the live lane: n 62, about -0.02R per trade (first 3 weeks +0.12R, last week -0.44R) - no proven edge yet; an earlier +0.10R (n 55) figure was optimistic; no stop inside the first 15 min (blind entry at the zone middle: 20 % such stops, and 5 of 5 live SHORTs stopped within 5 min on 21.10). Small sample, one month: the live TEST result decides.',

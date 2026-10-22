@@ -155,6 +155,55 @@ function videoScan(candles, cfg = DEFAULT_CONFIG) {
 }
 
 // Gerçek giriş fiyatından plan: stop alan dışı %0,1 (bant %0,2..%8), hedef likidite, 1R'den yakınsa 1R.
+// ===== R2544.74 ÇOKLU ZAMAN DİLİMİ BİLGİSİ (kullanıcı 22.10: "alt ve üst zaman dilimlerindeki grafik yapısını takip ediyor mu?").
+// 1 ay ölçüm (harness/zirve5/z5_mtf.js, z5_mtf2.js): 5 dk ile erken giriş KÖTÜLEŞTİRDİ (+0,22R n36 -> -0,04R n90); 1 sa / 4 sa yapı
+// süzgeçleri büyük örnekte TUTARSIZ. Kural DEĞİL: her sinyale/lota bilgi olarak yazılır (beyin, JEV, Office); canlı TEST verisiyle
+// yeniden ölçülecek. Hesap ölçümdekiyle aynıdır.
+const MTF_VERSION = 'R2544.74-Z5-MTF';
+function aggregate(candles, frame) {
+  const out = []; let cur = null;
+  for (const c of candles) { const b = Math.floor(Number(c.openTime) / frame) * frame;
+    if (!cur || cur.openTime !== b) { if (cur) out.push(cur); cur = { openTime:b, open:Number(c.open), high:Number(c.high), low:Number(c.low), close:Number(c.close), closeTime:b + frame - 1 }; }
+    else { cur.high = Math.max(cur.high, Number(c.high)); cur.low = Math.min(cur.low, Number(c.low)); cur.close = Number(c.close); } }
+  if (cur) out.push(cur); return out;
+}
+// higher-frame structure from candles CLOSED before `t` (the confirmation candle's open): last two confirmed swing highs/lows
+// (pa-core swings, n=3): UP = HH+HL, DOWN = LH+LL, else RANGE; EMA50 side; a fresh break = the last closed candle beyond the last swing
+function htfStructure(candles, t, frame, n = 3) {
+  const closed = (Array.isArray(candles) ? candles : []).filter(c => Number(c.openTime) + frame <= t);
+  if (closed.length < 30) return { trend:null, reason:'HISTORY_SHORT', candles:closed.length };
+  const sw = PA.swings(closed, n).filter(s => s.confirmedAt <= closed.length - 1);
+  const Hs = sw.filter(s => s.kind === 'H').slice(-2), Ls = sw.filter(s => s.kind === 'L').slice(-2);
+  let trend = 'RANGE';
+  if (Hs.length === 2 && Ls.length === 2) { if (Hs[1].price > Hs[0].price && Ls[1].price > Ls[0].price) trend = 'UP'; else if (Hs[1].price < Hs[0].price && Ls[1].price < Ls[0].price) trend = 'DOWN'; }
+  let ema = null; for (const c of closed.slice(-120)) ema = ema === null ? Number(c.close) : ema + (2 / 51) * (Number(c.close) - ema);
+  const last = closed[closed.length - 1], lastH = Hs[Hs.length - 1] || null, lastL = Ls[Ls.length - 1] || null;
+  return { trend, aboveEma50:Number(last.close) > ema, ema50:Number(ema.toPrecision(8)), freshBreakUp:!!(lastH && Number(last.close) > lastH.price), freshBreakDown:!!(lastL && Number(last.close) < lastL.price),
+    lastSwingHigh:lastH ? lastH.price : null, lastSwingLow:lastL ? lastL.price : null, candles:closed.length };
+}
+// 5 dk: inside the 15 dk confirmation candle (open `barOpen`), the first 5m candle that would have confirmed the zone on its own
+// (direction, body >= bodyMin, volume >= volMult x median of the previous 288 5m candles, inside the zone); null = none
+function m5Confirm(k5, barOpen, zone, cfg = DEFAULT_CONFIG) {
+  const k = (Array.isArray(k5) ? k5 : []).map(c => ({ openTime:Number(c.openTime), open:Number(c.open), high:Number(c.high), low:Number(c.low), close:Number(c.close), quoteVolume:Number(c.quoteVolume) }));
+  const long = zone.side === 'LONG';
+  for (let m = 0; m < 3; m++) {
+    const j = k.findIndex(c => c.openTime === barOpen + m * 300000); if (j < 0) return { confirmed:false, reason:'M5_MISSING' };
+    const c = k[j]; if (long ? c.close < zone.bottom : c.close > zone.top) return { confirmed:false, reason:'M5_CLOSED_BEYOND_ZONE', at:c.openTime + 300000 };
+    const prev = k.slice(Math.max(0, j - 288), j).map(x => x.quoteVolume), med = prev.length >= 144 ? median(prev) : null, rng = c.high - c.low;
+    if (!(med > 0) || !(rng > 0)) continue;
+    const dirOk = long ? c.close > c.open : c.close < c.open, body = Math.abs(c.close - c.open) / rng, vol = c.quoteVolume / med;
+    const inZone = long ? (c.low <= zone.top && c.close >= zone.bottom) : (c.high >= zone.bottom && c.close <= zone.top);
+    if (dirOk && body >= cfg.bodyMin && vol >= cfg.volMult && inZone)
+      return { confirmed:true, at:c.openTime + 300000, minutesEarly:15 - (m + 1) * 5, price:c.close, body:Number(body.toFixed(3)), volMult:Number(vol.toFixed(2)) };
+  }
+  return { confirmed:false, reason:'NO_5M_CONFIRMATION' };
+}
+// one record per ZİRVE-5 signal: 1 sa / 4 sa structure (4 sa built from 1 sa) + the 5 dk confirmation inside the 15 dk candle
+function mtfInfo({ h1 = [], k5 = [], barOpen, zone, cfg = DEFAULT_CONFIG }) {
+  const h4 = aggregate(h1, 4 * 3600000), h1s = htfStructure(h1, barOpen, 3600000), h4s = htfStructure(h4, barOpen, 4 * 3600000), m5 = m5Confirm(k5, barOpen, zone, cfg);
+  const against = s => !!(s && s.trend && (zone.side === 'LONG' ? s.trend === 'DOWN' : s.trend === 'UP'));
+  return { version:MTF_VERSION, h1:h1s, h4:h4s, m5, against1h:against(h1s), against4h:against(h4s), informationOnly:true };
+}
 function target(entry, stop, liq, long) {
   const s = long ? 1 - stop / entry : stop / entry - 1, oneR = long ? entry * (1 + s) : entry * (1 - s);
   const tp = liq > 0 ? (long ? Math.max(liq, oneR) : Math.min(liq, oneR)) : oneR;
@@ -168,4 +217,4 @@ function plan(price, sig, cfg = DEFAULT_CONFIG) {
   return { ok:true, side:long ? 'LONG' : 'SHORT', stopPrice:st, stopPct:Number(stopPct.toFixed(5)), ...target(p, st, liq, long) };
 }
 
-module.exports = { ZIRVE5_VERSION, LANE, SETUP, RULE, SETUP_LONG, SETUP_SHORT, setupFor, M15, DEFAULT_CONFIG, configFile, readConfig, writeConfig, rankByRange, confirmation, trackVideo, videoStates, videoScan, plan, target };
+module.exports = { MTF_VERSION, aggregate, htfStructure, m5Confirm, mtfInfo, ZIRVE5_VERSION, LANE, SETUP, RULE, SETUP_LONG, SETUP_SHORT, setupFor, M15, DEFAULT_CONFIG, configFile, readConfig, writeConfig, rankByRange, confirmation, trackVideo, videoStates, videoScan, plan, target };

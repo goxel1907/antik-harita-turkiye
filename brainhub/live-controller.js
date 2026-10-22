@@ -6504,7 +6504,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(c.length<60||c.at(-1).openTime!==bar){out.errors.push(r.symbol+':BAR_MISSING');continue;}
       const v=z5Lib.videoScan(c,cfg);
       row.zones=v.waiting.map(x=>({side:x.side,top:x.top,bottom:x.bottom,equilibrium:x.equilibrium,zoneAt:x.zoneAt}));
-      row.signals=v.signals.map(x=>({side:x.side,confirm:x.confirm,sideOn:z5SideOn(cfg,x.side)}));
+      // R2544.74: every signal carries the 1 sa / 4 sa structure and the 5 dk confirmation (information only; two public reads per signal)
+      for(const s of v.signals)s.mtf=await z5Mtf(r.symbol,bar,s,cfg);
+      row.signals=v.signals.map(x=>({side:x.side,confirm:x.confirm,sideOn:z5SideOn(cfg,x.side),mtf:x.mtf?{h1:x.mtf.h1?.trend??null,h4:x.mtf.h4?.trend??null,m5:x.mtf.m5?.confirmed===true?x.mtf.m5.minutesEarly:null,against1h:x.mtf.against1h,against4h:x.mtf.against4h}:null}));
       if(v.waiting.length)armed[r.symbol]=v.waiting.map(x=>({...x,rank:r.rank}));
       for(const s of v.signals)pending.push({...s,symbol:r.symbol,rank:r.rank,range24:r.range,change24:r.change});
       await new Promise(res=>setTimeout(res,40));
@@ -6512,6 +6514,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // a coin that left the top 5 is no longer watched (the lab entered only while the coin was in the top 5)
     z.armed=armed;z.pending=pending;out.armed=Object.values(armed).reduce((a,x)=>a+x.length,0);out.signals=pending.length;
     return out;
+  }
+  async function z5Mtf(symbol,bar,sig,cfg){
+    try{
+      const rows=k=>(Array.isArray(k)?k:[]).map(x=>({openTime:Number(x[0]),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4]),quoteVolume:Number(x[7])}));
+      const h1=rows(await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval:'1h',limit:'499'}}));
+      const k5=rows(await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval:'5m',endTime:String(bar+z5Lib.M15-1),limit:'300'}}));
+      return z5Lib.mtfInfo({h1,k5,barOpen:bar,zone:{side:sig.side,top:sig.top,bottom:sig.bottom},cfg});
+    }catch(e){return {version:z5Lib.MTF_VERSION,error:String(e?.message||e).slice(0,80),informationOnly:true};}
   }
   function z5Note(z,x){z.recent=[{at:new Date(clock()).toISOString(),...x},...z.recent].slice(0,30);}
   async function z5Tick(){
@@ -6536,7 +6546,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const sym=sg.symbol,side=sg.side,rule=z5Lib.setupFor(side);
         if(!z5SideOn(cfg,side)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIDE_OFF',rank:sg.rank});continue;}
         // R2544.70: no liquidity sweep (SFP) on the zone side in the last 24 closed 15m candles -> no entry (the zone is used up, like the lab)
-        if(cfg.requireSweep!==false&&!sg.sweep){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank,zone:{top:sg.top,bottom:sg.bottom},pa:sg.pa||null});}catch{}continue;}
+        if(cfg.requireSweep!==false&&!sg.sweep){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank,zone:{top:sg.top,bottom:sg.bottom},pa:sg.pa||null,mtf:sg.mtf||null});}catch{}continue;}
         if(clock()-sg.confirmAt>5*60000){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIGNAL_STALE',rank:sg.rank});continue;}
         if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SLOTS_FULL',rank:sg.rank});continue;}
         if(activeTop3For(sym)||burstCurrentPosition(sym)||activeBurstFor(sym)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sym)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SYMBOL_BUSY',rank:sg.rank});continue;}
@@ -6545,7 +6555,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const sizing={marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,riskPct:cfg.riskPct??t3.riskPct};
         const ef={side,rank:sg.rank,range24:sg.range24,change24:sg.change24,top:sg.top,bottom:sg.bottom,equilibrium:sg.equilibrium,liquidity:sg.liquidity,
           confirmBody:sg.confirm?.body??null,confirmVolMult:sg.confirm?.volMult??null,confirmClose:sg.refPrice,zoneAt:new Date(sg.zoneAt).toISOString(),confirmAt:new Date(sg.confirmAt).toISOString(),
-          sweep:sg.sweep||null,pa:sg.pa||null};
+          sweep:sg.sweep||null,pa:sg.pa||null,mtf:sg.mtf||null}; // R2544.74 mtf: information only (brain, JEV, Office)
         let jev=null;
         if(cfg.jevMode===true){
           let chartContext=market?.cachedChartContext?.(sym,clock())||null;
@@ -6585,7 +6595,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({side:x.side,equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,liquidity:x.liquidity,expiresAt:new Date(x.expiresAt).toISOString()}))})),
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
         markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       recentEntries:(z.recent||[]).slice(0,12),
       recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup||null,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt||null,holdMinutes:finite(p.holdMinutes)})),
