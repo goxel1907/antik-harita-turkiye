@@ -21,7 +21,7 @@ test('public books and market trades route independently, including eviction and
   assert.match(book.url,/\/ws$/);assert.match(market.url,/\/ws$/);
   book.open();market.open();
   assert.deepEqual(book.sent[0].params,['btcusdt@bookTicker','btcusdt@depth20@100ms']);
-  assert.deepEqual(market.sent[0].params,['btcusdt@aggTrade','btcusdt@forceOrder']);
+  assert.deepEqual(market.sent[0].params,['btcusdt@aggTrade','btcusdt@forceOrder','btcusdt@markPrice@1s']); // R2544.72: mark price for the paper stop/TP trigger
   stream.ensureSymbol('ETHUSDT');
   for(const socket of [book,market]){
     assert.equal(socket.sent[1].method,'UNSUBSCRIBE');

@@ -196,8 +196,12 @@ class PaperExchange {
     const p = await this.priceOf(symbol);
     const bid = finite(p?.bid), ask = finite(p?.ask);
     if (!(bid > 0 && ask > 0 && ask >= bid)) throw paperError(503, -1001, 'TEST mode price unavailable for ' + symbol, '/paper/price');
-    const v = { bid, ask, mid:(bid + ask) / 2, at:this.clock() }; this.lastPx.set(symbol, v); return v;
+    const mark = finite(p?.mark) > 0 ? finite(p.mark) : null;
+    const v = { bid, ask, mid:(bid + ask) / 2, mark, at:this.clock() }; this.lastPx.set(symbol, v); return v;
   }
+  // R2544.72 (22.10: ZAMA's paper partial filled 01:18 on the mid; Binance's MARK price reached it 01:21): a MARK_PRICE order
+  // triggers on the mark price when the stream has one, else on the mid (as before); CONTRACT_PRICE orders on the mid.
+  _trigPx(algo, px) { return algo.workingType === 'MARK_PRICE' && finite(px?.mark) > 0 ? finite(px.mark) : px.mid; }
   _pos(symbol) { return this.state.positions[symbol] || { amt:0, entry:0 }; }
   _lev(symbol) { return Math.max(1, Math.min(125, Math.round(finite(this.state.leverage[symbol]) || 20))); }
   _unrealized(symbol) { const p = this._pos(symbol), m = this.lastPx.get(symbol)?.mid; return p.amt && m ? (m - p.entry) * p.amt : 0; }
@@ -289,7 +293,8 @@ class PaperExchange {
     for (const [symbol, algos] of bySym) {
       const start = Math.max(from, Math.min(...algos.map(a => finite(a.createTime) || from)));
       let candles = [];
-      try { candles = await this.candlesOf(symbol, Math.floor(start / 60000) * 60000, to); } catch { continue; }
+      const kind = algos.every(a => a.workingType === 'MARK_PRICE') ? 'MARK' : 'LAST'; // R2544.72: replay on what the exchange triggers on
+      try { candles = await this.candlesOf(symbol, Math.floor(start / 60000) * 60000, to, kind); } catch { continue; }
       for (const c of (Array.isArray(candles) ? candles : []).map(r => r.slice(0, 5).map(Number)).sort((x, y) => x[0] - y[0])) {
         const [t, o, h, l] = c; if (!(t + 60000 > start) || t >= to) continue;
         const live = algos.filter(a => a.algoStatus === 'NEW' && t + 60000 > (finite(a.createTime) || 0));
@@ -334,7 +339,7 @@ class PaperExchange {
       for (const a of this.state.algos.filter(x => x.algoStatus === 'NEW')) {
         let px = prices.get(a.symbol);
         if (!px) { try { px = await this._px(a.symbol); } catch { continue; } prices.set(a.symbol, px); }
-        if (!this._wouldTrigger(a, px.mid)) continue;
+        if (!this._wouldTrigger(a, this._trigPx(a, px))) continue;
         const now = this.clock(); a.triggeredAt = now; a.updateTime = now; changed = true;
         try {
           const o = await this._fill({ symbol:a.symbol, side:a.side, qty:a.quantity, reduceOnly:true, closePosition:a.closePosition === true, clientOrderId:a.clientAlgoId, type:a.orderType, endpoint:'/paper/trigger' });
@@ -403,7 +408,7 @@ class PaperExchange {
         const algo = { algoId:this.state.nextAlgoId++, clientAlgoId:P.clientAlgoId || ('paperalgo' + now), algoType:'CONDITIONAL', orderType:type, symbol:sym, side, positionSide:'BOTH',
           timeInForce:'GTC', quantity:closePosition ? '0' : s8(P.quantity), algoStatus:'NEW', triggerPrice:s8(trig), price:'0', workingType:P.workingType || 'MARK_PRICE',
           priceProtect:String(P.priceProtect) === 'true', reduceOnly:String(P.reduceOnly) === 'true' || closePosition, closePosition, createTime:now, updateTime:now, paper:true };
-        if (this._wouldTrigger(algo, px.mid)) throw paperError(400, -2021, 'Order would immediately trigger.', p);
+        if (this._wouldTrigger(algo, this._trigPx(algo, px))) throw paperError(400, -2021, 'Order would immediately trigger.', p);
         this.state.algos.push(algo); this._save(); return algo;
       }
       if (key === 'DELETE /fapi/v1/algoOrder') {

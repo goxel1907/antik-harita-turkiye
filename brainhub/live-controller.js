@@ -329,15 +329,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const candidateStream=market?.marketStream||marketStream;
   // R2544.51 TEST mode: paper exchange in the transport; prices from the live stream, else public REST bookTicker.
   const paperPrice=async symbol=>{
-    try{const s=candidateStream?.snapshot?.(symbol,clock());if(s?.available===true&&Number(s.ageMs)<=3000&&finite(s.bid)>0&&finite(s.ask)>0)return {bid:finite(s.bid),ask:finite(s.ask),source:'STREAM'};}catch{}
+    // R2544.72: the stream's mark price rides along (paper stop/TP trigger on it like Binance's MARK_PRICE); without it: mid
+    try{const s=candidateStream?.snapshot?.(symbol,clock());if(s?.available===true&&Number(s.ageMs)<=3000&&finite(s.bid)>0&&finite(s.ask)>0)return {bid:finite(s.bid),ask:finite(s.ask),mark:finite(s.markPrice),source:'STREAM'};}catch{}
     const b=await transport._fetchJsonReal('GET','/fapi/v1/ticker/bookTicker',{params:{symbol}});
     return {bid:finite(b?.bidPrice),ask:finite(b?.askPrice),source:'REST'};
   };
   // public 1m candles for the paper exchange's catch-up after a gap (PC off); up to 12 pages = 200 h
-  const paperCandles=async(symbol,start,end)=>{
+  // R2544.72: kind 'MARK' = mark-price candles (the catch-up of MARK_PRICE stop/TP orders, as Binance triggers them)
+  const paperCandles=async(symbol,start,end,kind='LAST')=>{
     const out=[];let t=start;
     for(let i=0;i<12&&t<end;i++){
-      const k=await transport._fetchJsonReal('GET','/fapi/v1/klines',{params:{symbol,interval:'1m',startTime:String(t),endTime:String(end),limit:'1000'}});
+      const k=await transport._fetchJsonReal('GET',kind==='MARK'?'/fapi/v1/markPriceKlines':'/fapi/v1/klines',{params:{symbol,interval:'1m',startTime:String(t),endTime:String(end),limit:'1000'}});
       if(!Array.isArray(k)||!k.length)break;
       for(const r of k)out.push([Number(r[0]),Number(r[1]),Number(r[2]),Number(r[3]),Number(r[4])]);
       t=Number(k[k.length-1][0])+60000;if(k.length<1000)break;
@@ -2033,7 +2035,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const rr=lot?null:runnerState.bySymbol?.[p.symbol]||null;
       const entry=finite(p.entryPrice),mark=finite(p.markPrice),qty=finite(p.quantity);
       const stop=lot?finite(lot.stopPrice):finite(rr&&rr.phase!=='CLOSED'?rr.currentStop:null)??finite(row.stopPrice);
-      const firstStop=lot?finite(lot.stopPrice):finite(row.stopPrice)??stop;
+      // R2544.72 (22.10 Office: BASED/ZAMA/AKE showed 26-37 R): a lot's R is from its ENTRY stop - after the partial / break-even
+      // move lot.stopPrice is the moved stop and the risk read ~0 (initialStopPrice keeps the entry stop)
+      const firstStop=lot?(finite(lot.initialStopPrice)??finite(lot.stopPrice)):finite(row.stopPrice)??stop;
       // CLAUDE_R2543: açık pozisyon R'si de ilk miktar + ilk stop ile (kısmi çıkış sonrası şişmesin).
       const initQty=lot?(finite(lot.initialQuantity)??finite(lot.quantity)??qty):finite(leaderAnalysisState.bySymbol?.[String(p.symbol||'').toUpperCase()]?.initialQuantity)??qty;
       const riskQuote=entry!==null&&firstStop!==null&&initQty!==null?Math.abs(entry-firstStop)*initQty:null;
@@ -2044,13 +2048,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         symbol:p.symbol,side:p.side,quantity:qty,entryPrice:entry,markPrice:mark,unrealizedPnl:finite(p.unrealizedPnl),
         unrealizedR:riskQuote&&riskQuote>0&&finite(p.unrealizedPnl)!==null?Number((p.unrealizedPnl/riskQuote).toFixed(2)):null,
         leverage:finite(p.leverage),notional:finite(p.notional),liquidationPrice:finite(p.liquidationPrice),
-        stopPrice:stop,originalStopPrice:lot?finite(lot.stopPrice):finite(row.stopPrice),takeProfit1:t3?finite(t3.tpPrice):finite(row.takeProfit1),
+        stopPrice:stop,originalStopPrice:lot?(finite(lot.initialStopPrice)??finite(lot.stopPrice)):finite(row.stopPrice),partialTaken:t3?.part?.done===true,
+        // price distance in R from the entry stop (the chart's R); unrealizedR is the open quantity's PnL over the full entry risk
+        priceR:entry!==null&&mark!==null&&firstStop!==null&&entry!==firstStop?Number(((String(p.side).toUpperCase()==='LONG'?1:-1)*(mark-entry)/Math.abs(entry-firstStop)).toFixed(2)):null,takeProfit1:t3?finite(t3.tpPrice):finite(row.takeProfit1),
         runnerPhase:rr&&rr.phase!=='CLOSED'?rr.phase:null,trailTf:rr?.lastDesired?.trail?.tf||null,
         openedBy:own?'BRAINHUB_AUTO':bl?'BRAINHUB_BURST':t3?(t3.lane==='ZIRVE5'?'BRAINHUB_ZIRVE5':'BRAINHUB_TOP3'):'EXTERNAL',
         openedAt:Number(row.activeAt)>0&&own?new Date(Number(row.activeAt)).toISOString():lot&&finite(lot.openedAt)?new Date(Number(lot.openedAt)).toISOString():null,
         lane:bl?'BURST_SCALP':t3?(t3.lane==='ZIRVE5'?'ZIRVE5':'TOP3_HUNTER'):row.tradeLaneName||row.entryContext?.lane||null,originTF:t3?.lane==='ZIRVE5'?'15m':row.originTF||null,setup:bl?'BURST_SCALP':t3?(t3.lane==='ZIRVE5'?(t3.rule||z5Lib.SETUP_SHORT):'TOP3_'+t3.rule):row.setup||null,
         strategyVersion:bl?BURST_RELEASE_CONTRACT:t3?(t3.lane==='ZIRVE5'?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION):row.entryContext?.strategyVersion||null,
-        releaseContract:bl?BURST_RELEASE_CONTRACT:t3?top3Lib.TOP3_VERSION:row.entryContext?.releaseContract||null,
+        releaseContract:bl?BURST_RELEASE_CONTRACT:t3?(t3.lane==='ZIRVE5'?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION):row.entryContext?.releaseContract||null,
         mirrorContract:row.entryContext?.mirrorContract||null,
         entryReason:bl?burstWhy(bl):t3?top3Why(t3):row.entryContext?.why||null,
         entryCase:caseMemoryLib.compactEntryCase(entryCase),
@@ -6008,7 +6014,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(x.side==='LONG'&&finite(cfg.early.maxFunding)!==null&&!(fund!==null&&fund<=cfg.early.maxFunding)){res.reason='TOP3_FUNDING_LONGS_CROWDED';continue;}
       const T=Math.floor(clock()/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR,m=top3Ranks.hours[T]||{};
       const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
-        top:finite(x.trig.top),hl:finite(x.trig.hl),topVolMult:finite(x.trig.topVolMult)!==null?Number(x.trig.topVolMult.toFixed(2)):null,pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close};
+        top:finite(x.trig.top),hl:finite(x.trig.hl),topVolMult:finite(x.trig.topVolMult)!==null?Number(x.trig.topVolMult.toFixed(2)):null,pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close,
+        sweep:x.trig.sweep||null,pa:x.pa||null}; // R2544.72: the SFP the rule required and the PA context travel with the lot
       let jev=null;const sub=top3Lib.subOf(x.side);res.strategy=sub.name;
       if(top3Lib.subJev(cfg,x.side)){
         if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}

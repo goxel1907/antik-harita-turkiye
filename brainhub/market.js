@@ -405,7 +405,8 @@ class StreamingMarket {
     this.now = now;
     this.channels = {
       public:{ endpoint:FUTURES_WS, streams:['bookTicker','depth20@100ms'], ws:null, connecting:false, timer:null, retryMs:1000 },
-      market:{ endpoint:FUTURES_MARKET_WS, streams:['aggTrade','forceOrder'], ws:null, connecting:false, timer:null, retryMs:1000 }
+      // R2544.72: markPrice@1s - the TEST paper exchange triggers stop/TP on the MARK price like Binance (workingType MARK_PRICE)
+      market:{ endpoint:FUTURES_MARKET_WS, streams:['aggTrade','forceOrder','markPrice@1s'], ws:null, connecting:false, timer:null, retryMs:1000 }
     };
     this.stopped = false;
     this.states = new Map();
@@ -466,7 +467,7 @@ class StreamingMarket {
         symbol, lastEventAt:0, book:null, depth:null, depthAt:0,
         bookHistory:[], lastBookHistoryAt:0,
         depthHistory:[], lastDepthHistoryAt:0,
-        trades:[], tradeAt:0, liquidations:[], liquidationAt:0, createdAt:this.now()
+        trades:[], tradeAt:0, liquidations:[], liquidationAt:0, mark:null, createdAt:this.now()
       });
     }
     this.states.get(symbol).lastRequestedAt=this.now();
@@ -583,6 +584,9 @@ class StreamingMarket {
         state.trades.push({ at, price, qty, quote:price * qty, sign:data.m ? -1 : 1 });
         state.tradeAt = Math.max(state.tradeAt, at);
       }
+    } else if (eventType === 'markPriceUpdate') {
+      const mp = finite(data.p);
+      if (mp > 0) state.mark = { price:mp, at:eventAt || now };
     } else if (eventType === 'forceOrder') {
       const o = data.o || {};
       const price = finite(o.ap) > 0 ? finite(o.ap) : finite(o.p);
@@ -637,9 +641,11 @@ class StreamingMarket {
     const depthFresh = Boolean(state.depth && now >= state.depth.at && now - state.depth.at <= this.staleMs);
     const softDepth = depthFresh ? depthSoftContext(state.depth.bids, state.depth.asks) : null;
     const available = Boolean(bookFresh && ageMs !== null && ageMs <= this.staleMs);
+    const markFresh = Boolean(state.mark && now >= state.mark.at && now - state.mark.at <= 3000);
     return {
       available,
       symbol,
+      markPrice:markFresh ? state.mark.price : null, markAgeMs:state.mark && now >= state.mark.at ? now - state.mark.at : null,
       reason:available ? null : 'STREAM_WARMING_OR_STALE',
       source:'Binance USD-M public WebSocket',
       websocketAvailable:Boolean(this.WebSocketImpl),

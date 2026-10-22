@@ -92,7 +92,7 @@ function endpointWeight(path=''){
   const p=u.pathname, lim=Number(u.searchParams.get('limit')||0), hasSymbol=Boolean(u.searchParams.get('symbol'));
   if(p==='/fapi/v1/depth') return lim>=1000?20:lim>=500?10:lim>=100?5:2;
   if(p==='/fapi/v1/aggTrades') return 20;
-  if(p==='/fapi/v1/klines' || p==='/fapi/v1/continuousKlines') return lim>=1000?10:lim>=500?5:lim>=100?2:1;
+  if(p==='/fapi/v1/klines' || p==='/fapi/v1/continuousKlines' || p==='/fapi/v1/markPriceKlines') return lim>=1000?10:lim>=500?5:lim>=100?2:1;
   if(p==='/fapi/v1/ticker/24hr') return hasSymbol?1:40;
   if(p==='/fapi/v1/ticker/bookTicker') return hasSymbol?2:5;
   if(p==='/fapi/v1/premiumIndex') return hasSymbol?1:10;
