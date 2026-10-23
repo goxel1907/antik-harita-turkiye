@@ -53,7 +53,8 @@ test('R2544.68 video rule: a break makes the zone (top break -> LONG, dip break 
   assert.ok(l.signals[0].stopPrice<l.signals[0].bottom,'LONG stop below the zone');
   // no confirmation: low volume, weak body, wrong colour -> the zone keeps waiting, no entry
   assert.equal(Z.videoScan(scenario('SHORT',t,{qv:1400})).signals.length,0,'1.4x volume is not "hacimli"');
-  assert.equal(Z.videoScan(scenario('SHORT',t,{conf:{o:99.6,c:99.55}})).signals.length,0,'a weak body (0.05 of a 0.15 range) is not "güçlü"');
+  assert.equal(Z.videoScan(scenario('SHORT',t,{conf:{o:99.6,c:99.58}})).signals.length,0,'a weak body (0.02 of a 0.12 range = 17 %) is not "güçlü" (R2544.75: body >= 30 %)');
+  assert.equal(Z.videoScan(scenario('SHORT',t,{conf:{o:99.6,c:99.55}})).signals.length,1,'R2544.75: a 33 % body confirms (measured 23.10: body 30 % n44 +0.31R vs 50 % n36 +0.22R)');
   assert.equal(Z.videoScan(scenario('SHORT',t,{conf:{o:98.6,c:99.6}})).signals.length,0,'a bull candle never confirms a SHORT');
   assert.ok(Z.videoScan(scenario('SHORT',t,{qv:1400})).waiting.some(w=>w.side==='SHORT'),'still waiting for the confirmation');
   // a close beyond the zone ends it

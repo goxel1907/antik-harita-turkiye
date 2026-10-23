@@ -26,7 +26,10 @@ const M15 = 900000;
 const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:false,
   longEnabled:true, shortEnabled:true,                       // her yön kendi anahtarıyla (Office)
   k:1.5, windowBars:48, maxHoldH:24, minStopPct:0.002, maxStopPct:0.08,
-  volMult:1.5, bodyMin:0.5, volLookback:96,                   // onay mumu
+  // R2544.75 (kullanıcı 23.10 "neredeyse hiç işlem yok ... ölç"): onay gövdesi %50 -> %30. 1 ay, o anki ilk 5, süpürme şartlı, 2R kâr koruma
+  // (harness/zirve5/z5_conf.js, 64 ayar): %50 n36 +0,22R (2. yarı -0,31R, 3/5 hafta) -> %30 n44 +0,31R (iki yarı +0,22/+0,58, LONG ve
+  // SHORT artı, 5/5 hafta); komşu ayarlar da artı (2,0x/%30 +0,34R, 2,0x/%40 +0,31R). Süpürmesiz her ayar ~0R.
+  volMult:1.5, bodyMin:0.3, volLookback:96,                   // onay mumu
   topN:5, minQuote24h:20e6, marginQuote:null, leverage:null,
   maxActive:2,                                                // CANLI'da en çok açık lot; TEST'te sınır yok
   riskPct:0.02,                                               // kendi marjı yokken stopta hesabın bu payı
