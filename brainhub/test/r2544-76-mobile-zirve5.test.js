@@ -16,7 +16,7 @@ const z5={ok:true,version:'R2544.68-ZIRVE5-VIDEO',tradingMode:'LIVE',switches:{e
 const top3={version:'v',tradingMode:'LIVE',switches:{enabled:true},active:[{symbol:'REZUSDT',side:'LONG',rule:'LONG_EARLY_RETEST',entryPrice:1,stopPrice:0.99,tpPrice:1.2,part:{atR:2,share:0.5,done:true,beDone:true,price:1.02,qty:5},entryFeatures:{big:'x'.repeat(5000)}}]};
 test('R2544.76 compact status: ZİRVE-5 for the phone (switches, size, kâr koruma, lots with partial and multi-timeframe info, last scan, reasons, results) without dumps',()=>{
   const out=mobileStatus({run:{lanes:{zirve5:{selected:true,liveAllowed:true}}},top3,zirve5:z5});
-  assert.equal(out.mobileContract,'R2544.76_PC_STATUS');
+  assert.equal(out.mobileContract,'R2544.78_PC_STATUS'); // R2544.78: + balance
   const z=out.zirve5;assert.equal(z.sizing.marginQuote,30);assert.equal(z.partial.atR,2);assert.equal(z.switches.liveEnabled,true);assert.equal(z.rules.bodyMin,0.3);
   assert.deepEqual(z.active[0].part,{atR:2,share:0.5,price:0.0232,done:true,beDone:true},'level, share, taken, rest at break-even (no order ids)');
   assert.equal(z.active[0].mtf.against4h,true);assert.equal(z.active[0].why,undefined,'no long text');
@@ -33,6 +33,6 @@ test('R2544.76 compact positions: price R and the kâr koruma state reach the ph
 });
 test('R2544.76 wiring: the core passes ZİRVE-5 to the phone status; ZİRVE-5 open lots carry their kâr koruma state (Office lot line too)',()=>{
   const s=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8'),lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
-  assert.match(s,/mobileStatus\(\{\.\.\.report,top3:live\.top3Status\(\),zirve5:live\.z5Status\(\)\}\)/);
+  assert.match(s,/mobileStatus\(\{\.\.\.report,top3:live\.top3Status\(\),zirve5:live\.z5Status\(\),account\}\)/); // R2544.78: + balance
   assert.match(lc,/against4h:a\.entryFeatures\.mtf\.against4h===true\}:null,part:a\.part\|\|null,beMoved:a\.beMoved===true/);
 });

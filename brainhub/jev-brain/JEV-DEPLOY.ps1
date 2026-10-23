@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
 $EXPECTED_RELEASE = 'R2544.67-TOP3-SUBS'
-$EXPECTED_OFFICE = '2.5.59-R2544.77-JEV-Brain'
+$EXPECTED_OFFICE = '2.5.60-R2544.78-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null
@@ -26,6 +26,9 @@ try {
     if ($tmode -eq 'TEST') { throw 'TEST CALISIYOR (baslatma acik). TEST modunda JEV-TEST-DEPLOY.cmd kullanin; o TEST girislerini durdurup bu deployu calistirir.' }
     throw 'LIVE ACIK. Once LIVE kapatin, sonra deploy edin.'
   }
+  # R2544.78: LIVE renews itself until the user ends it; between a failed renewal and the retry the arm can be off for a moment
+  $autoRenew = $false; try { $autoRenew = ($liveState.tradingMode.run.liveAutoRun -eq $true) } catch { $autoRenew = $false }
+  if ($tmode -eq 'LIVE' -and $autoRenew) { throw 'LIVE ACIK (otomatik yenileme). Once Office/telefon: Durdur ya da TEST e don, sonra deploy edin.' }
   $pos = Open-Positions $RT
   if ($null -eq $pos) { throw 'Acik pozisyon durumu okunamadi; guvenlik icin deploy durduruldu.' }
   # R2544.71: in TEST the open lots are VIRTUAL (paper exchange file); they stay open through the restart with their stop/TP

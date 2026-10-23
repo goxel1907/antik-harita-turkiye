@@ -3297,13 +3297,68 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   //   STOP          : everything off (autorun, OTO, arm). START_TEST / RESET_TEST restart the paper run.
   // A TEST arm can never survive in LIVE: the supervisor disarms it.
   // ---------------------------------------------------------------------------------------------------------------
-  const SWITCH_TIMEOUT_MS=5*60000, AUTORUN_ARM_RETRY_MS=60000;
-  const runState={liveSwitch:null,lastError:null,autorunArmFailAt:0,sawOtoOn:false,lastTickAt:null};
+  const SWITCH_TIMEOUT_MS=5*60000, AUTORUN_ARM_RETRY_MS=60000, LIVE_RENEW_BEFORE_MS=60*60000, LIVE_RENEW_LOG_MS=30*60000;
+  const runState={liveSwitch:null,lastError:null,autorunArmFailAt:0,sawOtoOn:false,lastTickAt:null,liveRenewFailAt:0,liveRenewLogAt:0};
   let supervisorBusy=false;
   const autoRunOn=m=>m.mode==='TEST'&&m.testAutoRun!==false;
   function setAutoRun(on){
     const m=readTradingMode(root,defaultTradingMode);if(m.mode!=='TEST')return;
     const {defaulted,...file}=m;writeTradingMode(root,{...file,mode:'TEST',testAutoRun:on===true});
+  }
+  // R2544.78 (user 23.10: "otomatik yenileme olacak canlıda, ben istediğimde kapat / durdur diyeceğim sadece"): a LIVE started by
+  // the user keeps its arm. The supervisor renews it in the last hour of the 24 h (a fresh Binance account probe each time) and
+  // re-arms it after a PC restart. Only the user ends it: Durdur (STOP), TEST'e dön (once the real lots are flat), LIVE-KAPAT or
+  // any other disarm. A failed probe widens nothing: the arm runs out, new entries stop, and it is retried every minute.
+  function patchMode(fields){
+    const m=readTradingMode(root,defaultTradingMode);if(m.defaulted)return false;
+    const {defaulted,...file}=m,next={...file};
+    for(const [k,v] of Object.entries(fields)){if(v===null||v===undefined)delete next[k];else next[k]=v;}
+    if(JSON.stringify(next)===JSON.stringify(file))return false;
+    writeTradingMode(root,next);paper.invalidateMode();return true;
+  }
+  function setLiveAutoRun(on,reason){
+    const m=readTradingMode(root,defaultTradingMode);
+    if(on===true&&m.mode!=='LIVE')return;
+    if((m.liveAutoRun===true)===(on===true))return;
+    if(patchMode({liveAutoRun:on===true?true:null}))runJournal(on===true?'LIVE_AUTORENEW_ON':'LIVE_AUTORENEW_OFF',{reason:String(reason||'').slice(0,60)});
+  }
+  function liveRenewLog(kind,payload,now){
+    if(now-runState.liveRenewLogAt<LIVE_RENEW_LOG_MS)return;
+    runState.liveRenewLogAt=now;runJournal(kind,payload);
+  }
+  async function renewArm(){
+    const policy=readPolicy(root),creds=currentCredentials();
+    if(!policy.ok)return {ok:false,reasons:policy.reasons||['LIVE_POLICY_REQUIRED']};
+    if(!credentialsReady(creds))return {ok:false,reasons:['BINANCE_CREDENTIALS_REQUIRED']};
+    const generation=armGeneration;
+    try{
+      await transport._syncServerTime();
+      const account=await transport._fetchJson('GET','/fapi/v3/account',{credentials:creds,signed:true});
+      if(!account||typeof account!=='object')throw new Error('BINANCE_ACCOUNT_PREFLIGHT_INVALID');
+      await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});
+    }catch{return {ok:false,reasons:['BINANCE_FUTURES_CREDENTIAL_PROBE_FAILED']};}
+    // a disarm (Durdur / LIVE-KAPAT) while the probe was out wins
+    if(generation!==armGeneration||!armedNow()||readTradingMode(root,defaultTradingMode).liveAutoRun!==true)return {ok:false,reasons:['LIVE_ARM_CANCELLED']};
+    armState={...armState,expiresAt:clock()+policy.armMinutes*60000};
+    return {ok:true,expiresAt:new Date(armState.expiresAt).toISOString()};
+  }
+  async function liveRenewTick(now,m){
+    if(m.mode!=='LIVE'||m.liveAutoRun!==true)return null;
+    const armed=armedNow();
+    if(armed&&armState.expiresAt-now>LIVE_RENEW_BEFORE_MS)return null;
+    if(now-runState.liveRenewFailAt<AUTORUN_ARM_RETRY_MS)return {ok:true,waiting:'LIVE_RENEW_RETRY'};
+    if(armed){
+      const r=await renewArm();
+      if(!r.ok){runState.liveRenewFailAt=now;runState.lastError={at:now,reasons:r.reasons};liveRenewLog('LIVE_ARM_RENEW_FAILED',{reasons:r.reasons,expiresAt:new Date(armState.expiresAt).toISOString()},now);return {ok:false,reasons:r.reasons};}
+      runState.liveRenewFailAt=0;runState.liveRenewLogAt=0;runState.lastError=null;runJournal('LIVE_ARM_RENEWED',{expiresAt:r.expiresAt});
+      return {ok:true,action:'LIVE_ARM_RENEWED'};
+    }
+    // expired (renewals failed for an hour) or the PC restarted: arm again with the same Binance probe as the user's start
+    const a=await arm({confirmed:true,source:'LIVE_AUTORENEW'});
+    if(!a.ok){runState.liveRenewFailAt=now;runState.lastError={at:now,reasons:a.reasons};liveRenewLog('LIVE_REARM_FAILED',{reasons:a.reasons},now);return {ok:false,reasons:a.reasons};}
+    if(readTradingMode(root,defaultTradingMode).liveAutoRun!==true){disarm('LIVE_AUTORENEW_CANCELLED');return {ok:false,reasons:['LIVE_ARM_CANCELLED']};}
+    runState.liveRenewFailAt=0;runState.liveRenewLogAt=0;runState.lastError=null;runJournal('LIVE_REARMED',{expiresAt:a.expiresAt});
+    return {ok:true,action:'LIVE_REARMED'};
   }
   function applyMode(want,{resetPaper=false,balance=null,autoRun=false}={}){
     const cur=readTradingMode(root,defaultTradingMode),now=clock();
@@ -3396,6 +3451,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(!a.ok){stopEntries('LIVE_ARM_FAILED');return failSwitch('LIVE_ARM_FAILED',{reasons:a.reasons});}
       runState.liveSwitch={state:'LIVE_ON',target:'LIVE',at:now,available:pre.available,wallet:pre.wallet,required:pre.required};
       runJournal('LIVE_STARTED',{available:pre.available,wallet:pre.wallet,marginQuote:pre.required,paperClosed:sw.paperClosed||0});
+      setLiveAutoRun(true,'USER_GO_LIVE'); // R2544.78
       return {ok:true,action:'LIVE_STARTED'};
     }
     if(sw.state==='LIVE_WIND_DOWN'){
@@ -3424,8 +3480,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const {defaulted,...file}=m;writeTradingMode(root,{...file,testAutoRun:wasOn,testStartedAt:null,r52MigratedAt:new Date(now).toISOString()});
         paper.invalidateMode();m=readTradingMode(root,defaultTradingMode);runJournal('TEST_AUTORUN_MIGRATED',{testAutoRun:wasOn});
       }
+      // R2544.78: a "TEST'e dön" in progress survives a restart; the LIVE arm is renewed until the user ends it
+      if(!runState.liveSwitch&&m.mode==='LIVE'&&m.liveWindDownAt){runState.liveSwitch={state:'LIVE_WIND_DOWN',target:'TEST',requestedAt:Date.parse(m.liveWindDownAt)||now,restored:true};runJournal('LIVE_WIND_DOWN_RESTORED',{since:m.liveWindDownAt});}
+      const renew=await liveRenewTick(now,m);
       const sw=runState.liveSwitch;
-      if(sw&&['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(sw.state))return await progressSwitch(now);
+      if(sw&&['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(sw.state)){const p=await progressSwitch(now);return renew?.action&&!p?.action?{...p,action:renew.action}:p;}
+      if(renew)return renew;
       if(m.mode!=='TEST'&&armSource==='TEST_AUTORUN'&&armedNow()){disarm('TEST_AUTORUN_MODE_LEFT');return {ok:true,action:'DISARMED_TEST_ARM_IN_LIVE'};}
       if(!autoRunOn(m))return {ok:true,idle:true,mode:m.mode};
       // R2544.57: the TEST run arms the paper account; OTO follows the "Normal sistem" lane selection (an OTO change from
@@ -3450,6 +3510,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const done=extra=>({ok:true,...extra,tradingMode:tradingModeStatus()});
     if(act==='STOP'){
       runState.liveSwitch=null;setAutoRun(false);runState.sawOtoOn=false;
+      setLiveAutoRun(false,'USER_STOP');patchMode({liveWindDownAt:null}); // R2544.78: Durdur ends the LIVE auto-renew
       const o=stopEntries('USER_STOP');if(armedNow())disarm('USER_STOP');
       // TEST: a full stop also closes the virtual lots (booked as TEST) so the system is flat (deploy needs 0 positions).
       // LIVE: real lots are never touched here; their exchange stop/TP orders stay.
@@ -3489,7 +3550,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return r.ok===false?{ok:false,reasons:r.reasons,detail:r.detail||null,tradingMode:tradingModeStatus()}:done({action:act,progress:r});
     }
     if(act==='GO_LIVE'){
-      if(m.mode==='LIVE'&&armedNow())return done({action:act,unchanged:true});
+      if(m.mode==='LIVE'&&armedNow()){setLiveAutoRun(true,'USER_GO_LIVE');return done({action:act,unchanged:true});}
       const pre=await liveAccountPreflight();
       if(!pre.ok){runJournal('RUN_CONTROL_REFUSED',{action:act,reasons:pre.reasons,detail:pre.detail||null});return {ok:false,reasons:pre.reasons,detail:pre.detail||null,tradingMode:tradingModeStatus()};}
       runJournal('RUN_CONTROL',{action:act,available:pre.available,wallet:pre.wallet,required:pre.required});
@@ -3506,6 +3567,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       stopEntries('GO_TEST');top3Lib.writeTop3Switches(root,{liveEnabled:false}); // R2544.57: no new real İlk 3 entry; open lots keep their exits
       z5Lib.writeConfig(root,{liveEnabled:false});z5State().armed={}; // R2544.67.2: the same for ZİRVE-5
       runState.liveSwitch={state:'LIVE_WIND_DOWN',target:'TEST',requestedAt:now};
+      patchMode({liveWindDownAt:new Date(now).toISOString()}); // R2544.78: survives a restart; the arm keeps managing open lots until flat
       runJournal('RUN_CONTROL',{action:act});
       const r=await testSupervisorTick();
       return r.ok===false?{ok:false,reasons:r.reasons,tradingMode:tradingModeStatus()}:done({action:act,progress:r});
@@ -3520,6 +3582,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!a.ok){stopEntries('LIVE_ARM_FAILED');runState.liveSwitch={state:'FAILED',target:'LIVE',reason:'LIVE_ARM_FAILED',detail:{reasons:a.reasons},at:now};return {ok:false,reasons:['LIVE_ARM_FAILED'],detail:{reasons:a.reasons}};}
     runState.liveSwitch={state:'LIVE_ON',target:'LIVE',at:now,available:pre.available,wallet:pre.wallet,required:pre.required};
     runJournal('LIVE_STARTED',{available:pre.available,wallet:pre.wallet,marginQuote:pre.required,paperClosed:0});
+    setLiveAutoRun(true,'USER_GO_LIVE'); // R2544.78
     return {ok:true,action:'LIVE_STARTED'};
   }
   function runStatus(){
@@ -3527,7 +3590,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const sw=runState.liveSwitch,busy=['CLOSING_TEST','RESETTING_TEST','LIVE_WIND_DOWN'].includes(sw?.state);
     // R2544.57: the run is on when armed (İlk 3 alone is a running system); OTO is the normal lane
     const state=busy?sw.state:armed?(m.mode==='TEST'?'TEST_RUNNING':'LIVE_RUNNING'):oto?'HALF_ON':'STOPPED';
-    return {state,lanes:laneStatus(),testAutoRun:autoRunOn(m),armSource:armed?armSource:null,switch:sw?{...sw}:null,lastError:runState.lastError,supervisorAt:runState.lastTickAt?new Date(runState.lastTickAt).toISOString():null};
+    // R2544.78: LIVE auto-renew state for Office / phone / deploy check
+    const liveAutoRun=m.mode==='LIVE'&&m.liveAutoRun===true;
+    return {state,lanes:laneStatus(),testAutoRun:autoRunOn(m),liveAutoRun,armExpiresAt:armed?new Date(armState.expiresAt).toISOString():null,
+      nextRenewAt:liveAutoRun&&armed?new Date(armState.expiresAt-LIVE_RENEW_BEFORE_MS).toISOString():null,liveWindDown:m.mode==='LIVE'&&!!m.liveWindDownAt,
+      armSource:armed?armSource:null,switch:sw?{...sw}:null,lastError:runState.lastError,supervisorAt:runState.lastTickAt?new Date(runState.lastTickAt).toISOString():null};
   }
   function status() {
     const policy = readPolicy(root);
@@ -4043,6 +4110,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   function disarm(reason = 'USER_DISARM') {
     armGeneration++;
+    try { setLiveAutoRun(false, reason); } catch {} // R2544.78: LIVE-KAPAT / any disarm ends the LIVE auto-renew
     const revoked = registry.revokeAll();
     armState = { armed:false, armedAt:null, expiresAt:null };
     armSource = null;
@@ -6783,7 +6851,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,
+  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
     _testTop3State:()=>top3State, _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };

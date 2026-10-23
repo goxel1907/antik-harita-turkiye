@@ -44,6 +44,11 @@ function mobileStatus(status={}){
       recent:(z.recentEntries||[]).slice(0,6).map(x=>pick(x,['at','symbol','side','opened','reason','rank'])),
       results:z.results?{test:z.results.test||null,live:z.results.live||null}:null,learning:z.learning||null};
   }
-  out.compact=true;out.mobileContract='R2544.76_PC_STATUS';return out;
+  // R2544.78 (user 23.10: "apk'da marj ve kaldıraç ayarı, güncel bakiye durumu da olmalı"): the account of the current mode
+  // (TEST: the paper account, LIVE: Binance) - wallet, free, equity, open PnL
+  const ac=status.account;
+  if(ac&&typeof ac==='object')out.account=ac.ok===true?{ok:true,walletBalance:ac.walletBalance,availableBalance:ac.availableBalance,equity:ac.equity,unrealizedPnl:ac.unrealizedPnl,openPositions:ac.openPositions,asOf:ac.asOf}
+    :{ok:false,reason:String((ac.reasons||[])[0]||'ACCOUNT_UNREADABLE').slice(0,80)};
+  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';return out;
 }
 module.exports={mobileStatus};
