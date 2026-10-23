@@ -13,7 +13,7 @@ test('R2544.33 Android transport hotfix builds BrainHub on 8443 and preserves PC
   assert.match(cm,/https:\/\/8z9rvd\.tail8c30c4\.ts\.net:8443/);
   assert.match(cm,/versionName '9\.5\.122-r2544\.33-brainhub-8443'/);
   assert.match(cm,/versionCode 26100401/);
-  assert.match(cm,/Futures15mAlarm-PRO-v9\.5\.122-R2544\.33-BRAINHUB-8443\.apk/);
+  assert.match(cm,/artifacts:\s*\n\s*- Futures15mAlarm-PRO-v9\.5\.\d+-R2544\.\d+-[A-Z0-9-]+\.apk/,'a signed release APK artifact (the name changes every release; R2544.76)');
   assert.match(patch,/FIXED_ENDPOINT/);
   assert.match(patch,/ANDROID_ORDER_INITIATION_DISABLED_PC_ONLY/);
   assert.match(patch,/no_live_execute/);
