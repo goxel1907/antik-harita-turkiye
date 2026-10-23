@@ -376,29 +376,39 @@ function excursions(side, entry, candles) {
     : { mfePct: 1 - lo / e, maePct: 1 - hi / e, mfeAt: loAt, maeAt: hiAt, bars: rows.length };
 }
 const pctTr = v => v === null || v === undefined ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1).replace('.', ',') + '%';
-const RULE_TR = { LONG_6OF6: 'LONG 6/6', SHORT_TOP_FADE: 'SHORT tepe sonrası', LONG_EARLY_RETEST: 'Erken LONG (5 dk geri test)', SHORT_TOP_BREAK: 'Tepe SHORT (5 dk kırılım)' };
-const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_BE_STOP: 'başabaş stop (1R sonrası korunan)', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer',
+const RULE_TR = { LONG_6OF6: 'LONG 6/6', SHORT_TOP_FADE: 'SHORT tepe sonrası', LONG_EARLY_RETEST: 'Erken LONG (5 dk geri test)', SHORT_TOP_BREAK: 'Tepe SHORT (5 dk kırılım)',
+  ZIRVE5_FIBO_LONG: 'ZİRVE-5 LONG (15 dk alan onayı)', ZIRVE5_FIBO_SHORT: 'ZİRVE-5 SHORT (15 dk alan onayı)' }; // R2544.77
+const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_BE_STOP: 'başabaş stop (kâr koruma sonrası)', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer',
   TOP3_SYSTEM_CLOSE: 'sistem kapattı (durdurma / kurulum / mod geçişi; kural sonucu değil)', TOP3_EXTERNAL_CLOSE: 'dışarıdan kapatıldı (stop / hedef değil)' };
 // R2544.57 (14.10 deploy STOP): a lot the core closed itself (STOP, TEST reset, switch to LIVE) or that was closed outside
 // the lane without its stop/target is CUT_SHORT - not a stop; the rule never reached its own exit.
 const CUT_SHORT_EXITS = new Set(['TOP3_SYSTEM_CLOSE', 'TOP3_EXTERNAL_CLOSE']);
 // lot: the closed lot (state record + exitPrice/closedAt); close: the POSITION_CLOSED record; path: excursions() or null.
+// R2544.77 (user 23.10: "beyine doğru öğrenim gitmiş mi"): ZİRVE-5 exits (ZIRVE5_*) map to the same tags; a lot whose part was taken
+// (kâr koruma) has a BLENDED result - the rest's exit price alone said "kazanç -0,1 %" on a +0,42 R win; a winner that ran >= 3R and
+// came back gets GAVE_BACK (AKE 23.10: 6,2R seen, closed at break-even).
+const normExit = t => (t ? String(t).replace(/^ZIRVE5_/, 'TOP3_') : null);
 function buildLesson(lot, close, path) {
   const side = lot.side, entry = finite(lot.entryPrice), exit = finite(lot.exitPrice) ?? null;
   const stopPct = finite(lot.stopPct), tp = finite(lot.tpPrice);
   const targetPct = entry > 0 && tp > 0 ? (side === 'LONG' ? tp / entry - 1 : 1 - tp / entry) : null;
   // without an exit fill price the result falls back to the booked net result (net PnL / notional)
   const outcome = finite(close?.outcomePct);
-  const resultPct = entry > 0 && exit > 0 ? (side === 'LONG' ? exit / entry - 1 : 1 - exit / entry) : outcome !== null ? outcome / 100 : null;
+  const part = close?.partial && close.partial.taken === true ? close.partial : (lot.part && lot.part.done === true ? { atR:lot.part.atR, share:lot.part.share, taken:true } : null);
+  // kâr koruma taken: the result is the whole lot's (net PnL / notional), never the rest's exit price alone
+  const resultPct = part && outcome !== null ? outcome / 100 : entry > 0 && exit > 0 ? (side === 'LONG' ? exit / entry - 1 : 1 - exit / entry) : outcome !== null ? outcome / 100 : null;
   const net = finite(close?.netPnl), r = finite(close?.rMultiple);
   const mfe = path ? path.mfePct : finite(lot.sampleMfePct), mae = path ? path.maePct : finite(lot.sampleMaePct);
-  const exitType = close?.exitType || null;
+  const exitType = close?.exitType || null, xt = normExit(exitType);
+  const mfeR = stopPct > 0 && mfe !== null ? mfe / stopPct : null;
   const tags = [];
-  if (exitType === 'TOP3_TAKE_PROFIT') tags.push('TARGET_HIT');
-  if (exitType === 'TOP3_STOP' || exitType === 'TOP3_STOP_OR_EXTERNAL') tags.push('STOPPED');
-  if (exitType === 'TOP3_TIME_EXIT') tags.push('TIME_EXIT');
-  if (exitType === 'TOP3_BE_STOP') tags.push('BREAKEVEN_STOP');
-  if (CUT_SHORT_EXITS.has(exitType)) tags.push('CUT_SHORT', exitType === 'TOP3_SYSTEM_CLOSE' ? 'SYSTEM_CLOSE' : 'EXTERNAL_CLOSE');
+  if (xt === 'TOP3_TAKE_PROFIT') tags.push('TARGET_HIT');
+  if (xt === 'TOP3_STOP' || xt === 'TOP3_STOP_OR_EXTERNAL') tags.push('STOPPED');
+  if (xt === 'TOP3_TIME_EXIT') tags.push('TIME_EXIT');
+  if (xt === 'TOP3_BE_STOP') tags.push('BREAKEVEN_STOP');
+  if (CUT_SHORT_EXITS.has(xt)) tags.push('CUT_SHORT', xt === 'TOP3_SYSTEM_CLOSE' ? 'SYSTEM_CLOSE' : 'EXTERNAL_CLOSE');
+  if (part) tags.push('PARTIAL_TAKEN');
+  if (mfeR !== null && r !== null && mfeR >= 3 && r <= mfeR - 2 && !tags.includes('TARGET_HIT')) tags.push('GAVE_BACK');
   if (tags.includes('STOPPED') && targetPct > 0 && mfe !== null && mfe >= targetPct / 2) tags.push('STOPPED_AFTER_HALF_TARGET');
   if (mfe !== null && mfe < 0.002) tags.push('NEVER_IN_PROFIT');
   if (lot.signalKind === 'REPEAT') tags.push('REPEAT_SIGNAL');
@@ -407,7 +417,9 @@ function buildLesson(lot, close, path) {
   const lessonTr = `${RULE_TR[lot.rule] || lot.rule}${lot.signalKind === 'REPEAT' ? ' (tekrar sinyal)' : ''}: ` +
     `${verdict === 'WIN' ? 'kazanç' : verdict === 'LOSS' ? 'kayıp' : verdict === 'FLAT' ? 'başabaş' : 'sonuç bilinmiyor'} ${pctTr(resultPct)}` +
     `${r !== null ? ' / ' + r.toFixed(2).replace('.', ',') + ' R' : ''}${holdH !== null ? ', ' + holdH.toFixed(1).replace('.', ',') + ' sa' : ''}; ` +
-    `en iyi ${pctTr(mfe)}${targetPct > 0 && mfe !== null ? ' (hedefin %' + Math.round(Math.max(0, mfe) / targetPct * 100) + "'i)" : ''}, en kötü ${pctTr(mae)}; çıkış ${EXIT_TR[exitType] || exitType || '—'}.` +
+    `en iyi ${pctTr(mfe)}${mfeR !== null ? ' = ' + mfeR.toFixed(1).replace('.', ',') + ' R' : ''}${targetPct > 0 && mfe !== null ? ' (hedefin %' + Math.round(Math.max(0, mfe) / targetPct * 100) + "'i)" : ''}, en kötü ${pctTr(mae)}; çıkış ${EXIT_TR[xt] || exitType || '—'}.` +
+    (part ? ` Kâr koruma: %${Math.round((finite(part.share) || 0.5) * 100)}'si ${String(finite(part.atR) ?? 1).replace('.', ',')}R'de alındı (sonuç tüm lotun).` : '') +
+    (tags.includes('GAVE_BACK') ? ` ${mfeR.toFixed(1).replace('.', ',')} R gördükten sonra kârın çoğunu geri verdi.` : '') +
     (tags.includes('STOPPED_AFTER_HALF_TARGET') ? ' Hedefin yarısını gördükten sonra stop oldu.' : '') +
     (tags.includes('CUT_SHORT') ? ' Yarıda kesildi: kural kendi stop / hedef / 24 saat çıkışına ulaşmadı.' : '') +
     (tags.includes('NEVER_IN_PROFIT') ? ' Hiç kâra geçmedi.' : '');
@@ -416,9 +428,10 @@ function buildLesson(lot, close, path) {
     // kind UNLABELED: a lot opened before the signal label existed (never counted as FRESH)
     v: 1, id: lot.id, symbol: lot.symbol, side, rule: lot.rule, kind: lot.signalKind || 'UNLABELED', mode: lot.mode || 'TEST',
     openedAt: finite(lot.openedAt), closedAt: finite(lot.closedAt), holdH: round4(holdH), entryPrice: entry, exitPrice: exit,
-    stopPct: round4(stopPct), targetPct: round4(targetPct), resultPct: round4(resultPct), resultBasis: exit > 0 ? 'EXIT_PRICE' : resultPct !== null ? 'NET_PNL' : null,
+    stopPct: round4(stopPct), targetPct: round4(targetPct), resultPct: round4(resultPct), resultBasis: part && outcome !== null ? 'NET_PNL_WHOLE_LOT' : exit > 0 ? 'EXIT_PRICE' : resultPct !== null ? 'NET_PNL' : null,
+    partial: part ? { atR:finite(part.atR), share:finite(part.share), taken:true } : null,
     netPnl: net, rMultiple: round4(r), verdict, exitType,
-    mfePct: round4(mfe), maePct: round4(mae), mfeR: stopPct > 0 && mfe !== null ? round4(mfe / stopPct) : null,
+    mfePct: round4(mfe), maePct: round4(mae), mfeR: round4(mfeR),
     pathSource: path ? '5m' : (mfe !== null ? 'SAMPLES_30S' : 'NONE'), features: lot.entryFeatures || null, jev: lot.jev?.decision || null, tags, lessonTr
   };
 }
@@ -428,7 +441,25 @@ function buildLesson(lot, close, path) {
 // STOP; alone = outside. Only the lane memory is relabelled; the closed-trade ledger keeps its raw records.
 function repairLessons(lessons) {
   const xs = Array.isArray(lessons) ? lessons : []; let repaired = 0;
-  const out = xs.map(l => {
+  const out = xs.map(l0 => {
+    // R2544.77: lessons written before this build - ZİRVE-5 exits had no tags; a kâr koruma lot (break-even exit with R > 0.2) showed
+    // the rest's exit % ("kazanç -0,1 %" on a +0,42 R win); "1R sonrası korunan"; no GAVE_BACK. Repaired once (r2544_77 marker).
+    let l = l0;
+    if (l && !l.r2544_77) {
+      const xt = normExit(l.exitType), r = finite(l.rMultiple), sp = finite(l.stopPct), mfeR = finite(l.mfeR) ?? (sp > 0 && finite(l.mfePct) !== null ? l.mfePct / sp : null);
+      const tags = Array.isArray(l.tags) ? [...l.tags] : []; let text = String(l.lessonTr || ''), rp = finite(l.resultPct), basis = l.resultBasis || null, changed = false;
+      const add = t => { if (!tags.includes(t)) { tags.push(t); changed = true; } };
+      if (xt !== l.exitType) { if (xt === 'TOP3_TAKE_PROFIT') add('TARGET_HIT'); if (xt === 'TOP3_STOP') add('STOPPED'); if (xt === 'TOP3_TIME_EXIT') add('TIME_EXIT'); if (xt === 'TOP3_BE_STOP') add('BREAKEVEN_STOP');
+        if (CUT_SHORT_EXITS.has(xt)) { add('CUT_SHORT'); add(xt === 'TOP3_SYSTEM_CLOSE' ? 'SYSTEM_CLOSE' : 'EXTERNAL_CLOSE'); } }
+      if (xt === 'TOP3_BE_STOP' && r !== null && r > 0.2 && sp > 0 && rp !== null && rp < r * sp - 0.002) {   // a half was taken: whole-lot result ~ R x stop %
+        rp = Number((r * sp).toFixed(4)); basis = 'R_X_STOP_WHOLE_LOT'; add('PARTIAL_TAKEN');
+        text = text.replace(/(kazanç|kayıp|başabaş) [-+]?[0-9]+,[0-9]+%/, 'kazanç ' + (rp >= 0 ? '+' : '') + (rp * 100).toFixed(1).replace('.', ',') + '%'); changed = true; }
+      if (mfeR !== null && r !== null && mfeR >= 3 && r <= mfeR - 2 && !tags.includes('TARGET_HIT')) { add('GAVE_BACK'); text += ' ' + mfeR.toFixed(1).replace('.', ',') + ' R gördükten sonra kârın çoğunu geri verdi.'; }
+      if (text.includes('1R sonrası korunan')) { text = text.replace('1R sonrası korunan', 'kâr koruma sonrası'); changed = true; }
+      if (xt !== l.exitType && EXIT_TR[xt] && text.includes('çıkış ' + l.exitType)) { text = text.replace('çıkış ' + l.exitType, 'çıkış ' + EXIT_TR[xt]); changed = true; }
+      for (const [k, v] of Object.entries(RULE_TR)) if (k.startsWith('ZIRVE5_') && text.startsWith(k + ':')) { text = v + text.slice(k.length); changed = true; }
+      if (changed) { repaired++; l = { ...l, tags, lessonTr:text, resultPct:rp, resultBasis:basis, mfeR:mfeR !== null ? Number(mfeR.toFixed(4)) : null, r2544_77:true }; }
+    }
     // R2544.62: a close after the break-even move was booked against the moved stop (CTR 42.6R, SIREN 69.4R); the lesson
     // keeps the entry stop %, so R = result % / entry stop % minus the 0.1 % round-trip fee.
     {const r = finite(l?.rMultiple), sp = finite(l?.stopPct), rp = finite(l?.resultPct);
@@ -438,7 +469,7 @@ function repairLessons(lessons) {
      }}
     if (l?.exitType !== 'TOP3_STOP_OR_EXTERNAL' || finite(l.exitPrice) > 0) return l;
     const r = finite(l.rMultiple); if (r === null || r <= -0.9) return l;
-    const batch = xs.some(o => o !== l && finite(o?.closedAt) !== null && Math.abs(o.closedAt - l.closedAt) <= 5000);
+    const batch = xs.some(o => o !== l0 && finite(o?.closedAt) !== null && Math.abs(o.closedAt - l.closedAt) <= 5000);
     const entry = finite(l.entryPrice), t = finite(l.targetPct), stopPct = finite(l.stopPct);
     const lot = { id: l.id, symbol: l.symbol, side: l.side, rule: l.rule, signalKind: l.kind === 'UNLABELED' ? undefined : l.kind, mode: l.mode,
       entryPrice: entry, exitPrice: null, stopPct, tpPrice: entry > 0 && t !== null ? (l.side === 'LONG' ? entry * (1 + t) : entry * (1 - t)) : null,

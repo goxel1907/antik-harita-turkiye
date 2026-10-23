@@ -1125,7 +1125,9 @@ function renderLedger(s){
   // R2544.52 (07.10 kullanıcı: "PnL üstte başka altta başka"): TEST'te açık pozisyonun anlık fiyat/PnL/R'si mod çubuğuyla
   // aynı sanal hesap anlık görüntüsünden gelir; defter okuması 30 sn'ye kadar eski olabilir.
   const tmL=s.status?.data?.tradingMode, livePaper=tmL?.mode==='TEST'&&Array.isArray(tmL?.paper?.positions)?new Map(tmL.paper.positions.map(x=>[x.symbol,x])):null;
-  if(livePaper) for(const p of open){ const q=livePaper.get(p.symbol); if(!q||q.markPrice==null) continue; p.markPrice=q.markPrice; p.unrealizedPnl=q.unrealizedPnl; const rq=Number(p.riskQuote); if(Number.isFinite(rq)&&rq>0) p.unrealizedR=Number((q.unrealizedPnl/rq).toFixed(2)); }
+  if(livePaper) for(const p of open){ const q=livePaper.get(p.symbol); if(!q||q.markPrice==null) continue; p.markPrice=q.markPrice; p.unrealizedPnl=q.unrealizedPnl; const rq=Number(p.riskQuote); if(Number.isFinite(rq)&&rq>0) p.unrealizedR=Number((q.unrealizedPnl/rq).toFixed(2));
+    // R2544.77: the price R from the same live mark (it was computed from the ledger's older mark)
+    const e0=Number(p.entryPrice),s0=Number(p.originalStopPrice??p.stopPrice),m0=Number(q.markPrice);if(e0>0&&s0>0&&m0>0&&e0!==s0)p.priceR=Number(((String(p.side).toUpperCase()==='LONG'?1:-1)*(m0-e0)/Math.abs(e0-s0)).toFixed(2)); }
   const openPnl=livePaper?open.reduce((a,x)=>a+(Number(x.unrealizedPnl)||0),0):Number(d.openUnrealizedPnl||0);
   $('#posHint').textContent=`${open.length} açık • açık PnL ${openPnl.toFixed(2)} USDT${livePaper?' (anlık; mod çubuğuyla aynı)':''} • defter ${d.asOf?fmtTime(Date.parse(d.asOf)):'—'}${d.ledgerOk===false?' • OKUNAMIYOR: '+(d.ledgerError||''):''}`;
   $('#openPos').innerHTML = open.length ? `<tr><th>Sembol</th><th>Yön</th><th>Açan</th><th>Sürüm</th><th>Giriş</th><th>Anlık</th><th>PnL USDT</th><th>R</th><th>Stop</th><th>TP1</th><th>İz süren</th><th>Açılış</th><th>Hat/TF</th><th>Giriş nedeni</th></tr>`+

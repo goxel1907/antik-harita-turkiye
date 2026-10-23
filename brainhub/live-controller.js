@@ -371,6 +371,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   let top3State=(()=>{try{const x=JSON.parse(fs.readFileSync(TOP3_STATE_FILE,'utf8'));if(x&&typeof x.active==='object'&&x.active&&Array.isArray(x.pendingCloses))return x;}catch{}return {version:top3Lib.TOP3_VERSION,active:{},pendingCloses:[],recentCloses:[],recentSignals:[],lastEntry:{},lastScanHour:null,lastScan:null,bootstrap:null,lessons:[]};})();
   if(!Array.isArray(top3State.lessons))top3State.lessons=[];
   const saveTop3State=()=>{try{fs.mkdirSync(path.dirname(TOP3_STATE_FILE),{recursive:true});const tmp=TOP3_STATE_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(top3State),'utf8');fs.renameSync(tmp,TOP3_STATE_FILE);}catch{}};
+  // R2544.77: the ZİRVE-5 lane memory (its own lessons) gets the same one-time repair
+  {const z=top3State.z5;if(z&&Array.isArray(z.lessons)){const rep=top3Lib.repairLessons(z.lessons);if(rep.repaired){z.lessons=rep.lessons;saveTop3State();try{store?.journal?.('ZIRVE5_LESSONS_REPAIRED',null,{repaired:rep.repaired,reason:'R2544_77_LESSONS'});}catch{}}}}
   {const rep=top3Lib.repairLessons(top3State.lessons);if(rep.repaired){top3State.lessons=rep.lessons;saveTop3State();try{store?.journal?.('TOP3_LESSONS_REPAIRED',null,{repaired:rep.repaired,reason:'CUT_SHORT_NOT_STOP'});}catch{}}}
   const top3Ranks=new top3Lib.RankBook({file:path.join(String(root),'data','top3-ranks.json'),keepHours:200});
   // R2544.58 (15.10: 我踏马来了USDT was entered; the store books only [A-Z0-9] symbols, so its entry/close could not be
