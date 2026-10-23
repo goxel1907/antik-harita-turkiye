@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.126-r2544.58-system + PC SISTEM KAPAT + ILK 3 v2 (5m) + PC LANES + PC POSITION SYNC
+    name: Futures 15m Alarm PRO APK v9.5.127-r2544.76-zirve5 + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -588,6 +588,20 @@ workflows:
             exit 1
           fi
           echo V95134_R2544_58_SYSTEM_OK
+          # R2544.76: ZIRVE-5 on the phone (lane switch, lots, size, kar koruma, CANLI dialog with what one stop costs); still never an order.
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95135_r2544_76_zirve5.py"
+          grep -q V95135_R2544_76_ZIRVE5 /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'public static JSONObject selectLane(Context c, String key, boolean on, boolean liveConfirm)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q 'r2544_76_z5' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q 'static String v95135Z5Text(SharedPreferences sp)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q 'V95113PcTruth.v95135StopCostText(sp, t, z)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "versionName '9.5.127-r2544.76-zirve5'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26102301' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'post(c, "/live/execute", intent, true)\|post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_76_ANDROID_ORDER_INITIATION_FORBIDDEN'
+            exit 1
+          fi
+          echo V95135_R2544_76_ZIRVE5_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
@@ -761,7 +775,7 @@ workflows:
           jarsigner -keystore "$CM_KEYSTORE_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" "$TMP_SIGN/probe.jar" "$CM_KEY_ALIAS" >/dev/null
           echo 'Stable keystore private key check OK.'
 
-      - name: Build installable v9.5.126-r2544.58-system PC-only signed APK
+      - name: Build installable v9.5.127-r2544.76-zirve5 PC-only signed APK
         script: |
           set -o pipefail
           cd /tmp/futures15m-build/Futures15mAlarm
@@ -807,9 +821,9 @@ workflows:
             exit 1
           fi
           test -s app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.126-R2544.58-SYSTEM.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.127-R2544.76-ZIRVE5.apk"
 
-          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.126-R2544.58-SYSTEM.apk"
+          APK="$CM_BUILD_DIR/Futures15mAlarm-PRO-v9.5.127-R2544.76-ZIRVE5.apk"
           SDK_PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           APKSIGNER="$(find "$SDK_PATH/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
@@ -820,5 +834,5 @@ workflows:
           echo 'SIGNED_RELEASE_APK_VERIFIED'
 
     artifacts:
-      - Futures15mAlarm-PRO-v9.5.126-R2544.58-SYSTEM.apk
+      - Futures15mAlarm-PRO-v9.5.127-R2544.76-ZIRVE5.apk
       - v9595-gradle.log
