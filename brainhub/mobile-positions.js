@@ -1,7 +1,7 @@
 'use strict';
 // Read-only projection. Keep exchange/ledger truth and measured totals, omit entry-case dossiers.
 function pick(row,keys){return Object.fromEntries(keys.filter(k=>row?.[k]!==undefined).map(k=>[k,row[k]]));}
-const OPEN=['symbol','side','quantity','entryPrice','markPrice','unrealizedPnl','unrealizedR','leverage','notional','liquidationPrice','stopPrice','originalStopPrice','takeProfit1','runnerPhase','trailTf','openedBy','openedAt','lane','originTF','setup','strategyVersion','releaseContract'];
+const OPEN=['symbol','side','quantity','entryPrice','markPrice','unrealizedPnl','unrealizedR','leverage','notional','liquidationPrice','stopPrice','originalStopPrice','takeProfit1','runnerPhase','trailTf','openedBy','openedAt','lane','originTF','setup','strategyVersion','releaseContract','priceR','partialTaken','partAtR','partShare']; // R2544.76: price R + kâr koruma
 const CLOSED=['symbol','side','netPnl','rMultiple','exitType','closedAt','ts','tradeLane','originTF','holdMinutes'];
 function mobilePositions(report={}){
   return {...pick(report,['ok','asOf','ledgerOk','ledgerError','openCount','openUnrealizedPnl','summary','deskSummary','execution']),

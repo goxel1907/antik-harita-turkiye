@@ -15,11 +15,13 @@ function mobileStatus(status={}){
   }
   // R2544.57: İlk 3 Avcısı for the APK (no lessons text, no scan dumps)
   const t=status.top3;
+  const pick=(o,ks)=>o&&typeof o==='object'?Object.fromEntries(ks.filter(k=>o[k]!==undefined).map(k=>[k,o[k]])):null;
+  // R2544.76: the kâr koruma state of a lot (level, share, taken, rest at break-even)
+  const partOf=p=>p&&typeof p==='object'?(p.skipped?{skipped:p.skipped}:pick(p,['atR','share','price','done','beDone'])):null;
   if(t&&typeof t==='object'){
-    const pick=(o,ks)=>o&&typeof o==='object'?Object.fromEntries(ks.filter(k=>o[k]!==undefined).map(k=>[k,o[k]])):null;
     out.top3={version:t.version,tradingMode:t.tradingMode,switches:t.switches,gate:t.gate,running:t.running,settings:t.settings||null,
       testWindow:pick(t.testWindow,['startedAt','endsAt','elapsedH','remainingMin','done','scans','okScans','signals','entries']),
-      active:(t.active||[]).slice(0,12).map(a=>pick(a,['symbol','side','rule','signalKind','mode','entryPrice','stopPrice','tpPrice','markPrice','unrealizedPnl','leverage','marginQuote','remainingMin','riskQuote'])),
+      active:(t.active||[]).slice(0,12).map(a=>({...pick(a,['symbol','side','rule','signalKind','mode','entryPrice','stopPrice','tpPrice','markPrice','unrealizedPnl','leverage','marginQuote','remainingMin','riskQuote']),part:partOf(a.part)})),
       lastScan:t.lastScan?{at:t.lastScan.at,candle:t.lastScan.candle,ranked:t.lastScan.ranked,signals:(t.lastScan.signals||[]).slice(0,8).map(x=>({symbol:x.symbol,side:x.side,kind:x.kind||null})),errors:(t.lastScan.errors||[]).slice(0,3)}:null,
       // R2544.58 v2: rules version, risk per trade and the last 5m pass for the phone
       rules:t.rules?{rulesVersion:t.rules.rulesVersion??1,riskPct:t.rules.riskPct??null}:null,
@@ -29,6 +31,19 @@ function mobileStatus(status={}){
       results:t.results||null,windowResults:t.windowResults||null,
       learning:t.learning?{lessons:t.learning.lessons,groups:(t.learning.groups||[]).slice(0,8)}:null};
   }
-  out.compact=true;out.mobileContract='R2544.58_PC_STATUS';return out;
+  // R2544.76 ZİRVE-5 for the APK (user 23.10: "APK'yı da güncelle, canlıya geçtiğimizde sorun olmasın"): switches, size, kâr koruma,
+  // open lots, the last scan, the latest decisions with their reasons, results - no zone dumps, no lessons text
+  const z=status.zirve5;
+  if(z&&typeof z==='object'&&z.ok!==false){
+    const ls=z.lastScan;
+    out.zirve5={version:z.version,tradingMode:z.tradingMode,switches:z.switches,partial:z.partial,decisions:z.decisions,gate:z.gate,running:z.running,sizing:z.sizing||null,
+      rules:pick(z.rules,['topN','volMult','bodyMin','minStopPct','maxStopPct','maxHoldH']),nextScanAt:z.nextScanAt||null,armedCoins:Array.isArray(z.armed)?z.armed.length:0,
+      lastScan:ls?{at:ls.at||null,bar:ls.bar||null,signals:ls.signals??null,armed:ls.armed??null,errors:(ls.errors||[]).slice(0,3),
+        top:(ls.top||[]).slice(0,5).map(r=>({symbol:r.symbol,rank:r.rank,zones:Array.isArray(r.zones)?r.zones.length:(r.zones??null),signals:(r.signals||[]).map(g=>({side:g.side,mtf:g.mtf||null}))}))}:null,
+      active:(z.active||[]).slice(0,8).map(a=>({...pick(a,['symbol','side','entryPrice','stopPrice','tpPrice','stopPct','targetR','markPrice','unrealizedPnl','leverage','marginQuote','remainingMin']),part:partOf(a.part),mtf:a.mtf||null})),
+      recent:(z.recentEntries||[]).slice(0,6).map(x=>pick(x,['at','symbol','side','opened','reason','rank'])),
+      results:z.results?{test:z.results.test||null,live:z.results.live||null}:null,learning:z.learning||null};
+  }
+  out.compact=true;out.mobileContract='R2544.76_PC_STATUS';return out;
 }
 module.exports={mobileStatus};
