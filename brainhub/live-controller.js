@@ -6106,7 +6106,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const R=x.side==='LONG'?cfg.early:cfg.top;
       const opened=await top3Open({ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels,maxHoldMs:R.maxHoldH*TOP3_HOUR},x.symbol,cfg,jev,{signalKind:'FRESH',entryFeatures:ef});
       Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason,stopPct:finite(opened.stopPct)});
-      if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[x.symbol+':'+x.side]:clock()};saveTop3State();}
+      if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[x.symbol+':'+x.side]:clock()};saveTop3State();
+        // R2544.83: indikatör / giriş bağlamı gerçek giriş fiyatıyla (sinyal kapanışında eksik kaldıysa)
+        await top3InfoAfterOpen(Object.values(top3State.active||{}).find(a=>a&&a.symbol===x.symbol&&a.lane!=='ZIRVE5'),{interval:'5m',barEnd:bar+top3Lib.M5-1,session:12*TOP3_HOUR,lessons:top3State.lessons,rule:x.rule,tail:x.k5tail});}
       else try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:opened});}catch{}
     }
     return out;
@@ -6618,12 +6620,29 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   let indBackfillBusy=false;
   async function lessonIndBackfillTick(){
     const st=top3State.indBackfill||(top3State.indBackfill={done:false,filled:0,failed:0});
-    if(st.done||indBackfillBusy)return null;indBackfillBusy=true;
+    // R2544.83: an earlier pass skipped lessons whose info was written but FAILED (ind.ok false: stop out of range at the signal close);
+    // one more pass for those, with the real entry price and stop
+    if(st.done&&st.v!=='R2544.83'){st.done=false;st.v='R2544.83';}
+    if(indBackfillBusy)return null;
+    // R2544.83: lots that are open now and lack info (ind failed at the signal close) - once each, with the real entry and stop
+    // and the 5m candles / BTC of the entry moment. Info only: orders, stop and target are not touched.
+    const openLots=Object.values(top3State.active||{}).filter(a=>a&&a.lane!=='ZIRVE5'&&top3Lib.CAT_BUCKETS[a.rule]&&!a.entryFeatures?.ind?.ok&&!a.info83Tried&&finite(a.openedAt)>0);
+    if(openLots.length){indBackfillBusy=true;try{
+      const a=openLots[0];a.info83Tried=true;const M=top3Lib.M5,end=Math.floor((finite(a.openedAt)-8000)/M)*M-1;
+      let tail=[],btc=[];try{tail=(await k5Window(a.symbol,end-6*M+1,end)).slice(-6);btc=(await k5Window('BTCUSDT',end-12*M+1,end)).slice(-12);}catch{}
+      const ef=a.entryFeatures||(a.entryFeatures={});
+      if(!ef.entryCtx&&tail.length>=6){const e=finite(a.entryPrice),stp=finite(a.initialStopPrice)??finite(a.stopPrice);if(e>0&&stp>0)ef.entryCtx=AUTOPSY.entryContext(tail,a.side,e,stp,btc);}
+      const r=await top3InfoAfterOpen(a,{interval:'5m',barEnd:end,session:12*TOP3_HOUR,lessons:top3State.lessons,rule:a.rule,tail:null});
+      if(!r)saveTop3State();
+      try{store.journal('TOP3_INFO_BACKFILL_OPEN',a.symbol,{ind:a.entryFeatures?.ind?.ok===true,entryCtx:!!a.entryFeatures?.entryCtx});}catch{}
+      return {openLot:a.symbol};
+    }finally{indBackfillBusy=false;}}
+    if(st.done)return null;indBackfillBusy=true;
     try{
-      const z=z5State(),pool=[...(top3State.lessons||[]),...(z.lessons||[])].filter(l=>l&&top3Lib.CAT_BUCKETS[l.rule]&&!l.features?.ind&&!l.indBackfillTried);
+      const z=z5State(),pool=[...(top3State.lessons||[]),...(z.lessons||[])].filter(l=>l&&top3Lib.CAT_BUCKETS[l.rule]&&!l.features?.ind?.ok&&!l.indBackfillTried83);
       if(!pool.length){st.done=true;st.at=new Date(clock()).toISOString();saveTop3State();try{store.journal('LESSON_IND_BACKFILL_DONE',null,{filled:st.filled,failed:st.failed});}catch{}return {done:true};}
       for(const l of pool.slice(0,2)){
-        l.indBackfillTried=true;
+        l.indBackfillTried=true;l.indBackfillTried83=true;
         const z5=/^ZIRVE5_/.test(l.rule),e=finite(l.entryPrice),sp=finite(l.stopPct),t=finite(l.openedAt);
         if(!(e>0&&sp>0&&t>0)){st.failed++;continue;}
         const stop=l.side==='LONG'?e*(1-sp):e*(1+sp),M=z5?z5Lib.M15:top3Lib.M5,end=Math.floor((t-8000)/M)*M-1;
@@ -6664,6 +6683,22 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function btc5Recent(){
     if(btcEntryCache.rows&&clock()-btcEntryCache.at<60000)return btcEntryCache.rows;
     try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:'BTCUSDT',interval:'5m',limit:'24'}});const rows=(Array.isArray(k)?k:[]).filter(r=>Number(r[0])+top3Lib.M5<=clock());btcEntryCache={at:clock(),rows};return rows;}catch{return [];}
+  }
+  // R2544.83 (kullanıcı 26.10: "hata var mı" - QNT ve ARIA lotlarında indikatör bilgisi yoktu): bilgi sinyal mumunun KAPANIŞ fiyatıyla
+  // hesaplanıyordu; orada stop aralık dışı (V2_STOP_OUT_OF_RANGE) kalıp bilgi boş yazılıyordu, gerçek giriş başka fiyattan açıldı.
+  // Lot açıldıktan sonra eksikse GERÇEK giriş ve ilk stopla yeniden hesaplanır; tecrübe kararı ve benzer durumlar da yenilenir.
+  // Yalnız bilgi: emirlere, stopa, hedefe dokunmaz.
+  const similarKeep=sc=>({n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))});
+  async function top3InfoAfterOpen(lot,{interval,barEnd,session,lessons,rule,tail}){
+    try{
+      if(!lot)return null;const f=lot.entryFeatures||(lot.entryFeatures={});
+      if(f.ind?.ok&&f.entryCtx)return {skipped:true};
+      const e=finite(lot.entryPrice),st=finite(lot.initialStopPrice)??finite(lot.stopPrice);if(!(e>0&&st>0))return null;
+      if(!f.ind?.ok){const ind=await indInfoFor(lot.symbol,interval,barEnd,lot.side,e,st,session);if(ind?.ok)f.ind={...ind,atEntry:true};}
+      if(!f.entryCtx&&Array.isArray(tail)&&tail.length)f.entryCtx=AUTOPSY.entryContext(tail,lot.side,e,st,await btc5Recent());
+      f.experience=top3Lib.experienceVerdict(lessons,rule,f);f.similar=similarKeep(top3Lib.similarCases(lessons,rule,f));
+      saveTop3State();return {ind:f.ind?.ok===true,entryCtx:!!f.entryCtx};
+    }catch{return null;}
   }
   async function z5Mtf(symbol,bar,sig,cfg){
     try{
