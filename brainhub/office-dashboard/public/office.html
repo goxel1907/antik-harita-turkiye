@@ -2013,6 +2013,9 @@ function renderTop3(s){
     html+='<p class="muted">Çıkarım tablosu (R2544.79): her kuralın kendi dersleri, girişteki bilgiye göre ayrılmış. Gölge “tecrübe kararı” ancak bir koşulda en az 15 ders varsa, iki yarı aynı yönü gösteriyorsa, diğer koşuldan belirgin ayrışıyorsa ve 6 aylık ölçüm (uzun dönem hafızası) aynı şeyi söylüyorsa verilir. JEV’siz modda KARAR VERMEZ, yalnız kaydedilir; JEV modunda JEV bu tabloyu ve 6 aylık hafızayı okur.</p>';
     for(const [rule,b] of Object.entries(L.buckets||{}))if(b&&b.categorical)html+=catTables(rule,b);
     for(const [rule,b] of Object.entries(L.buckets||{}))if(b&&!b.categorical)html+=`<p>• ${esc(t3tr(rule))} / ${esc(b.label)}: `+b.rows.filter(r=>r.n).map(r=>`${pc(r.from)}–${r.to===null?'…':pc(r.to)}: ${r.n} işlem, ${r.wins} kazanç, ort ${r.avgR===null?'—':String(r.avgR.toFixed(2)).replace('.',',')} R`).join(' • ')+'</p>';
+    // R2544.80 neden kaybetti / nasıl kazandı (otopsi) ve ayırt edici etkenler
+    for(const [rule,lines] of Object.entries(L.causes||{}))if(lines&&lines.length)html+=`<p><b>🔎 ${esc(t3tr(rule))} — neden / nasıl</b><br>`+lines.map(esc).join('<br>')+'</p>';
+    for(const x of (L.autopsies||[]))html+=`<p class="t3rule">${esc(x.symbol)} ${esc(x.side)} ${x.R===null||x.R===undefined?'':(x.R>=0?'+':'')+Number(x.R).toFixed(2).replace('.',',')+'R'} — ${esc(x.text)}</p>`;
     for(const x of (L.recent||[]).slice(0,5))html+=`<p class="t3rule">${esc(x.symbol)} — ${esc(x.lessonTr)}</p>`;
   }
   const R=t.results||{},line=(n,x)=>x&&x.closed?`${n}: ${x.closed} işlem • ${x.wins} kazanç / ${x.losses} kayıp • net ${pnl(x.netPnl)}`:`${n}: henüz kapanan işlem yok`;
@@ -2163,6 +2166,8 @@ function renderZ5(s){
   const R=z.results||{},line=(n,x)=>x&&x.closed?`${n}: ${x.closed} işlem • ${x.wins} kazanç / ${x.losses} kayıp • net ${pnl(x.netPnl)} • ort ${rr(x.avgR)}`:`${n}: henüz kapanan işlem yok`;
   html+=`<p><b>Sonuçlar (30 gün)</b> — <b>LONG</b> ${line('TEST',R.long?.test)} • ${line('CANLI',R.long?.live)}</p>`;
   html+=`<p><b>Sonuçlar (30 gün)</b> — <b>SHORT</b> ${line('TEST',R.short?.test)} • ${line('CANLI',R.short?.live)}</p>`;
+  {const Lz=z.learning||{};for(const [rule,lines] of Object.entries(Lz.causes||{}))if(lines&&lines.length)html+=`<p><b>🔎 ${esc(/^ZIRVE5_FIBO_/.test(rule)?'ZİRVE-5 '+rule.slice(12):t3tr(rule))} — neden / nasıl</b><br>`+lines.map(esc).join('<br>')+'</p>';
+   for(const x of (Lz.recent||[]))if(x.autopsy)html+=`<p class="t3rule">${esc(x.symbol)} ${esc(x.side)} ${(x.R>=0?'+':'')+Number(x.R).toFixed(2).replace('.',',')}R — ${esc(x.autopsy)}</p>`;}
   if(R.oldRule?.closed)html+=`<p class="muted">Eski kural (R2544.64, yalnız SHORT, ortaya dokununca kör giriş): ${line('toplam',R.oldRule)} • 📚 hafıza ${Number(z.learning?.lessons)||0} ders${sw.jevMode?' (JEV her kararda okur)':''}</p>`;
   const rc=(z.recentCloses||[]).slice(0,5);
   if(rc.length)html+='<p>Son kapananlar: '+rc.map(x=>`${esc(x.symbol)} ${sideTxt(x.side)} ${esc(z5tr(x.exitType))} ${pnl(x.netPnl)} ${rr(x.rMultiple)}`).join(' • ')+'</p>';

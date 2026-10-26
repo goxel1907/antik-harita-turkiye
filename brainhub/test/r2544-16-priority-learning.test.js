@@ -113,7 +113,7 @@ test('canlı akış: girişte dikkat katmanı, kapanışta TRADE_LESSON_CARD ve 
   assert.match(lc,/store\.journal\('TRADE_LESSON_CARD'/);
   assert.match(lc,/scanner\.recordPreMoveHits\(/);
   const sv=src('server.js');assert.match(sv,/u\.pathname==='\/learning\/trade-lessons'/);
-  assert.match(src('manage.ps1'),/'chart-readout\.js','trade-lessons\.js','case-memory\.js','preentry-microstructure\.js','worker-expertise\.js','free-model-registry\.js','top3-hunter\.js','fibo-zones\.js','zirve5\.js','pa-setups\.js','pa-core\.js','ind-info\.js'\)/);
+  assert.match(src('manage.ps1'),/'chart-readout\.js','trade-lessons\.js','case-memory\.js','preentry-microstructure\.js','worker-expertise\.js','free-model-registry\.js','top3-hunter\.js','fibo-zones\.js','zirve5\.js','pa-setups\.js','pa-core\.js','ind-info\.js','trade-autopsy\.js'\)/);
 });
 test('ön-hareket kayıtları 20 dk saklanır, yalnız PRE_MOVE/IGNITION yazılır',()=>{
   const now=Date.now();

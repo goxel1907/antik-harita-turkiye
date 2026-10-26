@@ -552,6 +552,81 @@ function experienceVerdict(lessons, rule, features) {
   const why = findings.filter(f => f.call === 'AVOID' || f.call === 'FAVOR').map(f => `${f.label} ${f.value}: ${f.n} ders ort ${String(f.avgR.toFixed(2)).replace('.', ',')}R (diğerleri ${f.otherN} ders ${String(f.otherAvgR.toFixed(2)).replace('.', ',')}R)`).join('; ');
   return { ...base, verdict, findings, text:tr + (why ? ' — ' + why : '') + (disagree ? ' • 6 ay aksini söylüyor: ' + disagree : '') };
 }
+// ===== R2544.80 ÖĞRENME: neden kaybetti / nasıl kazandı, tek düze olmadan (kullanıcı 26.10: "tek bir kurala odaklanmaması ... her
+// zaman aynı koşulda kazandım veya kaybettim dememeli ... tek düze bir beyin oluşmasın"). Kaynak: her dersin otopsisi (trade-autopsy.js).
+//  1) causeStats: kayıplar nasıl oldu, kazançlar nasıl oldu (sonuç tanımları) + ETKENLERİN ayırt ediciliği: bir etken (geç giriş, BTC,
+//     takip hacmi, 2R içinde karşı seviye) ancak kayıplarda ve kazançlarda en az 25 puan farklı sıklıkta ve her iki tarafta en az 8 ders
+//     varsa 'ayırt edici' sayılır; ikisinde de benzer sıklıkta görülen etken 'tek başına neden değil' diye yazılır.
+//  2) similarCases: yeni sinyal için girişte bilinen ÇOK özellikli benzerlik (indikatör bilgisi, giriş öncesi koşu, BTC son 1 sa, stop
+//     genişliği, kırılan seviye, 4 sa yapı) ile en benzer geçmiş dersler; coin başına en çok 2 (çeşitlilik), sonuçları VE nedenleri,
+//     karışıksa 'tek düze ders yok' uyarısı. Karar vermez; JEV ve Office okur, kaydedilir.
+const DISCRIM_MIN_N = 8, DISCRIM_GAP = 0.25;
+const CAUSE_SHORT = { HIZLI_TERS:'hızlı ters dönüş', STOP_AVI:'stop avı (yön doğru)', YANLIS_YON:'yön yanlış', KARSI_SEVIYE:'karşı seviyeden döndü', PIYASA_TERS:'BTC ters',
+  TAKIP_HACMI_YOK:'hacim gelmedi', GEC_GIRIS:'giriş öncesi koşu', ZAMAN:'süre doldu', BELIRSIZ_YON:'yön belirsiz', TEMIZ_DEVAM:'temiz devam', DIRENC_SONRASI:'sarsılıp döndü',
+  PIYASA_DESTEGI:'BTC destekledi', HACIMLI_TAKIP:'hacimli takip', KAR_GERI_VERDI:'kârı geri verdi', HEDEF_ERKEN:'hedef erken', KAR_KORUMA:'kâr koruma + başabaş' };
+const causeTr = c => CAUSE_SHORT[c] || c;
+const FACTOR_DEFS = [
+  ['gecGiris', v => (v === true ? 'girişten önce 30 dk içinde fiyat zaten 1,5R+ yönde gitmişti' : null)],
+  ['btc', v => (v === 'TERS' ? 'BTC işlem süresince ters' : v === 'YONDE' ? 'BTC işlem süresince yönde' : null)],
+  ['hacim', v => (v === 'YOK' ? 'girişten sonra hacim gelmedi' : v === 'GUCLU' ? 'girişten sonra güçlü hacim' : null)],
+  ['seviye2R', v => (v === true ? '2R içinde karşı hacim seviyesi vardı' : null)]
+];
+function causeStats(lessons, rule) {
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.rule === rule && l.autopsy?.ok);
+  const loss = xs.filter(l => l.autopsy.outcome === 'KAYIP'), win = xs.filter(l => l.autopsy.outcome === 'KAZANC');
+  const dist = z => { const c = {}; for (const l of z) for (const k of l.autopsy.causes || []) c[k] = (c[k] || 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([code, n]) => ({ code, n, pct:Number((n / z.length).toFixed(2)) })); };
+  const factors = [];
+  for (const [key, label] of FACTOR_DEFS) {
+    const vals = [...new Set(xs.map(l => l.autopsy.factors?.[key]).filter(v => v !== null && v !== undefined && label(v)))];
+    for (const v of vals) {
+      const lp = loss.length ? loss.filter(l => l.autopsy.factors?.[key] === v).length / loss.length : null, wp = win.length ? win.filter(l => l.autopsy.factors?.[key] === v).length / win.length : null;
+      const enough = loss.length >= DISCRIM_MIN_N && win.length >= DISCRIM_MIN_N;
+      const call = !enough ? 'AZ_ORNEK' : Math.max(lp, wp) < 0.15 ? 'NADIR' : lp - wp >= DISCRIM_GAP ? 'KAYIP_TARAFI' : wp - lp >= DISCRIM_GAP ? 'KAZANC_TARAFI' : 'IKI_TARAFTA';
+      factors.push({ key, value:v, label:label(v), lossPct:lp === null ? null : Number(lp.toFixed(2)), winPct:wp === null ? null : Number(wp.toFixed(2)), call });
+    }
+  }
+  const dir = { DOGRU:0, YANLIS:0, BELIRSIZ:0 }; for (const l of loss) if (l.autopsy.direction) dir[l.autopsy.direction]++;
+  const pc = v => (v === null ? '—' : '%' + Math.round(v * 100));
+  const lines = [];
+  if (loss.length) lines.push(`Kayıplar (${loss.length}) nasıl oldu: ` + dist(loss).slice(0, 4).map(x => `${causeTr(x.code)} ${pc(x.pct)}`).join(', ') + ` • yön doğru ${dir.DOGRU} / yanlış ${dir.YANLIS}${dir.BELIRSIZ ? ' / belirsiz ' + dir.BELIRSIZ : ''}`);
+  if (win.length) lines.push(`Kazançlar (${win.length}) nasıl oldu: ` + dist(win).slice(0, 4).map(x => `${causeTr(x.code)} ${pc(x.pct)}`).join(', '));
+  const d = factors.filter(f => f.call === 'KAYIP_TARAFI' || f.call === 'KAZANC_TARAFI'), same = factors.filter(f => f.call === 'IKI_TARAFTA');
+  if (d.length) lines.push('Ayırt edici: ' + d.map(f => `${f.label} (kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)})`).join('; '));
+  if (same.length) lines.push('Tek başına neden DEĞİL (kazançta da kayıpta da benzer): ' + same.map(f => `${f.label} (kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)})`).join('; '));
+  if (loss.length < DISCRIM_MIN_N || win.length < DISCRIM_MIN_N) lines.push(`Ayırt edicilik için her iki tarafta en az ${DISCRIM_MIN_N} otopsili ders gerekir (şimdi kayıp ${loss.length}, kazanç ${win.length}).`);
+  return { version:'R2544.80-LEARN', lessons:xs.length, losses:loss.length, wins:win.length, lossHow:dist(loss), winHow:dist(win), lossDirection:dir, factors, text:lines };
+}
+// compact forms for the JEV packet (48 kB ceiling): the text already carries the distributions
+const learningForJev = c => (c ? { lessons:c.lessons, losses:c.losses, wins:c.wins, lossDirection:c.lossDirection, factors:c.factors.map(f => ({ key:f.key, value:f.value, lossPct:f.lossPct, winPct:f.winPct, call:f.call })), text:c.text } : null);
+const similarForJev = q => (q ? { n:q.n, wins:q.wins, losses:q.losses, avgR:q.avgR, mixed:q.mixed, thin:q.thin, text:q.text, cases:q.cases.map(c => ({ symbol:c.symbol, R:c.R, causes:c.causes })) } : null);
+const bucket3 = (v, a, b) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v) < a ? 'L' : Number(v) < b ? 'M' : 'H');
+function entryVector(f, autopsy) {
+  const x = f || {}, ind = x.ind?.ok ? x.ind : null, ec = x.entryCtx || (autopsy?.metrics ? { preRunR:autopsy.metrics.preRunR, btc1hWith:autopsy.metrics.btc1hWith } : null);
+  const lr = ind?.lrvp ? (ind.lrvp.trendWith && ind.lrvp.deltaWith ? 'YY' : !ind.lrvp.trendWith && !ind.lrvp.deltaWith ? 'TT' : 'K') : null;
+  return { vdpm:ind ? ind.vdpm?.obstacle2R === true : null, vwob:ind ? ind.vwob?.oppIn2R === true : null, lth:ind?.lth?.trend ?? null, lrvp:lr,
+    preRun:bucket3(ec?.preRunR, 0.5, 1.5), btc1h:bucket3(ec?.btc1hWith, -0.3, 0.3), stop:bucket3(finite(x.stopPct) ?? ec?.stopPct, 0.02, 0.04),
+    level:x.levelName ?? null, h4:x.mtf ? (x.mtf.against4h === true ? 'TERS' : 'DEGIL') : null };
+}
+function similarCases(lessons, rule, features, { k = 8, minSim = 0.6, perSymbol = 2 } = {}) {
+  const me = entryVector(features), keys = Object.keys(me).filter(q => me[q] !== null);
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.rule === rule && finite(l.rMultiple) !== null);
+  const scored = [];
+  for (const l of xs) { const v = entryVector({ ...(l.features || {}), stopPct:l.stopPct }, l.autopsy); const both = keys.filter(q => v[q] !== null); if (both.length < 3) continue;
+    const sim = both.filter(q => v[q] === me[q]).length / both.length; if (sim >= minSim) scored.push({ l, sim, used:both.length }); }
+  scored.sort((a, b) => b.sim - a.sim || (b.l.closedAt || 0) - (a.l.closedAt || 0));
+  const per = {}, pick = [];
+  for (const sc of scored) { if ((per[sc.l.symbol] || 0) >= perSymbol) continue; per[sc.l.symbol] = (per[sc.l.symbol] || 0) + 1; pick.push(sc); if (pick.length >= k) break; }
+  const n = pick.length, wins = pick.filter(q => q.l.rMultiple > 0.3).length, losses = pick.filter(q => q.l.rMultiple < -0.3).length, avgR = n ? pick.reduce((a, q) => a + q.l.rMultiple, 0) / n : null;
+  const days = new Set(pick.map(q => Math.floor((q.l.openedAt || 0) / 86400000))).size, coins = new Set(pick.map(q => q.l.symbol)).size;
+  const how = z => { const c = {}; for (const q of z) for (const w of q.l.autopsy?.causes || []) c[w] = (c[w] || 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([w]) => causeTr(w)); };
+  const mixed = wins >= 2 && losses >= 2, thin = n < 5 || days < 3 || coins < 3;
+  const r2 = v => String(Number(v).toFixed(2)).replace('.', ',');
+  const text = !n ? 'benzer geçmiş durum yok' : `benzer ${n} durum (${coins} coin, ${days} gün): ${wins} kazanç / ${losses} kayıp, ort ${r2(avgR)}R` +
+    (losses ? ` • kayıplar: ${how(pick.filter(q => q.l.rMultiple < -0.3)).join(', ') || '—'}` : '') + (wins ? ` • kazançlar: ${how(pick.filter(q => q.l.rMultiple > 0.3)).join(', ') || '—'}` : '') +
+    (mixed ? ' • SONUÇLAR KARIŞIK: bu koşullar tek başına sonucu belirlemiyor' : '') + (thin ? ' • az/dar örnek: anekdot' : '');
+  return { version:'R2544.80-SIMILAR', n, wins, losses, avgR:avgR === null ? null : Number(avgR.toFixed(3)), coins, days, mixed, thin, features:me,
+    cases:pick.map(q => ({ symbol:q.l.symbol, R:Number(q.l.rMultiple.toFixed(2)), sim:Number(q.sim.toFixed(2)), outcome:q.l.autopsy?.outcome || null, causes:q.l.autopsy?.causes || [], at:q.l.openedAt || null })), text };
+}
 function bucketsFor(lessons, rule) {
   if (CAT_BUCKETS[rule]) { const xs = lessons.filter(l => l.rule === rule); return { categorical:true, label:'çıkarım tablosu', cats:catTable(xs, CAT_BUCKETS[rule]) }; }
   const b = BUCKETS[rule]; if (!b) return null;
@@ -572,15 +647,16 @@ function experienceSummary(lessons, { mode = null, recent = 8 } = {}) {
     recent: xs.slice(-recent).reverse().map(l => ({ symbol: l.symbol, side: l.side, rule: l.rule, kind: l.kind, mode: l.mode, closedAt: l.closedAt, verdict: l.verdict, rMultiple: l.rMultiple, resultPct: l.resultPct, mfePct: l.mfePct, maePct: l.maePct, exitType: l.exitType, tags: l.tags, lessonTr: l.lessonTr })) };
 }
 // R2544.79: the indicator info travels to JEV as 4 flags (not the whole object) so the 48 kB request ceiling is not pushed
-function jevFeatures(f) { if (!f || typeof f !== 'object' || !f.ind) return f; const x = f.ind; const { ind, experience, ...rest } = f;
+function jevFeatures(f) { if (!f || typeof f !== 'object') return f; const { pa, ...noPa } = f; if (!f.ind) return noPa; const x = f.ind; const { ind, experience, ...rest } = noPa; // past pa dropped: the signal has its own
   return { ...rest, ind:x.ok ? { vdpmObstacle2R:x.vdpm?.obstacle2R ?? null, vwobOppIn2R:x.vwob?.oppIn2R ?? null, lthTrend:x.lth?.trend ?? null, lrvp:x.lrvp ? [x.lrvp.trendWith, x.lrvp.deltaWith] : null } : null, experience:experience?.verdict || null }; }
 // What JEV sees for one rule: this lane's measured history of that rule (both signal kinds, both modes), its feature
 // buckets and the latest lessons with their entry features.
-function experienceFor(lessons, rule, { recent = 6 } = {}) {
+function experienceFor(lessons, rule, { recent = 6, features = null } = {}) {
   const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l.rule === rule);
   const s = experienceSummary(xs, { recent });
   return { rule, closedLots: xs.length, groups: s.groups, buckets: s.buckets[rule] || null, labPriors: LAB_PRIORS[rule] || null,
-    recent: xs.slice(-recent).reverse().map(l => ({ symbol: l.symbol, side: l.side, kind: l.kind, mode: l.mode, verdict: l.verdict, rMultiple: l.rMultiple, resultPct: l.resultPct, mfePct: l.mfePct, maePct: l.maePct, exitType: l.exitType, features: jevFeatures(l.features), lessonTr: l.lessonTr })),
+    learning: CAT_BUCKETS[rule] ? learningForJev(causeStats(xs, rule)) : null, similar: features && CAT_BUCKETS[rule] ? similarForJev(similarCases(xs, rule, features)) : null,
+    recent: xs.slice(-recent).reverse().map(l => ({ symbol: l.symbol, side: l.side, kind: l.kind, mode: l.mode, verdict: l.verdict, rMultiple: l.rMultiple, resultPct: l.resultPct, mfePct: l.mfePct, maePct: l.maePct, exitType: l.exitType, features: jevFeatures(l.features), lessonTr: l.lessonTr, autopsy: l.autopsy?.ok ? l.autopsy.text : null })),
     note: xs.length < 10 ? 'FEW_SAMPLES_TREAT_AS_ANECDOTE' : 'MEASURED_HISTORY' };
 }
 
@@ -591,4 +667,4 @@ const subOf = side => (side === 'LONG' ? TOP3_SUBS.early : TOP3_SUBS.top);
 // effective JEV use of a sub-strategy: its own choice, else the lane's JEV mode
 function subJev(cfg, side) { const R = side === 'LONG' ? cfg?.early : cfg?.top; return typeof R?.jev === 'boolean' ? R.jev : cfg?.jevMode === true; }
 module.exports = { TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
-  writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
+  writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

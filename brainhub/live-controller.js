@@ -38,7 +38,8 @@ const {freshAttention,pickFreshAttention,coverageState}=require('./attention-pri
 const {readCloseExitEvidence}=require('./close-exit-evidence');
 const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gainer hunter lane)
 const PA=require('./pa-core');
-const IND=require('./ind-info'); // R2544.79 indikatör bilgisi (yalnız bilgi) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
+const IND=require('./ind-info'); // R2544.79 indikatör bilgisi (yalnız bilgi)
+const AUTOPSY=require('./trade-autopsy'); // R2544.80 işlem otopsisi (neden kaybetti / nasıl kazandı) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
 const z5Lib=require('./zirve5'); // R2544.64 ZİRVE-5 SHORT (piyasa geneli ilk 5 volatil, 15 dk Fibo dip kırılımı)
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
@@ -6066,7 +6067,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(shortC.has(s))checks.push(['SHORT',top3Lib.topShortTrigger(k5,cfg)]);
       for(const [side,tr] of checks){
         if(tr.ok){const ind=await top3IndFor(s,side,tr,k5,lvAt,cfg,bar); // R2544.79 yalnız bilgi
-          out.signals.push({symbol:s,side,rule:tr.rule,trig:tr,levels:lvAt(clock()),close:k5.at(-1)[4],ind,
+          out.signals.push({symbol:s,side,rule:tr.rule,trig:tr,levels:lvAt(clock()),close:k5.at(-1)[4],ind,k5tail:k5.slice(-6),
           pa:(()=>{try{const cs=PA.toCandles(k5,300000);return PA.context(cs,cs.length-1,k5.at(-1)[4],{n:3,lookback:288,within:24});}catch{return null;}})()});
           try{store.journal('TOP3_SIGNAL',s,{side,rule:tr.rule,trig:tr,levels:lvAt(clock()),bar:out.bar,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}}
         else if(!['V2_NO_BREAKOUT','V2_NO_FRESH_TOP','V2_5M_HISTORY_SHORT'].includes(tr.reason))out.nearMisses.push({symbol:s,side,reason:tr.reason,reasons:tr.reasons||null,level:finite(tr.level),top:finite(tr.top)});
@@ -6088,13 +6089,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
         top:finite(x.trig.top),hl:finite(x.trig.hl),topVolMult:finite(x.trig.topVolMult)!==null?Number(x.trig.topVolMult.toFixed(2)):null,pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close,
         sweep:x.trig.sweep||null,pa:x.pa||null,ind:x.ind||null}; // R2544.72: the SFP the rule required and the PA context travel with the lot; R2544.79 ind: information only
+      try{const pl0=x.side==='LONG'?top3Lib.earlyLongPlan(x.close,x.trig,x.levels,cfg):top3Lib.topShortPlan(x.close,x.trig,x.levels,cfg);
+        if(pl0?.ok)ef.entryCtx=AUTOPSY.entryContext(x.k5tail||[],x.side,x.close,pl0.stopPrice,await btc5Recent());}catch{} // R2544.80
       ef.experience=top3Lib.experienceVerdict(top3State.lessons,x.rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
+      {const sc=top3Lib.similarCases(top3State.lessons,x.rule,ef);ef.similar={n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))};} // R2544.80 karar vermez
       let jev=null;const sub=top3Lib.subOf(x.side);res.strategy=sub.name;
       if(top3Lib.subJev(cfg,x.side)){
         if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}
         let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
         if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
-        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels,partial:top3PartialCfg({v2:true},cfg),pa:x.pa||null},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}
+        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels,partial:top3PartialCfg({v2:true},cfg),pa:x.pa||null},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule,{features:ef})});}
         catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
         const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
@@ -6500,6 +6504,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{await top3FinalizeCloses();}catch{/* reporting only */}
       try{top3BackfillOpened();}catch{}
       try{await lessonIndBackfillTick();}catch{}
+      try{await lessonAutopsyTick();}catch{} // R2544.80
       const cfg=top3Lib.readTop3Config(root);
       if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
       if(testModeNow()){
@@ -6583,7 +6588,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       for(const s of v.signals)s.ind=await indInfoFor(r.symbol,'15m',bar+z5Lib.M15-1,s.side,c.at(-1).close,s.stopPrice,2*24*TOP3_HOUR); // R2544.79 yalnız bilgi
       row.signals=v.signals.map(x=>({side:x.side,confirm:x.confirm,sideOn:z5SideOn(cfg,x.side),mtf:x.mtf?{h1:x.mtf.h1?.trend??null,h4:x.mtf.h4?.trend??null,m5:x.mtf.m5?.confirmed===true?x.mtf.m5.minutesEarly:null,against1h:x.mtf.against1h,against4h:x.mtf.against4h}:null}));
       if(v.waiting.length)armed[r.symbol]=v.waiting.map(x=>({...x,rank:r.rank}));
-      for(const s of v.signals)pending.push({...s,symbol:r.symbol,rank:r.rank,range24:r.range,change24:r.change});
+      for(const s of v.signals)pending.push({...s,symbol:r.symbol,rank:r.rank,range24:r.range,change24:r.change,tail2:c.slice(-2).map(x=>[x.openTime,x.open,x.high,x.low,x.close,x.quoteVolume])});
       await new Promise(res=>setTimeout(res,40));
     }
     // a coin that left the top 5 is no longer watched (the lab entered only while the coin was in the top 5)
@@ -6626,6 +6631,38 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       saveTop3State();return {filled:st.filled,failed:st.failed};
     }finally{indBackfillBusy=false;}
   }
+  // R2544.80 (kullanıcı 26.10: "zarar eden işlemlerde kesinlikle neden zarar ettiğini, kâr edenlerde nasıl kazandığını net çıkarım ...
+  // tek düze bir beyin oluşmasın"): her kapanan İlk 3 v2 / ZİRVE-5 dersine OTOPSİ - girişten 3 sa önce -> çıkıştan 24 sa sonra 5 dk
+  // mumlar ve aynı aralıkta BTC. Kapanıştan 30 dk sonra ön otopsi, 24 sa dolunca tam otopsi (yön doğru muydu). Tick başına en çok 2 ders.
+  let autopsyBusy=false;
+  async function k5Window(symbol,start,end){
+    const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval:'5m',startTime:String(start),endTime:String(end),limit:'1000'}});
+    return Array.isArray(k)?k:[];
+  }
+  async function lessonAutopsyTick(){
+    if(autopsyBusy)return null;autopsyBusy=true;
+    try{
+      const now=clock(),z=z5State(),DAYMS=24*TOP3_HOUR;
+      const due=l=>l&&top3Lib.CAT_BUCKETS[l.rule]&&finite(l.closedAt)&&finite(l.openedAt)&&((!l.autopsy&&(l.autopsyTries||0)<3&&now>=l.closedAt+30*60000)||(l.autopsy&&l.autopsy.ok&&!l.autopsy.complete&&(l.autopsyTries||0)<6&&now>=l.closedAt+DAYMS+10*60000));
+      const pool=[...(top3State.lessons||[]),...(z.lessons||[])].filter(due).sort((a,b)=>a.closedAt-b.closedAt).slice(0,2);
+      if(!pool.length)return null;
+      for(const l of pool){
+        l.autopsyTries=(l.autopsyTries||0)+1;
+        try{
+          const start=Math.floor(l.openedAt/top3Lib.M5)*top3Lib.M5-3*TOP3_HOUR,end=Math.min(now,l.closedAt+DAYMS+top3Lib.M5);
+          const a=AUTOPSY.autopsy(l,await k5Window(l.symbol,start,end),await k5Window('BTCUSDT',start,end),{now});
+          if(a.ok){l.autopsy=a;if(a.complete)try{store.journal('LESSON_AUTOPSY',l.symbol,{id:l.id,rule:l.rule,mode:l.mode,R:l.rMultiple,outcome:a.outcome,direction:a.direction,causes:a.causes,factors:a.factors,text:a.text,version:a.version});}catch{}}
+        }catch{}
+      }
+      saveTop3State();return {done:pool.length};
+    }finally{autopsyBusy=false;}
+  }
+  // girişte bilinen bağlam (son 30 dk koşusu, BTC son 1 sa) - benzer durum araması için; BTC 5 dk bir dakika önbellekte
+  let btcEntryCache={at:0,rows:null};
+  async function btc5Recent(){
+    if(btcEntryCache.rows&&clock()-btcEntryCache.at<60000)return btcEntryCache.rows;
+    try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:'BTCUSDT',interval:'5m',limit:'24'}});const rows=(Array.isArray(k)?k:[]).filter(r=>Number(r[0])+top3Lib.M5<=clock());btcEntryCache={at:clock(),rows};return rows;}catch{return [];}
+  }
   async function z5Mtf(symbol,bar,sig,cfg){
     try{
       const rows=k=>(Array.isArray(k)?k:[]).map(x=>({openTime:Number(x[0]),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4]),quoteVolume:Number(x[7])}));
@@ -6667,12 +6704,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const ef={side,rank:sg.rank,range24:sg.range24,change24:sg.change24,top:sg.top,bottom:sg.bottom,equilibrium:sg.equilibrium,liquidity:sg.liquidity,
           confirmBody:sg.confirm?.body??null,confirmVolMult:sg.confirm?.volMult??null,confirmClose:sg.refPrice,zoneAt:new Date(sg.zoneAt).toISOString(),confirmAt:new Date(sg.confirmAt).toISOString(),
           sweep:sg.sweep||null,pa:sg.pa||null,mtf:sg.mtf||null,ind:sg.ind||null}; // R2544.74 mtf / R2544.79 ind: information only (brain, JEV, Office)
+        try{ef.entryCtx=AUTOPSY.entryContext(sg.tail2||[],side,sg.refPrice,sg.stopPrice,await btc5Recent());}catch{} // R2544.80
         ef.experience=top3Lib.experienceVerdict(z.lessons,rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
+        {const sc=top3Lib.similarCases(z.lessons,rule,ef);ef.similar={n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))};} // R2544.80 karar vermez
         let jev=null;
         if(cfg.jevMode===true){
           let chartContext=market?.cachedChartContext?.(sym,clock())||null;
           if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(sym),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(sym,clock())||null;}
-          try{jev=await zirve5Judge({symbol:sym,signal:{ok:true,side,rule,zone:sg,target:'LIQUIDITY_MIN_1R',maxHoldMs:cfg.maxHoldH*TOP3_HOUR,partial:top3PartialCfg({z5:true,z5cfg:cfg})},features:{ok:true,...ef},candle:z.lastBar,chartContext,experience:top3Lib.experienceSummary(z.lessons)});}
+          try{jev=await zirve5Judge({symbol:sym,signal:{ok:true,side,rule,zone:sg,target:'LIQUIDITY_MIN_1R',maxHoldMs:cfg.maxHoldH*TOP3_HOUR,partial:top3PartialCfg({z5:true,z5cfg:cfg})},features:{ok:true,...ef},candle:z.lastBar,chartContext,experience:{...top3Lib.experienceSummary(z.lessons),labPriors:top3Lib.LAB_PRIORS[rule]||null,learning:top3Lib.learningForJev(top3Lib.causeStats(z.lessons,rule)),similar:top3Lib.similarForJev(top3Lib.similarCases(z.lessons,rule,ef))}});}
           catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
           const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null};
           try{store.journal('ZIRVE5_JEV_REVIEW',sym,{...ev,side});}catch{}
@@ -6707,13 +6746,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({side:x.side,equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,liquidity:x.liquidity,expiresAt:new Date(x.expiresAt).toISOString()}))})),
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
         markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       recentEntries:(z.recent||[]).slice(0,12),
       recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup||null,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt||null,holdMinutes:finite(p.holdMinutes)})),
       results:{test:sum(m.filter(p=>p.tradingMode!=='LIVE')),live:sum(m.filter(p=>p.tradingMode==='LIVE')),all:sum(m),
         long:bySide('LONG'),short:bySide('SHORT'),oldRule:sum(m.filter(p=>!isNew(p)))},
-      learning:{lessons:z.lessons.length,buckets:top3Lib.experienceSummary(z.lessons).buckets,indBackfill:top3State.indBackfill||null}};
+      learning:{lessons:z.lessons.length,buckets:top3Lib.experienceSummary(z.lessons).buckets,indBackfill:top3State.indBackfill||null,
+        causes:{ZIRVE5_FIBO_LONG:top3Lib.causeStats(z.lessons,'ZIRVE5_FIBO_LONG').text,ZIRVE5_FIBO_SHORT:top3Lib.causeStats(z.lessons,'ZIRVE5_FIBO_SHORT').text},
+        recent:z.lessons.slice(-5).reverse().map(l=>({symbol:l.symbol,side:l.side,R:l.rMultiple,autopsy:l.autopsy?.ok?l.autopsy.text:null}))}};
   }
   // Office / API switches, like İlk 3: OFF is immediate in any mode (open lots keep their own stop/target/24 h exit);
   // ON in LIVE (the lane or a side while LIVE, or liveEnabled) and a margin/leverage change in LIVE need the explicit 'LIVE'.
@@ -6822,12 +6863,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
       lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
       settings:{marginQuote:cfg.marginQuote,marginAuto:cfg.marginQuote===null,leverage:cfg.leverage,safeLeverage:{long:top3Lib.safeLeverage(cfg.long.stopPct),shortMin:top3Lib.safeLeverage(cfg.short.maxStopPct),shortMax:top3Lib.safeLeverage(cfg.short.minStopPct)},effectiveLong:Math.min(cfg.leverage,top3Lib.safeLeverage(cfg.long.stopPct))},
-      learning:{...top3Lib.experienceSummary(top3State.lessons),limitsInTest:'NONE',limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'},
+      learning:{...top3Lib.experienceSummary(top3State.lessons),causes:{LONG_EARLY_RETEST:top3Lib.causeStats(top3State.lessons,'LONG_EARLY_RETEST').text,SHORT_TOP_BREAK:top3Lib.causeStats(top3State.lessons,'SHORT_TOP_BREAK').text},
+        autopsies:(top3State.lessons||[]).filter(l=>l.autopsy?.ok).slice(-5).reverse().map(l=>({symbol:l.symbol,side:l.side,rule:l.rule,R:l.rMultiple,text:l.autopsy.text})),limitsInTest:'NONE',limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'},
         sameCoinPauseH:cfg.rulesVersion===2?{long:cfg.early.cooldownH,short:cfg.top.cooldownH,afterStop:cfg.top.cooldownAfterStopH}:null},
       windowResults:top3State.window?sum(measured.filter(p=>p.tradingMode==='TEST'&&Date.parse(p.openedAt||p.closedAt||'')>=top3State.window.startedAt)):null,
       history:{hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR),bootstrap:top3State.bootstrap||null},
