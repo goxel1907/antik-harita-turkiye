@@ -287,7 +287,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
       <button id="btnLaneBurst" disabled title="Normal sistemin vur-kaç hattı (canlıda ayrıca izin gerekir)">Vur-kaç: —</button>
       <button id="btnLaneTop3" disabled title="İlk 3 Avcısı: kural (JEV modu açıksa kural + JEV)">İlk 3 Avcısı: —</button>
       <button id="btnLaneZirve5" disabled title="ZİRVE-5: piyasa geneli ilk 5 volatil coin, 15 dk FiboBuLL alanlarında hacimli mum onayıyla LONG ve SHORT (JEV modu açıksa kural + JEV)">ZİRVE-5: —</button>
-      <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button>
+      <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button><button class="live" id="btnCmLive" disabled title="R2544.89: İlk 3 ve ZİRVE-5 kararını kurula verir, sonra CANLI’ya geç onayını açar">Kurulla CANLI’ya geç</button>
       <button id="btnGoTest" disabled style="display:none">CANLI’yı kapat — TEST’e dön</button>
       <button class="go" id="btnStartTest" disabled style="display:none">TEST’i başlat</button>
       <button id="btnResetTest" disabled>TEST’i sıfırla</button>
@@ -305,7 +305,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   </section>
   <section class="card" id="top3Card" aria-label="İlk 3 Avcısı" style="margin:16px 0;border-color:#4fa3d1">
     <h2>🎯 İlk 3 Avcısı <span class="hint">5 dk mum • erken LONG (gün/hafta/ay tepesi kırılımı + geri test, kovalamaz) + tepe SHORT (5 dk yapı kırılımı) • likidasyon bölgesi gardı • ayrı hat • yalnız PC yürütür</span></h2>
-    <div class="t3btns"><button id="btnTop3On" disabled>İlk 3 Avcısı: AÇ</button><button id="btnTop3Jev" disabled>JEV modu: KAPALI → aç</button><button id="btnT3Part" disabled title="Ayarlanan R kârda lotun ayarlanan payı borsadaki hedef emriyle alınır; kalanın stopu başabaş + ücrete çekilir (hedef bu seviyeden yakınsa uygulanmaz)">Kâr koruma: —</button><label class="t3set">Marj <input id="t3Margin" type="number" min="5" step="1" placeholder="otomatik"> USDT</label><label class="t3set">Kaldıraç <input id="t3Lev" type="number" min="1" max="20" step="1"> x</label><button id="btnTop3Save" disabled>Marj/kaldıraç kaydet</button></div>
+    <div class="t3btns"><button id="btnTop3On" disabled>İlk 3 Avcısı: AÇ</button><button id="btnTop3Jev" disabled>JEV modu: KAPALI → aç</button><button id="btnTop3Cm" disabled title="R2544.89: karar sahibi KURUL (5 ücretsiz model): girişte veto, açık pozisyonda masa yetkili (yalnız azaltan emirler)">Kurul: KAPALI → aç</button><button id="btnT3Part" disabled title="Ayarlanan R kârda lotun ayarlanan payı borsadaki hedef emriyle alınır; kalanın stopu başabaş + ücrete çekilir (hedef bu seviyeden yakınsa uygulanmaz)">Kâr koruma: —</button><label class="t3set">Marj <input id="t3Margin" type="number" min="5" step="1" placeholder="otomatik"> USDT</label><label class="t3set">Kaldıraç <input id="t3Lev" type="number" min="1" max="20" step="1"> x</label><button id="btnTop3Save" disabled>Marj/kaldıraç kaydet</button></div>
     <div class="t3btns"><label class="t3set">İlk 3 kâr koruma seviyesi <input id="t3PartR" type="number" min="0.5" max="5" step="0.25" placeholder="2"> R</label><label class="t3set">pay <input id="t3PartPct" type="number" min="10" max="90" step="5" placeholder="50"> %</label><button id="btnT3PartSave" disabled>Kâr koruma kaydet</button><span class="muted">boş = 2R’de %50 (1 ay ölçümü) • TEST’te istediğin an, CANLI’da iki kez basıp onayla • açık lotların emri değişmez</span></div>
     <div class="t3subs" id="t3Subs" style="margin:8px 0;display:grid;gap:6px">
       <div class="t3sub"><b>İLK 3 ERKEN LONG</b> <button id="btnT3Early" disabled>—</button> <button id="btnT3EarlyJev" disabled>JEV: —</button> <span id="t3EarlyRes" class="muted"></span></div>
@@ -316,7 +316,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   </section>
   <section class="card" id="z5Card" aria-label="ZİRVE-5" style="margin:16px 0;border-color:#e0607e">
     <h2>🔺🔻 ZİRVE-5 LONG + SHORT <span class="hint">FiboBuLL videosu • piyasa geneli en volatil 5 coin (24 sa aralık, hacim ≥ 20M) • 15 dk tepe kırılımı → LONG alanı, dip kırılımı → SHORT alanı • alanda hacimli güçlü mum kapanınca giriş • stop alan dışı, hedef likidite, en çok 24 sa • her yön kendi adıyla kayıt ve öğrenme • yalnız PC yürütür</span></h2>
-    <div class="t3btns"><button id="btnZ5On" disabled>ZİRVE-5: AÇ</button><button id="btnZ5Long" disabled>LONG: —</button><button id="btnZ5Short" disabled>SHORT: —</button><button id="btnZ5Jev" disabled>JEV modu: KAPALI → aç</button><button id="btnZ5Live" disabled>CANLI’da: seçili değil</button><button id="btnZ5Part" disabled title="Ayarlanan R kârda lotun ayarlanan payı borsadaki hedef emriyle alınır; kalanın stopu başabaş + ücrete çekilir (hedef bu seviyeden yakınsa uygulanmaz)">Kâr koruma: —</button><button id="btnZ5Sweep" disabled title="Onay mumu dahil son 24 mumda (15 dk) bir salınım ucunun ötesine fitil atıp geri içeri kapanan mum (SFP) yoksa giriş yok">Süpürme: —</button></div>
+    <div class="t3btns"><button id="btnZ5On" disabled>ZİRVE-5: AÇ</button><button id="btnZ5Long" disabled>LONG: —</button><button id="btnZ5Short" disabled>SHORT: —</button><button id="btnZ5Jev" disabled>JEV modu: KAPALI → aç</button><button id="btnZ5Cm" disabled title="R2544.89: karar sahibi KURUL">Kurul: KAPALI → aç</button><button id="btnZ5Live" disabled>CANLI’da: seçili değil</button><button id="btnZ5Part" disabled title="Ayarlanan R kârda lotun ayarlanan payı borsadaki hedef emriyle alınır; kalanın stopu başabaş + ücrete çekilir (hedef bu seviyeden yakınsa uygulanmaz)">Kâr koruma: —</button><button id="btnZ5Sweep" disabled title="Onay mumu dahil son 24 mumda (15 dk) bir salınım ucunun ötesine fitil atıp geri içeri kapanan mum (SFP) yoksa giriş yok">Süpürme: —</button></div>
     <div class="t3btns"><label class="t3set">ZİRVE-5 marj <input id="z5Margin" type="number" min="5" step="1" placeholder="riske göre"> USDT</label><label class="t3set">Kaldıraç <input id="z5Lev" type="number" min="1" max="20" step="1" placeholder="İlk 3"> x</label><button id="btnZ5Save" disabled>ZİRVE-5 marj/kaldıraç kaydet</button><span class="muted">boş marj = riske göre (stopta hesabın %2’si) • TEST’te istediğin an, CANLI’da iki kez basıp onayla</span></div>
     <div class="t3btns"><label class="t3set">ZİRVE-5 kâr koruma seviyesi <input id="z5PartR" type="number" min="0.5" max="5" step="0.25" placeholder="2"> R</label><label class="t3set">pay <input id="z5PartPct" type="number" min="10" max="90" step="5" placeholder="50"> %</label><button id="btnZ5PartSave" disabled>Kâr koruma kaydet</button><span class="muted">boş = 2R’de %50 • açık lotların emri değişmez</span></div>
     <div class="t3msg" id="z5Msg"></div>
@@ -2003,6 +2003,8 @@ function renderTop3(s){
   const tw=t.testWindow,twDone=sw.enabled&&t.tradingMode!=='LIVE'&&tw?.done===true;
   btn('btnTop3On',twDone?'Yeni 24 saat başlat':sw.enabled?'İlk 3 Avcısı: KAPAT':'İlk 3 Avcısı: AÇ',sw.enabled&&!twDone,false);
   btn('btnTop3Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!t.jevAvailable&&!sw.jevMode);
+  btn('btnTop3Cm',typeof sw.committeeMode!=='boolean'?'Kurul: PC sürümü eski':sw.committeeMode?'Kurul: AÇIK → kapat':'Kurul: KAPALI → aç',sw.committeeMode===true,typeof sw.committeeMode!=='boolean'); // R2544.89
+  {const b=document.getElementById('btnCmLive');if(b)b.disabled=typeof sw.committeeMode!=='boolean'||t.tradingMode==='LIVE';}
   // R2544.69 kâr koruma (PC before R2544.69 has no such switch -> disabled)
   btn('btnT3TopSweep',typeof sw.topSweep!=='boolean'?'Süpürme: PC sürümü eski':sw.topSweep?'Süpürme şartı: AÇIK → kapat':'Süpürme şartı: KAPALI → aç',sw.topSweep===true,typeof sw.topSweep!=='boolean');
   {const pp=t.partial||{},lab=`Kâr koruma ${partLab(pp.atR,pp.share)}`;
@@ -2119,7 +2121,7 @@ function deskLine(d){
   if(!d)return '<br><span class="muted">masa: henüz bakmadı (açılıştan 5 dk sonra, sonra 15 dk’da bir)</span>';
   const L=d.last;if(!L)return `<br><span class="muted">masa: karar yok${d.lastError?' • '+esc((d.lastError.tried||[]).join(', ')):''}</span>`;
   const ago=Math.max(0,Math.round((Date.now()-Date.parse(L.atIso))/60000)),act=L.action!=='HOLD';
-  return `<br><span class="muted"${act?' style="color:var(--warning)"':''}>🧑‍💼 masa (${L.judge==='JEV'?'JEV':L.judge==='ROUTER'?'9Router '+esc(String(L.model||'').replace(/^[a-z]+\//,'')):'ücretsiz model'}, gölge): <b>${esc(L.text||L.action)}</b>${L.watchTr?' • izliyor: '+esc(L.watchTr):''} • ${ago} dk önce • ${esc(d.reviews)} bakış, ${esc(d.acted)} eylem</span>`;
+  return `<br><span class="muted"${act?' style="color:var(--warning)"':''}>🧑‍💼 masa (${L.judge==='JEV'?'JEV':L.judge==='COMMITTEE'?'kurul':L.judge==='ROUTER'?'9Router '+esc(String(L.model||'').replace(/^[a-z]+\//,'')):'ücretsiz model'}, ${L.authority?'<b>YETKİLİ</b>':'gölge'}): <b>${esc(L.text||L.action)}</b>${L.watchTr?' • izliyor: '+esc(L.watchTr):''} • ${ago} dk önce • ${esc(d.reviews)} bakış, ${esc(d.acted)} eylem</span>`;
 }
 // R2544.87 kurulun giriş kararı (gölge): koltuk koltuk oylar
 function entryCmLine(c){
@@ -2127,7 +2129,7 @@ function entryCmLine(c){
   if(c.error)return `<br><span class="muted">🤝 kurul (giriş, gölge): karar yok • ${esc(c.error)}</span>`;
   const D={TAKE:'GİR',SKIP:'GİRME',ERR:'cevap yok'},cs={UNANIMOUS:'oybirliği',MAJORITY_AFTER_DEBATE:'tartışma sonrası çoğunluk',NO_MAJORITY_DEFAULT:'çoğunluk yok → GİRME',SINGLE_VOTER_DEFAULT:'tek oy → GİRME'}[c.consensus]||c.consensus;
   const v=(c.votes||[]).map(x=>`${esc(x.s||'')} ${esc(String(x.m).replace(/^[a-z]+\//,''))}: <b>${D[x.d]||esc(x.d)}</b>`).join(' • ');
-  return `<br><span class="muted"${c.decision==='SKIP'?' style="color:var(--warning)"':''}>🤝 kurul (giriş, gölge): <b>${D[c.decision]||esc(c.decision)}</b> • ${esc(cs)} • ${v}</span>`;
+  return `<br><span class="muted"${c.decision==='SKIP'?' style="color:var(--warning)"':''}>🤝 kurul (giriş, ${c.authority?'<b>YETKİLİ</b>':'gölge'}): <b>${D[c.decision]||esc(c.decision)}</b> • ${esc(cs)} • ${v}</span>`;
 }
 function deskSummaryLine(p,lane){
   const c=p.comparison?.[lane],td=p.today||{};
@@ -2160,6 +2162,22 @@ onClick('#btnZ5Sweep',()=>{const z=last?.zirve5,on=z?.switches?.requireSweep===t
 onClick('#btnT3TopSweep',()=>{const t=last?.top3,on=t?.switches?.topSweep===true,live=t?.tradingMode==='LIVE';
   if(live&&!top3Second('btnT3TopSweep',`İLK 3 TEPE SHORT süpürme şartı ${on?'KAPAT':'AÇ'} — CANLI girişler değişir`))return;
   top3Control({topSweep:!on,...(live?{confirm:'LIVE'}:{})},on?'TEPE SHORT süpürme şartı kapatıldı':'TEPE SHORT süpürme şartı açıldı: SFP yoksa SHORT yok');});
+// R2544.89 KURUL: karar sahibi kurul (girişte veto, açık pozisyonda masa yetkili; yalnız azaltan emirler). CANLI'da GERÇEK PARA onayı.
+const CM_WARN='Kurul henüz ölçülmedi (sınav sürüyor). Kurul GİR demezse işlem açılmaz; açık pozisyonda kurul yarısını kapatabilir, stopu yaklaştırabilir, çıkabilir; modeller çalışmazsa kural devam eder.';
+onClick('#btnTop3Cm',()=>{const t=last?.top3,on=t?.switches?.committeeMode===true,live=t?.tradingMode==='LIVE';
+  if(on){top3Control({committeeMode:false},'Kurul kapatıldı: İlk 3 kararı kurala döndü (kurul gölgede kayıt tutmaya devam eder).');return;}
+  if(!top3Second('btnTop3Cm',`İlk 3 karar sahibi KURUL${live?' — CANLI, GERÇEK PARA':''}. ${CM_WARN}`))return;
+  top3Control({committeeMode:true,...(live?{confirm:'LIVE'}:{})},'İlk 3 kararı kurulda: her sinyal kurul onayından geçer; açık pozisyonu masa yönetir.');});
+onClick('#btnZ5Cm',()=>{const z=last?.zirve5,on=z?.switches?.committeeMode===true,live=z?.tradingMode==='LIVE';
+  if(on){z5Control({committeeMode:false},'Kurul kapatıldı: ZİRVE-5 kararı kurala döndü.');return;}
+  if(!top3Second('btnZ5Cm',`ZİRVE-5 karar sahibi KURUL${live?' — CANLI, GERÇEK PARA':''}. ${CM_WARN}`))return;
+  z5Control({committeeMode:true,...(live?{confirm:'LIVE'}:{})},'ZİRVE-5 kararı kurulda.');});
+// tek tık: iki stratejinin kararını kurula verir (TEST'te onay gerekmez), ardından normal CANLI’ya geç onayı açılır (son karar sizde)
+onClick('#btnCmLive',async()=>{
+  if(!top3Second('btnCmLive',`KURULLA CANLI: İlk 3 ve ZİRVE-5 kararı kurula verilir, sonra CANLI’ya geç onayı açılır. ${CM_WARN}`))return;
+  await top3Control({committeeMode:true},'İlk 3 kararı kurulda.');await z5Control({committeeMode:true},'ZİRVE-5 kararı kurulda.');
+  const g=document.getElementById('btnGoLive');if(g&&!g.disabled){g.click();modeMsg('Kurul hazır. CANLI’ya geçmek için “CANLI’ya geç” düğmesine 6 sn içinde bir kez daha basın.');}
+  else modeMsg('Kurul hazır; “CANLI’ya geç” düğmesi şu an kullanılamıyor (hat seçimi / başlatma durumu).',true);});
 onClick('#btnTop3Jev',()=>{
   const on=last?.top3?.switches?.jevMode===true;
   if(on){top3Control({jevMode:false},'JEV modu kapatıldı: sinyaller JEV’siz (ücretsiz) kurala göre işlenir.');return;}
@@ -2212,6 +2230,7 @@ function renderZ5(s){
   btn('btnZ5Long',!v68?'LONG: PC sürümü eski':sw.longEnabled?'LONG: AÇIK → kapat':'LONG: KAPALI → aç',sw.longEnabled===true,!v68);
   btn('btnZ5Short',!v68?'SHORT: PC sürümü eski':sw.shortEnabled?'SHORT: AÇIK → kapat':'SHORT: KAPALI → aç',sw.shortEnabled===true,!v68);
   btn('btnZ5Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!z.jevAvailable&&!sw.jevMode);
+  btn('btnZ5Cm',typeof sw.committeeMode!=='boolean'?'Kurul: PC sürümü eski':sw.committeeMode?'Kurul: AÇIK → kapat':'Kurul: KAPALI → aç',sw.committeeMode===true,typeof sw.committeeMode!=='boolean'); // R2544.89
   btn('btnZ5Live',sw.liveEnabled?'CANLI’da: SEÇİLİ → kaldır':'CANLI’da: seçili değil → seç',sw.liveEnabled,false);
   btn('btnZ5Save','ZİRVE-5 marj/kaldıraç kaydet',false,!v68);
   btn('btnZ5Sweep',typeof sw.requireSweep!=='boolean'?'Süpürme şartı: PC sürümü eski':sw.requireSweep?'Süpürme şartı (SFP): AÇIK → kapat':'Süpürme şartı (SFP): KAPALI → aç',sw.requireSweep===true,typeof sw.requireSweep!=='boolean');

@@ -53,6 +53,7 @@ function readTop3Config(root) {
   if (raw.partial && typeof raw.partial === 'object') { const a = finite(raw.partial.atR), b = finite(raw.partial.share);   // R2544.73 Office level/share
     if (a !== null && a >= 0.5 && a <= 5) c.partial.atR = a; if (b !== null && b >= 0.1 && b <= 0.9) c.partial.share = b; }
   for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
+  c.committeeMode = raw.committeeMode === true; // R2544.89 karar sahibi KURUL (giriş vetosu + masa yetkisi); varsayılan kapalı
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const mq = finite(raw.marginQuote); if (mq !== null && mq > 0) c.marginQuote = mq;
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 4) c.maxActive = Math.floor(ma);
@@ -96,7 +97,7 @@ function safeLeverage(stopPct) { const s = finite(stopPct); return s > 0 ? Math.
 function writeTop3Switches(root, patch = {}) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
-  for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  for (const k of ['enabled', 'jevMode', 'liveEnabled', 'committeeMode']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
   if (typeof patch.topSweep === 'boolean') { raw.top = raw.top && typeof raw.top === 'object' ? raw.top : {}; raw.top.requireSweep = patch.topSweep; } // R2544.70
   if (typeof patch.partialEnabled === 'boolean') { raw.partial = raw.partial && typeof raw.partial === 'object' ? raw.partial : {}; raw.partial.enabled = patch.partialEnabled; }
   // R2544.73: level (R) and share; null = default (2R, 50 %). Ranges are checked by the caller (configureTop3).

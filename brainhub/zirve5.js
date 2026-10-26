@@ -46,6 +46,7 @@ function readRaw(root) { try { return JSON.parse(fs.readFileSync(configFile(root
 function readConfig(root) {
   const raw = readRaw(root), c = { ...DEFAULT_CONFIG };
   for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled', 'requireSweep']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
+  c.committeeMode = raw.committeeMode === true; // R2544.89
   const mq = finite(raw.marginQuote); if (mq !== null && mq >= 5) c.marginQuote = mq;
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 5) c.maxActive = Math.floor(ma);
@@ -56,7 +57,7 @@ function readConfig(root) {
 }
 function writeConfig(root, patch = {}) {
   const raw = readRaw(root);
-  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled', 'requireSweep']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled', 'requireSweep', 'committeeMode']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
   delete raw.requireFalling24h;                               // R2544.67.5'in yanlış şartı: dosyada kalmışsa silinir
   // ZİRVE-5'in kendi marjı (null = riske göre) ve kaldıracı (null = İlk 3'ünki)
   if (Object.prototype.hasOwnProperty.call(patch, 'marginQuote')) {

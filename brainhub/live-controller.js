@@ -6090,7 +6090,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
         top:finite(x.trig.top),hl:finite(x.trig.hl),topVolMult:finite(x.trig.topVolMult)!==null?Number(x.trig.topVolMult.toFixed(2)):null,pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close,
         sweep:x.trig.sweep||null,pa:x.pa||null,ind:x.ind||null}; // R2544.72: the SFP the rule required and the PA context travel with the lot; R2544.79 ind: information only
-      try{const pl0=x.side==='LONG'?top3Lib.earlyLongPlan(x.close,x.trig,x.levels,cfg):top3Lib.topShortPlan(x.close,x.trig,x.levels,cfg);
+      let pl0=null;try{pl0=x.side==='LONG'?top3Lib.earlyLongPlan(x.close,x.trig,x.levels,cfg):top3Lib.topShortPlan(x.close,x.trig,x.levels,cfg);
         if(pl0?.ok)ef.entryCtx=AUTOPSY.entryContext(x.k5tail||[],x.side,x.close,pl0.stopPrice,await btc5Recent());}catch{} // R2544.80
       ef.experience=top3Lib.experienceVerdict(top3State.lessons,x.rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
       {const sc=top3Lib.similarCases(top3State.lessons,x.rule,ef);ef.similar={n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))};} // R2544.80 karar vermez
@@ -6105,6 +6105,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
         res.jev=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
       }
+      // R2544.89 KURUL KAPISI (kullanıcı 27.10: "istediğim zaman tek tık ile canlıya geçebilmeliyim bu modeller ile"): kural sinyal verdi;
+      // kurul GİR demezse işlem yok (yalnız veto, kendisi işlem açmaz). Kurul yok / zaman aşımı -> kural devam eder (kayıtlı).
+      if(cfg.committeeMode===true&&pl0?.ok){const g=await committeeEntryGate({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice});
+        ef.committee=g.record;res.committee={decision:g.record.decision||null,consensus:g.record.consensus||null,error:g.record.error||null};
+        if(g.veto){res.reason='TOP3_COMMITTEE_SKIP';try{store.journal('TOP3_COMMITTEE_SKIP',x.symbol,{side:x.side,rule:x.rule,...g.record});}catch{}continue;}}
       const R=x.side==='LONG'?cfg.early:cfg.top;
       const opened=await top3Open({ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels,maxHoldMs:R.maxHoldH*TOP3_HOUR},x.symbol,cfg,jev,{signalKind:'FRESH',entryFeatures:ef});
       Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason,stopPct:finite(opened.stopPct)});
@@ -6215,7 +6220,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // R2544.69 kâr koruma: a reduce-only take-profit for `share` of the lot at +atR (TEST = paper exchange, LIVE = Binance, same call);
     // when it fills top3Manage moves the rest's stop to break-even + fees and re-places the target for the rest.
     const part=await top3PlacePartial({sig,side,symbol,hedge,executed,entryPrice,stopPrice,tpPrice,f,id,creds,cfg});
-    const a={id,symbol,side,rule:sig.rule,initialQuantity:executed,part,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
+    const a={id,symbol,side,rule:sig.rule,initialQuantity:executed,part,lotStep:f.lotStep,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
       stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
       jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0,
       signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0,
@@ -6375,6 +6380,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         top3Finish(a,{exitReason,exitPrice,closedAt:closedAt&&closedAt<=clock()?closedAt:null});continue;
       }
       const mark=finite(r.markPrice);a.lastMark=mark;a.checkedAt=clock();
+      if(a.deskOrder){const dx=await deskExecute(a,amt,mark,creds);if(dx==='CLOSED')continue;} // R2544.89 kurul yetkiliyse masanın azaltan emri
       if(mark>0&&a.entryPrice>0){const fav=a.side==='LONG'?mark/a.entryPrice-1:1-mark/a.entryPrice;a.sampleMfePct=Math.max(finite(a.sampleMfePct)??0,fav);a.sampleMaePct=Math.min(finite(a.sampleMaePct)??0,fav);}
       // R2544.69 kâr koruma (partial take + break-even for the rest)
       if(a.part&&!a.part.skipped){const pr=await top3ManagePartial(a,amt,mark,creds);if(pr==='PART_REST_CLOSED'){
@@ -6427,7 +6433,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
     const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
     const netPnl=inc?inc.net:null;
-    const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
+    const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_DESK_EXIT:'TOP3_DESK_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
       TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE',TOP3_BE_STOP:'TOP3_BE_STOP'}[c.exitReason]||'TOP3_OTHER_EXIT';
     // R2544.64: a ZİRVE-5 lot is booked under its own name (lane ZIRVE5, setup ZIRVE5_FIBO_SHORT, 15m) so TEST shows which
     // strategy made or lost money and learns per strategy
@@ -6741,7 +6747,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const rk=DESK.riskOf(a),Rf=p=>rk?Number(((a.side==='LONG'?p-a.entryPrice:a.entryPrice-p)/rk).toFixed(2)):null; // R2544.88 grafik okuması (gerçek fiyat, R uzaklığı)
       const chart={m15:TB.chartReading(k15.raw,'15m',{t:now,R:Rf}),h1:TB.chartReading(k1h.raw,'1h',{t:now,R:Rf})};
       const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15).slice(-30),k1h:closed(k1h).slice(-30),btc5:btc,oi,why:top3Why(a),now,lane,chart});
-      const res=await deskJudge(packet,mode,cfg),st=deskStats();st.lastAt=new Date(now).toISOString();
+      const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
+      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:['COMMITTEE'],liveJudges:['COMMITTEE']},judges:deskJudges,stats:deskStats()}):deskJudge(packet,mode,cfg)),st=deskStats();st.lastAt=new Date(now).toISOString();
       const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
       desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);
       if(!res.ok){st.failed++;st.lastError=res.tried.join(', ').slice(0,200);desk.lastError={at:now,tried:res.tried};saveTop3State();
@@ -6749,6 +6756,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const d=DESK.validate(res.d,packet.stopChoices);
       const rec={at:now,mark:pickMark,R:Number((desk.lastR??0).toFixed(3)),action:d.action,stopChoice:d.stopChoice||'KEEP',stopPrice:finite(d.stopPrice),reason:d.reason,confidence:finite(d.confidence),
         reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true};
+      if(auth){rec.shadow=false;rec.authority=true;if(rec.action!=='HOLD'&&!rec.downgraded&&rec.judge==='COMMITTEE')a.deskOrder={action:rec.action,stopPrice:rec.stopPrice,at:now,by:'COMMITTEE'};}
       desk.decisions.push(rec);if(desk.decisions.length>120)desk.decisions=desk.decisions.slice(-120);desk.last=rec;desk.lastError=null;
       saveTop3State();
       try{store.journal('POSITION_DESK_REVIEW',a.symbol,{lane,mode,id:a.id,rule:a.rule,...rec,text:DESK.decisionText(rec),version:DESK.DESK_VERSION,tried:res.tried});}catch{}
@@ -6786,6 +6794,61 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return f.committee;
     }catch{return null;}
     finally{entryCommitteeBusy--;}
+  }
+  // R2544.89 kurul kapısı: sinyal anında, ŞİMDİYE kadar kapanmış mumlarla aynı ekran; en çok 150 sn. TAKE değilse veto.
+  // Kurul cevap veremezse (sağlıklı üye yok / zaman aşımı) kural devam eder: kullanıcı modeller kapalıyken de çalışsın istedi.
+  async function committeeEntryGate({symbol,side,rule,entry,stop,target}){
+    const t0=clock();
+    if(!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return {veto:false,record:{at:t0,error:'COMMITTEE_NOT_WIRED',fallback:'RULE',authority:true}};
+    try{
+      const end=t0-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
+      const k={m5:await get(symbol,'5m',TB.FETCH.m5,end),m15:await get(symbol,'15m',TB.FETCH.m15,end),h1:await get(symbol,'1h',TB.FETCH.h1,end),h4:await get(symbol,'4h',TB.FETCH.h4,end),d1:await get(symbol,'1d',TB.FETCH.d1,end),btc1h:await get('BTCUSDT','1h',40,Math.floor(t0/3600000)*3600000-1)};
+      if(!(entry>0&&stop>0&&target>0))return {veto:false,record:{at:t0,error:'COMMITTEE_PLAN_INVALID',fallback:'RULE',authority:true}};
+      const packet=TB.entryPacket({k,plan:{side,rule,entry,stop,target},t:t0});
+      const r=await Promise.race([deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES}),
+        new Promise(res=>setTimeout(()=>res({ok:false,reason:'COMMITTEE_TIMEOUT'}),150000))]);
+      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
+      if(!r?.ok)return {veto:false,record:{at:clock(),error:r?.reason||'FAILED',fallback:'RULE',authority:true,ms:clock()-t0}};
+      return {veto:r.final!=='TAKE',record:{at:clock(),decision:r.final,consensus:r.consensus,rounds:r.rounds,votes:slim(r.round2||r.votes),round1:slim(r.votes),authority:true,ms:clock()-t0,version:TB.TB_VERSION}};
+    }catch(e){return {veto:false,record:{at:clock(),error:String(e?.message||e).slice(0,120),fallback:'RULE',authority:true}};}
+  }
+  function deskAuthority(a){try{return (a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root)).committeeMode===true;}catch{return false;}}
+  // R2544.89 masanın yetkili emri: yalnız AZALTAN (yarısını kapat = kâr korumayı şimdi al + kalan başabaşa, stopu yaklaştır, çık).
+  // Bir kez denenir, 10 dk'dan eskiyse düşer; emir yalnız başlatma (arm) varken; stop asla uzaklaşmaz.
+  async function deskExecute(a,amt,mark,creds){
+    const o=a.deskOrder;if(!o)return null;
+    const J=(k,p)=>{try{store.journal(k,a.symbol,{id:a.id,lane:a.lane||'ILK3',action:o.action,...p});}catch{}};
+    if(clock()-o.at>10*60000){a.deskOrder=null;J('POSITION_DESK_ORDER_EXPIRED',{});return null;}
+    if(!armedNow()){a.exitWaiting='DESK_WAITING_ARM';return null;}
+    a.deskOrder=null;const L=a.side==='LONG',held=Math.min(Math.abs(amt),a.quantity);
+    if(o.action==='EXIT'){
+      const r=await top3CloseMarket(a,held);if(!r.ok){J('POSITION_DESK_EXIT_FAILED',{reason:r.reason});return null;}
+      for(const id of [a.stopAlgoId,a.tpAlgoId,a.part&&!a.part.done?a.part.algoId:null])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
+      J('POSITION_DESK_EXIT',{price:r.avgPrice,mark});top3Finish(a,{exitReason:'TOP3_DESK_EXIT',exitPrice:r.avgPrice});return 'CLOSED';
+    }
+    if(o.action==='TAKE_PARTIAL'){
+      const p=a.part;
+      if(p&&!p.skipped&&!p.done&&finite(p.qty)>0&&p.qty<held){ // the planned kâr koruma, now: the existing partial logic then moves the rest to break-even
+        const r=await top3CloseMarket(a,p.qty);if(!r.ok){J('POSITION_DESK_PARTIAL_FAILED',{reason:r.reason});return null;}
+        if(p.algoId!==null&&p.algoId!==undefined)try{await transport.cancelAlgoOrder({algoId:p.algoId,credentials:creds});}catch{}
+        Object.assign(p,{done:true,filledAt:clock(),bePending:true,byDesk:true,restQty:Number((held-p.qty).toFixed(12))});a.quantity=p.restQty;
+        J('POSITION_DESK_PARTIAL',{qty:p.qty,price:r.avgPrice,rest:a.quantity,how:'PLANNED_PARTIAL_NOW'});return 'PARTIAL';
+      }
+      const step=finite(a.lotStep);if(!(step>0)){J('POSITION_DESK_PARTIAL_SKIPPED',{reason:'NO_LOT_STEP'});return null;}
+      const q=burstFloor(held*0.5,step);if(!(q>0&&held-q>0)){J('POSITION_DESK_PARTIAL_SKIPPED',{reason:'SIZE_TOO_SMALL'});return null;}
+      const r=await top3CloseMarket(a,q);if(!r.ok){J('POSITION_DESK_PARTIAL_FAILED',{reason:r.reason});return null;}
+      a.quantity=Number((held-q).toFixed(12));J('POSITION_DESK_PARTIAL',{qty:q,price:r.avgPrice,rest:a.quantity,how:'HALF_OF_REST'});return 'PARTIAL';
+    }
+    if(o.action==='TIGHTEN_STOP'){
+      const tick=finite(a.tickSize)||0,px=finite(o.stopPrice),cur=finite(a.stopPrice);
+      if(!(px>0&&cur>0&&mark>0)||!(L?px>cur&&px<mark*0.999:px<cur&&px>mark*1.001)){J('POSITION_DESK_STOP_SKIPPED',{reason:'NOT_TIGHTER_OR_THROUGH_PRICE',stopPrice:px,cur,mark});return null;}
+      const sp=burstTickPrice(px,tick>0?tick:px*1e-6,L?'down':'up');
+      const ns=await transport.placeRunnerStop({symbol:a.symbol,side:a.side,hedgeMode:a.hedge,quantity:a.quantity,triggerPrice:sp,clientAlgoId:('T3D'+a.id).slice(0,36),credentials:creds});
+      if(!ns.ok){J('POSITION_DESK_STOP_FAILED',{reason:ns.reason||null});return null;}
+      const old=a.stopAlgoId;try{await transport.cancelAlgoOrder({algoId:old,credentials:creds});}catch{}
+      Object.assign(a,{initialStopPrice:a.initialStopPrice??a.stopPrice,stopPrice:sp,stopAlgoId:ns.algoId,deskStopAt:clock()});J('POSITION_DESK_STOP',{stopPrice:sp,from:cur});return 'STOP';
+    }
+    return null;
   }
   function entryCommitteeView(a){const c=a?.entryFeatures?.committee;if(!c)return null;return {...c,atIso:new Date(c.at).toISOString()};}
   async function z5Mtf(symbol,bar,sig,cfg){
@@ -6842,6 +6905,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           try{store.journal('ZIRVE5_JEV_REVIEW',sym,{...ev,side});}catch{}
           if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;}
         }
+        if(cfg.committeeMode===true){const pz=z5Lib.plan(sg.refPrice,sg,cfg); // R2544.89 kurul kapısı (veto)
+          if(pz?.ok){const g=await committeeEntryGate({symbol:sym,side,rule,entry:sg.refPrice,stop:pz.stopPrice,target:pz.tpPrice});ef.committee=g.record;
+            if(g.veto){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_COMMITTEE_SKIP',rank:sg.rank});try{store.journal('ZIRVE5_COMMITTEE_SKIP',sym,{side,rule,...g.record});}catch{}continue;}}}
         const opened=await top3Open({z5:true,side,rule,zone:sg,z5cfg:cfg,maxHoldMs:cfg.maxHoldH*TOP3_HOUR},sym,sizing,jev,{signalKind:'FRESH',entryFeatures:ef});
         const res={symbol:sym,side,opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,stopPct:finite(opened.stopPct)??finite(opened.active?.stopPct),rank:sg.rank};
         z5Note(z,res);
@@ -6865,9 +6931,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     const gate=cfg.enabled?z5Gate(cfg):{ok:false,reason:'ZIRVE5_DISABLED'};
     return {ok:true,name:'ZİRVE-5',lane:'ZIRVE5',positionDesk:deskStatus(),setup:z5Lib.SETUP,setups:{LONG:z5Lib.SETUP_LONG,SHORT:z5Lib.SETUP_SHORT},version:z5Lib.ZIRVE5_VERSION,tf:'15m',
-      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,longEnabled:cfg.longEnabled,shortEnabled:cfg.shortEnabled,partialEnabled:cfg.partialEnabled,requireSweep:cfg.requireSweep},
+      tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,committeeMode:cfg.committeeMode===true,longEnabled:cfg.longEnabled,shortEnabled:cfg.shortEnabled,partialEnabled:cfg.partialEnabled,requireSweep:cfg.requireSweep},
       partial:{enabled:cfg.partialEnabled===true,atR:cfg.partAtR,share:cfg.partShare,beFee:cfg.partBeFee},
-      jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',
+      jevAvailable:typeof zirve5Judge==='function',decisions:cfg.committeeMode?'RULE_PLUS_COMMITTEE':cfg.jevMode?'RULE_PLUS_JEV':'RULE',
       rules:{k:cfg.k,entry:'VOLUME_CONFIRMATION',volMult:cfg.volMult,bodyMin:cfg.bodyMin,volLookback:cfg.volLookback,target:'LIQUIDITY_MIN_1R',maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,sides:['LONG','SHORT'],liveAllowed:cfg.liveEnabled,maxActiveLive:cfg.maxActive},
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
@@ -6885,11 +6951,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // Office / API switches, like İlk 3: OFF is immediate in any mode (open lots keep their own stop/target/24 h exit);
   // ON in LIVE (the lane or a side while LIVE, or liveEnabled) and a margin/leverage change in LIVE need the explicit 'LIVE'.
   function configureZ5(patch={}){
-    const p={};for(const k of ['enabled','liveEnabled','jevMode','longEnabled','shortEnabled','partialEnabled','requireSweep'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const p={};for(const k of ['enabled','liveEnabled','jevMode','longEnabled','shortEnabled','partialEnabled','requireSweep','committeeMode'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    if(p.committeeMode===true)p.jevMode=false;else if(p.jevMode===true)p.committeeMode=false; // R2544.89
     for(const k of ['marginQuote','leverage','partAtR','partShare'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['ZIRVE5_SWITCH_MISSING']};
     const live=!testModeNow(),sizingChange=('marginQuote' in p)||('leverage' in p)||('partAtR' in p)||('partShare' in p);
-    if((p.liveEnabled===true||(live&&(p.enabled===true||p.longEnabled===true||p.shortEnabled===true||sizingChange||typeof p.partialEnabled==='boolean'||typeof p.requireSweep==='boolean')))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if((p.liveEnabled===true||(live&&(p.committeeMode===true||p.enabled===true||p.longEnabled===true||p.shortEnabled===true||sizingChange||typeof p.partialEnabled==='boolean'||typeof p.requireSweep==='boolean')))&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     const before=z5Lib.readConfig(root),after=z5Lib.writeConfig(root,p);
     if(after?.ok===false)return {ok:false,reasons:after.reasons};
     if(after.enabled!==true||(live&&after.liveEnabled!==true)){z5State().armed={};z5State().pending=[];}
@@ -6981,7 +7048,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const sum=xs=>({closed:xs.length,wins:xs.filter(p=>p.netPnl>0).length,losses:xs.filter(p=>p.netPnl<0).length,netPnl:Number(xs.reduce((a,p)=>a+p.netPnl,0).toFixed(4))});
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),
-      switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true,topSweep:cfg.top?.requireSweep!==false},partial:{...(cfg.partial||{})},
+      switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,committeeMode:cfg.committeeMode===true,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true,topSweep:cfg.top?.requireSweep!==false},partial:{...(cfg.partial||{})},
       subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
         const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};
         return {key:sb.key,name:sb.name,side:sb.side,rule:sb.rule,setup:sb.setup,enabled:R?.enabled===true,jev:top3Lib.subJev(cfg,sb.side),jevSetting:typeof R?.jev==='boolean'?R.jev:null,
@@ -7035,14 +7102,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function rememberNormalLane(enabled){if(typeof enabled!=='boolean')return;writeLanes({normal:enabled});runJournal('LANES_SELECTED',{normal:enabled,source:'LEADER_AUTO_API'});}
   // Only the user's Office buttons call this (server route). LIVE needs the explicit 'LIVE' confirmation.
   function configureTop3(patch={}){
-    const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled','partialEnabled','topSweep'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled','partialEnabled','topSweep','committeeMode'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    if(p.committeeMode===true)p.jevMode=false;else if(p.jevMode===true)p.committeeMode=false; // R2544.89 karar sahibi tek: KURAL / JEV / KURUL
     for(const k of ['earlyJev','topJev'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&(typeof patch[k]==='boolean'||patch[k]===null))p[k]=patch[k];
     const restart=patch?.restartWindow===true;if(restart)p.enabled=true;
     // R2544.73: kâr koruma level (R 0,5-5) / share (0,1-0,9); null = default 2R / 50 %. LIVE needs the 'LIVE' confirmation.
     for(const [k,lo,hi] of [['partAtR',0.5,5],['partShare',0.1,0.9]])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined){
       const v=patch[k]===null||patch[k]===''?null:finite(patch[k]);if(v!==null&&!(v>=lo&&v<=hi))return {ok:false,reasons:[k==='partAtR'?'TOP3_PARTIAL_LEVEL_INVALID':'TOP3_PARTIAL_SHARE_INVALID']};p[k]=v;}
     // R2544.67: a sub-strategy switched ON in LIVE needs the explicit 'LIVE' confirmation (OFF is immediate)
-    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true||typeof p.partialEnabled==='boolean'||typeof p.topSweep==='boolean'||'partAtR' in p||'partShare' in p)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if(!testModeNow()&&(p.earlyEnabled===true||p.topEnabled===true||p.committeeMode===true||typeof p.partialEnabled==='boolean'||typeof p.topSweep==='boolean'||'partAtR' in p||'partShare' in p)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     // R2544.57: margin / leverage from Office; in LIVE only with the explicit 'LIVE' confirmation
     const sp={};for(const k of ['marginQuote','leverage'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)sp[k]=patch[k];
     if(Object.keys(sp).length){

@@ -57,7 +57,7 @@ test('R2544.68 wiring: core route and Office pass margin/leverage and the side s
   assert.deepEqual(b({marginQuote:20,leverage:5,confirm:'live'}),{source:'OFFICE',marginQuote:20,leverage:5,confirm:'LIVE'});
   assert.deepEqual(b({marginQuote:null,leverage:null}),{source:'OFFICE',marginQuote:null,leverage:null});
   assert.deepEqual(b({marginQuote:'20',leverage:'x',longEnabled:'no',orders:[1]}),{source:'OFFICE'},'strings and unknown keys are dropped');
-  assert.match(src('server.js'),/configureZ5\(\{enabled:body\?\.enabled,liveEnabled:body\?\.liveEnabled,jevMode:body\?\.jevMode,longEnabled:body\?\.longEnabled,shortEnabled:body\?\.shortEnabled,partialEnabled:body\?\.partialEnabled,requireSweep:body\?\.requireSweep,\.\.\.own\('marginQuote'\),\.\.\.own\('leverage'\)/);
+  assert.match(src('server.js'),/configureZ5\(\{enabled:body\?\.enabled,liveEnabled:body\?\.liveEnabled,jevMode:body\?\.jevMode,committeeMode:body\?\.committeeMode,longEnabled:body\?\.longEnabled,shortEnabled:body\?\.shortEnabled,partialEnabled:body\?\.partialEnabled,requireSweep:body\?\.requireSweep,\.\.\.own\('marginQuote'\),\.\.\.own\('leverage'\)/);
   const html=src('office-dashboard/public/office.html');
   for(const id of ['z5Margin','z5Lev','btnZ5Save'])assert.match(html,new RegExp(`id="${id}"`),id);
   assert.match(html,/onClick\('#btnZ5Save'/);assert.match(html,/Uyarı: ZİRVE-5 marjı/);
