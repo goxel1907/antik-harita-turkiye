@@ -560,7 +560,12 @@ function experienceVerdict(lessons, rule, features) {
 //  2) similarCases: yeni sinyal için girişte bilinen ÇOK özellikli benzerlik (indikatör bilgisi, giriş öncesi koşu, BTC son 1 sa, stop
 //     genişliği, kırılan seviye, 4 sa yapı) ile en benzer geçmiş dersler; coin başına en çok 2 (çeşitlilik), sonuçları VE nedenleri,
 //     karışıksa 'tek düze ders yok' uyarısı. Karar vermez; JEV ve Office okur, kaydedilir.
-const DISCRIM_MIN_N = 8, DISCRIM_GAP = 0.25;
+const DISCRIM_MIN_N = 8, DISCRIM_GAP = 0.25, LAB_FACTOR_GAP = 0.10;
+// R2544.81 otopsi etkenlerinin 6 aylık hafızası (harness/indikator/lab_factors.js; İlk 3 504+513 işlem, ZİRVE-5 231 işlem LONG+SHORT birlikte,
+// trade-autopsy.js ile aynı tanımlar): etken değerinin kayıplardaki / kazançlardaki sıklığı. TEST'te 18 dersle 'ayırt edici' çıkan
+// 'TEPE SHORT: hacim gelmedi' (kayıp %60 / kazanç %25) 6 ayda kayıp %25 / kazanç %25: tesadüf; 30 dk erken çıkış da sonucu bozdu (-0,03R).
+// Son dersler bir etkeni ayırt edici gösterse bile bu hafıza aynı yönde en az 10 puan fark göstermiyorsa ders sayılmaz (TEST_ONLY).
+const LAB_FACTORS = Object.freeze({"LONG_EARLY_RETEST":{"losses":331,"wins":173,"gecGiris:true":{"lossPct":0.698,"winPct":0.751},"btc:TERS":{"lossPct":0.018,"winPct":0.058},"btc:YONDE":{"lossPct":0.012,"winPct":0.035},"hacim:YOK":{"lossPct":0.112,"winPct":0.075},"hacim:GUCLU":{"lossPct":0.659,"winPct":0.803},"seviye2R:true":{"lossPct":0.193,"winPct":0.133}},"SHORT_TOP_BREAK":{"losses":307,"wins":188,"gecGiris:true":{"lossPct":0,"winPct":0},"btc:TERS":{"lossPct":0.104,"winPct":0.165},"btc:YONDE":{"lossPct":0.052,"winPct":0.314},"hacim:YOK":{"lossPct":0.254,"winPct":0.245},"hacim:GUCLU":{"lossPct":0.27,"winPct":0.271},"seviye2R:true":{"lossPct":0.824,"winPct":0.846}},"ZIRVE5_FIBO_LONG":{"losses":133,"wins":98,"gecGiris:true":{"lossPct":0.12,"winPct":0.122},"btc:TERS":{"lossPct":0.075,"winPct":0.071},"btc:YONDE":{"lossPct":0.068,"winPct":0.122},"hacim:YOK":{"lossPct":0.353,"winPct":0.265},"hacim:GUCLU":{"lossPct":0.241,"winPct":0.418},"seviye2R:true":{"lossPct":0.293,"winPct":0.235}},"ZIRVE5_FIBO_SHORT":{"losses":133,"wins":98,"gecGiris:true":{"lossPct":0.12,"winPct":0.122},"btc:TERS":{"lossPct":0.075,"winPct":0.071},"btc:YONDE":{"lossPct":0.068,"winPct":0.122},"hacim:YOK":{"lossPct":0.353,"winPct":0.265},"hacim:GUCLU":{"lossPct":0.241,"winPct":0.418},"seviye2R:true":{"lossPct":0.293,"winPct":0.235}}});
 const CAUSE_SHORT = { HIZLI_TERS:'hızlı ters dönüş', STOP_AVI:'stop avı (yön doğru)', YANLIS_YON:'yön yanlış', KARSI_SEVIYE:'karşı seviyeden döndü', PIYASA_TERS:'BTC ters',
   TAKIP_HACMI_YOK:'hacim gelmedi', GEC_GIRIS:'giriş öncesi koşu', ZAMAN:'süre doldu', BELIRSIZ_YON:'yön belirsiz', TEMIZ_DEVAM:'temiz devam', DIRENC_SONRASI:'sarsılıp döndü',
   PIYASA_DESTEGI:'BTC destekledi', HACIMLI_TAKIP:'hacimli takip', KAR_GERI_VERDI:'kârı geri verdi', HEDEF_ERKEN:'hedef erken', KAR_KORUMA:'kâr koruma + başabaş' };
@@ -581,8 +586,10 @@ function causeStats(lessons, rule) {
     for (const v of vals) {
       const lp = loss.length ? loss.filter(l => l.autopsy.factors?.[key] === v).length / loss.length : null, wp = win.length ? win.filter(l => l.autopsy.factors?.[key] === v).length / win.length : null;
       const enough = loss.length >= DISCRIM_MIN_N && win.length >= DISCRIM_MIN_N;
-      const call = !enough ? 'AZ_ORNEK' : Math.max(lp, wp) < 0.15 ? 'NADIR' : lp - wp >= DISCRIM_GAP ? 'KAYIP_TARAFI' : wp - lp >= DISCRIM_GAP ? 'KAZANC_TARAFI' : 'IKI_TARAFTA';
-      factors.push({ key, value:v, label:label(v), lossPct:lp === null ? null : Number(lp.toFixed(2)), winPct:wp === null ? null : Number(wp.toFixed(2)), call });
+      let call = !enough ? 'AZ_ORNEK' : Math.max(lp, wp) < 0.15 ? 'NADIR' : lp - wp >= DISCRIM_GAP ? 'KAYIP_TARAFI' : wp - lp >= DISCRIM_GAP ? 'KAZANC_TARAFI' : 'IKI_TARAFTA';
+      const lab = LAB_FACTORS[rule]?.[key + ':' + v] || null, labDiff = lab ? lab.lossPct - lab.winPct : null;
+      if ((call === 'KAYIP_TARAFI' && !(labDiff >= LAB_FACTOR_GAP)) || (call === 'KAZANC_TARAFI' && !(labDiff <= -LAB_FACTOR_GAP))) call = 'TEST_ONLY';
+      factors.push({ key, value:v, label:label(v), lossPct:lp === null ? null : Number(lp.toFixed(2)), winPct:wp === null ? null : Number(wp.toFixed(2)), labLossPct:lab?.lossPct ?? null, labWinPct:lab?.winPct ?? null, call });
     }
   }
   const dir = { DOGRU:0, YANLIS:0, BELIRSIZ:0 }; for (const l of loss) if (l.autopsy.direction) dir[l.autopsy.direction]++;
@@ -591,13 +598,17 @@ function causeStats(lessons, rule) {
   if (loss.length) lines.push(`Kayıplar (${loss.length}) nasıl oldu: ` + dist(loss).slice(0, 4).map(x => `${causeTr(x.code)} ${pc(x.pct)}`).join(', ') + ` • yön doğru ${dir.DOGRU} / yanlış ${dir.YANLIS}${dir.BELIRSIZ ? ' / belirsiz ' + dir.BELIRSIZ : ''}`);
   if (win.length) lines.push(`Kazançlar (${win.length}) nasıl oldu: ` + dist(win).slice(0, 4).map(x => `${causeTr(x.code)} ${pc(x.pct)}`).join(', '));
   const d = factors.filter(f => f.call === 'KAYIP_TARAFI' || f.call === 'KAZANC_TARAFI'), same = factors.filter(f => f.call === 'IKI_TARAFTA');
-  if (d.length) lines.push('Ayırt edici: ' + d.map(f => `${f.label} (kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)})`).join('; '));
+  if (d.length) lines.push('Ayırt edici (son dersler + 6 ay aynı yönde): ' + d.map(f => `${f.label} (kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)}; 6 ay ${pc(f.labLossPct)} / ${pc(f.labWinPct)})`).join('; '));
   if (same.length) lines.push('Tek başına neden DEĞİL (kazançta da kayıpta da benzer): ' + same.map(f => `${f.label} (kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)})`).join('; '));
+  const tOnly = factors.filter(f => f.call === 'TEST_ONLY');
+  if (tOnly.length) lines.push('Son derslerde ayırt edici görünüyor ama 6 ayda TUTMUYOR (ders sayılmaz): ' + tOnly.map(f => `${f.label} (son: kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)}; 6 ay: ${pc(f.labLossPct)} / ${pc(f.labWinPct)})`).join('; '));
+  const labRows = Object.entries(LAB_FACTORS[rule] || {}).filter(([k, x]) => x && x.lossPct !== undefined && Math.abs(x.lossPct - x.winPct) >= LAB_FACTOR_GAP);
+  if (labRows.length) lines.push('6 aylık hafıza: ' + labRows.map(([k, x]) => { const [key, val] = k.split(':'), def = FACTOR_DEFS.find(d => d[0] === key), lbl = def ? def[1](val === 'true' ? true : val) : k; return `${lbl} (kayıp ${pc(x.lossPct)} / kazanç ${pc(x.winPct)})`; }).join('; ') + ' — BTC ve hacim işlem sırasında ortaya çıkar: giriş kararı değil, yönetim bilgisi.');
   if (loss.length < DISCRIM_MIN_N || win.length < DISCRIM_MIN_N) lines.push(`Ayırt edicilik için her iki tarafta en az ${DISCRIM_MIN_N} otopsili ders gerekir (şimdi kayıp ${loss.length}, kazanç ${win.length}).`);
-  return { version:'R2544.80-LEARN', lessons:xs.length, losses:loss.length, wins:win.length, lossHow:dist(loss), winHow:dist(win), lossDirection:dir, factors, text:lines };
+  return { version:'R2544.81-LEARN', lessons:xs.length, losses:loss.length, wins:win.length, lossHow:dist(loss), winHow:dist(win), lossDirection:dir, factors, text:lines };
 }
 // compact forms for the JEV packet (48 kB ceiling): the text already carries the distributions
-const learningForJev = c => (c ? { lessons:c.lessons, losses:c.losses, wins:c.wins, lossDirection:c.lossDirection, factors:c.factors.map(f => ({ key:f.key, value:f.value, lossPct:f.lossPct, winPct:f.winPct, call:f.call })), text:c.text } : null);
+const learningForJev = c => (c ? { lessons:c.lessons, losses:c.losses, wins:c.wins, lossDirection:c.lossDirection, factors:c.factors.map(f => ({ key:f.key, value:f.value, lossPct:f.lossPct, winPct:f.winPct, labLossPct:f.labLossPct, labWinPct:f.labWinPct, call:f.call })), text:c.text } : null);
 const similarForJev = q => (q ? { n:q.n, wins:q.wins, losses:q.losses, avgR:q.avgR, mixed:q.mixed, thin:q.thin, text:q.text, cases:q.cases.map(c => ({ symbol:c.symbol, R:c.R, causes:c.causes })) } : null);
 const bucket3 = (v, a, b) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v) < a ? 'L' : Number(v) < b ? 'M' : 'H');
 function entryVector(f, autopsy) {
@@ -667,4 +678,4 @@ const subOf = side => (side === 'LONG' ? TOP3_SUBS.early : TOP3_SUBS.top);
 // effective JEV use of a sub-strategy: its own choice, else the lane's JEV mode
 function subJev(cfg, side) { const R = side === 'LONG' ? cfg?.early : cfg?.top; return typeof R?.jev === 'boolean' ? R.jev : cfg?.jevMode === true; }
 module.exports = { TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
-  writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
+  writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
