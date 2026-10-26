@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
 $EXPECTED_RELEASE = 'R2544.67-TOP3-SUBS'
-$EXPECTED_OFFICE = '2.5.65-R2544.83-JEV-Brain'
+$EXPECTED_OFFICE = '2.5.66-R2544.84-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null
@@ -87,7 +87,7 @@ try {
   }
   if (-not $officeOk) { throw "Office surum dogrulamasi basarisiz; beklenen $EXPECTED_OFFICE" }
   Write-Host "OFFICE_VERSION_OK $EXPECTED_OFFICE"
-  foreach ($f in 'server.js','live-controller.js','attention-priority.js','close-exit-evidence.js','office-performance.js','store.js','burst-scalp.js','burst-preparation.js','position-guard.js','engine.js','price-action.js','fvg-lifecycle.js','pipeline.js','market.js','binance-rate-limit.js','local-l2.js','market-maker-evidence.js','preentry-microstructure.js','jev-market-packet.js','jev-wire-market.js','jev-decision.js','case-memory.js','trade-lessons.js','chart-narrator.js','free-model-registry.js','openrouter-free-worker.js','plan-workers.js','worker-expertise.js','profit-budget.js','burst-reduction.js','learning-quality.js','mobile-status.js','review-scheduler.js','outcome-metrics.js','top3-hunter.js','fibo-zones.js','zirve5.js','pa-setups.js','pa-core.js','ind-info.js','trade-autopsy.js') {
+  foreach ($f in 'server.js','live-controller.js','attention-priority.js','close-exit-evidence.js','office-performance.js','store.js','burst-scalp.js','burst-preparation.js','position-guard.js','engine.js','price-action.js','fvg-lifecycle.js','pipeline.js','market.js','binance-rate-limit.js','local-l2.js','market-maker-evidence.js','preentry-microstructure.js','jev-market-packet.js','jev-wire-market.js','jev-decision.js','case-memory.js','trade-lessons.js','chart-narrator.js','free-model-registry.js','openrouter-free-worker.js','plan-workers.js','worker-expertise.js','profit-budget.js','burst-reduction.js','learning-quality.js','mobile-status.js','review-scheduler.js','outcome-metrics.js','top3-hunter.js','fibo-zones.js','zirve5.js','pa-setups.js','pa-core.js','ind-info.js','trade-autopsy.js','position-desk.js') {
     Write-Host ("HASH $f " + (Get-FileHash (Join-Path "$RT\server" $f)).Hash)
   }
   Write-Host "JEV_DEPLOY_OK $h - $EXPECTED_RELEASE - LIVE restart ile KAPALI kalir; kullanici isterse sonradan uygulamadan acar."

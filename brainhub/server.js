@@ -55,6 +55,10 @@ const freeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDisco
   timeoutMs:cfg.openRouterFreeWorker?.timeoutMs,
   maxAttempts:cfg.openRouterFreeWorker?.maxAttempts,
   statePath:path.join(ROOT,'data','openrouter-free-health.json')});
+// R2544.84 pozisyon masası: ayrı ücretsiz model örneği (kendi günlük sınırı ve sağlık dosyası; Normal sistemin ikinci görüşünü tüketmez)
+const deskFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,
+  preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:Math.max(30000,Number(cfg.openRouterFreeWorker?.timeoutMs)||0),maxAttempts:3,
+  dailyLimit:400,minuteLimit:6,statePath:path.join(ROOT,'data','openrouter-free-desk-health.json')});
 function validResearchText(text){try{const raw=String(text||'').match(/\{[\s\S]*\}/)?.[0],j=JSON.parse(raw);return typeof j.summary==='string'&&j.summary.trim().length>0&&Array.isArray(j.keyPoints)&&Array.isArray(j.sourceUrls);}catch{return false;}}
 const knowledgeResearch=createKnowledgeResearch({
   root:ROOT,
@@ -1557,7 +1561,7 @@ const decisionPipeline={
 function backgroundAnalysisWindowOpen(){
   return decisionPipelineActive===0&&localVisionQueueDepth===0&&(Date.now()-decisionPipelineLastFinishedAt)>=30000;
 }
-const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,zirve5Judge:jev.sovereignZirve5Gate,credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
+const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,zirve5Judge:jev.sovereignZirve5Gate,deskJudges:{free:deskFreeWorker,jev:jev.sovereignPositionDesk},credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
 
 const server=http.createServer(async(req,res)=>{
   try{

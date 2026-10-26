@@ -39,6 +39,7 @@ const {readCloseExitEvidence}=require('./close-exit-evidence');
 const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gainer hunter lane)
 const PA=require('./pa-core');
 const IND=require('./ind-info'); // R2544.79 indikatör bilgisi (yalnız bilgi)
+const DESK=require('./position-desk'); // R2544.84 pozisyon masası (gölge trader kararı)
 const AUTOPSY=require('./trade-autopsy'); // R2544.80 işlem otopsisi (neden kaybetti / nasıl kazandı) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
 const z5Lib=require('./zirve5'); // R2544.64 ZİRVE-5 SHORT (piyasa geneli ilk 5 volatil, 15 dk Fibo dip kırılımı)
 
@@ -324,7 +325,7 @@ function jevFinalAuthorityPreflight({ plan, unified } = {}) {
   };
 }
 
-function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, top3Judge = null, zirve5Judge = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now(), defaultTradingMode = 'LIVE', paperAutoTick = true, paperStartBalance = 100 } = {}) {
+function createLiveController({ root, store, scanner, pipeline, committee, market = null, freeWorker = null, exitJudge = null, lessonJudge = null, burstJudge = null, burstExitJudge = null, top3Judge = null, zirve5Judge = null, deskJudges = null, credentials = {}, fetchImpl = globalThis.fetch, clock = () => Date.now(), defaultTradingMode = 'LIVE', paperAutoTick = true, paperStartBalance = 100 } = {}) {
   if (!root || !store || !scanner || !pipeline || typeof committee !== 'function') throw new Error('live controller dependencies required');
   const registry = new LiveAuthorizationRegistry();
   const transport = new BinanceLiveTransport({ registry, fetchImpl, clock });
@@ -6465,13 +6466,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       catch(e){try{store.journal('TOP3_CLOSE_UNBOOKED',null,{symbol:String(c.symbol||'').slice(0,40),id:c.id,netPnl:record.netPnl,rMultiple:record.rMultiple,exitType:record.exitType,reason:String(e?.message||e).slice(0,80)});}catch{}}
       if(c.lane==='ZIRVE5'){
         // R2544.64: ZİRVE-5 learns in its own memory (never mixed into İlk 3's lessons)
-        const z=z5State(),lesson={...top3Lib.buildLesson(c,record,path),lane:'ZIRVE5',setup:/^ZIRVE5_FIBO_(LONG|SHORT)$/.test(String(c.rule))?c.rule:z5Lib.SETUP_SHORT,side:c.side,zone:c.z5zone||null,rank:finite(c.entryFeatures?.rank)};
+        const z=z5State(),lesson={...top3Lib.buildLesson(c,record,path),...(c.desk?{desk:{decisions:c.desk.decisions||[],plan:c.desk.plan||DESK.planOf(c)}}:{}),lane:'ZIRVE5',setup:/^ZIRVE5_FIBO_(LONG|SHORT)$/.test(String(c.rule))?c.rule:z5Lib.SETUP_SHORT,side:c.side,zone:c.z5zone||null,rank:finite(c.entryFeatures?.rank)};
         if(!z.lessons.some(l=>l.id===lesson.id)){z.lessons.push(lesson);if(z.lessons.length>500)z.lessons=z.lessons.slice(-500);}
         try{store.journal('ZIRVE5_LESSON',c.symbol,lesson);}catch{}
         try{store.recordLearning?.('ZIRVE5_LESSON',c.symbol,{...lesson,outcomePct:lesson.resultPct!==null?lesson.resultPct*100:null,authority:'ZIRVE5_LANE_MEMORY'});}catch{}
       }
       else if(booked||!top3State.lessons.some(l=>l.id===c.id)){
-        const lesson=top3Lib.buildLesson(c,record,path);
+        const lesson=top3Lib.buildLesson(c,record,path);if(c.desk)lesson.desk={decisions:c.desk.decisions||[],plan:c.desk.plan||DESK.planOf(c)}; // R2544.84
         if(!top3State.lessons.some(l=>l.id===lesson.id)){top3State.lessons.push(lesson);if(top3State.lessons.length>500)top3State.lessons=top3State.lessons.slice(-500);}
         try{store.journal('TOP3_LESSON',c.symbol,lesson);}catch{}
         try{store.recordLearning?.('TOP3_LESSON',c.symbol,{...lesson,setup:'TOP3_'+(c.rule||''),outcomePct:lesson.resultPct!==null?lesson.resultPct*100:null,authority:'TOP3_LANE_MEMORY'});}catch{}
@@ -6506,6 +6507,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{top3BackfillOpened();}catch{}
       try{await lessonIndBackfillTick();}catch{}
       try{await lessonAutopsyTick();}catch{} // R2544.80
+      if(!deskBusy)positionDeskTick().catch(()=>{}); // R2544.84 gölge pozisyon masası (taramayı bekletmez)
       const cfg=top3Lib.readTop3Config(root);
       if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
       if(testModeNow()){
@@ -6671,7 +6673,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         l.autopsyTries=(l.autopsyTries||0)+1;
         try{
           const start=Math.floor(l.openedAt/top3Lib.M5)*top3Lib.M5-3*TOP3_HOUR,end=Math.min(now,l.closedAt+DAYMS+top3Lib.M5);
-          const a=AUTOPSY.autopsy(l,await k5Window(l.symbol,start,end),await k5Window('BTCUSDT',start,end),{now});
+          const k5w=await k5Window(l.symbol,start,end),a=AUTOPSY.autopsy(l,k5w,await k5Window('BTCUSDT',start,end),{now});
+          if(a.ok&&a.complete&&l.desk?.decisions?.length&&!l.desk.cf)try{l.desk.cf=DESK.counterfactual(l.desk,k5w);store.journal('POSITION_DESK_COUNTERFACTUAL',l.symbol,{id:l.id,rule:l.rule,...l.desk.cf});}catch{} // R2544.84
           if(a.ok){l.autopsy=a;if(a.complete)try{store.journal('LESSON_AUTOPSY',l.symbol,{id:l.id,rule:l.rule,mode:l.mode,R:l.rMultiple,outcome:a.outcome,direction:a.direction,causes:a.causes,factors:a.factors,text:a.text,version:a.version});}catch{}}
         }catch{}
       }
@@ -6700,6 +6703,61 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       saveTop3State();return {ind:f.ind?.ok===true,entryCtx:!!f.entryCtx};
     }catch{return null;}
   }
+  // R2544.84 POZİSYON MASASI (kullanıcı 26.10: "bir trader ofisi hayal et ... açılan pozisyonların grafikleri, verileri ... profesyonel
+  // hareket ediyor"; "test için ücretsiz, canlıda JEV; canlıda ücretsiz kapalıyken de çalışsın"). İlk 3 ve ZİRVE-5 açık lotlarına
+  // 15 dk'da bir (fiyat 0,5R oynarsa daha erken) bir trader bakar. TEST: ücretsiz model. CANLI: JEV, yoksa ücretsiz. İkisi de yoksa kural sürer.
+  // GÖLGE: karar lota ve günlüğe yazılır, Office'te görünür; EMİR GÖNDERİLMEZ. Kapanınca aynı 5 dk yolda masa ile kural karşılaştırılır.
+  let deskBusy=false;
+  function deskStats(){const day=new Date(clock()).toISOString().slice(0,10);const d=top3State.deskStats;if(!d||d.day!==day)top3State.deskStats={day,free:0,jev:0,failed:0,lastError:null,lastAt:null};return top3State.deskStats;}
+  function deskDue(a,cfg,now,markR){
+    if(!a||!finite(a.openedAt)||a.closing)return false;
+    const d=a.desk;if(now-a.openedAt<cfg.firstAfterMin*60000)return false;
+    if(!d?.lastAt)return true;
+    if(now-d.lastAt>=cfg.cadenceMin*60000)return true;
+    return markR!==null&&finite(d.lastR)!==null&&Math.abs(markR-d.lastR)>=cfg.moveTriggerR&&now-d.lastAt>=5*60000;
+  }
+  async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});return DESK.rows(k).filter(r=>r.t<=clock());}catch{return [];}}
+  const deskJudge=(packet,mode,cfg)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats()});
+  async function positionDeskTick(){
+    if(deskBusy)return null;const cfg=DESK.readConfig(root);if(!cfg.enabled)return null;
+    if(!deskJudges?.free&&typeof deskJudges?.jev!=='function')return {skipped:true,reason:'DESK_NO_JUDGE_WIRED'};
+    deskBusy=true;
+    try{
+      const now=clock(),lots=Object.values(top3State.active||{}).filter(a=>a&&finite(a.openedAt)&&!a.closing);if(!lots.length)return null;
+      let pick=null,pickMark=null;
+      for(const a of lots.sort((x,y)=>(x.desk?.lastAt||0)-(y.desk?.lastAt||0))){
+        let px=null;try{px=await paperPrice(a.symbol);}catch{}
+        const mark=finite(px?.mark)??(finite(px?.bid)&&finite(px?.ask)?(px.bid+px.ask)/2:null);if(!(mark>0))continue;
+        if(deskDue(a,cfg,now,DESK.favR(a,mark))){pick=a;pickMark=mark;break;}
+      }
+      if(!pick)return null;
+      const a=pick,lane=a.lane==='ZIRVE5'?'ZIRVE5':'ILK3',mode=a.mode==='LIVE'?'LIVE':'TEST';
+      const [k5,k15,k1h,btc]=[await deskKlines(a.symbol,'5m',60),await deskKlines(a.symbol,'15m',30),await deskKlines(a.symbol,'1h',30),await deskKlines('BTCUSDT','5m',13)];
+      const closed=k=>k; // the forming candle is part of the screen (a trader sees it)
+      let oi=[];try{const h=await transport._fetchJson('GET','/futures/data/openInterestHist',{params:{symbol:a.symbol,period:'5m',limit:'13'}});oi=(Array.isArray(h)?h:[]).map(x=>Number(x.sumOpenInterest)).filter(x=>x>0);}catch{}
+      if(k5.length<20)return {skipped:true,reason:'DESK_NO_CANDLES'};
+      const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15),k1h:closed(k1h),btc5:btc,oi,why:top3Why(a),now,lane});
+      const res=await deskJudge(packet,mode,cfg),st=deskStats();st.lastAt=new Date(now).toISOString();
+      const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
+      desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);
+      if(!res.ok){st.failed++;st.lastError=res.tried.join(', ').slice(0,200);desk.lastError={at:now,tried:res.tried};saveTop3State();
+        try{store.journal('POSITION_DESK_UNAVAILABLE',a.symbol,{lane,mode,tried:res.tried});}catch{}return {ok:false,tried:res.tried};}
+      const d=DESK.validate(res.d,packet.stopChoices);
+      const rec={at:now,mark:pickMark,R:Number((desk.lastR??0).toFixed(3)),action:d.action,stopChoice:d.stopChoice||'KEEP',stopPrice:finite(d.stopPrice),reason:d.reason,confidence:finite(d.confidence),
+        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,shadow:true};
+      desk.decisions.push(rec);if(desk.decisions.length>120)desk.decisions=desk.decisions.slice(-120);desk.last=rec;desk.lastError=null;
+      saveTop3State();
+      try{store.journal('POSITION_DESK_REVIEW',a.symbol,{lane,mode,id:a.id,rule:a.rule,...rec,text:DESK.decisionText(rec),version:DESK.DESK_VERSION,tried:res.tried});}catch{}
+      return {ok:true,symbol:a.symbol,action:rec.action,judge:rec.judge};
+    }catch(e){try{deskStats().lastError=String(e?.message||e).slice(0,160);}catch{}return {ok:false,error:true};}
+    finally{deskBusy=false;}
+  }
+  function deskView(a){const d=a?.desk;if(!d)return null;return {last:d.last?{...d.last,atIso:new Date(d.last.at).toISOString(),text:DESK.decisionText(d.last)}:null,reviews:(d.decisions||[]).length,
+    acted:(d.decisions||[]).filter(x=>x.action!=='HOLD').length,lastError:d.lastError||null,shadow:true};}
+  function deskStatus(){const cfg=DESK.readConfig(root),st=deskStats(),z=z5State();
+    return {version:DESK.DESK_VERSION,enabled:cfg.enabled,shadow:true,authority:false,cadenceMin:cfg.cadenceMin,judges:{TEST:cfg.testJudges,LIVE:cfg.liveJudges},
+      freeWired:!!deskJudges?.free,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
+      comparison:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))])};}
   async function z5Mtf(symbol,bar,sig,cfg){
     try{
       const rows=k=>(Array.isArray(k)?k:[]).map(x=>({openTime:Number(x[0]),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4]),quoteVolume:Number(x[7])}));
@@ -6775,7 +6833,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const bySide=side=>{const xs=m.filter(p=>isNew(p)&&p.side===side);return {test:sum(xs.filter(p=>p.tradingMode!=='LIVE')),live:sum(xs.filter(p=>p.tradingMode==='LIVE'))};};
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     const gate=cfg.enabled?z5Gate(cfg):{ok:false,reason:'ZIRVE5_DISABLED'};
-    return {ok:true,name:'ZİRVE-5',lane:'ZIRVE5',setup:z5Lib.SETUP,setups:{LONG:z5Lib.SETUP_LONG,SHORT:z5Lib.SETUP_SHORT},version:z5Lib.ZIRVE5_VERSION,tf:'15m',
+    return {ok:true,name:'ZİRVE-5',lane:'ZIRVE5',positionDesk:deskStatus(),setup:z5Lib.SETUP,setups:{LONG:z5Lib.SETUP_LONG,SHORT:z5Lib.SETUP_SHORT},version:z5Lib.ZIRVE5_VERSION,tf:'15m',
       tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,longEnabled:cfg.longEnabled,shortEnabled:cfg.shortEnabled,partialEnabled:cfg.partialEnabled,requireSweep:cfg.requireSweep},
       partial:{enabled:cfg.partialEnabled===true,atR:cfg.partAtR,share:cfg.partShare,beFee:cfg.partBeFee},
       jevAvailable:typeof zirve5Judge==='function',decisions:cfg.jevMode?'RULE_PLUS_JEV':'RULE',
@@ -6783,7 +6841,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({side:x.side,equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,liquidity:x.liquidity,expiresAt:new Date(x.expiresAt).toISOString()}))})),
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,deskInfo:deskView(a),symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
         markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       recentEntries:(z.recent||[]).slice(0,12),
       recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup||null,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt||null,holdMinutes:finite(p.holdMinutes)})),
@@ -6891,7 +6949,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const measured=closes.filter(p=>finite(p.netPnl)!==null),mode=testModeNow()?'TEST':'LIVE';
     const sum=xs=>({closed:xs.length,wins:xs.filter(p=>p.netPnl>0).length,losses:xs.filter(p=>p.netPnl<0).length,netPnl:Number(xs.reduce((a,p)=>a+p.netPnl,0).toFixed(4))});
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
-    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,
+    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),
       switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true,topSweep:cfg.top?.requireSweep!==false},partial:{...(cfg.partial||{})},
       subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
         const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};
@@ -6900,7 +6958,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
       lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,deskInfo:deskView(a),indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),

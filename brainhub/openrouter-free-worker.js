@@ -80,7 +80,7 @@ function createOpenRouterFreeWorker({
     const started=clock();
     const body={
       model:id,
-      messages:[{role:'system',content:roleInstruction(role)+' '+String(system||'')},{role:'user',content:String(prompt||'')}],
+      messages:[{role:'system',content:(role==='POSITION_DESK'?'':roleInstruction(role)+' ')+String(system||'')},{role:'user',content:String(prompt||'')}], // R2544.84: desk has its own trader prompt
       // R43: free reasoning models spent the 768-token budget thinking and returned finish_reason=length.
       // Keep reasoning low and out of the reply; the visible answer stays schema-bound by validate().
       temperature:0,max_tokens:1536,reasoning:{effort:'low',exclude:true},provider:{max_price:{prompt:0,completion:0}}

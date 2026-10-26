@@ -11,6 +11,8 @@ const PROFILES=Object.freeze({
   MICROSTRUCTURE:'Distinguish observed trades/liquidations from modeled zones, snapshots from complete order flow, and CVD/OFI proxies from sequence-safe L2. Report coverage, freshness and gaps. Do not infer participant identity or market-maker intent.',
   REGIME:'Use only supplied BTC, ETH, ETH/BTC, market-cap or macro context and timestamps. Missing news or macro data is unknown. Regime is context, not an automatic directional vote or veto.',
   RISK:'Report supplied structural invalidation, reward/path, data quality, spread, sizing or lease evidence. Never widen the original stop, change user margin/leverage/max positions or invent missing values.',
+  // R2544.84: the position desk is a separate SHADOW trader prompt (position-desk.js); it gets no evidence-worker preamble
+  POSITION_DESK:'Shadow trader decision for one open position (recorded and measured, never executed).',
   FINANCE:'Research the requested finance/crypto concept from supplied sources. Separate facts, assumptions and historical performance; include limitations and counterexamples. No current news, valuation, backtest or profitability claim without source evidence.'
 });
 function normalizeRole(role){const r=String(role||'DEFAULT').trim().toUpperCase();return Object.hasOwn(PROFILES,r)?r:'DEFAULT';}
