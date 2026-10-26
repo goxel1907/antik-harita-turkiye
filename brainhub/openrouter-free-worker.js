@@ -83,7 +83,8 @@ function createOpenRouterFreeWorker({
       messages:[{role:'system',content:(role==='POSITION_DESK'?'':roleInstruction(role)+' ')+String(system||'')},{role:'user',content:String(prompt||'')}], // R2544.84: desk has its own trader prompt
       // R43: free reasoning models spent the 768-token budget thinking and returned finish_reason=length.
       // Keep reasoning low and out of the reply; the visible answer stays schema-bound by validate().
-      temperature:0,max_tokens:1536,reasoning:{effort:'low',exclude:true},provider:{max_price:{prompt:0,completion:0}}
+      // R2544.84 masa: düşünen ücretsiz modeller 1536'da RESPONSE_TRUNCATED veriyordu (27.10: 19 modelden yalnız biri cevap verdi)
+      temperature:0,max_tokens:role==='POSITION_DESK'?4096:1536,reasoning:{effort:'low',exclude:true},provider:{max_price:{prompt:0,completion:0}}
     };
     const r=await fetchImpl('https://openrouter.ai/api/v1/chat/completions',{
       method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json','HTTP-Referer':'https://brainhub.local','X-Title':'BrainHub Plan Worker'},

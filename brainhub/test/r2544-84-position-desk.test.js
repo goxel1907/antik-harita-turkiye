@@ -81,3 +81,7 @@ test('R2544.84 JEV desk function: same choices; not configured -> HOLD without a
   const r=await j.sovereignPositionDesk({packet:{symbol:'ARIAUSDT',side:'SHORT',stopChoices:{KEEP:0.105}}});
   assert.equal(r.called,false);assert.equal(r.action,'HOLD');
 });
+test('R2544.85 desk: thinking free models get room to answer (they returned RESPONSE_TRUNCATED at 1536 tokens); other roles unchanged',()=>{
+  const fw=fs.readFileSync(path.join(__dirname,'..','openrouter-free-worker.js'),'utf8');
+  assert.match(fw,/max_tokens:role==='POSITION_DESK'\?4096:1536/);
+});
