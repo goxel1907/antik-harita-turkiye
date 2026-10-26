@@ -39,6 +39,7 @@ const {readCloseExitEvidence}=require('./close-exit-evidence');
 const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gainer hunter lane)
 const PA=require('./pa-core');
 const IND=require('./ind-info'); // R2544.79 indikatör bilgisi (yalnız bilgi)
+const TB=require('./trader-brain'); // R2544.87 kurulun giriş ekranı (gölge)
 const DESK=require('./position-desk'); // R2544.84 pozisyon masası (gölge trader kararı)
 const AUTOPSY=require('./trade-autopsy'); // R2544.80 işlem otopsisi (neden kaybetti / nasıl kazandı) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
 const z5Lib=require('./zirve5'); // R2544.64 ZİRVE-5 SHORT (piyasa geneli ilk 5 volatil, 15 dk Fibo dip kırılımı)
@@ -6109,7 +6110,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason,stopPct:finite(opened.stopPct)});
       if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[x.symbol+':'+x.side]:clock()};saveTop3State();
         // R2544.83: indikatör / giriş bağlamı gerçek giriş fiyatıyla (sinyal kapanışında eksik kaldıysa)
-        await top3InfoAfterOpen(Object.values(top3State.active||{}).find(a=>a&&a.symbol===x.symbol&&a.lane!=='ZIRVE5'),{interval:'5m',barEnd:bar+top3Lib.M5-1,session:12*TOP3_HOUR,lessons:top3State.lessons,rule:x.rule,tail:x.k5tail});}
+        await top3InfoAfterOpen(Object.values(top3State.active||{}).find(a=>a&&a.symbol===x.symbol&&a.lane!=='ZIRVE5'),{interval:'5m',barEnd:bar+top3Lib.M5-1,session:12*TOP3_HOUR,lessons:top3State.lessons,rule:x.rule,tail:x.k5tail});
+        entryCommitteeShadow(Object.values(top3State.active||{}).find(a=>a&&a.symbol===x.symbol&&a.lane!=='ZIRVE5')).catch(()=>{});} // R2544.87 gölge kurul (beklemez)
       else try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:opened});}catch{}
     }
     return out;
@@ -6757,7 +6759,33 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function deskStatus(){const cfg=DESK.readConfig(root),st=deskStats(),z=z5State();
     return {version:DESK.DESK_VERSION,enabled:cfg.enabled,shadow:true,authority:false,cadenceMin:cfg.cadenceMin,judges:{TEST:cfg.testJudges,LIVE:cfg.liveJudges},
       committee:typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null,exam:typeof deskJudges?.examStatus==='function'?deskJudges.examStatus():null,freeWired:!!deskJudges?.free,routerWired:!!deskJudges?.router,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
-      comparison:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))])};}
+      comparison:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))]),
+      entryComparison:(()=>{const L=[...(top3State.lessons||[]),...(z.lessons||[])].filter(l=>l?.features?.committee?.decision&&finite(l.rMultiple)!==null);const g=d=>{const a=L.filter(l=>l.features.committee.decision===d).map(l=>Number(l.rMultiple));return {n:a.length,avgR:a.length?Number((a.reduce((s,x)=>s+x,0)/a.length).toFixed(3)):null};};return {TAKE:g('TAKE'),SKIP:g('SKIP')};})()};}
+  // R2544.87 (kullanıcı 27.10: "anlık sinyallere karar vermeyecekler mi"): TEST'te açılan her İlk 3 / ZİRVE-5 lotu için model kurulu,
+  // girişten ÖNCE kapanmış 5 dk/15 dk/1 sa/4 sa/1 gün mumlarıyla (koltuklar: 1g/4sa, 1sa/15dk, 5dk+akış, risk) "girilmeli miydi"
+  // kararı verir. GÖLGE: girişi durdurmaz/açmaz; lota, derse ve günlüğe yazılır -> TAKE/SKIP sonuçları ileriye dönük ölçülür.
+  let entryCommitteeBusy=0;
+  async function entryCommitteeShadow(lot){
+    if(!lot||!deskJudges?.committee||typeof deskJudges.committee.decide!=='function'||lot.entryFeatures?.committee||entryCommitteeBusy>=2)return null;
+    entryCommitteeBusy++;
+    try{
+      const t=finite(lot.openedAt)||clock(),end=t-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
+      const k={m5:await get(lot.symbol,'5m',60,end),m15:await get(lot.symbol,'15m',40,end),h1:await get(lot.symbol,'1h',60,end),h4:await get(lot.symbol,'4h',45,end),d1:await get(lot.symbol,'1d',70,end),
+        btc1h:await get('BTCUSDT','1h',40,Math.floor(t/3600000)*3600000-1)};
+      const e=finite(lot.entryPrice),st=finite(lot.initialStopPrice)??finite(lot.stopPrice),tp=finite(lot.tpPrice);if(!(e>0&&st>0&&tp>0))return null;
+      const rule=lot.lane==='ZIRVE5'?(lot.side==='LONG'?'ZIRVE5_FIBO_LONG':'ZIRVE5_FIBO_SHORT'):lot.rule;
+      const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t});
+      const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES});
+      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
+      const f=lot.entryFeatures||(lot.entryFeatures={});
+      f.committee=r?.ok?{at:clock(),decision:r.final,consensus:r.consensus,rounds:r.rounds,votes:slim(r.round2||r.votes),round1:slim(r.votes),shadow:true,version:TB.TB_VERSION}:{at:clock(),error:r?.reason||'FAILED',shadow:true};
+      saveTop3State();
+      try{store.journal('TRADER_COMMITTEE_ENTRY',lot.symbol,{id:lot.id,rule,lane:lot.lane||'ILK3',...f.committee});}catch{}
+      return f.committee;
+    }catch{return null;}
+    finally{entryCommitteeBusy--;}
+  }
+  function entryCommitteeView(a){const c=a?.entryFeatures?.committee;if(!c)return null;return {...c,atIso:new Date(c.at).toISOString()};}
   async function z5Mtf(symbol,bar,sig,cfg){
     try{
       const rows=k=>(Array.isArray(k)?k:[]).map(x=>({openTime:Number(x[0]),open:Number(x[1]),high:Number(x[2]),low:Number(x[3]),close:Number(x[4]),quoteVolume:Number(x[7])}));
@@ -6815,7 +6843,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const opened=await top3Open({z5:true,side,rule,zone:sg,z5cfg:cfg,maxHoldMs:cfg.maxHoldH*TOP3_HOUR},sym,sizing,jev,{signalKind:'FRESH',entryFeatures:ef});
         const res={symbol:sym,side,opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,stopPct:finite(opened.stopPct)??finite(opened.active?.stopPct),rank:sg.rank};
         z5Note(z,res);
-        if(opened.ok)entries++;else try{store.journal('ZIRVE5_BLOCKED',sym,{...res,result:opened});}catch{}
+        if(opened.ok){entries++;entryCommitteeShadow(Object.values(top3State.active||{}).find(a=>a&&a.symbol===sym&&a.lane==='ZIRVE5')).catch(()=>{});} // R2544.87 gölge kurul
+        else try{store.journal('ZIRVE5_BLOCKED',sym,{...res,result:opened});}catch{}
       }
       saveTop3State();
       return {ok:true,scanned,entries};
@@ -6841,7 +6870,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({side:x.side,equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,liquidity:x.liquidity,expiresAt:new Date(x.expiresAt).toISOString()}))})),
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,deskInfo:deskView(a),symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,deskInfo:deskView(a),entryCommittee:entryCommitteeView(a),symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
         markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       recentEntries:(z.recent||[]).slice(0,12),
       recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup||null,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt||null,holdMinutes:finite(p.holdMinutes)})),
@@ -6958,7 +6987,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
       lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,deskInfo:deskView(a),indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,deskInfo:deskView(a),entryCommittee:entryCommitteeView(a),indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),

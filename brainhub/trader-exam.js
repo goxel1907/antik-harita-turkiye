@@ -5,7 +5,7 @@
 // Hız: en çok 45 sn'de bir soru, günde en çok dailyCap; packets.jsonl yoksa hiçbir şey yapmaz.
 const fs = require('fs'), path = require('path');
 const TB = require('./trader-brain');
-const EXAM_VERSION = 'R2544.86-TRADER-EXAM';
+const EXAM_VERSION = 'R2544.87-TRADER-EXAM-SEATS';
 function createTraderExam({ dir, judges = {}, committee = null, clock = () => Date.now(), minIntervalMs = 45000, dailyCap = 600, maxAttempts = 3 } = {}) {
   const P = f => path.join(dir, f);
   let busy = false, lastAt = 0, st = null;
@@ -21,7 +21,8 @@ function createTraderExam({ dir, judges = {}, committee = null, clock = () => Da
   }
   async function tick() {
     if (busy || !dir || !fs.existsSync(P('packets.jsonl'))) return null;
-    const cfg = config(); if (cfg.enabled === false) return null;
+    // R2544.87: a pause written for an older build ends by itself when this build runs (enableForVersion = this exam version)
+    const cfg = config(); if (cfg.enabled === false && cfg.enableForVersion !== EXAM_VERSION) return null;
     const now = clock(); if (now - lastAt < minIntervalMs) return null;
     st = st || readState(); const day = new Date(now).toISOString().slice(0, 10); if (st.day !== day) { st.day = day; st.used = 0; }
     if (st.used >= (Number(cfg.dailyCap) || dailyCap)) return { skipped:'DAILY_CAP' };
@@ -32,9 +33,9 @@ function createTraderExam({ dir, judges = {}, committee = null, clock = () => Da
       const tried = [];
       // R2544.86: the committee answers together (each member's vote is kept: the exam measures every model AND the consensus)
       if (committee && typeof committee.decide === 'function' && (cfg.mode || 'COMMITTEE') === 'COMMITTEE') {
-        let r; try { r = await committee.decide({ system:TB.ENTRY_SYSTEM, prompt:JSON.stringify(pk.packet), validate:TB.validEntry, parse:TB.parseEntry, field:'decision', fallback:'SKIP' }); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 120) }; }
+        let r; try { r = await committee.decide({ system:TB.ENTRY_SYSTEM, prompt:JSON.stringify(pk.packet), validate:TB.validEntry, parse:TB.parseEntry, field:'decision', fallback:'SKIP', roles:TB.ENTRY_ROLES }); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 120) }; }
         if (r?.ok) {
-          const slim = a => (a || []).map(v => ({ member:v.member, model:v.model, ok:v.ok, ms:v.ms, error:v.error, ...(v.vote ? { decision:v.vote.decision, confidence:v.vote.confidence, pTarget:v.vote.pTarget, reasonTr:v.vote.reasonTr, keyRisk:v.vote.keyRisk } : {}) }));
+          const slim = a => (a || []).map(v => ({ member:v.member, seat:v.seat || null, model:v.model, ok:v.ok, ms:v.ms, error:v.error, ...(v.vote ? { decision:v.vote.decision, confidence:v.vote.confidence, pTarget:v.vote.pTarget, reasonTr:v.vote.reasonTr, keyRisk:v.vote.keyRisk } : {}) }));
           fs.appendFileSync(P('answers.jsonl'), JSON.stringify({ id:pk.id, rule:pk.rule, at:new Date(clock()).toISOString(), judge:'COMMITTEE', decision:r.final, consensus:r.consensus, rounds:r.rounds, voters:r.voters, round1:slim(r.votes), round2:slim(r.round2), version:EXAM_VERSION }) + '\n');
           st.answered = (st.answered || 0) + 1; st.lastError = null; st.lastOk = { id:pk.id, judge:'COMMITTEE', consensus:r.consensus, at:clock() }; saveState();
           return { ok:true, id:pk.id, judge:'COMMITTEE', decision:r.final };

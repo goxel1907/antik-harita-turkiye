@@ -77,6 +77,12 @@ const ENTRY_SYSTEM = 'You are an experienced crypto futures trader. A fixed rule
   'Read the timeframes top-down (1d and 4h context, 1h structure, 15m and 5m trigger), weigh where the opposite levels sit before the target, whether the move is extended or fresh, volume and taker flow, and BTC. ' +
   'Decide whether a disciplined professional TAKES this trade or SKIPS it. Skipping is fine: most signals of this setup lose. ' +
   'Answer ONLY with JSON: {"decision":"TAKE|SKIP","confidence":0-100,"pTarget":0-100,"reasonTr":"Türkçe 1-2 cümle: hangi zaman dilimi ne diyor","keyRisk":"Türkçe kısa: en büyük risk"}. pTarget = your probability that price reaches the target before the stop.';
+// R2544.87 (kullanıcı 27.10: zaman dilimlerine entegre): kurulda her üyenin bir koltuğu var; aynı ekranı görür ama kendi bölümünden sorumludur
+const ENTRY_ROLES = [
+  { key:'1g/4sa', text:'HIGHER-TIMEFRAME ANALYST. You own the 1d and 4h timeframes and the day/week/month levels: the larger trend, where price sits in the larger range, which levels are above and below and how far they are in R. Judge the trade from that context first.' },
+  { key:'1sa/15dk', text:'STRUCTURE ANALYST. You own the 1h and 15m timeframes: swing structure, the last break, whether the move is fresh or already extended, and how the retest/rejection looks.' },
+  { key:'5dk+akış', text:'TRIGGER AND FLOW ANALYST. You own the 5m timeframe: the trigger candle and the last candles, wicks, volume versus median, taker-buy share, and BTC right now.' },
+  { key:'risk', text:'RISK OFFICER. You own the plan: stop distance, target in R, every opposite level between entry and target, and the base rate. Argue against the trade unless the evidence for it is clear.' }];
 function parseEntry(text) {
   try { const j = JSON.parse(String(text || '').match(/\{[\s\S]*\}/)?.[0]);
     if (!['TAKE', 'SKIP'].includes(j.decision)) return { ok:false, reason:'TB_DECISION_INVALID' };
@@ -85,4 +91,4 @@ function parseEntry(text) {
   } catch { return { ok:false, reason:'TB_JSON_INVALID' }; }
 }
 const validEntry = text => parseEntry(text).ok;
-module.exports = { TB_VERSION, TF, rows, swings, structure, htfLevels, SETUP_TEXT, entryPacket, ENTRY_SYSTEM, parseEntry, validEntry };
+module.exports = { TB_VERSION, TF, rows, swings, structure, htfLevels, SETUP_TEXT, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

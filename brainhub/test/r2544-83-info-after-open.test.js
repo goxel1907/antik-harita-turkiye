@@ -15,7 +15,7 @@ test('R2544.83 info after open: computed from the REAL entry and first stop, onl
   assert.doesNotMatch(b,/placeAlgo|cancel|_signed|newOrder|stopPrice=|tpPrice=/,'information only');
   assert.match(b,/catch\{return null;\}/,'a failure never breaks the entry');
   // called right after a v2 lot opened, with the 5m tail of the signal
-  assert.match(lc,/if\(opened\.ok\)\{top3State\.lastEntry=[^\n]*\n[^\n]*\n\s*await top3InfoAfterOpen\(Object\.values\(top3State\.active\|\|\{\}\)\.find\(a=>a&&a\.symbol===x\.symbol&&a\.lane!=='ZIRVE5'\),\{interval:'5m'[^\n]*tail:x\.k5tail\}\);\}/);
+  assert.match(lc,/if\(opened\.ok\)\{top3State\.lastEntry=[^\n]*\n[^\n]*\n\s*await top3InfoAfterOpen\(Object\.values\(top3State\.active\|\|\{\}\)\.find\(a=>a&&a\.symbol===x\.symbol&&a\.lane!=='ZIRVE5'\),\{interval:'5m'[^\n]*tail:x\.k5tail\}\);/); // R2544.87: the shadow committee call follows on the next line
 });
 test('R2544.83 backfill: open lots once (entry-time candles and BTC), then lessons whose info FAILED get one more pass',()=>{
   const b=fnBody('lessonIndBackfillTick');

@@ -747,15 +747,18 @@ function renderCommittee(s){
   const pd=s.top3?.positionDesk||s.zirve5?.positionDesk||null,cm=pd?.committee,ex=pd?.exam;const host=document.getElementById('committeeRoom');if(!host)return;
   const T=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t;};
   if(!cm){T('cmFinal','kurul yok');T('cmSub','bu sürümde bağlı değil');for(let i=0;i<4;i++){const g=document.getElementById('cmSeat-'+i);if(g)g.style.display='none';}return;}
-  const short=id=>String(id).replace(/^ROUTER:(kr|oc)\//,'').replace(/^FREE:/,'').replace(/-free$/,'').replace('claude-','Claude ').replace('openrouter','OpenRouter').slice(0,18);
+  const short=id=>String(id).replace(/^ROUTER:(kr|oc|gc)\//,'').replace(/^FREE:/,'').replace(/-free$/,'').replace(/-preview$/,'').replace('claude-','Claude ').replace('gemini-','Gemini ').replace('openrouter','OpenRouter').slice(0,18);
   const team=cm.team||[],members=cm.members||[];
   // latest committee decision across open İlk 3 / ZİRVE-5 lots
-  const dk=[...(s.top3?.active||[]),...(s.zirve5?.active||[])].map(a=>({sym:String(a.symbol||'').replace(/USDT$/,''),d:a.deskInfo?.last})).filter(x=>x.d?.committee&&x.d.atIso).sort((x,y)=>Date.parse(y.d.atIso)-Date.parse(x.d.atIso))[0];
-  const AT={HOLD:'TUT',TAKE_PARTIAL:'KISMİ AL',TIGHTEN_STOP:'STOP YAKLAŞ',EXIT:'ÇIK',ERR:'cevap yok'};
+  const lots=[...(s.top3?.active||[]),...(s.zirve5?.active||[])],sy=a=>String(a.symbol||'').replace(/USDT$/,'');
+  const cand=[...lots.map(a=>({sym:sy(a),kind:'masa',at:a.deskInfo?.last?.atIso,action:a.deskInfo?.last?.action,c:a.deskInfo?.last?.committee})).filter(x=>x.c&&x.at),
+    ...lots.map(a=>({sym:sy(a),kind:'giriş',at:a.entryCommittee?.atIso,action:a.entryCommittee?.decision,c:a.entryCommittee&&!a.entryCommittee.error?{consensus:a.entryCommittee.consensus,rounds:a.entryCommittee.rounds,votes:(a.entryCommittee.votes||[]).map(v=>({m:v.m,a:v.d,s:v.s}))}:null})).filter(x=>x.c&&x.at)];
+  const dk0=cand.sort((x,y)=>Date.parse(y.at)-Date.parse(x.at))[0],dk=dk0?{sym:dk0.sym+' '+dk0.kind,d:{action:dk0.action,atIso:dk0.at,committee:dk0.c}}:null;
+  const AT={HOLD:'TUT',TAKE_PARTIAL:'KISMİ AL',TIGHTEN_STOP:'STOP YAKLAŞ',EXIT:'ÇIK',TAKE:'GİR',SKIP:'GİRME',ERR:'cevap yok'};
   const votes=dk?.d?.committee?.votes||[];
   for(let i=0;i<4;i++){
     const g=document.getElementById('cmSeat-'+i);if(!g)continue;const id=team[i];if(!id){g.style.display='none';continue;}g.style.display='';
-    const m=members.find(x=>x.id===id)||{};T('cmName-'+i,short(id));
+    const m=members.find(x=>x.id===id)||{},vs=votes.find(x=>id.endsWith(x.m));T('cmName-'+i,(vs?.s?vs.s+' • ':'')+short(id));
     const led=document.getElementById('cmLed-'+i);if(led)led.setAttribute('fill',m.healthy?'#26a69a':'#ef5350');
     const v=votes.find(x=>short('ROUTER:'+x.m)===short(id)||short(x.m)===short(id)||id.endsWith(x.m));
     T('cmBub-'+i,v?(AT[v.a]||v.a):(m.healthy?'hazır':'hasta'));
@@ -2039,7 +2042,7 @@ function renderTop3(s){
   // R2544.84 pozisyon masası (gölge trader): son karar + masa/kural karşılaştırması
   if(t.positionDesk)html+=deskSummaryLine(t.positionDesk,'ILK3');
   for(const a of t.active||[]){
-    html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.signalKind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.part&&!a.part.skipped?(a.part.done?' • <b>%'+Math.round((Number(a.part.share)||0.5)*100)+' '+String(a.part.atR??1).replace('.',',')+'R’de alındı</b>'+(a.part.beDone?', kalan başabaşta':''):' • %'+Math.round((Number(a.part.share)||0.5)*100)+' '+fm(a.part.price)+' ('+String(a.part.atR??1).replace('.',',')+'R) hedef emrinde'):a.part?.skipped?' • kâr koruma yok ('+esc(a.part.skipped)+')':''}${a.jev?.decision?' • JEV '+esc(a.jev.decision):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}${indLine(a.indInfo,a.experienceInfo)}${deskLine(a.deskInfo)}</div></div>`;
+    html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.signalKind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.part&&!a.part.skipped?(a.part.done?' • <b>%'+Math.round((Number(a.part.share)||0.5)*100)+' '+String(a.part.atR??1).replace('.',',')+'R’de alındı</b>'+(a.part.beDone?', kalan başabaşta':''):' • %'+Math.round((Number(a.part.share)||0.5)*100)+' '+fm(a.part.price)+' ('+String(a.part.atR??1).replace('.',',')+'R) hedef emrinde'):a.part?.skipped?' • kâr koruma yok ('+esc(a.part.skipped)+')':''}${a.jev?.decision?' • JEV '+esc(a.jev.decision):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}${indLine(a.indInfo,a.experienceInfo)}${entryCmLine(a.entryCommittee)}${deskLine(a.deskInfo)}</div></div>`;
   }
   const l5=t.lastScan5;
   if(v2&&l5){
@@ -2118,12 +2121,21 @@ function deskLine(d){
   const ago=Math.max(0,Math.round((Date.now()-Date.parse(L.atIso))/60000)),act=L.action!=='HOLD';
   return `<br><span class="muted"${act?' style="color:var(--warning)"':''}>🧑‍💼 masa (${L.judge==='JEV'?'JEV':L.judge==='ROUTER'?'9Router '+esc(String(L.model||'').replace(/^[a-z]+\//,'')):'ücretsiz model'}, gölge): <b>${esc(L.text||L.action)}</b>${L.watchTr?' • izliyor: '+esc(L.watchTr):''} • ${ago} dk önce • ${esc(d.reviews)} bakış, ${esc(d.acted)} eylem</span>`;
 }
+// R2544.87 kurulun giriş kararı (gölge): koltuk koltuk oylar
+function entryCmLine(c){
+  if(!c)return '<br><span class="muted">🤝 kurul (giriş, gölge): karar bekleniyor</span>';
+  if(c.error)return `<br><span class="muted">🤝 kurul (giriş, gölge): karar yok • ${esc(c.error)}</span>`;
+  const D={TAKE:'GİR',SKIP:'GİRME',ERR:'cevap yok'},cs={UNANIMOUS:'oybirliği',MAJORITY_AFTER_DEBATE:'tartışma sonrası çoğunluk',NO_MAJORITY_DEFAULT:'çoğunluk yok → GİRME',SINGLE_VOTER_DEFAULT:'tek oy → GİRME'}[c.consensus]||c.consensus;
+  const v=(c.votes||[]).map(x=>`${esc(x.s||'')} ${esc(String(x.m).replace(/^[a-z]+\//,''))}: <b>${D[x.d]||esc(x.d)}</b>`).join(' • ');
+  return `<br><span class="muted"${c.decision==='SKIP'?' style="color:var(--warning)"':''}>🤝 kurul (giriş, gölge): <b>${D[c.decision]||esc(c.decision)}</b> • ${esc(cs)} • ${v}</span>`;
+}
 function deskSummaryLine(p,lane){
   const c=p.comparison?.[lane],td=p.today||{};
   const jn=x=>x==='JEV'?'JEV':x==='ROUTER'?'9Router':'OpenRouter ücretsiz';
   const who=`TEST: ${(p.judges?.TEST||[]).map(jn).join(' → ')||'—'} • CANLI: ${(p.judges?.LIVE||[]).map(jn).join(' → ')||'—'}`;
   const cmp=c&&c.n?` • kapanan ${esc(c.n)} işlemde masa uygulasaydı ortalama <b>${(c.deltaR>=0?'+':'')+esc(String(c.deltaR).replace('.',','))}R</b> fark (kural ${esc(String(c.ruleR).replace('.',','))}R → masa ${esc(String(c.deskR).replace('.',','))}R; daha iyi ${esc(c.better)}, daha kötü ${esc(c.worse)})`:' • karşılaştırma için kapanmış ve 24 sa otopsisi biten işlem bekleniyor';
-  return `<p class="muted">Pozisyon masası <b>${p.enabled?'AÇIK':'KAPALI'}</b> (gölge: karar yazar, emir göndermez) • ${who} • bugün 9Router ${esc(td.router||0)} • OpenRouter ücretsiz ${esc(td.free||0)}/${esc(p.freeDailyCap)} • JEV ${esc(td.jev||0)}${td.lastError?' • son sorun: '+esc(td.lastError):''}${cmp}</p>`;
+  const ec=p.entryComparison,ecTxt=ec&&(ec.TAKE?.n||ec.SKIP?.n)?` • kurul giriş kararı (kapananlar): GİR dedikleri ${esc(ec.TAKE.n)} işlem ${ec.TAKE.avgR===null?'—':esc(String(ec.TAKE.avgR).replace('.',','))+'R'}, GİRME dedikleri ${esc(ec.SKIP.n)} işlem ${ec.SKIP.avgR===null?'—':esc(String(ec.SKIP.avgR).replace('.',','))+'R'}`:'';
+  return `<p class="muted">Pozisyon masası <b>${p.enabled?'AÇIK':'KAPALI'}</b> (gölge: karar yazar, emir göndermez) • ${who} • bugün 9Router ${esc(td.router||0)} • OpenRouter ücretsiz ${esc(td.free||0)}/${esc(p.freeDailyCap)} • JEV ${esc(td.jev||0)}${td.lastError?' • son sorun: '+esc(td.lastError):''}${cmp}${ecTxt}</p>`;
 }
 function indLine(ind,exp){if(!ind&&!exp)return '';return '<br><span class="muted">indikatör (kural değil): '+esc(ind?.text||'—')+(exp?' • <b>'+esc(exp.text||exp.verdict)+'</b>':'')+'</span>';}
 function catTables(rule,b){if(!b||!b.categorical)return '';let h='';for(const c of b.cats||[]){const rows=(c.rows||[]).filter(r=>r.n);if(!rows.length)continue;
@@ -2221,7 +2233,7 @@ function renderZ5(s){
    const av=pk?Number(pk.available):Number(ac.availableBalance??ac.account?.availableBalance);
    if(zs&&!zs.automatic)html+=stopRiskLine(zs.marginQuote,zs.leverage,0.055,0.079,av,'ZİRVE-5');
    if(zs&&!zs.automatic&&Number.isFinite(av)&&Number(zs.marginQuote)>av*0.95)html+=`<p class="bad"><b>Uyarı: ZİRVE-5 marjı ${esc(zs.marginQuote)} USDT, kullanılabilir bakiye ${esc(av.toFixed(2))} USDT.</b> Bu ayarla ZİRVE-5 işlem AÇAMAZ (marj serbest bakiyenin en çok %95’i). Marjı düşürün ya da boş bırakıp riske göre çalıştırın.</p>`;}
-  for(const a of z.active||[])html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${sideTxt(a.side)} • ZİRVE-5${live?'':' <span class="tbadge">TEST</span>'}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} (%${fm((a.stopPct||0)*100,2)}) • hedef ${fm(a.tpPrice)}${a.targetR!==null&&a.targetR!==undefined?' ('+rr(a.targetR)+')':''} • ${esc(a.leverage)}x • marj ${fm(a.marginQuote,2)} • anlık ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.part&&!a.part.skipped?(a.part.done?' • <b>%'+Math.round((Number(a.part.share)||0.5)*100)+' '+String(a.part.atR??1).replace('.',',')+'R’de alındı</b>'+(a.part.beDone?', kalan başabaşta':''):' • %'+Math.round((Number(a.part.share)||0.5)*100)+' '+fm(a.part.price)+' ('+String(a.part.atR??1).replace('.',',')+'R) hedef emrinde'):a.part?.skipped?' • kâr koruma yok ('+esc(a.part.skipped)+')':''}${a.mtf?'<br><span class="muted">bilgi (kural değil): 1 sa '+mtfTr(a.mtf.h1)+(a.mtf.against1h?' (TERS)':'')+' • 4 sa '+mtfTr(a.mtf.h4)+(a.mtf.against4h?' (TERS)':'')+' • 5 dk onay '+(a.mtf.m5===null?'yoktu':a.mtf.m5+' dk önce vardı')+'</span>':''}${indLine(a.ind,a.experience)}${deskLine(a.deskInfo)}</div></div>`;
+  for(const a of z.active||[])html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${sideTxt(a.side)} • ZİRVE-5${live?'':' <span class="tbadge">TEST</span>'}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} (%${fm((a.stopPct||0)*100,2)}) • hedef ${fm(a.tpPrice)}${a.targetR!==null&&a.targetR!==undefined?' ('+rr(a.targetR)+')':''} • ${esc(a.leverage)}x • marj ${fm(a.marginQuote,2)} • anlık ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.part&&!a.part.skipped?(a.part.done?' • <b>%'+Math.round((Number(a.part.share)||0.5)*100)+' '+String(a.part.atR??1).replace('.',',')+'R’de alındı</b>'+(a.part.beDone?', kalan başabaşta':''):' • %'+Math.round((Number(a.part.share)||0.5)*100)+' '+fm(a.part.price)+' ('+String(a.part.atR??1).replace('.',',')+'R) hedef emrinde'):a.part?.skipped?' • kâr koruma yok ('+esc(a.part.skipped)+')':''}${a.mtf?'<br><span class="muted">bilgi (kural değil): 1 sa '+mtfTr(a.mtf.h1)+(a.mtf.against1h?' (TERS)':'')+' • 4 sa '+mtfTr(a.mtf.h4)+(a.mtf.against4h?' (TERS)':'')+' • 5 dk onay '+(a.mtf.m5===null?'yoktu':a.mtf.m5+' dk önce vardı')+'</span>':''}${indLine(a.ind,a.experience)}${entryCmLine(a.entryCommittee)}${deskLine(a.deskInfo)}</div></div>`;
   if(z.positionDesk)html+=deskSummaryLine(z.positionDesk,'ZIRVE5');
   const ls=z.lastScan;
   if(ls){

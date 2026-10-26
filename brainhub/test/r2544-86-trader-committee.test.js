@@ -54,11 +54,11 @@ test('R2544.86 exam: asks the committee one packet at a time, keeps every vote, 
   assert.deepEqual(cfg.testJudges,['COMMITTEE','FREE']);assert.deepEqual(cfg.liveJudges,['JEV','COMMITTEE','FREE']);
   const dc={decide:async o=>{assert.equal(o.field,'action');assert.equal(o.fallback,'HOLD');return {ok:true,final:'HOLD',consensus:'NO_MAJORITY_DEFAULT',rounds:2,votes:[{member:'ROUTER:kr/glm-5',ok:true,vote:{action:'EXIT',reason:'NO_EDGE'}}],round2:[{member:'ROUTER:kr/glm-5',ok:true,vote:{action:'EXIT'}}]};}};
   const r=await DESK.judge({packet:{symbol:'XUSDT',side:'LONG'},mode:'TEST',cfg,judges:{committee:dc},stats:{}});
-  assert.equal(r.judge,'COMMITTEE');assert.equal(r.d.action,'HOLD');assert.match(r.d.reasonTr,/çoğunluk yok/);assert.deepEqual(r.committee.votes,[{m:'kr/glm-5',a:'EXIT'}]);
+  assert.equal(r.judge,'COMMITTEE');assert.equal(r.d.action,'HOLD');assert.match(r.d.reasonTr,/çoğunluk yok/);assert.deepEqual(r.committee.votes,[{m:'kr/glm-5',a:'EXIT',s:null}]);
 });
 test('R2544.86 wiring: 9Router members + OpenRouter free, separate committees for desk and exam, health checks, Office committee table, deploy lists',()=>{
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
-  assert.match(sv,/const TRADER_ROUTER_ORDER=\['kr\/claude-sonnet-4\.5','kr\/deepseek-3\.2','kr\/glm-5'/);
+  assert.match(sv,/const TRADER_ROUTER_ORDER=\['gc\/gemini-3\.1-pro-preview','kr\/claude-sonnet-4\.5','kr\/deepseek-3\.2','kr\/glm-5'/);
   assert.match(sv,/const deskCommittee=createCommittee\(/);assert.match(sv,/const examCommittee=createCommittee\(/);
   assert.match(sv,/committee:deskCommittee,examStatus:\(\)=>traderExam\.status\(\)/);assert.match(sv,/setInterval\(\(\)=>\{traderExam\.tick\(\)/);
   const of=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');

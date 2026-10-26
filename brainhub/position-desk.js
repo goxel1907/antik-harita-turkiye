@@ -84,6 +84,12 @@ const SYSTEM = 'You are a professional crypto futures trader on a trading desk. 
   'The measured default is HOLD; act only on concrete evidence visible now (structure broken against the trade, a volume climax at a level, the target zone reached and rejected, strong opposite flow). ' +
   'Answer ONLY with JSON: {"action":"HOLD|TAKE_PARTIAL|TIGHTEN_STOP|EXIT","stopChoice":"KEEP|BREAKEVEN|LAST_5M_SWING|LOCK_1R","reason":"' + REASONS.join('|') + '","confidence":0-100,"reasonTr":"Türkçe tek cümle neden","watchTr":"Türkçe: fikrini ne değiştirir"}';
 function freePrompt(p) { return { system:SYSTEM, prompt:JSON.stringify(p) }; }
+// R2544.87: desk seats (the same committee members, each owning a part of the open position's screen)
+const DESK_ROLES = [
+  { key:'büyük resim', text:'HIGHER-TIMEFRAME TRADER. You own the 1h candles and the day levels: is the larger picture still with the position?' },
+  { key:'yapı', text:'STRUCTURE TRADER. You own the 15m candles: has structure broken against the position, is the move extended, is the target zone being rejected?' },
+  { key:'5dk+akış', text:'TAPE READER. You own the 5m candles: volume, taker-buy share, wicks, BTC and open interest right now.' },
+  { key:'risk', text:'RISK OFFICER. You own the plan: profit protection at 2R, break-even, stop choices offered, time left. HOLD is the measured default; argue for action only on clear evidence.' }];
 function parseFree(text) {
   try { const raw = String(text || '').match(/\{[\s\S]*\}/)?.[0]; const j = JSON.parse(raw);
     if (!ACTIONS.includes(j.action)) return { ok:false, reason:'DESK_ACTION_INVALID' };
@@ -153,13 +159,13 @@ async function judge({ packet, mode, cfg, judges, stats }) {
     if (j === 'COMMITTEE') { // R2544.86: free models decide together (round 1 independent, round 2 debate, majority; no majority -> HOLD)
       if (!judges?.committee || typeof judges.committee.decide !== 'function') { tried.push('COMMITTEE_NOT_WIRED'); continue; }
       const q = freePrompt(packet); let r;
-      try { r = await judges.committee.decide({ system:q.system, prompt:q.prompt, validate:validFree, parse:parseFree, field:'action', fallback:'HOLD' }); } catch { r = { ok:false, reason:'COMMITTEE_EXCEPTION' }; }
+      try { r = await judges.committee.decide({ system:q.system, prompt:q.prompt, validate:validFree, parse:parseFree, field:'action', fallback:'HOLD', roles:DESK_ROLES }); } catch { r = { ok:false, reason:'COMMITTEE_EXCEPTION' }; }
       st.committee = (st.committee || 0) + 1;
       if (r?.ok) {
         const fin = r.final, all = [...(r.round2 || []), ...(r.votes || [])].filter(v => v.ok), pickV = all.find(v => v.vote.action === fin)?.vote || null;
         const stops = all.filter(v => v.vote.action === 'TIGHTEN_STOP').map(v => v.vote.stopChoice), order = ['BREAKEVEN', 'LAST_5M_SWING', 'LOCK_1R'];
         const stopChoice = fin === 'TIGHTEN_STOP' ? (order.find(k => stops.includes(k)) || 'KEEP') : 'KEEP'; // the least aggressive tightening that was voted
-        const votes = (r.round2 || r.votes || []).map(v => ({ m:String(v.member).replace(/^ROUTER:|^FREE:/, ''), a:v.vote?.action || 'ERR' }));
+        const votes = (r.round2 || r.votes || []).map(v => ({ m:String(v.member).replace(/^ROUTER:|^FREE:/, ''), a:v.vote?.action || 'ERR', s:v.seat || null }));
         return { ok:true, judge:'COMMITTEE', model:votes.map(v => v.m).join(' + '), d:{ ok:true, action:fin, stopChoice, reason:pickV?.reason || 'NO_EDGE', confidence:null,
           reasonTr:(r.consensus === 'UNANIMOUS' ? 'oybirliği: ' : r.consensus === 'MAJORITY_AFTER_DEBATE' ? 'tartışma sonrası çoğunluk: ' : 'çoğunluk yok → TUT: ') + (pickV?.reasonTr || ''), watchTr:pickV?.watchTr || '' },
           committee:{ consensus:r.consensus, rounds:r.rounds, votes }, tried };
@@ -181,4 +187,4 @@ async function judge({ packet, mode, cfg, judges, stats }) {
   return { ok:false, tried };
 }
 module.exports = { DESK_VERSION, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
-  SYSTEM, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary };
+  SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary };
