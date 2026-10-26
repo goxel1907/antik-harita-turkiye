@@ -34,5 +34,5 @@ test('R2544.76 compact positions: price R and the kâr koruma state reach the ph
 test('R2544.76 wiring: the core passes ZİRVE-5 to the phone status; ZİRVE-5 open lots carry their kâr koruma state (Office lot line too)',()=>{
   const s=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8'),lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(s,/mobileStatus\(\{\.\.\.report,top3:live\.top3Status\(\),zirve5:live\.z5Status\(\),account\}\)/); // R2544.78: + balance
-  assert.match(lc,/against4h:a\.entryFeatures\.mtf\.against4h===true\}:null,part:a\.part\|\|null,beMoved:a\.beMoved===true/);
+  assert.match(lc,/against4h:a\.entryFeatures\.mtf\.against4h===true\}:null,ind:[^\n]*?,part:a\.part\|\|null,beMoved:a\.beMoved===true/);
 });

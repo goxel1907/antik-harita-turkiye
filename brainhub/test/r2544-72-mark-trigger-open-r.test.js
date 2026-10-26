@@ -54,7 +54,7 @@ test('R2544.72 wiring: open rows take R from the entry stop; ZİRVE-5 lots are n
   const lc=src('live-controller.js');
   assert.match(lc,/const firstStop=lot\?\(finite\(lot\.initialStopPrice\)\?\?finite\(lot\.stopPrice\)\)/);
   assert.match(lc,/releaseContract:bl\?BURST_RELEASE_CONTRACT:t3\?\(t3\.lane==='ZIRVE5'\?z5Lib\.ZIRVE5_VERSION:top3Lib\.TOP3_VERSION\)/);
-  assert.match(lc,/sweep:x\.trig\.sweep\|\|null,pa:x\.pa\|\|null\}/);
+  assert.match(lc,/sweep:x\.trig\.sweep\|\|null,pa:x\.pa\|\|null,ind:x\.ind\|\|null\}/);
   assert.match(lc,/kind==='MARK'\?'\/fapi\/v1\/markPriceKlines':'\/fapi\/v1\/klines'/);
   assert.match(src('office-dashboard/public/office.html'),/p\.openedBy==='BRAINHUB_ZIRVE5'\?'OTO ZİRVE-5'/);
   const {endpointWeight}=require('../binance-rate-limit');

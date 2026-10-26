@@ -497,7 +497,63 @@ function aggregate(xs) {
     cutShort: has('CUT_SHORT'), breakevenStop: has('BREAKEVEN_STOP'),
     netPnl: Number(num('netPnl').reduce((a, b) => a + b, 0).toFixed(4)) };
 }
+// R2544.79 (kullanıcı 26.10: "beyin doğru çıkarım yapmış mı ... tecrübe kazanmış bir trader gibi"): v2 kuralları ve ZİRVE-5 için
+// 'r24' kovası hiç dolmuyordu (v2 giriş özelliklerinde r24 yok -> tüm kovalar n=0, beyin hiçbir koşulu ayıramıyordu). Artık her
+// kural, girişte yazılan bilgilere göre KATEGORİ tablosu tutar (indikatör bilgisi, kırılan seviye). Tablo hem JEV'e (laneExperience)
+// gider hem de JEV'siz modda gölge 'tecrübe kararı' üretir (karar vermez; kaydedilir, Office'te görünür, sonra ölçülür).
+const yn = v => (v === true ? 'EVET' : v === false ? 'HAYIR' : null);
+const IND_CATS = Object.freeze([
+  { key:'vdpmObstacle2R', label:'2R öncesi karşı hacim seviyesi (VDPM)', get:l => yn(l.features?.ind?.vdpm?.obstacle2R) },
+  { key:'vwobOppIn2R', label:'2R öncesi karşı order block (VWOB)', get:l => yn(l.features?.ind?.vwob?.oppIn2R) },
+  { key:'lthTrend', label:'trend (LTH)', get:l => l.features?.ind?.lth?.trend || null },
+  { key:'lrvp', label:'oturum eğimi + delta (LRVP)', get:l => { const r = l.features?.ind?.lrvp; return r ? (r.trendWith && r.deltaWith ? 'IKISI_YONDE' : !r.trendWith && !r.deltaWith ? 'IKISI_TERS' : 'KARISIK') : null; } }
+]);
+const CAT_BUCKETS = Object.freeze({
+  LONG_EARLY_RETEST:[...IND_CATS, { key:'levelName', label:'kırılan seviye', get:l => l.features?.levelName || null }],
+  SHORT_TOP_BREAK:IND_CATS, ZIRVE5_FIBO_LONG:IND_CATS, ZIRVE5_FIBO_SHORT:IND_CATS
+});
+const EXPERIENCE_MIN_N = 15, EXPERIENCE_EDGE_R = 0.25, EXPERIENCE_OTHER_N = 10, EXPERIENCE_GAP_R = 0.3, LAB_MIN_N = 50, LAB_GAP_R = 0.15;
+// Uzun dönem hafızası (6 ay laboratuvar, harness/indikator/lab_priors.js): İlk 3 12.04-10.10 5 dk (CANLI top3-hunter.js girişleri,
+// bugünkü yönetim), ZİRVE-5 22.04-19.10 15 dk 222 coin, bugünkü kural (LONG+SHORT birlikte). Değer başına {n, avgR}. Son dersler küçük
+// örnekle yanılabilir (TEST'te 'PWH kırılımı kaybettirir' 16 ders -0,59R; 6 ayda PWH +0,03R n221 / PMH +0,02R n283): gölge karar ancak
+// son dersler VE bu hafıza aynı yönü gösterirse verilir.
+const LAB_PRIORS = Object.freeze({"LONG_EARLY_RETEST":{"vdpmObstacle2R":{"HAYIR":{"n":417,"avgR":0.08},"EVET":{"n":87,"avgR":-0.228}},"vwobOppIn2R":{"HAYIR":{"n":421,"avgR":0.062},"EVET":{"n":83,"avgR":-0.151}},"lthTrend":{"FLAT":{"n":7,"avgR":0.518},"WITH":{"n":495,"avgR":0.024},"AGAINST":{"n":2,"avgR":-1.075}},"lrvp":{"IKISI_YONDE":{"n":402,"avgR":0.054},"KARISIK":{"n":66,"avgR":-0.196},"IKISI_TERS":{"n":12,"avgR":-0.598}},"levelName":{"PWH":{"n":221,"avgR":0.032},"PMH":{"n":283,"avgR":0.023}}},"SHORT_TOP_BREAK":{"vdpmObstacle2R":{"EVET":{"n":430,"avgR":0.033},"HAYIR":{"n":83,"avgR":-0.013}},"vwobOppIn2R":{"HAYIR":{"n":94,"avgR":0.062},"EVET":{"n":419,"avgR":0.017}},"lthTrend":{"AGAINST":{"n":440,"avgR":0.015},"WITH":{"n":7,"avgR":0.278},"FLAT":{"n":66,"avgR":0.069}},"lrvp":{"IKISI_TERS":{"n":327,"avgR":0.065},"KARISIK":{"n":115,"avgR":-0.047},"IKISI_YONDE":{"n":30,"avgR":0.161}}},"ZIRVE5_FIBO_LONG":{"vdpmObstacle2R":{"HAYIR":{"n":169,"avgR":0.171},"EVET":{"n":62,"avgR":-0.244}},"vwobOppIn2R":{"EVET":{"n":63,"avgR":0.034},"HAYIR":{"n":168,"avgR":0.069}},"lthTrend":{"WITH":{"n":112,"avgR":0.095},"AGAINST":{"n":66,"avgR":-0.131},"FLAT":{"n":53,"avgR":0.222}},"lrvp":{"IKISI_YONDE":{"n":100,"avgR":0.013},"IKISI_TERS":{"n":72,"avgR":0.093},"KARISIK":{"n":53,"avgR":-0.003}}},"ZIRVE5_FIBO_SHORT":{"vdpmObstacle2R":{"HAYIR":{"n":169,"avgR":0.171},"EVET":{"n":62,"avgR":-0.244}},"vwobOppIn2R":{"EVET":{"n":63,"avgR":0.034},"HAYIR":{"n":168,"avgR":0.069}},"lthTrend":{"WITH":{"n":112,"avgR":0.095},"AGAINST":{"n":66,"avgR":-0.131},"FLAT":{"n":53,"avgR":0.222}},"lrvp":{"IKISI_YONDE":{"n":100,"avgR":0.013},"IKISI_TERS":{"n":72,"avgR":0.093},"KARISIK":{"n":53,"avgR":-0.003}}}});
+function catTable(xs, cats) {
+  return cats.map(cat => { const vals = [...new Set(xs.map(cat.get).filter(v => v !== null))].sort();
+    return { key:cat.key, label:cat.label, unknown:xs.filter(l => cat.get(l) === null).length, rows:vals.map(v => { const g = aggregate(xs.filter(l => cat.get(l) === v)); return { value:v, n:g.n, wins:g.wins, losses:g.losses, avgR:g.avgR, netPnl:g.netPnl }; }) }; }); // compact: JEV packet
+}
+// Gölge tecrübe kararı: yeni sinyalin her bilgisi için aynı kuralın aynı değerli dersleri. En az 15 ders, ortalama <= -0,25R, eski
+// yarı + yeni yarı ikisi de eksi VE aynı kuralın diğer değerli dersleri (en az 10) en az 0,3R daha iyi -> AVOID ('tecrübe: girme');
+// simetriği FAVOR. Diğer değerle ayrışmayan bir koşul (ör. derslerin hepsi 'trend yönde') çıkarım sayılmaz: kuralın genel sonucudur
+// (gerçek 68 dersle zaman sıralı yeniden oynatmada ayrışma şartı olmadan AVOID +0,01R / FAVOR -1,09R çıktı). Karar vermez.
+function experienceVerdict(lessons, rule, features) {
+  const base = { version:'R2544.79-EXPERIENCE', shadow:true, rule, minN:EXPERIENCE_MIN_N, edgeR:EXPERIENCE_EDGE_R };
+  const cats = CAT_BUCKETS[rule]; if (!cats) return { ...base, verdict:'NO_TABLE', findings:[], text:'bu kural için tablo yok' };
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.rule === rule && finite(l.rMultiple) !== null).sort((a, b) => (finite(a.closedAt) || 0) - (finite(b.closedAt) || 0));
+  const me = { features:features || {} }, avg = z => (z.length ? z.reduce((a, l) => a + l.rMultiple, 0) / z.length : null), r3 = v => (v === null ? null : Number(v.toFixed(3)));
+  const findings = [];
+  for (const cat of cats) {
+    const v = cat.get(me); if (v === null) continue;
+    const g = xs.filter(l => cat.get(l) === v), n = g.length, h = Math.floor(n / 2), av = avg(g), a1 = avg(g.slice(0, h)), a2 = avg(g.slice(h));
+    const o = xs.filter(l => { const w = cat.get(l); return w !== null && w !== v; }), ao = avg(o), sep = o.length >= EXPERIENCE_OTHER_N && ao !== null && av !== null;
+    let call = n < EXPERIENCE_MIN_N ? 'FEW' : !sep ? 'NO_CONTRAST'
+      : av <= -EXPERIENCE_EDGE_R && a1 < 0 && a2 < 0 && ao - av >= EXPERIENCE_GAP_R ? 'AVOID'
+      : av >= EXPERIENCE_EDGE_R && a1 > 0 && a2 > 0 && av - ao >= EXPERIENCE_GAP_R ? 'FAVOR' : 'NEUTRAL';
+    // long-term memory check
+    const lab = LAB_PRIORS[rule]?.[cat.key], lv = lab?.[v], lo = lab ? Object.entries(lab).filter(([k]) => k !== v).map(([, x]) => x) : [];
+    const loN = lo.reduce((a, x) => a + x.n, 0), loAvg = loN ? lo.reduce((a, x) => a + x.n * x.avgR, 0) / loN : null;
+    const labAgrees = lv && lv.n >= LAB_MIN_N && loAvg !== null && (call === 'AVOID' ? loAvg - lv.avgR >= LAB_GAP_R : call === 'FAVOR' ? lv.avgR - loAvg >= LAB_GAP_R : false);
+    if ((call === 'AVOID' || call === 'FAVOR') && !labAgrees) call = 'LAB_DISAGREES';
+    findings.push({ key:cat.key, label:cat.label, value:v, n, avgR:r3(av), older:r3(a1), newer:r3(a2), otherN:o.length, otherAvgR:r3(ao), labN:lv?.n ?? null, labAvgR:lv?.avgR ?? null, labOtherAvgR:r3(loAvg), call });
+  }
+  const verdict = !findings.length ? 'NO_INFO' : findings.some(f => f.call === 'AVOID') ? 'AVOID' : findings.some(f => f.call === 'FAVOR') ? 'FAVOR' : findings.every(f => f.call === 'FEW' || f.call === 'NO_CONTRAST') ? 'FEW' : 'NEUTRAL';
+  const disagree = findings.filter(f => f.call === 'LAB_DISAGREES').map(f => `${f.label} ${f.value}: son ${f.n} ders ${String(f.avgR.toFixed(2)).replace('.', ',')}R ama 6 ay ${f.labN ?? 0} işlem ${f.labAvgR === null ? '—' : String(f.labAvgR.toFixed(2)).replace('.', ',')}R`).join('; ');
+  const tr = { AVOID:'tecrübe: GİRME (gölge)', FAVOR:'tecrübe: olumlu (gölge)', FEW:'tecrübe: yeterli ders yok', NEUTRAL:'tecrübe: belirgin fark yok', NO_INFO:'tecrübe: bilgi yok' }[verdict];
+  const why = findings.filter(f => f.call === 'AVOID' || f.call === 'FAVOR').map(f => `${f.label} ${f.value}: ${f.n} ders ort ${String(f.avgR.toFixed(2)).replace('.', ',')}R (diğerleri ${f.otherN} ders ${String(f.otherAvgR.toFixed(2)).replace('.', ',')}R)`).join('; ');
+  return { ...base, verdict, findings, text:tr + (why ? ' — ' + why : '') + (disagree ? ' • 6 ay aksini söylüyor: ' + disagree : '') };
+}
 function bucketsFor(lessons, rule) {
+  if (CAT_BUCKETS[rule]) { const xs = lessons.filter(l => l.rule === rule); return { categorical:true, label:'çıkarım tablosu', cats:catTable(xs, CAT_BUCKETS[rule]) }; }
   const b = BUCKETS[rule]; if (!b) return null;
   const xs = lessons.filter(l => l.rule === rule && finite(l.features?.[b.feature]) !== null);
   const rows = b.edges.map((lo, i) => {
@@ -515,13 +571,16 @@ function experienceSummary(lessons, { mode = null, recent = 8 } = {}) {
   return { lessons: xs.length, groups, buckets: Object.fromEntries(rules.map(r => [r, bucketsFor(xs, r)]).filter(([, v]) => v)),
     recent: xs.slice(-recent).reverse().map(l => ({ symbol: l.symbol, side: l.side, rule: l.rule, kind: l.kind, mode: l.mode, closedAt: l.closedAt, verdict: l.verdict, rMultiple: l.rMultiple, resultPct: l.resultPct, mfePct: l.mfePct, maePct: l.maePct, exitType: l.exitType, tags: l.tags, lessonTr: l.lessonTr })) };
 }
+// R2544.79: the indicator info travels to JEV as 4 flags (not the whole object) so the 48 kB request ceiling is not pushed
+function jevFeatures(f) { if (!f || typeof f !== 'object' || !f.ind) return f; const x = f.ind; const { ind, experience, ...rest } = f;
+  return { ...rest, ind:x.ok ? { vdpmObstacle2R:x.vdpm?.obstacle2R ?? null, vwobOppIn2R:x.vwob?.oppIn2R ?? null, lthTrend:x.lth?.trend ?? null, lrvp:x.lrvp ? [x.lrvp.trendWith, x.lrvp.deltaWith] : null } : null, experience:experience?.verdict || null }; }
 // What JEV sees for one rule: this lane's measured history of that rule (both signal kinds, both modes), its feature
 // buckets and the latest lessons with their entry features.
 function experienceFor(lessons, rule, { recent = 6 } = {}) {
   const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l.rule === rule);
   const s = experienceSummary(xs, { recent });
-  return { rule, closedLots: xs.length, groups: s.groups, buckets: s.buckets[rule] || null,
-    recent: xs.slice(-recent).reverse().map(l => ({ symbol: l.symbol, side: l.side, kind: l.kind, mode: l.mode, verdict: l.verdict, rMultiple: l.rMultiple, resultPct: l.resultPct, mfePct: l.mfePct, maePct: l.maePct, exitType: l.exitType, features: l.features, lessonTr: l.lessonTr })),
+  return { rule, closedLots: xs.length, groups: s.groups, buckets: s.buckets[rule] || null, labPriors: LAB_PRIORS[rule] || null,
+    recent: xs.slice(-recent).reverse().map(l => ({ symbol: l.symbol, side: l.side, kind: l.kind, mode: l.mode, verdict: l.verdict, rMultiple: l.rMultiple, resultPct: l.resultPct, mfePct: l.mfePct, maePct: l.maePct, exitType: l.exitType, features: jevFeatures(l.features), lessonTr: l.lessonTr })),
     note: xs.length < 10 ? 'FEW_SAMPLES_TREAT_AS_ANECDOTE' : 'MEASURED_HISTORY' };
 }
 
@@ -532,4 +591,4 @@ const subOf = side => (side === 'LONG' ? TOP3_SUBS.early : TOP3_SUBS.top);
 // effective JEV use of a sub-strategy: its own choice, else the lane's JEV mode
 function subJev(cfg, side) { const R = side === 'LONG' ? cfg?.early : cfg?.top; return typeof R?.jev === 'boolean' ? R.jev : cfg?.jevMode === true; }
 module.exports = { TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
-  writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
+  writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

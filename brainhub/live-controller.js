@@ -37,7 +37,8 @@ const { BurstPreparationQueue, burstPreparationReadiness } = require('./burst-pr
 const {freshAttention,pickFreshAttention,coverageState}=require('./attention-priority');
 const {readCloseExitEvidence}=require('./close-exit-evidence');
 const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gainer hunter lane)
-const PA=require('./pa-core'); // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
+const PA=require('./pa-core');
+const IND=require('./ind-info'); // R2544.79 indikatör bilgisi (yalnız bilgi) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
 const z5Lib=require('./zirve5'); // R2544.64 ZİRVE-5 SHORT (piyasa geneli ilk 5 volatil, 15 dk Fibo dip kırılımı)
 
 const LIVE_RESOURCE = 'BINANCE_LIVE_EXECUTOR';
@@ -6064,7 +6065,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(longC.has(s))checks.push(['LONG',top3Lib.earlyLongTrigger(k5,lvAt,t=>top3EarlyCtx(s,t,k5,cfg),cfg)]);
       if(shortC.has(s))checks.push(['SHORT',top3Lib.topShortTrigger(k5,cfg)]);
       for(const [side,tr] of checks){
-        if(tr.ok){out.signals.push({symbol:s,side,rule:tr.rule,trig:tr,levels:lvAt(clock()),close:k5.at(-1)[4],
+        if(tr.ok){const ind=await top3IndFor(s,side,tr,k5,lvAt,cfg,bar); // R2544.79 yalnız bilgi
+          out.signals.push({symbol:s,side,rule:tr.rule,trig:tr,levels:lvAt(clock()),close:k5.at(-1)[4],ind,
           pa:(()=>{try{const cs=PA.toCandles(k5,300000);return PA.context(cs,cs.length-1,k5.at(-1)[4],{n:3,lookback:288,within:24});}catch{return null;}})()});
           try{store.journal('TOP3_SIGNAL',s,{side,rule:tr.rule,trig:tr,levels:lvAt(clock()),bar:out.bar,gate:out.gate,version:top3Lib.TOP3_VERSION});}catch{}}
         else if(!['V2_NO_BREAKOUT','V2_NO_FRESH_TOP','V2_5M_HISTORY_SHORT'].includes(tr.reason))out.nearMisses.push({symbol:s,side,reason:tr.reason,reasons:tr.reasons||null,level:finite(tr.level),top:finite(tr.top)});
@@ -6085,7 +6087,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const T=Math.floor(clock()/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR,m=top3Ranks.hours[T]||{};
       const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
         top:finite(x.trig.top),hl:finite(x.trig.hl),topVolMult:finite(x.trig.topVolMult)!==null?Number(x.trig.topVolMult.toFixed(2)):null,pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close,
-        sweep:x.trig.sweep||null,pa:x.pa||null}; // R2544.72: the SFP the rule required and the PA context travel with the lot
+        sweep:x.trig.sweep||null,pa:x.pa||null,ind:x.ind||null}; // R2544.72: the SFP the rule required and the PA context travel with the lot; R2544.79 ind: information only
+      ef.experience=top3Lib.experienceVerdict(top3State.lessons,x.rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
       let jev=null;const sub=top3Lib.subOf(x.side);res.strategy=sub.name;
       if(top3Lib.subJev(cfg,x.side)){
         if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}
@@ -6496,6 +6499,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let managed=null;try{managed=await top3Manage();}catch(e){managed={error:String(e?.message||e).slice(0,120)};}
       try{await top3FinalizeCloses();}catch{/* reporting only */}
       try{top3BackfillOpened();}catch{}
+      try{await lessonIndBackfillTick();}catch{}
       const cfg=top3Lib.readTop3Config(root);
       if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
       if(testModeNow()){
@@ -6576,6 +6580,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       row.zones=v.waiting.map(x=>({side:x.side,top:x.top,bottom:x.bottom,equilibrium:x.equilibrium,zoneAt:x.zoneAt}));
       // R2544.74: every signal carries the 1 sa / 4 sa structure and the 5 dk confirmation (information only; two public reads per signal)
       for(const s of v.signals)s.mtf=await z5Mtf(r.symbol,bar,s,cfg);
+      for(const s of v.signals)s.ind=await indInfoFor(r.symbol,'15m',bar+z5Lib.M15-1,s.side,c.at(-1).close,s.stopPrice,2*24*TOP3_HOUR); // R2544.79 yalnız bilgi
       row.signals=v.signals.map(x=>({side:x.side,confirm:x.confirm,sideOn:z5SideOn(cfg,x.side),mtf:x.mtf?{h1:x.mtf.h1?.trend??null,h4:x.mtf.h4?.trend??null,m5:x.mtf.m5?.confirmed===true?x.mtf.m5.minutesEarly:null,against1h:x.mtf.against1h,against4h:x.mtf.against4h}:null}));
       if(v.waiting.length)armed[r.symbol]=v.waiting.map(x=>({...x,rank:r.rank}));
       for(const s of v.signals)pending.push({...s,symbol:r.symbol,rank:r.rank,range24:r.range,change24:r.change});
@@ -6584,6 +6589,42 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // a coin that left the top 5 is no longer watched (the lab entered only while the coin was in the top 5)
     z.armed=armed;z.pending=pending;out.armed=Object.values(armed).reduce((a,x)=>a+x.length,0);out.signals=pending.length;
     return out;
+  }
+  // R2544.79 (kullanıcı 26.10 "önerilerini yap"): 4 indikatörün giriş anındaki bilgisi (VDPM 2R öncesi karşı seviye, VWOB karşı OB,
+  // LTH trend, LRVP oturum). YALNIZ BİLGİ: hiçbir girişi engellemez/açmaz; derslere ve JEV'e gider, beynin çıkarım tablosunu doldurur.
+  // 1000 kapanmış mum (ölçüm koduyla uyum: 600 mumda %96-100, 200 mumda %81-93); sinyal başına bir herkese açık okuma.
+  async function indInfoFor(symbol,interval,endTime,side,entry,stop,session){
+    try{
+      const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,endTime:String(endTime),limit:'1000'}});
+      const rows=(Array.isArray(k)?k:[]).map(x=>[Number(x[0]),Number(x[1]),Number(x[2]),Number(x[3]),Number(x[4]),Number(x[7])]);
+      return IND.infoAt(rows,side,entry,stop,{session});
+    }catch(e){return {version:IND.IND_VERSION,ok:false,informationOnly:true,error:String(e?.message||e).slice(0,80)};}
+  }
+  async function top3IndFor(symbol,side,tr,k5,lvAt,cfg,bar){
+    const close=k5.at(-1)?.[4],lv=lvAt(clock());
+    const pl=side==='LONG'?top3Lib.earlyLongPlan(close,tr,lv,cfg):top3Lib.topShortPlan(close,tr,lv,cfg);
+    if(!pl?.ok)return {version:IND.IND_VERSION,ok:false,informationOnly:true,reason:pl?.reason||'PLAN'};
+    return indInfoFor(symbol,'5m',bar+top3Lib.M5-1,side,close,pl.stopPrice,12*TOP3_HOUR);
+  }
+  // R2544.79: bu sürümden önceki derslere indikatör bilgisi bir kez, giriş anındaki mumlarla eklenir (çıkarım tablosu hemen dolsun).
+  // Her tick en çok 2 ders; sonra bir daha çalışmaz (top3State.indBackfill.done).
+  let indBackfillBusy=false;
+  async function lessonIndBackfillTick(){
+    const st=top3State.indBackfill||(top3State.indBackfill={done:false,filled:0,failed:0});
+    if(st.done||indBackfillBusy)return null;indBackfillBusy=true;
+    try{
+      const z=z5State(),pool=[...(top3State.lessons||[]),...(z.lessons||[])].filter(l=>l&&top3Lib.CAT_BUCKETS[l.rule]&&!l.features?.ind&&!l.indBackfillTried);
+      if(!pool.length){st.done=true;st.at=new Date(clock()).toISOString();saveTop3State();try{store.journal('LESSON_IND_BACKFILL_DONE',null,{filled:st.filled,failed:st.failed});}catch{}return {done:true};}
+      for(const l of pool.slice(0,2)){
+        l.indBackfillTried=true;
+        const z5=/^ZIRVE5_/.test(l.rule),e=finite(l.entryPrice),sp=finite(l.stopPct),t=finite(l.openedAt);
+        if(!(e>0&&sp>0&&t>0)){st.failed++;continue;}
+        const stop=l.side==='LONG'?e*(1-sp):e*(1+sp),M=z5?z5Lib.M15:top3Lib.M5,end=Math.floor((t-8000)/M)*M-1;
+        const ind=await indInfoFor(l.symbol,z5?'15m':'5m',end,l.side,e,stop,z5?2*24*TOP3_HOUR:12*TOP3_HOUR);
+        if(ind?.ok){l.features={...(l.features||{}),ind:{...ind,backfilled:true}};st.filled++;}else st.failed++;
+      }
+      saveTop3State();return {filled:st.filled,failed:st.failed};
+    }finally{indBackfillBusy=false;}
   }
   async function z5Mtf(symbol,bar,sig,cfg){
     try{
@@ -6616,7 +6657,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const sym=sg.symbol,side=sg.side,rule=z5Lib.setupFor(side);
         if(!z5SideOn(cfg,side)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIDE_OFF',rank:sg.rank});continue;}
         // R2544.70: no liquidity sweep (SFP) on the zone side in the last 24 closed 15m candles -> no entry (the zone is used up, like the lab)
-        if(cfg.requireSweep!==false&&!sg.sweep){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank,zone:{top:sg.top,bottom:sg.bottom},pa:sg.pa||null,mtf:sg.mtf||null});}catch{}continue;}
+        if(cfg.requireSweep!==false&&!sg.sweep){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank,zone:{top:sg.top,bottom:sg.bottom},pa:sg.pa||null,mtf:sg.mtf||null,ind:sg.ind||null});}catch{}continue;}
         if(clock()-sg.confirmAt>5*60000){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIGNAL_STALE',rank:sg.rank});continue;}
         if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SLOTS_FULL',rank:sg.rank});continue;}
         if(activeTop3For(sym)||burstCurrentPosition(sym)||activeBurstFor(sym)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sym)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SYMBOL_BUSY',rank:sg.rank});continue;}
@@ -6625,7 +6666,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const sizing={marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,riskPct:cfg.riskPct??t3.riskPct};
         const ef={side,rank:sg.rank,range24:sg.range24,change24:sg.change24,top:sg.top,bottom:sg.bottom,equilibrium:sg.equilibrium,liquidity:sg.liquidity,
           confirmBody:sg.confirm?.body??null,confirmVolMult:sg.confirm?.volMult??null,confirmClose:sg.refPrice,zoneAt:new Date(sg.zoneAt).toISOString(),confirmAt:new Date(sg.confirmAt).toISOString(),
-          sweep:sg.sweep||null,pa:sg.pa||null,mtf:sg.mtf||null}; // R2544.74 mtf: information only (brain, JEV, Office)
+          sweep:sg.sweep||null,pa:sg.pa||null,mtf:sg.mtf||null,ind:sg.ind||null}; // R2544.74 mtf / R2544.79 ind: information only (brain, JEV, Office)
+        ef.experience=top3Lib.experienceVerdict(z.lessons,rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
         let jev=null;
         if(cfg.jevMode===true){
           let chartContext=market?.cachedChartContext?.(sym,clock())||null;
@@ -6665,13 +6707,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({side:x.side,equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,liquidity:x.liquidity,expiresAt:new Date(x.expiresAt).toISOString()}))})),
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),
         markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       recentEntries:(z.recent||[]).slice(0,12),
       recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup||null,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt||null,holdMinutes:finite(p.holdMinutes)})),
       results:{test:sum(m.filter(p=>p.tradingMode!=='LIVE')),live:sum(m.filter(p=>p.tradingMode==='LIVE')),all:sum(m),
         long:bySide('LONG'),short:bySide('SHORT'),oldRule:sum(m.filter(p=>!isNew(p)))},
-      learning:{lessons:z.lessons.length}};
+      learning:{lessons:z.lessons.length,buckets:top3Lib.experienceSummary(z.lessons).buckets,indBackfill:top3State.indBackfill||null}};
   }
   // Office / API switches, like İlk 3: OFF is immediate in any mode (open lots keep their own stop/target/24 h exit);
   // ON in LIVE (the lane or a side while LIVE, or liveEnabled) and a margin/leverage change in LIVE need the explicit 'LIVE'.
@@ -6780,7 +6822,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
       lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
