@@ -599,7 +599,7 @@ const JEV_CHECKS = [
 ];
 
 // ---------- Ofis katı (SVG) ----------
-const VW=1100, VH=780;
+const VW=1100, VH=985; // R2544.86: alt kat = Model Kurulu masası
 const DESKS = [
   { id:'scanner',  x:140, y:112, name:'Tarayıcı',            role:'Binance evreni → hedef 24' },
   { id:'workers',  x:140, y:342, name:'Plan Kanıt Ajanları',   role:'9Router ücretsiz metin' },
@@ -721,6 +721,53 @@ function loungeSvg(){
     ${rest}
   </g>`;
 }
+// R2544.86 MODEL KURULU MASASI: ücretsiz modeller (9Router: Kiro Claude/DeepSeek/GLM; OpenRouter ücretsiz) masada avatar; her birinin
+// üstünde son oyu ve sağlık ışığı; masanın ortasında ortak karar (oybirliği / tartışma sonrası çoğunluk / çoğunluk yok → TUT).
+const CM={x:550,y:896,seats:[[-205,4],[-92,-40],[92,-40],[205,4]],colors:['var(--series-1)','var(--series-3)','var(--series-5)','var(--series-7)']};
+function committeeSvg(){
+  const seats=CM.seats.map(([dx,dy],i)=>`<g id="cmSeat-${i}" transform="translate(${CM.x+dx},${CM.y+dy})" style="display:none">
+      <rect x="-12" y="-28" width="24" height="22" rx="8" fill="${CM.colors[i]}"/><circle cx="0" cy="-36" r="8.5" fill="#d8ae88"/>
+      <path d="M-8.5,-38 Q0,-48 8.5,-38 Q5,-43 0,-43.5 Q-5,-43 -8.5,-38Z" fill="#2b2f38"/>
+      <circle id="cmLed-${i}" cx="13" cy="-40" r="3.5" fill="#8b909c"/>
+      <g transform="translate(0,-54)"><rect id="cmBubR-${i}" x="-36" y="-11" width="72" height="18" rx="8" fill="var(--surface-1)" stroke="${CM.colors[i]}"/><text id="cmBub-${i}" y="2" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--text-primary)">—</text></g>
+      <text class="o-sub" id="cmName-${i}" y="10" text-anchor="middle" font-size="10">—</text></g>`).join('');
+  return `<g id="committeeRoom">
+    <rect x="160" y="790" width="780" height="182" rx="16" fill="var(--series-5)" opacity=".05" stroke="var(--series-5)" stroke-opacity=".35" stroke-dasharray="6 6"/>
+    <text class="lounge-l" x="176" y="808">🤝 MODEL KURULU (gölge)</text>
+    <text class="o-sub" id="cmHead" x="924" y="808" text-anchor="end">—</text>
+    <ellipse cx="${CM.x}" cy="${CM.y+14}" rx="150" ry="16" fill="#000" opacity=".18"/>
+    <ellipse cx="${CM.x}" cy="${CM.y}" rx="150" ry="34" fill="var(--desk)"/><ellipse cx="${CM.x}" cy="${CM.y-5}" rx="150" ry="30" fill="var(--desk-top)"/>
+    <text id="cmFinal" x="${CM.x}" y="${CM.y-6}" text-anchor="middle" font-size="15" font-weight="800" fill="var(--text-primary)">—</text>
+    <text class="o-sub" id="cmSub" x="${CM.x}" y="${CM.y+12}" text-anchor="middle" font-size="10">—</text>
+    ${seats}
+    <text class="o-sub" id="cmBench" x="${CM.x}" y="${CM.y+60}" text-anchor="middle" font-size="10">—</text>
+  </g>`;
+}
+function renderCommittee(s){
+  const pd=s.top3?.positionDesk||s.zirve5?.positionDesk||null,cm=pd?.committee,ex=pd?.exam;const host=document.getElementById('committeeRoom');if(!host)return;
+  const T=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t;};
+  if(!cm){T('cmFinal','kurul yok');T('cmSub','bu sürümde bağlı değil');for(let i=0;i<4;i++){const g=document.getElementById('cmSeat-'+i);if(g)g.style.display='none';}return;}
+  const short=id=>String(id).replace(/^ROUTER:(kr|oc)\//,'').replace(/^FREE:/,'').replace(/-free$/,'').replace('claude-','Claude ').replace('openrouter','OpenRouter').slice(0,18);
+  const team=cm.team||[],members=cm.members||[];
+  // latest committee decision across open İlk 3 / ZİRVE-5 lots
+  const dk=[...(s.top3?.active||[]),...(s.zirve5?.active||[])].map(a=>({sym:String(a.symbol||'').replace(/USDT$/,''),d:a.deskInfo?.last})).filter(x=>x.d?.committee&&x.d.atIso).sort((x,y)=>Date.parse(y.d.atIso)-Date.parse(x.d.atIso))[0];
+  const AT={HOLD:'TUT',TAKE_PARTIAL:'KISMİ AL',TIGHTEN_STOP:'STOP YAKLAŞ',EXIT:'ÇIK',ERR:'cevap yok'};
+  const votes=dk?.d?.committee?.votes||[];
+  for(let i=0;i<4;i++){
+    const g=document.getElementById('cmSeat-'+i);if(!g)continue;const id=team[i];if(!id){g.style.display='none';continue;}g.style.display='';
+    const m=members.find(x=>x.id===id)||{};T('cmName-'+i,short(id));
+    const led=document.getElementById('cmLed-'+i);if(led)led.setAttribute('fill',m.healthy?'#26a69a':'#ef5350');
+    const v=votes.find(x=>short('ROUTER:'+x.m)===short(id)||short(x.m)===short(id)||id.endsWith(x.m));
+    T('cmBub-'+i,v?(AT[v.a]||v.a):(m.healthy?'hazır':'hasta'));
+  }
+  if(dk){const c=dk.d.committee,ago=Math.max(0,Math.round((Date.now()-Date.parse(dk.d.atIso))/60000));
+    T('cmFinal',`${dk.sym}: ${AT[dk.d.action]||dk.d.action}`);
+    T('cmSub',`${c.consensus==='UNANIMOUS'?'oybirliği':c.consensus==='MAJORITY_AFTER_DEBATE'?'tartışma sonrası çoğunluk':'çoğunluk yok → TUT'} • ${c.rounds} tur • ${ago} dk önce`);}
+  else{T('cmFinal',team.length?'açık işlem bekleniyor':'sağlıklı model yok');T('cmSub',team.length?`${team.length} üye masada`:'9Router çalışıyor mu? sağlık kontrolü 5 dk’da bir');}
+  const healthy=members.filter(m=>m.healthy).length,bench=members.filter(m=>!team.includes(m.id));
+  T('cmBench',`sağlıklı ${healthy}/${members.length} • yedek: ${bench.filter(m=>m.healthy).map(m=>short(m.id)).join(', ')||'—'} • hasta: ${bench.filter(m=>!m.healthy).map(m=>short(m.id)).join(', ')||'—'}`.slice(0,150));
+  T('cmHead',ex?.present?`trader sınavı ${ex.answered}/${ex.total}${ex.finished?' • bitti':''}${ex.lastError?' • son hata: '+String((ex.lastError.tried||[]).join(', ')).slice(0,60):''}`:'trader sınavı: paket yok');
+}
 function tradeBoardSvg(){
   return `<g id="tradeBoard" transform="translate(672,18)">
     <rect width="206" height="92" rx="10" fill="#0b1320" stroke="#2f3a4d"/>
@@ -798,7 +845,7 @@ function buildOffice(){
   window.__officeLayers={walkDefs,walkers,waiters,orbitVisible,orbiters,orbitDef};
   const bubble = `<g class="o-bub" id="bubble" style="display:none"><rect x="0" y="0" width="10" height="26" rx="8"/><text id="bubbleTxt" x="10" y="17">—</text></g>`;
   const L=window.__officeLayers;
-  $('#officeHost').innerHTML = `<svg viewBox="0 0 ${VW} ${VH}" role="img" aria-label="BrainHub ofis katı: masalar, beyin ve veriyi beyne taşıyan trader'lar">${floor}${L.walkDefs}${L.orbitDef}${edges}${L.orbitVisible}${brain}${DESKS.map((d,i)=>deskSvg(d,i)).join('')}${loungeSvg()}${tradeBoardSvg()}${gatesSvg}${L.waiters}${L.orbiters}${L.walkers}${brainLabel}${bubble}</svg>`;
+  $('#officeHost').innerHTML = `<svg viewBox="0 0 ${VW} ${VH}" role="img" aria-label="BrainHub ofis katı: masalar, beyin ve veriyi beyne taşıyan trader'lar">${floor}${L.walkDefs}${L.orbitDef}${edges}${L.orbitVisible}${brain}${DESKS.map((d,i)=>deskSvg(d,i)).join('')}${loungeSvg()}${committeeSvg()}${tradeBoardSvg()}${gatesSvg}${L.waiters}${L.orbiters}${L.walkers}${brainLabel}${bubble}</svg>`;
   try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches) $('#officeHost svg').pauseAnimations(); }catch{}
 }
 function setWalker(id, show, label){
@@ -1341,6 +1388,7 @@ function renderOffice(s, vinfo){
   const jevCalled=+h.jevCalled||0, jevShadow=+h.jevShadowCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):(jevShadow?'busy':''), d.jev?.text);
   const lr = s.lastRisk; setDesk('risk', lr?'warn':'ok', lr?`${lr.symbol}: ZORUNLU • ${trUi(lr.reasons[0])}`:'JEV sonrası yalnız zorunlu güvenlik');
   setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${(s.derived?.execution?.lastBlock||la.activeBlocker)?'son engel: '+[].concat((s.derived?.execution?.lastBlock||la.activeBlocker).reasons||(s.derived?.execution?.lastBlock||la.activeBlocker).reason||[]).map(trUi).join(', '):'kayıtlı zorunlu engel yok'}`:'LIVE KAPALI');
+  try{renderCommittee(s);}catch(e){console.warn('committee',e);} // R2544.86
   // R2544.84: İlk 3 / ZİRVE-5 pozisyon masasının son kararı kattaki Pozisyon Yöneticisi masasında (gölge)
   {const dk=[...(s.top3?.active||[]),...(s.zirve5?.active||[])].map(a=>({sym:String(a.symbol||'').replace(/USDT$/,''),d:a.deskInfo?.last})).filter(x=>x.d&&x.d.atIso).sort((x,y)=>Date.parse(y.d.atIso)-Date.parse(x.d.atIso))[0];
    const nm=st.positionManager?.lastReview?.actionTr;
@@ -2068,13 +2116,14 @@ function deskLine(d){
   if(!d)return '<br><span class="muted">masa: henüz bakmadı (açılıştan 5 dk sonra, sonra 15 dk’da bir)</span>';
   const L=d.last;if(!L)return `<br><span class="muted">masa: karar yok${d.lastError?' • '+esc((d.lastError.tried||[]).join(', ')):''}</span>`;
   const ago=Math.max(0,Math.round((Date.now()-Date.parse(L.atIso))/60000)),act=L.action!=='HOLD';
-  return `<br><span class="muted"${act?' style="color:var(--warning)"':''}>🧑‍💼 masa (${L.judge==='JEV'?'JEV':'ücretsiz model'}, gölge): <b>${esc(L.text||L.action)}</b>${L.watchTr?' • izliyor: '+esc(L.watchTr):''} • ${ago} dk önce • ${esc(d.reviews)} bakış, ${esc(d.acted)} eylem</span>`;
+  return `<br><span class="muted"${act?' style="color:var(--warning)"':''}>🧑‍💼 masa (${L.judge==='JEV'?'JEV':L.judge==='ROUTER'?'9Router '+esc(String(L.model||'').replace(/^[a-z]+\//,'')):'ücretsiz model'}, gölge): <b>${esc(L.text||L.action)}</b>${L.watchTr?' • izliyor: '+esc(L.watchTr):''} • ${ago} dk önce • ${esc(d.reviews)} bakış, ${esc(d.acted)} eylem</span>`;
 }
 function deskSummaryLine(p,lane){
   const c=p.comparison?.[lane],td=p.today||{};
-  const who=`TEST: ${(p.judges?.TEST||[]).map(x=>x==='JEV'?'JEV':'ücretsiz').join(' → ')||'—'} • CANLI: ${(p.judges?.LIVE||[]).map(x=>x==='JEV'?'JEV':'ücretsiz').join(' → ')||'—'}`;
+  const jn=x=>x==='JEV'?'JEV':x==='ROUTER'?'9Router':'OpenRouter ücretsiz';
+  const who=`TEST: ${(p.judges?.TEST||[]).map(jn).join(' → ')||'—'} • CANLI: ${(p.judges?.LIVE||[]).map(jn).join(' → ')||'—'}`;
   const cmp=c&&c.n?` • kapanan ${esc(c.n)} işlemde masa uygulasaydı ortalama <b>${(c.deltaR>=0?'+':'')+esc(String(c.deltaR).replace('.',','))}R</b> fark (kural ${esc(String(c.ruleR).replace('.',','))}R → masa ${esc(String(c.deskR).replace('.',','))}R; daha iyi ${esc(c.better)}, daha kötü ${esc(c.worse)})`:' • karşılaştırma için kapanmış ve 24 sa otopsisi biten işlem bekleniyor';
-  return `<p class="muted">Pozisyon masası <b>${p.enabled?'AÇIK':'KAPALI'}</b> (gölge: karar yazar, emir göndermez) • ${who} • bugün ücretsiz ${esc(td.free||0)}/${esc(p.freeDailyCap)} • JEV ${esc(td.jev||0)}${td.lastError?' • son sorun: '+esc(td.lastError):''}${cmp}</p>`;
+  return `<p class="muted">Pozisyon masası <b>${p.enabled?'AÇIK':'KAPALI'}</b> (gölge: karar yazar, emir göndermez) • ${who} • bugün 9Router ${esc(td.router||0)} • OpenRouter ücretsiz ${esc(td.free||0)}/${esc(p.freeDailyCap)} • JEV ${esc(td.jev||0)}${td.lastError?' • son sorun: '+esc(td.lastError):''}${cmp}</p>`;
 }
 function indLine(ind,exp){if(!ind&&!exp)return '';return '<br><span class="muted">indikatör (kural değil): '+esc(ind?.text||'—')+(exp?' • <b>'+esc(exp.text||exp.verdict)+'</b>':'')+'</span>';}
 function catTables(rule,b){if(!b||!b.categorical)return '';let h='';for(const c of b.cats||[]){const rows=(c.rows||[]).filter(r=>r.n);if(!rows.length)continue;

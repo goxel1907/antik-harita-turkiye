@@ -6708,7 +6708,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // 15 dk'da bir (fiyat 0,5R oynarsa daha erken) bir trader bakar. TEST: ücretsiz model. CANLI: JEV, yoksa ücretsiz. İkisi de yoksa kural sürer.
   // GÖLGE: karar lota ve günlüğe yazılır, Office'te görünür; EMİR GÖNDERİLMEZ. Kapanınca aynı 5 dk yolda masa ile kural karşılaştırılır.
   let deskBusy=false;
-  function deskStats(){const day=new Date(clock()).toISOString().slice(0,10);const d=top3State.deskStats;if(!d||d.day!==day)top3State.deskStats={day,free:0,jev:0,failed:0,lastError:null,lastAt:null};return top3State.deskStats;}
+  function deskStats(){const day=new Date(clock()).toISOString().slice(0,10);const d=top3State.deskStats;if(!d||d.day!==day)top3State.deskStats={day,free:0,router:0,jev:0,failed:0,lastError:null,lastAt:null};return top3State.deskStats;}
   function deskDue(a,cfg,now,markR){
     if(!a||!finite(a.openedAt)||a.closing)return false;
     const d=a.desk;if(now-a.openedAt<cfg.firstAfterMin*60000)return false;
@@ -6720,7 +6720,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const deskJudge=(packet,mode,cfg)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats()});
   async function positionDeskTick(){
     if(deskBusy)return null;const cfg=DESK.readConfig(root);if(!cfg.enabled)return null;
-    if(!deskJudges?.free&&typeof deskJudges?.jev!=='function')return {skipped:true,reason:'DESK_NO_JUDGE_WIRED'};
+    if(!deskJudges?.free&&!deskJudges?.router&&!deskJudges?.committee&&typeof deskJudges?.jev!=='function')return {skipped:true,reason:'DESK_NO_JUDGE_WIRED'};
     deskBusy=true;
     try{
       const now=clock(),lots=Object.values(top3State.active||{}).filter(a=>a&&finite(a.openedAt)&&!a.closing);if(!lots.length)return null;
@@ -6744,7 +6744,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{store.journal('POSITION_DESK_UNAVAILABLE',a.symbol,{lane,mode,tried:res.tried});}catch{}return {ok:false,tried:res.tried};}
       const d=DESK.validate(res.d,packet.stopChoices);
       const rec={at:now,mark:pickMark,R:Number((desk.lastR??0).toFixed(3)),action:d.action,stopChoice:d.stopChoice||'KEEP',stopPrice:finite(d.stopPrice),reason:d.reason,confidence:finite(d.confidence),
-        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,shadow:true};
+        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true};
       desk.decisions.push(rec);if(desk.decisions.length>120)desk.decisions=desk.decisions.slice(-120);desk.last=rec;desk.lastError=null;
       saveTop3State();
       try{store.journal('POSITION_DESK_REVIEW',a.symbol,{lane,mode,id:a.id,rule:a.rule,...rec,text:DESK.decisionText(rec),version:DESK.DESK_VERSION,tried:res.tried});}catch{}
@@ -6756,7 +6756,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     acted:(d.decisions||[]).filter(x=>x.action!=='HOLD').length,lastError:d.lastError||null,shadow:true};}
   function deskStatus(){const cfg=DESK.readConfig(root),st=deskStats(),z=z5State();
     return {version:DESK.DESK_VERSION,enabled:cfg.enabled,shadow:true,authority:false,cadenceMin:cfg.cadenceMin,judges:{TEST:cfg.testJudges,LIVE:cfg.liveJudges},
-      freeWired:!!deskJudges?.free,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
+      committee:typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null,exam:typeof deskJudges?.examStatus==='function'?deskJudges.examStatus():null,freeWired:!!deskJudges?.free,routerWired:!!deskJudges?.router,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
       comparison:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))])};}
   async function z5Mtf(symbol,bar,sig,cfg){
     try{

@@ -29,7 +29,7 @@ test('R2544.84 free model answer: strict JSON contract, Turkish reason; anything
 });
 test('R2544.84 judges: TEST uses the free model; LIVE uses JEV, falls back to free, and works with the free model OFF; none -> rule keeps managing',async()=>{
   const cfg=DESK.readConfig(fs.mkdtempSync(path.join(os.tmpdir(),'desk-')));
-  assert.deepEqual(cfg.testJudges,['FREE']);assert.deepEqual(cfg.liveJudges,['JEV','FREE']);assert.equal(cfg.authority,false,'shadow only in this build');
+  assert.deepEqual(cfg.testJudges,['COMMITTEE','FREE']);assert.deepEqual(cfg.liveJudges,['JEV','COMMITTEE','FREE']);cfg.testJudges=['FREE'];cfg.liveJudges=['JEV','FREE']; // R2544.86 defaults; this test checks the single-judge chainassert.equal(cfg.authority,false,'shadow only in this build');
   const calls=[],free={review:async x=>{calls.push('FREE:'+x.role);return {called:true,ok:true,model:'qwen:free',text:'{"action":"HOLD","reason":"STRUCTURE_INTACT","reasonTr":"yapı sağlam"}'};}};
   const jev=async()=>{calls.push('JEV');return {ok:true,called:true,action:'TAKE_PARTIAL',stopChoice:'KEEP',reason:'TARGET_ZONE_NEAR',model:'typesafe/jev-1.13'};};
   const p={symbol:'ARIAUSDT',side:'SHORT'},st={};
@@ -63,18 +63,18 @@ test('R2544.84 wiring: shadow only (no orders), lessons keep the decisions, coun
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   const i=lc.indexOf('async function positionDeskTick(');const body=lc.slice(i,lc.indexOf('\n  function deskView(',i));
   assert.ok(i>0);assert.doesNotMatch(body,/placeAlgo|placeRunnerStop|placeTakeProfit|top3CloseMarket|cancel|newOrder|_signed/,'the desk never sends an order');
-  assert.match(body,/shadow:true/);assert.match(body,/if\(!deskJudges\?\.free&&typeof deskJudges\?\.jev!=='function'\)return/);
+  assert.match(body,/shadow:true/);assert.match(body,/if\(!deskJudges\?\.free&&!deskJudges\?\.router&&!deskJudges\?\.committee&&typeof deskJudges\?\.jev!=='function'\)return/);
   assert.match(lc,/if\(!deskBusy\)positionDeskTick\(\)\.catch\(\(\)=>\{\}\);/,'runs from the tick without blocking the scan');
   assert.match(lc,/lesson\.desk=\{decisions:c\.desk\.decisions\|\|\[\],plan:c\.desk\.plan\|\|DESK\.planOf\(c\)\}/);
   assert.match(lc,/\.\.\.\(c\.desk\?\{desk:\{decisions:c\.desk\.decisions\|\|\[\],plan:c\.desk\.plan\|\|DESK\.planOf\(c\)\}\}:\{\}\),lane:'ZIRVE5'/);
   assert.match(lc,/if\(a\.ok&&a\.complete&&l\.desk\?\.decisions\?\.length&&!l\.desk\.cf\)/);
   assert.match(lc,/positionDesk:deskStatus\(\)/);assert.equal((lc.match(/deskInfo:deskView\(a\)/g)||[]).length,2);
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
-  assert.match(sv,/deskJudges:\{free:deskFreeWorker,jev:jev\.sovereignPositionDesk\}/);assert.match(sv,/openrouter-free-desk-health\.json/);
+  assert.match(sv,/deskJudges:\{free:deskFreeWorker,jev:jev\.sovereignPositionDesk,committee:deskCommittee/);assert.match(sv,/openrouter-free-desk-health\.json/);
   const of=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   assert.match(of,/function deskLine\(d\)/);assert.match(of,/deskLine\(a\.deskInfo\)/);assert.match(of,/deskSummaryLine\(z\.positionDesk,'ZIRVE5'\)/);
   for(const f of ['manage.ps1',path.join('jev-brain','JEV-DEPLOY.ps1')])assert.match(fs.readFileSync(path.join(__dirname,'..',f),'utf8'),/'position-desk\.js'/,f);
-  const fw=fs.readFileSync(path.join(__dirname,'..','openrouter-free-worker.js'),'utf8');assert.match(fw,/role==='POSITION_DESK'\?'':roleInstruction\(role\)/);
+  const fw=fs.readFileSync(path.join(__dirname,'..','openrouter-free-worker.js'),'utf8');assert.match(fw,/\['POSITION_DESK','TRADER'\]\.includes\(role\)\?'':roleInstruction\(role\)/);
 });
 test('R2544.84 JEV desk function: same choices; not configured -> HOLD without a call',async()=>{
   const {createJevClient}=require('../jev-decision');const j=createJevClient({root:fs.mkdtempSync(path.join(os.tmpdir(),'jevd-')),apiKey:''});
@@ -83,5 +83,5 @@ test('R2544.84 JEV desk function: same choices; not configured -> HOLD without a
 });
 test('R2544.85 desk: thinking free models get room to answer (they returned RESPONSE_TRUNCATED at 1536 tokens); other roles unchanged',()=>{
   const fw=fs.readFileSync(path.join(__dirname,'..','openrouter-free-worker.js'),'utf8');
-  assert.match(fw,/max_tokens:role==='POSITION_DESK'\?4096:1536/);
+  assert.match(fw,/max_tokens:\['POSITION_DESK','TRADER'\]\.includes\(role\)\?4096:1536/);
 });

@@ -13,6 +13,7 @@ const PROFILES=Object.freeze({
   RISK:'Report supplied structural invalidation, reward/path, data quality, spread, sizing or lease evidence. Never widen the original stop, change user margin/leverage/max positions or invent missing values.',
   // R2544.84: the position desk is a separate SHADOW trader prompt (position-desk.js); it gets no evidence-worker preamble
   POSITION_DESK:'Shadow trader decision for one open position (recorded and measured, never executed).',
+  TRADER:'Trader committee member (R2544.86): entry exam or desk vote; recorded and measured, never executed.',
   FINANCE:'Research the requested finance/crypto concept from supplied sources. Separate facts, assumptions and historical performance; include limitations and counterexamples. No current news, valuation, backtest or profitability claim without source evidence.'
 });
 function normalizeRole(role){const r=String(role||'DEFAULT').trim().toUpperCase();return Object.hasOwn(PROFILES,r)?r:'DEFAULT';}

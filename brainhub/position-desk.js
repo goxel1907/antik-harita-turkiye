@@ -16,17 +16,18 @@ const REASONS = ['STRUCTURE_INTACT', 'MOMENTUM_FADING', 'STRUCTURE_BROKEN_AGAINS
 const ACTION_TR = { HOLD:'TUT', TAKE_PARTIAL:'KISMİ KÂR AL', TIGHTEN_STOP:'STOPU YAKLAŞTIR', EXIT:'ÇIK' };
 const REASON_TR = { STRUCTURE_INTACT:'yapı sağlam', MOMENTUM_FADING:'ivme zayıflıyor', STRUCTURE_BROKEN_AGAINST:'yapı aleyhe kırıldı', TARGET_ZONE_NEAR:'hedef bölgesine yakın',
   OPPOSITE_FLOW_STRONG:'karşı akış güçlü', VOLUME_CLIMAX:'hacim doruğu', TIME_DECAY:'süre doluyor', NO_EDGE:'belirgin avantaj yok' };
-const DEFAULT_CONFIG = { enabled:true, cadenceMin:15, firstAfterMin:5, moveTriggerR:0.5, freeDailyCap:300, testJudges:['FREE'], liveJudges:['JEV', 'FREE'], authority:false };
+// R2544.86: 9Router (Kiro'daki ücretsiz Claude Sonnet/Haiku, DeepSeek, GLM) önce, OpenRouter ücretsiz sonra; CANLI'da JEV en önde
+const DEFAULT_CONFIG = { enabled:true, cadenceMin:15, firstAfterMin:5, moveTriggerR:0.5, freeDailyCap:300, routerDailyCap:300, testJudges:['COMMITTEE', 'FREE'], liveJudges:['JEV', 'COMMITTEE', 'FREE'], authority:false };
 const finite = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const configFile = root => path.join(root, 'config', 'position-desk.json');
 function readConfig(root) {
   let raw = {}; try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')); } catch {}
   const c = { ...DEFAULT_CONFIG, ...raw };
   const num = (v, lo, hi, d) => { const n = finite(v); return n !== null && n >= lo && n <= hi ? n : d; };
-  const judges = (v, d) => Array.isArray(v) ? v.filter(x => ['FREE', 'JEV'].includes(x)) : d;
+  const judges = (v, d) => Array.isArray(v) ? v.filter(x => ['FREE', 'JEV', 'ROUTER', 'COMMITTEE'].includes(x)) : d;
   // authority stays false in this build: the desk is shadow-only until it is measured
   return { enabled:c.enabled !== false, cadenceMin:num(c.cadenceMin, 5, 120, 15), firstAfterMin:num(c.firstAfterMin, 1, 60, 5), moveTriggerR:num(c.moveTriggerR, 0.2, 3, 0.5),
-    freeDailyCap:num(c.freeDailyCap, 0, 2000, 300), testJudges:judges(c.testJudges, DEFAULT_CONFIG.testJudges), liveJudges:judges(c.liveJudges, DEFAULT_CONFIG.liveJudges), authority:false };
+    freeDailyCap:num(c.freeDailyCap, 0, 2000, 300), routerDailyCap:num(c.routerDailyCap, 0, 2000, 300), testJudges:judges(c.testJudges, DEFAULT_CONFIG.testJudges), liveJudges:judges(c.liveJudges, DEFAULT_CONFIG.liveJudges), authority:false };
 }
 const rows = k => (Array.isArray(k) ? k : []).map(r => ({ t:Number(r[0]), o:+r[1], h:+r[2], l:+r[3], c:+r[4], v:+r[5], tb:r.length > 9 ? +r[9] : null })).filter(r => Number.isFinite(r.t) && r.c > 0);
 const rnd = (x, p) => x === null || !Number.isFinite(x) ? null : Number(x.toPrecision(p));
@@ -149,15 +150,32 @@ async function judge({ packet, mode, cfg, judges, stats }) {
       if (r?.ok && ACTIONS.includes(r.action)) return { ok:true, judge:'JEV', model:r.model || 'jev', d:{ ok:true, action:r.action, stopChoice:STOP_CHOICES.includes(r.stopChoice) ? r.stopChoice : 'KEEP', reason:REASONS.includes(r.reason) ? r.reason : 'NO_EDGE', confidence:null, reasonTr:'', watchTr:'' }, costUsd:finite(r.costUsd), tried };
       tried.push('JEV:' + (r?.reason || 'FAILED')); continue;
     }
-    if (j === 'FREE') {
-      if (!judges?.free || typeof judges.free.review !== 'function') { tried.push('FREE_NOT_WIRED'); continue; }
-      if ((st.free || 0) >= cfg.freeDailyCap) { tried.push('FREE_DAILY_CAP'); continue; }
+    if (j === 'COMMITTEE') { // R2544.86: free models decide together (round 1 independent, round 2 debate, majority; no majority -> HOLD)
+      if (!judges?.committee || typeof judges.committee.decide !== 'function') { tried.push('COMMITTEE_NOT_WIRED'); continue; }
       const q = freePrompt(packet); let r;
-      try { r = await judges.free.review({ system:q.system, prompt:q.prompt, validate:validFree, role:'POSITION_DESK' }); } catch { r = { ok:false, reason:'FREE_DESK_EXCEPTION' }; }
-      if (r?.called) st.free = (st.free || 0) + 1;
+      try { r = await judges.committee.decide({ system:q.system, prompt:q.prompt, validate:validFree, parse:parseFree, field:'action', fallback:'HOLD' }); } catch { r = { ok:false, reason:'COMMITTEE_EXCEPTION' }; }
+      st.committee = (st.committee || 0) + 1;
+      if (r?.ok) {
+        const fin = r.final, all = [...(r.round2 || []), ...(r.votes || [])].filter(v => v.ok), pickV = all.find(v => v.vote.action === fin)?.vote || null;
+        const stops = all.filter(v => v.vote.action === 'TIGHTEN_STOP').map(v => v.vote.stopChoice), order = ['BREAKEVEN', 'LAST_5M_SWING', 'LOCK_1R'];
+        const stopChoice = fin === 'TIGHTEN_STOP' ? (order.find(k => stops.includes(k)) || 'KEEP') : 'KEEP'; // the least aggressive tightening that was voted
+        const votes = (r.round2 || r.votes || []).map(v => ({ m:String(v.member).replace(/^ROUTER:|^FREE:/, ''), a:v.vote?.action || 'ERR' }));
+        return { ok:true, judge:'COMMITTEE', model:votes.map(v => v.m).join(' + '), d:{ ok:true, action:fin, stopChoice, reason:pickV?.reason || 'NO_EDGE', confidence:null,
+          reasonTr:(r.consensus === 'UNANIMOUS' ? 'oybirliği: ' : r.consensus === 'MAJORITY_AFTER_DEBATE' ? 'tartışma sonrası çoğunluk: ' : 'çoğunluk yok → TUT: ') + (pickV?.reasonTr || ''), watchTr:pickV?.watchTr || '' },
+          committee:{ consensus:r.consensus, rounds:r.rounds, votes }, tried };
+      }
+      tried.push('COMMITTEE:' + (r?.reason || 'FAILED')); continue;
+    }
+    if (j === 'FREE' || j === 'ROUTER') { // same text contract for both free sources
+      const w = j === 'FREE' ? judges?.free : judges?.router, key = j === 'FREE' ? 'free' : 'router', cap = j === 'FREE' ? cfg.freeDailyCap : (cfg.routerDailyCap ?? 300);
+      if (!w || typeof w.review !== 'function') { tried.push(j + '_NOT_WIRED'); continue; }
+      if ((st[key] || 0) >= cap) { tried.push(j + '_DAILY_CAP'); continue; }
+      const q = freePrompt(packet); let r;
+      try { r = await w.review({ system:q.system, prompt:q.prompt, validate:validFree, role:'POSITION_DESK' }); } catch { r = { ok:false, reason:j + '_DESK_EXCEPTION' }; }
+      if (r?.called) st[key] = (st[key] || 0) + 1;
       const d = r?.ok ? parseFree(r.text) : null;
-      if (d?.ok) return { ok:true, judge:'FREE', model:r.model || 'openrouter/free', d, tried };
-      tried.push('FREE:' + (r?.reason || d?.reason || 'FAILED'));
+      if (d?.ok) return { ok:true, judge:j, model:r.model || (j === 'FREE' ? 'openrouter/free' : '9router'), d, tried };
+      tried.push(j + ':' + (r?.reason || d?.reason || 'FAILED'));
     }
   }
   return { ok:false, tried };

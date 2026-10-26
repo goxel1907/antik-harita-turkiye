@@ -10,6 +10,8 @@ const {openStore}=require('./store');
 const {createLiveController}=require('./live-controller');
 const {createJevClient}=require('./jev-decision');
 const {createOpenRouterFreeWorker}=require('./openrouter-free-worker');
+const {createCommittee}=require('./model-committee'); // R2544.86
+const {createTraderExam}=require('./trader-exam'); // R2544.86
 const {
   NINEROUTER_OPENCODE_BASELINE,
   unique:uniqueRegistryModels,
@@ -1561,7 +1563,27 @@ const decisionPipeline={
 function backgroundAnalysisWindowOpen(){
   return decisionPipelineActive===0&&localVisionQueueDepth===0&&(Date.now()-decisionPipelineLastFinishedAt)>=30000;
 }
-const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,zirve5Judge:jev.sovereignZirve5Gate,deskJudges:{free:deskFreeWorker,jev:jev.sovereignPositionDesk},credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
+// R2544.86 MODEL KURULU (kullanıcı 27.10: "9Router'dakileri de dene, bağla"; "modellerin çalıştığına emin ol, ortak mutabakat yapacaklar"):
+// 9Router modelleri (Kiro'daki ücretsiz Claude, DeepSeek, GLM ...) + OpenRouter ücretsiz havuzu; her 30 dk sağlık sorusu; masa ve trader
+// sınavı için ayrı kurullar (ayrı sağlık dosyası, ayrı ücretsiz örnek: biri diğerini meşgul etmez).
+const TRADER_ROUTER_ORDER=['kr/claude-sonnet-4.5','kr/deepseek-3.2','kr/glm-5','kr/claude-haiku-4.5','kr/qwen3-coder-next','oc/nemotron-3-ultra-free','oc/mimo-v2.5-free'];
+function traderRouterMembers(){
+  const all=[...(Array.isArray(cfg.kiro)?cfg.kiro:[]),...(Array.isArray(cfg.opencode)?cfg.opencode:[])].map(x=>typeof x==='string'?x:x?.id||x?.model).filter(x=>/^[A-Za-z0-9._:\/+-]{1,120}$/.test(String(x||'')));
+  const ord=[...TRADER_ROUTER_ORDER.filter(m=>all.includes(m)),...all.filter(m=>!TRADER_ROUTER_ORDER.includes(m))].slice(0,7);
+  return ord.map(m=>({id:'ROUTER:'+m,call:async({system,prompt,validate})=>{
+    try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:4096,validate});return {ok:true,text:out.text,model:m};}
+    catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}}}));
+}
+const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {ok:r?.ok===true,text:r?.text,model:r?.model||null,reason:r?.reason||r?.detail||null};}});
+const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,
+  dailyLimit:500,minuteLimit:4,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')});
+const deskCommittee=createCommittee({members:[...traderRouterMembers(),freeMember(deskFreeWorker,'FREE:openrouter')],healthFile:path.join(ROOT,'data','model-committee-desk.json')});
+const examCommittee=createCommittee({members:[...traderRouterMembers(),freeMember(examFreeWorker,'FREE:openrouter')],healthFile:path.join(ROOT,'data','model-committee-exam.json')});
+const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav'),committee:examCommittee});
+setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
+setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();
+setInterval(()=>{traderExam.tick().catch(()=>{});},20000).unref?.();
+const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,zirve5Judge:jev.sovereignZirve5Gate,deskJudges:{free:deskFreeWorker,jev:jev.sovereignPositionDesk,committee:deskCommittee,examStatus:()=>traderExam.status()},credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
 
 const server=http.createServer(async(req,res)=>{
   try{
