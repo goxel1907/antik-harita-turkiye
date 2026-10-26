@@ -6718,7 +6718,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(now-d.lastAt>=cfg.cadenceMin*60000)return true;
     return markR!==null&&finite(d.lastR)!==null&&Math.abs(markR-d.lastR)>=cfg.moveTriggerR&&now-d.lastAt>=5*60000;
   }
-  async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});return DESK.rows(k).filter(r=>r.t<=clock());}catch{return [];}}
+  async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});const r=DESK.rows(k).filter(x=>x.t<=clock());r.raw=Array.isArray(k)?k:[];return r;}catch{const r=[];r.raw=[];return r;}}
   const deskJudge=(packet,mode,cfg)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats()});
   async function positionDeskTick(){
     if(deskBusy)return null;const cfg=DESK.readConfig(root);if(!cfg.enabled)return null;
@@ -6734,11 +6734,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       if(!pick)return null;
       const a=pick,lane=a.lane==='ZIRVE5'?'ZIRVE5':'ILK3',mode=a.mode==='LIVE'?'LIVE':'TEST';
-      const [k5,k15,k1h,btc]=[await deskKlines(a.symbol,'5m',60),await deskKlines(a.symbol,'15m',30),await deskKlines(a.symbol,'1h',30),await deskKlines('BTCUSDT','5m',13)];
+      const [k5,k15,k1h,btc]=[await deskKlines(a.symbol,'5m',60),await deskKlines(a.symbol,'15m',80),await deskKlines(a.symbol,'1h',80),await deskKlines('BTCUSDT','5m',13)];
       const closed=k=>k; // the forming candle is part of the screen (a trader sees it)
       let oi=[];try{const h=await transport._fetchJson('GET','/futures/data/openInterestHist',{params:{symbol:a.symbol,period:'5m',limit:'13'}});oi=(Array.isArray(h)?h:[]).map(x=>Number(x.sumOpenInterest)).filter(x=>x>0);}catch{}
       if(k5.length<20)return {skipped:true,reason:'DESK_NO_CANDLES'};
-      const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15),k1h:closed(k1h),btc5:btc,oi,why:top3Why(a),now,lane});
+      const rk=DESK.riskOf(a),Rf=p=>rk?Number(((a.side==='LONG'?p-a.entryPrice:a.entryPrice-p)/rk).toFixed(2)):null; // R2544.88 grafik okuması (gerçek fiyat, R uzaklığı)
+      const chart={m15:TB.chartReading(k15.raw,'15m',{t:now,R:Rf}),h1:TB.chartReading(k1h.raw,'1h',{t:now,R:Rf})};
+      const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15).slice(-30),k1h:closed(k1h).slice(-30),btc5:btc,oi,why:top3Why(a),now,lane,chart});
       const res=await deskJudge(packet,mode,cfg),st=deskStats();st.lastAt=new Date(now).toISOString();
       const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
       desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);
@@ -6770,7 +6772,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     entryCommitteeBusy++;
     try{
       const t=finite(lot.openedAt)||clock(),end=t-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
-      const k={m5:await get(lot.symbol,'5m',60,end),m15:await get(lot.symbol,'15m',40,end),h1:await get(lot.symbol,'1h',60,end),h4:await get(lot.symbol,'4h',45,end),d1:await get(lot.symbol,'1d',70,end),
+      const k={m5:await get(lot.symbol,'5m',TB.FETCH.m5,end),m15:await get(lot.symbol,'15m',TB.FETCH.m15,end),h1:await get(lot.symbol,'1h',TB.FETCH.h1,end),h4:await get(lot.symbol,'4h',TB.FETCH.h4,end),d1:await get(lot.symbol,'1d',TB.FETCH.d1,end),
         btc1h:await get('BTCUSDT','1h',40,Math.floor(t/3600000)*3600000-1)};
       const e=finite(lot.entryPrice),st=finite(lot.initialStopPrice)??finite(lot.stopPrice),tp=finite(lot.tpPrice);if(!(e>0&&st>0&&tp>0))return null;
       const rule=lot.lane==='ZIRVE5'?(lot.side==='LONG'?'ZIRVE5_FIBO_LONG':'ZIRVE5_FIBO_SHORT'):lot.rule;

@@ -1566,7 +1566,7 @@ function backgroundAnalysisWindowOpen(){
 // R2544.86 MODEL KURULU (kullanıcı 27.10: "9Router'dakileri de dene, bağla"; "modellerin çalıştığına emin ol, ortak mutabakat yapacaklar"):
 // 9Router modelleri (Kiro'daki ücretsiz Claude, DeepSeek, GLM ...) + OpenRouter ücretsiz havuzu; her 30 dk sağlık sorusu; masa ve trader
 // sınavı için ayrı kurullar (ayrı sağlık dosyası, ayrı ücretsiz örnek: biri diğerini meşgul etmez).
-// R2544.87: 9Router'da Gemini CLI (gc/) ve Kiro MiniMax da var; koltuk sırası: 1g/4sa Gemini 3.1 Pro, 1sa/15dk Claude, 5dk+akış DeepSeek, risk GLM/MiniMax
+// R2544.87/88: koltuk sırası = üye sırası: 1g/4sa Gemini 3.1 Pro, price action Claude Sonnet 4.5, 5dk+akış DeepSeek, risk GLM-5, 1sa/15dk MiniMax
 const TRADER_ROUTER_ORDER=['gc/gemini-3.1-pro-preview','kr/claude-sonnet-4.5','kr/deepseek-3.2','kr/glm-5','kr/minimax-m2.5','gc/gemini-3-flash-preview','kr/claude-haiku-4.5','kr/qwen3-coder-next','gc/gemini-2.5-pro'];
 function traderRouterMembers(){
   const all=[...(Array.isArray(cfg.kiro)?cfg.kiro:[]),...(Array.isArray(cfg.opencode)?cfg.opencode:[])].map(x=>typeof x==='string'?x:x?.id||x?.model).filter(x=>/^[A-Za-z0-9._:\/+-]{1,120}$/.test(String(x||'')));
@@ -1578,8 +1578,8 @@ function traderRouterMembers(){
 const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {ok:r?.ok===true,text:r?.text,model:r?.model||null,reason:r?.reason||r?.detail||null};}});
 const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,
   dailyLimit:500,minuteLimit:4,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')});
-const deskCommittee=createCommittee({size:4,members:[...traderRouterMembers(),freeMember(deskFreeWorker,'FREE:openrouter')],healthFile:path.join(ROOT,'data','model-committee-desk.json')});
-const examCommittee=createCommittee({size:4,members:[...traderRouterMembers(),freeMember(examFreeWorker,'FREE:openrouter')],healthFile:path.join(ROOT,'data','model-committee-exam.json')});
+const deskCommittee=createCommittee({size:5,members:[...traderRouterMembers(),freeMember(deskFreeWorker,'FREE:openrouter')],healthFile:path.join(ROOT,'data','model-committee-desk.json')});
+const examCommittee=createCommittee({size:5,members:[...traderRouterMembers(),freeMember(examFreeWorker,'FREE:openrouter')],healthFile:path.join(ROOT,'data','model-committee-exam.json')});
 const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav'),committee:examCommittee});
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
 setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();

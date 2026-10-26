@@ -55,7 +55,7 @@ function stopCandidates(lot, mark, k5) {
 }
 function compactK(k, n) { return k.slice(-n).map(x => [new Date(x.t).toISOString().slice(5, 16), rnd(x.o, 6), rnd(x.h, 6), rnd(x.l, 6), rnd(x.c, 6), rnd(x.v, 4), x.tb !== null && x.v > 0 ? Number((x.tb / x.v).toFixed(2)) : null]); }
 // the screen the trader looks at (compact: free models have small context; JEV's 48 kB cap)
-function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane }) {
+function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = null }) {
   const L = lot.side === 'LONG', e = finite(lot.entryPrice), r = riskOf(lot), nowR = favR(lot, mark);
   const path5 = k5.filter(x => x.t + M5 > lot.openedAt);
   const mfeR = path5.length ? Math.max(...path5.map(x => favR(lot, L ? x.h : x.l))) : null, maeR = path5.length ? Math.min(...path5.map(x => favR(lot, L ? x.l : x.h))) : null;
@@ -71,7 +71,7 @@ function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane }) {
     stopChoices:cands,
     entryInfo:{ indicators:f.ind?.ok ? { vdpmObstacle2R:f.ind.vdpm?.obstacle2R ?? null, lthTrend:f.ind.lth?.trend ?? null, lrvpTrendWith:f.ind.lrvp?.trendWith ?? null } : null, entryContext:f.entryCtx || null,
       experience:f.experience ? { verdict:f.experience.verdict, text:String(f.experience.text || '').slice(0, 300) } : null, similar:f.similar?.text ? String(f.similar.text).slice(0, 300) : null },
-    market:{ levels:lv, btc1hPct:btc1h, openInterestChange1hPct:oiChg1h,
+    market:{ levels:lv, btc1hPct:btc1h, openInterestChange1hPct:oiChg1h, chartReading:chart, // R2544.88: code-computed price action (15m, 1h)
       candles:{ note:'[time UTC, open, high, low, close, volume, takerBuyShare]', m5:compactK(k5, 36), m15:compactK(k15, 24), h1:compactK(k1h, 24) } },
     measuredFacts:['6 months, this lane: taking half at +2R and moving the rest to break-even raised the average from +0.27R to +0.41R per trade versus +1R',
       'early exits and trailing stops did NOT improve the 6-month average; a trailing stop on TOP SHORT was clearly worse (t -3.3)',
@@ -87,9 +87,10 @@ function freePrompt(p) { return { system:SYSTEM, prompt:JSON.stringify(p) }; }
 // R2544.87: desk seats (the same committee members, each owning a part of the open position's screen)
 const DESK_ROLES = [
   { key:'büyük resim', text:'HIGHER-TIMEFRAME TRADER. You own the 1h candles and the day levels: is the larger picture still with the position?' },
-  { key:'yapı', text:'STRUCTURE TRADER. You own the 15m candles: has structure broken against the position, is the move extended, is the target zone being rejected?' },
+  { key:'price action', text:'PRICE ACTION READER. You own the chartReading (15m and 1h): BOS/CHoCH against the position, FVGs and order blocks in the way, Fibonacci/OTE, liquidity sweeps, patterns.' },
   { key:'5dk+akış', text:'TAPE READER. You own the 5m candles: volume, taker-buy share, wicks, BTC and open interest right now.' },
-  { key:'risk', text:'RISK OFFICER. You own the plan: profit protection at 2R, break-even, stop choices offered, time left. HOLD is the measured default; argue for action only on clear evidence.' }];
+  { key:'risk', text:'RISK OFFICER. You own the plan: profit protection at 2R, break-even, stop choices offered, time left. HOLD is the measured default; argue for action only on clear evidence.' },
+  { key:'yapı', text:'STRUCTURE TRADER. You own the 15m candles: has structure broken against the position, is the move extended, is the target zone being rejected?' }];
 function parseFree(text) {
   try { const raw = String(text || '').match(/\{[\s\S]*\}/)?.[0]; const j = JSON.parse(raw);
     if (!ACTIONS.includes(j.action)) return { ok:false, reason:'DESK_ACTION_INVALID' };

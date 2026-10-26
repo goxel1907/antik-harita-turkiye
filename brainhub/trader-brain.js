@@ -5,8 +5,11 @@
 // konumu, hacim, taker payı), gün/hafta/ay seviyeleri, BTC, plan (giriş/stop/hedef R). Coin adı ve tarih GİZLİ, fiyatlar giriş = 100
 // ölçeğinde: model fiyatı "hatırlayamaz" (sınav dönemi bazı modellerin eğitim verisiyle çakışıyor). Karar: TAKE / SKIP + güven + neden.
 // Bu sürümde YALNIZ SINAV: 6 aylık geçmiş sinyaller ücretsiz modele sorulur; giriş kararı vermez.
-const TB_VERSION = 'R2544.86-TRADER-BRAIN';
-const TF = { m5:{ ms:300000, n:48 }, m15:{ ms:900000, n:32 }, h1:{ ms:3600000, n:36 }, h4:{ ms:14400000, n:30 }, d1:{ ms:86400000, n:20 } };
+const TB_VERSION = 'R2544.88-TRADER-BRAIN-PA';
+const ENGINE = require('./engine'); // R2544.88: the same causal chart engine JEV uses (closed candles only)
+const TF = { m5:{ ms:300000, n:48, frame:'5m' }, m15:{ ms:900000, n:32, frame:'15m' }, h1:{ ms:3600000, n:36, frame:'1h' }, h4:{ ms:14400000, n:30, frame:'4h' }, d1:{ ms:86400000, n:20, frame:'1d' } };
+// candles to fetch per timeframe so the chart engine has >= 52 closed candles (EMA50, swings, FVG history)
+const FETCH = { m5:80, m15:80, h1:80, h4:80, d1:80 };
 const finite = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const rows = k => (Array.isArray(k) ? k : []).map(r => Array.isArray(r) ? { t:+r[0], o:+r[1], h:+r[2], l:+r[3], c:+r[4], v:+r[5], tb:r.length > 9 ? +r[9] : null } : r).filter(r => Number.isFinite(r.t) && r.c > 0);
 const med = a => { const b = a.filter(Number.isFinite).sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : null; };
@@ -50,6 +53,32 @@ const SETUP_TEXT = {
   ZIRVE5_FIBO_LONG:'ZIRVE-5 LONG: one of the 5 most volatile coins broke its last confirmed 15m swing high; price came back into the breakout zone and a volume-backed bull candle closed in it.',
   ZIRVE5_FIBO_SHORT:'ZIRVE-5 SHORT: one of the 5 most volatile coins broke its last confirmed 15m swing low; price came back into the breakdown zone and a volume-backed bear candle closed in it.'
 };
+// R2544.88 GRAFİK OKUMASI (kullanıcı 27.10: "verileri ve oluşan formasyonları price action, fvg, fibo, trend ... grafik okumayı hangi model
+// yapacak"): grafiği KOD kesin hesaplar (engine.js, JEV ile aynı; yalnız kapanmış mumlar), model yorumlar. Fiyatlar ekran ölçeğinde (P) ve
+// işlemin R'si cinsinden uzaklık (R: + işlem yönünde, - aleyhte).
+function chartReading(raw, frame, { t, P = x => x, R = () => null } = {}) {
+  try {
+    const c = ENGINE.parseKlines(Array.isArray(raw) ? raw : [], t); if (c.length < 52) return null;
+    const s = ENGINE.structure(c, frame); if (!s?.available) return null;
+    const lvl = p => p === null || p === undefined || finite(p) === null ? null : { price:P(p), R:R(p) }, near = (a, f) => (a || []).map(f).filter(Boolean).sort((x, y) => Math.abs(x.R ?? 99) - Math.abs(y.R ?? 99));
+    const sw = s.swingStructure || {}, smc = s.smcContext || {}, fib = smc.fibLevels || {}, dr = smc.dealingRange || {}, rd = s.readout || {};
+    const bars = at => finite(at) === null ? null : Math.max(0, Math.round((c.at(-1).closeTime - at) / (c.at(-1).closeTime - c.at(-2).closeTime || 1)));
+    return {
+      trend:s.trend, swing:{ state:sw.state || null, highs:sw.highSequence || null, lows:sw.lowSequence || null, lastHigh:lvl(sw.lastConfirmedSwingHigh?.price), lastLow:lvl(sw.lastConfirmedSwingLow?.price) },
+      events:(s.priceAction?.events || []).slice(-4).map(e => ({ side:e.side, kind:e.kind, scope:e.scope, ...lvl(e.level), barsAgo:bars(e.confirmedAt) })),
+      openFvg:near(s.recentFairValueGaps, g => g && !g.filled ? { side:g.side, low:P(g.low), high:P(g.high), R:R((g.low + g.high) / 2), state:g.lifecycle?.state || null, tests:g.lifecycle?.testCount ?? null } : null).slice(0, 3),
+      fib:fib.retracement ? { leg:fib.leg || null, priceInLegPct:finite(fib.pricePositionPct), levels:Object.fromEntries(['0.382', '0.5', '0.618', '0.786'].filter(k => finite(fib.retracement[k]) !== null).map(k => [k, lvl(fib.retracement[k])])),
+        ext1272:lvl(fib.extension?.['1.272']), ext1618:lvl(fib.extension?.['1.618']) } : null,
+      dealingRange:dr.zone ? { zone:dr.zone, positionPct:finite(dr.positionPct), equilibrium:lvl(dr.equilibrium) } : null,
+      orderBlocks:near([...(s.orderBlocks?.bullish || []), ...(s.orderBlocks?.bearish || [])], o => o && !o.broken && o.state !== 'MITIGATED' ? { side:o.side, state:o.state, low:P(o.low), high:P(o.high), R:R((o.low + o.high) / 2), breaker:o.breaker === true } : null).filter(o => Math.abs(o.R ?? 99) <= 6).slice(0, 4),
+      patterns:(s.patterns || []).slice(0, 5).map(p => ({ type:p.type, side:p.side, status:p.status })),
+      liquidity:{ equalHigh:lvl(s.liquidity?.equalHigh?.price ?? s.liquidity?.equalHigh), equalLow:lvl(s.liquidity?.equalLow?.price ?? s.liquidity?.equalLow), lastSweep:s.liquidity?.lastSweep ? { side:s.liquidity.lastSweep.side || null, ...lvl(s.liquidity.lastSweep.level ?? s.liquidity.lastSweep.price) } : null,
+        buySide20:lvl(s.buySideLiquidity), sellSide20:lvl(s.sellSideLiquidity) },
+      momentum:{ rsi14:finite(s.rsi14), squeeze:rd.squeeze?.state || null, displacement:rd.displacement ? { dir:rd.displacement.dir, barsAgo:rd.displacement.barsAgo, retracePct:rd.displacement.retracePct, inOte:rd.displacement.inOte } : null,
+        stretchZone:rd.stretch?.zone || null, chaseRisk:rd.stretch?.chaseRisk || null }
+    };
+  } catch { return null; }
+}
 // the screen. k = { m5, m15, h1, h4, d1, btc1h } raw klines CLOSED before t; plan = { side, rule, entry, stop, target }
 function entryPacket({ k, plan, t, extra = null }) {
   const L = plan.side === 'LONG', s = 100 / plan.entry, P = x => x === null || x === undefined || !Number.isFinite(x) ? null : +(x * s).toFixed(3);
@@ -58,7 +87,7 @@ function entryPacket({ k, plan, t, extra = null }) {
   for (const [name, cfg] of Object.entries(TF)) {
     const kk = rows(k[name]).filter(x => x.t + cfg.ms <= t); if (kk.length < 12) { tfs[name] = null; continue; }
     const vm = med(kk.slice(-20).map(x => x.v)) || 1;
-    tfs[name] = { structure:structure(kk), candles:{ fields:'[open,high,low,close,volVsMedian20,takerBuyShare] price scaled: entry = 100', rows:kk.slice(-cfg.n).map(x => [P(x.o), P(x.h), P(x.l), P(x.c), +(x.v / vm).toFixed(2), x.tb !== null && x.v > 0 ? +(x.tb / x.v).toFixed(2) : null]) } };
+    tfs[name] = { structure:structure(kk), chartReading:chartReading(k[name], cfg.frame, { t, P, R }), candles:{ fields:'[open,high,low,close,volVsMedian20,takerBuyShare] price scaled: entry = 100', rows:kk.slice(-cfg.n).map(x => [P(x.o), P(x.h), P(x.l), P(x.c), +(x.v / vm).toFixed(2), x.tb !== null && x.v > 0 ? +(x.tb / x.v).toFixed(2) : null]) } };
   }
   const d1 = rows(k.d1), lv = htfLevels(d1, t), h24 = rows(k.h1).filter(x => x.t + 3600000 <= t).slice(-24);
   const level = (name, v) => v ? { name, price:P(v), R:R(v) } : null;
@@ -72,7 +101,7 @@ function entryPacket({ k, plan, t, extra = null }) {
     baseRate:'Over 6 months most signals of this setup lost; the average result was about 0R per trade. Taking every signal earns nothing.' };
 }
 const ENTRY_SYSTEM = 'You are an experienced crypto futures trader. A fixed rule has fired a trade setup; you see the same screen a desk trader sees: the plan, ' +
-  'five timeframes (5m, 15m, 1h, 4h, 1d) with a structure summary computed by code and the recent candles, the day/week/month levels around the price (with their distance in R), and BTC. ' +
+  'five timeframes (5m, 15m, 1h, 4h, 1d) with a structure summary AND a chartReading computed by code from closed candles (market structure BOS/CHoCH, open fair value gaps, Fibonacci of the last leg with OTE, dealing range premium/discount, fresh order blocks, candlestick and geometric patterns, equal highs/lows and liquidity sweeps, squeeze and displacement; every level with its distance in R, + in the trade direction) and the recent candles; trust the chartReading numbers over your own estimate from raw candles, the day/week/month levels around the price (with their distance in R), and BTC. ' +
   'Prices are scaled so that entry = 100; the coin name and the date are hidden on purpose. ' +
   'Read the timeframes top-down (1d and 4h context, 1h structure, 15m and 5m trigger), weigh where the opposite levels sit before the target, whether the move is extended or fresh, volume and taker flow, and BTC. ' +
   'Decide whether a disciplined professional TAKES this trade or SKIPS it. Skipping is fine: most signals of this setup lose. ' +
@@ -80,9 +109,10 @@ const ENTRY_SYSTEM = 'You are an experienced crypto futures trader. A fixed rule
 // R2544.87 (kullanıcı 27.10: zaman dilimlerine entegre): kurulda her üyenin bir koltuğu var; aynı ekranı görür ama kendi bölümünden sorumludur
 const ENTRY_ROLES = [
   { key:'1g/4sa', text:'HIGHER-TIMEFRAME ANALYST. You own the 1d and 4h timeframes and the day/week/month levels: the larger trend, where price sits in the larger range, which levels are above and below and how far they are in R. Judge the trade from that context first.' },
-  { key:'1sa/15dk', text:'STRUCTURE ANALYST. You own the 1h and 15m timeframes: swing structure, the last break, whether the move is fresh or already extended, and how the retest/rejection looks.' },
+  { key:'price action', text:'PRICE ACTION READER. You own the chartReading of every timeframe: BOS/CHoCH, open FVGs, Fibonacci/OTE, premium/discount, order blocks, patterns, equal highs/lows and sweeps. Say which of them supports or blocks this trade and where (in R).' },
   { key:'5dk+akış', text:'TRIGGER AND FLOW ANALYST. You own the 5m timeframe: the trigger candle and the last candles, wicks, volume versus median, taker-buy share, and BTC right now.' },
-  { key:'risk', text:'RISK OFFICER. You own the plan: stop distance, target in R, every opposite level between entry and target, and the base rate. Argue against the trade unless the evidence for it is clear.' }];
+  { key:'risk', text:'RISK OFFICER. You own the plan: stop distance, target in R, every opposite level between entry and target, and the base rate. Argue against the trade unless the evidence for it is clear.' },
+  { key:'1sa/15dk', text:'STRUCTURE ANALYST. You own the 1h and 15m timeframes: swing structure, the last break, whether the move is fresh or already extended, and how the retest/rejection looks.' }];
 function parseEntry(text) {
   try { const j = JSON.parse(String(text || '').match(/\{[\s\S]*\}/)?.[0]);
     if (!['TAKE', 'SKIP'].includes(j.decision)) return { ok:false, reason:'TB_DECISION_INVALID' };
@@ -91,4 +121,4 @@ function parseEntry(text) {
   } catch { return { ok:false, reason:'TB_JSON_INVALID' }; }
 }
 const validEntry = text => parseEntry(text).ok;
-module.exports = { TB_VERSION, TF, rows, swings, structure, htfLevels, SETUP_TEXT, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };
+module.exports = { TB_VERSION, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

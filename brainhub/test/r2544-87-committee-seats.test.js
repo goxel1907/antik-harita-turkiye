@@ -10,17 +10,17 @@ test('R2544.87 seats: every member gets its own timeframe seat in round 1 and ke
   await c.probe({force:true});
   const r=await c.decide({system:TB.ENTRY_SYSTEM,prompt:'{}',validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES});
   assert.match(seen['ROUTER:gc/gemini-3.1-pro-preview'][1],/YOUR SEAT AT THE DESK: HIGHER-TIMEFRAME ANALYST/);
-  assert.match(seen['ROUTER:kr/claude-sonnet-4.5'][1],/STRUCTURE ANALYST/);assert.match(seen['ROUTER:kr/deepseek-3.2'][1],/TRIGGER AND FLOW ANALYST/);assert.match(seen['ROUTER:kr/glm-5'][1],/RISK OFFICER/);
+  assert.match(seen['ROUTER:kr/claude-sonnet-4.5'][1],/PRICE ACTION READER/); // R2544.88 seatassert.match(seen['ROUTER:kr/deepseek-3.2'][1],/TRIGGER AND FLOW ANALYST/);assert.match(seen['ROUTER:kr/glm-5'][1],/RISK OFFICER/);
   assert.match(seen['ROUTER:kr/glm-5'][2],/RISK OFFICER[\s\S]*Trader A \(1g\/4sa\): SKIP/,'round 2 keeps the seat and shows the others with their seats');
-  assert.deepEqual(r.votes.map(v=>v.seat),['1g/4sa','1sa/15dk','5dk+akış','risk']);
+  assert.deepEqual(r.votes.map(v=>v.seat),['1g/4sa','price action','5dk+akış','risk']);
   assert.equal(r.final,'SKIP');assert.equal(r.consensus,'MAJORITY_AFTER_DEBATE','3 of 4 after the debate');
   assert.equal(family('ROUTER:gc/gemini-3-flash-preview'),'GEMINI');assert.equal(family('ROUTER:kr/minimax-m2.5'),'MINIMAX');
-  assert.equal(DESK.DESK_ROLES.length,4);
+  assert.equal(DESK.DESK_ROLES.length,5); // R2544.88 price action seat
 });
 test('R2544.87 wiring: Gemini first, 4 seats, live TEST lots get a SHADOW committee entry decision from candles closed before the entry; Office shows it',()=>{
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.match(sv,/const TRADER_ROUTER_ORDER=\['gc\/gemini-3\.1-pro-preview','kr\/claude-sonnet-4\.5','kr\/deepseek-3\.2','kr\/glm-5','kr\/minimax-m2\.5'/);
-  assert.match(sv,/const deskCommittee=createCommittee\(\{size:4,/);assert.match(sv,/const examCommittee=createCommittee\(\{size:4,/);
+  assert.match(sv,/const deskCommittee=createCommittee\(\{size:5,/);assert.match(sv,/const examCommittee=createCommittee\(\{size:5,/); // R2544.88: 5 seats
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8'),i=lc.indexOf('async function entryCommitteeShadow('),b=lc.slice(i,lc.indexOf('\n  function entryCommitteeView(',i));
   assert.ok(i>0);assert.match(b,/end=t-1/);assert.match(b,/roles:TB\.ENTRY_ROLES/);assert.match(b,/shadow:true/);
   assert.doesNotMatch(b,/placeAlgo|placeRunnerStop|top3CloseMarket|top3Open\(|cancel/,'never trades');
@@ -38,5 +38,5 @@ test('R2544.87 exam: a pause meant for the older build ends by itself on this bu
   fs.writeFileSync(path.join(dir,'exam-config.json'),JSON.stringify({enabled:false}));
   assert.equal(await createTraderExam({dir,committee}).tick(),null,'plain pause holds');
   fs.writeFileSync(path.join(dir,'exam-config.json'),JSON.stringify({enabled:false,enableForVersion:EXAM_VERSION}));
-  assert.equal((await createTraderExam({dir,committee}).tick()).id,'q1');assert.equal(EXAM_VERSION,'R2544.87-TRADER-EXAM-SEATS');
+  assert.equal((await createTraderExam({dir,committee}).tick()).id,'q1');assert.equal(EXAM_VERSION,'R2544.88-TRADER-EXAM-PA');
 });
