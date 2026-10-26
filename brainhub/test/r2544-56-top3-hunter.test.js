@@ -269,7 +269,7 @@ test('R56 live fix: a scan without market data does not use up the hour; it retr
   assert.equal((await f.controller.top3Tick()).reason,'TOP3_HOUR_DONE');
 });
 
-test('R56 24 h TEST window: starts with the lane, stops scanning and entries after 24 h, "Yeni 24 saat" restarts it',async()=>{
+test('R56/R2544.82 24 h TEST window: starts with the lane; after 24 h the results are written and a new window opens BY ITSELF - scanning never stops (TEST = LIVE)',async()=>{
   const f=fixture({top3:{enabled:true}});
   f.seed({[HOUR0-H-50*H]:{SIGUSDT:5}});f.state.tick.SIGUSDT=40;f.state.px.SIGUSDT={bid:1.40,ask:1.401};f.state.klines.SIGUSDT=e=>candles(e,721,LONG_TAIL);
   await startTest(f);atScan(f);
@@ -278,24 +278,27 @@ test('R56 24 h TEST window: starts with the lane, stops scanning and entries aft
   assert.equal(st.testWindow.source,'FIRST_RUN','a lane already on when deployed starts its window on the first tick');
   assert.equal(st.testWindow.done,false);assert.equal(st.testWindow.scans,1);assert.equal(st.testWindow.okScans,1);assert.equal(st.testWindow.signals,1);assert.equal(st.testWindow.entries,1);
   assert.equal(f.kinds('TOP3_TEST_WINDOW_START').length,1);
-  // 24 h later: no scan (no ticker call), gate closed, status shows the finished window
+  // 24 h later (26.10: the lane used to stop here for ~13 h until a manual restart): the window is written, a new one opens, the scan goes on
   const a=Object.values(f.controller._testTop3State().active)[0];a.deadline=f.state.now+30*H; // keep the lot open
-  f.state.now=st.testWindow.endsAt+60000;
+  const firstId=st.testWindow.id;f.state.now=st.testWindow.endsAt+60000;
+  await f.controller.testSupervisorTick(); // the TEST supervisor keeps the paper arm
   const before=f.state.calls.filter(c=>/ticker\/24hr/.test(c)).length;
-  const done=await f.controller.top3Tick();
-  assert.equal(done.reason,'TOP3_TEST_WINDOW_DONE');
-  assert.equal(f.state.calls.filter(c=>/ticker\/24hr/.test(c)).length,before,'no scan after the window');
-  st=f.controller.top3Status();assert.equal(st.gate,'TOP3_TEST_WINDOW_DONE');assert.equal(st.testWindow.done,true);assert.equal(st.running,false);
-  assert.equal(st.active.length,1,'the open lot is still managed (own stop/target/24 h exit)');
-  assert.equal(f.kinds('TOP3_TEST_WINDOW_DONE').length,1);
-  // user presses "Yeni 24 saat başlat"
+  const out=await f.controller.top3Tick();
+  assert.notEqual(out.reason,'TOP3_TEST_WINDOW_DONE');
+  assert.equal(f.kinds('TOP3_TEST_WINDOW_DONE').length,1);assert.equal(f.kinds('TOP3_TEST_WINDOW_DONE')[0].p.autoRoll,true);
+  st=f.controller.top3Status();assert.notEqual(st.testWindow.id,firstId);assert.equal(st.testWindow.source,'AUTO_ROLL');assert.equal(st.testWindow.done,false);
+  assert.notEqual(st.gate,'TOP3_TEST_WINDOW_DONE');
+  assert.equal(st.active.length,1,'the open lot is still managed');
+  atScan(f);await f.controller.top3Tick();
+  assert.equal(f.controller.top3Status().gate,'OPEN','the lane keeps scanning after the window rolled');assert.ok(f.controller.top3Status().testWindow.scans>=1,'the new window counts scans');
+  // "Yeni 24 saat başlat" still starts a fresh window by hand
   const again=f.controller.configureTop3({restartWindow:true});
   assert.equal(again.ok,true);assert.equal(again.testWindow.source,'RESTART');assert.equal(again.testWindow.done,false);assert.equal(again.testWindow.scans,0);
-  await f.controller.testSupervisorTick(); // the TEST supervisor re-arms the 24 h paper arm
-  assert.equal(f.controller.top3Status().gate,'OPEN');
   // switching off and on again also starts a fresh window
   f.controller.configureTop3({enabled:false});f.state.now+=1000;
   assert.equal(f.controller.configureTop3({enabled:true}).testWindow.source,'SWITCHED_ON');
+  const lc=require('node:fs').readFileSync(require('node:path').join(__dirname,'..','live-controller.js'),'utf8');
+  assert.doesNotMatch(lc,/return \{ok:false,reason:'TOP3_TEST_WINDOW_DONE'\}/,'the gate never closes on the window');
 });
 
 test('R56 Office forwards restartWindow; the card has the 24 h counter and the restart label',()=>{

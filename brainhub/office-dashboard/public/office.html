@@ -1946,7 +1946,7 @@ function renderTop3(s){
   if(!t||t.ok!==true){el.innerHTML='<p>İlk 3 Avcısı verisi okunamadı (PC sürümü R2544.56 öncesi olabilir).</p>';for(const id of ['btnTop3On','btnTop3Jev','btnTop3Live'])btn(id,null,false,true);return;}
   const sw=t.switches||{},mode=t.tradingMode==='LIVE'?'CANLI':'TEST';
   const tw=t.testWindow,twDone=sw.enabled&&t.tradingMode!=='LIVE'&&tw?.done===true;
-  btn('btnTop3On',twDone?'Yeni 24 saat başlat':sw.enabled?'İlk 3 Avcısı: KAPAT':'İlk 3 Avcısı: AÇ (24 saat)',sw.enabled&&!twDone,false);
+  btn('btnTop3On',twDone?'Yeni 24 saat başlat':sw.enabled?'İlk 3 Avcısı: KAPAT':'İlk 3 Avcısı: AÇ',sw.enabled&&!twDone,false);
   btn('btnTop3Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!t.jevAvailable&&!sw.jevMode);
   // R2544.69 kâr koruma (PC before R2544.69 has no such switch -> disabled)
   btn('btnT3TopSweep',typeof sw.topSweep!=='boolean'?'Süpürme: PC sürümü eski':sw.topSweep?'Süpürme şartı: AÇIK → kapat':'Süpürme şartı: KAPALI → aç',sw.topSweep===true,typeof sw.topSweep!=='boolean');

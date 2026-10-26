@@ -5892,7 +5892,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function top3Gate(cfg){
     if(cfg.enabled!==true)return {ok:false,reason:'TOP3_DISABLED'};
     const test=testModeNow();
-    if(test&&top3State.window&&clock()>=top3State.window.endsAt)return {ok:false,reason:'TOP3_TEST_WINDOW_DONE'};
     if(!test&&cfg.liveEnabled!==true)return {ok:false,reason:'TOP3_LIVE_DISABLED'};
     if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};
     // R2544.57: OTO is the "Normal sistem" lane; İlk 3 needs only its own switch, the run (arm) and, in LIVE, liveEnabled.
@@ -6512,9 +6511,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         // R2544.58: new rules = a new measured 24 h (v2 results never mix with the hourly v1 window)
         else if((top3State.window.rulesVersion||1)!==cfg.rulesVersion)top3StartWindow('RULES_V'+cfg.rulesVersion);
         const w=top3State.window;
+        // R2544.82 (kullanıcı 26.10: "bugün hiç işleme giremedi"): pencere 25.10 20:35'te dolunca İlk 3 taramayı ve girişleri
+        // durduruyordu; kullanıcı 26.10 09:27'de elle yeniden başlatana kadar ~13 sa hiç işlem aranmadı. TEST = CANLI (canlıda pencere yok):
+        // pencere artık yalnız 24 sa'lik ölçüm bloğudur - dolunca sonuçları yazılır, yenisi KENDİLİĞİNDEN açılır, tarama hiç durmaz.
         if(clock()>=w.endsAt){
-          if(!w.doneAt){w.doneAt=clock();saveTop3State();try{store.journal('TOP3_TEST_WINDOW_DONE',null,{...w});}catch{}}
-          top3State.lastGate='TOP3_TEST_WINDOW_DONE';return {ok:true,skipped:true,reason:'TOP3_TEST_WINDOW_DONE',managed};
+          if(!w.doneAt){w.doneAt=clock();try{store.journal('TOP3_TEST_WINDOW_DONE',null,{...w,autoRoll:true});}catch{}}
+          top3StartWindow('AUTO_ROLL');
         }
       }
       const gate=top3Gate(cfg);top3State.lastGate=gate.ok?'OPEN':gate.reason;
