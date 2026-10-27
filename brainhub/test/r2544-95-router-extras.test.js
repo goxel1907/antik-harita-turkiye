@@ -25,5 +25,5 @@ test('R2544.95 the new providers show their published limit on the board and are
   const c=createCommittee({size:5,members:['ROUTER:nvidia/meta/llama-3.3-70b-instruct','ROUTER:nvidia/deepseek-ai/deepseek-v3.1','ROUTER:groq/openai/gpt-oss-120b','ROUTER:gemini/gemini-2.5-flash','ROUTER:kc/nvidia/nemotron-3-ultra-550b-a55b:free','OR:google/gemma-4-31b-it:free'].map(mk)});
   await c.probe({force:true});const team=c.pick().map(m=>m.id.split('/')[0]);
   assert.ok(new Set(team).size>=5,'five different providers at a five-seat table: '+team.join(', '));
-  assert.match(sv,/pickRouterExtras\(committeeRouterIds\.ids\|\|\[\],\{have,strong:ROUTER_STRONG,perProvider:3,max:12\}\)/);
+  assert.match(sv,/pickRouterExtras\(committeeRouterIds\.ids\|\|\[\],\{have,strong:ROUTER_STRONG,perProvider:3,max:12,candidates:ROUTER_CANDIDATES,gone:ctx\?\.gone\}\)/);
 });

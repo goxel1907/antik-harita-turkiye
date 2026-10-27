@@ -34,10 +34,18 @@ const dayOf = t => new Date(t).toISOString().slice(0, 10);
 // en çok 3 (toplam 12): NVIDIA 100+ model getirir, tek başına bütün yerleri kapıp Groq / Gemini'yi dışarıda bırakmasın. Ses / gömme / güvenlik
 // modelleri (metin trader'ı değil) alınmaz.
 const ROUTER_NOT_TEXT = /tts|whisper|embed|rerank|guard|safety|transcri|speech|audio|image-gen|imagen|veo/i;
-function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12 } = {}) {
-  const per = new Map(), out = [];
-  for (const m of Array.isArray(ids) ? ids : []) {
-    if (have.has(m) || /^(kr|gc|oc)\//.test(m) || /qwen3-coder/.test(m) || ROUTER_NOT_TEXT.test(m) || !strong.test(m)) continue;
+// R2544.96 (27.10 kurulumdan sonra): 9Router'ın model listesi eski; Groq / NVIDIA'da listedeki modellerin çoğu kalkmış (410 Gone, 404 "does not
+// exist"). Kalkmış model 3 gün boyunca yer TUTMAZ (sıradaki model geçer; 3 gün sonra bir kez daha denenir). Sağlayıcının bugün açık olan modelleri
+// (candidates) listeden önce gelir ve güçlü-model süzgecinden muaftır (elle seçildiler).
+const GONE_RE = /\[404\]|\b410\b|\bGone\b|end of life|does not exist|Not Found|not found|decommission|no longer (available|supported)/i;
+const GONE_TTL_MS = 3 * 24 * 3600000;
+const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && GONE_RE.test(String(rec.error || '')) && !QUOTA_RE.test(String(rec.error || '').replace(/\b404\b|\b410\b/g, '')) && now - (Number(rec.at) || 0) < GONE_TTL_MS);
+function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false } = {}) {
+  const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
+  for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
+    if (seen.has(m)) continue; seen.add(m);
+    if (have.has(m) || /^(kr|gc|oc)\//.test(m) || /qwen3-coder/.test(m) || ROUTER_NOT_TEXT.test(m) || (!cand.has(m) && !strong.test(m))) continue;
+    if (gone('ROUTER:' + m)) continue;
     const p = String(m).split('/')[0], n = per.get(p) || 0; if (n >= perProvider) continue;
     per.set(p, n + 1); out.push(m); if (out.length >= max) break;
   }
@@ -88,8 +96,10 @@ const validProbe = t => { try { return JSON.parse(String(t || '').match(/\{[\s\S
 // members: [{ id, call:async({system,prompt,validate,role})=>({ok,text,model}) }]  (id = 'ROUTER:kr/claude-sonnet-4.5' or 'FREE:openrouter')
 function createCommittee({ members: membersIn = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000 } = {}) {
   // R2544.92: members may be a function (re-discovered: models added to 9Router / OpenRouter join without a code change)
-  const membersNow = () => { try { const m = typeof membersIn === 'function' ? membersIn() : membersIn; return Array.isArray(m) ? m : []; } catch { return []; } };
   let health = {}; try { if (healthFile) health = JSON.parse(fs.readFileSync(healthFile, 'utf8')).health || {}; } catch {}
+  // R2544.96: the members function is told which models are gone (from THIS committee's own health)
+  const ctx = { gone:id => isGone(health[id], clock()) };
+  const membersNow = () => { try { const m = typeof membersIn === 'function' ? membersIn(ctx) : membersIn; return Array.isArray(m) ? m : []; } catch { return []; } };
   let probing = false, lastProbeAt = 0;
   const save = () => { if (!healthFile) return; try { fs.mkdirSync(path.dirname(healthFile), { recursive:true }); fs.writeFileSync(healthFile + '.tmp', JSON.stringify({ version:COMMITTEE_VERSION, at:new Date(clock()).toISOString(), health }, null, 1)); fs.renameSync(healthFile + '.tmp', healthFile); } catch {} };
   // R2544.94: today's counters (calls / ok / ms, probes included: they spend quota too) and a quota flag read from the error text
@@ -161,4 +171,4 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   function status() { return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
   return { probe, healthy, pick, decide, status, assignSeats };
 }
-module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT };
+module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone };

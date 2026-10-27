@@ -1584,23 +1584,27 @@ const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {o
 //  - OpenRouter: adı verilen güçlü ücretsiz modeller TEK TEK üye (her biri kendi soğuması), en sonda ücretsiz havuz;
 //  - kurul seçimi sağlayıcılar arasında sırayla yapılır (Kiro biterse OpenRouter / Gemini / Groq devam eder).
 const OR_FREE_PREF=['nvidia/nemotron-3-ultra-550b-a55b:free','google/gemma-4-31b-it:free','poolside/laguna-s-2.1:free','nvidia/nemotron-3.5-super-vl:free','xingchen-agi/xing4.0-29b-a4b:free','dots-studio/dots-3-note-preview:free','google/gemma-4-26b-a4b-it:free'];
-const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)|minimax-m2/i; // R2544.95 + MiniMax M2 (NVIDIA)
+const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)|minimax-m[2-9]|deepseek-v[4-9]|qwen3\.\d+-\d+b|gemma-4-31b/i; // R2544.95 + MiniMax M2 (NVIDIA); R2544.96 + DeepSeek V4, MiniMax M3, Qwen 3.x, Gemma 4 31B
+// R2544.96: providers' models open TODAY (NVIDIA public /v1/models 27.10; Groq docs 27.10: llama-3.3 / maverick / qwen3-32b moved to enterprise;
+// Gemini 3.7 / 3.8 Flash answered 429 quota 0 on the free key, 3.6 Flash works). Tried first; a gone one gives its seat to the next.
+const ROUTER_CANDIDATES=['nvidia/z-ai/glm-5.3','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/minimaxai/minimax-m3.1-flash','nvidia/nvidia/nemotron-3-super-120b-a12b',
+  'groq/openai/gpt-oss-120b','groq/qwen/qwen3.8-27b','gemini/gemini-3.6-flash','gemini/gemma-4-31b-it','gemini/gemini-3.5-flash-lite'];
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
 setInterval(()=>refreshCommitteeRouterIds().catch(()=>{}),30*60*1000).unref?.();
 const routerCall=m=>async({system,prompt,validate})=>{try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:4096,validate});return {ok:true,text:out.text,model:m};}catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}};
-function committeeMembers(freeWorker,poolId){
+function committeeMembers(freeWorker,poolId,ctx){
   const fixed=traderRouterMembers(),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
-  const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:12}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı
+  const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:12,candidates:ROUTER_CANDIDATES,gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
   const or=OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)).map(m=>({id:'OR:'+m,call:async a=>{const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
   return [...fixed,...extra,...or,freeMember(freeWorker,poolId)];
 }
 const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,
   dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota
-const deskCommittee=createCommittee({size:5,members:()=>committeeMembers(deskFreeWorker,'FREE:openrouter'),healthFile:path.join(ROOT,'data','model-committee-desk.json')});
-const examCommittee=createCommittee({size:3,members:()=>committeeMembers(examFreeWorker,'FREE:openrouter'),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
+const deskCommittee=createCommittee({size:5,members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json')});
+const examCommittee=createCommittee({size:3,members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
 const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav'),committee:examCommittee,dailyCap:100,keyFile:process.env.BRAINHUB_EXAM_KEY||path.join(ROOT,'..','Claud-Work','gelistirme','harness','indikator','sinav_key.json')}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
 setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();
