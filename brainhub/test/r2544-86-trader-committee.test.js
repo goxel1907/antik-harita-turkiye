@@ -62,7 +62,7 @@ test('R2544.86 wiring: 9Router members + OpenRouter free, separate committees fo
   assert.match(sv,/const deskCommittee=createCommittee\(/);assert.match(sv,/const examCommittee=createCommittee\(/);
   assert.match(sv,/committee:deskCommittee,examStatus:\(\)=>traderExam\.status\(\)/);assert.match(sv,/setInterval\(\(\)=>\{traderExam\.tick\(\)/);
   const of=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  assert.match(of,/function committeeSvg\(\)/);assert.match(of,/\$\{committeeSvg\(\)\}/);assert.match(of,/renderCommittee\(s\)/);assert.match(of,/const VW=1100, VH=985/);
+  assert.match(of,/function committeeSvg\(\)/);assert.match(of,/\$\{committeeSvg\(\)\}/);assert.match(of,/renderCommittee\(s\)/);assert.match(of,/const VW=1100, VH=1280/);
   for(const f of ['manage.ps1',path.join('jev-brain','JEV-DEPLOY.ps1')]){const t=fs.readFileSync(path.join(__dirname,'..',f),'utf8');for(const m of ['trader-brain.js','model-committee.js','trader-exam.js'])assert.ok(t.includes("'"+m+"'"),f+' '+m);}
   const fw=fs.readFileSync(path.join(__dirname,'..','openrouter-free-worker.js'),'utf8');assert.match(fw,/\['POSITION_DESK','TRADER'\]\.includes\(role\)\?4096:1536/);
 });

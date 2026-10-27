@@ -599,7 +599,7 @@ const JEV_CHECKS = [
 ];
 
 // ---------- Ofis katı (SVG) ----------
-const VW=1100, VH=985; // R2544.86: alt kat = Model Kurulu masası
+const VW=1100, VH=1280; // R2544.86: alt kat = Model Kurulu masası; R2544.94: altında MODEL KARNESİ + KALAN LİMİT panosu
 const DESKS = [
   { id:'scanner',  x:140, y:112, name:'Tarayıcı',            role:'Binance evreni → hedef 24' },
   { id:'workers',  x:140, y:342, name:'Plan Kanıt Ajanları',   role:'9Router ücretsiz metin' },
@@ -723,7 +723,9 @@ function loungeSvg(){
 }
 // R2544.86 MODEL KURULU MASASI: ücretsiz modeller (9Router: Kiro Claude/DeepSeek/GLM; OpenRouter ücretsiz) masada avatar; her birinin
 // üstünde son oyu ve sağlık ışığı; masanın ortasında ortak karar (oybirliği / tartışma sonrası çoğunluk / çoğunluk yok → TUT).
-const CM={x:550,y:896,seats:[[-205,4],[-92,-40],[92,-40],[205,4]],colors:['var(--series-1)','var(--series-3)','var(--series-5)','var(--series-7)']};
+// R2544.94: kurul 5 kişi -> 5 koltuk (önceden 4 koltuk vardı, 5. üye görünmüyordu)
+const CM={x:550,y:945,seats:[[-300,0],[-160,-50],[0,-60],[160,-50],[300,0]],colors:['var(--series-1)','var(--series-3)','var(--series-5)','var(--series-7)','var(--series-2)']};
+const CB={x:160,y:1018,w:780,rows:12,rowH:15}; // R2544.94 karne panosu
 function committeeSvg(){
   const seats=CM.seats.map(([dx,dy],i)=>`<g id="cmSeat-${i}" transform="translate(${CM.x+dx},${CM.y+dy})" style="display:none">
       <rect x="-12" y="-28" width="24" height="22" rx="8" fill="${CM.colors[i]}"/><circle cx="0" cy="-36" r="8.5" fill="#d8ae88"/>
@@ -731,8 +733,19 @@ function committeeSvg(){
       <circle id="cmLed-${i}" cx="13" cy="-40" r="3.5" fill="#8b909c"/>
       <g transform="translate(0,-54)"><rect id="cmBubR-${i}" x="-36" y="-11" width="72" height="18" rx="8" fill="var(--surface-1)" stroke="${CM.colors[i]}"/><text id="cmBub-${i}" y="2" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--text-primary)">—</text></g>
       <text class="o-sub" id="cmName-${i}" y="10" text-anchor="middle" font-size="10">—</text></g>`).join('');
-  return `<g id="committeeRoom">
-    <rect x="160" y="790" width="780" height="182" rx="16" fill="var(--series-5)" opacity=".05" stroke="var(--series-5)" stroke-opacity=".35" stroke-dasharray="6 6"/>
+  const cols=[[190,'model'],[300,'durum'],[372,'bugün (çağrı / ok / sn)'],[500,'kalan limit'],[652,'canlı giriş karnesi'],[808,'sınav karnesi']];
+  const rows=Array.from({length:CB.rows},(_,i)=>{const y=CB.y+50+i*CB.rowH;return `<g id="cbRow-${i}" style="display:none"><circle id="cbLed-${i}" cx="${CB.x+20}" cy="${y-3.5}" r="3.5" fill="#8b909c"/>${cols.map(([x],c)=>`<text id="cb-${i}-${c}" x="${x}" y="${y}" font-size="9.5" fill="${c===0?'var(--text-primary)':'var(--text-secondary)'}" ${c===0?'font-weight="700"':''}>—</text>`).join('')}</g>`;}).join('');
+  const board=`<g id="cmBoard">
+    <rect x="${CB.x}" y="${CB.y}" width="${CB.w}" height="${CB.rows*CB.rowH+78}" rx="14" fill="var(--surface-1)" opacity=".92" stroke="var(--series-3)" stroke-opacity=".45"/>
+    <text class="lounge-l" x="${CB.x+16}" y="${CB.y+18}">📋 MODEL KARNESİ ve KALAN LİMİT</text>
+    <text class="o-sub" id="cbHead" x="${CB.x+CB.w-14}" y="${CB.y+18}" text-anchor="end" font-size="10">—</text>
+    ${cols.map(([x,t])=>`<text x="${x}" y="${CB.y+34}" font-size="9" font-weight="700" fill="var(--text-tertiary,var(--text-secondary))">${t}</text>`).join('')}
+    ${rows}
+    <text class="o-sub" id="cbFoot1" x="${CB.x+16}" y="${CB.y+CB.rows*CB.rowH+56}" font-size="9.5">—</text>
+    <text class="o-sub" id="cbFoot2" x="${CB.x+16}" y="${CB.y+CB.rows*CB.rowH+70}" font-size="9.5">—</text>
+  </g>`;
+  return `${board}<g id="committeeRoom">
+    <rect x="160" y="790" width="780" height="215" rx="16" fill="var(--series-5)" opacity=".05" stroke="var(--series-5)" stroke-opacity=".35" stroke-dasharray="6 6"/>
     <text class="lounge-l" x="176" y="808">🤝 MODEL KURULU (gölge)</text>
     <text class="o-sub" id="cmHead" x="924" y="808" text-anchor="end">—</text>
     <ellipse cx="${CM.x}" cy="${CM.y+14}" rx="150" ry="16" fill="#000" opacity=".18"/>
@@ -740,13 +753,14 @@ function committeeSvg(){
     <text id="cmFinal" x="${CM.x}" y="${CM.y-6}" text-anchor="middle" font-size="15" font-weight="800" fill="var(--text-primary)">—</text>
     <text class="o-sub" id="cmSub" x="${CM.x}" y="${CM.y+12}" text-anchor="middle" font-size="10">—</text>
     ${seats}
-    <text class="o-sub" id="cmBench" x="${CM.x}" y="${CM.y+60}" text-anchor="middle" font-size="10">—</text>
+    <text class="o-sub" id="cmBench" x="${CM.x}" y="${CM.y+52}" text-anchor="middle" font-size="10">—</text>
   </g>`;
 }
 function renderCommittee(s){
   const pd=s.top3?.positionDesk||s.zirve5?.positionDesk||null,cm=pd?.committee,ex=pd?.exam;const host=document.getElementById('committeeRoom');if(!host)return;
   const T=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t;};
-  if(!cm){T('cmFinal','kurul yok');T('cmSub','bu sürümde bağlı değil');for(let i=0;i<4;i++){const g=document.getElementById('cmSeat-'+i);if(g)g.style.display='none';}return;}
+  try{renderBoard(pd?.cmBoard||null);}catch(e){console.warn('cmBoard',e);}
+  if(!cm){T('cmFinal','kurul yok');T('cmSub','bu sürümde bağlı değil');for(let i=0;i<CM.seats.length;i++){const g=document.getElementById('cmSeat-'+i);if(g)g.style.display='none';}return;}
   const short=id=>String(id).replace(/^ROUTER:(kr|oc|gc)\//,'').replace(/^ROUTER:/,'').replace(/^OR:[^/]*\//,'OR ').replace(/:free$/,'').replace(/^FREE:/,'').replace(/-free$/,'').replace(/-preview$/,'').replace('claude-','Claude ').replace('gemini-','Gemini ').replace('openrouter','OpenRouter').slice(0,18);
   const team=cm.team||[],members=cm.members||[];
   // latest committee decision across open İlk 3 / ZİRVE-5 lots
@@ -756,7 +770,7 @@ function renderCommittee(s){
   const dk0=cand.sort((x,y)=>Date.parse(y.at)-Date.parse(x.at))[0],dk=dk0?{sym:dk0.sym+' '+dk0.kind,d:{action:dk0.action,atIso:dk0.at,committee:dk0.c}}:null;
   const AT={HOLD:'TUT',TAKE_PARTIAL:'KISMİ AL',TIGHTEN_STOP:'STOP YAKLAŞ',EXIT:'ÇIK',TAKE:'GİR',SKIP:'GİRME',ERR:'cevap yok'};
   const votes=dk?.d?.committee?.votes||[];
-  for(let i=0;i<4;i++){
+  for(let i=0;i<CM.seats.length;i++){
     const g=document.getElementById('cmSeat-'+i);if(!g)continue;const id=team[i];if(!id){g.style.display='none';continue;}g.style.display='';
     const m=members.find(x=>x.id===id)||{},vs=votes.find(x=>id.endsWith(x.m));T('cmName-'+i,(vs?.s?vs.s+' • ':'')+short(id));
     const led=document.getElementById('cmLed-'+i);if(led)led.setAttribute('fill',m.healthy?'#26a69a':'#ef5350');
@@ -770,6 +784,32 @@ function renderCommittee(s){
   const healthy=members.filter(m=>m.healthy).length,bench=members.filter(m=>!team.includes(m.id));
   T('cmBench',`sağlıklı ${healthy}/${members.length} • yedek: ${bench.filter(m=>m.healthy).map(m=>short(m.id)).join(', ')||'—'} • hasta: ${bench.filter(m=>!m.healthy).map(m=>short(m.id)).join(', ')||'—'}`.slice(0,150));
   T('cmHead',ex?.present?`trader sınavı ${ex.answered}/${ex.total}${ex.finished?' • bitti':''}${ex.lastError?' • son hata: '+String((ex.lastError.tried||[]).join(', ')).slice(0,60):''}`:'trader sınavı: paket yok');
+}
+// R2544.94 MODEL KARNESİ + KALAN LİMİT: her model için sağlık, bugünkü çağrı, kalan ücretsiz limit (OpenRouter kesin; 9Router modellerinde
+// yayımlanan günlük sınır - bizim bugünkü çağrımız = yaklaşık, "~"), canlı giriş karnesi (kapanan işlemler) ve sınav karnesi (geçmiş paketler).
+// "fark" = GİR dediklerinin ort. R - GİRME dediklerinin ort. R: işe yarayan model artıdadır; "hep GİRME" diyen yüksek isabet alır ama farkı yoktur.
+function renderBoard(b){
+  const T=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t;};
+  const fr=x=>x===null||x===undefined||!Number.isFinite(Number(x))?'—':(x>0?'+':'')+Number(x).toFixed(2).replace('.',',')+'R';
+  const short=id=>String(id).replace(/^ROUTER:(kr|oc|gc)\//,'').replace(/^ROUTER:/,'').replace(/^OR:[^/]*\//,'OR ').replace(/:free$/,'').replace(/^FREE:/,'').replace(/-preview$/,'').replace('claude-','Claude ').replace('gemini-','Gemini ').replace('openrouter','OR havuz').slice(0,19);
+  const card=c=>!c||!c.n?'oy yok':`GİR ${c.take.n} ${fr(c.take.avgR)} | GİRME ${c.skip.n} ${fr(c.skip.avgR)}${c.edge!==null?' • fark '+fr(c.edge):''}`;
+  if(!b){T('cbHead','bu sürümde karne yok');for(let i=0;i<CB.rows;i++){const g=document.getElementById('cbRow-'+i);if(g)g.style.display='none';}T('cbFoot1','—');T('cbFoot2','—');return;}
+  const rows=b.rows||[];
+  for(let i=0;i<CB.rows;i++){const g=document.getElementById('cbRow-'+i);if(!g)continue;const r=rows[i];if(!r){g.style.display='none';continue;}g.style.display='';
+    const led=document.getElementById('cbLed-'+i);const used=r.quota&&r.quota.kind!=='RATE';if(led)led.setAttribute('fill',r.healthy?'#26a69a':used?'#ffa726':r.quota?'#ffd54f':'#ef5350');
+    const L=r.limit||{};
+    const lim=used?`KOTA DOLDU${r.quota.monthly?' (aylık)':''}`:r.quota?'yoğun (429), kendisi döner':L.cooldownMin?`bekleme ${L.cooldownMin} dk`:L.account?`hesap ${L.account.remaining}/${L.account.limit} kaldı`:L.perDay?`~${L.remaining}/${L.perDay} kaldı`:(L.text||'bilinmiyor');
+    T(`cb-${i}-0`,short(r.id));
+    T(`cb-${i}-1`,r.inTeam?'masada':r.healthy?'yedek':used?'kota bitti':r.quota?'yoğun':'hasta');
+    T(`cb-${i}-2`,r.today?.calls?`${r.today.calls} / ${r.today.ok} / ${r.today.avgMs!==null?(r.today.avgMs/1000).toFixed(1).replace('.',','):'—'}`:'bugün çağrı yok');
+    T(`cb-${i}-3`,lim.slice(0,30));
+    T(`cb-${i}-4`,card(r.live).slice(0,34));
+    T(`cb-${i}-5`,r.exam?.n?`${r.exam.n} soru • fark ${fr(r.exam.edge)} • %${r.exam.hitPct}`:'oy yok');
+  }
+  const c=b.committee||{},healthy=rows.filter(r=>r.healthy).length,quota=rows.filter(r=>r.quota&&r.quota.kind!=='RATE').length,busy=rows.filter(r=>r.quota&&r.quota.kind==='RATE').length;
+  T('cbHead',`${rows.length} model • sağlıklı ${healthy} • kotası dolan ${quota}${busy?` • yoğun (429) ${busy}`:''}${b.orAccount?` • OR hesabı ${b.orAccount.remaining}/${b.orAccount.limit} kaldı`:''}${rows.length>CB.rows?` • +${rows.length-CB.rows} daha`:''}`.slice(0,100));
+  T('cbFoot1',`KURUL canlı (kapanan işlemler): ${card(c.live)} • kurul cevap veremedi: ${c.missed??0} işlem${c.baseR!==null&&c.baseR!==undefined?` • oylanan işlemlerin ort. ${fr(c.baseR)}`:''}`.slice(0,150));
+  T('cbFoot2',`KURUL sınav: ${card(c.exam)}${c.examN?` • cevaplanan ${c.examN} sorunun ort. ${fr(c.examBaseR)}`:''} • fark = GİR ort. − GİRME ort. (artı = model işe yarıyor) • ~ = yaklaşık`.slice(0,150));
 }
 function tradeBoardSvg(){
   return `<g id="tradeBoard" transform="translate(672,18)">

@@ -6,7 +6,13 @@
 const fs = require('fs'), path = require('path');
 const TB = require('./trader-brain');
 const EXAM_VERSION = 'R2544.93-TRADER-EXAM-BB';
-function createTraderExam({ dir, judges = {}, committee = null, clock = () => Date.now(), minIntervalMs = 45000, dailyCap = 600, maxAttempts = 3 } = {}) {
+function createTraderExam({ dir, judges = {}, committee = null, clock = () => Date.now(), minIntervalMs = 45000, dailyCap = 600, maxAttempts = 3, keyFile = null } = {}) {
+  // R2544.94: the answer key (R of every packet) is read ONLY here for the scorecard; it never goes into a prompt
+  let keyCache = null, ansCache = { sig:null, list:[] };
+  const key = () => { if (keyCache !== null) return keyCache; try { keyCache = keyFile ? JSON.parse(fs.readFileSync(keyFile, 'utf8')) : false; } catch { keyCache = false; } return keyCache; };
+  function answers() { try { const s = fs.statSync(path.join(dir, 'answers.jsonl')), sig = s.size + ':' + s.mtimeMs; if (sig === ansCache.sig) return ansCache.list;
+      const list = []; for (const l of fs.readFileSync(path.join(dir, 'answers.jsonl'), 'utf8').split('\n')) { if (!l.trim()) continue; try { list.push(JSON.parse(l)); } catch {} }
+      ansCache = { sig, list }; return list; } catch { return []; } }
   const P = f => path.join(dir, f);
   let busy = false, lastAt = 0, st = null;
   const readState = () => { try { return JSON.parse(fs.readFileSync(P('exam-state.json'), 'utf8')); } catch { return { attempts:{}, day:null, used:0, answered:0, lastError:null }; } };
@@ -62,6 +68,6 @@ function createTraderExam({ dir, judges = {}, committee = null, clock = () => Da
   }
   function status() { st = st || readState(); let total = 0; try { total = fs.readFileSync(P('packets.jsonl'), 'utf8').split('\n').filter(l => l.trim()).length; } catch {}
     return { version:EXAM_VERSION, dir, present:total > 0, total, answered:answeredIds().size, today:st.used || 0, finished:st.finished === true, lastError:st.lastError || null, lastOk:st.lastOk || null }; }
-  return { tick, status };
+  return { tick, status, answers, key:() => key() || null };
 }
 module.exports = { EXAM_VERSION, createTraderExam };

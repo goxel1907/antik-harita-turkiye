@@ -10,6 +10,65 @@ const COMMITTEE_VERSION = 'R2544.86-MODEL-COMMITTEE';
 // R2544.92: more families (OpenRouter / 9Router API providers) and the provider of a member (ROUTER:kr = Kiro, ROUTER:gc = Gemini CLI, OR = OpenRouter ...)
 const provider = id => { const s = String(id || ''); const m = s.match(/^ROUTER:([a-z0-9-]+)\//i); return m ? 'ROUTER:' + m[1].toLowerCase() : s.split(':')[0]; };
 const family = id => { const s = String(id || '').toLowerCase(); return /gemma/.test(s) ? 'GEMMA' : /gemini/.test(s) ? 'GEMINI' : /minimax/.test(s) ? 'MINIMAX' : /claude/.test(s) ? 'CLAUDE' : /llama|maverick|scout/.test(s) ? 'LLAMA' : /mistral|magistral|codestral/.test(s) ? 'MISTRAL' : /kimi/.test(s) ? 'KIMI' : /gpt-oss|openai\//.test(s) ? 'GPTOSS' : /laguna|poolside/.test(s) ? 'POOLSIDE' : /xing/.test(s) ? 'XING' : /dots/.test(s) ? 'DOTS' : /deepseek/.test(s) ? 'DEEPSEEK' : /glm/.test(s) ? 'GLM' : /qwen/.test(s) ? 'QWEN' : /nemotron/.test(s) ? 'NEMOTRON' : s.startsWith('openrouter') ? 'OPENROUTER' : s.split('/')[0] || 'OTHER'; };
+// R2544.94 MODEL KARNESİ + KALAN LİMİT (kullanıcı 27.10: "model karnesi ... modellerin office'te kalan limit ve başka gösterge"):
+// sağlayıcıların YAYIMLADIĞI ücretsiz sınırlar (kaynak: sağlayıcı sayfaları / mnfst/awesome-free-llm-apis, 27.10). 9Router'ın kendi kota
+// sayfası panel girişi ister (401) -> 9Router modellerinde kalan = yayımlanan günlük sınır - BrainHub'ın bugünkü çağrısı (YAKLAŞIK).
+const PROVIDER_LIMITS = [
+  [/^ROUTER:groq\//i, { perDay:1000, text:'Groq 1000/gün' }],
+  [/^ROUTER:(nvidia|nim)\//i, { perDay:10000, text:'NVIDIA 10.000/gün' }],
+  [/^ROUTER:cerebras\//i, { perDay:null, text:'Cerebras jeton kovası' }],
+  [/^ROUTER:(cf|cloudflare)/i, { perDay:null, text:'Cloudflare 10k nöron/gün' }],
+  [/^ROUTER:mistral\//i, { perDay:null, text:'Mistral ~1/sn' }],
+  [/^ROUTER:(glm|zai)\//i, { perDay:null, text:'GLM aynı anda 1' }],
+  [/^ROUTER:(gemini|google|aistudio)\//i, { perDay:null, text:'AI Studio günlük' }],
+  [/^ROUTER:kr\//i, { perDay:null, text:'Kiro aylık kota' }],
+  [/^ROUTER:gc\//i, { perDay:null, text:'Gemini CLI günlük' }],
+  [/^(OR:|FREE:openrouter)/i, { perDay:null, shared:'OR', text:'OpenRouter hesap' }]];
+const limitOf = id => (PROVIDER_LIMITS.find(([re]) => re.test(String(id || ''))) || [null, null])[1];
+const QUOTA_RE = /quota|limit|exhaust|exceeded|\b429\b|\b402\b|too many|rate.?limit|credits/i;
+// MONTHLY / QUOTA = the free allowance is used up (waits for the reset); RATE = the provider is busy right now (429), it comes back by itself
+const quotaOf = (err, at) => { const e = String(err || ''); if (!QUOTA_RE.test(e)) return null; const kind = /month/i.test(e) ? 'MONTHLY' : /reached the limit|exhaust|credits|402|quota/i.test(e) ? 'QUOTA' : 'RATE'; return { at, kind, monthly:kind === 'MONTHLY', text:e.slice(0, 120) }; };
+const dayOf = t => new Date(t).toISOString().slice(0, 10);
+const memberKey = id => String(id || '').replace(/^ROUTER:|^FREE:|^OR:/, '');
+const avg = (s, n) => n ? Number((s / n).toFixed(3)) : null;
+// a vote is scored only when the outcome (R) is known: TAKE is right when R > 0, SKIP is right when R <= 0.
+// The edge (avg R of its TAKEs - avg R of its SKIPs) is the number that matters: "always SKIP" gets a high hit rate and no edge.
+function scoreAdd(acc, key, decision, R) {
+  if (!key || !(decision === 'TAKE' || decision === 'SKIP') || !Number.isFinite(R)) return;
+  const s = acc[key] || (acc[key] = { TAKE:{ n:0, sum:0 }, SKIP:{ n:0, sum:0 }, hit:0 });
+  s[decision].n++; s[decision].sum += R; if ((decision === 'TAKE') === (R > 0)) s.hit++;
+}
+function scoreFinish(acc) {
+  const out = {};
+  for (const [k, s] of Object.entries(acc)) { const n = s.TAKE.n + s.SKIP.n, t = avg(s.TAKE.sum, s.TAKE.n), k2 = avg(s.SKIP.sum, s.SKIP.n);
+    out[k] = { n, take:{ n:s.TAKE.n, avgR:t }, skip:{ n:s.SKIP.n, avgR:k2 }, edge:t !== null && k2 !== null ? Number((t - k2).toFixed(3)) : null, hitPct:n ? Math.round(s.hit / n * 100) : null }; }
+  return out;
+}
+// lessons: closed trades (features.committee = shadow or gate record); answers + key: the exam (R from the key, never shown to models)
+function scorecard({ lessons = [], answers = [], key = null } = {}) {
+  const live = {}, exam = {}, cm = {}; let missed = 0, scored = 0, baseSum = 0, examN = 0, examSum = 0;
+  for (const l of Array.isArray(lessons) ? lessons : []) { const c = l?.features?.committee, R = Number(l?.rMultiple); if (!c || !Number.isFinite(R)) continue;
+    if (c.error || !c.decision) { missed++; continue; } scored++; baseSum += R; scoreAdd(cm, 'live', c.decision, R);
+    for (const v of (c.round1 && c.round1.length ? c.round1 : c.votes) || []) scoreAdd(live, memberKey(v.m), v.d, R); }
+  for (const a of Array.isArray(answers) ? answers : []) { const R = Number(key?.[a?.id]?.R); if (!Number.isFinite(R)) continue; examN++; examSum += R;
+    if (a.judge === 'COMMITTEE') scoreAdd(cm, 'exam', a.decision, R);
+    for (const v of a.round1 || []) if (v.ok !== false) scoreAdd(exam, memberKey(v.member), v.decision, R); }
+  const c = scoreFinish(cm);
+  return { live:scoreFinish(live), exam:scoreFinish(exam), committee:{ live:c.live || null, exam:c.exam || null, missed, scored, baseR:avg(baseSum, scored), examN, examBaseR:avg(examSum, examN) } };
+}
+// one row per member for the Office board: health, today's calls, remaining limit, live + exam scorecard
+function board({ status = null, freeStatus = null, score = null, now = Date.now() } = {}) {
+  const today = dayOf(now), q = freeStatus?.quota || null, pm = new Map((freeStatus?.perModel || []).map(x => [x.model, x]));
+  const team = status?.team || [];
+  const rows = (status?.members || []).map(m => { const L = limitOf(m.id) || {}, same = m.day === today, used = same ? (m.callsToday || 0) : 0, okN = same ? (m.okToday || 0) : 0;
+    const orModel = /^OR:/.test(m.id) ? m.id.slice(3) : null, p = orModel ? pm.get(orModel) : null, k = memberKey(m.id);
+    const cool = p && p.cooldownUntil > now ? Math.ceil((p.cooldownUntil - now) / 60000) : null;
+    return { id:m.id, key:k, family:m.family || family(m.id), healthy:m.healthy === true, inTeam:team.includes(m.id), today:{ calls:used, ok:okN, avgMs:same && used ? Math.round((m.msToday || 0) / used) : null },
+      limit:{ text:L.text || null, perDay:L.perDay || null, remaining:L.perDay ? Math.max(0, L.perDay - used) : null, approx:!!L.perDay, account:L.shared === 'OR' && q ? { used:q.used, limit:q.limit, remaining:q.remaining ?? Math.max(0, q.limit - q.used) } : null, cooldownMin:cool },
+      quota:m.quota || (m.lastOk === false ? quotaOf(m.error, m.at || null) : null), lastError:m.lastOk === false ? (m.error || null) : null, live:score?.live?.[k] || null, exam:score?.exam?.[k] || null }; });
+  rows.sort((a, b) => (b.inTeam - a.inTeam) || (b.healthy - a.healthy) || (((b.live?.n || 0) + (b.exam?.n || 0)) - ((a.live?.n || 0) + (a.exam?.n || 0))));
+  return { at:now, rows, orAccount:q ? { used:q.used, limit:q.limit, remaining:q.remaining ?? Math.max(0, q.limit - q.used) } : null, committee:score?.committee || null };
+}
 const PROBE_SYSTEM = 'Health check. Answer ONLY with this JSON and nothing else: {"ok":true,"model":"<your model name>"}';
 const validProbe = t => { try { return JSON.parse(String(t || '').match(/\{[\s\S]*\}/)?.[0]).ok === true; } catch { return false; } };
 // members: [{ id, call:async({system,prompt,validate,role})=>({ok,text,model}) }]  (id = 'ROUTER:kr/claude-sonnet-4.5' or 'FREE:openrouter')
@@ -19,7 +78,11 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   let health = {}; try { if (healthFile) health = JSON.parse(fs.readFileSync(healthFile, 'utf8')).health || {}; } catch {}
   let probing = false, lastProbeAt = 0;
   const save = () => { if (!healthFile) return; try { fs.mkdirSync(path.dirname(healthFile), { recursive:true }); fs.writeFileSync(healthFile + '.tmp', JSON.stringify({ version:COMMITTEE_VERSION, at:new Date(clock()).toISOString(), health }, null, 1)); fs.renameSync(healthFile + '.tmp', healthFile); } catch {} };
-  const mark = (id, ok, extra = {}) => { const h = health[id] || { ok:0, fail:0 }; health[id] = { ...h, ...extra, lastOk:ok, at:clock(), ok:(h.ok || 0) + (ok ? 1 : 0), fail:(h.fail || 0) + (ok ? 0 : 1), consecutiveFail:ok ? 0 : (h.consecutiveFail || 0) + 1 }; };
+  // R2544.94: today's counters (calls / ok / ms, probes included: they spend quota too) and a quota flag read from the error text
+  const mark = (id, ok, extra = {}) => { const h = health[id] || { ok:0, fail:0 }, today = dayOf(clock()), same = h.day === today, err = String(extra.error || '');
+    health[id] = { ...h, ...extra, lastOk:ok, at:clock(), ok:(h.ok || 0) + (ok ? 1 : 0), fail:(h.fail || 0) + (ok ? 0 : 1), consecutiveFail:ok ? 0 : (h.consecutiveFail || 0) + 1,
+      day:today, callsToday:(same ? h.callsToday || 0 : 0) + 1, okToday:(same ? h.okToday || 0 : 0) + (ok ? 1 : 0), msToday:(same ? h.msToday || 0 : 0) + (Number(extra.latencyMs) || 0),
+      quota:ok ? null : quotaOf(err, clock()) || (h.quota || null) }; };
   // R2544.90: the timer is cleared when the answer comes (an open timer kept every test process alive ~2 min; deploy runs tests one by one)
   const withTimeout = (p, ms) => { let t; return Promise.race([Promise.resolve(p).finally(() => clearTimeout(t)), new Promise(r => { t = setTimeout(() => r({ ok:false, reason:'COMMITTEE_TIMEOUT' }), ms); })]); };
   async function probe({ force = false } = {}) {
@@ -84,4 +147,4 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   function status() { return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
   return { probe, healthy, pick, decide, status, assignSeats };
 }
-module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee };
+module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board };

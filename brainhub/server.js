@@ -1601,11 +1601,11 @@ const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoD
   dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota
 const deskCommittee=createCommittee({size:5,members:()=>committeeMembers(deskFreeWorker,'FREE:openrouter'),healthFile:path.join(ROOT,'data','model-committee-desk.json')});
 const examCommittee=createCommittee({size:3,members:()=>committeeMembers(examFreeWorker,'FREE:openrouter'),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
-const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav'),committee:examCommittee,dailyCap:100}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
+const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav'),committee:examCommittee,dailyCap:100,keyFile:process.env.BRAINHUB_EXAM_KEY||path.join(ROOT,'..','Claud-Work','gelistirme','harness','indikator','sinav_key.json')}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
 setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();
 setInterval(()=>{traderExam.tick().catch(()=>{});},20000).unref?.();
-const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,zirve5Judge:jev.sovereignZirve5Gate,deskJudges:{free:deskFreeWorker,jev:jev.sovereignPositionDesk,committee:deskCommittee,examStatus:()=>traderExam.status()},credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
+const live=createLiveController({root:ROOT,store,scanner,pipeline:decisionPipeline,committee:committeeCall,market,freeWorker,exitJudge:jev.sovereignExit,lessonJudge:jev.sovereignLesson,burstJudge:jev.sovereignBurstArm,burstExitJudge:jev.sovereignBurstExit,top3Judge:jev.sovereignTop3Gate,zirve5Judge:jev.sovereignZirve5Gate,deskJudges:{free:deskFreeWorker,jev:jev.sovereignPositionDesk,committee:deskCommittee,examStatus:()=>traderExam.status(),examScoreInput:()=>({answers:traderExam.answers(),key:traderExam.key()})},credentials:BINANCE_CREDENTIALS,defaultTradingMode:'TEST'});
 
 const server=http.createServer(async(req,res)=>{
   try{

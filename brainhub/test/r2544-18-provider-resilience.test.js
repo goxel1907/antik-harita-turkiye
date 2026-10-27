@@ -109,5 +109,5 @@ test('R2544.18 Office probes Headroom sidecar separately from BrainHub 8787',()=
   const officeServer=src('office-dashboard/office-server.js');
   assert.match(officeServer,/HEADROOM_URL = \(process\.env\.HEADROOM_URL \|\| 'http:\/\/127\.0\.0\.1:8788'\)/);
   assert.match(officeServer,/HEADROOM_URL \+ '\/health'/);
-  assert.match(officeServer,/OFFICE_VERSION = '2.5.75-R2544.93-JEV-Brain'/);
+  assert.match(officeServer,/OFFICE_VERSION = '2.5.76-R2544.94-JEV-Brain'/);
 });

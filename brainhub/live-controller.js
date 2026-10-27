@@ -40,6 +40,7 @@ const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gaine
 const PA=require('./pa-core');
 const IND=require('./ind-info'); // R2544.79 indikatör bilgisi (yalnız bilgi)
 const TB=require('./trader-brain'); // R2544.87 kurulun giriş ekranı (gölge)
+const MC=require('./model-committee'); // R2544.94 model karnesi + kalan limit
 const DESK=require('./position-desk'); // R2544.84 pozisyon masası (gölge trader kararı)
 const AUTOPSY=require('./trade-autopsy'); // R2544.80 işlem otopsisi (neden kaybetti / nasıl kazandı) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
 const z5Lib=require('./zirve5'); // R2544.64 ZİRVE-5 SHORT (piyasa geneli ilk 5 volatil, 15 dk Fibo dip kırılımı)
@@ -6770,6 +6771,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {version:DESK.DESK_VERSION,enabled:cfg.enabled,shadow:true,authority:false,cadenceMin:cfg.cadenceMin,judges:{TEST:cfg.testJudges,LIVE:cfg.liveJudges},
       committee:typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null,exam:typeof deskJudges?.examStatus==='function'?deskJudges.examStatus():null,freeWired:!!deskJudges?.free,routerWired:!!deskJudges?.router,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
       comparison:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))]),
+      cmBoard:(()=>{try{const cs=typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null;if(!cs)return null; // R2544.94 model karnesi + kalan limit
+        const ex=typeof deskJudges?.examScoreInput==='function'?deskJudges.examScoreInput():{};
+        return MC.board({status:cs,freeStatus:typeof deskJudges?.free?.status==='function'?deskJudges.free.status():null,score:MC.scorecard({lessons:[...(top3State.lessons||[]),...(z.lessons||[])],answers:ex?.answers||[],key:ex?.key||null}),now:clock()});}catch{return null;}})(),
       entryComparison:(()=>{const L=[...(top3State.lessons||[]),...(z.lessons||[])].filter(l=>l?.features?.committee?.decision&&finite(l.rMultiple)!==null);const g=d=>{const a=L.filter(l=>l.features.committee.decision===d).map(l=>Number(l.rMultiple));return {n:a.length,avgR:a.length?Number((a.reduce((s,x)=>s+x,0)/a.length).toFixed(3)):null};};return {TAKE:g('TAKE'),SKIP:g('SKIP')};})()};}
   // R2544.87 (kullanıcı 27.10: "anlık sinyallere karar vermeyecekler mi"): TEST'te açılan her İlk 3 / ZİRVE-5 lotu için model kurulu,
   // girişten ÖNCE kapanmış 5 dk/15 dk/1 sa/4 sa/1 gün mumlarıyla (koltuklar: 1g/4sa, 1sa/15dk, 5dk+akış, risk) "girilmeli miydi"
