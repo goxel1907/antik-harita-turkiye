@@ -6805,8 +6805,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const k={m5:await get(symbol,'5m',TB.FETCH.m5,end),m15:await get(symbol,'15m',TB.FETCH.m15,end),h1:await get(symbol,'1h',TB.FETCH.h1,end),h4:await get(symbol,'4h',TB.FETCH.h4,end),d1:await get(symbol,'1d',TB.FETCH.d1,end),btc1h:await get('BTCUSDT','1h',40,Math.floor(t0/3600000)*3600000-1)};
       if(!(entry>0&&stop>0&&target>0))return {veto:false,record:{at:t0,error:'COMMITTEE_PLAN_INVALID',fallback:'RULE',authority:true}};
       const packet=TB.entryPacket({k,plan:{side,rule,entry,stop,target},t:t0});
-      const r=await Promise.race([deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES}),
-        new Promise(res=>setTimeout(()=>res({ok:false,reason:'COMMITTEE_TIMEOUT'}),150000))]);
+      let gateTimer=null; // R2544.90: cleared when the committee answers
+      const r=await Promise.race([Promise.resolve(deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES})).finally(()=>clearTimeout(gateTimer)),
+        new Promise(res=>{gateTimer=setTimeout(()=>res({ok:false,reason:'COMMITTEE_TIMEOUT'}),150000);})]);
       const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
       if(!r?.ok)return {veto:false,record:{at:clock(),error:r?.reason||'FAILED',fallback:'RULE',authority:true,ms:clock()-t0}};
       return {veto:r.final!=='TAKE',record:{at:clock(),decision:r.final,consensus:r.consensus,rounds:r.rounds,votes:slim(r.round2||r.votes),round1:slim(r.votes),authority:true,ms:clock()-t0,version:TB.TB_VERSION}};

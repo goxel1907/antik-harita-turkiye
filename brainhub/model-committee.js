@@ -16,7 +16,8 @@ function createCommittee({ members = [], healthFile = null, clock = () => Date.n
   let probing = false, lastProbeAt = 0;
   const save = () => { if (!healthFile) return; try { fs.mkdirSync(path.dirname(healthFile), { recursive:true }); fs.writeFileSync(healthFile + '.tmp', JSON.stringify({ version:COMMITTEE_VERSION, at:new Date(clock()).toISOString(), health }, null, 1)); fs.renameSync(healthFile + '.tmp', healthFile); } catch {} };
   const mark = (id, ok, extra = {}) => { const h = health[id] || { ok:0, fail:0 }; health[id] = { ...h, ...extra, lastOk:ok, at:clock(), ok:(h.ok || 0) + (ok ? 1 : 0), fail:(h.fail || 0) + (ok ? 0 : 1), consecutiveFail:ok ? 0 : (h.consecutiveFail || 0) + 1 }; };
-  const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r({ ok:false, reason:'COMMITTEE_TIMEOUT' }), ms))]);
+  // R2544.90: the timer is cleared when the answer comes (an open timer kept every test process alive ~2 min; deploy runs tests one by one)
+  const withTimeout = (p, ms) => { let t; return Promise.race([Promise.resolve(p).finally(() => clearTimeout(t)), new Promise(r => { t = setTimeout(() => r({ ok:false, reason:'COMMITTEE_TIMEOUT' }), ms); })]); };
   async function probe({ force = false } = {}) {
     if (probing || (!force && clock() - lastProbeAt < probeEveryMs)) return null; probing = true; lastProbeAt = clock();
     try {
