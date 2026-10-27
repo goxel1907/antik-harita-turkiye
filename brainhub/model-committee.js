@@ -39,7 +39,17 @@ const ROUTER_NOT_TEXT = /tts|whisper|embed|rerank|guard|safety|transcri|speech|a
 // (candidates) listeden önce gelir ve güçlü-model süzgecinden muaftır (elle seçildiler).
 const GONE_RE = /\[404\]|\b410\b|\bGone\b|end of life|does not exist|Not Found|not found|decommission|no longer (available|supported)/i;
 const GONE_TTL_MS = 3 * 24 * 3600000;
-const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && GONE_RE.test(String(rec.error || '')) && !QUOTA_RE.test(String(rec.error || '').replace(/\b404\b|\b410\b/g, '')) && now - (Number(rec.at) || 0) < GONE_TTL_MS);
+// R2544.97 (R96 kurulumundan sonra): Groq ücretsiz katmanı tek istekte ~8K jeton kabul eder; masa / sınav paketi (~17K karakter + 4096 cevap)
+// "413 Request too large" alır: sağlık yoklamasını geçer ama gerçek soruda hep düşer → o da 3 gün yer tutmaz. Üst üste 3 zaman aşımı (NVIDIA
+// ücretsiz kuyruğu GLM 5.3 / DeepSeek V4.1: 110 sn) da öyle; yer sıradaki modele geçer.
+const TOO_BIG_RE = /\b413\b|Request too large|maximum context|context.{0,12}(length|window).{0,20}exceed/i;
+const SLOW_RE = /timeout|timed out|aborted/i;
+const unusableWhy = rec => { const e = String(rec?.error || '');
+  if (TOO_BIG_RE.test(e)) return 'TOO_BIG';
+  if (GONE_RE.test(e) && !QUOTA_RE.test(e.replace(/\b404\b|\b410\b/g, ''))) return 'GONE';
+  if ((rec?.consecutiveFail || 0) >= 3 && SLOW_RE.test(e)) return 'SLOW';
+  return null; };
+const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && unusableWhy(rec) && now - (Number(rec.at) || 0) < GONE_TTL_MS);
 function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
@@ -171,4 +181,4 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   function status() { return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
   return { probe, healthy, pick, decide, status, assignSeats };
 }
-module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone };
+module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone, unusableWhy };
