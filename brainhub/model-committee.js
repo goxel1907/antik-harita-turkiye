@@ -7,11 +7,15 @@
 //     -> karar; çoğunluk yoksa varsayılan (masa: HOLD, giriş: SKIP). Her üyenin oyu ayrı kaydedilir (ölçüm için).
 const fs = require('fs'), path = require('path');
 const COMMITTEE_VERSION = 'R2544.86-MODEL-COMMITTEE';
-const family = id => { const s = String(id || '').toLowerCase(); return /gemini/.test(s) ? 'GEMINI' : /minimax/.test(s) ? 'MINIMAX' : /claude/.test(s) ? 'CLAUDE' : /deepseek/.test(s) ? 'DEEPSEEK' : /glm/.test(s) ? 'GLM' : /qwen/.test(s) ? 'QWEN' : /nemotron/.test(s) ? 'NEMOTRON' : s.startsWith('openrouter') ? 'OPENROUTER' : s.split('/')[0] || 'OTHER'; };
+// R2544.92: more families (OpenRouter / 9Router API providers) and the provider of a member (ROUTER:kr = Kiro, ROUTER:gc = Gemini CLI, OR = OpenRouter ...)
+const provider = id => { const s = String(id || ''); const m = s.match(/^ROUTER:([a-z0-9-]+)\//i); return m ? 'ROUTER:' + m[1].toLowerCase() : s.split(':')[0]; };
+const family = id => { const s = String(id || '').toLowerCase(); return /gemma/.test(s) ? 'GEMMA' : /gemini/.test(s) ? 'GEMINI' : /minimax/.test(s) ? 'MINIMAX' : /claude/.test(s) ? 'CLAUDE' : /llama|maverick|scout/.test(s) ? 'LLAMA' : /mistral|magistral|codestral/.test(s) ? 'MISTRAL' : /kimi/.test(s) ? 'KIMI' : /gpt-oss|openai\//.test(s) ? 'GPTOSS' : /laguna|poolside/.test(s) ? 'POOLSIDE' : /xing/.test(s) ? 'XING' : /dots/.test(s) ? 'DOTS' : /deepseek/.test(s) ? 'DEEPSEEK' : /glm/.test(s) ? 'GLM' : /qwen/.test(s) ? 'QWEN' : /nemotron/.test(s) ? 'NEMOTRON' : s.startsWith('openrouter') ? 'OPENROUTER' : s.split('/')[0] || 'OTHER'; };
 const PROBE_SYSTEM = 'Health check. Answer ONLY with this JSON and nothing else: {"ok":true,"model":"<your model name>"}';
 const validProbe = t => { try { return JSON.parse(String(t || '').match(/\{[\s\S]*\}/)?.[0]).ok === true; } catch { return false; } };
 // members: [{ id, call:async({system,prompt,validate,role})=>({ok,text,model}) }]  (id = 'ROUTER:kr/claude-sonnet-4.5' or 'FREE:openrouter')
-function createCommittee({ members = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000 } = {}) {
+function createCommittee({ members: membersIn = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000 } = {}) {
+  // R2544.92: members may be a function (re-discovered: models added to 9Router / OpenRouter join without a code change)
+  const membersNow = () => { try { const m = typeof membersIn === 'function' ? membersIn() : membersIn; return Array.isArray(m) ? m : []; } catch { return []; } };
   let health = {}; try { if (healthFile) health = JSON.parse(fs.readFileSync(healthFile, 'utf8')).health || {}; } catch {}
   let probing = false, lastProbeAt = 0;
   const save = () => { if (!healthFile) return; try { fs.mkdirSync(path.dirname(healthFile), { recursive:true }); fs.writeFileSync(healthFile + '.tmp', JSON.stringify({ version:COMMITTEE_VERSION, at:new Date(clock()).toISOString(), health }, null, 1)); fs.renameSync(healthFile + '.tmp', healthFile); } catch {} };
@@ -21,19 +25,23 @@ function createCommittee({ members = [], healthFile = null, clock = () => Date.n
   async function probe({ force = false } = {}) {
     if (probing || (!force && clock() - lastProbeAt < probeEveryMs)) return null; probing = true; lastProbeAt = clock();
     try {
-      await Promise.all(members.map(async m => { const t0 = clock(); let r;
+      await Promise.all(membersNow().map(async m => { const t0 = clock(); let r;
         try { r = await withTimeout(m.call({ system:PROBE_SYSTEM, prompt:'ping', validate:validProbe, role:'TRADER' }), 120000); } /* R2544.91: Gemini Pro thinks long */ catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
         mark(m.id, !!(r?.ok && validProbe(r.text)), { latencyMs:clock() - t0, model:r?.model || null, error:r?.ok ? null : String(r?.reason || r?.detail || 'FAILED').slice(0, 200), probedAt:clock() }); }));
       save(); return healthy().map(m => m.id);
     } finally { probing = false; }
   }
   // healthy = last probe or last real call ok; never more than 2 consecutive failures
-  function healthy() { return members.filter(m => health[m.id]?.lastOk === true && (health[m.id].consecutiveFail || 0) < 3); }
+  function healthy() { return membersNow().filter(m => health[m.id]?.lastOk === true && (health[m.id].consecutiveFail || 0) < 3); }
   // up to `size` members from different families first (diversity), then fill
   function pick() {
-    const h = healthy(), out = [], fams = new Set();
-    for (const m of h) { const f = family(m.id); if (!fams.has(f)) { out.push(m); fams.add(f); } if (out.length >= size) return out; }
-    for (const m of h) { if (!out.includes(m)) out.push(m); if (out.length >= size) break; }
+    const h = healthy(), out = [], fams = new Set(), byProv = new Map();
+    for (const m of h) { const p = provider(m.id); if (!byProv.has(p)) byProv.set(p, []); byProv.get(p).push(m); }
+    // round-robin over providers, one new family at a time: a provider running out of quota never empties the table
+    let moved = true;
+    while (out.length < size && moved) { moved = false;
+      for (const list of byProv.values()) { const i = list.findIndex(m => !fams.has(family(m.id))); if (i < 0) continue; const m = list.splice(i, 1)[0]; out.push(m); fams.add(family(m.id)); moved = true; if (out.length >= size) break; } }
+    for (const m of h) { if (out.length >= size) break; if (!out.includes(m)) out.push(m); }
     return out;
   }
   async function ask(m, system, prompt, validate, parse) {
@@ -73,7 +81,7 @@ function createCommittee({ members = [], healthFile = null, clock = () => Date.n
     for (let k = 0; k < team.length; k++) if (!out[k]) out[k] = rest.length ? rest.shift() : roles[k % roles.length];
     return out;
   }
-  function status() { return { version:COMMITTEE_VERSION, members:members.map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
+  function status() { return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
   return { probe, healthy, pick, decide, status, assignSeats };
 }
-module.exports = { COMMITTEE_VERSION, family, PROBE_SYSTEM, validProbe, createCommittee };
+module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee };

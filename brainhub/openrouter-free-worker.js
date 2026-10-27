@@ -155,10 +155,31 @@ function createOpenRouterFreeWorker({
     }finally{busy=false;}
   }
 
+  // R2544.92 (kullanıcı 27.10: "openrouter'dan hiç model bağlamadın; biri biterse diğeri devam etsin"): ADI VERİLEN tek ücretsiz model
+  // (kurul üyesi). review() ile aynı günlük kota, dakika sınırı ve model bazında soğuma; meşgul bayrağı yok (kurul üyeleri paralel sorar).
+  async function reviewModel(id,{system='',prompt='',validate=null,role='DEFAULT'}={}){
+    role=normalizeRole(role);
+    if(!configured)return {called:false,ok:false,reason:'OPENROUTER_NOT_CONFIGURED',model:id};
+    if(!isOpenRouterFreeId(id)||id==='openrouter/free')return {called:false,ok:false,reason:'NON_FREE_MODEL_REJECTED',model:id};
+    rollover();try{await refresh();}catch{}
+    if(clock()<cooldownUntil)return {called:false,ok:false,reason:'OPENROUTER_KEY_COOLDOWN',model:id};
+    if(blocked(id))return {called:false,ok:false,reason:'MODEL_COOLDOWN',model:id};
+    if(quota.used>=quota.limit||minuteCalls.length>=Math.max(1,Math.min(30,Number(minuteLimit)||10)))return {called:false,ok:false,reason:'OPENROUTER_FREE_QUOTA_EXHAUSTED',model:id};
+    quota.used++;minuteCalls.push(clock());persist();const started=clock();
+    try{const out=await callOne(id,system,prompt,validate,role);persist();return {called:true,ok:true,model:out.routedModel,text:out.text};}
+    catch(e){
+      const msg=clip(e?.message||e,300),c=classifyProviderError(msg,e?.status),p=modelState(id),n=Number(p.consecutiveFailures||0)+1;
+      let until=clock()+Math.min(1800000,30000*2**Math.min(n-1,6));
+      if(c.class==='MODEL_UNAVAILABLE')until=clock()+86400000;if(c.class==='AUTH')until=clock()+3600000;if(c.class==='MODEL_RATE_LIMIT')until=Math.max(until,clock()+300000);
+      mark(id,{ok:false,error:msg,errorClass:c.class,httpStatus:c.httpStatus,latencyMs:clock()-started,cooldown:until});
+      if((c.httpStatus===429&&c.class!=='MODEL_RATE_LIMIT')||c.class==='AUTH')cooldownUntil=Math.max(cooldownUntil,until);
+      persist();return {called:true,ok:false,reason:c.class+(c.httpStatus?' HTTP '+c.httpStatus:''),model:id};
+    }
+  }
   function status(){
     rollover();return {configured,model,models:freeModels,preferredModels:preferred.filter(id=>freeModels.includes(id)),freeOnly:true,optional:true,blocksJev:false,failures,cooldownUntil,busy,catalog:{...catalog},quota:{...quota,remaining:Math.max(0,quota.limit-quota.used),minuteUsed:minuteCalls.length},last:{...last},perModel:freeModels.map(id=>({model:id,...modelState(id),status:blocked(id)?'cooldown':modelState(id).lastOk===true&&clock()-modelState(id).lastOkAt<3600000?'healthy':modelState(id).attempts>0?'failed':'untested'}))};
   }
-  return {review,status};
+  return {review,reviewModel,status};
 }
 
 module.exports={createOpenRouterFreeWorker};

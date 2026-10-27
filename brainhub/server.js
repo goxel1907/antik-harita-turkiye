@@ -60,7 +60,7 @@ const freeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDisco
 // R2544.84 pozisyon masası: ayrı ücretsiz model örneği (kendi günlük sınırı ve sağlık dosyası; Normal sistemin ikinci görüşünü tüketmez)
 const deskFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,
   preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:Math.max(30000,Number(cfg.openRouterFreeWorker?.timeoutMs)||0),maxAttempts:3,
-  dailyLimit:400,minuteLimit:6,statePath:path.join(ROOT,'data','openrouter-free-desk-health.json')});
+  dailyLimit:700,minuteLimit:20,statePath:path.join(ROOT,'data','openrouter-free-desk-health.json')}); // R2544.92: committee members ask in parallel
 function validResearchText(text){try{const raw=String(text||'').match(/\{[\s\S]*\}/)?.[0],j=JSON.parse(raw);return typeof j.summary==='string'&&j.summary.trim().length>0&&Array.isArray(j.keyPoints)&&Array.isArray(j.sourceUrls);}catch{return false;}}
 const knowledgeResearch=createKnowledgeResearch({
   root:ROOT,
@@ -1577,11 +1577,31 @@ function traderRouterMembers(){
     catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}}}));
 }
 const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {ok:r?.ok===true,text:r?.text,model:r?.model||null,reason:r?.reason||r?.detail||null};}});
+// R2544.92 (kullanıcı 27.10: "openrouter'da ve 9router'da başka ücretsiz modelleri kur, tek düze gitme, birinin kotası biterse diğeri devam
+// etsin"): kurul üyeleri her sağlık kontrolünde yeniden kurulur:
+//  - 9Router: sabit sıra + kullanıcının 9Router'a eklediği resmî API sağlayıcılarının güçlü modelleri (Gemini AI Studio, Groq, Cerebras,
+//    Mistral, NVIDIA, Cloudflare, GLM, Kimi ...) kod değişmeden katılır;
+//  - OpenRouter: adı verilen güçlü ücretsiz modeller TEK TEK üye (her biri kendi soğuması), en sonda ücretsiz havuz;
+//  - kurul seçimi sağlayıcılar arasında sırayla yapılır (Kiro biterse OpenRouter / Gemini / Groq devam eder).
+const OR_FREE_PREF=['nvidia/nemotron-3-ultra-550b-a55b:free','google/gemma-4-31b-it:free','poolside/laguna-s-2.1:free','nvidia/nemotron-3.5-super-vl:free','xingchen-agi/xing4.0-29b-a4b:free','dots-studio/dots-3-note-preview:free','google/gemma-4-26b-a4b-it:free'];
+const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)/i;
+let committeeRouterIds={at:0,ids:[]};
+async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
+setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
+setInterval(()=>refreshCommitteeRouterIds().catch(()=>{}),30*60*1000).unref?.();
+const routerCall=m=>async({system,prompt,validate})=>{try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:4096,validate});return {ok:true,text:out.text,model:m};}catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}};
+function committeeMembers(freeWorker,poolId){
+  const fixed=traderRouterMembers(),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
+  const extra=(committeeRouterIds.ids||[]).filter(m=>!have.has(m)&&!/^(kr|gc|oc)\//.test(m)&&!/qwen3-coder/.test(m)&&ROUTER_STRONG.test(m)).slice(0,8).map(m=>({id:'ROUTER:'+m,call:routerCall(m)}));
+  const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
+  const or=OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)).map(m=>({id:'OR:'+m,call:async a=>{const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
+  return [...fixed,...extra,...or,freeMember(freeWorker,poolId)];
+}
 const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,
-  dailyLimit:500,minuteLimit:4,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')});
-const deskCommittee=createCommittee({size:5,members:[...traderRouterMembers(),freeMember(deskFreeWorker,'FREE:openrouter')],healthFile:path.join(ROOT,'data','model-committee-desk.json')});
-const examCommittee=createCommittee({size:5,members:[...traderRouterMembers(),freeMember(examFreeWorker,'FREE:openrouter')],healthFile:path.join(ROOT,'data','model-committee-exam.json')});
-const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav'),committee:examCommittee});
+  dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota
+const deskCommittee=createCommittee({size:5,members:()=>committeeMembers(deskFreeWorker,'FREE:openrouter'),healthFile:path.join(ROOT,'data','model-committee-desk.json')});
+const examCommittee=createCommittee({size:3,members:()=>committeeMembers(examFreeWorker,'FREE:openrouter'),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
+const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav'),committee:examCommittee,dailyCap:100}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
 setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();
 setInterval(()=>{traderExam.tick().catch(()=>{});},20000).unref?.();

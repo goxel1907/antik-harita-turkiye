@@ -6786,7 +6786,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const rule=lot.lane==='ZIRVE5'?(lot.side==='LONG'?'ZIRVE5_FIBO_LONG':'ZIRVE5_FIBO_SHORT'):lot.rule;
       const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t});
       const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES});
-      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
+      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
       const f=lot.entryFeatures||(lot.entryFeatures={});
       f.committee=r?.ok?{at:clock(),decision:r.final,consensus:r.consensus,rounds:r.rounds,votes:slim(r.round2||r.votes),round1:slim(r.votes),shadow:true,version:TB.TB_VERSION}:{at:clock(),error:r?.reason||'FAILED',shadow:true};
       saveTop3State();
@@ -6808,7 +6808,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let gateTimer=null; // R2544.90: cleared when the committee answers
       const r=await Promise.race([Promise.resolve(deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES})).finally(()=>clearTimeout(gateTimer)),
         new Promise(res=>{gateTimer=setTimeout(()=>res({ok:false,reason:'COMMITTEE_TIMEOUT'}),150000);})]);
-      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
+      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
       if(!r?.ok)return {veto:false,record:{at:clock(),error:r?.reason||'FAILED',fallback:'RULE',authority:true,ms:clock()-t0}};
       return {veto:r.final!=='TAKE',record:{at:clock(),decision:r.final,consensus:r.consensus,rounds:r.rounds,votes:slim(r.round2||r.votes),round1:slim(r.votes),authority:true,ms:clock()-t0,version:TB.TB_VERSION}};
     }catch(e){return {veto:false,record:{at:clock(),error:String(e?.message||e).slice(0,120),fallback:'RULE',authority:true}};}

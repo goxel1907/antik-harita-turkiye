@@ -20,7 +20,7 @@ test('R2544.87 seats: every member gets its own timeframe seat in round 1 and ke
 test('R2544.87 wiring: Gemini first, 4 seats, live TEST lots get a SHADOW committee entry decision from candles closed before the entry; Office shows it',()=>{
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.match(sv,/const TRADER_ROUTER_ORDER=\['gc\/gemini-3\.1-pro-preview','kr\/claude-sonnet-4\.5','kr\/deepseek-3\.2','kr\/glm-5','kr\/minimax-m2\.5'/);
-  assert.match(sv,/const deskCommittee=createCommittee\(\{size:5,/);assert.match(sv,/const examCommittee=createCommittee\(\{size:5,/); // R2544.88: 5 seats
+  assert.match(sv,/const deskCommittee=createCommittee\(\{size:5,/);assert.match(sv,/const examCommittee=createCommittee\(\{size:3,/); // R2544.92: exam 3 members // R2544.88: 5 seats
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8'),i=lc.indexOf('async function entryCommitteeShadow('),b=lc.slice(i,lc.indexOf('\n  // R2544.89 kurul kap',i)); // R2544.89: the gate and the desk executor follow
   assert.ok(i>0);assert.match(b,/end=t-1/);assert.match(b,/roles:TB\.ENTRY_ROLES/);assert.match(b,/shadow:true/);
   assert.doesNotMatch(b,/placeAlgo|placeRunnerStop|top3CloseMarket|top3Open\(|cancel/,'never trades');
@@ -38,7 +38,7 @@ test('R2544.87 exam: a pause meant for the older build ends by itself on this bu
   fs.writeFileSync(path.join(dir,'exam-config.json'),JSON.stringify({enabled:false}));
   assert.equal(await createTraderExam({dir,committee}).tick(),null,'plain pause holds');
   fs.writeFileSync(path.join(dir,'exam-config.json'),JSON.stringify({enabled:false,enableForVersion:EXAM_VERSION}));
-  assert.equal((await createTraderExam({dir,committee}).tick()).id,'q1');assert.equal(EXAM_VERSION,'R2544.88-TRADER-EXAM-PA');
+  assert.equal((await createTraderExam({dir,committee}).tick()).id,'q1');assert.equal(EXAM_VERSION,'R2544.92-TRADER-EXAM-PA3');
 });
 test('R2544.91 seats follow the model, not the position: Claude reads price action even when Gemini is missing; Qwen3 Coder is off the table',async()=>{
   const mk=id=>({id,call:async()=>({ok:true,text:'{"ok":true}'})}),run=async ids=>{const c=createCommittee({size:5,members:ids.map(mk)});await c.probe({force:true});const t=c.pick(),s=c.assignSeats(t,TB.ENTRY_ROLES);return Object.fromEntries(t.map((m,i)=>[m.id.replace('ROUTER:',''),s[i].key]));};

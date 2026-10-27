@@ -37,7 +37,7 @@ function mobileStatus(status={}){
   // open lots, the last scan, the latest decisions with their reasons, results - no zone dumps, no lessons text
   // R2544.89 kurul özeti (telefon kurul masası ve sınav ilerlemesi)
   {const pd=status.top3?.positionDesk||status.zirve5?.positionDesk;if(pd&&pd.committee){const c=pd.committee;
-    out.committee={team:(c.team||[]).map(x=>String(x).replace(/^ROUTER:|^FREE:/,'')),healthy:(c.members||[]).filter(m=>m.healthy).length,members:(c.members||[]).length,
+    out.committee={team:(c.team||[]).map(x=>String(x).replace(/^ROUTER:|^FREE:|^OR:/,'').replace(/:free$/,'')),healthy:(c.members||[]).filter(m=>m.healthy).length,members:(c.members||[]).length,
       exam:pd.exam?{answered:pd.exam.answered,total:pd.exam.total,finished:pd.exam.finished===true}:null,entry:pd.entryComparison||null};}}
   const z=status.zirve5;
   if(z&&typeof z==='object'&&z.ok!==false){

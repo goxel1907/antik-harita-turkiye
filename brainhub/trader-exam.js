@@ -5,7 +5,7 @@
 // Hız: en çok 45 sn'de bir soru, günde en çok dailyCap; packets.jsonl yoksa hiçbir şey yapmaz.
 const fs = require('fs'), path = require('path');
 const TB = require('./trader-brain');
-const EXAM_VERSION = 'R2544.88-TRADER-EXAM-PA';
+const EXAM_VERSION = 'R2544.92-TRADER-EXAM-PA3';
 function createTraderExam({ dir, judges = {}, committee = null, clock = () => Date.now(), minIntervalMs = 45000, dailyCap = 600, maxAttempts = 3 } = {}) {
   const P = f => path.join(dir, f);
   let busy = false, lastAt = 0, st = null;
@@ -26,6 +26,8 @@ function createTraderExam({ dir, judges = {}, committee = null, clock = () => Da
     const now = clock(); if (now - lastAt < minIntervalMs) return null;
     st = st || readState(); const day = new Date(now).toISOString().slice(0, 10); if (st.day !== day) { st.day = day; st.used = 0; }
     if (st.used >= (Number(cfg.dailyCap) || dailyCap)) return { skipped:'DAILY_CAP' };
+    // R2544.92: no attempt (and no packet marked failed) while the committee has fewer than 2 healthy members (27.10: 177 packets burned)
+    if (committee && typeof committee.healthy === 'function' && committee.healthy().length < 2) return { skipped:'COMMITTEE_NOT_READY' };
     const done = answeredIds(), pk = nextPacket(done); if (!pk) { st.finished = true; saveState(); return { finished:true }; }
     busy = true; lastAt = now;
     try {

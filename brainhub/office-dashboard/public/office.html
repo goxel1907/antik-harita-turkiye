@@ -747,7 +747,7 @@ function renderCommittee(s){
   const pd=s.top3?.positionDesk||s.zirve5?.positionDesk||null,cm=pd?.committee,ex=pd?.exam;const host=document.getElementById('committeeRoom');if(!host)return;
   const T=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t;};
   if(!cm){T('cmFinal','kurul yok');T('cmSub','bu sürümde bağlı değil');for(let i=0;i<4;i++){const g=document.getElementById('cmSeat-'+i);if(g)g.style.display='none';}return;}
-  const short=id=>String(id).replace(/^ROUTER:(kr|oc|gc)\//,'').replace(/^FREE:/,'').replace(/-free$/,'').replace(/-preview$/,'').replace('claude-','Claude ').replace('gemini-','Gemini ').replace('openrouter','OpenRouter').slice(0,18);
+  const short=id=>String(id).replace(/^ROUTER:(kr|oc|gc)\//,'').replace(/^ROUTER:/,'').replace(/^OR:[^/]*\//,'OR ').replace(/:free$/,'').replace(/^FREE:/,'').replace(/-free$/,'').replace(/-preview$/,'').replace('claude-','Claude ').replace('gemini-','Gemini ').replace('openrouter','OpenRouter').slice(0,18);
   const team=cm.team||[],members=cm.members||[];
   // latest committee decision across open İlk 3 / ZİRVE-5 lots
   const lots=[...(s.top3?.active||[]),...(s.zirve5?.active||[])],sy=a=>String(a.symbol||'').replace(/USDT$/,'');

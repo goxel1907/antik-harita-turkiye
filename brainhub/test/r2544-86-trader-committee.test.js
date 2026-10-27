@@ -27,7 +27,7 @@ test('R2544.86 committee: health check first, 3 members from different families,
   const c=createCommittee({members:ms,healthFile:path.join(dir,'h.json')});
   await c.probe({force:true});
   assert.deepEqual(c.healthy().map(m=>m.id).sort(),['FREE:openrouter','ROUTER:kr/claude-haiku-4.5','ROUTER:kr/claude-sonnet-4.5','ROUTER:kr/deepseek-3.2']);
-  assert.deepEqual(c.pick().map(m=>m.id),['ROUTER:kr/claude-sonnet-4.5','ROUTER:kr/deepseek-3.2','FREE:openrouter'],'one per family: Claude, DeepSeek, OpenRouter');
+  assert.deepEqual(c.pick().map(m=>m.id).sort(),['FREE:openrouter','ROUTER:kr/claude-sonnet-4.5','ROUTER:kr/deepseek-3.2'],'one per family: Claude, DeepSeek, OpenRouter (R2544.92: spread over providers)');
   const r=await c.decide({system:'S',prompt:'P',validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP'});
   assert.equal(r.consensus,'MAJORITY_AFTER_DEBATE');assert.equal(r.final,'TAKE');assert.equal(r.rounds,2);
   assert.ok(calls.filter(x=>x.endsWith(':R2')).length===3,'every member sees the others in round 2');
