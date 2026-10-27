@@ -10,7 +10,7 @@ const {openStore}=require('./store');
 const {createLiveController}=require('./live-controller');
 const {createJevClient}=require('./jev-decision');
 const {createOpenRouterFreeWorker}=require('./openrouter-free-worker');
-const {createCommittee}=require('./model-committee'); // R2544.86
+const {createCommittee,pickRouterExtras}=require('./model-committee'); // R2544.86; R2544.95 pickRouterExtras
 const {createTraderExam}=require('./trader-exam'); // R2544.86
 const {
   NINEROUTER_OPENCODE_BASELINE,
@@ -1584,7 +1584,7 @@ const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {o
 //  - OpenRouter: adı verilen güçlü ücretsiz modeller TEK TEK üye (her biri kendi soğuması), en sonda ücretsiz havuz;
 //  - kurul seçimi sağlayıcılar arasında sırayla yapılır (Kiro biterse OpenRouter / Gemini / Groq devam eder).
 const OR_FREE_PREF=['nvidia/nemotron-3-ultra-550b-a55b:free','google/gemma-4-31b-it:free','poolside/laguna-s-2.1:free','nvidia/nemotron-3.5-super-vl:free','xingchen-agi/xing4.0-29b-a4b:free','dots-studio/dots-3-note-preview:free','google/gemma-4-26b-a4b-it:free'];
-const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)/i;
+const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)|minimax-m2/i; // R2544.95 + MiniMax M2 (NVIDIA)
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
@@ -1592,7 +1592,7 @@ setInterval(()=>refreshCommitteeRouterIds().catch(()=>{}),30*60*1000).unref?.();
 const routerCall=m=>async({system,prompt,validate})=>{try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:4096,validate});return {ok:true,text:out.text,model:m};}catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}};
 function committeeMembers(freeWorker,poolId){
   const fixed=traderRouterMembers(),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
-  const extra=(committeeRouterIds.ids||[]).filter(m=>!have.has(m)&&!/^(kr|gc|oc)\//.test(m)&&!/qwen3-coder/.test(m)&&ROUTER_STRONG.test(m)).slice(0,8).map(m=>({id:'ROUTER:'+m,call:routerCall(m)}));
+  const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:12}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
   const or=OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)).map(m=>({id:'OR:'+m,call:async a=>{const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
   return [...fixed,...extra,...or,freeMember(freeWorker,poolId)];

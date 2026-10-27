@@ -21,6 +21,7 @@ const PROVIDER_LIMITS = [
   [/^ROUTER:mistral\//i, { perDay:null, text:'Mistral ~1/sn' }],
   [/^ROUTER:(glm|zai)\//i, { perDay:null, text:'GLM aynı anda 1' }],
   [/^ROUTER:(gemini|google|aistudio)\//i, { perDay:null, text:'AI Studio günlük' }],
+  [/^ROUTER:kc\//i, { perDay:null, text:'Kilo 200/saat' }],
   [/^ROUTER:kr\//i, { perDay:null, text:'Kiro aylık kota' }],
   [/^ROUTER:gc\//i, { perDay:null, text:'Gemini CLI günlük' }],
   [/^(OR:|FREE:openrouter)/i, { perDay:null, shared:'OR', text:'OpenRouter hesap' }]];
@@ -29,6 +30,19 @@ const QUOTA_RE = /quota|limit|exhaust|exceeded|\b429\b|\b402\b|too many|rate.?li
 // MONTHLY / QUOTA = the free allowance is used up (waits for the reset); RATE = the provider is busy right now (429), it comes back by itself
 const quotaOf = (err, at) => { const e = String(err || ''); if (!QUOTA_RE.test(e)) return null; const kind = /month/i.test(e) ? 'MONTHLY' : /reached the limit|exhaust|credits|402|quota/i.test(e) ? 'QUOTA' : 'RATE'; return { at, kind, monthly:kind === 'MONTHLY', text:e.slice(0, 120) }; };
 const dayOf = t => new Date(t).toISOString().slice(0, 10);
+// R2544.95 (kullanıcı 27.10: "hangilerine anahtar gireceğim"): 9Router'a eklenen sağlayıcıların modelleri kurula katılırken HER SAĞLAYICIDAN
+// en çok 3 (toplam 12): NVIDIA 100+ model getirir, tek başına bütün yerleri kapıp Groq / Gemini'yi dışarıda bırakmasın. Ses / gömme / güvenlik
+// modelleri (metin trader'ı değil) alınmaz.
+const ROUTER_NOT_TEXT = /tts|whisper|embed|rerank|guard|safety|transcri|speech|audio|image-gen|imagen|veo/i;
+function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12 } = {}) {
+  const per = new Map(), out = [];
+  for (const m of Array.isArray(ids) ? ids : []) {
+    if (have.has(m) || /^(kr|gc|oc)\//.test(m) || /qwen3-coder/.test(m) || ROUTER_NOT_TEXT.test(m) || !strong.test(m)) continue;
+    const p = String(m).split('/')[0], n = per.get(p) || 0; if (n >= perProvider) continue;
+    per.set(p, n + 1); out.push(m); if (out.length >= max) break;
+  }
+  return out;
+}
 const memberKey = id => String(id || '').replace(/^ROUTER:|^FREE:|^OR:/, '');
 const avg = (s, n) => n ? Number((s / n).toFixed(3)) : null;
 // a vote is scored only when the outcome (R) is known: TAKE is right when R > 0, SKIP is right when R <= 0.
@@ -147,4 +161,4 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   function status() { return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
   return { probe, healthy, pick, decide, status, assignSeats };
 }
-module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board };
+module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT };

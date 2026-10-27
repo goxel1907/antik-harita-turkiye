@@ -31,7 +31,7 @@ test('R2544.92 OpenRouter: every named free model is its own member (own cooldow
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.match(sv,/const OR_FREE_PREF=\['nvidia\/nemotron-3-ultra-550b-a55b:free','google\/gemma-4-31b-it:free','poolside\/laguna-s-2\.1:free'/);
   assert.match(sv,/members:\(\)=>committeeMembers\(deskFreeWorker,'FREE:openrouter'\)/);assert.match(sv,/const examCommittee=createCommittee\(\{size:3,members:\(\)=>committeeMembers\(examFreeWorker/);
-  assert.match(sv,/committee:examCommittee,dailyCap:100,keyFile:/); // R2544.94 key for the scorecardassert.match(sv,/!\/\^\(kr\|gc\|oc\)\\\/\/\.test\(m\)&&!\/qwen3-coder\/\.test\(m\)&&ROUTER_STRONG\.test\(m\)/);
+  assert.match(sv,/committee:examCommittee,dailyCap:100,keyFile:/); // R2544.94 key for the scorecardassert.match(sv,/pickRouterExtras\(committeeRouterIds\.ids\|\|\[\],\{have,strong:ROUTER_STRONG,perProvider:3,max:12\}\)/); // R2544.95
   const {createTraderExam,EXAM_VERSION}=require('../trader-exam'),dir=fs.mkdtempSync(path.join(os.tmpdir(),'ex92-'));
   fs.writeFileSync(path.join(dir,'packets.jsonl'),JSON.stringify({id:'q1',rule:'LONG_EARLY_RETEST',packet:{}})+'\n');
   const one={healthy:()=>[{id:'x'}],decide:async()=>{throw new Error('must not be asked');}};
