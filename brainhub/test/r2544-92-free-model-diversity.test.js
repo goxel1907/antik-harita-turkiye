@@ -37,5 +37,12 @@ test('R2544.92 OpenRouter: every named free model is its own member (own cooldow
   const one={healthy:()=>[{id:'x'}],decide:async()=>{throw new Error('must not be asked');}};
   assert.equal((await createTraderExam({dir,committee:one}).tick()).skipped,'COMMITTEE_NOT_READY');
   assert.ok(!fs.existsSync(path.join(dir,'exam-state.json'))||!JSON.parse(fs.readFileSync(path.join(dir,'exam-state.json'),'utf8')).attempts.q1,'the packet is not marked as failed');
-  assert.equal(EXAM_VERSION,'R2544.92-TRADER-EXAM-PA3');
+  assert.equal(EXAM_VERSION,'R2544.93-TRADER-EXAM-BB');
+});
+test('R2544.93 bull and bear at the table: even a 3-member committee seats price action + BULL + BEAR; the prompt no longer says skipping is fine',async()=>{
+  const TB=require('../trader-brain');const mk=id=>({id,call:async()=>({ok:true,text:'{"ok":true}'})});
+  const c=createCommittee({size:3,members:()=>['OR:google/gemma-4-31b-it:free','OR:nvidia/nemotron-3-ultra-550b-a55b:free','OR:poolside/laguna-s-2.1:free'].map(mk)});await c.probe({force:true});
+  const seats=c.assignSeats(c.pick(),TB.ENTRY_ROLES).map(r=>r.key).sort();assert.deepEqual(seats,['ayı','boğa','price action']);
+  assert.match(TB.ENTRY_ROLES.find(r=>r.key==='boğa').text,/strongest honest case FOR/);assert.match(TB.ENTRY_ROLES.find(r=>r.key==='ayı').text,/strongest honest case AGAINST/);
+  assert.doesNotMatch(TB.ENTRY_SYSTEM,/Skipping is fine/);assert.match(TB.ENTRY_SYSTEM,/do not skip by habit, and do not take by habit/);
 });

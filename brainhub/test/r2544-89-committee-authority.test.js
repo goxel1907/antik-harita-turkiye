@@ -80,7 +80,7 @@ test('R2544.89 entry gate: KURUL mode -> the committee must say TAKE (veto only)
   const c=cm(TAKE);f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:c}});await f.controller.testSupervisorTick();
   assert.equal((await f.controller.z5Tick()).entries,1);const a=f.lot();
   assert.equal(a.entryFeatures.committee.decision,'TAKE');assert.equal(a.entryFeatures.committee.authority,true);
-  assert.deepEqual(c.calls[0].roles.map(r=>r.key),['1g/4sa','price action','5dk+akış','risk','1sa/15dk']);assert.equal(c.calls[0].fallback,'SKIP');
+  assert.deepEqual(c.calls[0].roles.map(r=>r.key),['price action','boğa','ayı','1g/4sa','5dk+akış']);assert.equal(c.calls[0].fallback,'SKIP');
   const pk=JSON.parse(c.calls[0].prompt);assert.equal(pk.plan.entry,100);assert.ok(pk.plan.stop>100,'SHORT stop above the entry on the screen');
   require('../binance-rate-limit').resetForTests();
   f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:cm({ok:false,reason:'COMMITTEE_NO_HEALTHY_MEMBER',votes:[]})}});await f.controller.testSupervisorTick();

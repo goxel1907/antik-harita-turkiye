@@ -22,8 +22,8 @@ test('R2544.88 the screen carries a chartReading per timeframe and the system pr
   const p=TB.entryPacket({k,plan:{side:'LONG',rule:'LONG_EARLY_RETEST',entry:140,stop:135,target:155},t:T0});
   for(const tf of ['m5','m15','h1','h4','d1'])assert.ok(p.timeframes[tf].chartReading,tf);
   assert.match(TB.ENTRY_SYSTEM,/chartReading computed by code/);assert.match(TB.ENTRY_SYSTEM,/trust the chartReading numbers/);
-  assert.deepEqual(TB.ENTRY_ROLES.map(r=>r.key),['1g/4sa','price action','5dk+akış','risk','1sa/15dk']);
-  assert.match(TB.ENTRY_ROLES[1].text,/FVGs, Fibonacci\/OTE, premium\/discount, order blocks, patterns/);
+  assert.deepEqual(TB.ENTRY_ROLES.map(r=>r.key),['price action','boğa','ayı','1g/4sa','5dk+akış']); // R2544.93 bull/bear
+  assert.match(TB.ENTRY_ROLES[0].text,/FVGs, Fibonacci\/OTE, premium\/discount, order blocks, patterns/);
   assert.ok(JSON.stringify(p).length<40000,'stays small for free models');
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(lc,/const chart=\{m15:TB\.chartReading\(k15\.raw,'15m',\{t:now,R:Rf\}\),h1:TB\.chartReading\(k1h\.raw,'1h',\{t:now,R:Rf\}\)\};/,'the desk sees it too');

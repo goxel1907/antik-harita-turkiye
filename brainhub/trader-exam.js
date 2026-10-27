@@ -5,7 +5,7 @@
 // Hız: en çok 45 sn'de bir soru, günde en çok dailyCap; packets.jsonl yoksa hiçbir şey yapmaz.
 const fs = require('fs'), path = require('path');
 const TB = require('./trader-brain');
-const EXAM_VERSION = 'R2544.92-TRADER-EXAM-PA3';
+const EXAM_VERSION = 'R2544.93-TRADER-EXAM-BB';
 function createTraderExam({ dir, judges = {}, committee = null, clock = () => Date.now(), minIntervalMs = 45000, dailyCap = 600, maxAttempts = 3 } = {}) {
   const P = f => path.join(dir, f);
   let busy = false, lastAt = 0, st = null;
