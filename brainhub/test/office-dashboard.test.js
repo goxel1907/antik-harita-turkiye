@@ -60,7 +60,7 @@ test('office recognizes v9.5.111 and describes JEV as final strategic authority 
 test('R2541 Office keeps JEV policy DOM refresh null-safe and exposes full-width atomic Turkish JEV mirror telemetry', () => {
   const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
   const serverSrc = fs.readFileSync(path.join(dir, 'office-server.js'), 'utf8');
-  assert.match(serverSrc, /2.5.72-R2544.90/);
+  assert.match(serverSrc, /2.5.73-R2544.91/);
   assert.match(html, /const jevPolicyEl=\$\('#jevPolicy'\); if\(jevPolicyEl\)/);
   assert.equal(html.includes("$('#jevPolicy').textContent ="), false);
   assert.match(html, /JEV Cortex/);
@@ -98,7 +98,7 @@ test('R2541 Office keeps JEV policy DOM refresh null-safe and exposes full-width
 test('R2542 Trader Office per-desk performance is visible and read-only', () => {
   const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
   const serverSrc = fs.readFileSync(path.join(dir, 'office-server.js'), 'utf8');
-  assert.match(serverSrc,/2.5.72-R2544.90/);
+  assert.match(serverSrc,/2.5.73-R2544.91/);
   assert.match(html,/Masa performansı • 5M \/ 15M \/ Vur-kaç \/ İlk 3/);
   assert.match(html,/id="deskPerf"/);
   assert.match(html,/sovereignDeskStats/);

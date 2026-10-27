@@ -1567,10 +1567,11 @@ function backgroundAnalysisWindowOpen(){
 // 9Router modelleri (Kiro'daki ücretsiz Claude, DeepSeek, GLM ...) + OpenRouter ücretsiz havuzu; her 30 dk sağlık sorusu; masa ve trader
 // sınavı için ayrı kurullar (ayrı sağlık dosyası, ayrı ücretsiz örnek: biri diğerini meşgul etmez).
 // R2544.87/88: koltuk sırası = üye sırası: 1g/4sa Gemini 3.1 Pro, price action Claude Sonnet 4.5, 5dk+akış DeepSeek, risk GLM-5, 1sa/15dk MiniMax
-const TRADER_ROUTER_ORDER=['gc/gemini-3.1-pro-preview','kr/claude-sonnet-4.5','kr/deepseek-3.2','kr/glm-5','kr/minimax-m2.5','gc/gemini-3-flash-preview','kr/claude-haiku-4.5','kr/qwen3-coder-next','gc/gemini-2.5-pro'];
+// R2544.91: Qwen3 Coder çıktı (9Router logu: her soruda ~60 bin token, diğerleri 10-15 bin; Kiro kotasını 4-5 kat yiyordu), Claude Haiku yedekte
+const TRADER_ROUTER_ORDER=['gc/gemini-3.1-pro-preview','kr/claude-sonnet-4.5','kr/deepseek-3.2','kr/glm-5','kr/minimax-m2.5','kr/claude-haiku-4.5','gc/gemini-3-flash-preview','gc/gemini-2.5-pro'];
 function traderRouterMembers(){
   const all=[...(Array.isArray(cfg.kiro)?cfg.kiro:[]),...(Array.isArray(cfg.opencode)?cfg.opencode:[])].map(x=>typeof x==='string'?x:x?.id||x?.model).filter(x=>/^[A-Za-z0-9._:\/+-]{1,120}$/.test(String(x||'')));
-  const ord=[...TRADER_ROUTER_ORDER,...all.filter(m=>!TRADER_ROUTER_ORDER.includes(m)&&!/^oc\//.test(m))].slice(0,10); // 9Router serves any listed id (gc/ is not in models.json)
+  const ord=[...TRADER_ROUTER_ORDER,...all.filter(m=>!TRADER_ROUTER_ORDER.includes(m)&&!/^oc\//.test(m)&&!/qwen3-coder/.test(m))].slice(0,10); // 9Router serves any listed id (gc/ is not in models.json)
   return ord.map(m=>({id:'ROUTER:'+m,call:async({system,prompt,validate})=>{
     try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:4096,validate});return {ok:true,text:out.text,model:m};}
     catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}}}));

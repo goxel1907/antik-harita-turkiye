@@ -22,7 +22,7 @@ function createCommittee({ members = [], healthFile = null, clock = () => Date.n
     if (probing || (!force && clock() - lastProbeAt < probeEveryMs)) return null; probing = true; lastProbeAt = clock();
     try {
       await Promise.all(members.map(async m => { const t0 = clock(); let r;
-        try { r = await withTimeout(m.call({ system:PROBE_SYSTEM, prompt:'ping', validate:validProbe, role:'TRADER' }), 60000); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
+        try { r = await withTimeout(m.call({ system:PROBE_SYSTEM, prompt:'ping', validate:validProbe, role:'TRADER' }), 120000); } /* R2544.91: Gemini Pro thinks long */ catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
         mark(m.id, !!(r?.ok && validProbe(r.text)), { latencyMs:clock() - t0, model:r?.model || null, error:r?.ok ? null : String(r?.reason || r?.detail || 'FAILED').slice(0, 200), probedAt:clock() }); }));
       save(); return healthy().map(m => m.id);
     } finally { probing = false; }
@@ -47,7 +47,8 @@ function createCommittee({ members = [], healthFile = null, clock = () => Date.n
   // R2544.87 SEATS: each member owns a part of the screen (e.g. 1d/4h, 1h/15m, 5m+flow, risk); the seat text is added to its system prompt
   async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '' }) {
     const team = pick(); if (!team.length) { save(); return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] }; }
-    const seatOf = i => Array.isArray(roles) && roles.length ? roles[i % roles.length] : null, sysOf = i => seatOf(i) ? system + '\n\nYOUR SEAT AT THE DESK: ' + seatOf(i).text : system;
+    // R2544.91: seats go to the preferred model family first (Claude = price action even when Gemini is missing), then by order
+    const seatMap = assignSeats(team, roles), seatOf = i => seatMap[i] || null, sysOf = i => seatOf(i) ? system + '\n\nYOUR SEAT AT THE DESK: ' + seatOf(i).text : system;
     const r1 = await Promise.all(team.map((m, i) => ask(m, sysOf(i), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(i)?.key || null })))), v1 = r1.filter(x => x.ok);
     const tally = vs => { const c = {}; for (const v of vs) c[v.vote[field]] = (c[v.vote[field]] || 0) + 1; return c; };
     const majority = (vs) => { const c = tally(vs), need = Math.floor(vs.length / 2) + 1; const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; return top && top[1] >= need ? top[0] : null; };
@@ -63,7 +64,16 @@ function createCommittee({ members = [], healthFile = null, clock = () => Date.n
     save();
     return { ok:true, final:fin ?? fallback, consensus:fin ? 'MAJORITY_AFTER_DEBATE' : 'NO_MAJORITY_DEFAULT', votes:r1, round2:r2, rounds:2, voters:v2.length, version:COMMITTEE_VERSION };
   }
+  function assignSeats(team, roles) {
+    if (!Array.isArray(roles) || !roles.length) return [];
+    const out = new Array(team.length).fill(null), taken = new Set(), fam = team.map(m => family(m.id));
+    for (let pass = 0; pass < 3; pass++) for (const r of roles) { if (taken.has(r)) continue; const pref = (r.prefer || [])[pass]; if (!pref) continue;
+      const i = fam.findIndex((f, k) => f === pref && !out[k]); if (i >= 0) { out[i] = r; taken.add(r); } }
+    const rest = roles.filter(r => !taken.has(r));
+    for (let k = 0; k < team.length; k++) if (!out[k]) out[k] = rest.length ? rest.shift() : roles[k % roles.length];
+    return out;
+  }
   function status() { return { version:COMMITTEE_VERSION, members:members.map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
-  return { probe, healthy, pick, decide, status };
+  return { probe, healthy, pick, decide, status, assignSeats };
 }
 module.exports = { COMMITTEE_VERSION, family, PROBE_SYSTEM, validProbe, createCommittee };

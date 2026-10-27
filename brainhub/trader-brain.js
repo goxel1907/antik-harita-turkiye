@@ -108,11 +108,11 @@ const ENTRY_SYSTEM = 'You are an experienced crypto futures trader. A fixed rule
   'Answer ONLY with JSON: {"decision":"TAKE|SKIP","confidence":0-100,"pTarget":0-100,"reasonTr":"Türkçe 1-2 cümle: hangi zaman dilimi ne diyor","keyRisk":"Türkçe kısa: en büyük risk"}. pTarget = your probability that price reaches the target before the stop.';
 // R2544.87 (kullanıcı 27.10: zaman dilimlerine entegre): kurulda her üyenin bir koltuğu var; aynı ekranı görür ama kendi bölümünden sorumludur
 const ENTRY_ROLES = [
-  { key:'1g/4sa', text:'HIGHER-TIMEFRAME ANALYST. You own the 1d and 4h timeframes and the day/week/month levels: the larger trend, where price sits in the larger range, which levels are above and below and how far they are in R. Judge the trade from that context first.' },
-  { key:'price action', text:'PRICE ACTION READER. You own the chartReading of every timeframe: BOS/CHoCH, open FVGs, Fibonacci/OTE, premium/discount, order blocks, patterns, equal highs/lows and sweeps. Say which of them supports or blocks this trade and where (in R).' },
-  { key:'5dk+akış', text:'TRIGGER AND FLOW ANALYST. You own the 5m timeframe: the trigger candle and the last candles, wicks, volume versus median, taker-buy share, and BTC right now.' },
-  { key:'risk', text:'RISK OFFICER. You own the plan: stop distance, target in R, every opposite level between entry and target, and the base rate. Argue against the trade unless the evidence for it is clear.' },
-  { key:'1sa/15dk', text:'STRUCTURE ANALYST. You own the 1h and 15m timeframes: swing structure, the last break, whether the move is fresh or already extended, and how the retest/rejection looks.' }];
+  { key:'1g/4sa', prefer:['GEMINI', 'CLAUDE', 'MINIMAX'], text:'HIGHER-TIMEFRAME ANALYST. You own the 1d and 4h timeframes and the day/week/month levels: the larger trend, where price sits in the larger range, which levels are above and below and how far they are in R. Judge the trade from that context first.' },
+  { key:'price action', prefer:['CLAUDE', 'GEMINI'], text:'PRICE ACTION READER. You own the chartReading of every timeframe: BOS/CHoCH, open FVGs, Fibonacci/OTE, premium/discount, order blocks, patterns, equal highs/lows and sweeps. Say which of them supports or blocks this trade and where (in R).' },
+  { key:'5dk+akış', prefer:['DEEPSEEK'], text:'TRIGGER AND FLOW ANALYST. You own the 5m timeframe: the trigger candle and the last candles, wicks, volume versus median, taker-buy share, and BTC right now.' },
+  { key:'risk', prefer:['GLM'], text:'RISK OFFICER. You own the plan: stop distance, target in R, every opposite level between entry and target, and the base rate. Argue against the trade unless the evidence for it is clear.' },
+  { key:'1sa/15dk', prefer:['MINIMAX'], text:'STRUCTURE ANALYST. You own the 1h and 15m timeframes: swing structure, the last break, whether the move is fresh or already extended, and how the retest/rejection looks.' }];
 function parseEntry(text) {
   try { const j = JSON.parse(String(text || '').match(/\{[\s\S]*\}/)?.[0]);
     if (!['TAKE', 'SKIP'].includes(j.decision)) return { ok:false, reason:'TB_DECISION_INVALID' };

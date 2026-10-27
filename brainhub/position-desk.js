@@ -86,11 +86,11 @@ const SYSTEM = 'You are a professional crypto futures trader on a trading desk. 
 function freePrompt(p) { return { system:SYSTEM, prompt:JSON.stringify(p) }; }
 // R2544.87: desk seats (the same committee members, each owning a part of the open position's screen)
 const DESK_ROLES = [
-  { key:'büyük resim', text:'HIGHER-TIMEFRAME TRADER. You own the 1h candles and the day levels: is the larger picture still with the position?' },
-  { key:'price action', text:'PRICE ACTION READER. You own the chartReading (15m and 1h): BOS/CHoCH against the position, FVGs and order blocks in the way, Fibonacci/OTE, liquidity sweeps, patterns.' },
-  { key:'5dk+akış', text:'TAPE READER. You own the 5m candles: volume, taker-buy share, wicks, BTC and open interest right now.' },
-  { key:'risk', text:'RISK OFFICER. You own the plan: profit protection at 2R, break-even, stop choices offered, time left. HOLD is the measured default; argue for action only on clear evidence.' },
-  { key:'yapı', text:'STRUCTURE TRADER. You own the 15m candles: has structure broken against the position, is the move extended, is the target zone being rejected?' }];
+  { key:'büyük resim', prefer:['GEMINI', 'CLAUDE', 'MINIMAX'], text:'HIGHER-TIMEFRAME TRADER. You own the 1h candles and the day levels: is the larger picture still with the position?' },
+  { key:'price action', prefer:['CLAUDE', 'GEMINI'], text:'PRICE ACTION READER. You own the chartReading (15m and 1h): BOS/CHoCH against the position, FVGs and order blocks in the way, Fibonacci/OTE, liquidity sweeps, patterns.' },
+  { key:'5dk+akış', prefer:['DEEPSEEK'], text:'TAPE READER. You own the 5m candles: volume, taker-buy share, wicks, BTC and open interest right now.' },
+  { key:'risk', prefer:['GLM'], text:'RISK OFFICER. You own the plan: profit protection at 2R, break-even, stop choices offered, time left. HOLD is the measured default; argue for action only on clear evidence.' },
+  { key:'yapı', prefer:['MINIMAX'], text:'STRUCTURE TRADER. You own the 15m candles: has structure broken against the position, is the move extended, is the target zone being rejected?' }];
 function parseFree(text) {
   try { const raw = String(text || '').match(/\{[\s\S]*\}/)?.[0]; const j = JSON.parse(raw);
     if (!ACTIONS.includes(j.action)) return { ok:false, reason:'DESK_ACTION_INVALID' };

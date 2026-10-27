@@ -40,3 +40,11 @@ test('R2544.87 exam: a pause meant for the older build ends by itself on this bu
   fs.writeFileSync(path.join(dir,'exam-config.json'),JSON.stringify({enabled:false,enableForVersion:EXAM_VERSION}));
   assert.equal((await createTraderExam({dir,committee}).tick()).id,'q1');assert.equal(EXAM_VERSION,'R2544.88-TRADER-EXAM-PA');
 });
+test('R2544.91 seats follow the model, not the position: Claude reads price action even when Gemini is missing; Qwen3 Coder is off the table',async()=>{
+  const mk=id=>({id,call:async()=>({ok:true,text:'{"ok":true}'})}),run=async ids=>{const c=createCommittee({size:5,members:ids.map(mk)});await c.probe({force:true});const t=c.pick(),s=c.assignSeats(t,TB.ENTRY_ROLES);return Object.fromEntries(t.map((m,i)=>[m.id.replace('ROUTER:',''),s[i].key]));};
+  assert.deepEqual(await run(['ROUTER:kr/claude-sonnet-4.5','ROUTER:kr/deepseek-3.2','ROUTER:kr/glm-5','ROUTER:kr/minimax-m2.5','ROUTER:kr/claude-haiku-4.5']),
+    {'kr/claude-sonnet-4.5':'price action','kr/deepseek-3.2':'5dk+akış','kr/glm-5':'risk','kr/minimax-m2.5':'1sa/15dk','kr/claude-haiku-4.5':'1g/4sa'});
+  assert.deepEqual(await run(['ROUTER:gc/gemini-3.1-pro-preview','ROUTER:kr/claude-sonnet-4.5','ROUTER:kr/deepseek-3.2','ROUTER:kr/glm-5','ROUTER:kr/minimax-m2.5']),
+    {'gc/gemini-3.1-pro-preview':'1g/4sa','kr/claude-sonnet-4.5':'price action','kr/deepseek-3.2':'5dk+akış','kr/glm-5':'risk','kr/minimax-m2.5':'1sa/15dk'});
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.doesNotMatch(sv.match(/const TRADER_ROUTER_ORDER=\[[^\]]*\]/)[0],/qwen3-coder/);assert.match(sv,/!\/qwen3-coder\/\.test\(m\)/);
+});
