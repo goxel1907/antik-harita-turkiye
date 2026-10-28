@@ -12,5 +12,5 @@ test('R2544.99 the desk waits 90 s for an OpenRouter free model (the cap was 30 
 test('R2544.99 the exam committee leaves out the Google AI Studio models (gemini/...); the desk keeps them',()=>{
   assert.match(sv,/members:ctx=>committeeMembers\(examFreeWorker,'FREE:openrouter',ctx,\{noAiStudio:true\}\)/);
   assert.match(sv,/members:ctx=>committeeMembers\(deskFreeWorker,'FREE:openrouter',ctx\)/);
-  assert.ok(sv.includes(String.raw`...extra.filter(m=>!(noAiStudio&&/^ROUTER:gemini\//.test(m.id)))`));
+  assert.ok(sv.includes(String.raw`...extra.filter(m=>!(noAiStudio&&/^ROUTER:(gemini|ollama)\//.test(m.id)))`)); // R2544.100 + ollama
 });

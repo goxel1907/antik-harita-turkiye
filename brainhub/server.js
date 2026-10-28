@@ -1587,7 +1587,8 @@ const OR_FREE_PREF=['nvidia/nemotron-3-ultra-550b-a55b:free','google/gemma-4-31b
 const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)|minimax-m[2-9]|deepseek-v[4-9]|qwen3\.\d+-\d+b|gemma-4-31b/i; // R2544.95 + MiniMax M2 (NVIDIA); R2544.96 + DeepSeek V4, MiniMax M3, Qwen 3.x, Gemma 4 31B
 // R2544.96: providers' models open TODAY (NVIDIA public /v1/models 27.10; Groq docs 27.10: llama-3.3 / maverick / qwen3-32b moved to enterprise;
 // Gemini 3.7 / 3.8 Flash answered 429 quota 0 on the free key, 3.6 Flash works). Tried first; a gone one gives its seat to the next.
-const ROUTER_CANDIDATES=['nvidia/z-ai/glm-5.3','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/minimaxai/minimax-m3.1-flash','nvidia/nvidia/nemotron-3-super-120b-a12b',
+// R2544.100: Ollama Cloud (user added the key 28.10; ollama.com/api/tags 28.10: gpt-oss:120b, glm-5.3, deepseek-v4.1-flash ... - 9Router's own list is partly stale)
+const ROUTER_CANDIDATES=['ollama/gpt-oss:120b','ollama/glm-5.3','ollama/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/minimaxai/minimax-m3.1-flash','nvidia/nvidia/nemotron-3-super-120b-a12b',
   'groq/openai/gpt-oss-120b','groq/qwen/qwen3.8-27b','gemini/gemini-3.6-flash','gemini/gemma-4-31b-it','gemini/gemini-3.5-flash-lite'];
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
@@ -1600,7 +1601,7 @@ function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){
   const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:12,candidates:ROUTER_CANDIDATES,gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
   const or=OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)).map(m=>({id:'OR:'+m,call:async a=>{const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
-  return [...fixed,...extra.filter(m=>!(noAiStudio&&/^ROUTER:gemini\//.test(m.id))),...or,freeMember(freeWorker,poolId)];
+  return [...fixed,...extra.filter(m=>!(noAiStudio&&/^ROUTER:(gemini|ollama)\//.test(m.id))),...or,freeMember(freeWorker,poolId)]; // R2544.100 + Ollama Cloud (one model at a time: kept for the live desk)
 }
 const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,
   dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota

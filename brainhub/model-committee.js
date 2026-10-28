@@ -16,6 +16,7 @@ const family = id => { const s = String(id || '').toLowerCase(); return /gemma/.
 const PROVIDER_LIMITS = [
   [/^ROUTER:groq\//i, { perDay:1000, text:'Groq 1000/gün' }],
   [/^ROUTER:(nvidia|nim)\//i, { perDay:10000, text:'NVIDIA 10.000/gün' }],
+  [/^ROUTER:ollama\//i, { perDay:null, text:'Ollama Cloud oturum/hafta' }], // R2544.100
   [/^ROUTER:cerebras\//i, { perDay:null, text:'Cerebras jeton kovası' }],
   [/^ROUTER:(cf|cloudflare)/i, { perDay:null, text:'Cloudflare 10k nöron/gün' }],
   [/^ROUTER:mistral\//i, { perDay:null, text:'Mistral ~1/sn' }],
@@ -28,7 +29,7 @@ const PROVIDER_LIMITS = [
 const limitOf = id => (PROVIDER_LIMITS.find(([re]) => re.test(String(id || ''))) || [null, null])[1];
 const QUOTA_RE = /quota|limit|exhaust|exceeded|\b429\b|\b402\b|too many|rate.?limit|credits/i;
 // MONTHLY / QUOTA = the free allowance is used up (waits for the reset); RATE = the provider is busy right now (429), it comes back by itself
-const quotaOf = (err, at) => { const e = String(err || ''); if (!QUOTA_RE.test(e)) return null; const kind = /month/i.test(e) ? 'MONTHLY' : /reached the limit|exhaust|credits|402|quota/i.test(e) ? 'QUOTA' : 'RATE'; return { at, kind, monthly:kind === 'MONTHLY', text:e.slice(0, 120) }; };
+const quotaOf = (err, at) => { const e = String(err || ''); if (!QUOTA_RE.test(e)) return null; const kind = /month/i.test(e) ? 'MONTHLY' : /reached the limit|exhaust|credits|\b402\b|quota/i.test(e) ? 'QUOTA' : 'RATE'; return { at, kind, monthly:kind === 'MONTHLY', text:e.slice(0, 120) }; };
 const dayOf = t => new Date(t).toISOString().slice(0, 10);
 // R2544.95 (kullanıcı 27.10: "hangilerine anahtar gireceğim"): 9Router'a eklenen sağlayıcıların modelleri kurula katılırken HER SAĞLAYICIDAN
 // en çok 3 (toplam 12): NVIDIA 100+ model getirir, tek başına bütün yerleri kapıp Groq / Gemini'yi dışarıda bırakmasın. Ses / gömme / güvenlik
@@ -50,13 +51,15 @@ const unusableWhy = rec => { const e = String(rec?.error || '');
   if ((rec?.consecutiveFail || 0) >= 3 && SLOW_RE.test(e)) return 'SLOW';
   return null; };
 const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && unusableWhy(rec) && now - (Number(rec.at) || 0) < GONE_TTL_MS);
-function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false } = {}) {
+// R2544.100: Ollama Cloud free = ONE cloud model at a time -> at most 1 member from it (parallel calls would collide)
+const PROVIDER_CAP = { ollama:1 };
+function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false, caps = PROVIDER_CAP } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
     if (seen.has(m)) continue; seen.add(m);
     if (have.has(m) || /^(kr|gc|oc)\//.test(m) || /qwen3-coder/.test(m) || ROUTER_NOT_TEXT.test(m) || (!cand.has(m) && !strong.test(m))) continue;
     if (gone('ROUTER:' + m)) continue;
-    const p = String(m).split('/')[0], n = per.get(p) || 0; if (n >= perProvider) continue;
+    const p = String(m).split('/')[0], n = per.get(p) || 0; if (n >= Math.min(perProvider, caps?.[p] ?? perProvider)) continue;
     per.set(p, n + 1); out.push(m); if (out.length >= max) break;
   }
   return out;
@@ -119,10 +122,15 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
       quota:ok ? null : quotaOf(err, clock()) || (h.quota || null) }; };
   // R2544.90: the timer is cleared when the answer comes (an open timer kept every test process alive ~2 min; deploy runs tests one by one)
   const withTimeout = (p, ms) => { let t; return Promise.race([Promise.resolve(p).finally(() => clearTimeout(t)), new Promise(r => { t = setTimeout(() => r({ ok:false, reason:'COMMITTEE_TIMEOUT' }), ms); })]); };
+  // R2544.100: a member that answered "busy" (429, not a monthly quota) is asked again after 10 min instead of waiting for the hourly probe
+  const RETRY_BUSY_MS = 10 * 60000;
+  const busyAgain = m => { const h = health[m.id]; if (!h || h.lastOk !== false || !/\b429\b|RATE_LIMIT/i.test(String(h.error || ''))) return false; const q = quotaOf(h.error, h.at); return q?.kind !== 'MONTHLY' && clock() - (Number(h.at) || 0) >= RETRY_BUSY_MS; };
   async function probe({ force = false } = {}) {
-    if (probing || (!force && clock() - lastProbeAt < probeEveryMs)) return null; probing = true; lastProbeAt = clock();
+    if (probing) return null;
+    const due = force || clock() - lastProbeAt >= probeEveryMs, list = due ? membersNow() : membersNow().filter(busyAgain);
+    if (!list.length) return null; probing = true; if (due) lastProbeAt = clock();
     try {
-      await Promise.all(membersNow().map(async m => { const t0 = clock(); let r;
+      await Promise.all(list.map(async m => { const t0 = clock(); let r;
         try { r = await withTimeout(m.call({ system:PROBE_SYSTEM, prompt:'ping', validate:validProbe, role:'TRADER' }), 120000); } /* R2544.91: Gemini Pro thinks long */ catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
         mark(m.id, !!(r?.ok && validProbe(r.text)), { latencyMs:clock() - t0, model:r?.model || null, error:r?.ok ? null : String(r?.reason || r?.detail || 'FAILED').slice(0, 200), probedAt:clock() }); }));
       save(); return healthy().map(m => m.id);
@@ -181,4 +189,4 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   function status() { return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
   return { probe, healthy, pick, decide, status, assignSeats };
 }
-module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone, unusableWhy };
+module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone, unusableWhy, PROVIDER_CAP };
