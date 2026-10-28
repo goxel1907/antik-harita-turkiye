@@ -37,7 +37,7 @@ test('R2544.92 OpenRouter: every named free model is its own member (own cooldow
   const one={healthy:()=>[{id:'x'}],decide:async()=>{throw new Error('must not be asked');}};
   assert.equal((await createTraderExam({dir,committee:one}).tick()).skipped,'COMMITTEE_NOT_READY');
   assert.ok(!fs.existsSync(path.join(dir,'exam-state.json'))||!JSON.parse(fs.readFileSync(path.join(dir,'exam-state.json'),'utf8')).attempts.q1,'the packet is not marked as failed');
-  assert.equal(EXAM_VERSION,'R2544.93-TRADER-EXAM-BB');
+  assert.equal(EXAM_VERSION,'R2544.98-TRADER-EXAM-PRO'); // R2544.98
 });
 test('R2544.93 bull and bear at the table: even a 3-member committee seats price action + BULL + BEAR; the prompt no longer says skipping is fine',async()=>{
   const TB=require('../trader-brain');const mk=id=>({id,call:async()=>({ok:true,text:'{"ok":true}'})});

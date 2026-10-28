@@ -26,6 +26,6 @@ test('R2544.88 the screen carries a chartReading per timeframe and the system pr
   assert.match(TB.ENTRY_ROLES[0].text,/FVGs, Fibonacci\/OTE, premium\/discount, order blocks, patterns/);
   assert.ok(JSON.stringify(p).length<40000,'stays small for free models');
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
-  assert.match(lc,/const chart=\{m15:TB\.chartReading\(k15\.raw,'15m',\{t:now,R:Rf\}\),h1:TB\.chartReading\(k1h\.raw,'1h',\{t:now,R:Rf\}\)\};/,'the desk sees it too');
+  assert.match(lc,/const chart=\{m5:TB\.chartReading\(k5\.raw,'5m',\{t:now,R:Rf\}\),m15:TB\.chartReading\(k15\.raw,'15m',\{t:now,R:Rf\}\),h1:TB\.chartReading\(k1h\.raw,'1h',\{t:now,R:Rf\}\)\};/,'the desk sees it too');
   assert.match(lc,/m15:await get\(lot\.symbol,'15m',TB\.FETCH\.m15,end\)/,'live entry committee fetches enough candles');
 });

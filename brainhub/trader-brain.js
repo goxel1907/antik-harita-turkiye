@@ -5,7 +5,7 @@
 // konumu, hacim, taker payı), gün/hafta/ay seviyeleri, BTC, plan (giriş/stop/hedef R). Coin adı ve tarih GİZLİ, fiyatlar giriş = 100
 // ölçeğinde: model fiyatı "hatırlayamaz" (sınav dönemi bazı modellerin eğitim verisiyle çakışıyor). Karar: TAKE / SKIP + güven + neden.
 // Bu sürümde YALNIZ SINAV: 6 aylık geçmiş sinyaller ücretsiz modele sorulur; giriş kararı vermez.
-const TB_VERSION = 'R2544.88-TRADER-BRAIN-PA';
+const TB_VERSION = 'R2544.98-TRADER-BRAIN-PRO';
 const ENGINE = require('./engine'); // R2544.88: the same causal chart engine JEV uses (closed candles only)
 const TF = { m5:{ ms:300000, n:48, frame:'5m' }, m15:{ ms:900000, n:32, frame:'15m' }, h1:{ ms:3600000, n:36, frame:'1h' }, h4:{ ms:14400000, n:30, frame:'4h' }, d1:{ ms:86400000, n:20, frame:'1d' } };
 // candles to fetch per timeframe so the chart engine has >= 52 closed candles (EMA50, swings, FVG history)
@@ -47,6 +47,9 @@ function htfLevels(d1, t) {
   const pm = done.filter(x => x.t >= pms && x.t < ms), hl = a => a.length ? { high:Math.max(...a.map(x => x.h)), low:Math.min(...a.map(x => x.l)) } : null;
   return { prevDay:{ high:pd.h, low:pd.l }, prevWeek:hl(pw), prevMonth:hl(pm) };
 }
+// R2544.98: the timeframe each setup is triggered on and the one its idea lives on
+const ENTRY_TF = { LONG_EARLY_RETEST:{ trigger:'5m', structure:'15m', context:'1h / 4h / 1d', holdMax:'24h' }, SHORT_TOP_BREAK:{ trigger:'5m', structure:'15m', context:'1h / 4h / 1d', holdMax:'24h' },
+  ZIRVE5_FIBO_LONG:{ trigger:'15m', structure:'1h', context:'4h / 1d', holdMax:'24h' }, ZIRVE5_FIBO_SHORT:{ trigger:'15m', structure:'1h', context:'4h / 1d', holdMax:'24h' } };
 const SETUP_TEXT = {
   LONG_EARLY_RETEST:'EARLY LONG: a coin climbing the gainer list broke a previous day/week/month high on a 5m candle with >= 3x volume and has just retested that level; stop under the retest, target just under the next higher level (or 3R).',
   SHORT_TOP_BREAK:'TOP SHORT: a coin that was a top-10 gainer made a fresh 24h high, swept liquidity above a swing high and the next 5m candles broke the pre-top structure low; stop above the top.',
@@ -94,17 +97,23 @@ function entryPacket({ k, plan, t, extra = null }) {
   const levels = [level('prevDayHigh', lv.prevDay?.high), level('prevDayLow', lv.prevDay?.low), level('prevWeekHigh', lv.prevWeek?.high), level('prevWeekLow', lv.prevWeek?.low),
     level('prevMonthHigh', lv.prevMonth?.high), level('prevMonthLow', lv.prevMonth?.low), level('high24h', h24.length ? Math.max(...h24.map(x => x.h)) : null), level('low24h', h24.length ? Math.min(...h24.map(x => x.l)) : null)].filter(Boolean);
   const b = rows(k.btc1h).filter(x => x.t + 3600000 <= t), bs = b.length >= 12 ? structure(b) : null;
-  return { contract:TB_VERSION, task:'ENTRY', side:plan.side, setup:SETUP_TEXT[plan.rule] || plan.rule,
+  return { contract:TB_VERSION, task:'ENTRY', side:plan.side, setup:SETUP_TEXT[plan.rule] || plan.rule, tradeTimeframe:ENTRY_TF[plan.rule] || null,
     plan:{ entry:100, stop:P(plan.stop), target:P(plan.target), targetR:R(plan.target), stopDistancePct:+(risk / plan.entry * 100).toFixed(2),
       management:'half closed at +2R, the rest moved to break-even; exit after 24 h at the latest' },
     timeframes:tfs, levels, btc:bs ? { trend1h:bs.trend, change12hPct:bs.change12Pct, closeVsEma20Pct:bs.closeVsEma20 } : null, extra,
     baseRate:'Over 6 months most signals of this setup lost; the average result was about 0R per trade. Taking every signal earns nothing.' };
 }
-const ENTRY_SYSTEM = 'You are an experienced crypto futures trader. A fixed rule has fired a trade setup; you see the same screen a desk trader sees: the plan, ' +
-  'five timeframes (5m, 15m, 1h, 4h, 1d) with a structure summary AND a chartReading computed by code from closed candles (market structure BOS/CHoCH, open fair value gaps, Fibonacci of the last leg with OTE, dealing range premium/discount, fresh order blocks, candlestick and geometric patterns, equal highs/lows and liquidity sweeps, squeeze and displacement; every level with its distance in R, + in the trade direction) and the recent candles; trust the chartReading numbers over your own estimate from raw candles, the day/week/month levels around the price (with their distance in R), and BTC. ' +
+// R2544.98 (kullanıcı 28.10: "işlem açılan zaman dilimi çok önemli; insan hissi: pro trader burada ne yapardı"): girişte de işlemin kendi
+// zaman dilimi ve profesyonelin düşünme sırası açıkça verilir; yön dayatılmaz.
+const ENTRY_SYSTEM = 'You are a senior discretionary crypto-futures trader on a professional desk. A fixed rule has fired a trade setup and the desk must agree whether to TAKE it or SKIP it; your vote counts. ' +
+  'You see the same screen a desk trader sees: the plan, five timeframes (5m, 15m, 1h, 4h, 1d) with a structure summary AND a chartReading computed by code from closed candles (market structure BOS/CHoCH, open fair value gaps, Fibonacci of the last leg with OTE, dealing range premium/discount, fresh order blocks, candlestick and geometric patterns, equal highs/lows and liquidity sweeps, squeeze and displacement; every level with its distance in R, + in the trade direction) and the recent candles; trust the chartReading numbers over your own estimate from raw candles, the day/week/month levels around the price (with their distance in R), and BTC. ' +
   'Prices are scaled so that entry = 100; the coin name and the date are hidden on purpose. ' +
-  'Read the timeframes top-down (1d and 4h context, 1h structure, 15m and 5m trigger), weigh where the opposite levels sit before the target, whether the move is extended or fresh, volume and taker flow, and BTC. ' +
+  'Think like a professional at the screen, in this order: (1) WHAT TRADE IS THIS: tradeTimeframe says the timeframe the trade is triggered on and the one its idea lives on; an intraday trade is won or lost on those, higher timeframes are context. ' +
+  '(2) CONTEXT: read top-down (1d and 4h, then 1h): with or against the larger trend, premium or discount, which big levels and liquidity pools sit between entry and target. ' +
+  '(3) TRIGGER: is the trigger fresh and clean (volume, taker flow, a real close beyond the level) or late and extended (chasing a move already far from its base)? ' +
+  '(4) ROOM AND RISK: is there room to the target before the first opposite level, is the stop behind real structure or in the noise? (5) BTC and flow right now. ' +
   'Decide whether a disciplined professional TAKES this trade or SKIPS it. Most signals of this setup lose, so the edge is in telling the good ones apart: do not skip by habit, and do not take by habit. ' +
+  'Before you answer, ask yourself what would have to happen for this trade to fail and how likely that is on this screen. ' +
   'Answer ONLY with JSON: {"decision":"TAKE|SKIP","confidence":0-100,"pTarget":0-100,"reasonTr":"Türkçe 1-2 cümle: hangi zaman dilimi ne diyor","keyRisk":"Türkçe kısa: en büyük risk"}. pTarget = your probability that price reaches the target before the stop.';
 // R2544.87 (kullanıcı 27.10: zaman dilimlerine entegre): kurulda her üyenin bir koltuğu var; aynı ekranı görür ama kendi bölümünden sorumludur
 // R2544.93 (TradingAgents fikri: boğa / ayı araştırmacı tartışması; 27.10 sınavda 69/69 GİRME - masada lehte savunan yoktu): koltuk SIRASI
@@ -123,4 +132,4 @@ function parseEntry(text) {
   } catch { return { ok:false, reason:'TB_JSON_INVALID' }; }
 }
 const validEntry = text => parseEntry(text).ok;
-module.exports = { TB_VERSION, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };
+module.exports = { TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

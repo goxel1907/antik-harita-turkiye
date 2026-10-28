@@ -25,7 +25,7 @@ test('R2544.84 free model answer: strict JSON contract, Turkish reason; anything
   assert.equal(DESK.parseFree('{"action":"BUY_MORE"}').ok,false,'no adding to a position');
   assert.equal(DESK.parseFree('not json').ok,false);
   assert.equal(DESK.validFree('{"action":"HOLD"}'),true);
-  assert.match(DESK.SYSTEM,/HOLD is the measured default|measured default is HOLD/);
+  assert.doesNotMatch(DESK.SYSTEM,/HOLD is the measured default|measured default is HOLD/);assert.match(DESK.SYSTEM,/Neither holding nor acting is a default/); // R2544.98
 });
 test('R2544.84 judges: TEST uses the free model; LIVE uses JEV, falls back to free, and works with the free model OFF; none -> rule keeps managing',async()=>{
   const cfg=DESK.readConfig(fs.mkdtempSync(path.join(os.tmpdir(),'desk-')));

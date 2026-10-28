@@ -8,7 +8,7 @@
 // GÖLGE: karar kaydedilir ve Office'te görünür, EMİR GÖNDERİLMEZ. Kapanınca aynı 5 dk yolda "masa uygulasaydı" ile "yalnız kural"
 // aynı benzetimle karşılaştırılır (fark R). Yetki ancak ölçümden sonra kullanıcı onayıyla açılır.
 const fs = require('fs'), path = require('path');
-const DESK_VERSION = 'R2544.84-POSITION-DESK';
+const DESK_VERSION = 'R2544.98-POSITION-DESK-PRO';
 const M5 = 300000, HOUR = 3600000;
 const ACTIONS = ['HOLD', 'TAKE_PARTIAL', 'TIGHTEN_STOP', 'EXIT'];
 const STOP_CHOICES = ['KEEP', 'BREAKEVEN', 'LAST_5M_SWING', 'LOCK_1R'];
@@ -55,6 +55,10 @@ function stopCandidates(lot, mark, k5) {
 }
 function compactK(k, n) { return k.slice(-n).map(x => [new Date(x.t).toISOString().slice(5, 16), rnd(x.o, 6), rnd(x.h, 6), rnd(x.l, 6), rnd(x.c, 6), rnd(x.v, 4), x.tb !== null && x.v > 0 ? Number((x.tb / x.v).toFixed(2)) : null]); }
 // the screen the trader looks at (compact: free models have small context; JEV's 48 kB cap)
+// R2544.98: the timeframe the trade was opened on (trigger) and the one its idea lives on (structure)
+const TRADE_TF = { ILK3:{ trigger:'5m', structure:'15m', context:'1h', note:'Ilk 3: 5m breakout/retest of a day/week/month level (LONG) or a 5m break of the pre-top structure (SHORT); intraday trade, 24 h at most' },
+  ZIRVE5:{ trigger:'15m', structure:'1h', context:'1h', note:'ZIRVE-5: 15m swing break and retest of the breakout zone; intraday trade, 24 h at most' } };
+function atrR(k, r) { if (!(r > 0) || k.length < 15) return null; const a = k.slice(-15); let s = 0; for (let i = 1; i < a.length; i++) s += Math.max(a[i].h - a[i].l, Math.abs(a[i].h - a[i - 1].c), Math.abs(a[i].l - a[i - 1].c)); return Number((s / 14 / r).toFixed(2)); }
 function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = null }) {
   const L = lot.side === 'LONG', e = finite(lot.entryPrice), r = riskOf(lot), nowR = favR(lot, mark);
   const path5 = k5.filter(x => x.t + M5 > lot.openedAt);
@@ -64,33 +68,52 @@ function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = nul
   const btc1h = btc5.length >= 12 ? Number(((btc5.at(-1).c / btc5.at(-12).o - 1) * 100).toFixed(2)) : null;
   const oiChg1h = oi.length >= 13 ? Number(((oi.at(-1) / oi.at(-13) - 1) * 100).toFixed(2)) : null;
   return {
-    contract:DESK_VERSION, lane, symbol:lot.symbol, side:lot.side, rule:lot.rule, mode:lot.mode, why:why || null,
+    contract:DESK_VERSION, lane, symbol:lot.symbol, side:lot.side, rule:lot.rule, mode:lot.mode, why:why || null, tradeTimeframe:TRADE_TF[lane] || TRADE_TF.ILK3,
+    noiseR:{ m5:atrR(k5, r), m15:atrR(k15, r), h1:atrR(k1h, r) },
     position:{ entry:e, initialStop:finite(lot.initialStopPrice) ?? finite(lot.stopPrice), currentStop:finite(lot.stopPrice), target:finite(lot.tpPrice), targetR:r && finite(lot.tpPrice) ? Number(Math.abs(lot.tpPrice - e) / r).toFixed(2) * 1 : null,
-      mark, nowR:rnd(nowR, 3), mfeR:rnd(mfeR, 3), maeR:rnd(maeR, 3), minutesOpen:Math.round((now - lot.openedAt) / 60000), minutesLeft:Math.max(0, Math.round((lot.deadline - now) / 60000)), leverage:lot.leverage,
+      mark, nowR:rnd(nowR, 3), mfeR:rnd(mfeR, 3), maeR:rnd(maeR, 3), givebackR:mfeR !== null && nowR !== null ? rnd(Math.max(0, mfeR - nowR), 3) : null,
+      toPartR:lot.part && lot.part.done !== true && nowR !== null ? rnd(finite(lot.part.atR) - nowR, 3) : null, toTargetR:r && finite(lot.tpPrice) && nowR !== null ? rnd(Math.abs(lot.tpPrice - e) / r - nowR, 3) : null, minutesOpen:Math.round((now - lot.openedAt) / 60000), minutesLeft:Math.max(0, Math.round((lot.deadline - now) / 60000)), leverage:lot.leverage,
       profitProtection:lot.part ? { atR:lot.part.atR, share:lot.part.share, price:finite(lot.part.price), done:lot.part.done === true } : null, breakEvenMoved:lot.beMoved === true },
     stopChoices:cands,
     entryInfo:{ indicators:f.ind?.ok ? { vdpmObstacle2R:f.ind.vdpm?.obstacle2R ?? null, lthTrend:f.ind.lth?.trend ?? null, lrvpTrendWith:f.ind.lrvp?.trendWith ?? null } : null, entryContext:f.entryCtx || null,
       experience:f.experience ? { verdict:f.experience.verdict, text:String(f.experience.text || '').slice(0, 300) } : null, similar:f.similar?.text ? String(f.similar.text).slice(0, 300) : null },
     market:{ levels:lv, btc1hPct:btc1h, openInterestChange1hPct:oiChg1h, chartReading:chart, // R2544.88: code-computed price action (15m, 1h)
       candles:{ note:'[time UTC, open, high, low, close, volume, takerBuyShare]', m5:compactK(k5, 36), m15:compactK(k15, 24), h1:compactK(k1h, 24) } },
-    measuredFacts:['6 months, this lane: taking half at +2R and moving the rest to break-even raised the average from +0.27R to +0.41R per trade versus +1R',
-      'early exits and trailing stops did NOT improve the 6-month average; a trailing stop on TOP SHORT was clearly worse (t -3.3)',
-      'pre-entry run, taker flow, open interest and long/short ratios did not separate winners from losers over 6 months',
-      'so act only on concrete, visible evidence on the chart now; HOLD is the measured default'],
+    measuredFacts:['the plan already takes half at +2R and moves the rest to break-even by itself (6 months: +0.41R per trade versus +0.27R at +1R)',
+      'mechanical habits did not help on average over 6 months: always trailing the stop, or always exiting early; a fixed trailing stop on TOP SHORT was clearly worse (t -3.3)',
+      'what is tested now is case-by-case judgment on this screen: holding through a broken trade and choking a healthy one both cost R'],
   };
 }
-const SYSTEM = 'You are a professional crypto futures trader on a trading desk. You manage ONE open position that a rule opened. You see its plan, its charts (5m, 15m, 1h with taker-buy share), levels, BTC and open interest. ' +
-  'Decide what a disciplined professional would do RIGHT NOW: HOLD (let the plan work), TAKE_PARTIAL (close half of what is left), TIGHTEN_STOP (move the stop to one of the offered stopChoices; never wider), EXIT (close everything). ' +
-  'The measured default is HOLD; act only on concrete evidence visible now (structure broken against the trade, a volume climax at a level, the target zone reached and rejected, strong opposite flow). ' +
-  'Answer ONLY with JSON: {"action":"HOLD|TAKE_PARTIAL|TIGHTEN_STOP|EXIT","stopChoice":"KEEP|BREAKEVEN|LAST_5M_SWING|LOCK_1R","reason":"' + REASONS.join('|') + '","confidence":0-100,"reasonTr":"Türkçe tek cümle neden","watchTr":"Türkçe: fikrini ne değiştirir"}';
+// R2544.98 (kullanıcı 28.10: "modellere masa giriş ve çıkışlarda mütabık ve tam yetkili olması lazım ... hassas talimat vermen lazım ki
+// şaşırmasınlar; veriler, grafik, kâr durumu asla göz ardı edilmemeli; işlem açılan zaman dilimi çok önemli; insan hissi: pro trader burada
+// ne yapardı"). Eski talimat "HOLD is the measured default" diyordu: 13 işlemde 90 kararın 85'i TUT, LAB +2R'den stopa döndü (benim hatam).
+// Yeni talimat tarafsız: TUT da ÇIK da ekrandan kanıt ister; işlemin kendi zaman dilimi, açık kâr, geri verilen kâr ve gürültü payı önce gelir.
+const SYSTEM = 'You are a senior discretionary crypto-futures trader on a professional desk. You manage ONE open position that a rule opened; every decision you make adds or costs R. ' +
+  'You see everything the desk sees: the plan, the open profit, the charts and the code-computed chartReading. Work through it like a professional at the screen, in this order:\n' +
+  '1) WHAT TRADE IS THIS. tradeTimeframe tells you the timeframe the trade was opened on (trigger) and the timeframe its idea lives on (structure). Judge the trade first on those two. ' +
+  'Higher timeframes are context: they do not excuse sitting through a trade whose own trigger and structure have turned, and one candle on a lower timeframe is not a reason to leave a healthy trade.\n' +
+  '2) WHERE AM I IN THE PLAN. position.nowR (now), mfeR (best so far), givebackR (how much of the best open profit is already given back), toPartR (distance to the automatic +2R profit protection), toTargetR, minutesOpen and minutesLeft. ' +
+  'Open profit is money. Giving back most of it while the chart turns is a mistake; so is choking a trade that is trending normally.\n' +
+  '3) NOISE OR SIGNAL. noiseR is one average candle (ATR14) of each timeframe in R. A pullback inside about one trigger-timeframe candle with the structure intact is normal. ' +
+  'A close back through the broken level or the entry zone, a break of the last trigger-timeframe swing against the position, or a CHoCH against it on the structure timeframe means the idea is failing.\n' +
+  '4) READ THE SCREEN. chartReading (5m, 15m, 1h; computed by code from the candles, trust its numbers over your own estimate): BOS/CHoCH against the position, an opposite FVG or order block just ahead, ' +
+  'a liquidity sweep and rejection at the target zone, a volume climax with long wicks, taker flow flipping, open interest, BTC moving hard against.\n' +
+  '5) ACT LIKE A PROFESSIONAL.\n' +
+  ' - HOLD: the trigger and structure timeframes still agree with the position and nothing concrete on the screen argues against it. Let it work.\n' +
+  ' - TIGHTEN_STOP (choose BREAKEVEN, LAST_5M_SWING or LOCK_1R from stopChoices; never wider): the trade has already paid (around mfeR >= 1) and the screen starts to turn: momentum fading, rejection at a level, giveback growing. Protect what is paid but leave room for a live trend.\n' +
+  ' - TAKE_PARTIAL (close half of what is left): in profit at or near a strong opposite level or the target zone and it is being rejected, or a climax candle against you.\n' +
+  ' - EXIT (close everything): the idea is broken on its own timeframe, or open profit is about to become a loss with the chart against the position. Do not wait for the stop when the chart already says the trade is over.\n' +
+  'Neither holding nor acting is a default: both need evidence from THIS screen. Mechanical habits (always trail, always hold, always exit early) did not help over 6 months; case-by-case judgment is why you are at this desk. ' +
+  'Before you answer, ask yourself what changed since entry, what would prove you wrong, and which mistake you would regret more here: giving the profit back or cutting a winner.\n' +
+  'Answer ONLY with JSON: {"action":"HOLD|TAKE_PARTIAL|TIGHTEN_STOP|EXIT","stopChoice":"KEEP|BREAKEVEN|LAST_5M_SWING|LOCK_1R","reason":"' + REASONS.join('|') + '","confidence":0-100,"reasonTr":"Türkçe tek cümle: hangi zaman dilimi ve kâr durumu ne diyor","watchTr":"Türkçe: fikrini ne değiştirir"}';
 function freePrompt(p) { return { system:SYSTEM, prompt:JSON.stringify(p) }; }
 // R2544.87: desk seats (the same committee members, each owning a part of the open position's screen)
 const DESK_ROLES = [
-  { key:'büyük resim', prefer:['GEMINI', 'CLAUDE', 'MINIMAX'], text:'HIGHER-TIMEFRAME TRADER. You own the 1h candles and the day levels: is the larger picture still with the position?' },
+  { key:'büyük resim', prefer:['GEMINI', 'CLAUDE', 'MINIMAX'], text:'HIGHER-TIMEFRAME TRADER. You own the 1h candles and the day levels: is the larger picture still with the position, and is a big level or a liquidity pool right ahead? Context only: do not overrule a broken trigger/structure timeframe with it.' },
   { key:'price action', prefer:['CLAUDE', 'GEMINI'], text:'PRICE ACTION READER. You own the chartReading (15m and 1h): BOS/CHoCH against the position, FVGs and order blocks in the way, Fibonacci/OTE, liquidity sweeps, patterns.' },
-  { key:'5dk+akış', prefer:['DEEPSEEK'], text:'TAPE READER. You own the 5m candles: volume, taker-buy share, wicks, BTC and open interest right now.' },
-  { key:'risk', prefer:['GLM'], text:'RISK OFFICER. You own the plan: profit protection at 2R, break-even, stop choices offered, time left. HOLD is the measured default; argue for action only on clear evidence.' },
-  { key:'yapı', prefer:['MINIMAX'], text:'STRUCTURE TRADER. You own the 15m candles: has structure broken against the position, is the move extended, is the target zone being rejected?' }];
+  { key:'5dk+akış', prefer:['DEEPSEEK'], text:'TAPE READER. You own the 5m candles and the 5m chartReading (the trigger timeframe of Ilk 3): volume, taker-buy share, wicks, the last 5m swing, BTC and open interest right now. Say whether the tape still pushes with the position or has flipped.' },
+  { key:'risk', prefer:['GLM'], text:'RISK OFFICER. You own the plan and the open profit: nowR, mfeR, givebackR, toPartR, toTargetR, noiseR, time left and the stopChoices. Protect profit that is already paid when the screen turns against it; do not choke a trade that is working inside normal noise.' },
+  { key:'yapı', prefer:['MINIMAX'], text:'STRUCTURE TRADER. You own the structure timeframe of this trade (tradeTimeframe.structure: 15m for Ilk 3, 1h for ZIRVE-5): has structure broken against the position (CHoCH, close back through the broken level), is the move extended, is the target zone being rejected?' }];
 function parseFree(text) {
   try { const raw = String(text || '').match(/\{[\s\S]*\}/)?.[0]; const j = JSON.parse(raw);
     if (!ACTIONS.includes(j.action)) return { ok:false, reason:'DESK_ACTION_INVALID' };
@@ -163,13 +186,16 @@ async function judge({ packet, mode, cfg, judges, stats }) {
       try { r = await judges.committee.decide({ system:q.system, prompt:q.prompt, validate:validFree, parse:parseFree, field:'action', fallback:'HOLD', roles:DESK_ROLES }); } catch { r = { ok:false, reason:'COMMITTEE_EXCEPTION' }; }
       st.committee = (st.committee || 0) + 1;
       if (r?.ok) {
-        const fin = r.final, all = [...(r.round2 || []), ...(r.votes || [])].filter(v => v.ok), pickV = all.find(v => v.vote.action === fin)?.vote || null;
+        // R2544.98 "mütabık": no single majority, but MORE THAN HALF of the final voters want to reduce risk -> the mildest reducing action they voted
+        const finalV = (r.round2 || r.votes || []).filter(v => v.ok), REDUCE = ['TIGHTEN_STOP', 'TAKE_PARTIAL', 'EXIT'], red = finalV.filter(v => REDUCE.includes(v.vote.action));
+        const reduceAgreed = r.consensus === 'NO_MAJORITY_DEFAULT' && finalV.length >= 2 && red.length > finalV.length / 2;
+        const fin = reduceAgreed ? REDUCE.find(a => red.some(v => v.vote.action === a)) : r.final, all = [...(r.round2 || []), ...(r.votes || [])].filter(v => v.ok), pickV = all.find(v => v.vote.action === fin)?.vote || null;
         const stops = all.filter(v => v.vote.action === 'TIGHTEN_STOP').map(v => v.vote.stopChoice), order = ['BREAKEVEN', 'LAST_5M_SWING', 'LOCK_1R'];
         const stopChoice = fin === 'TIGHTEN_STOP' ? (order.find(k => stops.includes(k)) || 'KEEP') : 'KEEP'; // the least aggressive tightening that was voted
         const votes = (r.round2 || r.votes || []).map(v => ({ m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/, ''), a:v.vote?.action || 'ERR', s:v.seat || null }));
         return { ok:true, judge:'COMMITTEE', model:votes.map(v => v.m).join(' + '), d:{ ok:true, action:fin, stopChoice, reason:pickV?.reason || 'NO_EDGE', confidence:null,
-          reasonTr:(r.consensus === 'UNANIMOUS' ? 'oybirliği: ' : r.consensus === 'MAJORITY_AFTER_DEBATE' ? 'tartışma sonrası çoğunluk: ' : 'çoğunluk yok → TUT: ') + (pickV?.reasonTr || ''), watchTr:pickV?.watchTr || '' },
-          committee:{ consensus:r.consensus, rounds:r.rounds, votes }, tried };
+          reasonTr:(r.consensus === 'UNANIMOUS' ? 'oybirliği: ' : r.consensus === 'MAJORITY_AFTER_DEBATE' ? 'tartışma sonrası çoğunluk: ' : reduceAgreed ? `çoğunluk riski azaltmak istedi (${red.length}/${finalV.length}) → en yumuşağı: ` : r.consensus === 'SINGLE_VOTER_DEFAULT' ? 'tek oy, yetki yok → TUT: ' : 'çoğunluk yok → TUT: ') + (pickV?.reasonTr || ''), watchTr:pickV?.watchTr || '' },
+          committee:{ consensus:reduceAgreed ? 'REDUCE_MAJORITY' : r.consensus, rounds:r.rounds, votes }, tried };
       }
       tried.push('COMMITTEE:' + (r?.reason || 'FAILED')); continue;
     }
@@ -187,5 +213,5 @@ async function judge({ packet, mode, cfg, judges, stats }) {
   }
   return { ok:false, tried };
 }
-module.exports = { DESK_VERSION, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
+module.exports = { DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
   SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary };

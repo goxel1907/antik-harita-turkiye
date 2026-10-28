@@ -6741,12 +6741,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       if(!pick)return null;
       const a=pick,lane=a.lane==='ZIRVE5'?'ZIRVE5':'ILK3',mode=a.mode==='LIVE'?'LIVE':'TEST';
-      const [k5,k15,k1h,btc]=[await deskKlines(a.symbol,'5m',60),await deskKlines(a.symbol,'15m',80),await deskKlines(a.symbol,'1h',80),await deskKlines('BTCUSDT','5m',13)];
+      const [k5,k15,k1h,btc]=[await deskKlines(a.symbol,'5m',80),await deskKlines(a.symbol,'15m',80),await deskKlines(a.symbol,'1h',80),await deskKlines('BTCUSDT','5m',13)];
       const closed=k=>k; // the forming candle is part of the screen (a trader sees it)
       let oi=[];try{const h=await transport._fetchJson('GET','/futures/data/openInterestHist',{params:{symbol:a.symbol,period:'5m',limit:'13'}});oi=(Array.isArray(h)?h:[]).map(x=>Number(x.sumOpenInterest)).filter(x=>x>0);}catch{}
       if(k5.length<20)return {skipped:true,reason:'DESK_NO_CANDLES'};
       const rk=DESK.riskOf(a),Rf=p=>rk?Number(((a.side==='LONG'?p-a.entryPrice:a.entryPrice-p)/rk).toFixed(2)):null; // R2544.88 grafik okuması (gerçek fiyat, R uzaklığı)
-      const chart={m15:TB.chartReading(k15.raw,'15m',{t:now,R:Rf}),h1:TB.chartReading(k1h.raw,'1h',{t:now,R:Rf})};
+      const chart={m5:TB.chartReading(k5.raw,'5m',{t:now,R:Rf}),m15:TB.chartReading(k15.raw,'15m',{t:now,R:Rf}),h1:TB.chartReading(k1h.raw,'1h',{t:now,R:Rf})}; // R2544.98 + 5m (İlk 3'ün tetik zaman dilimi)
       const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15).slice(-30),k1h:closed(k1h).slice(-30),btc5:btc,oi,why:top3Why(a),now,lane,chart});
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
       const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:['COMMITTEE'],liveJudges:['COMMITTEE']},judges:deskJudges,stats:deskStats()}):deskJudge(packet,mode,cfg)),st=deskStats();st.lastAt=new Date(now).toISOString();
