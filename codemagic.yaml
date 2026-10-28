@@ -630,6 +630,18 @@ workflows:
             exit 1
           fi
           echo V95137_R2544_89_KURUL_OK
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95138_r2544_98_mutabik.py"
+          grep -q V95138_R2544_98_MUTABIK /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'public static JSONObject setCommitteeLive(Context c, String lane)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q 'static String v95138Recent(SharedPreferences sp)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q 'static String v95138Votes(org.json.JSONArray v)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q "versionName '9.5.130-r2544.98-mutabik'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26102801' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'post(c, "/live/execute", intent, true)\|post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_98_ANDROID_ORDER_INITIATION_FORBIDDEN'
+            exit 1
+          fi
+          echo V95138_R2544_98_MUTABIK_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
