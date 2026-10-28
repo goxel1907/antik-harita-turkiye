@@ -27,6 +27,6 @@ test('R2544.96 today\'s models first, a gone model gives its seat to the next, s
   let seen=null;const t=Date.now();
   const c=MC.createCommittee({clock:()=>t,members:ctx=>{seen=ctx;return [{id:'ROUTER:groq/x',call:async()=>({ok:false,reason:'HTTP 503 [groq/x] [404]: The model `x` does not exist'})}];}});
   await c.probe({force:true});assert.equal(typeof seen.gone,'function');assert.equal(seen.gone('ROUTER:groq/x'),true);assert.equal(seen.gone('ROUTER:groq/y'),false);
-  assert.match(sv,/members:ctx=>committeeMembers\(deskFreeWorker,'FREE:openrouter',ctx\)/);assert.match(sv,/members:ctx=>committeeMembers\(examFreeWorker,'FREE:openrouter',ctx\)/);
+  assert.match(sv,/members:ctx=>committeeMembers\(deskFreeWorker,'FREE:openrouter',ctx\)/);assert.match(sv,/members:ctx=>committeeMembers\(examFreeWorker,'FREE:openrouter',ctx[,)]/); // R2544.99 + {noAiStudio:true}
   assert.ok(STRONG.test('nvidia/deepseek-ai/deepseek-v4.1-flash')&&STRONG.test('groq/qwen/qwen3.8-27b')&&STRONG.test('gemini/gemma-4-31b-it')&&STRONG.test('nvidia/minimaxai/minimax-m3.1-flash'));
 });

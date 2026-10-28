@@ -88,7 +88,7 @@ function createOpenRouterFreeWorker({
     };
     const r=await fetchImpl('https://openrouter.ai/api/v1/chat/completions',{
       method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json','HTTP-Referer':'https://brainhub.local','X-Title':'BrainHub Plan Worker'},
-      body:JSON.stringify(body),signal:AbortSignal.timeout(Math.max(5000,Math.min(30000,Number(timeoutMs)||15000)))
+      body:JSON.stringify(body),signal:AbortSignal.timeout(Math.max(5000,Math.min(100000,Number(timeoutMs)||15000))) // R2544.99: cap 30 s -> 100 s (the desk asks 90 s; others keep their own)
     });
     const raw=await r.text();let j={};try{j=raw?JSON.parse(raw):{};}catch{}
     const content=j?.choices?.[0]?.message?.content??j?.output_text;

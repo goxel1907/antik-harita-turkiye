@@ -59,7 +59,7 @@ const freeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDisco
   statePath:path.join(ROOT,'data','openrouter-free-health.json')});
 // R2544.84 pozisyon masası: ayrı ücretsiz model örneği (kendi günlük sınırı ve sağlık dosyası; Normal sistemin ikinci görüşünü tüketmez)
 const deskFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,
-  preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:Math.max(30000,Number(cfg.openRouterFreeWorker?.timeoutMs)||0),maxAttempts:3,
+  preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:90000,maxAttempts:3, // R2544.99: 30 s -> 90 s (28.10: the pro desk screen made big free models time out at 30 s)
   dailyLimit:700,minuteLimit:20,statePath:path.join(ROOT,'data','openrouter-free-desk-health.json')}); // R2544.92: committee members ask in parallel
 function validResearchText(text){try{const raw=String(text||'').match(/\{[\s\S]*\}/)?.[0],j=JSON.parse(raw);return typeof j.summary==='string'&&j.summary.trim().length>0&&Array.isArray(j.keyPoints)&&Array.isArray(j.sourceUrls);}catch{return false;}}
 const knowledgeResearch=createKnowledgeResearch({
@@ -1594,17 +1594,18 @@ async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIMod
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
 setInterval(()=>refreshCommitteeRouterIds().catch(()=>{}),30*60*1000).unref?.();
 const routerCall=m=>async({system,prompt,validate})=>{try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:4096,validate});return {ok:true,text:out.text,model:m};}catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}};
-function committeeMembers(freeWorker,poolId,ctx){
+// R2544.99: the exam never spends the Google AI Studio daily quota (28.10 05:00: Gemini 3.6 Flash answered 429 to the LIVE desk; the exam used the same key)
+function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){
   const fixed=traderRouterMembers(),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
   const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:12,candidates:ROUTER_CANDIDATES,gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
   const or=OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)).map(m=>({id:'OR:'+m,call:async a=>{const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
-  return [...fixed,...extra,...or,freeMember(freeWorker,poolId)];
+  return [...fixed,...extra.filter(m=>!(noAiStudio&&/^ROUTER:gemini\//.test(m.id))),...or,freeMember(freeWorker,poolId)];
 }
 const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,
   dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota
 const deskCommittee=createCommittee({size:5,members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json')});
-const examCommittee=createCommittee({size:3,members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
+const examCommittee=createCommittee({size:3,members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx,{noAiStudio:true}),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
 const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav'),committee:examCommittee,dailyCap:100,keyFile:process.env.BRAINHUB_EXAM_KEY||path.join(ROOT,'..','Claud-Work','gelistirme','harness','indikator','sinav_key.json')}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
 setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();
