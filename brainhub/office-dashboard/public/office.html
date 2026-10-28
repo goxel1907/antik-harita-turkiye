@@ -2203,7 +2203,7 @@ onClick('#btnT3TopSweep',()=>{const t=last?.top3,on=t?.switches?.topSweep===true
   if(live&&!top3Second('btnT3TopSweep',`İLK 3 TEPE SHORT süpürme şartı ${on?'KAPAT':'AÇ'} — CANLI girişler değişir`))return;
   top3Control({topSweep:!on,...(live?{confirm:'LIVE'}:{})},on?'TEPE SHORT süpürme şartı kapatıldı':'TEPE SHORT süpürme şartı açıldı: SFP yoksa SHORT yok');});
 // R2544.89 KURUL: karar sahibi kurul (girişte veto, açık pozisyonda masa yetkili; yalnız azaltan emirler). CANLI'da GERÇEK PARA onayı.
-const CM_WARN='Kurul henüz ölçülmedi (sınav sürüyor). Kurul GİR demezse işlem açılmaz; açık pozisyonda kurul yarısını kapatabilir, stopu yaklaştırabilir, çıkabilir; modeller çalışmazsa kural devam eder.';
+const CM_WARN='Kurul henüz ölçülmedi (sınav sürüyor). Kurul ANLAŞARAK GİRME derse işlem açılmaz (oybirliği / tartışma sonrası çoğunluk, en az 2 model); tek model ya da anlaşmazlıkta kural karar verir. Açık pozisyonda kurul yarısını kapatabilir, stopu yaklaştırabilir, çıkabilir; modeller çalışmazsa kural devam eder.'; // R2544.98
 onClick('#btnTop3Cm',()=>{const t=last?.top3,on=t?.switches?.committeeMode===true,live=t?.tradingMode==='LIVE';
   if(on){top3Control({committeeMode:false},'Kurul kapatıldı: İlk 3 kararı kurala döndü (kurul gölgede kayıt tutmaya devam eder).');return;}
   if(!top3Second('btnTop3Cm',`İlk 3 karar sahibi KURUL${live?' — CANLI, GERÇEK PARA':''}. ${CM_WARN}`))return;
@@ -2215,7 +2215,8 @@ onClick('#btnZ5Cm',()=>{const z=last?.zirve5,on=z?.switches?.committeeMode===tru
 // tek tık: iki stratejinin kararını kurula verir (TEST'te onay gerekmez), ardından normal CANLI’ya geç onayı açılır (son karar sizde)
 onClick('#btnCmLive',async()=>{
   if(!top3Second('btnCmLive',`KURULLA CANLI: İlk 3 ve ZİRVE-5 kararı kurula verilir, sonra CANLI’ya geç onayı açılır. ${CM_WARN}`))return;
-  await top3Control({committeeMode:true},'İlk 3 kararı kurulda.');await z5Control({committeeMode:true},'ZİRVE-5 kararı kurulda.');
+  // R2544.98 (kullanıcı 28.10: "istersem direk canlıya geçeceğim gibi ayarla"): iki strateji kurula VE CANLI'da seçili olur; son onay yine CANLI'ya geç düğmesinde
+  await top3Control({committeeMode:true,liveEnabled:true,confirm:'LIVE'},'İlk 3 kararı kurulda, CANLI’da seçili.');await z5Control({committeeMode:true,liveEnabled:true,confirm:'LIVE'},'ZİRVE-5 kararı kurulda, CANLI’da seçili.');
   const g=document.getElementById('btnGoLive');if(g&&!g.disabled){g.click();modeMsg('Kurul hazır. CANLI’ya geçmek için “CANLI’ya geç” düğmesine 6 sn içinde bir kez daha basın.');}
   else modeMsg('Kurul hazır; “CANLI’ya geç” düğmesi şu an kullanılamıyor (hat seçimi / başlatma durumu).',true);});
 onClick('#btnTop3Jev',()=>{

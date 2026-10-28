@@ -19,7 +19,10 @@ function mobileStatus(status={}){
   // R2544.76: the kâr koruma state of a lot (level, share, taken, rest at break-even)
   const partOf=p=>p&&typeof p==='object'?(p.skipped?{skipped:p.skipped}:pick(p,['atR','share','price','done','beDone'])):null;
   // R2544.89 kurul: giriş kararı (GİR/GİRME, mutabakat) ve masanın son kararı (yetkili mi)
-  const cmOf=a=>{const e=a?.entryCommittee,d=a?.deskInfo?.last;return e||d?{entry:e?{d:e.decision||null,c:e.consensus||null,err:e.error||null,auth:e.authority===true}:null,desk:d?{a:d.action,j:d.judge,auth:d.authority===true,t:String(d.text||'').slice(0,120)}:null}:null;};
+  // R2544.98 (kullanıcı 28.10: "apk da modellerin toplu halde mutabık kararını da göster"): mutabakat türü ve model oyları da gider
+  const vOf=a=>(Array.isArray(a)?a:[]).slice(0,5).map(v=>({m:String(v.m||'').replace(/:free$/,'').split('/').pop().slice(0,28),d:v.d||v.a||null}));
+  const cmOf=a=>{const e=a?.entryCommittee,d=a?.deskInfo?.last;return e||d?{entry:e?{d:e.decision||null,cd:e.committeeDecision||null,ag:e.agreed===true,c:e.consensus||null,err:e.error||null,auth:e.authority===true,v:vOf(e.votes)}:null,
+    desk:d?{a:d.action,j:d.judge,auth:d.authority===true,c:d.committee?.consensus||null,v:vOf(d.committee?.votes),t:String(d.text||'').slice(0,120)}:null}:null;};
   if(t&&typeof t==='object'){
     out.top3={version:t.version,tradingMode:t.tradingMode,switches:t.switches,gate:t.gate,running:t.running,settings:t.settings||null,
       testWindow:pick(t.testWindow,['startedAt','endsAt','elapsedH','remainingMin','done','scans','okScans','signals','entries']),
@@ -38,7 +41,8 @@ function mobileStatus(status={}){
   // R2544.89 kurul özeti (telefon kurul masası ve sınav ilerlemesi)
   {const pd=status.top3?.positionDesk||status.zirve5?.positionDesk;if(pd&&pd.committee){const c=pd.committee;
     out.committee={team:(c.team||[]).map(x=>String(x).replace(/^ROUTER:|^FREE:|^OR:/,'').replace(/:free$/,'')),healthy:(c.members||[]).filter(m=>m.healthy).length,members:(c.members||[]).length,
-      exam:pd.exam?{answered:pd.exam.answered,total:pd.exam.total,finished:pd.exam.finished===true}:null,entry:pd.entryComparison||null};}}
+      exam:pd.exam?{answered:pd.exam.answered,total:pd.exam.total,finished:pd.exam.finished===true}:null,entry:pd.entryComparison||null,
+      recent:(pd.cmRecent||[]).slice(0,6).map(x=>({at:x.at,s:String(x.symbol||'').replace(/USDT$/,''),side:x.side,d:x.d,ag:x.ag===true,c:x.c,b:x.blocked===true,v:vOf(x.v)}))};}}
   const z=status.zirve5;
   if(z&&typeof z==='object'&&z.ok!==false){
     const ls=z.lastScan;

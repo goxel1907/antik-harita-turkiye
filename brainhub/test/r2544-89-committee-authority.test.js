@@ -154,3 +154,48 @@ test('R2544.89 switches: KURUL and JEV are exclusive; LIVE needs the explicit co
   assert.match(of,/const g=document\.getElementById\('btnGoLive'\);if\(g&&!g\.disabled\)\{g\.click\(\)/,'one click = committee ON + the normal LIVE confirmation (the user presses it)');
   const ms=require('../mobile-status');assert.ok(fs.readFileSync(path.join(__dirname,'..','mobile-status.js'),'utf8').includes('out.committee={team:'));
 });
+
+// ---------------------------------------------------------------- R2544.98 (kullanıcı 28.10: "bunların çalıştığına emin olalım test yapalım")
+const v98=(m,d)=>({member:m,ok:true,seat:null,vote:{decision:d,pTarget:50,reasonTr:m+' '+d}});
+test('R2544.98 entry: one model saying SKIP does NOT block (the rule decides); an agreed SKIP of 2+ models blocks; both land in the phone list',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  let f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:cm({ok:true,final:'SKIP',consensus:'SINGLE_VOTER_DEFAULT',rounds:1,voters:1,votes:[v98('OR:x','SKIP')],round2:null})}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1,'a lone model has no veto');
+  const rec=f.lot().entryFeatures.committee;assert.equal(rec.decision,'RULE');assert.equal(rec.committeeDecision,'SKIP');assert.equal(rec.agreed,false);
+  let ring=f.controller._testTop3State().cmRecent;assert.equal(ring[0].blocked,false);assert.equal(ring[0].c,'SINGLE_VOTER_DEFAULT');
+  require('../binance-rate-limit').resetForTests();
+  f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:cm({ok:true,final:'SKIP',consensus:'MAJORITY_AFTER_DEBATE',rounds:2,voters:3,votes:[],round2:[v98('ROUTER:groq/a','SKIP'),v98('OR:b','SKIP'),v98('ROUTER:nvidia/c','TAKE')]})}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,0,'2 of 3 agreed: SKIP');assert.equal(f.state.orders.length,0);
+  ring=f.controller._testTop3State().cmRecent;assert.equal(ring[0].blocked,true);assert.deepEqual(ring[0].v.map(x=>x.d),['SKIP','SKIP','TAKE']);
+  require('../binance-rate-limit').resetForTests();
+  f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:cm({ok:true,final:'SKIP',consensus:'NO_MAJORITY_DEFAULT',rounds:2,voters:4,votes:[],round2:[v98('a','SKIP'),v98('b','SKIP'),v98('c','TAKE'),v98('d','TAKE')]})}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1,'no agreement (2-2): the rule decides');
+});
+test('R2544.98 desk with authority, real tick: 3 of 5 want less risk after the debate -> the mildest (TIGHTEN_STOP to break-even) runs on the exchange',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const vote=(m,action,stopChoice='KEEP')=>({member:m,ok:true,seat:null,vote:{ok:true,action,stopChoice,reason:'MOMENTUM_FADING',confidence:60,reasonTr:m,watchTr:''}});
+  const desk={ok:true,final:'HOLD',consensus:'NO_MAJORITY_DEFAULT',rounds:2,voters:5,votes:[],round2:[vote('a','HOLD'),vote('b','HOLD'),vote('c','TIGHTEN_STOP','BREAKEVEN'),vote('d','EXIT'),vote('e','TAKE_PARTIAL')]};
+  const c=cm(o=>o.field==='action'?desk:TAKE);
+  const f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:c}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=JSON.parse(JSON.stringify(f.lot())),R=a.stopPrice-a.entryPrice;
+  await f.beat(a.entryPrice-0.8*R);f.state.now+=6*60000;                 // in profit (SHORT), first desk look after 5 min
+  let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));} // the scan's own desk look may still be running (deskBusy)
+  assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.action,'TIGHTEN_STOP');
+  const call=c.calls.find(x=>x.field==='action');assert.doesNotMatch(call.system,/measured default/);const pk=JSON.parse(call.prompt);
+  assert.equal(pk.tradeTimeframe.trigger,'15m');assert.ok(pk.position.givebackR!==undefined&&pk.noiseR);
+  const rec=f.lot().desk.last;assert.equal(rec.shadow,false);assert.equal(rec.authority,true);assert.equal(rec.committee.consensus,'REDUCE_MAJORITY');assert.ok(f.lot().deskOrder,'order queued');
+  await f.beat();const b=f.lot();assert.ok(b.stopPrice<a.stopPrice&&b.stopPrice<=a.entryPrice*1.0012+0.011,'stop moved to break-even on the exchange: '+b.stopPrice);
+  const st=f.paper.state.algos.filter(x=>x.algoStatus==='NEW').find(x=>String(x.algoId)===String(b.stopAlgoId));assert.ok(st&&Math.abs(Number(st.triggerPrice)-b.stopPrice)<1e-9);
+});
+test('R2544.98 "Kurulla CANLI" switches: both strategies to the committee AND selected for LIVE in one go (TEST); the lanes say who decides; LIVE itself stays a separate press',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({z5:{enabled:true},top3:{enabled:true}});
+  assert.equal(f.controller.laneStatus().top3.liveAllowed,false);assert.equal(f.controller.laneStatus().zirve5.liveAllowed,false);
+  const a=f.controller.configureTop3({committeeMode:true,liveEnabled:true,confirm:'LIVE'}),b=f.controller.configureZ5({committeeMode:true,liveEnabled:true,confirm:'LIVE'});
+  assert.equal(a.ok,true,JSON.stringify(a));assert.equal(b.ok,true,JSON.stringify(b));
+  const L=f.controller.laneStatus();
+  assert.equal(L.top3.liveAllowed,true,'İlk 3 selected for LIVE');assert.equal(L.zirve5.liveAllowed,true,'ZİRVE-5 selected for LIVE');
+  assert.equal(L.top3.decisions,'RULE_PLUS_COMMITTEE');assert.equal(L.zirve5.decisions,'RULE_PLUS_COMMITTEE');
+  assert.equal(f.controller.tradingModeStatus().mode,'TEST','nothing went LIVE by itself');
+  assert.equal(f.controller.configureZ5({liveEnabled:true}).ok,false,'without the LIVE confirmation ZİRVE-5 is not selected');
+});

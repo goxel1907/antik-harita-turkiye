@@ -45,3 +45,17 @@ test('R2544.98 entry gate: only an agreed SKIP (unanimous / majority after debat
   assert.match(lc,/const agreed=\['UNANIMOUS','MAJORITY_AFTER_DEBATE'\]\.includes\(r\.consensus\)&&\(r\.voters\|\|0\)>=2;/);
   assert.match(lc,/return \{veto:agreed&&r\.final!=='TAKE',record:\{at:clock\(\),decision:agreed\?r\.final:'RULE'/);
 });
+test('R2544.98 phone: each open lot carries the committee agreement (type + every model vote) for entry and desk; the latest entry decisions (opened or blocked) are listed; Kurulla CANLI also selects both strategies for LIVE',()=>{
+  const {mobileStatus}=require('../mobile-status');
+  const entry={decision:'TAKE',committeeDecision:'TAKE',agreed:true,consensus:'UNANIMOUS',authority:true,votes:[{m:'gemini/gemini-3.5-flash-lite',s:'boğa',d:'TAKE'},{m:'nvidia/nemotron-3-ultra-550b-a55b:free',s:'ayı',d:'TAKE'}]};
+  const desk={action:'TIGHTEN_STOP',judge:'COMMITTEE',authority:true,text:'STOPU YAKLAŞTIR',committee:{consensus:'REDUCE_MAJORITY',votes:[{m:'minimax-m3.1-flash',a:'TIGHTEN_STOP'},{m:'openrouter',a:'HOLD'},{m:'gpt-oss-120b',a:'EXIT'}]}};
+  const st={top3:{version:'x',active:[{symbol:'LABUSDT',side:'LONG',entryCommittee:entry,deskInfo:{last:desk}}],positionDesk:{committee:{team:['ROUTER:gemini/gemini-3.5-flash-lite'],members:[{healthy:true}]},
+    cmRecent:[{at:1,symbol:'XANUSDT',side:'LONG',d:'SKIP',ag:true,c:'MAJORITY_AFTER_DEBATE',blocked:true,v:[{m:'gemini/gemini-3.5-flash-lite',d:'SKIP'},{m:'openrouter',d:'SKIP'},{m:'x',d:'TAKE'}]}]}}};
+  const o=mobileStatus(st),cm=o.top3.active[0].cm;
+  assert.equal(cm.entry.c,'UNANIMOUS');assert.equal(cm.entry.ag,true);assert.deepEqual(cm.entry.v.map(v=>v.m+'='+v.d),['gemini-3.5-flash-lite=TAKE','nemotron-3-ultra-550b-a55b=TAKE']);
+  assert.equal(cm.desk.c,'REDUCE_MAJORITY');assert.deepEqual(cm.desk.v.map(v=>v.d),['TIGHTEN_STOP','HOLD','EXIT']);
+  assert.deepEqual(o.committee.recent[0],{at:1,s:'XAN',side:'LONG',d:'SKIP',ag:true,c:'MAJORITY_AFTER_DEBATE',b:true,v:[{m:'gemini-3.5-flash-lite',d:'SKIP'},{m:'openrouter',d:'SKIP'},{m:'x',d:'TAKE'}]});
+  const fs=require('fs'),path=require('path'),html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  assert.match(html,/top3Control\(\{committeeMode:true,liveEnabled:true,confirm:'LIVE'\}/);assert.match(html,/z5Control\(\{committeeMode:true,liveEnabled:true,confirm:'LIVE'\}/);assert.match(html,/Kurul ANLAŞARAK GİRME derse işlem açılmaz/);
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');assert.match(lc,/decisions:t\.committeeMode===true\?'RULE_PLUS_COMMITTEE'/);assert.match(lc,/ring\.unshift\(\{at:clock\(\),symbol,side,rule,d:r\.final,ag:agreed/);
+});
