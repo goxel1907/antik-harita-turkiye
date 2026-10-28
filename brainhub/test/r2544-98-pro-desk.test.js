@@ -40,3 +40,8 @@ test('R2544.98 entry prompt: the trade timeframe and a professional thinking ord
   assert.match(lc,/const chart=\{m5:TB\.chartReading\(k5\.raw,'5m'/);assert.match(lc,/deskKlines\(a\.symbol,'5m',80\)/);
   assert.equal(TB.TB_VERSION,'R2544.98-TRADER-BRAIN-PRO');assert.equal(DESK.DESK_VERSION,'R2544.98-POSITION-DESK-PRO');
 });
+test('R2544.98 entry gate: only an agreed SKIP (unanimous / majority after debate, 2+ voters) blocks; a single voter or no majority leaves the decision to the rule',()=>{
+  const lc=require('fs').readFileSync(require('path').join(__dirname,'..','live-controller.js'),'utf8');
+  assert.match(lc,/const agreed=\['UNANIMOUS','MAJORITY_AFTER_DEBATE'\]\.includes\(r\.consensus\)&&\(r\.voters\|\|0\)>=2;/);
+  assert.match(lc,/return \{veto:agreed&&r\.final!=='TAKE',record:\{at:clock\(\),decision:agreed\?r\.final:'RULE'/);
+});
