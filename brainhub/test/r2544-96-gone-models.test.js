@@ -18,7 +18,7 @@ test('R2544.96 gone = 410 / [404] model errors from the real 27.10 health file; 
 });
 test('R2544.96 today\'s models first, a gone model gives its seat to the next, still 3 per provider; the committee tells the members function which are gone',async()=>{
   const ids=['nvidia/minimaxai/minimax-m2.7','nvidia/z-ai/glm-5.2','nvidia/moonshotai/kimi-k2.6','groq/llama-3.3-70b-versatile','groq/qwen/qwen3-32b','gemini/gemini-3.8-flash','gemini/gemini-3.7-flash','gemini/gemini-3.6-flash'];
-  const out=MC.pickRouterExtras(ids,{strong:STRONG,perProvider:3,max:12,candidates:CAND,gone:id=>id==='ROUTER:nvidia/z-ai/glm-5.3'});
+  const out=MC.pickRouterExtras(ids,{strong:STRONG,perProvider:3,max:12,candidates:CAND,gone:id=>id==='ROUTER:nvidia/z-ai/glm-5.3',caps:{ollama:1}});
   const by=p=>out.filter(m=>m.startsWith(p+'/'));
   assert.deepEqual(by('nvidia'),['nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/minimaxai/minimax-m3.1-flash','nvidia/nvidia/nemotron-3-super-120b-a12b'],'gone GLM 5.3 skipped, the 4th candidate takes the seat');
   assert.deepEqual(by('groq'),['groq/openai/gpt-oss-120b','groq/qwen/qwen3.8-27b','groq/llama-3.3-70b-versatile']);

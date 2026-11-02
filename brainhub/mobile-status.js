@@ -42,6 +42,8 @@ function mobileStatus(status={}){
   {const pd=status.top3?.positionDesk||status.zirve5?.positionDesk;if(pd&&pd.committee){const c=pd.committee;
     out.committee={team:(c.team||[]).map(x=>String(x).replace(/^ROUTER:|^FREE:|^OR:/,'').replace(/:free$/,'')),healthy:(c.members||[]).filter(m=>m.healthy).length,members:(c.members||[]).length,
       exam:pd.exam?{answered:pd.exam.answered,total:pd.exam.total,finished:pd.exam.finished===true}:null,entry:pd.entryComparison||null,
+      // R2544.103 (kullanıcı 02.11: "modellerin çalıştığına emin ol ... net göster"): her model ve durumu (OK / YOĞUN / KOTA / HASTA)
+      models:(pd.cmBoard?.rows||[]).slice(0,24).map(r=>({m:String(r.key||r.id||'').replace(/^ROUTER:|^FREE:|^OR:/,'').replace(/:free$/,'').split('/').pop().slice(0,28),st:r.healthy?'OK':r.quota?(r.quota.kind==='RATE'?'BUSY':'QUOTA'):'SICK',t:r.inTeam===true,why:r.healthy?null:String(r.lastError||'').replace(/\s+/g,' ').slice(0,40)})),
       recent:(pd.cmRecent||[]).slice(0,6).map(x=>({at:x.at,s:String(x.symbol||'').replace(/USDT$/,''),side:x.side,d:x.d,ag:x.ag===true,c:x.c,b:x.blocked===true,v:vOf(x.v)}))};}}
   const z=status.zirve5;
   if(z&&typeof z==='object'&&z.ok!==false){

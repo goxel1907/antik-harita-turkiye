@@ -16,7 +16,7 @@ test('R2544.97 413 too large = unusable at once; 3 timeouts in a row = unusable;
 test('R2544.97 a too-big Groq model gives its seat away after the first real call; the probe alone does not hide it',async()=>{
   let t=Date.UTC(2026,9,27,21,0,0),big=false;
   const mk=id=>({id,call:async({prompt})=>big&&prompt!=='ping'?{ok:false,reason:'HTTP 413 Request too large for model, Limit 8000'}:{ok:true,text:'{"ok":true,"decision":"SKIP"}'}});
-  const c=MC.createCommittee({clock:()=>t,size:2,members:ctx=>MC.pickRouterExtras(['groq/openai/gpt-oss-120b','groq/qwen/qwen3.8-27b'],{gone:ctx.gone}).map(id=>mk('ROUTER:'+id))});
+  const c=MC.createCommittee({clock:()=>t,size:2,members:ctx=>MC.pickRouterExtras(['groq/openai/gpt-oss-120b','groq/qwen/qwen3.8-27b'],{gone:ctx.gone,caps:{}}).map(id=>mk('ROUTER:'+id))});
   await c.probe({force:true});assert.equal(c.healthy().length,2);
   big=true;await c.decide({system:'s',prompt:'packet',validate:()=>true,parse:x=>({ok:true,...JSON.parse(x)}),field:'decision',fallback:'SKIP'});
   assert.equal(c.status().members.length,0,'both 413 → both leave the member list');

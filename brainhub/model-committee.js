@@ -52,7 +52,8 @@ const unusableWhy = rec => { const e = String(rec?.error || '');
   return null; };
 const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && unusableWhy(rec) && now - (Number(rec.at) || 0) < GONE_TTL_MS);
 // R2544.100: Ollama Cloud free = ONE cloud model at a time -> at most 1 member from it (parallel calls would collide)
-const PROVIDER_CAP = { ollama:1 };
+// R2544.103: Groq free = ~8K tokens per minute per model (prompt + max_tokens); two Groq members asked in the same minute overflow it
+const PROVIDER_CAP = { ollama:1, groq:1 };
 function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false, caps = PROVIDER_CAP } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
@@ -186,7 +187,9 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     for (let k = 0; k < team.length; k++) if (!out[k]) out[k] = rest.length ? rest.shift() : roles[k % roles.length];
     return out;
   }
-  function status() { return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:healthy().includes(m) })), team:pick().map(m => m.id), lastProbeAt }; }
+  // R2544.103: compare by id - the members function builds new objects on every call, so includes(m) was always false and Office showed
+  // every model as sick since R2544.92 (the committee itself picked healthy members correctly)
+  function status() { const ok = new Set(healthy().map(m => m.id)); return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:ok.has(m.id) })), team:pick().map(m => m.id), lastProbeAt }; }
   return { probe, healthy, pick, decide, status, assignSeats };
 }
 module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone, unusableWhy, PROVIDER_CAP };
