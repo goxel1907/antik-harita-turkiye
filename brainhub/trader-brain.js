@@ -5,7 +5,7 @@
 // konumu, hacim, taker payı), gün/hafta/ay seviyeleri, BTC, plan (giriş/stop/hedef R). Coin adı ve tarih GİZLİ, fiyatlar giriş = 100
 // ölçeğinde: model fiyatı "hatırlayamaz" (sınav dönemi bazı modellerin eğitim verisiyle çakışıyor). Karar: TAKE / SKIP + güven + neden.
 // Bu sürümde YALNIZ SINAV: 6 aylık geçmiş sinyaller ücretsiz modele sorulur; giriş kararı vermez.
-const TB_VERSION = 'R2544.98-TRADER-BRAIN-PRO';
+const TB_VERSION = 'R2544.114-TRADER-BRAIN-SCREEN';
 const ENGINE = require('./engine'); // R2544.88: the same causal chart engine JEV uses (closed candles only)
 const TF = { m5:{ ms:300000, n:48, frame:'5m' }, m15:{ ms:900000, n:32, frame:'15m' }, h1:{ ms:3600000, n:36, frame:'1h' }, h4:{ ms:14400000, n:30, frame:'4h' }, d1:{ ms:86400000, n:20, frame:'1d' } };
 // candles to fetch per timeframe so the chart engine has >= 52 closed candles (EMA50, swings, FVG history)
@@ -82,8 +82,95 @@ function chartReading(raw, frame, { t, P = x => x, R = () => null } = {}) {
     };
   } catch { return null; }
 }
+// R2544.114 NET EKRAN (kullanıcı 02.11: "modeller neye karar verdiğini net bilmeli görmeli ... pro traderın gözünü bağlamışsın al şimdi
+// trade yap diyorsun"): ham sayılar duruyor ama önce KODUN yazdığı brifing gelir - kural neden tetiklendi, yönetim tam olarak ne,
+// her zaman diliminde her olgu BU işlem için lehte mi aleyhte mi, hedefe kadar engeller (R), BTC, 6 aylık temel oran ve başabaş isabeti.
+// Kod yorum katmanıdır: her satır yalnız dayandığı sayı varsa yazılır; tahmin yok. Karar yine modelin.
+const BASE_RATES = { // 6 months, every signal of the rule (Claud-Work sınav anahtarı, 1248 sinyal)
+  LONG_EARLY_RETEST:{ n:504, profitPct:34, avgR:0.03 }, SHORT_TOP_BREAK:{ n:513, profitPct:39, avgR:0.03 },
+  ZIRVE5_FIBO_LONG:{ n:126, profitPct:40, avgR:0.01 }, ZIRVE5_FIBO_SHORT:{ n:105, profitPct:46, avgR:0.12 } };
+const MANAGEMENT = { // the default (live config 02.11); live-controller passes the real one
+  LONG_EARLY_RETEST:'at +1R the stop moves to entry (a later return to entry closes at about 0R); half is closed at +2R; the rest runs to the target; exit after 24 h at the latest',
+  SHORT_TOP_BREAK:'half is closed at +2R and the rest moves to break-even; the rest runs to the target; exit after 24 h at the latest',
+  ZIRVE5_FIBO_LONG:'half is closed at +2R and the rest moves to break-even; exit after 24 h at the latest',
+  ZIRVE5_FIBO_SHORT:'half is closed at +2R and the rest moves to break-even; exit after 24 h at the latest' };
+const f1 = x => (x > 0 ? '+' : '') + Number(x).toFixed(2);
+const ago = n => n === 0 ? 'on the last closed candle' : n === 1 ? '1 candle ago' : `${n} candles ago`;
+const LEVEL_NAME = { PDH:'previous day', PWH:'previous week', PMH:'previous month' };
+const rTxt = r => r === null || r === undefined || !Number.isFinite(r) ? '' : ` (${f1(r)}R)`;
+function triggerLines(rule, trig, P, R, L) {
+  if (!trig || typeof trig !== 'object') return [];
+  const out = [], v = x => finite(x), at = (x, name) => v(x) !== null ? `${name} ${P(v(x))}${rTxt(R(v(x)))}` : null;
+  if (rule === 'LONG_EARLY_RETEST') {
+    if (v(trig.level) !== null) out.push(`broke the ${LEVEL_NAME[trig.levelName] || trig.levelName || 'previous'} high ${at(trig.level, 'at').replace(/^at /, '')}${v(trig.volMult) !== null ? ` on a 5m candle with ${v(trig.volMult).toFixed(1)}x median volume` : ''}`);
+    if (v(trig.retestLow) !== null) out.push(`then came back and retested it: retest low ${P(v(trig.retestLow))}${rTxt(R(v(trig.retestLow)))}, the level held on close`);
+    if (v(trig.breakoutAt) !== null && v(trig.retestAt) !== null) out.push(`breakout to retest took ${Math.round((v(trig.retestAt) - v(trig.breakoutAt)) / 300000)} five-minute candles`);
+  } else if (rule === 'SHORT_TOP_BREAK') {
+    if (v(trig.top) !== null) out.push(`fresh 24h top ${P(v(trig.top))}${rTxt(R(v(trig.top)))}${v(trig.topVolMult) !== null ? ` made with ${v(trig.topVolMult).toFixed(1)}x median volume` : ''}`);
+    if (trig.sweep && v(trig.sweep.level) !== null) out.push(`before the top, price swept the liquidity under ${P(v(trig.sweep.level))}${rTxt(R(v(trig.sweep.level)))} (${trig.sweep.barsAgo ?? '?'} five-minute candles earlier)`);
+    if (v(trig.hl) !== null) out.push(`then a 5m candle closed below the pre-top structure low ${P(v(trig.hl))}${rTxt(R(v(trig.hl)))}: the move up broke`);
+  } else {
+    if (v(trig.top) !== null && v(trig.bottom) !== null) out.push(`15m ${L ? 'breakout' : 'breakdown'} zone ${P(v(trig.bottom))} - ${P(v(trig.top))}${v(trig.equilibrium) !== null ? `, its middle ${P(v(trig.equilibrium))}` : ''}`);
+    if (trig.confirm) out.push(`a ${L ? 'bull' : 'bear'} 15m candle closed in the zone${v(trig.confirm.body) !== null ? ` (body ${Math.round(v(trig.confirm.body) * 100)}% of its range` : ''}${v(trig.confirm.volMult) !== null ? `, ${v(trig.confirm.volMult).toFixed(1)}x volume)` : v(trig.confirm.body) !== null ? ')' : ''}`);
+    if (trig.sweep) out.push('liquidity on the zone side was swept within the last 24 candles');
+  }
+  return out;
+}
+function frameLine(name, s, c, L) {
+  if (!s && !c) return null;
+  const pro = [], con = [], info = [], ok = x => (L && x === 'UP') || (!L && x === 'DOWN'), bad = x => (L && x === 'DOWN') || (!L && x === 'UP');
+  const tr = c?.trend || s?.trend, hl = c?.swing?.highs && c?.swing?.lows ? ` (${c.swing.highs}/${c.swing.lows})` : '';
+  if (tr) (ok(tr) ? pro : bad(tr) ? con : info).push(`trend ${tr}${hl}`);
+  const ev = (c?.events || []).filter(e => finite(e.barsAgo) !== null).sort((a, b) => a.barsAgo - b.barsAgo)[0];
+  if (ev) { const w = (L && ev.side === 'BULL') || (!L && ev.side === 'BEAR'); (w ? pro : con).push(`last structure event ${ev.side} ${ev.kind} ${ago(ev.barsAgo)}${rTxt(ev.R)}`); }
+  const zone = c?.dealingRange?.zone, pos = c?.dealingRange?.positionPct;
+  if (zone) { const hi = /PREMIUM|ABOVE/.test(zone), lo = /DISCOUNT|BELOW/.test(zone), txt = `price in ${zone.toLowerCase().replace(/_/g, ' ')}${pos !== null && pos !== undefined ? ` (${Math.round(pos)}% of the dealing range)` : ''}`;
+    ((L && lo) || (!L && hi) ? pro : (L && hi) || (!L && lo) ? con : info).push(txt); }
+  const ext = s && finite(s.closeVsEma20) !== null && finite(s.atrPct) > 0 ? s.closeVsEma20 / s.atrPct : null;
+  if (ext !== null && Math.abs(ext) >= 2) ((L && ext > 0) || (!L && ext < 0) ? con : pro).push(`close ${f1(s.closeVsEma20)}% from EMA20 = ${Math.abs(ext).toFixed(1)} ATR stretched ${ext > 0 ? 'up' : 'down'}`);
+  const rsi = finite(c?.momentum?.rsi14);
+  if (rsi !== null && (rsi >= 70 || rsi <= 30)) ((L && rsi >= 70) || (!L && rsi <= 30) ? con : pro).push(`RSI ${Math.round(rsi)} ${rsi >= 70 ? 'overbought' : 'oversold'}`);
+  for (const p of (c?.patterns || []).filter(p => p.status === 'CONFIRMED').slice(0, 2)) ((L && p.side === 'LONG') || (!L && p.side === 'SHORT') ? pro : p.side ? con : info).push(`${String(p.type).toLowerCase().replace(/_/g, ' ')} confirmed`);
+  const d = c?.momentum?.displacement; if (d && finite(d.barsAgo) !== null && d.barsAgo <= 3) ((L && d.dir === 'UP') || (!L && d.dir === 'DOWN') ? pro : con).push(`strong ${d.dir} displacement ${ago(d.barsAgo)}`);
+  const ch = c?.momentum?.chaseRisk?.[L ? 'LONG' : 'SHORT']; if (ch === 'HIGH') con.push('chase risk HIGH (entry far from the base of the move)');
+  const vm = finite(s?.volLast3VsMedian), tb = finite(s?.takerBuyShareLast3);
+  if (vm !== null && vm >= 2) { const flow = tb === null ? '' : `, taker buy ${Math.round(tb * 100)}%`, w = tb === null ? 0 : L ? (tb >= 0.55 ? 1 : tb <= 0.45 ? -1 : 0) : (tb <= 0.45 ? 1 : tb >= 0.55 ? -1 : 0);
+    (w > 0 ? pro : w < 0 ? con : info).push(`last 3 candles ${vm.toFixed(1)}x median volume${flow}`); }
+  return { frame:name, for:pro, against:con, info, lean:pro.length > con.length ? 'FOR' : con.length > pro.length ? 'AGAINST' : 'MIXED' };
+}
+function roomLines(tfs, levels, targetR, L) {
+  const obs = [], sup = [], seen = new Set(), add = (a, r, txt) => { if (!Number.isFinite(r)) return; const k = txt + r.toFixed(2); if (seen.has(k)) return; seen.add(k); a.push({ r, txt }); };
+  for (const l of levels || []) { if (!Number.isFinite(l.R)) continue; const opp = L ? /High|high/.test(l.name) : /Low|low/.test(l.name);
+    if (opp && l.R > 0 && l.R < targetR) add(obs, l.R, l.name); if (!opp && l.R < 0 && l.R > -1.5) add(sup, l.R, l.name); }
+  for (const [n, t] of Object.entries(tfs || {})) { const c = t?.chartReading; if (!c) continue; const f = t && TF[n]?.frame;
+    for (const g of c.openFvg || []) { const opp = (L && g.side === 'BEAR') || (!L && g.side === 'BULL'); if (opp && g.R > 0 && g.R < targetR) add(obs, g.R, `${f} ${g.side.toLowerCase()} FVG`); if (!opp && g.R < 0 && g.R > -1.5) add(sup, g.R, `${f} ${g.side.toLowerCase()} FVG`); }
+    for (const o of c.orderBlocks || []) { const opp = (L && o.side === 'BEAR') || (!L && o.side === 'BULL'); if (opp && o.R > 0 && o.R < targetR) add(obs, o.R, `${f} ${o.side.toLowerCase()} order block`); if (!opp && o.R < 0 && o.R > -1.5) add(sup, o.R, `${f} ${o.side.toLowerCase()} order block`); } }
+  obs.sort((a, b) => a.r - b.r); sup.sort((a, b) => b.r - a.r);
+  return { obstacles:obs.slice(0, 6).map(x => `${x.txt} at ${f1(x.r)}R`), firstObstacleR:obs.length ? +obs[0].r.toFixed(2) : null,
+    protection:sup.slice(0, 4).map(x => `${x.txt} at ${f1(x.r)}R`) };
+}
+function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, R }) {
+  const L = side === 'LONG', tR = finite(plan.targetR), be = tR > 0 ? Math.round(100 / (1 + tR)) : null, br = BASE_RATES[rule] || null;
+  const frames = ['d1', 'h4', 'h1', 'm15', 'm5'].map(n => frameLine(TF[n].frame, tfs[n]?.structure, tfs[n]?.chartReading, L)).filter(Boolean);
+  const room = roomLines(tfs, levels, tR ?? 99, L);
+  const fr = frames.map(f => `${f.frame}: leans ${f.lean}${f.for.length ? ' | for: ' + f.for.join('; ') : ''}${f.against.length ? ' | against: ' + f.against.join('; ') : ''}${f.info.length ? ' | neutral: ' + f.info.join('; ') : ''}`);
+  const tally = { for:frames.filter(f => f.lean === 'FOR').map(f => f.frame), against:frames.filter(f => f.lean === 'AGAINST').map(f => f.frame) };
+  return {
+    readFirst:'Desk briefing written by code from closed candles. Every line comes from a number below; nothing is guessed. Check it against the raw data if you doubt it.',
+    trade:`${SETUP_TEXT[rule] ? SETUP_TEXT[rule].split(':')[0] : side + ' ' + rule}. Entry 100, stop ${plan.stop} (-1R = ${plan.stopDistancePct}% away), target ${plan.target} (${f1(tR)}R).`,
+    management:management || MANAGEMENT[rule] || plan.management,
+    whyTheRuleFired:triggerLines(rule, trigger, P, R, L),
+    timeframes:fr,
+    timeframeTally:`leaning FOR this ${side}: ${tally.for.join(', ') || 'none'}; leaning AGAINST: ${tally.against.join(', ') || 'none'}`,
+    roomToTarget:room.obstacles.length ? `opposite levels between entry and the target: ${room.obstacles.join('; ')}. First one at ${f1(room.firstObstacleR)}R (the half close is at +2R).` : `no opposite level found between entry and the ${f1(tR)}R target`,
+    behindEntry:room.protection.length ? `levels between entry and the stop side (they should hold for the trade): ${room.protection.join('; ')}` : 'no level between entry and the stop side',
+    btc:btc ? `BTC 1h trend ${btc.trend1h}, ${f1(btc.change12hPct)}% in 12 h, ${f1(btc.closeVsEma20Pct)}% from its EMA20` : 'BTC data missing',
+    odds:`${br ? `Over 6 months ${br.profitPct}% of all signals of this rule ended in profit (n ${br.n}, average ${f1(br.avgR)}R): taking every signal is about break-even, so the job is to tell the good ones from the bad ones. ` : ''}` +
+      `${be !== null ? `With a ${f1(tR)}R target the trade has positive expectancy if price reaches the target before the stop in more than about ${be}% of cases like this one.` : ''}`
+  };
+}
 // the screen. k = { m5, m15, h1, h4, d1, btc1h } raw klines CLOSED before t; plan = { side, rule, entry, stop, target }
-function entryPacket({ k, plan, t, extra = null }) {
+function entryPacket({ k, plan, t, extra = null, trigger = null, management = null }) {
   const L = plan.side === 'LONG', s = 100 / plan.entry, P = x => x === null || x === undefined || !Number.isFinite(x) ? null : +(x * s).toFixed(3);
   const risk = Math.abs(plan.entry - plan.stop), R = p => p === null || p === undefined ? null : +(((L ? p - plan.entry : plan.entry - p) / risk)).toFixed(2);
   const tfs = {};
@@ -97,11 +184,13 @@ function entryPacket({ k, plan, t, extra = null }) {
   const levels = [level('prevDayHigh', lv.prevDay?.high), level('prevDayLow', lv.prevDay?.low), level('prevWeekHigh', lv.prevWeek?.high), level('prevWeekLow', lv.prevWeek?.low),
     level('prevMonthHigh', lv.prevMonth?.high), level('prevMonthLow', lv.prevMonth?.low), level('high24h', h24.length ? Math.max(...h24.map(x => x.h)) : null), level('low24h', h24.length ? Math.min(...h24.map(x => x.l)) : null)].filter(Boolean);
   const b = rows(k.btc1h).filter(x => x.t + 3600000 <= t), bs = b.length >= 12 ? structure(b) : null;
-  return { contract:TB_VERSION, task:'ENTRY', side:plan.side, setup:SETUP_TEXT[plan.rule] || plan.rule, tradeTimeframe:ENTRY_TF[plan.rule] || null,
-    plan:{ entry:100, stop:P(plan.stop), target:P(plan.target), targetR:R(plan.target), stopDistancePct:+(risk / plan.entry * 100).toFixed(2),
-      management:'half closed at +2R, the rest moved to break-even; exit after 24 h at the latest' },
-    timeframes:tfs, levels, btc:bs ? { trend1h:bs.trend, change12hPct:bs.change12Pct, closeVsEma20Pct:bs.closeVsEma20 } : null, extra,
-    baseRate:'Over 6 months most signals of this setup lost; the average result was about 0R per trade. Taking every signal earns nothing.' };
+  const pl = { entry:100, stop:P(plan.stop), target:P(plan.target), targetR:R(plan.target), stopDistancePct:+(risk / plan.entry * 100).toFixed(2),
+    management:management || MANAGEMENT[plan.rule] || 'half closed at +2R, the rest moved to break-even; exit after 24 h at the latest' };
+  const btc = bs ? { trend1h:bs.trend, change12hPct:bs.change12Pct, closeVsEma20Pct:bs.closeVsEma20 } : null;
+  // R2544.114: the briefing comes FIRST; the old "most signals lost / taking every signal earns nothing" line is replaced by the neutral odds in it
+  const screen = briefing({ side:plan.side, rule:plan.rule, plan:pl, tfs, levels, btc, trigger, management:pl.management, P, R });
+  return { contract:TB_VERSION, task:'ENTRY', side:plan.side, screen, setup:SETUP_TEXT[plan.rule] || plan.rule, tradeTimeframe:ENTRY_TF[plan.rule] || null,
+    plan:pl, timeframes:tfs, levels, btc, extra };
 }
 // R2544.98 (kullanıcı 28.10: "işlem açılan zaman dilimi çok önemli; insan hissi: pro trader burada ne yapardı"): girişte de işlemin kendi
 // zaman dilimi ve profesyonelin düşünme sırası açıkça verilir; yön dayatılmaz.
@@ -112,7 +201,9 @@ const ENTRY_SYSTEM = 'You are a senior discretionary crypto-futures trader on a 
   '(2) CONTEXT: read top-down (1d and 4h, then 1h): with or against the larger trend, premium or discount, which big levels and liquidity pools sit between entry and target. ' +
   '(3) TRIGGER: is the trigger fresh and clean (volume, taker flow, a real close beyond the level) or late and extended (chasing a move already far from its base)? ' +
   '(4) ROOM AND RISK: is there room to the target before the first opposite level, is the stop behind real structure or in the noise? (5) BTC and flow right now. ' +
-  'Decide whether a disciplined professional TAKES this trade or SKIPS it. Most signals of this setup lose, so the edge is in telling the good ones apart: do not skip by habit, and do not take by habit. ' +
+  'START WITH `screen`: the desk briefing written by code from the same numbers - why the rule fired, the exact trade management, every timeframe fact marked FOR or AGAINST this trade, the opposite levels between entry and target in R, BTC, and the odds (6-month base rate and the break-even hit rate for this target). Then check the raw timeframes if you want. ' +
+  'Decide whether a disciplined professional TAKES this trade or SKIPS it. Taking every signal of this rule was about break-even over 6 months, so the edge is in telling the good ones apart: do not skip by habit, and do not take by habit. ' +
+  'Be consistent: pTarget is your probability that price reaches the target before the stop; if it is clearly above the break-even hit rate in screen.odds, the trade has positive expectancy and SKIP needs a concrete reason from the screen; if it is below, TAKE needs one. ' +
   'Before you answer, ask yourself what would have to happen for this trade to fail and how likely that is on this screen. ' +
   'Answer ONLY with JSON: {"decision":"TAKE|SKIP","confidence":0-100,"pTarget":0-100,"reasonTr":"Türkçe 1-2 cümle: hangi zaman dilimi ne diyor","keyRisk":"Türkçe kısa: en büyük risk"}. pTarget = your probability that price reaches the target before the stop.';
 // R2544.87 (kullanıcı 27.10: zaman dilimlerine entegre): kurulda her üyenin bir koltuğu var; aynı ekranı görür ama kendi bölümünden sorumludur
@@ -132,4 +223,4 @@ function parseEntry(text) {
   } catch { return { ok:false, reason:'TB_JSON_INVALID' }; }
 }
 const validEntry = text => parseEntry(text).ok;
-module.exports = { TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };
+module.exports = { TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

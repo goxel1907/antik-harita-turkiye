@@ -14,7 +14,7 @@ test('R2544.86 trader screen: 5 timeframes on CLOSED candles only, prices scaled
   for(const tf of ['m5','m15','h1','h4','d1'])assert.ok(p.timeframes[tf]?.structure,tf);
   assert.ok(!txt.includes('9174'),'the open candle (high 99 -> 916.7) is excluded');
   assert.equal(p.timeframes.h1.structure.trend,'RANGE','straight line has no swings -> RANGE, never invented');
-  assert.ok(p.levels.find(l=>l.name==='prevDayHigh'));assert.match(p.baseRate,/about 0R/);
+  assert.ok(p.levels.find(l=>l.name==='prevDayHigh'));assert.equal(p.baseRate,undefined,'R2544.114: the biased base-rate line is gone');assert.match(p.screen.odds,/about break-even/);
   assert.equal(TB.parseEntry('x {"decision":"TAKE","confidence":70,"pTarget":40,"reasonTr":"4 sa yukarı"}').decision,'TAKE');
   assert.equal(TB.parseEntry('{"decision":"BUY"}').ok,false);
 });

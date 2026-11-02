@@ -5,7 +5,7 @@
 // Hız: en çok 45 sn'de bir soru, günde en çok dailyCap; packets.jsonl yoksa hiçbir şey yapmaz.
 const fs = require('fs'), path = require('path');
 const TB = require('./trader-brain');
-const EXAM_VERSION = 'R2544.98-TRADER-EXAM-PRO'; // R2544.98 new entry prompt: a new exam population
+const EXAM_VERSION = 'R2544.114-TRADER-EXAM-SCREEN'; // R2544.114 net ekran (screen): a new exam population in its own folder (sinav/r2544-114), same question ids
 function createTraderExam({ dir, judges = {}, committee = null, clock = () => Date.now(), minIntervalMs = 45000, dailyCap = 600, maxAttempts = 3, keyFile = null } = {}) {
   // R2544.94: the answer key (R of every packet) is read ONLY here for the scorecard; it never goes into a prompt
   let keyCache = null, ansCache = { sig:null, list:[] };
