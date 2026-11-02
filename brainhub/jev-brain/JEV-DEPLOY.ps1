@@ -5,8 +5,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $SRC = Join-Path $PSScriptRoot 'source'
 $EXPECTED_FILE = Join-Path $PSScriptRoot 'BEKLENEN-SURUM.txt'
-$EXPECTED_RELEASE = 'R2544.110'
-$EXPECTED_OFFICE = '2.5.92-R2544.110-JEV-Brain'
+$EXPECTED_RELEASE = 'R2544.111'
+$EXPECTED_OFFICE = '2.5.93-R2544.111-JEV-Brain'
 $deployLogDir = Join-Path $PSScriptRoot 'logs'
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Force -Path $deployLogDir | Out-Null
@@ -56,12 +56,22 @@ try {
     }
   } catch { Write-Host "WARNING: Binance rate-limit state preserve okunamadi: $($_.Exception.Message)" }
   Write-Host '== GITHUB PUSH'
-  Invoke-Git $SRC push origin "HEAD:refs/heads/$BRANCH" | Out-Host
+  # R2544.111 (02.11: iki kurulum 'Could not resolve host: github.com' ile durdu): GitHub yalniz kod yedegidir, PC kurulumu icin gerekmez.
+  # 4 deneme (10/20/30 sn arayla); yine olmazsa uyari yazilir ve kurulum devam eder, kod bir sonraki kurulumda gonderilir.
+  function Push-Retry([string]$Dir, [string[]]$GitArgs) {
+    for ($i = 1; $i -le 4; $i++) {
+      try { Invoke-Git $Dir @GitArgs | Out-Host; return $true }
+      catch { Write-Host "GITHUB_PUSH_RETRY $i/4: $($_.Exception.Message)"; if ($i -lt 4) { Start-Sleep -Seconds (10 * $i) } }
+    }
+    Write-Host 'WARNING GITHUB_PUSH_SKIPPED: GitHub a ulasilamadi; kurulum yerelde devam ediyor, kod bir sonraki kurulumda gonderilir.'
+    return $false
+  }
+  $null = Push-Retry $SRC @('push', 'origin', "HEAD:refs/heads/$BRANCH")
   if (Test-Path -LiteralPath (Join-Path $J 'BEKLENEN-PUBLIC.txt')) {
     $expPub = (Get-Content -LiteralPath (Join-Path $J 'BEKLENEN-PUBLIC.txt') -Raw).Trim()
     $hp = Invoke-Git $PUB rev-parse HEAD; $sp = Invoke-Git $PUB status --short
     if ($hp -ne $expPub -or $sp) { throw "Public repo beklenen durumda degil: $hp [$sp]" }
-    Invoke-Git $PUB push origin $PUBBRANCH | Out-Host
+    $null = Push-Retry $PUB @('push', 'origin', $PUBBRANCH)
   }
   Write-Host '== CORE GUNCELLEME (syntax + testler + yedek + kopya + restart + saglik; hata olursa manage.ps1 geri alir)'
   & powershell -NoProfile -ExecutionPolicy Bypass -File "$SRC\brainhub\manage.ps1" -Action Update -Source $SRC -Root $RT
