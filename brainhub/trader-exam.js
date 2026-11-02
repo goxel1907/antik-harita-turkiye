@@ -5,7 +5,8 @@
 // Hız: en çok 45 sn'de bir soru, günde en çok dailyCap; packets.jsonl yoksa hiçbir şey yapmaz.
 const fs = require('fs'), path = require('path');
 const TB = require('./trader-brain');
-const EXAM_VERSION = 'R2544.114-TRADER-EXAM-SCREEN'; // R2544.114 net ekran (screen): a new exam population in its own folder (sinav/r2544-114), same question ids
+const QUOTA_RE = /429|RESOURCE_EXHAUSTED|quota|rate.?limit|MONTHLY_REQUEST|exceeded/i;
+const EXAM_VERSION = 'R2544.115-TRADER-EXAM-PRO-SCREEN'; // R2544.114/115 net ekran (screen + charts for vision members): a new exam population in its own folder (sinav/r2544-115), same question ids
 function createTraderExam({ dir, judges = {}, committee = null, clock = () => Date.now(), minIntervalMs = 45000, dailyCap = 600, maxAttempts = 3, keyFile = null } = {}) {
   // R2544.94: the answer key (R of every packet) is read ONLY here for the scorecard; it never goes into a prompt
   let keyCache = null, ansCache = { sig:null, list:[] };
@@ -32,6 +33,8 @@ function createTraderExam({ dir, judges = {}, committee = null, clock = () => Da
     const now = clock(); if (now - lastAt < minIntervalMs) return null;
     st = st || readState(); const day = new Date(now).toISOString().slice(0, 10); if (st.day !== day) { st.day = day; st.used = 0; }
     if (st.used >= (Number(cfg.dailyCap) || dailyCap)) return { skipped:'DAILY_CAP' };
+    // R2544.115: the free daily quota is shared with the LIVE committee gate -> after quota errors the exam rests until the next UTC day
+    if (st.quotaDay === day) return { skipped:'QUOTA_REST' };
     // R2544.92: no attempt (and no packet marked failed) while the committee has fewer than 2 healthy members (27.10: 177 packets burned)
     if (committee && typeof committee.healthy === 'function' && committee.healthy().length < 2) return { skipped:'COMMITTEE_NOT_READY' };
     const done = answeredIds(), pk = nextPacket(done); if (!pk) { st.finished = true; saveState(); return { finished:true }; }
@@ -43,9 +46,11 @@ function createTraderExam({ dir, judges = {}, committee = null, clock = () => Da
       if (committee && typeof committee.decide === 'function' && (cfg.mode || 'COMMITTEE') === 'COMMITTEE') {
         let r; try { r = await committee.decide({ system:TB.ENTRY_SYSTEM, prompt:JSON.stringify(pk.packet), validate:TB.validEntry, parse:TB.parseEntry, field:'decision', fallback:'SKIP', roles:TB.ENTRY_ROLES }); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 120) }; }
         if (r?.ok) {
-          const slim = a => (a || []).map(v => ({ member:v.member, seat:v.seat || null, model:v.model, ok:v.ok, ms:v.ms, error:v.error, ...(v.vote ? { decision:v.vote.decision, confidence:v.vote.confidence, pTarget:v.vote.pTarget, reasonTr:v.vote.reasonTr, keyRisk:v.vote.keyRisk } : {}) }));
+          const slim = a => (a || []).map(v => ({ member:v.member, seat:v.seat || null, model:v.model, ok:v.ok, ms:v.ms, error:v.error, img:v.img === true, compact:v.compact === true, imgError:v.imgError || null, ...(v.vote ? { decision:v.vote.decision, confidence:v.vote.confidence, pTarget:v.vote.pTarget, reasonTr:v.vote.reasonTr, keyRisk:v.vote.keyRisk } : {}) }));
           fs.appendFileSync(P('answers.jsonl'), JSON.stringify({ id:pk.id, rule:pk.rule, at:new Date(clock()).toISOString(), judge:'COMMITTEE', decision:r.final, consensus:r.consensus, rounds:r.rounds, voters:r.voters, round1:slim(r.votes), round2:slim(r.round2), version:EXAM_VERSION }) + '\n');
-          st.answered = (st.answered || 0) + 1; st.lastError = null; st.lastOk = { id:pk.id, judge:'COMMITTEE', consensus:r.consensus, at:clock() }; saveState();
+          st.answered = (st.answered || 0) + 1; st.lastError = null; st.lastOk = { id:pk.id, judge:'COMMITTEE', consensus:r.consensus, at:clock() };
+          if ([...(r.votes || []), ...(r.round2 || [])].filter(v => QUOTA_RE.test(String(v?.error || ''))).length >= 2) { st.quotaDay = day; st.quotaAt = clock(); }
+          saveState();
           return { ok:true, id:pk.id, judge:'COMMITTEE', decision:r.final };
         }
         tried.push('COMMITTEE:' + (r?.reason || 'FAILED'));

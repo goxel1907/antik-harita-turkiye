@@ -4,6 +4,7 @@ const path=require('path');
 const nodeCrypto=require('crypto');
 const scanner=require('./scanner');
 const market=require('./market');
+const TB=require('./trader-brain'); // R2544.115 committee screen helpers (compact packet, chart specs)
 const binanceRate=require('./binance-rate-limit');
 const pipeline=require('./pipeline');
 const {openStore}=require('./store');
@@ -1573,8 +1574,27 @@ function traderRouterMembers(){
   const all=[...(Array.isArray(cfg.kiro)?cfg.kiro:[]),...(Array.isArray(cfg.opencode)?cfg.opencode:[])].map(x=>typeof x==='string'?x:x?.id||x?.model).filter(x=>/^[A-Za-z0-9._:\/+-]{1,120}$/.test(String(x||'')));
   const ord=[...TRADER_ROUTER_ORDER,...all.filter(m=>!TRADER_ROUTER_ORDER.includes(m)&&!/^oc\//.test(m)&&!/qwen3-coder/.test(m))].slice(0,10); // 9Router serves any listed id (gc/ is not in models.json)
   return ord.map(m=>({id:'ROUTER:'+m,call:async({system,prompt,validate})=>{
-    try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:4096,validate});return {ok:true,text:out.text,model:m};}
-    catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}}}));
+    // R2544.115 (kullanıcı 02.11: "modeller ... görmeli grafikler"): görebilen üye (Gemini / Gemma / NVIDIA -vl) giriş ekranının mumlarını
+    // grafik olarak da görür (5m / 15m / 1h, aynı ölçek, giriş / stop / hedef çizgili); Groq kısa ekran alır (413); resim hatası -> resimsiz tekrar
+    let user=String(prompt||''),compact=false,img=false,imgError=null;
+    if(/^groq\//.test(m)){const c=TB.compactPacket(user);if(c){user=c;compact=true;}}
+    const ask=content=>callModel(m,[{role:'system',content:String(system||'')},{role:'user',content}],110000,{maxTokens:4096,validate});
+    let content=user;if(COMMITTEE_VISION.test(m)){const im=committeeChartContent(user);if(im){content=im;img=true;}}
+    try{const out=await ask(content);return {ok:true,text:out.text,model:m,img,compact};}
+    catch(e){const msg=String(e?.message||e);
+      if(img&&!/timeout|aborted|COOLDOWN|429/i.test(msg)){imgError=msg.slice(0,120);img=false;try{const out=await ask(user);return {ok:true,text:out.text,model:m,img,imgError,compact};}catch(e2){return {ok:false,reason:String(e2?.message||e2).slice(0,160),model:m,imgError};}}
+      if(!compact&&/413|too large|context length|maximum context/i.test(msg)){const c=TB.compactPacket(user);if(c){try{const out=await ask(c);return {ok:true,text:out.text,model:m,img:false,compact:true};}catch(e3){return {ok:false,reason:String(e3?.message||e3).slice(0,160),model:m};}}}
+      return {ok:false,reason:msg.slice(0,160),model:m,imgError};}}}));
+}
+// R2544.115: which 9Router members can read an image (Gemini / Gemma 4 / NVIDIA vision-language); others get the text screen only
+const COMMITTEE_VISION=/^(gemini\/|github\/gemini|nvidia\/.*-vl|nvidia\/google\/gemma-4|gemini\/gemma-4)/i;
+function committeeChartContent(prompt){
+  try{const pk=JSON.parse(prompt);if(pk?.task!=='ENTRY')return null;
+    const specs=TB.chartSpecs(pk);if(!specs.length)return null;
+    const parts=[{type:'text',text:prompt+'\n\nCHARTS: the same closed candles of the screen as images (prices scaled, entry = 100; ENTRY / STOP / TARGET lines; a target far away can be above or below the visible area; dashed purple = day / week / month and 24h levels; yellow / purple curves = EMA20 / EMA50; bars at the bottom = volume). Read them like a trader at the screen; the numbers in the text stay exact.'}];
+    for(const c of specs){const png=market.renderChartPng({candles:c.candles},'annotated',{htfLevels:c.lines.map(l=>({price:l.price,name:l.name,tf:c.tf,col:l.col,prio:l.prio}))});
+      parts.push({type:'text',text:'CHART '+c.tf},{type:'image_url',image_url:{url:'data:image/png;base64,'+png.toString('base64')}});}
+    return parts;}catch{return null;}
 }
 const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {ok:r?.ok===true,text:r?.text,model:r?.model||null,reason:r?.reason||r?.detail||null};}});
 // R2544.92 (kullanıcı 27.10: "openrouter'da ve 9router'da başka ücretsiz modelleri kur, tek düze gitme, birinin kotası biterse diğeri devam
@@ -1599,7 +1619,7 @@ const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite
   'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
   'nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
   'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
-  'github/claude-sonnet-4.6','github/gpt-5.4','github/gemini-3.6-flash','github/grok-4.5',
+  'github/claude-sonnet-4.6','github/gpt-5.4','github/grok-4.5',
   'cloudflare-ai/deepseek-v4.1-flash-1017','cloudflare-ai/glm-5.3-flash','cloudflare-ai/kimi-k2.6']; // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
@@ -1628,7 +1648,7 @@ const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoD
   dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota
 const deskCommittee=createCommittee({size:5,members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json')});
 const examCommittee=createCommittee({size:3,members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx,{noAiStudio:true}),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
-const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav','r2544-114'),committee:examCommittee,dailyCap:100,keyFile:process.env.BRAINHUB_EXAM_KEY||path.join(ROOT,'..','Claud-Work','gelistirme','harness','indikator','sinav_key.json')}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
+const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav','r2544-115'),committee:examCommittee,dailyCap:100,keyFile:process.env.BRAINHUB_EXAM_KEY||path.join(ROOT,'..','Claud-Work','gelistirme','harness','indikator','sinav_key.json')}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
 setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();
 setInterval(()=>{traderExam.tick().catch(()=>{});},20000).unref?.();
@@ -2488,7 +2508,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.114';
+const RUNTIME_RELEASE='R2544.115';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

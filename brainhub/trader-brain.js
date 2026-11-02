@@ -5,7 +5,7 @@
 // konumu, hacim, taker payı), gün/hafta/ay seviyeleri, BTC, plan (giriş/stop/hedef R). Coin adı ve tarih GİZLİ, fiyatlar giriş = 100
 // ölçeğinde: model fiyatı "hatırlayamaz" (sınav dönemi bazı modellerin eğitim verisiyle çakışıyor). Karar: TAKE / SKIP + güven + neden.
 // Bu sürümde YALNIZ SINAV: 6 aylık geçmiş sinyaller ücretsiz modele sorulur; giriş kararı vermez.
-const TB_VERSION = 'R2544.114-TRADER-BRAIN-SCREEN';
+const TB_VERSION = 'R2544.115-TRADER-BRAIN-PRO-SCREEN';
 const ENGINE = require('./engine'); // R2544.88: the same causal chart engine JEV uses (closed candles only)
 const TF = { m5:{ ms:300000, n:48, frame:'5m' }, m15:{ ms:900000, n:32, frame:'15m' }, h1:{ ms:3600000, n:36, frame:'1h' }, h4:{ ms:14400000, n:30, frame:'4h' }, d1:{ ms:86400000, n:20, frame:'1d' } };
 // candles to fetch per timeframe so the chart engine has >= 52 closed candles (EMA50, swings, FVG history)
@@ -149,7 +149,67 @@ function roomLines(tfs, levels, targetR, L) {
   return { obstacles:obs.slice(0, 6).map(x => `${x.txt} at ${f1(x.r)}R`), firstObstacleR:obs.length ? +obs[0].r.toFixed(2) : null,
     protection:sup.slice(0, 4).map(x => `${x.txt} at ${f1(x.r)}R`) };
 }
-function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, R }) {
+// R2544.115 (kullanıcı 02.11: "kendini bir pro trader gibi düşün neyi görmek bilmek istersin"): masada işleme girmeden önce bakılanlar -
+// stop yapı arkasında mı gürültü içinde mi, likidite nerede (hedefe mıknatıs / stopa tuzak), coinin 24 saati ve kalabalık (fonlama),
+// seans, fikir ne zaman yanlış olur, beynin benzer geçmiş işlemleri. Hepsi kodun sayısı; olmayan yazılmaz.
+function stopQuality(tfs, plan, L) {
+  const out = { for:[], against:[], info:[] }, sd = finite(plan.stopDistancePct);
+  for (const n of ['m5', 'm15']) { const st = tfs[n]?.structure, f = TF[n].frame, atr = finite(st?.atrPct);
+    if (sd !== null && atr > 0) { const k = sd / atr; (k < 1 ? out.against : k >= 1.5 ? out.for : out.info).push(`stop = ${k.toFixed(1)} ATR of ${f}${k < 1 ? ' (inside normal noise)' : ''}`); }
+    const sw = tfs[n]?.chartReading?.swing, x = L ? sw?.lastLow : sw?.lastHigh, r = finite(x?.R);
+    if (r !== null && r < 0) { if (r > -1) out.for.push(`stop is beyond the last ${f} swing ${L ? 'low' : 'high'} (${f1(r)}R): structure protects it`);
+      else out.against.push(`the last ${f} swing ${L ? 'low' : 'high'} is beyond the stop (${f1(r)}R): a sweep of it would hit the stop first`); } }
+  return out;
+}
+function liquidityLines(tfs, tR, L) {
+  const fo = [], ag = [], info = [], seen = new Set(), add = (a, t) => { if (!seen.has(t)) { seen.add(t); a.push(t); } };
+  for (const n of ['m15', 'h1', 'h4']) { const q = tfs[n]?.chartReading?.liquidity, f = TF[n].frame; if (!q) continue;
+    const ahead = L ? q.buySide20 : q.sellSide20, behind = L ? q.sellSide20 : q.buySide20, eqA = L ? q.equalHigh : q.equalLow, eqB = L ? q.equalLow : q.equalHigh;
+    for (const [x, nm] of [[ahead, `${f} ${L ? 'buy' : 'sell'}-side liquidity (stops ${L ? 'above highs' : 'below lows'})`], [eqA, `${f} equal ${L ? 'highs' : 'lows'}`]]) {
+      const r = finite(x?.R); if (r !== null && r > 0 && r <= tR) add(fo, `${nm} at ${f1(r)}R: a magnet toward the target`); }
+    for (const [x, nm] of [[behind, `${f} ${L ? 'sell' : 'buy'}-side liquidity`], [eqB, `${f} equal ${L ? 'lows' : 'highs'}`]]) {
+      const r = finite(x?.R); if (r !== null && r <= -0.7 && r >= -1.6) add(ag, `${nm} at ${f1(r)}R, next to the stop: a sweep target`); }
+    const sw = q.lastSweep, r = finite(sw?.R); if (sw && r !== null && Math.abs(r) <= 3) add(info, `${f} last liquidity sweep ${String(sw.side || '').toLowerCase()} at ${f1(r)}R`); }
+  return { for:fo, against:ag, info };
+}
+function coinLines(tfs, ctx, L) {
+  const fo = [], ag = [], info = [], h = (tfs.h1?.candles?.rows || []).filter(r => Array.isArray(r));
+  if (h.length >= 25) { const c0 = h.at(-25)[3], c1 = h.at(-1)[3], w = h.slice(-24), hi = Math.max(...w.map(r => r[1])), lo = Math.min(...w.map(r => r[2]));
+    if (c0 > 0) info.push(`coin ${f1((c1 / c0 - 1) * 100)}% in 24 h, now at ${hi > lo ? Math.round((c1 - lo) / (hi - lo) * 100) : 50}% of its 24h range`); }
+  const fund = finite(ctx?.fund), prem = finite(ctx?.premium);
+  if (fund !== null) { const pct = fund * 100, crowdedL = fund >= 0.0005, crowdedS = fund <= -0.0003, t = `funding ${pct.toFixed(3)}% per 8 h`;
+    if (crowdedL) (L ? ag : fo).push(`${t}: longs crowded and paying`); else if (crowdedS) (L ? fo : ag).push(`${t}: shorts crowded and paying (squeeze fuel for longs)`); else info.push(`${t}: neutral`); }
+  if (prem !== null && Math.abs(prem) >= 0.002) info.push(`mark ${prem > 0 ? 'above' : 'below'} index by ${(Math.abs(prem) * 100).toFixed(2)}%`);
+  if (finite(ctx?.rank) !== null) info.push(`${ctx.rankName || 'rank'} #${ctx.rank}`);
+  return { for:fo, against:ag, info };
+}
+function sessionOf(t) { const h = new Date(t).getUTCHours();
+  return h < 7 ? 'Asia session (00-07 UTC): thinner books, more fake moves' : h < 12 ? 'London session (07-12 UTC)' : h < 16 ? 'London / New York overlap (12-16 UTC): the most volume' : h < 21 ? 'New York session (16-21 UTC)' : 'late US (21-24 UTC): volume fades'; }
+function invalidation(rule, trig, P, R) {
+  const v = x => finite(x), at = x => `${P(v(x))}${rTxt(R(v(x)))}`;
+  if (rule === 'LONG_EARLY_RETEST' && v(trig?.level) !== null) return `the idea is wrong if a 5m candle closes back below the broken level ${at(trig.level)}`;
+  if (rule === 'SHORT_TOP_BREAK' && v(trig?.hl) !== null) return `the idea is wrong if price closes back above the broken structure low ${at(trig.hl)}${v(trig.top) !== null ? ` and heads for the top ${at(trig.top)}` : ''}`;
+  if (rule === 'SHORT_TOP_BREAK' && v(trig?.top) !== null) return `the idea is wrong if price makes a new high above the top ${at(trig.top)}`;
+  if (/^ZIRVE5_FIBO_LONG/.test(rule) && v(trig?.bottom) !== null) return `the idea is wrong if a 15m candle closes below the zone bottom ${at(trig.bottom)}`;
+  if (/^ZIRVE5_FIBO_SHORT/.test(rule) && v(trig?.top) !== null) return `the idea is wrong if a 15m candle closes above the zone top ${at(trig.top)}`;
+  return 'the idea is wrong when the stop is hit';
+}
+// R2544.115: the chart a vision model sees - the same scaled candles of the packet (no symbol, no real price), entry / stop / target lines
+function chartSpecs(packet, frames = ['m5', 'm15', 'h1']) {
+  const pl = packet?.plan || {}, out = [];
+  for (const n of frames) { const rows = (packet?.timeframes?.[n]?.candles?.rows || []).filter(r => Array.isArray(r) && r.length >= 4 && r.slice(0, 4).every(Number.isFinite));
+    if (rows.length < 12) continue;
+    const ms = TF[n].ms, t1 = 1e12;
+    const candles = rows.map((r, i) => ({ openTime:t1 + i * ms, closeTime:t1 + (i + 1) * ms - 1, open:r[0], high:r[1], low:r[2], close:r[3], volume:Number.isFinite(r[4]) ? r[4] : 1, closed:true }));
+    const lines = [{ price:100, name:'ENTRY 100', col:[255, 255, 255, 255], prio:1 }];
+    if (finite(pl.stop) !== null) lines.push({ price:pl.stop, name:'STOP -1R', col:[255, 82, 82, 255], prio:1 });
+    if (finite(pl.target) !== null) lines.push({ price:pl.target, name:`TARGET ${f1(finite(pl.targetR) ?? 0)}R`, col:[0, 230, 118, 255], prio:1 });
+    for (const l of packet.levels || []) if (finite(l.price) !== null) lines.push({ price:l.price, name:l.name, col:[186, 104, 200, 255], prio:5 });
+    out.push({ tf:TF[n].frame, candles, lines });
+  }
+  return out;
+}
+function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, R, t = null, context = null, experience = null }) {
   const L = side === 'LONG', tR = finite(plan.targetR), be = tR > 0 ? Math.round(100 / (1 + tR)) : null, br = BASE_RATES[rule] || null;
   const frames = ['d1', 'h4', 'h1', 'm15', 'm5'].map(n => frameLine(TF[n].frame, tfs[n]?.structure, tfs[n]?.chartReading, L)).filter(Boolean);
   const room = roomLines(tfs, levels, tR ?? 99, L);
@@ -164,13 +224,21 @@ function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, 
     timeframeTally:`leaning FOR this ${side}: ${tally.for.join(', ') || 'none'}; leaning AGAINST: ${tally.against.join(', ') || 'none'}`,
     roomToTarget:room.obstacles.length ? `opposite levels between entry and the target: ${room.obstacles.join('; ')}. First one at ${f1(room.firstObstacleR)}R (the half close is at +2R).` : `no opposite level found between entry and the ${f1(tR)}R target`,
     behindEntry:room.protection.length ? `levels between entry and the stop side (they should hold for the trade): ${room.protection.join('; ')}` : 'no level between entry and the stop side',
+    stop:(() => { const q = stopQuality(tfs, plan, L); return `${q.for.length ? 'for: ' + q.for.join('; ') : ''}${q.against.length ? (q.for.length ? ' | ' : '') + 'against: ' + q.against.join('; ') : ''}${q.info.length ? (q.for.length || q.against.length ? ' | ' : '') + q.info.join('; ') : ''}` || 'no stop data'; })(),
+    invalidation:invalidation(rule, trigger, P, R),
+    liquidity:(() => { const q = liquidityLines(tfs, tR ?? 99, L); return [q.for.length ? 'for: ' + q.for.join('; ') : '', q.against.length ? 'against: ' + q.against.join('; ') : '', q.info.join('; ')].filter(Boolean).join(' | ') || 'no liquidity pool near the trade'; })(),
+    coin:(() => { const q = coinLines(tfs, context, L); return [q.for.length ? 'for: ' + q.for.join('; ') : '', q.against.length ? 'against: ' + q.against.join('; ') : '', q.info.join('; ')].filter(Boolean).join(' | ') || 'no coin data'; })(),
+    session:t ? sessionOf(t) : null,
+    experience:experience && finite(experience.n) > 0 ? `brain: ${experience.n} similar past trades of this rule by entry facts - ${experience.wins ?? 0} won, ${experience.losses ?? 0} lost, average ${f1(finite(experience.avgR) ?? 0)}R${experience.thin ? ' (thin sample)' : ''}. The brain found that most entry facts do not separate winners: weigh this lightly.` : null,
     btc:btc ? `BTC 1h trend ${btc.trend1h}, ${f1(btc.change12hPct)}% in 12 h, ${f1(btc.closeVsEma20Pct)}% from its EMA20` : 'BTC data missing',
     odds:`${br ? `Over 6 months ${br.profitPct}% of all signals of this rule ended in profit (n ${br.n}, average ${f1(br.avgR)}R): taking every signal is about break-even, so the job is to tell the good ones from the bad ones. ` : ''}` +
-      `${be !== null ? `With a ${f1(tR)}R target the trade has positive expectancy if price reaches the target before the stop in more than about ${be}% of cases like this one.` : ''}`
+      `${be !== null ? `With a ${f1(tR)}R target the trade has positive expectancy if price reaches the target before the stop in more than about ${be}% of cases like this one. ` : ''}` +
+      // R2544.115 ölçüm (1248 geçmiş sinyal, iki yarı): ekrandaki hiçbir olgu tek başına kazananı ayırmadı; çok TF lehte iken biraz daha kötü (geç giriş)
+      'Measured on 1248 past signals of these rules: no single fact of this screen separated winners from losers on its own (all |t| < 2); when 3 or more timeframes leaned FOR, results were slightly worse (late entries). Judge the combination, not one line.'
   };
 }
 // the screen. k = { m5, m15, h1, h4, d1, btc1h } raw klines CLOSED before t; plan = { side, rule, entry, stop, target }
-function entryPacket({ k, plan, t, extra = null, trigger = null, management = null }) {
+function entryPacket({ k, plan, t, extra = null, trigger = null, management = null, context = null, experience = null }) {
   const L = plan.side === 'LONG', s = 100 / plan.entry, P = x => x === null || x === undefined || !Number.isFinite(x) ? null : +(x * s).toFixed(3);
   const risk = Math.abs(plan.entry - plan.stop), R = p => p === null || p === undefined ? null : +(((L ? p - plan.entry : plan.entry - p) / risk)).toFixed(2);
   const tfs = {};
@@ -188,7 +256,7 @@ function entryPacket({ k, plan, t, extra = null, trigger = null, management = nu
     management:management || MANAGEMENT[plan.rule] || 'half closed at +2R, the rest moved to break-even; exit after 24 h at the latest' };
   const btc = bs ? { trend1h:bs.trend, change12hPct:bs.change12Pct, closeVsEma20Pct:bs.closeVsEma20 } : null;
   // R2544.114: the briefing comes FIRST; the old "most signals lost / taking every signal earns nothing" line is replaced by the neutral odds in it
-  const screen = briefing({ side:plan.side, rule:plan.rule, plan:pl, tfs, levels, btc, trigger, management:pl.management, P, R });
+  const screen = briefing({ side:plan.side, rule:plan.rule, plan:pl, tfs, levels, btc, trigger, management:pl.management, P, R, t, context, experience });
   return { contract:TB_VERSION, task:'ENTRY', side:plan.side, screen, setup:SETUP_TEXT[plan.rule] || plan.rule, tradeTimeframe:ENTRY_TF[plan.rule] || null,
     plan:pl, timeframes:tfs, levels, btc, extra };
 }
@@ -201,7 +269,7 @@ const ENTRY_SYSTEM = 'You are a senior discretionary crypto-futures trader on a 
   '(2) CONTEXT: read top-down (1d and 4h, then 1h): with or against the larger trend, premium or discount, which big levels and liquidity pools sit between entry and target. ' +
   '(3) TRIGGER: is the trigger fresh and clean (volume, taker flow, a real close beyond the level) or late and extended (chasing a move already far from its base)? ' +
   '(4) ROOM AND RISK: is there room to the target before the first opposite level, is the stop behind real structure or in the noise? (5) BTC and flow right now. ' +
-  'START WITH `screen`: the desk briefing written by code from the same numbers - why the rule fired, the exact trade management, every timeframe fact marked FOR or AGAINST this trade, the opposite levels between entry and target in R, BTC, and the odds (6-month base rate and the break-even hit rate for this target). Then check the raw timeframes if you want. ' +
+  'START WITH `screen`: the desk briefing written by code from the same numbers - why the rule fired, the exact trade management, every timeframe fact marked FOR or AGAINST this trade, whether the stop sits behind structure or inside noise, where the liquidity is, the opposite levels between entry and target in R, the coin (24h move, funding / crowding), the session, when the idea is wrong, BTC, the brain\'s similar past trades, and the odds (6-month base rate and the break-even hit rate for this target). If chart images are attached they show the same candles with ENTRY / STOP / TARGET lines. Then check the raw timeframes if you want. ' +
   'Decide whether a disciplined professional TAKES this trade or SKIPS it. Taking every signal of this rule was about break-even over 6 months, so the edge is in telling the good ones apart: do not skip by habit, and do not take by habit. ' +
   'Be consistent: pTarget is your probability that price reaches the target before the stop; if it is clearly above the break-even hit rate in screen.odds, the trade has positive expectancy and SKIP needs a concrete reason from the screen; if it is below, TAKE needs one. ' +
   'Before you answer, ask yourself what would have to happen for this trade to fail and how likely that is on this screen. ' +
@@ -223,4 +291,8 @@ function parseEntry(text) {
   } catch { return { ok:false, reason:'TB_JSON_INVALID' }; }
 }
 const validEntry = text => parseEntry(text).ok;
-module.exports = { TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };
+// R2544.115: Groq answered 413 "request too large" on the full screen -> the same screen without the raw candle rows
+function compactPacket(prompt) { try { const p = typeof prompt === 'string' ? JSON.parse(prompt) : prompt; if (p?.task !== 'ENTRY' || !p.timeframes) return null;
+  const c = { ...p, timeframes:Object.fromEntries(Object.entries(p.timeframes).map(([k, v]) => [k, v ? { structure:v.structure, chartReading:v.chartReading } : v])), note:'compact: raw candle rows left out (model context limit); the screen and the chart reading are complete' };
+  return JSON.stringify(c); } catch { return null; } }
+module.exports = { TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, chartSpecs, compactPacket, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

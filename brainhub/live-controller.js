@@ -6115,7 +6115,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       // R2544.89 KURUL KAPISI (kullanıcı 27.10: "istediğim zaman tek tık ile canlıya geçebilmeliyim bu modeller ile"): kural sinyal verdi;
       // kurul GİR demezse işlem yok (yalnız veto, kendisi işlem açmaz). Kurul yok / zaman aşımı -> kural devam eder (kayıtlı).
-      if(cfg.committeeMode===true&&pl0?.ok){const g=await committeeEntryGate({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,management:committeeManagement(cfg,x.side,false)});
+      if(cfg.committeeMode===true&&pl0?.ok){const g=await committeeEntryGate({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,management:committeeManagement(cfg,x.side,false),context:{rank:ef.rank,rankName:'24h gainer rank',fund:ef.fund,premium:ef.premium},experience:ef.similar});
         ef.committee=g.record;res.committee={decision:g.record.decision||null,consensus:g.record.consensus||null,error:g.record.error||null};
         if(g.veto){res.reason='TOP3_COMMITTEE_SKIP';try{store.journal('TOP3_COMMITTEE_SKIP',x.symbol,{side:x.side,rule:x.rule,...g.record});}catch{}continue;}}
       const R=x.side==='LONG'?cfg.early:cfg.top;
@@ -6807,7 +6807,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const rule=lot.lane==='ZIRVE5'?(lot.side==='LONG'?'ZIRVE5_FIBO_LONG':'ZIRVE5_FIBO_SHORT'):lot.rule;
       const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t});
       const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES});
-      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
+      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220),...(v.img?{img:true}:{}),...(v.compact?{cmp:true}:{}),...(v.imgError?{imgErr:String(v.imgError).slice(0,80)}:{})}));
       const f=lot.entryFeatures||(lot.entryFeatures={});
       f.committee=r?.ok?{at:clock(),decision:r.final,consensus:r.consensus,rounds:r.rounds,votes:slim(r.round2||r.votes),round1:slim(r.votes),shadow:true,version:TB.TB_VERSION}:{at:clock(),error:r?.reason||'FAILED',shadow:true};
       saveTop3State();
@@ -6824,18 +6824,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(be>0)out.push(`at +${be}R the stop moves to entry (a later return to entry closes at about 0R)`);
     if(p?.enabled)out.push(`${Math.round((p.share??0.5)*100)}% is closed at +${p.atR}R and the rest moves to break-even`);
     out.push('the rest runs to the target',`exit after ${hold} h at the latest`);return out.join('; ');}catch{return null;}}
-  async function committeeEntryGate({symbol,side,rule,entry,stop,target,trigger=null,management=null}){
+  async function committeeEntryGate({symbol,side,rule,entry,stop,target,trigger=null,management=null,context=null,experience=null}){
     const t0=clock();
     if(!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return {veto:false,record:{at:t0,error:'COMMITTEE_NOT_WIRED',fallback:'RULE',authority:true}};
     try{
       const end=t0-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
       const k={m5:await get(symbol,'5m',TB.FETCH.m5,end),m15:await get(symbol,'15m',TB.FETCH.m15,end),h1:await get(symbol,'1h',TB.FETCH.h1,end),h4:await get(symbol,'4h',TB.FETCH.h4,end),d1:await get(symbol,'1d',TB.FETCH.d1,end),btc1h:await get('BTCUSDT','1h',40,Math.floor(t0/3600000)*3600000-1)};
       if(!(entry>0&&stop>0&&target>0))return {veto:false,record:{at:t0,error:'COMMITTEE_PLAN_INVALID',fallback:'RULE',authority:true}};
-      const packet=TB.entryPacket({k,plan:{side,rule,entry,stop,target},t:t0,trigger,management});
+      // R2544.115: funding / mark premium for crowding (ZİRVE-5 had none); one light public call, failure = no line
+      let ctx={...(context||{})};if(finite(ctx.fund)===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex',{params:{symbol}});const fr=finite(pi?.lastFundingRate),mk=finite(pi?.markPrice),ix=finite(pi?.indexPrice);
+        if(fr!==null)ctx.fund=fr;if(mk&&ix)ctx.premium=Number((mk/ix-1).toFixed(5));}catch{}}
+      const packet=TB.entryPacket({k,plan:{side,rule,entry,stop,target},t:t0,trigger,management,context:ctx,experience});
       let gateTimer=null; // R2544.90: cleared when the committee answers
       const r=await Promise.race([Promise.resolve(deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES})).finally(()=>clearTimeout(gateTimer)),
         new Promise(res=>{gateTimer=setTimeout(()=>res({ok:false,reason:'COMMITTEE_TIMEOUT'}),150000);})]);
-      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220)}));
+      const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220),...(v.img?{img:true}:{}),...(v.compact?{cmp:true}:{}),...(v.imgError?{imgErr:String(v.imgError).slice(0,80)}:{})}));
       if(!r?.ok)return {veto:false,record:{at:clock(),error:r?.reason||'FAILED',fallback:'RULE',authority:true,ms:clock()-t0}};
       // R2544.98 "mütabık": only an AGREED skip blocks (unanimous or majority after debate, >= 2 voters); one voter or no majority -> the rule decides
       const agreed=['UNANIMOUS','MAJORITY_AFTER_DEBATE'].includes(r.consensus)&&(r.voters||0)>=2;
@@ -6944,7 +6947,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;}
         }
         if(cfg.committeeMode===true){const pz=z5Lib.plan(sg.refPrice,sg,cfg); // R2544.89 kurul kapısı (veto)
-          if(pz?.ok){const g=await committeeEntryGate({symbol:sym,side,rule,entry:sg.refPrice,stop:pz.stopPrice,target:pz.tpPrice,trigger:sg,management:committeeManagement(cfg,side,true)});ef.committee=g.record;
+          if(pz?.ok){const g=await committeeEntryGate({symbol:sym,side,rule,entry:sg.refPrice,stop:pz.stopPrice,target:pz.tpPrice,trigger:sg,management:committeeManagement(cfg,side,true),context:{rank:sg.rank,rankName:'volatility rank (top 5)'},experience:ef.similar});ef.committee=g.record;
             if(g.veto){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_COMMITTEE_SKIP',rank:sg.rank});try{store.journal('ZIRVE5_COMMITTEE_SKIP',sym,{side,rule,...g.record});}catch{}continue;}}}
         const opened=await top3Open({z5:true,side,rule,zone:sg,z5cfg:cfg,maxHoldMs:cfg.maxHoldH*TOP3_HOUR},sym,sizing,jev,{signalKind:'FRESH',entryFeatures:ef});
         const res={symbol:sym,side,opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,stopPct:finite(opened.stopPct)??finite(opened.active?.stopPct),rank:sg.rank};
@@ -7094,6 +7097,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       rows.push({at:Date.parse(n.at),lane:'ZIRVE5',symbol:n.symbol,side:n.side||null,rule:null,fate:n.held?'HELD':/NOT_ARMED|STOPPED|PAUSE|RUN_|DISABLED/.test(String(n.reason||''))?'PAUSED':'RULE_BLOCKED',reason:n.reason||null,stopPct:finite(n.stopPct)});
     rows.sort((a,b)=>b.at-a.at);
     const cnt=f=>rows.filter(r=>r.fate===f).length,reasons={};for(const r of rows)if(r.fate==='RULE_BLOCKED'&&r.reason)reasons[r.reason]=(reasons[r.reason]||0)+1;
+    // R2544.115: a committee SKIP shows what the desk believed: average pTarget vs the break-even hit rate of its target, the screen tally, a reason
+    for(const r of rows)if(r.fate==='COMMITTEE_SKIP'){const o=[...J('TOP3_COMMITTEE_SKIP'),...J('ZIRVE5_COMMITTEE_SKIP')].find(y=>y.symbol===r.symbol&&Math.abs(y.ts-r.at)<=12*60000);if(!o)continue;
+      const vs=(o.p.votes||[]).filter(x=>x&&x.d!=='ERR'),ps=vs.map(x=>finite(x.p)).filter(x=>x!==null),tR=finite(o.p.plan?.targetR);
+      r.committee={pAvg:ps.length?Math.round(ps.reduce((a,b)=>a+b,0)/ps.length):null,breakEven:tR>0?Math.round(100/(1+tR)):null,voters:vs.length,img:vs.filter(x=>x.img).length,tally:o.p.screenTally||null,why:String(vs.find(x=>x.why)?.why||'').slice(0,160)||null};}
     const v={since:new Date(since).toISOString(),signals:rows.length,opened:cnt('OPENED'),ruleBlocked:cnt('RULE_BLOCKED'),committeeSkip:cnt('COMMITTEE_SKIP'),expired:cnt('EXPIRED'),paused:cnt('PAUSED'),noResult:cnt('NO_RESULT')+cnt('HELD'),
       reasons,rows:rows.slice(0,30).map(r=>({...r,at:new Date(r.at).toISOString()}))};
     funnelCache={at:now,v};return v;

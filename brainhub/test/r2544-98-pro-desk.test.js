@@ -38,7 +38,7 @@ test('R2544.98 entry prompt: the trade timeframe and a professional thinking ord
   assert.equal(TB.ENTRY_TF.LONG_EARLY_RETEST.trigger,'5m');assert.equal(TB.ENTRY_TF.ZIRVE5_FIBO_LONG.trigger,'15m');
   const lc=require('fs').readFileSync(require('path').join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(lc,/const chart=\{m5:TB\.chartReading\(k5\.raw,'5m'/);assert.match(lc,/deskKlines\(a\.symbol,'5m',80\)/);
-  assert.equal(TB.TB_VERSION,'R2544.114-TRADER-BRAIN-SCREEN');assert.equal(DESK.DESK_VERSION,'R2544.98-POSITION-DESK-PRO');
+  assert.equal(TB.TB_VERSION,'R2544.115-TRADER-BRAIN-PRO-SCREEN');assert.equal(DESK.DESK_VERSION,'R2544.98-POSITION-DESK-PRO');
 });
 test('R2544.98 entry gate: only an agreed SKIP (unanimous / majority after debate, 2+ voters) blocks; a single voter or no majority leaves the decision to the rule',()=>{
   const lc=require('fs').readFileSync(require('path').join(__dirname,'..','live-controller.js'),'utf8');

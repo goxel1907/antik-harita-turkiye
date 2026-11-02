@@ -258,6 +258,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .br-auto span b{margin-right:5px}
 
 /* R2544.113 SİNYAL HUNİSİ + ARŞİV ETİKETİ + BEYİN ÖZETİ */
+.rx-funnel .fcm{color:#9aa3c7;font-size:11px;margin-top:2px;line-height:1.35}
 .rx-funnel{margin:0 0 10px;border:1px solid rgba(46,197,255,.35);border-radius:10px;padding:8px 10px;background:#070b14}
 .rx-funnel .fh{font:800 11px system-ui,sans-serif;letter-spacing:.06em;color:#8fd8ff;margin-bottom:6px}
 .rx-funnel .fs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px}
@@ -1287,6 +1288,9 @@ const FUN_TR={V2_STOP_OUT_OF_RANGE:'stop bant dışı',ZIRVE5_STOP_OUT_OF_BAND:'
   TOP3_MARGIN_ABOVE_FREE_BALANCE:'marj bakiyeden büyük',TOP3_SYMBOL_BUSY:'coinde açık lot var',ZIRVE5_SYMBOL_BUSY:'coinde açık lot var',TOP3_COOLDOWN:'24 sa bekleme'};
 const funTr=r=>FUN_TR[r]||(typeof t3tr==='function'?t3tr(r):r);
 // R2544.113 (kullanıcı 02.11: "hâlâ işlem yok"): son 24 saatte gelen her sinyalin akıbeti - kaçı açıldı, kaçını kural / kurul eledi, neden
+// R2544.115: kurul GİRME satırında kurulun inandığı: ortalama hedef ihtimali / başabaş isabeti (tutarlı mı), grafiği gören üye sayısı, ilk gerekçe
+function funCm(c){if(!c)return '';const inc=c.pAvg!==null&&c.breakEven!==null&&c.pAvg>c.breakEven;
+  return `<div class="fcm">${c.pAvg!==null?`hedef ihtimali ort. %${c.pAvg}`:''}${c.breakEven!==null?` / başabaş %${c.breakEven}`:''}${inc?' <b style="color:#ffd54f">⚠ kendi tahminiyle çelişkili GİRME</b>':''}${c.voters?` • ${c.voters} oy${c.img?`, ${c.img}'i grafiği gördü`:''}`:''}${c.why?` • “${esc(c.why)}”`:''}</div>`;}
 function renderFunnel(s){
   const el=document.getElementById('rxFunnel');if(!el)return;const f=(s?.top3?.data||s?.top3||{}).funnel;
   if(!f){el.innerHTML='<div class="fh">📡 SON 24 SAAT SİNYAL HUNİSİ</div><div class="cc-note">PC sürümü bu bilgiyi vermiyor (R2544.113 öncesi)</div>';return;}
@@ -1295,7 +1299,7 @@ function renderFunnel(s){
   el.innerHTML=`<div class="fh">📡 SON 24 SAAT SİNYAL HUNİSİ <span style="color:#6f789c;font-weight:600">kuralın sinyal verdiği her an ve akıbeti</span></div>`
     +(f.signals?`<div class="fs"><b>${f.signals} sinyal</b><i>→</i><b style="color:#ff7a59">${f.ruleBlocked} kural eledi</b><i>→</i><b style="color:#a78bfa">${f.committeeSkip} kurul GİRME</b><i>→</i><b style="color:#2bd67b">${f.opened} açıldı</b>${f.paused?`<b style="color:#2ec5ff">${f.paused} duraklamada kaçtı</b>`:''}${f.expired?`<b style="color:#ffd54f">${f.expired} 5 dk doldu</b>`:''}${f.noResult?`<b style="color:#8f97b8">${f.noResult} sonuç yok</b>`:''}</div>`
       +(rs.length?`<div class="rs">${rs.map(([k,n])=>`<span>${esc(k)} ×${n}</span>`).join('')}</div>`:'')
-      +f.rows.slice(0,12).map(r=>{const F=FUN_FATE[r.fate]||[r.fate,'#8f97b8'];return `<div class="fr"><em>${esc(rxT(r.at))}</em><span>${r.lane==='ZIRVE5'?'Z5':'İlk 3'}</span><span><b>${esc(String(r.symbol||'').replace(/USDT$/,''))} ${esc(r.side||'')}</b> <span style="color:${F[1]}">${F[0]}</span>${r.reason?' — '+esc(funTr(r.reason)):''}${pc(r.stopPct)}</span></div>`;}).join('')
+      +f.rows.slice(0,12).map(r=>{const F=FUN_FATE[r.fate]||[r.fate,'#8f97b8'];return `<div class="fr"><em>${esc(rxT(r.at))}</em><span>${r.lane==='ZIRVE5'?'Z5':'İlk 3'}</span><span><b>${esc(String(r.symbol||'').replace(/USDT$/,''))} ${esc(r.side||'')}</b> <span style="color:${F[1]}">${F[0]}</span>${r.reason?' — '+esc(funTr(r.reason)):''}${pc(r.stopPct)}${funCm(r.committee)}</span></div>`;}).join('')
       :'<div class="cc-note">Son 24 saatte kural hiç sinyal vermedi — aşağıdaki "Kaçan hareket denetimi" her büyük hareketin nedenini gösterir.</div>');
 }
 function renderReactor(s){

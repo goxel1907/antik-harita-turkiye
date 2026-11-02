@@ -161,7 +161,8 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     try { r = await withTimeout(m.call({ system, prompt, validate, role:'TRADER' }), timeoutMs); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
     const p = r?.ok ? parse(r.text) : null, ok = !!p?.ok;
     mark(m.id, ok, { latencyMs:clock() - t0, model:r?.model || health[m.id]?.model || null, error:ok ? null : String(r?.reason || p?.reason || 'FAILED').slice(0, 200) });
-    return { member:m.id, model:r?.model || null, ok, vote:ok ? p : null, ms:clock() - t0, error:ok ? null : String(r?.reason || p?.reason || 'FAILED').slice(0, 160) };
+    return { member:m.id, model:r?.model || null, ok, vote:ok ? p : null, ms:clock() - t0, error:ok ? null : String(r?.reason || p?.reason || 'FAILED').slice(0, 160),
+      img:r?.img === true, compact:r?.compact === true, imgError:r?.imgError || null }; // R2544.115: did this member see the chart / the compact screen
   }
   // field = the voted key ('decision' | 'action'); fallback = value when there is no majority
   // R2544.87 SEATS: each member owns a part of the screen (e.g. 1d/4h, 1h/15m, 5m+flow, risk); the seat text is added to its system prompt
