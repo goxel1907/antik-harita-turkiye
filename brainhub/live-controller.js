@@ -7071,6 +7071,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       lot:a?{side:a.side,rule:a.rule,entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,openedAt:a.openedAt,markPrice:finite(a.lastMark),level:finite(a.level),zone:finite(a.zone),top:finite(a.top)}:null,
       waiting:!a&&(sig||wait)?{side:(sig||wait).side,reason:sig?'SIGNAL':wait.reason,level:finite((sig||wait).level),top:finite((sig||wait).top),hl:finite(sig?.hl),at:ls.at||null}:null};
   }
+  // R2544.113 (kullanıcı 02.11: "hâlâ işlem yok, SIREN'de takılı kalmış gibi"): son 24 saatin SİNYAL HUNİSİ - her sinyalin ne olduğu
+  // (açıldı / kural eledi + neden / kurul GİRME / 5 dk saklandı ama düştü / sonuç yok), saatiyle. Yalnız kayıt okur, karar vermez.
+  let funnelCache={at:0,v:null};
+  function signalFunnel(){
+    const now=clock();if(funnelCache.v&&now-funnelCache.at<20000)return funnelCache.v;
+    const since=now-24*TOP3_HOUR,J=k=>{try{return (store.recentJournal?.(k,{limit:300,sinceTs:since})||[]).map(x=>({ts:x.ts,k,symbol:String(x.symbol||x.payload?.symbol||'').toUpperCase(),p:x.payload||{}}));}catch{return [];}};
+    const sig=J('TOP3_SIGNAL'),out=[...J('TOP3_ENTRY'),...J('TOP3_BLOCKED'),...J('TOP3_COMMITTEE_SKIP'),...J('TOP3_SIGNAL_EXPIRED')],used=new Set(),rows=[];
+    for(const x of sig){const o=out.filter(y=>!used.has(y)&&y.symbol===x.symbol&&y.ts>=x.ts-2000&&y.ts<=x.ts+12*60000).sort((a,b)=>a.ts-b.ts)[0];if(o)used.add(o);
+      const fate=!o?'NO_RESULT':o.k==='TOP3_ENTRY'?'OPENED':o.k==='TOP3_COMMITTEE_SKIP'?'COMMITTEE_SKIP':o.k==='TOP3_SIGNAL_EXPIRED'?'EXPIRED':'RULE_BLOCKED';
+      rows.push({at:x.ts,lane:'TOP3',symbol:x.symbol,side:x.p.side||null,rule:x.p.rule||null,fate,reason:fate==='RULE_BLOCKED'?(o.p.result?.reason||o.p.reason||null):fate==='COMMITTEE_SKIP'?(o.p.consensus||null):fate==='NO_RESULT'?(x.p.gate&&x.p.gate!=='OPEN'?x.p.gate:null):null,stopPct:finite(o?.p?.result?.stopPct)});}
+    for(const y of [...J('ZIRVE5_ENTRY'),...J('ZIRVE5_BLOCKED'),...J('ZIRVE5_COMMITTEE_SKIP')])
+      rows.push({at:y.ts,lane:'ZIRVE5',symbol:y.symbol,side:y.p.side||null,rule:y.p.rule||null,fate:y.k==='ZIRVE5_ENTRY'?'OPENED':y.k==='ZIRVE5_COMMITTEE_SKIP'?'COMMITTEE_SKIP':'RULE_BLOCKED',reason:y.k==='ZIRVE5_BLOCKED'?(y.p.reason||y.p.result?.reason||null):null,stopPct:finite(y.p.stopPct??y.p.result?.stopPct)});
+    // ZİRVE-5 notes that never reach the journal (lane closed: LIVE_NOT_ARMED / deploy pause, stale, side off, busy)
+    for(const n of (z5State().recent||[]))if(n&&n.opened===false&&Date.parse(n.at)>=since&&!rows.some(r=>r.lane==='ZIRVE5'&&r.symbol===n.symbol&&Math.abs(r.at-Date.parse(n.at))<120000))
+      rows.push({at:Date.parse(n.at),lane:'ZIRVE5',symbol:n.symbol,side:n.side||null,rule:null,fate:n.held?'HELD':/NOT_ARMED|STOPPED|PAUSE|RUN_|DISABLED/.test(String(n.reason||''))?'PAUSED':'RULE_BLOCKED',reason:n.reason||null,stopPct:finite(n.stopPct)});
+    rows.sort((a,b)=>b.at-a.at);
+    const cnt=f=>rows.filter(r=>r.fate===f).length,reasons={};for(const r of rows)if(r.fate==='RULE_BLOCKED'&&r.reason)reasons[r.reason]=(reasons[r.reason]||0)+1;
+    const v={since:new Date(since).toISOString(),signals:rows.length,opened:cnt('OPENED'),ruleBlocked:cnt('RULE_BLOCKED'),committeeSkip:cnt('COMMITTEE_SKIP'),expired:cnt('EXPIRED'),paused:cnt('PAUSED'),noResult:cnt('NO_RESULT')+cnt('HELD'),
+      reasons,rows:rows.slice(0,30).map(r=>({...r,at:new Date(r.at).toISOString()}))};
+    funnelCache={at:now,v};return v;
+  }
   function top3Status(){
     const cfg=top3Lib.readTop3Config(root),gate=cfg.enabled?top3Gate(cfg):{ok:false,reason:'TOP3_DISABLED'};
     const now=clock(),T=Math.floor(now/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR;
@@ -7081,7 +7102,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
     // R2544.104 KOMUTA MERKEZİ: o anki modun son 30 günü (İlk 3 + ZİRVE-5 dersleri)
     const cc=(()=>{try{return top3Lib.commandSummary([...(top3State.lessons||[]),...(z5State().lessons||[])],{mode,now});}catch{return null;}})();
-    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),cc,
+    let funnel=null;try{funnel=signalFunnel();}catch{}
+    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),cc,funnel,
       switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,committeeMode:cfg.committeeMode===true,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true,topSweep:cfg.top?.requireSweep!==false},partial:{...(cfg.partial||{})},
       subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
         const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};

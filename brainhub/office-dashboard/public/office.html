@@ -257,6 +257,19 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .br-auto span{font:600 11px system-ui,sans-serif;padding:5px 9px;border-radius:9px;background:#0d1124;border:1px solid #232a4a;color:#cfd5ee;max-width:100%}
 .br-auto span b{margin-right:5px}
 
+/* R2544.113 SİNYAL HUNİSİ + ARŞİV ETİKETİ + BEYİN ÖZETİ */
+.rx-funnel{margin:0 0 10px;border:1px solid rgba(46,197,255,.35);border-radius:10px;padding:8px 10px;background:#070b14}
+.rx-funnel .fh{font:800 11px system-ui,sans-serif;letter-spacing:.06em;color:#8fd8ff;margin-bottom:6px}
+.rx-funnel .fs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px}
+.rx-funnel .fs b{font:800 12px system-ui,sans-serif;padding:4px 9px;border-radius:8px;background:#0d1124;border:1px solid #232a4a}
+.rx-funnel .fs i{color:#6f789c;font-style:normal}
+.rx-funnel .fr{display:grid;grid-template-columns:118px 40px minmax(0,1fr);gap:6px;font:600 11px system-ui,sans-serif;color:#cfd5ee;padding:3px 0;border-top:1px solid #141a33}
+.rx-funnel .fr em{font-style:normal;color:#8f97b8}
+.rx-funnel .rs{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 6px}.rx-funnel .rs span{font:600 10px system-ui,sans-serif;padding:3px 7px;border-radius:7px;background:#1a1030;border:1px solid #3a2a6a;color:#e2d6ff}
+.lab-static{font:700 11px system-ui,sans-serif;color:#ffd54f;background:rgba(255,213,79,.07);border:1px solid rgba(255,213,79,.35);border-radius:9px;padding:7px 10px;margin:0 0 10px}
+.br-sum{border:1px solid rgba(255,213,79,.4);border-radius:12px;padding:10px 12px;margin:0 0 10px;background:linear-gradient(180deg,rgba(255,213,79,.08),rgba(11,14,28,1))}
+.br-sum h5{margin:0 0 6px;font:800 12px system-ui,sans-serif;color:#ffd54f}.br-sum p{margin:4px 0;font:600 11px system-ui,sans-serif;color:#d9def2;line-height:1.5}
+.mv-sum{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}.mv-sum span{font:600 11px system-ui,sans-serif;padding:5px 9px;border-radius:9px;background:#0d1124;border:1px solid #2a3158;color:#cfd5ee}.mv-sum span b{color:#fff}
 /* R2544.104 KAYNAK LABORATUVARI */
 #researchCard{background:radial-gradient(120% 120% at 0% 0%,#0f1830 0%,#0a0d18 60%,#07080e 100%) !important;border-color:#2ec5ff !important;color:#e6e9f7}
 .lab-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 10px}
@@ -475,6 +488,7 @@ body.cc-compact .cc-extra{display:none !important}
       </div>
       <div class="cc-panel rx" id="rxCard" aria-label="Karar reaktörü"><div class="cc-h">🧠 KURUL • KARAR REAKTÖRÜ <span class="x">her modelin oyu kendi renginde çekirdeğe akar • kırmızı yanıp sönen yay = geri verilen kâr</span></div>
         <div class="rx-health" id="rxHealth" aria-label="Kurul modellerinin sağlığı"></div>
+        <div class="rx-funnel" id="rxFunnel" aria-label="Son 24 saat sinyal hunisi"></div>
         <div class="rx-ticker" aria-hidden="true"><div class="rx-track" id="rxTrack"></div></div>
         <canvas id="rxCanvas" role="img" aria-label="Kurul karar akışı ve açık pozisyon radarı"></canvas>
       </div>
@@ -1013,7 +1027,14 @@ function renderBrain(s){
   try{brAnimUpdate(s,m);}catch(e){console.warn('brAnim',e);}
   const sub=document.getElementById('ccBrainSub');if(sub)sub.textContent=`${m.lessons} kapanan işlem • ${m.asked||0} soru soruldu • ${m.ders} doğrulanmış ders • "ders" = son dersler VE 6 aylık hafıza aynı yönü gösterdi • gölge: kararı değiştirmez`;
   const bars=(p,col)=>p?`<div class="br-sec" style="color:${col}">${p.kind.toUpperCase()} (${p.n}) NASIL OLDU</div>`+p.items.slice(0,4).map(x=>`<div class="br-bar"><div class="tr"><i style="width:${x.pct}%;background:linear-gradient(90deg,${col}aa,${col});box-shadow:0 0 8px ${col}"></i><span>${esc(x.label)}</span></div><b style="color:${col}">%${x.pct}</b></div>`).join('')+(p.extra?`<div class="br-line wait">${esc(p.extra)}</div>`:''):'';
-  el.innerHTML=(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${c.lines.map(x=>`<div class="br-line ${x.cls}">${x.cls==='ders'?'✅ DERS: ':x.cls==='sum'?'🔍 ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• '}${esc(x.text)}</div>`).join('')}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
+  // R2544.113 (kullanıcı 02.11: "hâlâ 1 doğrulanmış ders gösteriyor"): öğrenilen en üstte, sayıyla: kaç soru, kaçı ders, kaçı 6 ayda tutmadı, kaçında fark yok
+  const dl=[];for(const c of m.cards)for(const l of c.lines)if(l.cls==='ders')dl.push(c.name+': '+String(l.text).replace(/^Ayırt edici[^:]*:\s*/,''));
+  const Q={asked:0,ders:0,same:0,notHold:0,rare:0,few:0};for(const c of m.cards)for(const l of c.lines){const x=String(l.text).match(/^Sorulan (\d+) soru[^:]*:\s*(\d+) ders • (\d+) tek başına neden değil • (\d+) 6 ayda tutmadı • (\d+) nadir • (\d+) az örnek/);
+    if(x){Q.asked+=+x[1];Q.ders+=+x[2];Q.same+=+x[3];Q.notHold+=+x[4];Q.rare+=+x[5];Q.few+=+x[6];}}
+  const sum=`<div class="br-sum"><h5>✅ BEYİN NE ÖĞRENDİ — ${dl.length} doğrulanmış ders</h5>${dl.length?dl.map(t=>`<p>• ${esc(t)}</p>`).join(''):'<p>Henüz doğrulanmış ders yok.</p>'}
+    <p>Sorulan <b>${Q.asked||m.asked||0}</b> sorunun: <b style="color:#ffd54f">${Q.ders}</b> tanesi ders oldu • <b>${Q.same}</b> tanesinde kazanan ve kaybeden işlem girişte aynı görünüyor • <b>${Q.notHold}</b> tanesi son işlemlerde fark gösterdi ama 6 aylık veride tutmadı • <b>${Q.rare}</b> tanesi çok nadir görülen durum • <b>${Q.few}</b> tanesi için henüz yeterli örnek yok (her iki tarafta en az 8 otopsili işlem gerekir).</p>
+    <p>Yani beynin bulgusu şu: girişte bilinen bu bilgilerin çoğu kazananı kaybedenden ayırmıyor. Bu bir hata değil, ölçüm sonucu; bir bilgi ancak son işlemler VE 6 aylık hafıza aynı yönü gösterince ders olur, kural ancak o zaman değişir.</p></div>`;
+  el.innerHTML=sum+(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${c.lines.map(x=>`<div class="br-line ${x.cls}">${x.cls==='ders'?'✅ DERS: ':x.cls==='sum'?'🔍 ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• '}${esc(x.text)}</div>`).join('')}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
     +(m.auto.length?`<div class="br-sec" style="margin-top:10px">SON OTOPSİLER</div><div class="br-auto">${m.auto.map(a=>`<span title="${esc(a.text)}"><b style="color:${Number(a.R)>0?'#2bd67b':'#ff4d6d'}">${esc(String(a.s||'').replace(/USDT$/,''))} ${Number(a.R)>=0?'+':''}${Number(a.R).toFixed(2)}R</b>${esc(String(a.text||'').slice(0,90))}</span>`).join('')}</div>`:'');
 }
 // ---------- R2544.106 POZİSYON MASASI (kullanıcı 02.11: "pozisyon kartı afilli olsun; geçmiş pozlar son 5 poz durumu; geçmiş poz bilgileri istatistik ve grafiklerle") ----------
@@ -1175,9 +1196,9 @@ function rxModel(s){
   const closes=[...(t.recentCloses||[]),...(z.recentCloses||[])].map(c=>({s:String(c.symbol||'').replace(/USDT$/,''),R:rxNum(c.rMultiple),at:Date.parse(c.closedAt)||0,lane:String(c.setup||'').startsWith('ZIRVE5')?'ZİRVE-5':'İlk 3'}))
     .filter(c=>c.R!==null).sort((a,b)=>b.at-a.at).slice(0,40);
   const ticker=[];
-  for(const x of (pd.cmRecent||[]).slice(0,6))ticker.push(`🤝 ${String(x.symbol||'').replace(/USDT$/,'')} ${x.side||''}: kurul ${RX_TR[x.d]||x.d} — ${RX_CONS[x.c]||x.c||''}${x.blocked?' → İŞLEM AÇILMADI':''}`);
+  for(const x of (pd.cmRecent||[]).slice(0,6))ticker.push(`${rxT(x.at)}🤝 ${String(x.symbol||'').replace(/USDT$/,'')} ${x.side||''}: kurul ${RX_TR[x.d]||x.d} — ${RX_CONS[x.c]||x.c||''}${x.blocked?' → İŞLEM AÇILMADI':''}`);
   for(const a of lots){const d=a.deskInfo?.last;if(d)ticker.push(`🧑‍💼 ${String(a.symbol||'').replace(/USDT$/,'')} masa: ${RX_TR[d.action]||d.action}${d.committee?.consensus?' — '+(RX_CONS[d.committee.consensus]||d.committee.consensus):''}${d.authority===true?' (YETKİLİ)':' (gölge)'}`);}
-  for(const c of closes.slice(0,6))ticker.push(`${c.R>0?'✅':'⛔'} ${c.s} ${c.R>0?'+':''}${c.R.toFixed(2)}R kapandı (${c.lane})`);
+  for(const c of closes.slice(0,6))ticker.push(`${rxT(c.at)}${c.R>0?'✅':'⛔'} ${c.s} ${c.R>0?'+':''}${c.R.toFixed(2)}R kapandı (${c.lane})`);
   // R2544.103: every committee model with a plain state (çalışıyor / yoğun / kota bitti / hasta) and the short reason
   const why=r=>{const e=String(r.lastError||'');return /MONTH/i.test(e)?'aylık kota':/credits|\b402\b/i.test(e)?'kredi istiyor':/quota/i.test(e)?'günlük kota':/429|RATE_LIMIT/i.test(e)?'yoğun':/timeout|aborted|TIMEOUT/i.test(e)?'zaman aşımı':/fetch failed|ECONN/i.test(e)?'bağlantı yok':/\b5\d\d\b/.test(e)?'sağlayıcı hatası':/SCHEMA|INVALID/i.test(e)?'yanlış cevap':e?'hata':'denenmedi';};
   const prov=r=>{const k=String(r.id||'');return /^FREE:/.test(k)?'openrouter':/^OR:/.test(k)?'openrouter':k.replace(/^ROUTER:/,'').split('/')[0].replace(/^kr$/,'kiro').replace(/^gc$/,'gemini-cli').replace(/^oc$/,'opencode');};
@@ -1226,7 +1247,7 @@ function rxDraw(now){
   const orb=g.createRadialGradient(L.core.x-R0*0.3,L.core.y-R0*0.3,2,L.core.x,L.core.y,R0*0.75);orb.addColorStop(0,'#ffffff');orb.addColorStop(0.25,finalCol);orb.addColorStop(1,'#0b0d1a');g.fillStyle=orb;g.beginPath();g.arc(L.core.x,L.core.y,R0*0.72,0,Math.PI*2);g.fill();
   g.textAlign='center';g.fillStyle='#fff';g.font='800 '+Math.round(R0*0.32)+'px system-ui,sans-serif';g.fillText(ev?(RX_TR[ev.final]||ev.final):'—',L.core.x,L.core.y+R0*0.1);
   g.font='700 12px system-ui,sans-serif';g.fillStyle=finalCol;g.fillText(ev?(RX_CONS[ev.cons]||ev.cons||''):'KURUL BEKLEMEDE',L.core.x,L.core.y+R0*0.95+14);
-  {const narrow=W<560,l1=ev?`${ev.kind} • ${String(ev.symbol||'').replace(/USDT$/,'')} ${ev.side||''}`:`sağlıklı ${m.healthy}/${m.total} model`,l2=ev?`${ev.blocked?'İŞLEM AÇILMADI':''}${ev.kind==='MASA'?(ev.auth?'YETKİLİ':'gölge'):''}`:`masada ${m.team}`;
+  {const narrow=W<560,l1=ev?`${ev.kind} • ${String(ev.symbol||'').replace(/USDT$/,'')} ${ev.side||''}`:`sağlıklı ${m.healthy}/${m.total} model`,l2=ev?`${ev.blocked?'İŞLEM AÇILMADI • ':''}${ev.kind==='MASA'?(ev.auth?'YETKİLİ • ':'gölge • '):''}${rxT(ev.at).trim()}`:`masada ${m.team}`;
    g.fillStyle='#c9cfe6';g.font='600 '+(narrow?10:11)+'px system-ui,sans-serif';const top=L.core.y-R0*0.95-8;
    if(narrow){g.fillText(l1,L.core.x,top-12);if(l2)g.fillText(l2,L.core.x,top);}else g.fillText(l1+(l2?' • '+l2:''),L.core.x,top);}
   // member nodes
@@ -1257,6 +1278,26 @@ function rxDraw(now){
     if(rd.best!==null)g.fillText(`en iyi ${(rd.best>=0?'+':'')+rd.best.toFixed(2)}R${rd.best-rd.now>0.05?' • geri verilen '+(rd.best-rd.now).toFixed(2)+'R':''}`,cx,cy+15);});
   RX.raf=RX.reduce?0:requestAnimationFrame(rxDraw);
 }
+// R2544.113 (kullanıcı 02.11: "SIREN'de takılı kaldı sanki"): şeritteki her olayın saati ve ne kadar önce olduğu
+function rxT(at){const t=typeof at==='number'?at:Date.parse(at);if(!Number.isFinite(t)||!t)return '';const ago=Math.max(0,Math.round((Date.now()-t)/60000));
+  return new Date(t).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})+(ago>=2880?` (${Math.round(ago/1440)} gün önce) `:ago>=60?` (${Math.round(ago/60)} sa önce) `:` (${ago} dk önce) `);}
+const FUN_FATE={OPENED:['✅ açıldı','#2bd67b'],RULE_BLOCKED:['⛔ kural eledi','#ff7a59'],COMMITTEE_SKIP:['🤝 kurul GİRME','#a78bfa'],EXPIRED:['⌛ 5 dk doldu','#ffd54f'],NO_RESULT:['… sonuç yok','#8f97b8'],HELD:['⏳ saklandı','#2ec5ff'],PAUSED:['⏸ sistem duraklamadaydı','#2ec5ff']};
+const FUN_TR={V2_STOP_OUT_OF_RANGE:'stop bant dışı',ZIRVE5_STOP_OUT_OF_BAND:'stop bant dışı',TOP3_SHORT_STOP_OUT_OF_RANGE:'stop bant dışı',V2_UNSWEPT_ZONE_ABOVE:'üstte süpürülmemiş bölge',V2_WEEKLY_NOT_SWEPT:'haftalık tepe süpürülmedi',
+  V2_ZONE_TOO_CLOSE:'hedef bölgesi çok yakın',ZIRVE5_NO_SWEEP:'likidite süpürmesi yok',ZIRVE5_SIGNAL_STALE:'sinyal bayatladı',LIVE_NOT_ARMED:'sistem durakladı (deploy / Durdur)',UNANIMOUS:'oybirliği',MAJORITY_AFTER_DEBATE:'tartışma sonrası çoğunluk',
+  TOP3_MARGIN_ABOVE_FREE_BALANCE:'marj bakiyeden büyük',TOP3_SYMBOL_BUSY:'coinde açık lot var',ZIRVE5_SYMBOL_BUSY:'coinde açık lot var',TOP3_COOLDOWN:'24 sa bekleme'};
+const funTr=r=>FUN_TR[r]||(typeof t3tr==='function'?t3tr(r):r);
+// R2544.113 (kullanıcı 02.11: "hâlâ işlem yok"): son 24 saatte gelen her sinyalin akıbeti - kaçı açıldı, kaçını kural / kurul eledi, neden
+function renderFunnel(s){
+  const el=document.getElementById('rxFunnel');if(!el)return;const f=(s?.top3?.data||s?.top3||{}).funnel;
+  if(!f){el.innerHTML='<div class="fh">📡 SON 24 SAAT SİNYAL HUNİSİ</div><div class="cc-note">PC sürümü bu bilgiyi vermiyor (R2544.113 öncesi)</div>';return;}
+  const pc=v=>v!==null&&v!==undefined&&Number.isFinite(Number(v))?' • stop %'+(Number(v)*100).toFixed(1).replace('.',','):'';
+  const rsm={};for(const [k,n] of Object.entries(f.reasons||{})){const t=funTr(k);rsm[t]=(rsm[t]||0)+n;}const rs=Object.entries(rsm).sort((a,b)=>b[1]-a[1]);
+  el.innerHTML=`<div class="fh">📡 SON 24 SAAT SİNYAL HUNİSİ <span style="color:#6f789c;font-weight:600">kuralın sinyal verdiği her an ve akıbeti</span></div>`
+    +(f.signals?`<div class="fs"><b>${f.signals} sinyal</b><i>→</i><b style="color:#ff7a59">${f.ruleBlocked} kural eledi</b><i>→</i><b style="color:#a78bfa">${f.committeeSkip} kurul GİRME</b><i>→</i><b style="color:#2bd67b">${f.opened} açıldı</b>${f.paused?`<b style="color:#2ec5ff">${f.paused} duraklamada kaçtı</b>`:''}${f.expired?`<b style="color:#ffd54f">${f.expired} 5 dk doldu</b>`:''}${f.noResult?`<b style="color:#8f97b8">${f.noResult} sonuç yok</b>`:''}</div>`
+      +(rs.length?`<div class="rs">${rs.map(([k,n])=>`<span>${esc(k)} ×${n}</span>`).join('')}</div>`:'')
+      +f.rows.slice(0,12).map(r=>{const F=FUN_FATE[r.fate]||[r.fate,'#8f97b8'];return `<div class="fr"><em>${esc(rxT(r.at))}</em><span>${r.lane==='ZIRVE5'?'Z5':'İlk 3'}</span><span><b>${esc(String(r.symbol||'').replace(/USDT$/,''))} ${esc(r.side||'')}</b> <span style="color:${F[1]}">${F[0]}</span>${r.reason?' — '+esc(funTr(r.reason)):''}${pc(r.stopPct)}</span></div>`;}).join('')
+      :'<div class="cc-note">Son 24 saatte kural hiç sinyal vermedi — aşağıdaki "Kaçan hareket denetimi" her büyük hareketin nedenini gösterir.</div>');
+}
 function renderReactor(s){
   let m;try{m=rxModel(s);}catch(e){console.warn('reactor',e);return;}RX.m=m;
   const hh=document.getElementById('rxHealth');if(hh){const lbl={ok:'çalışıyor',busy:'yoğun',quota:'kota bitti',sick:'hasta'};
@@ -1268,6 +1309,7 @@ function renderReactor(s){
   const tr=document.getElementById('rxTrack');if(tr){const items=(m.ticker.length?m.ticker:['🤝 kurul kararı bekleniyor • yeni sinyal ya da masa kararı geldiğinde burada akar']).map(x=>`<span>${esc(x)}</span>`).join('<i>✦</i>');tr.innerHTML=items+'<i>✦</i>'+items;}
   const sq=document.getElementById('rxStrip');if(sq){sq.innerHTML=m.closes.length?m.closes.slice().reverse().map(c=>{const a=Math.min(1,Math.abs(c.R)/2.5),col=c.R>0?`rgba(43,214,123,${0.35+0.65*a})`:`rgba(255,77,109,${0.35+0.65*a})`;
     return `<b class="rx-sq" style="background:${col};box-shadow:0 0 ${4+8*a}px ${col}" title="${esc(c.s)} ${c.R>0?'+':''}${c.R.toFixed(2)}R • ${esc(c.lane)}"></b>`;}).join('')+`<span class="rx-sqlbl">son ${m.closes.length} işlem • kazanan ${m.closes.filter(c=>c.R>0).length} • toplam ${(m.closes.reduce((a,c)=>a+c.R,0)>=0?'+':'')}${m.closes.reduce((a,c)=>a+c.R,0).toFixed(1)}R</span>`:'<span class="rx-sqlbl">kapanan işlem yok</span>';}
+  try{renderFunnel(s);}catch(e){console.warn('funnel',e);}
   if(!RX.raf)RX.raf=requestAnimationFrame(rxDraw);
 }
 // RX_END
@@ -2184,7 +2226,7 @@ function mirrorCandidates(s){
   if(!out.length)add('BTCUSDT');
   return out;
 }
-let mirrorSeenOpen=null;
+let mirrorSeenOpen=null,mirrorLastSig='';
 // CLAUDE_R2544_9: Üst TF seviyeleri ve pozisyon kutusu aç/kapa (tarayıcıda hatırlanır).
 const mirrorOpts={htf:true,pos:true};
 try{mirrorOpts.htf=localStorage.getItem('jev-mirror-htf')!=='0';mirrorOpts.pos=localStorage.getItem('jev-mirror-pos')!=='0';}catch{}
@@ -2197,6 +2239,9 @@ function syncMirrorSymbol(s){
   const badge=$('#mirrorPosBadge');
   if(badge){const op=(s?.positions?.data?.open||[]).find(p=>String(p?.symbol||'').toUpperCase()===mirrorSymbol);
     badge.textContent=op?`● AÇIK POZİSYON ${String(op.side||'').toUpperCase()==='LONG'?'ALIŞ':'SATIŞ'} • giriş ${mirrorFmt(op.entryPrice)}${op.stopPrice!=null?` • stop ${mirrorFmt(op.stopPrice)}`:''}`:'';}
+  // R2544.113 (kullanıcı 02.11: "SIREN'de takılı kaldı"): açık pozisyon yoksa grafik EN YENİ sinyalin coinine geçer; elle seçim 30 dk korunur
+  if(!openNow.length){const fr=((s?.top3?.data||s?.top3||{}).funnel?.rows||[])[0],key=fr?fr.symbol+'@'+fr.at:'';let man=0;try{man=Number(localStorage.getItem('jev-mirror-manual-at'))||0;}catch{}
+    if(key&&key!==mirrorLastSig){mirrorLastSig=key;if(Date.now()-man>30*60000&&/^[A-Z0-9]{1,28}USDT$/.test(fr.symbol)){mirrorSymbol=fr.symbol;if(!choices.includes(fr.symbol))choices.unshift(fr.symbol);}}}
   if(!mirrorSymbol||!choices.includes(mirrorSymbol))mirrorSymbol=choices[0];
   const sel=$('#mirrorSymbol');
   if(sel){
@@ -2286,7 +2331,10 @@ async function renderMirror(s){
     // CLAUDE_R2543_CHART_NARRATOR: JEV'e HER turda giden deterministik grafik okumasi, birebir gosterilir.
     const narr=p?.chartNarrative||null;
     const narrEl=$('#mirrorNarrative');
-    if(narr&&narr.frames){
+    // R2544.113 (kullanıcı 02.11: "ezbere açıklamalar gibi"): bu okuma JEV'e giden paketin parçası; JEV kapalıyken hiçbir kararı etkilemez -> gizli
+    const jevLiveN=(()=>{const t=s?.top3?.data||s?.top3||{},z=s?.zirve5?.data||s?.zirve5||{};return t.switches?.jevMode===true||z.switches?.jevMode===true||((s?.status?.data||s?.status||{}).leaderAuto?.enabled===true);})();
+    if(narrEl&&!jevLiveN){narrEl.innerHTML='<h4>GRAFİK OKUMA</h4><p class="nh">JEV kapalı: bu metin yalnız JEV’e gönderilen pakettir, kural ve kurul kararını etkilemez. JEV açılınca burada görünür.</p>';}
+    else if(narr&&narr.frames){
       const order=['1m','3m','5m','15m','30m','45m','1h','4h','1d'];
       const rowsHtml=order.filter(tf=>narr.frames[tf]).map(tf=>{
         const fr=narr.frames[tf];
@@ -2883,7 +2931,9 @@ function renderResearch(s){
   const nOf=t=>{const m=String(t||'').match(/\bn\s?([\d.]+)/);return m?m[1]:null;};
   const es=[...r.entries].sort((a,b)=>ORDER.indexOf(a.status)-ORDER.indexOf(b.status));
   const cnt=k=>r.entries.filter(e=>e.status===k).length,tot=r.entries.length||1;
-  let h=`<div class="lab-head">${ORDER.filter(k=>cnt(k)).map(k=>`<div class="lab-stat" style="border-color:${COL[k]}55"><b style="color:${COL[k]};text-shadow:0 0 12px ${COL[k]}">${cnt(k)}</b>${esc(L[k]||k)}</div>`).join('')}
+  const jevLiveR=(()=>{const t=s?.top3?.data||s?.top3||{},z=s?.zirve5?.data||s?.zirve5||{};return t.switches?.jevMode===true||z.switches?.jevMode===true||((s?.status?.data||s?.status||{}).leaderAuto?.enabled===true);})();
+  // R2544.113 (kullanıcı 02.11: "doğru yansıtmıyor, ezbere açıklamalar gibi"): bu kayıt CANLI değildir, elle tutulan ölçüm arşividir - açıkça söylenir
+  let h=`<div class="lab-static">📁 SABİT ÖLÇÜM ARŞİVİ — elle tutulan kayıt, son güncelleme ${esc(r.updatedAt||'—')}. Buradaki R değerleri laboratuvarda geçmiş veride ölçüldü; canlı sonuç DEĞİL. TEST / CANLI gerçek sonuçlar üstte KOMUTA MERKEZİ’nde.</div><div class="lab-head">${ORDER.filter(k=>cnt(k)).map(k=>`<div class="lab-stat" style="border-color:${COL[k]}55"><b style="color:${COL[k]};text-shadow:0 0 12px ${COL[k]}">${cnt(k)}</b>${esc(L[k]||k)}</div>`).join('')}
     <div class="lab-stat"><b>${r.entries.length}</b>kaynak • güncelleme ${esc(r.updatedAt||'—')}</div></div>
     <div class="lab-bar">${ORDER.filter(k=>cnt(k)).map(k=>`<span title="${esc(L[k]||k)} ${cnt(k)}" style="width:${100*cnt(k)/tot}%;background:${COL[k]}"></span>`).join('')}</div>`;
   for(const e of es){const R=num(e.result),n=nOf(e.result),c=COL[e.status]||'#8f97b8',w=R===null?0:Math.min(50,Math.abs(R)/0.5*50);
@@ -2893,7 +2943,7 @@ function renderResearch(s){
       <div class="lab-badge" style="background:${c}22;color:${c};border:1px solid ${c}88;box-shadow:0 0 10px ${c}33">${esc(L[e.status]||e.status)}</div>
       <details><summary>ne alındı • nasıl ölçüldü • sonuç</summary><p><b>Alınan:</b> ${esc(e.taken||'—')}</p><p><b>Nerede:</b> ${esc(e.where||'—')}</p><p><b>Test:</b> ${esc(e.test||'—')}</p><p><b>Sonuç:</b> ${esc(e.result||'—')}</p></details></div>`;}
   const k=s.knowledge?.data||{},repos=Array.isArray(k.openSourceRepos)?k.openSourceRepos:[];
-  if(repos.length)h+=`<div class="cc-h" style="margin-top:12px;color:#8f97b8">🐙 JEV BİLGİ TABANI • ${repos.length} GitHub deposu <span class="x">yalnız referans • emir yetkisi yok</span></div><div class="oss-grid">${repos.map(o=>`<div class="oss"><span class="lic">${esc(o.license||'')}</span><b>${esc(o.repo||'')}</b><div class="roles">${(o.roles||[]).slice(0,4).map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`).join('')}</div>`;
+  if(repos.length&&jevLiveR)h+=`<div class="cc-h" style="margin-top:12px;color:#8f97b8">🐙 JEV BİLGİ TABANI • ${repos.length} GitHub deposu <span class="x">yalnız referans • emir yetkisi yok</span></div><div class="oss-grid">${repos.map(o=>`<div class="oss"><span class="lic">${esc(o.license||'')}</span><b>${esc(o.repo||'')}</b><div class="roles">${(o.roles||[]).slice(0,4).map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`).join('')}</div>`;
   h+=`<p class="cc-note" style="margin-top:10px">${esc(r.note||'')}</p>`;
   el.innerHTML=h;
 }
@@ -2910,6 +2960,11 @@ function renderMovers(s){
   if(L.error){el.innerHTML=`<p>Son denetim okunamadı: ${esc(L.error)}</p>`;return;}
   const pc=v=>v===null||v===undefined?'—':(v>=0?'+':'')+Number(v).toFixed(1).replace('.',',')+'%';
   let html=`<p>Son denetim ${esc(new Date(L.at).toLocaleTimeString('tr-TR'))} • mum ${esc(new Date(L.bar).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • İlk 3’ün kullandığı sıra saati ${L.rankHour?esc(new Date(L.rankHour).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})):'—'} (bir saat geriden)</p>`;
+  // R2544.113 (kullanıcı 02.11: "kaçan hareket denetimi de ezbere gibi"): tablonun özeti sayıyla - kaç coin, kaçında sinyal, her hatta en sık neden
+  {const rows=L.rows||[],tally=(get)=>{const o={};for(const r of rows){const v=get(r);if(v)o[v]=(o[v]||0)+1;}return Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,n])=>`${esc(audTr(k))} ×${n}`).join(', ')||'—';};
+    const sig=rows.filter(r=>[r.ilk3?.long,r.ilk3?.short,r.zirve5?.why].includes('SIGNAL')).length;
+    html+=`<div class="mv-sum"><span><b>${rows.length}</b> büyük hareketli coin</span><span><b style="color:${sig?'#2bd67b':'#ff7a59'}">${sig}</b> tanesinde sinyal</span>`
+      +`<span>İlk 3 LONG: ${tally(r=>r.group==='YUKSELEN'&&(r.ilk3?.longOn??r.ilk3?.on)?r.ilk3?.long:null)}</span><span>İlk 3 SHORT: ${tally(r=>r.ilk3?.shortCandidate?r.ilk3?.short:null)}</span><span>ZİRVE-5: ${tally(r=>r.zirve5?.on?r.zirve5?.why:null)}</span></div>`;}
   html+='<div style="overflow-x:auto"><table class="perf"><thead><tr><th>Coin</th><th>24 sa</th><th>İlk 3 sıra</th><th>İlk 3 LONG (canlı ayar)</th><th>Gün tepesi dahil + canlı sıra</th><th>Desen (gün tepesi dahil, sıra şartsız)</th><th>İlk 3 SHORT</th><th>ZİRVE-5</th><th>Normal sistem</th></tr></thead><tbody>';
   for(const r of L.rows||[]){const i=r.ilk3||{};
     html+=`<tr><td>${esc(String(r.symbol).replace(/USDT$/,''))}${r.group==='ZIRVE5'?' <span class="tbadge">Z5</span>':''}</td><td>${pc(r.chg24)}</td><td>${i.rankUsed??'—'}${i.longCandidate?' • aday':''}</td><td>${(i.longOn??i.on)?esc(audTr(i.long)):'kapalı'}</td><td>${esc(audTr(i.longDay))}</td><td>${esc(audTr(i.longPattern))}${i.level?' • seviye '+esc(i.level):''}${i.volMult?' • hacim ×'+esc(i.volMult):''}</td><td>${(i.shortOn??i.on)===false?'kapalı':i.shortCandidate?esc(audTr(i.short)):'aday değil'}</td><td>${r.zirve5?.on?esc(audTr(r.zirve5.why))+(r.zirve5.rank?' (#'+r.zirve5.rank+')':''):'kapalı'}</td><td>${esc(audTr(r.normal?.why))}</td></tr>`;}
@@ -2970,7 +3025,7 @@ $('#themeBtn').addEventListener('click',()=>{
 try{ const t=localStorage.getItem('office-theme'); if(t) document.documentElement.setAttribute('data-theme',t); }catch{}
 $('#mirrorSymbol').addEventListener('change',e=>{
   mirrorSymbol=String(e.target.value||'').toUpperCase();
-  try{localStorage.setItem('jev-mirror-symbol',mirrorSymbol);}catch{}
+  try{localStorage.setItem('jev-mirror-symbol',mirrorSymbol);localStorage.setItem('jev-mirror-manual-at',String(Date.now()));}catch{}
   if(last)renderMirror(last);
 });
 document.querySelectorAll('[data-mirror-tf]').forEach(b=>b.addEventListener('click',()=>{

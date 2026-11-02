@@ -25,7 +25,10 @@ for(const tf of ['5m','15m'])test(`R32 Office ${tf} renders actual mirror table 
   fetch:async()=>({ok:true,json:async()=>({ok:true,snapshotId:'test',packet,parity:{ok:true,compared:3},
    latestDecision:{ts:1,ageMs:1000,jevSeen:{livePrice:11,chartOverlayLevels:{[tf]:overlay}}}})})};
  vm.createContext(context);vm.runInContext(source,context);
- await context.renderMirror({});
+ // R2544.113: the chart reading is JEV's packet -> shown while JEV is on, hidden (with a note) while it is off
+ await context.renderMirror({top3:{switches:{jevMode:false}}});
+ assert.match(node('#mirrorNarrative').innerHTML,/JEV kapalı/);
+ await context.renderMirror({top3:{switches:{jevMode:true}}});
  assert.match(node('#mirrorParity').textContent,/YAPISAL UYUM OK/);
  assert.match(node('#mirrorKv').innerHTML,/Sahte kırılım kanıtı/);
  assert.match(node('#mirrorKv').innerHTML,/Kapanış kırılımı geri alındı/);
