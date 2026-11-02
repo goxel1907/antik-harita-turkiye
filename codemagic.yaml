@@ -642,6 +642,16 @@ workflows:
             exit 1
           fi
           echo V95138_R2544_98_MUTABIK_OK
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95139_r2544_103_saglik.py"
+          grep -q V95139_R2544_103_SAGLIK /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'static String v95139Models(SharedPreferences sp)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q "versionName '9.5.131-r2544.103-saglik'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26110201' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'post(c, "/live/execute", intent, true)\|post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_103_ANDROID_ORDER_INITIATION_FORBIDDEN'
+            exit 1
+          fi
+          echo V95139_R2544_103_SAGLIK_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
