@@ -6076,7 +6076,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       await new Promise(r=>setTimeout(r,60));
     }
-    if(!gate.ok)return out;
+    // R2544.108 (kullanıcı 02.11 onayı): kapı kapalıyken (deploy duraklaması PAUSE_TEST ~4 dk, Durdur) çıkan sinyal çöpe atılmaz:
+    // mum kapanışından itibaren en çok 5 dk saklanır; kapı bu sürede açılırsa aynı giriş yolundan (kurul, JEV, kontroller) girilir.
+    // TEST = CANLI: CANLI'da da aynı. 5 dk geçerse düşer (kovalama yok); girişte canlı fiyatla stop bandı yeniden ölçülür.
+    if(!gate.ok){if(out.signals.length)top3State.v2Held=[...(top3State.v2Held||[]).filter(h=>clock()<=h.heldUntil),...out.signals.map(x=>({...x,heldBar:bar,heldUntil:bar+top3Lib.M5+TOP3_HELD_MS}))].slice(-20);return out;}
+    return top3V2Enter(cfg,out,bar);
+  }
+  const TOP3_HELD_MS=5*60000;
+  async function top3V2Enter(cfg,out,bar){
     let prem=null;
     for(const x of out.signals){
       const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
@@ -6116,7 +6123,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason,stopPct:finite(opened.stopPct)});
       if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[x.symbol+':'+x.side]:clock()};saveTop3State();
         // R2544.83: indikatör / giriş bağlamı gerçek giriş fiyatıyla (sinyal kapanışında eksik kaldıysa)
-        await top3InfoAfterOpen(Object.values(top3State.active||{}).find(a=>a&&a.symbol===x.symbol&&a.lane!=='ZIRVE5'),{interval:'5m',barEnd:bar+top3Lib.M5-1,session:12*TOP3_HOUR,lessons:top3State.lessons,rule:x.rule,tail:x.k5tail});
+        await top3InfoAfterOpen(Object.values(top3State.active||{}).find(a=>a&&a.symbol===x.symbol&&a.lane!=='ZIRVE5'),{interval:'5m',barEnd:(x.heldBar??bar)+top3Lib.M5-1,session:12*TOP3_HOUR,lessons:top3State.lessons,rule:x.rule,tail:x.k5tail});
         entryCommitteeShadow(Object.values(top3State.active||{}).find(a=>a&&a.symbol===x.symbol&&a.lane!=='ZIRVE5')).catch(()=>{});} // R2544.87 gölge kurul (beklemez)
       else try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:opened});}catch{}
     }
@@ -6537,6 +6544,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // R2544.58 v2: one pass per closed 5m candle, >= 8 s after it closed
       let v2=null;
       if(cfg.rulesVersion===2){
+        // R2544.108: duraklama sırasında saklanan taze sinyaller kapı açılınca girilir; 5 dk geçenler düşer (kayıtlı)
+        if(Array.isArray(top3State.v2Held)&&top3State.v2Held.length&&(gate.ok||top3State.v2Held.some(h=>clock()>h.heldUntil))){
+          const held=top3State.v2Held,fresh=held.filter(h=>clock()<=h.heldUntil);
+          for(const h of held.filter(h=>clock()>h.heldUntil))try{store.journal('TOP3_SIGNAL_EXPIRED',h.symbol,{side:h.side,rule:h.rule,bar:new Date(h.heldBar).toISOString(),reason:'HELD_5M_EXPIRED'});}catch{}
+          top3State.v2Held=gate.ok?[]:fresh;
+          if(gate.ok&&fresh.length){const o={at:new Date(clock()).toISOString(),bar:new Date(fresh[0].heldBar).toISOString(),held:true,signals:fresh,entries:[],errors:[]};
+            await top3V2Enter(cfg,o,fresh[0].heldBar);try{store.journal('TOP3_HELD_ENTRY',null,{entries:o.entries});}catch{}
+            top3State.lastHeld={at:o.at,entries:o.entries};}
+          saveTop3State();now=clock();
+        }
         const bar=Math.floor(now/top3Lib.M5)*top3Lib.M5-top3Lib.M5;
         if(now-(bar+top3Lib.M5)>=8000&&top3State.lastV2Bar!==bar){
           top3State.lastV2Bar=bar;
@@ -6607,7 +6624,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       await new Promise(res=>setTimeout(res,40));
     }
     // a coin that left the top 5 is no longer watched (the lab entered only while the coin was in the top 5)
-    z.armed=armed;z.pending=pending;out.armed=Object.values(armed).reduce((a,x)=>a+x.length,0);out.signals=pending.length;
+    z.armed=armed;z.pending=[...z.pending.filter(s=>s.held&&clock()-s.confirmAt<=5*60000&&!pending.some(p=>p.symbol===s.symbol&&p.side===s.side)),...pending];out.armed=Object.values(armed).reduce((a,x)=>a+x.length,0);out.signals=pending.length;
     return out;
   }
   // R2544.79 (kullanıcı 26.10 "önerilerini yap"): 4 indikatörün giriş anındaki bilgisi (VDPM 2R öncesi karşı seviye, VWOB karşı OB,
@@ -6885,7 +6902,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         saveTop3State();
       }
       // a confirmation is valid only right after its candle closed: with the lane closed it is noted and dropped, never queued
-      if(!gate.ok){for(const s of z.pending.splice(0))z5Note(z,{symbol:s.symbol,side:s.side,opened:false,reason:gate.reason,rank:s.rank});if(scanned)saveTop3State();return {ok:true,scanned,entries:0,reason:gate.reason};}
+      // R2544.108 (kullanıcı 02.11 onayı; AKE 10:00 deploy duraklamasında kaçtı): kapı kapalıyken onay en çok 5 dk saklanır (giriş yolundaki
+      // ZIRVE5_SIGNAL_STALE ile aynı süre); kapı bu sürede açılırsa girilir, sonra düşer. TEST = CANLI.
+      if(!gate.ok){const keep=[];for(const s of z.pending.splice(0)){if(clock()-s.confirmAt<=5*60000){if(!s.held){s.held=true;z5Note(z,{symbol:s.symbol,side:s.side,opened:false,reason:gate.reason,held:true,rank:s.rank});}keep.push(s);}
+          else z5Note(z,{symbol:s.symbol,side:s.side,opened:false,reason:'ZIRVE5_SIGNAL_STALE',rank:s.rank});}
+        z.pending=keep;if(scanned||keep.length)saveTop3State();return {ok:true,scanned,entries:0,reason:gate.reason,held:keep.length};}
       let entries=0;
       // LIVE keeps a lot limit like İlk 3 (default 2); TEST has none (TEST tests everything)
       const z5Open=()=>Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').length;

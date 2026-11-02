@@ -288,3 +288,19 @@ test('R2544.67.3 self-audit: without its own margin ZİRVE-5 sizes by risk (2 % 
   assert.equal((await g.controller.z5Tick()).entries,1);
   const b=Object.values(g.controller._testTop3State().active)[0];assert.ok(Math.abs(b.notional-50)<1,'10 USDT x 5x = 50, got '+b.notional);
 });
+
+// R2544.108 (kullanıcı 02.11 onayı; AKE 10:00 deploy duraklamasında kaçtı): onay en çok 5 dk saklanır
+test('R2544.108 ZİRVE-5: duraklamada gelen onay 5 dk saklanır, START_TEST sonrası girilir; 5 dk geçerse düşer',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture();await f.controller.testSupervisorTick();
+  await f.controller.runControl({action:'PAUSE_TEST'});
+  const r=await f.controller.z5Tick();assert.equal(r.scanned,true);assert.equal(r.entries,0);assert.equal(r.held,1,JSON.stringify(r));
+  await f.controller.runControl({action:'START_TEST'});await f.controller.testSupervisorTick();
+  f.state.now+=60000;assert.equal((await f.controller.z5Tick()).entries,1,'saklanan onay girildi');
+  require('../binance-rate-limit').resetForTests();
+  const g=fixture();await g.controller.testSupervisorTick();
+  await g.controller.runControl({action:'PAUSE_TEST'});assert.equal((await g.controller.z5Tick()).held,1);
+  g.state.now+=6*60000;await g.controller.runControl({action:'START_TEST'});await g.controller.testSupervisorTick();
+  assert.equal((await g.controller.z5Tick()).entries,0,'bayat onayla giriş yok');
+  assert.equal(g.controller.z5Status().recentEntries[0].reason,'ZIRVE5_SIGNAL_STALE');
+});

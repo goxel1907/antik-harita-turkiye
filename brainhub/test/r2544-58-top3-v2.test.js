@@ -361,3 +361,26 @@ test('R2544.69 İlk 3 ERKEN LONG with kâr koruma (default ON): half at +1R thro
   assert.equal(pc.exitType,'TOP3_TAKE_PROFIT');assert.equal(pc.quantity,full,'the opened quantity');assert.equal(pc.stopPrice,entryStop);
   assert.equal(pc.partial.taken,true);assert.ok(pc.rMultiple>0.5&&pc.rMultiple<a.targetR,'half at 1R + half at the target: '+pc.rMultiple);
 });
+
+// R2544.108 (kullanıcı 02.11 onayı): kapı kapalıyken (deploy duraklaması) çıkan sinyal 5 dk saklanır; kapı açılınca girilir, sonra düşer
+test('R2544.108 İlk 3: duraklamada çıkan sinyal 5 dk saklanır, START_TEST sonrası girilir',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture();await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.runControl({action:'PAUSE_TEST'})).ok,true);
+  const r=await f.controller.top3Tick();assert.equal(r.v2?.signals,1);assert.equal(r.v2.entries,0,'kapı kapalı: giriş yok');
+  assert.equal(f.controller._testTop3State().v2Held.length,1,'sinyal saklandı');
+  assert.equal((await f.controller.runControl({action:'START_TEST'})).ok,true);await f.controller.testSupervisorTick();
+  f.state.now+=60000;await f.controller.top3Tick();
+  const a=Object.values(f.controller._testTop3State().active)[0];assert.ok(a,'saklanan sinyal girildi');assert.equal(a.rule,'LONG_EARLY_RETEST');
+  assert.equal(f.controller._testTop3State().v2Held.length,0);assert.equal(f.kinds('TOP3_HELD_ENTRY').length,1);
+});
+
+test('R2544.108 İlk 3: 5 dk geçerse saklanan sinyal düşer (kovalama yok)',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture();await f.controller.testSupervisorTick();
+  await f.controller.runControl({action:'PAUSE_TEST'});
+  assert.equal((await f.controller.top3Tick()).v2.signals,1);
+  f.state.now+=6*60000;await f.controller.runControl({action:'START_TEST'});await f.controller.testSupervisorTick();await f.controller.top3Tick();
+  assert.equal(Object.keys(f.controller._testTop3State().active).length,0,'bayat sinyalle giriş yok');
+  assert.equal(f.kinds('TOP3_SIGNAL_EXPIRED').length,1);assert.equal(f.controller._testTop3State().v2Held.length,0);
+});
