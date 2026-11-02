@@ -191,6 +191,28 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 /* R2544.102 KARAR REAKTÖRÜ */
 /* R2544.104 KOMUTA MERKEZİ */
+/* R2544.105 BEYİN — NE ÖĞRENDİ */
+.cc-brain canvas#brCanvas{width:100%;height:240px;display:block;border-radius:12px;background:#05060c;margin-bottom:10px;box-shadow:inset 0 0 40px rgba(167,139,250,.18)}
+@media (max-width:700px){.cc-brain canvas#brCanvas{height:200px}}
+
+.cc-brain{margin-top:12px;position:relative}
+.br-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+.br-card{border:1px solid #1f2540;border-radius:12px;padding:10px;background:linear-gradient(180deg,rgba(167,139,250,.07),rgba(11,14,28,1) 45%)}
+.br-card h4{margin:0 0 6px;font:800 13px system-ui,sans-serif;color:#eef1fb;display:flex;align-items:center;gap:6px}
+.br-card h4 small{margin-left:auto;font:600 10px system-ui,sans-serif;color:#8f97b8}
+.br-sec{font:800 10px system-ui,sans-serif;letter-spacing:.08em;color:#8f97b8;margin:8px 0 4px}
+.br-bar{display:grid;grid-template-columns:minmax(0,1fr) 42px;gap:6px;align-items:center;font:600 11px system-ui,sans-serif;color:#cfd5ee;margin:2px 0}
+.br-bar .tr{position:relative;height:14px;border-radius:7px;background:#121630;overflow:hidden}
+.br-bar .tr i{position:absolute;left:0;top:0;bottom:0;border-radius:7px}
+.br-bar .tr span{position:absolute;left:7px;top:0;bottom:0;display:flex;align-items:center;font:700 10px system-ui,sans-serif;color:#fff;text-shadow:0 0 4px #000;white-space:nowrap;overflow:hidden;right:4px}
+.br-bar b{text-align:right}
+.br-line{font:600 11px system-ui,sans-serif;line-height:1.45;padding:5px 8px;border-radius:8px;margin:4px 0;background:#0d1124;color:#c9cfe6;border-left:3px solid #39406a}
+.br-line.ders{border-left-color:#ffd54f;background:rgba(255,213,79,.08);color:#fff3c4;box-shadow:0 0 12px rgba(255,213,79,.12)}
+.br-line.no{border-left-color:#ff7a59;color:#ffcab9}.br-line.mem{border-left-color:#2ec5ff}.br-line.wait{border-left-color:#6f789c;color:#9aa3c4}
+.br-auto{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.br-auto span{font:600 11px system-ui,sans-serif;padding:5px 9px;border-radius:9px;background:#0d1124;border:1px solid #232a4a;color:#cfd5ee;max-width:100%}
+.br-auto span b{margin-right:5px}
+
 /* R2544.104 KAYNAK LABORATUVARI */
 #researchCard{background:radial-gradient(120% 120% at 0% 0%,#0f1830 0%,#0a0d18 60%,#07080e 100%) !important;border-color:#2ec5ff !important;color:#e6e9f7}
 .lab-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 10px}
@@ -417,6 +439,7 @@ body.cc-compact .cc-extra{display:none !important}
       </div>
     </div>
     <div class="cc-now" id="ccNow"></div>
+    <div class="cc-panel cc-brain" id="ccBrain"><div class="cc-h">🧠 BEYİN — NE ÖĞRENDİ <span class="x" id="ccBrainSub">her kapanan işlemin otopsisi • "ders" = son dersler VE 6 aylık hafıza aynı yönü gösterdi</span></div><canvas id="brCanvas" role="img" aria-label="Beyin: her nöron bir kapanan işlem, altın çekirdekler doğrulanmış dersler"></canvas><div id="ccBrainBody">—</div></div>
   </section>
   <section class="kpis" id="kpis"></section>
   <section class="guard-strip" id="guardStrip" aria-label="Karar ve koruma (R2544)"></section>
@@ -877,6 +900,75 @@ function committeeSvg(){
     <text class="o-sub" id="cmBench" x="${CM.x}" y="${CM.y+52}" text-anchor="middle" font-size="10">—</text>
   </g>`;
 }
+// ---------- R2544.105 BEYİN — NE ÖĞRENDİ (kullanıcı 02.11: "beynin öğrenimini kaldırmışsın, beyin neyi öğrendi nereden bileceğiz") ----------
+// Her strateji: kayıplar ve kazançlar nasıl oldu (otopsi yüzdeleri çubukla), DERS sayılanlar (son dersler + 6 ay aynı yön; altın),
+// tek başına neden olmayanlar, 6 ayda tutmayanlar, 6 aylık hafıza notu, eksik örnek uyarısı; altta son otopsiler.
+const BR_NAME={LONG_EARLY_RETEST:'İlk 3 ERKEN LONG',SHORT_TOP_BREAK:'İlk 3 TEPE SHORT',SHORT_TOP_FADE:'İlk 3 TEPE SHORT (fade)',LONG_6OF6:'İlk 3 6/6 LONG',ZIRVE5_FIBO_LONG:'ZİRVE-5 LONG',ZIRVE5_FIBO_SHORT:'ZİRVE-5 SHORT'};
+function brParse(line){const m=String(line).match(/^(Kayıplar|Kazançlar)\s*\((\d+)\)\s*nasıl oldu:\s*(.*)$/);if(!m)return null;
+  const body=m[3].split('•')[0],items=[...body.matchAll(/([^,%]+?)\s*%(\d+)/g)].map(x=>({label:x[1].trim(),pct:Number(x[2])}));return {kind:m[1],n:Number(m[2]),items,extra:(m[3].split('•')[1]||'').trim()};}
+function brModel(s){
+  const t=s?.top3?.data||s?.top3||{},z=s?.zirve5?.data||s?.zirve5||{};
+  const causes={...(t.learning?.causes||{}),...(z.learning?.causes||{})};
+  const cards=Object.entries(causes).filter(([k,v])=>BR_NAME[k]&&Array.isArray(v)&&v.length).map(([k,v])=>{const c={key:k,name:BR_NAME[k],loss:null,win:null,lines:[]};
+    for(const l of v){const p=brParse(l);if(p){if(p.kind==='Kayıplar')c.loss=p;else c.win=p;continue;}
+      const cls=/gerekir/.test(l)?'wait':/^Ayırt edici\s*\(/.test(l)?'ders':/TUTMUYOR|ders sayılmaz/.test(l)?'no':/^6 aylık hafıza/.test(l)?'mem':''; /* "Ayırt edicilik için ... gerekir" is a wait, not a lesson */c.lines.push({cls,text:String(l)});}
+    return c;});
+  const auto=[...(t.learning?.autopsies||[]).map(a=>({s:a.symbol,R:a.R,text:a.text})),...(z.learning?.recent||[]).filter(a=>a.autopsy).map(a=>({s:a.symbol,R:a.R,text:a.autopsy}))].slice(0,8);
+  return {lessons:(Number(t.learning?.lessons)||0)+(Number(z.learning?.lessons)||0),cards,auto,ders:cards.reduce((a,c)=>a+c.lines.filter(x=>x.cls==='ders').length,0)};
+}
+// R2544.105 beyin animasyonu (kullanıcı 02.11: "beyni de afilli bir animasyonla göster"): her nöron bir kapanan işlem (yeşil kazanç / kırmızı kayıp,
+// büyüklük |R|), aralarında akan sinyaller; ortada her doğrulanmış DERS altın bir çekirdek. Yalnız gösterim.
+const BR={raf:0,nodes:null,key:'',pulses:[],last:0,reduce:typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches,m:null};
+function brBuild(W,H,rs){let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};const nodes=[];
+  rs.forEach((R,i)=>{const left=i%2===0,cx=W*(left?0.36:0.64),cy=H*0.5;let x,y;
+    for(let k=0;k<40;k++){const a=rnd()*Math.PI*2,r=Math.sqrt(rnd());x=cx+Math.cos(a)*r*W*0.17;y=cy+Math.sin(a)*r*H*0.38;if(Math.abs(x-W/2)>W*0.025)break;}
+    nodes.push({x,y,R,ph:rnd()*6.28,s:2.2+Math.min(4,Math.abs(R)*1.6)});});
+  const edges=[];nodes.forEach((a,i)=>{const near=nodes.map((b,j)=>({j,d:(a.x-b.x)**2+(a.y-b.y)**2})).filter(o=>o.j!==i).sort((p,q)=>p.d-q.d).slice(0,3);for(const o of near)if(o.j>i)edges.push([i,o.j]);});
+  return {nodes,edges};}
+function brDraw(now){
+  const cv=document.getElementById('brCanvas');if(!cv){BR.raf=0;return;}
+  const W=cv.clientWidth||600,H=cv.clientHeight||240,dpr=Math.min(2,window.devicePixelRatio||1);if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);BR.key='';}
+  const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);const m=BR.m||{rs:[],ders:[],lessons:0},T=now/1000,dt=Math.min(0.05,(now-(BR.last||now))/1000);BR.last=now;
+  const key=W+'x'+H+':'+m.rs.length;if(key!==BR.key){BR.net=brBuild(W,H,m.rs.length?m.rs:[0]);BR.key=key;BR.pulses=[];}
+  const net=BR.net;
+  const bg=g.createRadialGradient(W/2,H/2,10,W/2,H/2,W*0.6);bg.addColorStop(0,'#17123a');bg.addColorStop(0.6,'#090a18');bg.addColorStop(1,'#04050a');g.fillStyle=bg;g.fillRect(0,0,W,H);
+  // hemisphere glow outlines
+  for(const cx of [W*0.36,W*0.64]){g.strokeStyle='rgba(167,139,250,'+(0.12+0.06*Math.sin(T*1.3))+')';g.lineWidth=1.5;g.beginPath();g.ellipse(cx,H*0.5,W*0.19,H*0.43,0,0,Math.PI*2);g.stroke();}
+  // synapses
+  g.lineWidth=1;for(const [i,j] of net.edges){const a=net.nodes[i],b=net.nodes[j];g.strokeStyle='rgba(140,150,230,0.10)';g.beginPath();g.moveTo(a.x,a.y);g.lineTo(b.x,b.y);g.stroke();}
+  // pulses along synapses
+  if(!BR.reduce&&net.edges.length){if(Math.random()<0.6)for(let k=0;k<2;k++){const e=net.edges[(Math.random()*net.edges.length)|0],a=net.nodes[e[0]];BR.pulses.push({e,t:0,v:0.6+Math.random()*0.9,col:a.R>0?'#2bd67b':a.R<0?'#ff4d6d':'#a78bfa'});}
+    if(BR.pulses.length>260)BR.pulses.splice(0,BR.pulses.length-260);}
+  g.globalCompositeOperation='lighter';
+  BR.pulses=BR.pulses.filter(p=>(p.t+=p.v*dt)<1);for(const p of BR.pulses){const a=net.nodes[p.e[0]],b=net.nodes[p.e[1]],x=a.x+(b.x-a.x)*p.t,y=a.y+(b.y-a.y)*p.t;g.globalAlpha=Math.sin(p.t*Math.PI);g.drawImage(rxSprite(p.col),x-6,y-6,12,12);}
+  g.globalAlpha=1;
+  // neurons
+  for(const n of net.nodes){const col=n.R>0?'#2bd67b':n.R<0?'#ff4d6d':'#8f97b8',b=1+0.25*Math.sin(T*2+n.ph),s=n.s*b;g.drawImage(rxSprite(col),n.x-s*3,n.y-s*3,s*6,s*6);}
+  // lesson cores (gold) in the middle
+  const D=m.ders.length?m.ders:[{t:'henüz doğrulanmış ders yok'}];const cy=H*0.5;
+  D.forEach((d,i)=>{const y=cy+(i-(D.length-1)/2)*Math.min(46,H*0.8/Math.max(1,D.length)),r=(m.ders.length?13:8)*(1+0.12*Math.sin(T*3+i));const col=m.ders.length?'#ffd54f':'#6f789c';
+    g.drawImage(rxSprite(col),W/2-r*2.4,y-r*2.4,r*4.8,r*4.8);});
+  g.globalCompositeOperation='source-over';
+  D.forEach((d,i)=>{const y=cy+(i-(D.length-1)/2)*Math.min(46,H*0.8/Math.max(1,D.length));g.fillStyle=m.ders.length?'#fff3c4':'#9aa3c4';g.font='700 11px system-ui,sans-serif';g.textAlign='center';
+    const t=String(d.t);g.fillText(t.length>46?t.slice(0,45)+'…':t,W/2,y+ (m.ders.length?26:18));});
+  g.textAlign='left';g.fillStyle='#e8ebf7';g.font='800 13px system-ui,sans-serif';g.fillText(`🧠 ${m.lessons} ders`,12,20);g.font='600 11px system-ui,sans-serif';g.fillStyle='#8f97b8';
+  g.fillText(`${m.rs.filter(r=>r>0).length} kazanç • ${m.rs.filter(r=>r<0).length} kayıp (son ${m.rs.length})`,12,36);
+  g.textAlign='right';g.fillStyle='#ffd54f';g.font='800 12px system-ui,sans-serif';g.fillText(`✅ ${m.ders.length} doğrulanmış ders`,W-12,20);
+  BR.raf=BR.reduce?0:requestAnimationFrame(brDraw);
+}
+function brAnimUpdate(s,model){
+  const cc=(s?.top3?.data||s?.top3||{}).cc,cur=cc?.curve||[];const rs=cur.map((p,i)=>i?+(p[1]-cur[i-1][1]).toFixed(2):p[1]).slice(-120);
+  const ders=[];for(const c of model.cards)for(const l of c.lines)if(l.cls==='ders')ders.push({t:c.name+': '+String(l.text).replace(/^Ayırt edici[^:]*:\s*/,'')});
+  BR.m={rs,ders,lessons:model.lessons};if(!BR.raf)BR.raf=requestAnimationFrame(brDraw);
+}
+function renderBrain(s){
+  const el=document.getElementById('ccBrainBody');if(!el)return;let m;try{m=brModel(s);}catch(e){console.warn('brain',e);return;}
+  try{brAnimUpdate(s,m);}catch(e){console.warn('brAnim',e);}
+  const sub=document.getElementById('ccBrainSub');if(sub)sub.textContent=`${m.lessons} ders (kapanan işlem) • ${m.ders} doğrulanmış ders • "ders" = son dersler VE 6 aylık hafıza aynı yönü gösterdi • gölge: kararı değiştirmez`;
+  const bars=(p,col)=>p?`<div class="br-sec" style="color:${col}">${p.kind.toUpperCase()} (${p.n}) NASIL OLDU</div>`+p.items.slice(0,4).map(x=>`<div class="br-bar"><div class="tr"><i style="width:${x.pct}%;background:linear-gradient(90deg,${col}aa,${col});box-shadow:0 0 8px ${col}"></i><span>${esc(x.label)}</span></div><b style="color:${col}">%${x.pct}</b></div>`).join('')+(p.extra?`<div class="br-line wait">${esc(p.extra)}</div>`:''):'';
+  el.innerHTML=(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${c.lines.map(x=>`<div class="br-line ${x.cls}">${x.cls==='ders'?'✅ DERS: ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• '}${esc(x.text)}</div>`).join('')}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
+    +(m.auto.length?`<div class="br-sec" style="margin-top:10px">SON OTOPSİLER</div><div class="br-auto">${m.auto.map(a=>`<span title="${esc(a.text)}"><b style="color:${Number(a.R)>0?'#2bd67b':'#ff4d6d'}">${esc(String(a.s||'').replace(/USDT$/,''))} ${Number(a.R)>=0?'+':''}${Number(a.R).toFixed(2)}R</b>${esc(String(a.text||'').slice(0,90))}</span>`).join('')}</div>`:'');
+}
 // ---------- R2544.104 KOMUTA MERKEZİ ----------
 // Tek kart: mod (TEST / CANLI), çalışıyor mu, karar sahibi (KURAL / JEV / KURUL), JEV, kurul sağlığı, hesap; sonuç (o anki modun son 30 günü:
 // toplam R, işlem, kazanma, ort R, en büyük düşüş, birikimli R eğrisi, günlük R); ortada Karar Reaktörü; sağda stratejiler ve model karnesi;
@@ -955,7 +1047,9 @@ function renderCC(s){
 }
 // compact mode: only the header, mode bar, command center and the two strategy control cards stay; the rest is one click away
 function ccCompactInit(){const wrap=document.querySelector('.wrap');if(!wrap)return;const keep=new Set(['demoBanner','modeBar','ccCard','top3Card','z5Card','researchCard','moverCard']);
-  for(const el of wrap.children){if(el.tagName==='HEADER'||keep.has(el.id))continue;el.classList.add('cc-extra');}
+  // R2544.105 (kullanıcı 02.11: "açılan pozisyonu takip grafikleri hep kaldırmışsın"): open-position charts (JEV aynası: sade grafik + pozisyon kutusu)
+  // and the live gainer ladder always stay
+  for(const el of wrap.children){if(el.tagName==='HEADER'||keep.has(el.id)||el.classList.contains('mirror-wide')||el.querySelector?.('#ladderMeta'))continue;el.classList.add('cc-extra');}
   let on=true;try{const v=localStorage.getItem('ccCompact');if(v==='0')on=false;}catch{}document.body.classList.toggle('cc-compact',on);}
 setInterval(()=>{const c=document.getElementById('ccClock');if(c)c.textContent=new Date().toLocaleTimeString('tr-TR');},1000);
 
@@ -1763,6 +1857,7 @@ function renderOffice(s, vinfo){
   try{renderCommittee(s);}catch(e){console.warn('committee',e);} // R2544.86
   try{renderReactor(s);}catch(e){console.warn('reactor',e);} // R2544.102
   try{renderCC(s);}catch(e){console.warn('cc',e);} // R2544.104
+  try{renderBrain(s);}catch(e){console.warn('brain',e);} // R2544.105
   // R2544.84: İlk 3 / ZİRVE-5 pozisyon masasının son kararı kattaki Pozisyon Yöneticisi masasında (gölge)
   {const dk=[...(s.top3?.active||[]),...(s.zirve5?.active||[])].map(a=>({sym:String(a.symbol||'').replace(/USDT$/,''),d:a.deskInfo?.last})).filter(x=>x.d&&x.d.atIso).sort((x,y)=>Date.parse(y.d.atIso)-Date.parse(x.d.atIso))[0];
    const nm=st.positionManager?.lastReview?.actionTr;
