@@ -23,7 +23,7 @@ function createOpenRouterFreeWorker({
 }={}){
   const key=String(apiKey||'').trim();
   const configured=key.startsWith('sk-or-v1-')&&typeof fetchImpl==='function';
-  let freeModels=unique([...(models||[]),model,'openrouter/free']).filter(isOpenRouterFreeId);
+  let freeModels=unique([...(models||[]),model,'openrouter/free']).filter(isOpenRouterFreeId),visionModels=new Set(); // R2544.115 free models that read an image (catalog)
   const preferred=unique(Array.isArray(preferredModels)?preferredModels:[]).filter(isOpenRouterFreeId);
   let failures=0,cooldownUntil=0,busy=false,rr=0;
   const perModel=new Map();
@@ -36,7 +36,7 @@ function createOpenRouterFreeWorker({
     const now=clock();
     if(catalog.attemptAt===null||now-catalog.attemptAt>=30*60*1000){
       catalog.attemptAt=now;
-      try{const r=await fetchImpl('https://openrouter.ai/api/v1/models',{signal:AbortSignal.timeout(5000)});const j=JSON.parse(await r.text());if(!r.ok||!Array.isArray(j?.data))throw new Error('FREE_CATALOG_UNAVAILABLE');const ids=freeCatalogModels(j);freeModels=unique(['openrouter/free',...ids]);catalog.successAt=now;catalog.error=null;}catch(e){catalog.error=clip(e?.message||e,160);}
+      try{const r=await fetchImpl('https://openrouter.ai/api/v1/models',{signal:AbortSignal.timeout(5000)});const j=JSON.parse(await r.text());if(!r.ok||!Array.isArray(j?.data))throw new Error('FREE_CATALOG_UNAVAILABLE');const ids=freeCatalogModels(j);freeModels=unique(['openrouter/free',...ids]);visionModels=new Set(j.data.filter(x=>isOpenRouterFreeId(String(x?.id||''))&&/:free$/.test(String(x?.id||''))&&(x?.architecture?.input_modalities||[]).includes('image')&&!/safety|guard|lyria/i.test(String(x.id))).map(x=>String(x.id)));/* R2544.115 free image models */catalog.successAt=now;catalog.error=null;}catch(e){catalog.error=clip(e?.message||e,160);}
     }
     if(quota.lastCheckedAt===null||now-quota.lastCheckedAt>=15*60*1000){
       quota.lastCheckedAt=now;
@@ -75,12 +75,12 @@ function createOpenRouterFreeWorker({
     return rotated.sort((a,b)=>rank(b)-rank(a)||preferenceRank(a)-preferenceRank(b));
   }
 
-  async function callOne(id,system,prompt,validate,role){
+  async function callOne(id,system,prompt,validate,role,userContent=null){
     if(!isOpenRouterFreeId(id))throw new Error('NON_FREE_MODEL_REJECTED');
     const started=clock();
     const body={
       model:id,
-      messages:[{role:'system',content:(['POSITION_DESK','TRADER'].includes(role)?'':roleInstruction(role)+' ')+String(system||'')},{role:'user',content:String(prompt||'')}], // R2544.84: desk has its own trader prompt
+      messages:[{role:'system',content:(['POSITION_DESK','TRADER'].includes(role)?'':roleInstruction(role)+' ')+String(system||'')},{role:'user',content:Array.isArray(userContent)&&userContent.length?userContent:String(prompt||'')}], // R2544.84: desk has its own trader prompt; R2544.115: chart images for an image model
       // R43: free reasoning models spent the 768-token budget thinking and returned finish_reason=length.
       // Keep reasoning low and out of the reply; the visible answer stays schema-bound by validate().
       // R2544.84 masa: düşünen ücretsiz modeller 1536'da RESPONSE_TRUNCATED veriyordu (27.10: 19 modelden yalnız biri cevap verdi)
@@ -157,7 +157,7 @@ function createOpenRouterFreeWorker({
 
   // R2544.92 (kullanıcı 27.10: "openrouter'dan hiç model bağlamadın; biri biterse diğeri devam etsin"): ADI VERİLEN tek ücretsiz model
   // (kurul üyesi). review() ile aynı günlük kota, dakika sınırı ve model bazında soğuma; meşgul bayrağı yok (kurul üyeleri paralel sorar).
-  async function reviewModel(id,{system='',prompt='',validate=null,role='DEFAULT'}={}){
+  async function reviewModel(id,{system='',prompt='',validate=null,role='DEFAULT',userContent=null}={}){
     role=normalizeRole(role);
     if(!configured)return {called:false,ok:false,reason:'OPENROUTER_NOT_CONFIGURED',model:id};
     if(!isOpenRouterFreeId(id)||id==='openrouter/free')return {called:false,ok:false,reason:'NON_FREE_MODEL_REJECTED',model:id};
@@ -166,7 +166,7 @@ function createOpenRouterFreeWorker({
     if(blocked(id))return {called:false,ok:false,reason:'MODEL_COOLDOWN',model:id};
     if(quota.used>=quota.limit||minuteCalls.length>=Math.max(1,Math.min(30,Number(minuteLimit)||10)))return {called:false,ok:false,reason:'OPENROUTER_FREE_QUOTA_EXHAUSTED',model:id};
     quota.used++;minuteCalls.push(clock());persist();const started=clock();
-    try{const out=await callOne(id,system,prompt,validate,role);persist();return {called:true,ok:true,model:out.routedModel,text:out.text};}
+    try{const out=await callOne(id,system,prompt,validate,role,userContent);persist();return {called:true,ok:true,model:out.routedModel,text:out.text};}
     catch(e){
       const msg=clip(e?.message||e,300),c=classifyProviderError(msg,e?.status),p=modelState(id),n=Number(p.consecutiveFailures||0)+1;
       let until=clock()+Math.min(1800000,30000*2**Math.min(n-1,6));
@@ -177,7 +177,7 @@ function createOpenRouterFreeWorker({
     }
   }
   function status(){
-    rollover();return {configured,model,models:freeModels,preferredModels:preferred.filter(id=>freeModels.includes(id)),freeOnly:true,optional:true,blocksJev:false,failures,cooldownUntil,busy,catalog:{...catalog},quota:{...quota,remaining:Math.max(0,quota.limit-quota.used),minuteUsed:minuteCalls.length},last:{...last},perModel:freeModels.map(id=>({model:id,...modelState(id),status:blocked(id)?'cooldown':modelState(id).lastOk===true&&clock()-modelState(id).lastOkAt<3600000?'healthy':modelState(id).attempts>0?'failed':'untested'}))};
+    rollover();return {configured,model,models:freeModels,visionModels:[...visionModels],preferredModels:preferred.filter(id=>freeModels.includes(id)),freeOnly:true,optional:true,blocksJev:false,failures,cooldownUntil,busy,catalog:{...catalog},quota:{...quota,remaining:Math.max(0,quota.limit-quota.used),minuteUsed:minuteCalls.length},last:{...last},perModel:freeModels.map(id=>({model:id,...modelState(id),status:blocked(id)?'cooldown':modelState(id).lastOk===true&&clock()-modelState(id).lastOkAt<3600000?'healthy':modelState(id).attempts>0?'failed':'untested'}))};
   }
   return {review,reviewModel,status};
 }

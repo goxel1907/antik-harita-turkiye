@@ -57,7 +57,8 @@ const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && unus
 // R2544.100: Ollama Cloud free = ONE cloud model at a time -> at most 1 member from it (parallel calls would collide)
 // R2544.103: Groq free = ~8K tokens per minute per model (prompt + max_tokens); two Groq members asked in the same minute overflow it
 // R2544.112: Google AI Studio quota is per MODEL (each Gemini model its own daily pool) -> up to 5 Gemini seats; a cap may now be above perProvider
-const PROVIDER_CAP = { ollama:1, groq:1, gemini:5 };
+// R2544.115: every image-reading model the user connected joins (Gemini: each model its own daily quota); GitHub = Copilot premium requests -> 2
+const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, nvidia:4, mistral:2 };
 function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false, caps = PROVIDER_CAP } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
@@ -112,7 +113,7 @@ function board({ status = null, freeStatus = null, score = null, now = Date.now(
 const PROBE_SYSTEM = 'Health check. Answer ONLY with this JSON and nothing else: {"ok":true,"model":"<your model name>"}';
 const validProbe = t => { try { return JSON.parse(String(t || '').match(/\{[\s\S]*\}/)?.[0]).ok === true; } catch { return false; } };
 // members: [{ id, call:async({system,prompt,validate,role})=>({ok,text,model}) }]  (id = 'ROUTER:kr/claude-sonnet-4.5' or 'FREE:openrouter')
-function createCommittee({ members: membersIn = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000 } = {}) {
+function createCommittee({ members: membersIn = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000, prefer = null } = {}) {
   // R2544.92: members may be a function (re-discovered: models added to 9Router / OpenRouter join without a code change)
   let health = {}; try { if (healthFile) health = JSON.parse(fs.readFileSync(healthFile, 'utf8')).health || {}; } catch {}
   // R2544.96: the members function is told which models are gone (from THIS committee's own health)
@@ -146,9 +147,16 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   // healthy = last probe or last real call ok; never more than 2 consecutive failures
   function healthy() { return membersNow().filter(m => health[m.id]?.lastOk === true && (health[m.id].consecutiveFail || 0) < 3); }
   // up to `size` members from different families first (diversity), then fill
-  function pick() {
+  // R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): `prefer` (the members that can SEE the chart)
+  // sit first, spread over providers round-robin; the rest of the seats keep the old one-family-at-a-time spread. n = this decision's team size.
+  function pick(n = size) {
     const h = healthy(), out = [], fams = new Set(), byProv = new Map();
-    for (const m of h) { const p = provider(m.id); if (!byProv.has(p)) byProv.set(p, []); byProv.get(p).push(m); }
+    if (typeof prefer === 'function') {
+      const pv = new Map(); for (const m of h) { let ok = false; try { ok = prefer(m.id) === true; } catch {} if (!ok) continue; const p = provider(m.id); if (!pv.has(p)) pv.set(p, []); pv.get(p).push(m); }
+      let more = true; while (out.length < n && more) { more = false; for (const list of pv.values()) { if (!list.length) continue; const m = list.shift(); out.push(m); fams.add(family(m.id)); more = true; if (out.length >= n) break; } }
+    }
+    const size = n;
+    for (const m of h) { if (out.includes(m)) continue; const p = provider(m.id); if (!byProv.has(p)) byProv.set(p, []); byProv.get(p).push(m); }
     // round-robin over providers, one new family at a time: a provider running out of quota never empties the table
     let moved = true;
     while (out.length < size && moved) { moved = false;
@@ -166,8 +174,8 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   }
   // field = the voted key ('decision' | 'action'); fallback = value when there is no majority
   // R2544.87 SEATS: each member owns a part of the screen (e.g. 1d/4h, 1h/15m, 5m+flow, risk); the seat text is added to its system prompt
-  async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '' }) {
-    const team = pick(); if (!team.length) { save(); return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] }; }
+  async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '', size:teamSize = null }) {
+    const team = pick(Number(teamSize) > 0 ? Number(teamSize) : size); if (!team.length) { save(); return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] }; }
     // R2544.91: seats go to the preferred model family first (Claude = price action even when Gemini is missing), then by order
     const seatMap = assignSeats(team, roles), seatOf = i => seatMap[i] || null, sysOf = i => seatOf(i) ? system + '\n\nYOUR SEAT AT THE DESK: ' + seatOf(i).text : system;
     const r1 = await Promise.all(team.map((m, i) => ask(m, sysOf(i), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(i)?.key || null })))), v1 = r1.filter(x => x.ok);

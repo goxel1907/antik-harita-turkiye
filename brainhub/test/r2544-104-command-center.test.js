@@ -39,8 +39,8 @@ test('R2544.104 replacement: 6 failures in a row (not quota / busy) gives the se
   assert.equal(MC.unusableWhy({lastOk:false,error:'MODEL_RATE_LIMIT HTTP 429',consecutiveFail:9}),null,'busy keeps its seat');assert.equal(MC.unusableWhy({lastOk:false,error:'You exceeded your current quota',consecutiveFail:9}),null,'quota keeps its seat');
   assert.ok(MC.isGone({lastOk:false,error:'HTTP 500',consecutiveFail:6,at:t},t));
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
-  assert.match(sv,/const orIds=\[\.\.\.OR_FREE_PREF\.filter\(m=>!catalog\.size\|\|catalog\.has\(m\)\),\.\.\.\[\.\.\.catalog\]\.filter\(m=>\/:free\$\/\.test\(m\)&&!OR_FREE_PREF\.includes\(m\)&&!OR_SKIP\.test\(m\)\)\]/);
-  assert.match(sv,/\.filter\(m=>!\(ctx\?\.gone&&ctx\.gone\('OR:'\+m\)\)\)\.slice\(0,OR_MAX\)/);assert.match(sv,/OR_MAX=10;/);assert.match(sv,/perProvider:3,max:16,candidates:ROUTER_CANDIDATES/);
+  assert.match(sv,/const orIds=\[\.\.\.new Set\(\[\.\.\.\[\.\.\.orVision\]\.filter\(m=>!OR_SKIP\.test\(m\)\),\.\.\.OR_FREE_PREF\.filter\(m=>!catalog\.size\|\|catalog\.has\(m\)\),\.\.\.\[\.\.\.catalog\]\.filter\(m=>\/:free\$\/\.test\(m\)&&!OR_FREE_PREF\.includes\(m\)&&!OR_SKIP\.test\(m\)\)\]\)\]/); // R2544.115 image models first
+  assert.match(sv,/\.filter\(m=>!\(ctx\?\.gone&&ctx\.gone\('OR:'\+m\)\)\)\.slice\(0,OR_MAX\)/);assert.match(sv,/OR_MAX=12;/);assert.match(sv,/perProvider:3,max:28,candidates:\[\.\.\.visionFirst,\.\.\.ROUTER_CANDIDATES\]/); // R2544.115
 });
 test('R2544.104 a dropped model is replaced within minutes: the next candidate (never asked before) is probed on the next 5-min tick, not at the hourly probe',async()=>{
   const MC=require('../model-committee');let t=Date.UTC(2026,10,2,9,0,0);const calls={};let ids=['ROUTER:a/x'];

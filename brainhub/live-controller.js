@@ -6806,7 +6806,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const e=finite(lot.entryPrice),st=finite(lot.initialStopPrice)??finite(lot.stopPrice),tp=finite(lot.tpPrice);if(!(e>0&&st>0&&tp>0))return null;
       const rule=lot.lane==='ZIRVE5'?(lot.side==='LONG'?'ZIRVE5_FIBO_LONG':'ZIRVE5_FIBO_SHORT'):lot.rule;
       const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t});
-      const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES});
+      const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES,size:ENTRY_TEAM});
       const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220),...(v.img?{img:true}:{}),...(v.compact?{cmp:true}:{}),...(v.imgError?{imgErr:String(v.imgError).slice(0,80)}:{})}));
       const f=lot.entryFeatures||(lot.entryFeatures={});
       f.committee=r?.ok?{at:clock(),decision:r.final,consensus:r.consensus,rounds:r.rounds,votes:slim(r.round2||r.votes),round1:slim(r.votes),shadow:true,version:TB.TB_VERSION}:{at:clock(),error:r?.reason||'FAILED',shadow:true};
@@ -6824,6 +6824,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(be>0)out.push(`at +${be}R the stop moves to entry (a later return to entry closes at about 0R)`);
     if(p?.enabled)out.push(`${Math.round((p.share??0.5)*100)}% is closed at +${p.atR}R and the rest moves to break-even`);
     out.push('the rest runs to the target',`exit after ${hold} h at the latest`);return out.join('; ');}catch{return null;}}
+  const ENTRY_TEAM=9; // R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): 9 seats at the entry, image models first
   async function committeeEntryGate({symbol,side,rule,entry,stop,target,trigger=null,management=null,context=null,experience=null}){
     const t0=clock();
     if(!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return {veto:false,record:{at:t0,error:'COMMITTEE_NOT_WIRED',fallback:'RULE',authority:true}};
@@ -6836,7 +6837,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(fr!==null)ctx.fund=fr;if(mk&&ix)ctx.premium=Number((mk/ix-1).toFixed(5));}catch{}}
       const packet=TB.entryPacket({k,plan:{side,rule,entry,stop,target},t:t0,trigger,management,context:ctx,experience});
       let gateTimer=null; // R2544.90: cleared when the committee answers
-      const r=await Promise.race([Promise.resolve(deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES})).finally(()=>clearTimeout(gateTimer)),
+      const r=await Promise.race([Promise.resolve(deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES,size:ENTRY_TEAM})).finally(()=>clearTimeout(gateTimer)),
         new Promise(res=>{gateTimer=setTimeout(()=>res({ok:false,reason:'COMMITTEE_TIMEOUT'}),150000);})]);
       const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220),...(v.img?{img:true}:{}),...(v.compact?{cmp:true}:{}),...(v.imgError?{imgErr:String(v.imgError).slice(0,80)}:{})}));
       if(!r?.ok)return {veto:false,record:{at:clock(),error:r?.reason||'FAILED',fallback:'RULE',authority:true,ms:clock()-t0}};

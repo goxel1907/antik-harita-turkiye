@@ -12,10 +12,10 @@ test('R2544.112 Kiro ve Gemini CLI kurulda yer tutmaz (JEV ayarına dokunulmaz)'
   assert.ok(!out.some(m=>/^(kr|gc)\//.test(m)));
 });
 test('R2544.112 Gemini her model ayrı günlük kota: 5 koltuğa kadar; GitHub Models ve Cloudflare bağlanınca aday',()=>{
-  assert.equal(MC.PROVIDER_CAP.gemini,5);
-  const out=MC.pickRouterExtras([],{strong:/./,perProvider:3,max:16,candidates:CAND});
-  assert.equal(out.filter(m=>m.startsWith('gemini/')).length,5);
-  assert.equal(out.filter(m=>m.startsWith('nvidia/')).length,3,'diğerleri yine 3');
+  assert.equal(MC.PROVIDER_CAP.gemini,8); // R2544.115 every Gemini image model
+  const out=MC.pickRouterExtras([],{strong:/./,perProvider:3,max:28,candidates:CAND}); // R2544.115: all 7 Gemini candidates, NVIDIA up to 4
+  assert.equal(out.filter(m=>m.startsWith('gemini/')).length,7);
+  assert.equal(out.filter(m=>m.startsWith('nvidia/')).length,4,'NVIDIA 4 (R2544.115)');assert.equal(out.filter(m=>m.startsWith('github/')).length,2,'GitHub = Copilot plan: 2');
   assert.ok(CAND.includes('github/claude-sonnet-4.6')&&CAND.includes('cloudflare-ai/deepseek-v4.1-flash-1017'));
-  assert.ok(out.length<=16);
+  assert.ok(out.length<=28);
 });

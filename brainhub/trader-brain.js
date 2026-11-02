@@ -10,7 +10,7 @@ const ENGINE = require('./engine'); // R2544.88: the same causal chart engine JE
 const TF = { m5:{ ms:300000, n:48, frame:'5m' }, m15:{ ms:900000, n:32, frame:'15m' }, h1:{ ms:3600000, n:36, frame:'1h' }, h4:{ ms:14400000, n:30, frame:'4h' }, d1:{ ms:86400000, n:20, frame:'1d' } };
 // candles to fetch per timeframe so the chart engine has >= 52 closed candles (EMA50, swings, FVG history)
 const FETCH = { m5:80, m15:80, h1:80, h4:80, d1:80 };
-const finite = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+const finite = v => { if (v === null || v === undefined || v === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null; }; // R2544.115: null is NOT 0 ("rank #null", "funding 0%")
 const rows = k => (Array.isArray(k) ? k : []).map(r => Array.isArray(r) ? { t:+r[0], o:+r[1], h:+r[2], l:+r[3], c:+r[4], v:+r[5], tb:r.length > 9 ? +r[9] : null } : r).filter(r => Number.isFinite(r.t) && r.c > 0);
 const med = a => { const b = a.filter(Number.isFinite).sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : null; };
 function ema(a, n) { let e = null; const k = 2 / (n + 1); for (const x of a) e = e === null ? x : x * k + e * (1 - k); return e; }
@@ -229,7 +229,7 @@ function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, 
     liquidity:(() => { const q = liquidityLines(tfs, tR ?? 99, L); return [q.for.length ? 'for: ' + q.for.join('; ') : '', q.against.length ? 'against: ' + q.against.join('; ') : '', q.info.join('; ')].filter(Boolean).join(' | ') || 'no liquidity pool near the trade'; })(),
     coin:(() => { const q = coinLines(tfs, context, L); return [q.for.length ? 'for: ' + q.for.join('; ') : '', q.against.length ? 'against: ' + q.against.join('; ') : '', q.info.join('; ')].filter(Boolean).join(' | ') || 'no coin data'; })(),
     session:t ? sessionOf(t) : null,
-    experience:experience && finite(experience.n) > 0 ? `brain: ${experience.n} similar past trades of this rule by entry facts - ${experience.wins ?? 0} won, ${experience.losses ?? 0} lost, average ${f1(finite(experience.avgR) ?? 0)}R${experience.thin ? ' (thin sample)' : ''}. The brain found that most entry facts do not separate winners: weigh this lightly.` : null,
+    experience:!experience ? null : !(finite(experience.n) > 0) ? 'brain: no similar past trade of this rule in memory yet' : `brain: ${experience.n} similar past trades of this rule by entry facts - ${experience.wins ?? 0} won, ${experience.losses ?? 0} lost, average ${f1(finite(experience.avgR) ?? 0)}R${experience.thin ? ' (thin sample)' : ''}. The brain found that most entry facts do not separate winners: weigh this lightly.`,
     btc:btc ? `BTC 1h trend ${btc.trend1h}, ${f1(btc.change12hPct)}% in 12 h, ${f1(btc.closeVsEma20Pct)}% from its EMA20` : 'BTC data missing',
     odds:`${br ? `Over 6 months ${br.profitPct}% of all signals of this rule ended in profit (n ${br.n}, average ${f1(br.avgR)}R): taking every signal is about break-even, so the job is to tell the good ones from the bad ones. ` : ''}` +
       `${be !== null ? `With a ${f1(tR)}R target the trade has positive expectancy if price reaches the target before the stop in more than about ${be}% of cases like this one. ` : ''}` +
@@ -293,6 +293,7 @@ function parseEntry(text) {
 const validEntry = text => parseEntry(text).ok;
 // R2544.115: Groq answered 413 "request too large" on the full screen -> the same screen without the raw candle rows
 function compactPacket(prompt) { try { const p = typeof prompt === 'string' ? JSON.parse(prompt) : prompt; if (p?.task !== 'ENTRY' || !p.timeframes) return null;
-  const c = { ...p, timeframes:Object.fromEntries(Object.entries(p.timeframes).map(([k, v]) => [k, v ? { structure:v.structure, chartReading:v.chartReading } : v])), note:'compact: raw candle rows left out (model context limit); the screen and the chart reading are complete' };
+  // Groq free = 8K tokens per minute INCLUDING the answer budget: the briefing already reads every chartReading, so only the structure stays
+  const c = { ...p, timeframes:Object.fromEntries(Object.entries(p.timeframes).map(([k, v]) => [k, v ? { structure:v.structure } : v])), note:'compact (model context limit): raw candles and the detailed chart reading are left out; the screen briefing above already reads them for you' };
   return JSON.stringify(c); } catch { return null; } }
 module.exports = { TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, chartSpecs, compactPacket, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

@@ -1289,7 +1289,9 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
       '.':'00000000000000000000000000110001100','-':'00000000000000011111000000000000000','/':'00001000100001000100010000100010000',':':'00000011000110000000011000110000000','%':'11000110010001000100010001001100011','+':'00000001000010011111001000010000000','(':'00010001000100001000010000010000010',')':'01000001000001000010000100010001000',' ':'00000000000000000000000000000000000','=':'00000000001111100000111110000000000'};
     const text57=(x,y,t,c,sc=2)=>{let ox=Math.round(x);for(const ch of asciiLabel(t)){const b=F57[ch]||F57[' '];for(let i=0;i<35;i++)if(b[i]==='1'){const gx=i%5,gy=Math.floor(i/5);fillRect(ox+gx*sc,y+gy*sc,ox+gx*sc+sc-1,y+gy*sc+sc-1,c);}ox+=6*sc;}};
   fillRect(0,0,width-1,height-1,bg);
-  const rawMin=Math.min(...candles.map(x=>Number(x.low))), rawMax=Math.max(...candles.map(x=>Number(x.high)));
+  // R2544.115: the committee chart must show its STOP / TARGET even outside the candles (options.includePrices; Office charts do not pass it)
+  const inc=(Array.isArray(options?.includePrices)?options.includePrices:[]).map(Number).filter(Number.isFinite);
+  const rawMin=Math.min(...candles.map(x=>Number(x.low)),...inc), rawMax=Math.max(...candles.map(x=>Number(x.high)),...inc);
   const span=Math.max(1e-12,rawMax-rawMin), pad=span*0.06;
   const pmin=rawMin-pad,pmax=rawMax+pad;
   const yPrice=p=>top+(pmax-Number(p))/(pmax-pmin)*(priceBottom-top);
@@ -1362,7 +1364,7 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
         // fiyat ve pozisyon satırları (öncelik 0) başka seviyeyle birleşmez: kendi fiyatlarıyla ayrı satırda kalır
         const same=g&&r.prio!==0&&g.prio!==0&&(Math.abs(g.y-r.y)<=2||Math.abs(g.price-r.price)<=Math.abs(g.price)*0.00015);
         if(same){if(!g.names.includes(r.name))g.names.push(r.name);if(r.prio<g.prio){g.prio=r.prio;g.col=r.col;}}
-        else groups.push({price:r.price,y:r.y,names:[r.name],col:r.col,prio:r.prio,isPrice:r.name==='FIYAT'});
+        else groups.push({price:r.price,y:r.y,names:[r.name],col:r.col,prio:r.prio,isPrice:r.name===(options?.lastLabel||'FIYAT')});
       }
       const SC=2,CW=6*SC,GH=7*SC,x0=right+10;
       for(const g of groups){
@@ -1610,7 +1612,7 @@ function renderChartPng(chart, mode = 'clean', options = {}) {
     }
 
     const lastPx=Number(candles.at(-1)?.close);
-    if(Number.isFinite(lastPx)){hline(lastPx,[255,255,255,255],left,true);addLevel(lastPx,'FIYAT',[255,255,255,255],0);}
+    if(Number.isFinite(lastPx)){hline(lastPx,[255,255,255,255],left,true);addLevel(lastPx,options?.lastLabel||'FIYAT',[255,255,255,255],0);}
     renderLabels();
   }
   // CLAUDE_R2544_9C_PRICE_AXIS: TEMİZ grafikte fiyat ekseni yoktu (fiyat okunamıyordu). Izgara fiyatları + son fiyat etiketi.

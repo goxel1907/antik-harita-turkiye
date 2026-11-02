@@ -12,7 +12,7 @@ test('R2544.103 status() marks healthy members when the members come from a func
 test('R2544.103 Groq: one member at most and a 1500-token answer budget (prompt + max_tokens must fit ~8K/min); others keep 4096',()=>{
   assert.equal(MC.PROVIDER_CAP.groq,1);
   const out=MC.pickRouterExtras(['groq/openai/gpt-oss-120b','groq/qwen/qwen3.8-27b'],{strong:/./,candidates:[]});assert.deepEqual(out,['groq/openai/gpt-oss-120b']);
-  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.ok(sv.includes(String.raw`const routerMaxTokens=m=>/^groq\//.test(String(m))?1500:4096;`));assert.ok(sv.includes('{maxTokens:routerMaxTokens(m),validate}'));
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.ok(sv.includes(String.raw`{maxTokens:small||/^groq\//.test(m)?1500:4096,validate}`),'R2544.115: routerAsk keeps the Groq budget');assert.ok(sv.includes('const routerCall=m=>a=>routerAsk(m,a);'));
 });
 test('R2544.103 Office health strip + phone model list: every model with a plain state and reason',()=>{
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');

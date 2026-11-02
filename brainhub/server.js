@@ -5,6 +5,7 @@ const nodeCrypto=require('crypto');
 const scanner=require('./scanner');
 const market=require('./market');
 const TB=require('./trader-brain'); // R2544.115 committee screen helpers (compact packet, chart specs)
+const DESKLIB=require('./position-desk'); // R2544.115 desk chart specs
 const binanceRate=require('./binance-rate-limit');
 const pipeline=require('./pipeline');
 const {openStore}=require('./store');
@@ -1573,27 +1574,43 @@ const TRADER_ROUTER_ORDER=['gc/gemini-3.1-pro-preview','kr/claude-sonnet-4.5','k
 function traderRouterMembers(){
   const all=[...(Array.isArray(cfg.kiro)?cfg.kiro:[]),...(Array.isArray(cfg.opencode)?cfg.opencode:[])].map(x=>typeof x==='string'?x:x?.id||x?.model).filter(x=>/^[A-Za-z0-9._:\/+-]{1,120}$/.test(String(x||'')));
   const ord=[...TRADER_ROUTER_ORDER,...all.filter(m=>!TRADER_ROUTER_ORDER.includes(m)&&!/^oc\//.test(m)&&!/qwen3-coder/.test(m))].slice(0,10); // 9Router serves any listed id (gc/ is not in models.json)
-  return ord.map(m=>({id:'ROUTER:'+m,call:async({system,prompt,validate})=>{
-    // R2544.115 (kullanıcı 02.11: "modeller ... görmeli grafikler"): görebilen üye (Gemini / Gemma / NVIDIA -vl) giriş ekranının mumlarını
-    // grafik olarak da görür (5m / 15m / 1h, aynı ölçek, giriş / stop / hedef çizgili); Groq kısa ekran alır (413); resim hatası -> resimsiz tekrar
-    let user=String(prompt||''),compact=false,img=false,imgError=null;
-    if(/^groq\//.test(m)){const c=TB.compactPacket(user);if(c){user=c;compact=true;}}
-    const ask=content=>callModel(m,[{role:'system',content:String(system||'')},{role:'user',content}],110000,{maxTokens:4096,validate});
-    let content=user;if(COMMITTEE_VISION.test(m)){const im=committeeChartContent(user);if(im){content=im;img=true;}}
-    try{const out=await ask(content);return {ok:true,text:out.text,model:m,img,compact};}
-    catch(e){const msg=String(e?.message||e);
-      if(img&&!/timeout|aborted|COOLDOWN|429/i.test(msg)){imgError=msg.slice(0,120);img=false;try{const out=await ask(user);return {ok:true,text:out.text,model:m,img,imgError,compact};}catch(e2){return {ok:false,reason:String(e2?.message||e2).slice(0,160),model:m,imgError};}}
-      if(!compact&&/413|too large|context length|maximum context/i.test(msg)){const c=TB.compactPacket(user);if(c){try{const out=await ask(c);return {ok:true,text:out.text,model:m,img:false,compact:true};}catch(e3){return {ok:false,reason:String(e3?.message||e3).slice(0,160),model:m};}}}
-      return {ok:false,reason:msg.slice(0,160),model:m,imgError};}}}));
+  return ord.map(m=>({id:'ROUTER:'+m,call:a=>routerAsk(m,a)}));
+}
+// R2544.115 (kullanıcı 02.11: "modeller ... görmeli grafikler"; "resim kabul eden bütün modelleri bu iş için görevlendir"): EVERY 9Router
+// committee call goes through here (routerCall too - the real members). A model that reads an image (9Router catalog "vision") also gets the
+// entry screen's candles as 5m / 15m / 1h charts (same scale, entry / stop / target lines); an image error retries text-only. Groq gets the
+// compact screen with a 1500-token answer budget (its 8K/min counts both); any 413 retries compact.
+async function routerAsk(m,{system,prompt,validate}={}){
+  let user=String(prompt||''),compact=false,img=false,imgError=null;
+  if(/^groq\//.test(m)){const c=TB.compactPacket(user);if(c){user=c;compact=true;}}
+  const ask=(content,small)=>callModel(m,[{role:'system',content:String(system||'')},{role:'user',content}],110000,{maxTokens:small||/^groq\//.test(m)?1500:4096,validate});
+  let content=user;if(committeeSeesCharts(m)){const im=committeeChartContent(user);if(im){content=im;img=true;}}
+  try{const out=await ask(content,compact);return {ok:true,text:out.text,model:m,img,compact};}
+  catch(e){const msg=String(e?.message||e);
+    if(img&&!/timeout|aborted|COOLDOWN|429/i.test(msg)){imgError=msg.slice(0,120);img=false;try{const out=await ask(user,compact);return {ok:true,text:out.text,model:m,img,imgError,compact};}catch(e2){return {ok:false,reason:String(e2?.message||e2).slice(0,160),model:m,imgError};}}
+    if(!compact&&/413|too large|context length|maximum context/i.test(msg)){const c=TB.compactPacket(user);if(c){try{const out=await ask(c,true);return {ok:true,text:out.text,model:m,img:false,compact:true};}catch(e3){return {ok:false,reason:String(e3?.message||e3).slice(0,160),model:m};}}}
+    return {ok:false,reason:msg.slice(0,160),model:m,imgError};}
 }
 // R2544.115: which 9Router members can read an image (Gemini / Gemma 4 / NVIDIA vision-language); others get the text screen only
 const COMMITTEE_VISION=/^(gemini\/|github\/gemini|nvidia\/.*-vl|nvidia\/google\/gemma-4|gemini\/gemma-4)/i;
+// the 9Router catalog says which model takes an image ("vision": true); only the catalog file is read (never the 9Router db / keys).
+// Not in the catalog (NVIDIA) -> the name rule above. Re-read at most every 10 min.
+let routerVisionCache={at:0,map:null};
+function routerVisionMap(){const now=Date.now();if(routerVisionCache.map&&now-routerVisionCache.at<600000)return routerVisionCache.map;
+  let map=null;try{const f=path.join(process.env.APPDATA||path.join(require('os').homedir(),'AppData','Roaming'),'9router','model-catalog.json');const c=JSON.parse(fs.readFileSync(f,'utf8'))?.models;
+    if(c&&typeof c==='object'){map=new Map();for(const [k,v] of Object.entries(c)){const i=k.indexOf(':');if(i>0)map.set(k.slice(0,i)+'/'+k.slice(i+1),v?.vision===true);}}}catch{}
+  routerVisionCache={at:now,map};return map;}
+function committeeSeesCharts(m){const map=routerVisionMap();if(map&&map.has(m))return map.get(m)===true;return COMMITTEE_VISION.test(m);}
 function committeeChartContent(prompt){
-  try{const pk=JSON.parse(prompt);if(pk?.task!=='ENTRY')return null;
-    const specs=TB.chartSpecs(pk);if(!specs.length)return null;
-    const parts=[{type:'text',text:prompt+'\n\nCHARTS: the same closed candles of the screen as images (prices scaled, entry = 100; ENTRY / STOP / TARGET lines; a target far away can be above or below the visible area; dashed purple = day / week / month and 24h levels; yellow / purple curves = EMA20 / EMA50; bars at the bottom = volume). Read them like a trader at the screen; the numbers in the text stay exact.'}];
-    for(const c of specs){const png=market.renderChartPng({candles:c.candles},'annotated',{htfLevels:c.lines.map(l=>({price:l.price,name:l.name,tf:c.tf,col:l.col,prio:l.prio}))});
+  try{const pk=JSON.parse(prompt);const desk=pk?.task!=='ENTRY'&&!!pk?.position&&!!pk?.market?.candles;if(pk?.task!=='ENTRY'&&!desk)return null;
+    const specs=desk?DESKLIB.chartSpecs(pk):TB.chartSpecs(pk);if(!specs.length)return null;
+    const parts=[{type:'text',text:prompt+'\n\nCHARTS: the same closed candles of the screen as images (prices scaled, entry = 100; ENTRY / STOP / TARGET lines - the stop is always on the picture, a target more than two candle ranges away is left off; LAST = the last closed candle; dashed purple = day / week / month and 24h levels; yellow / purple curves = EMA20 / EMA50; bars at the bottom = volume). Read them like a trader at the screen; the numbers in the text stay exact.'}];
+    for(const c of specs){const lo=Math.min(...c.candles.map(x=>x.low)),hi=Math.max(...c.candles.map(x=>x.high)),span=hi-lo,pl=desk?{stop:pk.position.currentStop,target:pk.position.target}:(pk.plan||{}),mid=desk?Number(pk.position.entry):100;
+      // the stop always on the picture; the target too unless it is more than 2 candle-spans away (then the text says it is off the picture)
+      const inc=[pl.stop,Math.abs(Number(pl.target)-mid)<=2*span?pl.target:null].filter(Number.isFinite);
+      const png=market.renderChartPng({candles:c.candles},'annotated',{includePrices:inc,lastLabel:'LAST',htfLevels:c.lines.map(l=>({price:l.price,name:l.name,tf:c.tf,col:l.col,prio:l.prio}))});
       parts.push({type:'text',text:'CHART '+c.tf},{type:'image_url',image_url:{url:'data:image/png;base64,'+png.toString('base64')}});}
+    if(desk)parts[0].text=prompt+'\n\nCHARTS: the position\'s own closed candles (real prices) with ENTRY / STOP NOW / FIRST STOP / TARGET / +2R HALF lines (the stop is always on the picture; a target more than two candle ranges away is left off); LAST = the last closed candle; dashed purple = levels; yellow / purple curves = EMA20 / EMA50; bars = volume. The numbers in the text stay exact.';
     return parts;}catch{return null;}
 }
 const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {ok:r?.ok===true,text:r?.text,model:r?.model||null,reason:r?.reason||r?.detail||null};}});
@@ -1604,7 +1621,7 @@ const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {o
 //  - OpenRouter: adı verilen güçlü ücretsiz modeller TEK TEK üye (her biri kendi soğuması), en sonda ücretsiz havuz;
 //  - kurul seçimi sağlayıcılar arasında sırayla yapılır (Kiro biterse OpenRouter / Gemini / Groq devam eder).
 // R2544.104: OpenRouter has ~450 models but only ~14 are free (02.11: 14) -> every free text model joins the bench except safety / code / tiny ones
-const OR_SKIP=/safety|guard|lfm-|code|nano|embed/i,OR_MAX=10; // R2544.104
+const OR_SKIP=/safety|guard|lfm-|code|nano|embed|lyria/i,OR_MAX=12; // R2544.104; R2544.115 12 (image models first)
 const OR_FREE_PREF=['nvidia/nemotron-3-ultra-550b-a55b:free','google/gemma-4-31b-it:free','poolside/laguna-s-2.1:free','nvidia/nemotron-3.5-super-vl:free','xingchen-agi/xing4.0-29b-a4b:free','dots-studio/dots-3-note-preview:free','google/gemma-4-26b-a4b-it:free'];
 const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)|minimax-m[2-9]|deepseek-v[4-9]|qwen3\.\d+-\d+b|gemma-4-31b/i; // R2544.95 + MiniMax M2 (NVIDIA); R2544.96 + DeepSeek V4, MiniMax M3, Qwen 3.x, Gemma 4 31B
 // R2544.96: providers' models open TODAY (NVIDIA public /v1/models 27.10; Groq docs 27.10: llama-3.3 / maverick / qwen3-32b moved to enterprise;
@@ -1615,6 +1632,10 @@ const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|
 // NVIDIA NIM / Groq eski adlar 410/404 verdi -> kataloğun bugünkü adları; GitHub Models (model başına günde 50-150) ve Cloudflare Workers AI
 // (günde 10.000 neuron) ücretsiz, kart istemez: kullanıcı 9Router'da bağlayınca kendiliğinden devreye girer (bağlı değilse 6 hatada yer bırakır).
 const COMMITTEE_DROP=/^ROUTER:(kr|gc)\//;
+// R2544.115: providers that cost nothing on the user's keys (Google AI Studio, NVIDIA NIM, Groq, Cloudflare Workers AI, Mistral experiment, Ollama Cloud
+// free, GitHub = Copilot plan requests, capped at 2). OpenAI / xAI / Perplexity / Venice / ... never join by themselves even when connected.
+const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|mistral|ollama|github)\//;
+const ROUTER_NOT_COMMITTEE=/code|embed|tts|image-gen|imagen|veo|lyria|audio|whisper|guard|safety|-ocr/i;
 const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash','gemini/gemini-2.5-flash','gemini/gemma-4-31b-it',
   'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
   'nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
@@ -1629,25 +1650,34 @@ setInterval(()=>refreshCommitteeRouterIds().catch(()=>{}),30*60*1000).unref?.();
 setInterval(()=>{if(!committeeRouterIds.at)refreshCommitteeRouterIds().catch(()=>{});},2*60*1000).unref?.();
 // R2544.103: Groq counts prompt + max_tokens against ~8K/min (desk screen ~5K tokens + 4096 = 413 "Request too large"); the answer is a short JSON
 const routerMaxTokens=m=>/^groq\//.test(String(m))?1500:4096;
-const routerCall=m=>async({system,prompt,validate})=>{try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:routerMaxTokens(m),validate});return {ok:true,text:out.text,model:m};}catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}};
+const routerCall=m=>a=>routerAsk(m,a); // R2544.115: the committee's real 9Router members (images / compact / retries in routerAsk)
 // R2544.99: the exam never spends the Google AI Studio daily quota (28.10 05:00: Gemini 3.6 Flash answered 429 to the LIVE desk; the exam used the same key)
 function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){
   // R2544.112 (kullanıcı 02.11: "Kiro'nun aylık istek limiti çok çabuk doluyor, çıkaralım"): Kiro (kr/, aylık MONTHLY_REQUEST_COUNT 402) ve
   // Gemini CLI (gc/, 02.11 41 kez üst üste zaman aşımı) kurulda yer tutmaz; JEV'in kendi model ayarına dokunulmaz.
   const fixed=traderRouterMembers().filter(m=>!COMMITTEE_DROP.test(m.id)),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
-  const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:16,candidates:ROUTER_CANDIDATES,gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
+  // R2544.115: every connected model that reads an image (catalog) is a candidate first; only free providers (a paid provider never joins by itself)
+  const connected=(committeeRouterIds.ids||[]).filter(m=>ROUTER_FREE_PROVIDERS.test(m)),visionFirst=connected.filter(m=>committeeSeesCharts(m)&&!ROUTER_NOT_COMMITTEE.test(m));
+  const extra=pickRouterExtras(connected,{have,strong:ROUTER_STRONG,perProvider:3,max:28,candidates:[...visionFirst,...ROUTER_CANDIDATES],gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
   // R2544.104 (kullanıcı 02.11: "çalışmayan modeller çalışanlar ile değişebilsin; OpenRouter'da yüzlerce model var"): the preferred list first, then the
   // large free models in TODAY's OpenRouter catalog; a gone / slow / always-failing one is skipped and the next takes its seat; at most OR_MAX
-  const orIds=[...OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)),...[...catalog].filter(m=>/:free$/.test(m)&&!OR_FREE_PREF.includes(m)&&!OR_SKIP.test(m))]
+  const orVision=new Set((typeof freeWorker?.status==='function'?freeWorker.status().visionModels:[])||[]);
+  const orIds=[...new Set([...[...orVision].filter(m=>!OR_SKIP.test(m)),...OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)),...[...catalog].filter(m=>/:free$/.test(m)&&!OR_FREE_PREF.includes(m)&&!OR_SKIP.test(m))])]
     .filter(m=>!(ctx?.gone&&ctx.gone('OR:'+m))).slice(0,OR_MAX);
-  const or=orIds.map(m=>({id:'OR:'+m,call:async a=>{const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
+  // R2544.115: an OpenRouter image model sees the same charts; an image error retries text-only (a rate limit does not)
+  const or=orIds.map(m=>({id:'OR:'+m,call:async a=>{const parts=orVision.has(m)?committeeChartContent(String(a?.prompt||'')):null;
+    if(parts){const r=await freeWorker.reviewModel(m,{...a,userContent:parts});if(r?.ok===true)return {ok:true,text:r.text,model:r.model||m,img:true};
+      if(/RATE|QUOTA|COOLDOWN|429/i.test(String(r?.reason||'')))return {ok:false,reason:r?.reason||null,model:m};
+      const r2=await freeWorker.reviewModel(m,a);return {ok:r2?.ok===true,text:r2?.text,model:r2?.model||m,reason:r2?.reason||null,imgError:String(r?.reason||'IMAGE_FAILED').slice(0,120)};}
+    const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
   return [...fixed,...extra.filter(m=>!(noAiStudio&&/^ROUTER:(gemini|ollama)\//.test(m.id))),...or,freeMember(freeWorker,poolId)]; // R2544.100 + Ollama Cloud (one model at a time: kept for the live desk)
 }
 const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,
   dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota
-const deskCommittee=createCommittee({size:5,members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json')});
-const examCommittee=createCommittee({size:3,members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx,{noAiStudio:true}),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
+const memberSeesCharts=w=>id=>{const s=String(id||'');if(s.startsWith('ROUTER:'))return committeeSeesCharts(s.slice(7));if(s.startsWith('OR:'))return ((typeof w?.status==='function'?w.status().visionModels:[])||[]).includes(s.slice(3));return false;};
+const deskCommittee=createCommittee({size:5,prefer:memberSeesCharts(deskFreeWorker),members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json')}); // R2544.115 image models first; entry team 9 (live-controller)
+const examCommittee=createCommittee({size:5,prefer:memberSeesCharts(examFreeWorker),members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx,{noAiStudio:true}),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
 const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav','r2544-115'),committee:examCommittee,dailyCap:100,keyFile:process.env.BRAINHUB_EXAM_KEY||path.join(ROOT,'..','Claud-Work','gelistirme','harness','indikator','sinav_key.json')}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
 setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();

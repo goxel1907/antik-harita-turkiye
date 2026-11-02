@@ -213,5 +213,19 @@ async function judge({ packet, mode, cfg, judges, stats }) {
   }
   return { ok:false, tried };
 }
-module.exports = { DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
+// R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"; masa da botun gördüğünü görmeli): the desk's own
+// candles (5m / 15m / 1h, real prices) as charts for an image model, with ENTRY / CURRENT STOP / FIRST STOP / TARGET / +2R lines
+function chartSpecs(pk) {
+  const c = pk?.market?.candles, pos = pk?.position || {}, out = [], TF = { m5:['5m', M5], m15:['15m', 3 * M5], h1:['1h', HOUR] };
+  if (!c || !pos) return out;
+  for (const [k, [tf, ms]] of Object.entries(TF)) { const rows = (c[k] || []).filter(r => Array.isArray(r) && [1, 2, 3, 4].every(i => Number.isFinite(r[i]))); if (rows.length < 12) continue;
+    const candles = rows.map((r, i) => ({ openTime:1e12 + i * ms, closeTime:1e12 + (i + 1) * ms - 1, open:r[1], high:r[2], low:r[3], close:r[4], volume:Number.isFinite(r[5]) ? r[5] : 1, closed:true }));
+    const lines = [], add = (p, name, col, prio) => { if (finite(p) !== null) lines.push({ price:finite(p), name, col, prio }); };
+    add(pos.entry, 'ENTRY', [255, 255, 255, 255], 1); add(pos.currentStop, 'STOP NOW', [255, 82, 82, 255], 1);
+    if (finite(pos.initialStop) !== null && finite(pos.initialStop) !== finite(pos.currentStop)) add(pos.initialStop, 'FIRST STOP', [255, 138, 101, 255], 3);
+    add(pos.target, `TARGET ${pos.targetR ?? ''}R`.replace(' R', 'R'), [0, 230, 118, 255], 1); if (pos.profitProtection && pos.profitProtection.done !== true) add(pos.profitProtection.price, `+${pos.profitProtection.atR}R HALF`, [255, 213, 79, 255], 2);
+    out.push({ tf, candles, lines }); }
+  return out;
+}
+module.exports = { chartSpecs, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
   SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary };
