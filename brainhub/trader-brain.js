@@ -209,7 +209,20 @@ function chartSpecs(packet, frames = ['m5', 'm15', 'h1']) {
   }
   return out;
 }
-function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, R, t = null, context = null, experience = null }) {
+// R2544.116: what the strict rule would have objected to - the trader decides; the size is already set so the dollar risk is normal
+function flagLines(flags) {
+  return (Array.isArray(flags) ? flags : []).map(f => {
+    const b = Array.isArray(f.band) ? `${(f.band[0] * 100).toFixed(1)}-${(f.band[1] * 100).toFixed(1)}%` : '';
+    if (/STOP_OUT_OF/.test(f.code)) return Number(f.stopPct) < Number(f.band?.[0]) ? `stop ${(Number(f.stopPct) * 100).toFixed(2)}% is tighter than the rule's usual ${b} band - the margin stays as set and the leverage rises (up to 20x), so a stop hit is a normal-size loss but noise can hit it sooner`
+      : `stop ${(Number(f.stopPct) * 100).toFixed(2)}% is wider than the rule's usual ${b} band - the margin stays as set at 10x, so a stop hit is a BIGGER dollar loss than a normal trade`;
+    if (f.code === 'V2_ZONE_TOO_CLOSE') return `the next higher level is only ${f.zoneR}R away (the rule wants ${f.minRoomR}R of room); the target is that level - a low-R trade, judge if it is still worth it`;
+    if (f.code === 'V2_UNSWEPT_ZONE_ABOVE') return `an untouched day / week / month level sits just above the top (${f.levelR}R against the short): price may run there to take that liquidity first`;
+    if (f.code === 'V2_WEEKLY_NOT_SWEPT') return "the top did not take out the previous week's high";
+    if (f.code === 'ZIRVE5_NO_SWEEP') return 'no liquidity sweep on the zone side in the last 24 candles (the zone may be used up)';
+    return String(f.code || '');
+  }).filter(Boolean);
+}
+function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, R, t = null, context = null, experience = null, flags = [] }) {
   const L = side === 'LONG', tR = finite(plan.targetR), be = tR > 0 ? Math.round(100 / (1 + tR)) : null, br = BASE_RATES[rule] || null;
   const frames = ['d1', 'h4', 'h1', 'm15', 'm5'].map(n => frameLine(TF[n].frame, tfs[n]?.structure, tfs[n]?.chartReading, L)).filter(Boolean);
   const room = roomLines(tfs, levels, tR ?? 99, L);
@@ -220,6 +233,7 @@ function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, 
     trade:`${SETUP_TEXT[rule] ? SETUP_TEXT[rule].split(':')[0] : side + ' ' + rule}. Entry 100, stop ${plan.stop} (-1R = ${plan.stopDistancePct}% away), target ${plan.target} (${f1(tR)}R).`,
     management:management || MANAGEMENT[rule] || plan.management,
     whyTheRuleFired:triggerLines(rule, trigger, P, R, L),
+    ruleWarnings:flagLines(flags).length ? flagLines(flags) : 'none: the signal passed every check of the rule',
     timeframes:fr,
     timeframeTally:`leaning FOR this ${side}: ${tally.for.join(', ') || 'none'}; leaning AGAINST: ${tally.against.join(', ') || 'none'}`,
     roomToTarget:room.obstacles.length ? `opposite levels between entry and the target: ${room.obstacles.join('; ')}. First one at ${f1(room.firstObstacleR)}R (the half close is at +2R).` : `no opposite level found between entry and the ${f1(tR)}R target`,
@@ -238,7 +252,7 @@ function briefing({ side, rule, plan, tfs, levels, btc, trigger, management, P, 
   };
 }
 // the screen. k = { m5, m15, h1, h4, d1, btc1h } raw klines CLOSED before t; plan = { side, rule, entry, stop, target }
-function entryPacket({ k, plan, t, extra = null, trigger = null, management = null, context = null, experience = null }) {
+function entryPacket({ k, plan, t, extra = null, trigger = null, management = null, context = null, experience = null, flags = [] }) {
   const L = plan.side === 'LONG', s = 100 / plan.entry, P = x => x === null || x === undefined || !Number.isFinite(x) ? null : +(x * s).toFixed(3);
   const risk = Math.abs(plan.entry - plan.stop), R = p => p === null || p === undefined ? null : +(((L ? p - plan.entry : plan.entry - p) / risk)).toFixed(2);
   const tfs = {};
@@ -256,7 +270,7 @@ function entryPacket({ k, plan, t, extra = null, trigger = null, management = nu
     management:management || MANAGEMENT[plan.rule] || 'half closed at +2R, the rest moved to break-even; exit after 24 h at the latest' };
   const btc = bs ? { trend1h:bs.trend, change12hPct:bs.change12Pct, closeVsEma20Pct:bs.closeVsEma20 } : null;
   // R2544.114: the briefing comes FIRST; the old "most signals lost / taking every signal earns nothing" line is replaced by the neutral odds in it
-  const screen = briefing({ side:plan.side, rule:plan.rule, plan:pl, tfs, levels, btc, trigger, management:pl.management, P, R, t, context, experience });
+  const screen = briefing({ side:plan.side, rule:plan.rule, plan:pl, tfs, levels, btc, trigger, management:pl.management, P, R, t, context, experience, flags });
   return { contract:TB_VERSION, task:'ENTRY', side:plan.side, screen, setup:SETUP_TEXT[plan.rule] || plan.rule, tradeTimeframe:ENTRY_TF[plan.rule] || null,
     plan:pl, timeframes:tfs, levels, btc, extra };
 }
@@ -270,6 +284,7 @@ const ENTRY_SYSTEM = 'You are a senior discretionary crypto-futures trader on a 
   '(3) TRIGGER: is the trigger fresh and clean (volume, taker flow, a real close beyond the level) or late and extended (chasing a move already far from its base)? ' +
   '(4) ROOM AND RISK: is there room to the target before the first opposite level, is the stop behind real structure or in the noise? (5) BTC and flow right now. ' +
   'START WITH `screen`: the desk briefing written by code from the same numbers - why the rule fired, the exact trade management, every timeframe fact marked FOR or AGAINST this trade, whether the stop sits behind structure or inside noise, where the liquidity is, the opposite levels between entry and target in R, the coin (24h move, funding / crowding), the session, when the idea is wrong, BTC, the brain\'s similar past trades, and the odds (6-month base rate and the break-even hit rate for this target). If chart images are attached they show the same candles with ENTRY / STOP / TARGET lines. Then check the raw timeframes if you want. ' +
+  'screen.ruleWarnings lists what the strict rule alone would have objected to (stop outside its usual band, little room, an unswept level, no sweep): YOU are the trader and decide (the margin is fixed; leverage is 10x or more for a tight stop). ' +
   'Decide whether a disciplined professional TAKES this trade or SKIPS it. Taking every signal of this rule was about break-even over 6 months, so the edge is in telling the good ones apart: do not skip by habit, and do not take by habit. ' +
   'Be consistent: pTarget is your probability that price reaches the target before the stop; if it is clearly above the break-even hit rate in screen.odds, the trade has positive expectancy and SKIP needs a concrete reason from the screen; if it is below, TAKE needs one. ' +
   'Before you answer, ask yourself what would have to happen for this trade to fail and how likely that is on this screen. ' +

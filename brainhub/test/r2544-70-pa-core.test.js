@@ -91,15 +91,15 @@ function fixture({z5={enabled:true},sweep=true,judge=undefined}={}){
     market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol(){}}},...(judge!==undefined?{zirve5Judge:judge}:{})});
   return {controller,events,kinds:k2=>events.filter(e=>e.k===k2),lot:()=>Object.values(controller._testTop3State().active)[0]||null};
 }
-test('R2544.70 controller: with the sweep the lane enters (the lot records the sweep); without it ZIRVE5_NO_SWEEP and no order; the Office switch turns it off',async()=>{
+test('R2544.70 controller: with the sweep the lane enters (the lot records the sweep); R2544.116: without it the lane STILL enters and the lot carries the ZIRVE5_NO_SWEEP warning',async()=>{
   require('../binance-rate-limit').resetForTests();
   const f=fixture();await f.controller.testSupervisorTick();
   assert.equal((await f.controller.z5Tick()).entries,1,JSON.stringify(f.controller.z5Status().recentEntries));
   const a=f.lot();assert.equal(a.side,'SHORT');assert.ok(a.entryFeatures.sweep&&Math.abs(a.entryFeatures.sweep.level-99.45)<1e-9);assert.ok(a.entryFeatures.pa.range);
   require('../binance-rate-limit').resetForTests();
   const g=fixture({sweep:false});await g.controller.testSupervisorTick();
-  assert.equal((await g.controller.z5Tick()).entries,0);assert.equal(g.lot(),null);
-  assert.equal(g.controller.z5Status().recentEntries[0].reason,'ZIRVE5_NO_SWEEP');assert.equal(g.kinds('ZIRVE5_BLOCKED')[0].p.reason,'ZIRVE5_NO_SWEEP');
+  assert.equal((await g.controller.z5Tick()).entries,1,'kullanıcı 03.11: gördüğü her fırsata girecek ve öğrenecek');
+  assert.deepEqual(g.lot().entryFeatures.ruleFlags.map(x=>x.code),['ZIRVE5_NO_SWEEP']);assert.equal(g.kinds('ZIRVE5_BLOCKED').length,0);
   assert.equal(g.controller.configureZ5({requireSweep:false}).switches.requireSweep,false);
   require('../binance-rate-limit').resetForTests();
   const h=fixture({sweep:false,z5:{enabled:true,requireSweep:false}});await h.controller.testSupervisorTick();

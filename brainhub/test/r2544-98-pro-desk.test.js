@@ -43,7 +43,8 @@ test('R2544.98 entry prompt: the trade timeframe and a professional thinking ord
 test('R2544.98 entry gate: only an agreed SKIP (unanimous / majority after debate, 2+ voters) blocks; a single voter or no majority leaves the decision to the rule',()=>{
   const lc=require('fs').readFileSync(require('path').join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(lc,/const agreed=\['UNANIMOUS','MAJORITY_AFTER_DEBATE'\]\.includes\(r\.consensus\)&&\(r\.voters\|\|0\)>=2;/);
-  assert.match(lc,/return \{veto:agreed&&r\.final!=='TAKE',record:\{at:clock\(\),decision:agreed\?r\.final:'RULE'/);
+  assert.match(lc,/const ownOddsOk=pAvg!==null&&breakEven!==null&&pAvg>=breakEven,skipAgreed=agreed&&r\.final!=='TAKE',veto=skipAgreed&&!ownOddsOk;/); // R2544.116
+  assert.match(lc,/return \{veto,record:\{at:clock\(\),decision:skipAgreed&&ownOddsOk\?'TAKE_BY_OWN_ODDS':agreed\?r\.final:'RULE'/);
 });
 test('R2544.98 phone: each open lot carries the committee agreement (type + every model vote) for entry and desk; the latest entry decisions (opened or blocked) are listed; Kurulla CANLI also selects both strategies for LIVE',()=>{
   const {mobileStatus}=require('../mobile-status');

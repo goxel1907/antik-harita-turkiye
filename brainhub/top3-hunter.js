@@ -54,6 +54,7 @@ function readTop3Config(root) {
     if (a !== null && a >= 0.5 && a <= 5) c.partial.atR = a; if (b !== null && b >= 0.1 && b <= 0.9) c.partial.share = b; }
   for (const k of ['enabled', 'jevMode', 'liveEnabled']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   c.committeeMode = raw.committeeMode === true; // R2544.89 karar sahibi KURUL (giriş vetosu + masa yetkisi); varsayılan kapalı
+  c.committeeEntryVeto = raw.committeeEntryVeto === true; // R2544.116: off = every signal opens, the committee votes after the entry and manages it
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const mq = finite(raw.marginQuote); if (mq !== null && mq > 0) c.marginQuote = mq;
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 4) c.maxActive = Math.floor(ma);
@@ -97,7 +98,7 @@ function safeLeverage(stopPct) { const s = finite(stopPct); return s > 0 ? Math.
 function writeTop3Switches(root, patch = {}) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(configFile(root), 'utf8').replace(/^﻿/, '')) || {}; } catch {}
-  for (const k of ['enabled', 'jevMode', 'liveEnabled', 'committeeMode']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  for (const k of ['enabled', 'jevMode', 'liveEnabled', 'committeeMode', 'committeeEntryVeto']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
   if (typeof patch.topSweep === 'boolean') { raw.top = raw.top && typeof raw.top === 'object' ? raw.top : {}; raw.top.requireSweep = patch.topSweep; } // R2544.70
   if (typeof patch.partialEnabled === 'boolean') { raw.partial = raw.partial && typeof raw.partial === 'object' ? raw.partial : {}; raw.partial.enabled = patch.partialEnabled; }
   // R2544.73: level (R) and share; null = default (2R, 50 %). Ranges are checked by the caller (configureTop3).
@@ -252,16 +253,25 @@ function earlyLongTrigger(k5, levelsAt, ctxAt, cfg = DEFAULT_CONFIG) {
   return { ok: false, reason: near?.reason || 'V2_NO_BREAKOUT', ...(near || {}) };
 }
 // Stop under the retest (and the level), target just under the next higher zone; no long right under a zone.
-function earlyLongPlan(price, trig, lv, cfg = DEFAULT_CONFIG) {
-  const E = cfg.early || DEFAULT_CONFIG.early, p = finite(price);
+// R2544.116 (kullanıcı 03.11: "kafana göre işe yaramayacak yapılar kurma, hakkını ver, sen onun boğazını sıkıyorsun"): with
+// { advisory:true } the rule's soft checks (stop band, zone too close / unswept zone above, weekly high not swept) do NOT drop the
+// signal: the plan comes back ok with `flags` and the trader (the committee) decides. Mechanics only: stop 0.25 %..9.5 % (fees / 10x floor), target on the trade side.
+const HARD = { minStop:0.0025, maxStop:0.095, minR:0.05 }; // R2544.116: no R filter - only "the target is on the trade side, not at the entry" // 9.5 %: at the 10x floor a wider stop would sit behind the liquidation // kullanıcı 03.11: "düşük R olsa bile kaldıracı artırıp girsin"
+function earlyLongPlan(price, trig, lv, cfg = DEFAULT_CONFIG, { advisory = false } = {}) {
+  const E = cfg.early || DEFAULT_CONFIG.early, p = finite(price), flags = [];
   if (!(p > 0) || !trig?.ok) return { ok: false, reason: 'V2_PRICE_INVALID' };
   const stop = Math.min(trig.retestLow, trig.level) * (1 - E.stopBuf), s = 1 - stop / p;
-  if (!(s >= E.minStopPct && s <= E.maxStopPct)) return { ok: false, reason: 'V2_STOP_OUT_OF_RANGE', stopPct: round(s, 4) };
+  if (!(s >= E.minStopPct && s <= E.maxStopPct)) { if (!advisory || !(s >= HARD.minStop && s <= HARD.maxStop)) return { ok: false, reason: 'V2_STOP_OUT_OF_RANGE', stopPct: round(s, 4) };
+    flags.push({ code:'V2_STOP_OUT_OF_RANGE', stopPct:round(s, 4), band:[E.minStopPct, E.maxStopPct] }); }
   const above = levelList(lv).filter(x => x > p * 1.001);
   let tp, zone = null;
-  if (above.length) { zone = Math.min(...above); if (zone < p * (1 + E.minRoomR * s)) return { ok: false, reason: 'V2_ZONE_TOO_CLOSE', zone, stopPct: round(s, 4) }; tp = zone * (1 - E.zoneTpBuf); }
+  if (above.length) { zone = Math.min(...above);
+    if (zone < p * (1 + E.minRoomR * s)) { if (!advisory) return { ok: false, reason: 'V2_ZONE_TOO_CLOSE', zone, stopPct: round(s, 4) }; flags.push({ code:'V2_ZONE_TOO_CLOSE', zoneR:round((zone / p - 1) / s, 2), minRoomR:E.minRoomR }); }
+    tp = zone * (1 - E.zoneTpBuf); }
   else tp = p * (1 + E.noZoneTargetR * s);
-  return { ok: true, stopPrice: stop, tpPrice: tp, stopPct: s, targetR: (tp / p - 1) / s, zone };
+  const targetR = (tp / p - 1) / s;
+  if (advisory && !(targetR >= HARD.minR)) return { ok: false, reason: 'V2_NO_ROOM', stopPct: round(s, 4), targetR: round(targetR, 2) };
+  return { ok: true, stopPrice: stop, tpPrice: tp, stopPct: s, targetR, zone, flags };
 }
 // k5 as above (>= 24 h + 18 candles). Is the LAST candle the first close under the pre-top structure low after a fresh
 // 24 h high made within the last 12 candles?
@@ -296,14 +306,16 @@ function topShortTrigger(k5, cfg = DEFAULT_CONFIG) {
   }
   return { ok: true, side: 'SHORT', rule: 'SHORT_TOP_BREAK', top, hl, topAt: k[j][0], breakAt: k[q][0], topVolMult, sweep };
 }
-function topShortPlan(price, trig, lv, cfg = DEFAULT_CONFIG) {
-  const T = cfg.top || DEFAULT_CONFIG.top, p = finite(price);
+function topShortPlan(price, trig, lv, cfg = DEFAULT_CONFIG, { advisory = false } = {}) {
+  const T = cfg.top || DEFAULT_CONFIG.top, p = finite(price), flags = [];
   if (!(p > 0) || !trig?.ok) return { ok: false, reason: 'V2_PRICE_INVALID' };
   const stop = trig.top * (1 + T.stopBuf), s = stop / p - 1;
-  if (!(s >= T.minStopPct && s <= T.maxStopPct)) return { ok: false, reason: 'V2_STOP_OUT_OF_RANGE', stopPct: round(s, 4) };
-  if (levelList(lv).some(x => x > trig.top && x <= trig.top * (1 + T.zoneAbovePct))) return { ok: false, reason: 'V2_UNSWEPT_ZONE_ABOVE', stopPct: round(s, 4) };
-  if (T.requireWeeklySwept && !(finite(lv?.pwh) > 0 && trig.top >= lv.pwh)) return { ok: false, reason: 'V2_WEEKLY_NOT_SWEPT' };
-  return { ok: true, stopPrice: stop, tpPrice: p * (1 - T.targetR * s), stopPct: s, targetR: T.targetR };
+  if (!(s >= T.minStopPct && s <= T.maxStopPct)) { if (!advisory || !(s >= HARD.minStop && s <= HARD.maxStop)) return { ok: false, reason: 'V2_STOP_OUT_OF_RANGE', stopPct: round(s, 4) };
+    flags.push({ code:'V2_STOP_OUT_OF_RANGE', stopPct:round(s, 4), band:[T.minStopPct, T.maxStopPct] }); }
+  const unswept = levelList(lv).filter(x => x > trig.top && x <= trig.top * (1 + T.zoneAbovePct));
+  if (unswept.length) { if (!advisory) return { ok: false, reason: 'V2_UNSWEPT_ZONE_ABOVE', stopPct: round(s, 4) }; flags.push({ code:'V2_UNSWEPT_ZONE_ABOVE', levelR:round(-(Math.min(...unswept) / p - 1) / s, 2) }); }
+  if (T.requireWeeklySwept && !(finite(lv?.pwh) > 0 && trig.top >= lv.pwh)) { if (!advisory) return { ok: false, reason: 'V2_WEEKLY_NOT_SWEPT' }; flags.push({ code:'V2_WEEKLY_NOT_SWEPT' }); }
+  return { ok: true, stopPrice: stop, tpPrice: p * (1 - T.targetR * s), stopPct: s, targetR: T.targetR, flags };
 }
 // Position size from the risk budget (user 14.10: one stop cost ~20 % of the account in v1): notional = risk / stop,
 // never above margin x leverage. riskQuote = riskPct x equity.

@@ -6098,7 +6098,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const ef={fund,premium,rank:finite(m[x.symbol]),level:finite(x.trig.level),levelName:x.trig.levelName||null,volMult:finite(x.trig.volMult)!==null?Number(x.trig.volMult.toFixed(2)):null,
         top:finite(x.trig.top),hl:finite(x.trig.hl),topVolMult:finite(x.trig.topVolMult)!==null?Number(x.trig.topVolMult.toFixed(2)):null,pdh:x.levels.pdh,pwh:x.levels.pwh,pmh:x.levels.pmh,close:x.close,
         sweep:x.trig.sweep||null,pa:x.pa||null,ind:x.ind||null}; // R2544.72: the SFP the rule required and the PA context travel with the lot; R2544.79 ind: information only
-      let pl0=null;try{pl0=x.side==='LONG'?top3Lib.earlyLongPlan(x.close,x.trig,x.levels,cfg):top3Lib.topShortPlan(x.close,x.trig,x.levels,cfg);
+      // R2544.116 (kullanıcı 03.11: "hakkını ver, sen onun boğazını sıkıyorsun"; "R hesaplaması saçma, gördüğü her fırsata girecek o kadar
+      // ve öğrenecek"): the rule's soft checks (stop band, room, unswept level, weekly sweep) never drop a signal - they are warnings in the
+      // record and on the committee's screen. Only mechanics stop a trade: stop 0.25 %..9.5 % (fees / 10x liquidation), target above entry.
+      const adv=true;ef.trig=x.trig;
+      let pl0=null;try{pl0=x.side==='LONG'?top3Lib.earlyLongPlan(x.close,x.trig,x.levels,cfg,{advisory:adv}):top3Lib.topShortPlan(x.close,x.trig,x.levels,cfg,{advisory:adv});
         if(pl0?.ok)ef.entryCtx=AUTOPSY.entryContext(x.k5tail||[],x.side,x.close,pl0.stopPrice,await btc5Recent());}catch{} // R2544.80
       ef.experience=top3Lib.experienceVerdict(top3State.lessons,x.rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
       {const sc=top3Lib.similarCases(top3State.lessons,x.rule,ef);ef.similar={n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))};} // R2544.80 karar vermez
@@ -6115,11 +6119,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       // R2544.89 KURUL KAPISI (kullanıcı 27.10: "istediğim zaman tek tık ile canlıya geçebilmeliyim bu modeller ile"): kural sinyal verdi;
       // kurul GİR demezse işlem yok (yalnız veto, kendisi işlem açmaz). Kurul yok / zaman aşımı -> kural devam eder (kayıtlı).
-      if(cfg.committeeMode===true&&pl0?.ok){const g=await committeeEntryGate({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,management:committeeManagement(cfg,x.side,false),context:{rank:ef.rank,rankName:'24h gainer rank',fund:ef.fund,premium:ef.premium},experience:ef.similar});
+      const flags=(pl0?.ok&&Array.isArray(pl0.flags))?pl0.flags:[];if(flags.length)ef.ruleFlags=flags;
+      // R2544.116: the entry no longer waits for a committee vote (every signal opens; the vote comes right after the entry, from the same
+      // screen, and is learned from; the committee's desk manages the open position with authority). committeeEntryVeto:true brings the gate back.
+      if(cfg.committeeEntryVeto===true&&pl0?.ok){const g=await committeeEntryGate({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,management:committeeManagement(cfg,x.side,false),context:{rank:ef.rank,rankName:'24h gainer rank',fund:ef.fund,premium:ef.premium},experience:ef.similar,flags});
         ef.committee=g.record;res.committee={decision:g.record.decision||null,consensus:g.record.consensus||null,error:g.record.error||null};
-        if(g.veto){res.reason='TOP3_COMMITTEE_SKIP';try{store.journal('TOP3_COMMITTEE_SKIP',x.symbol,{side:x.side,rule:x.rule,...g.record});}catch{}continue;}}
+        if(g.veto){res.reason='TOP3_COMMITTEE_SKIP';try{store.journal('TOP3_COMMITTEE_SKIP',x.symbol,{side:x.side,rule:x.rule,flags,...g.record});}catch{}continue;}
+        // a signal the strict rule would drop opens only on the trader's word: no committee answer -> no trade
+        if(flags.length&&g.record.error){res.reason='TOP3_FLAGGED_NEEDS_COMMITTEE';try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:{ok:false,reason:'TOP3_FLAGGED_NEEDS_COMMITTEE',flags,committeeError:g.record.error,stopPct:finite(pl0.stopPct)}});}catch{}continue;}
+        if(flags.length)ef.ruleFlags=flags;}
       const R=x.side==='LONG'?cfg.early:cfg.top;
-      const opened=await top3Open({ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels,maxHoldMs:R.maxHoldH*TOP3_HOUR},x.symbol,cfg,jev,{signalKind:'FRESH',entryFeatures:ef});
+      const opened=await top3Open({ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels,maxHoldMs:R.maxHoldH*TOP3_HOUR,advisory:true},x.symbol,cfg,jev,{signalKind:'FRESH',entryFeatures:ef});
       Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason,stopPct:finite(opened.stopPct)});
       if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[x.symbol+':'+x.side]:clock()};saveTop3State();
         // R2544.83: indikatör / giriş bağlamı gerçek giriş fiyatıyla (sinyal kapanışında eksik kaldıysa)
@@ -6147,6 +6157,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return d;
     }catch{return null;}
   }
+  // R2544.116: the reference stop of a lane = the middle of its own stop band (İlk 3 early LONG 1.2-4.5 %, TOP SHORT 1.5-6 %, ZİRVE-5 0.2-8 %)
+  function refStopPct(sig,cfg){try{if(sig.z5){const z=sig.z5cfg||{};return ((finite(z.minStopPct)??0.002)+(finite(z.maxStopPct)??0.08))/2;}
+    const R=sig.side==='LONG'?cfg.early:cfg.top;return ((finite(R?.minStopPct)??0.012)+(finite(R?.maxStopPct)??0.045))/2;}catch{return null;}}
   async function top3Open(sig,symbol,cfg,jev,ctx={}){
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
     const side=sig.side,la=readLeaderAutoConfig();
@@ -6163,14 +6176,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const price=finite(side==='LONG'?px?.ask:px?.bid);if(!(price>0))return {ok:false,reason:'TOP3_PRICE_UNAVAILABLE'};
     // v2: structural stop / zone target from the 5m trigger (plan rejects a stop outside its band or a long right under a zone)
     // R2544.64 ZİRVE-5: the plan comes from the armed 15m zone (stop above the zone, targetR x stop)
-    const pre=sig.z5?z5Lib.plan(price,sig.zone,sig.z5cfg):sig.v2?(side==='LONG'?top3Lib.earlyLongPlan(price,sig.v2,sig.levels,cfg):top3Lib.topShortPlan(price,sig.v2,sig.levels,cfg)):top3Lib.entryLevels(sig,price);
+    const adv={advisory:sig.advisory===true};
+    const pre=sig.z5?z5Lib.plan(price,sig.zone,sig.z5cfg,adv):sig.v2?(side==='LONG'?top3Lib.earlyLongPlan(price,sig.v2,sig.levels,cfg,adv):top3Lib.topShortPlan(price,sig.v2,sig.levels,cfg,adv)):top3Lib.entryLevels(sig,price);
     if(!pre.ok)return {ok:false,reason:pre.reason,stopPct:pre.stopPct??null};
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'TOP3_LEVERAGE_BRACKET_UNAVAILABLE'};}
     if(!(exchangeMax>=1))return {ok:false,reason:'TOP3_EXCHANGE_MAX_LEVERAGE_INVALID'};
     const safeMax=Math.max(1,Math.floor(1/(pre.stopPct+0.005)));
-    let leverage=Math.max(1,Math.min(cfg.leverage,exchangeMax,safeMax));
+    // R2544.116 (kullanıcı 03.11: "düşük R olsa bile kaldıracı artırıp girsin"; "10x kaldıracın altına asla düşmeyecek"; "marj da küçülmeyecek,
+    // canlıda ve testte ne belirlendi ise o olacak"): the margin is exactly the one set; leverage is at least 10x and rises for a stop
+    // tighter than the lane's middle stop (cfg.leverage x middle stop / stop), never above the exchange bracket, the liquidation-safe max
+    // (stop before liquidation) or maxLeverage (default 20). A wide stop keeps margin and 10x (a bigger dollar loss at the stop).
+    // kullanıcı 03.11: "10x kaldıracın altına asla düşmeyecek" -> floor 10x; a wide stop cuts the SIZE, never the leverage. At 10x a stop
+    // wider than ~9.5 % would sit behind the liquidation (the stop could never fire) and an exchange max under 10x cannot be used -> no trade.
+    const eqRisk=!!(sig.v2||sig.z5),refStop=eqRisk?refStopPct(sig,cfg):null,maxLev=Math.max(10,finite(cfg.maxLeverage)??20),LEV_FLOOR=10;
+    if(eqRisk&&(exchangeMax<LEV_FLOOR||safeMax<LEV_FLOOR))return {ok:false,reason:exchangeMax<LEV_FLOOR?'TOP3_EXCHANGE_MAX_UNDER_10X':'TOP3_STOP_BEYOND_LIQUIDATION_AT_10X',stopPct:Number(pre.stopPct.toFixed(5)),exchangeMax,safeMax};
+    let leverage=eqRisk?Math.max(LEV_FLOOR,Math.min(refStop>0?Math.max(cfg.leverage,Math.ceil(cfg.leverage*refStop/pre.stopPct)):cfg.leverage,exchangeMax,safeMax,maxLev))
+      :Math.max(1,Math.min(cfg.leverage,exchangeMax,safeMax));
     for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);leverage=Math.max(1,Math.min(leverage,Number(br?.initialLeverage)||exchangeMax));}
+    if(eqRisk&&leverage<LEV_FLOOR)return {ok:false,reason:'TOP3_BRACKET_UNDER_10X',leverage}; // the bracket for this size allows less than 10x
     await transport._syncServerTime();
     const info=await transport._fetchJson('GET','/fapi/v1/exchangeInfo');const si=Array.isArray(info?.symbols)?info.symbols.find(x=>x?.symbol===symbol):null;if(!si)return {ok:false,reason:'TOP3_SYMBOL_INFO_MISSING'};
     const f=exchangeFiltersFor(si);if(!(f.lotStep>0&&f.tickSize>0))return {ok:false,reason:'TOP3_FILTERS_MISSING'};
@@ -6805,7 +6829,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         btc1h:await get('BTCUSDT','1h',40,Math.floor(t/3600000)*3600000-1)};
       const e=finite(lot.entryPrice),st=finite(lot.initialStopPrice)??finite(lot.stopPrice),tp=finite(lot.tpPrice);if(!(e>0&&st>0&&tp>0))return null;
       const rule=lot.lane==='ZIRVE5'?(lot.side==='LONG'?'ZIRVE5_FIBO_LONG':'ZIRVE5_FIBO_SHORT'):lot.rule;
-      const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t});
+      const f0=lot.entryFeatures||{},z5=lot.lane==='ZIRVE5';let mg=null;try{mg=committeeManagement(z5?z5Lib.readConfig(root):top3Lib.readTop3Config(root),lot.side,z5);}catch{}
+      const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t,trigger:f0.trig||null,management:mg,flags:f0.ruleFlags||[],experience:f0.similar||null,
+        context:{rank:f0.rank??null,rankName:z5?'volatility rank (top 5)':'24h gainer rank',fund:f0.fund??null,premium:f0.premium??null}});
       const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES,size:ENTRY_TEAM});
       const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220),...(v.img?{img:true}:{}),...(v.compact?{cmp:true}:{}),...(v.imgError?{imgErr:String(v.imgError).slice(0,80)}:{})}));
       const f=lot.entryFeatures||(lot.entryFeatures={});
@@ -6825,7 +6851,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(p?.enabled)out.push(`${Math.round((p.share??0.5)*100)}% is closed at +${p.atR}R and the rest moves to break-even`);
     out.push('the rest runs to the target',`exit after ${hold} h at the latest`);return out.join('; ');}catch{return null;}}
   const ENTRY_TEAM=9; // R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): 9 seats at the entry, image models first
-  async function committeeEntryGate({symbol,side,rule,entry,stop,target,trigger=null,management=null,context=null,experience=null}){
+  async function committeeEntryGate({symbol,side,rule,entry,stop,target,trigger=null,management=null,context=null,experience=null,flags=[]}){
     const t0=clock();
     if(!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return {veto:false,record:{at:t0,error:'COMMITTEE_NOT_WIRED',fallback:'RULE',authority:true}};
     try{
@@ -6835,7 +6861,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // R2544.115: funding / mark premium for crowding (ZİRVE-5 had none); one light public call, failure = no line
       let ctx={...(context||{})};if(finite(ctx.fund)===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex',{params:{symbol}});const fr=finite(pi?.lastFundingRate),mk=finite(pi?.markPrice),ix=finite(pi?.indexPrice);
         if(fr!==null)ctx.fund=fr;if(mk&&ix)ctx.premium=Number((mk/ix-1).toFixed(5));}catch{}}
-      const packet=TB.entryPacket({k,plan:{side,rule,entry,stop,target},t:t0,trigger,management,context:ctx,experience});
+      const packet=TB.entryPacket({k,plan:{side,rule,entry,stop,target},t:t0,trigger,management,context:ctx,experience,flags});
       let gateTimer=null; // R2544.90: cleared when the committee answers
       const r=await Promise.race([Promise.resolve(deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES,size:ENTRY_TEAM})).finally(()=>clearTimeout(gateTimer)),
         new Promise(res=>{gateTimer=setTimeout(()=>res({ok:false,reason:'COMMITTEE_TIMEOUT'}),150000);})]);
@@ -6844,7 +6870,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // R2544.98 "mütabık": only an AGREED skip blocks (unanimous or majority after debate, >= 2 voters); one voter or no majority -> the rule decides
       const agreed=['UNANIMOUS','MAJORITY_AFTER_DEBATE'].includes(r.consensus)&&(r.voters||0)>=2;
       try{const ring=top3State.cmRecent||(top3State.cmRecent=[]);ring.unshift({at:clock(),symbol,side,rule,d:r.final,ag:agreed,c:r.consensus,blocked:agreed&&r.final!=='TAKE',v:slim(r.round2||r.votes).map(x=>({m:x.m,d:x.d}))});if(ring.length>10)ring.length=10;}catch{} // R2544.98 telefon: kurulun son giriş kararları
-      return {veto:agreed&&r.final!=='TAKE',record:{at:clock(),decision:agreed?r.final:'RULE',committeeDecision:r.final,agreed,consensus:r.consensus,voters:r.voters||null,rounds:r.rounds,plan:{entry,stop,target,targetR:packet.plan?.targetR??null},screenTally:packet.screen?.timeframeTally||null,votes:slim(r.round2||r.votes),round1:slim(r.votes),authority:true,ms:clock()-t0,version:TB.TB_VERSION}};
+      // R2544.116 (kullanıcı 03.11: "sen onun boğazını sıkıyorsun"): the desk stops a trade only when its OWN numbers say it loses -
+      // the average pTarget of its final votes under the break-even hit rate of this target. A SKIP while its own odds are above
+      // break-even does not block (02.11: 65 of 68 exam SKIPs and 6 of 6 live SKIPs were like that).
+      const fin=(r.round2&&r.round2.length?r.round2:r.votes)||[],ps=fin.filter(v=>v?.ok&&v.vote).map(v=>finite(v.vote.pTarget)).filter(x=>x!==null);
+      const tR=finite(packet.plan?.targetR),pAvg=ps.length?Math.round(ps.reduce((a,b)=>a+b,0)/ps.length):null,breakEven=tR>0?Math.round(100/(1+tR)):null;
+      const ownOddsOk=pAvg!==null&&breakEven!==null&&pAvg>=breakEven,skipAgreed=agreed&&r.final!=='TAKE',veto=skipAgreed&&!ownOddsOk;
+      return {veto,record:{at:clock(),decision:skipAgreed&&ownOddsOk?'TAKE_BY_OWN_ODDS':agreed?r.final:'RULE',committeeDecision:r.final,ownOdds:{pAvg,breakEven},agreed,consensus:r.consensus,voters:r.voters||null,rounds:r.rounds,plan:{entry,stop,target,targetR:packet.plan?.targetR??null},screenTally:packet.screen?.timeframeTally||null,votes:slim(r.round2||r.votes),round1:slim(r.votes),authority:true,ms:clock()-t0,version:TB.TB_VERSION}};
     }catch(e){return {veto:false,record:{at:clock(),error:String(e?.message||e).slice(0,120),fallback:'RULE',authority:true}};}
   }
   function deskAuthority(a){try{return (a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root)).committeeMode===true;}catch{return false;}}
@@ -6924,7 +6956,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const sym=sg.symbol,side=sg.side,rule=z5Lib.setupFor(side);
         if(!z5SideOn(cfg,side)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIDE_OFF',rank:sg.rank});continue;}
         // R2544.70: no liquidity sweep (SFP) on the zone side in the last 24 closed 15m candles -> no entry (the zone is used up, like the lab)
-        if(cfg.requireSweep!==false&&!sg.sweep){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_NO_SWEEP',rank:sg.rank,zone:{top:sg.top,bottom:sg.bottom},pa:sg.pa||null,mtf:sg.mtf||null,ind:sg.ind||null});}catch{}continue;}
+        const z5Flags=[];if(cfg.requireSweep!==false&&!sg.sweep)z5Flags.push({code:'ZIRVE5_NO_SWEEP'}); // R2544.116: a warning, never a drop
         if(clock()-sg.confirmAt>5*60000){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIGNAL_STALE',rank:sg.rank});continue;}
         if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SLOTS_FULL',rank:sg.rank});continue;}
         if(activeTop3For(sym)||burstCurrentPosition(sym)||activeBurstFor(sym)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sym)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SYMBOL_BUSY',rank:sg.rank});continue;}
@@ -6947,10 +6979,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           try{store.journal('ZIRVE5_JEV_REVIEW',sym,{...ev,side});}catch{}
           if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;}
         }
-        if(cfg.committeeMode===true){const pz=z5Lib.plan(sg.refPrice,sg,cfg); // R2544.89 kurul kapısı (veto)
-          if(pz?.ok){const g=await committeeEntryGate({symbol:sym,side,rule,entry:sg.refPrice,stop:pz.stopPrice,target:pz.tpPrice,trigger:sg,management:committeeManagement(cfg,side,true),context:{rank:sg.rank,rankName:'volatility rank (top 5)'},experience:ef.similar});ef.committee=g.record;
-            if(g.veto){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_COMMITTEE_SKIP',rank:sg.rank});try{store.journal('ZIRVE5_COMMITTEE_SKIP',sym,{side,rule,...g.record});}catch{}continue;}}}
-        const opened=await top3Open({z5:true,side,rule,zone:sg,z5cfg:cfg,maxHoldMs:cfg.maxHoldH*TOP3_HOUR},sym,sizing,jev,{signalKind:'FRESH',entryFeatures:ef});
+        const z5Adv=true;ef.trig={side,top:sg.top,bottom:sg.bottom,equilibrium:sg.equilibrium,confirm:sg.confirm||null,sweep:sg.sweep||null};
+        {const pz0=z5Lib.plan(sg.refPrice,sg,cfg,{advisory:true});const fl=[...z5Flags,...(pz0?.ok&&Array.isArray(pz0.flags)?pz0.flags:[])];if(fl.length)ef.ruleFlags=fl;}
+        if(cfg.committeeEntryVeto===true){const pz=z5Lib.plan(sg.refPrice,sg,cfg,{advisory:true}); // R2544.89 kurul kapısı (R2544.116: yalnız committeeEntryVeto ile)
+          const flags=[...z5Flags,...(pz?.ok&&Array.isArray(pz.flags)?pz.flags:[])];
+          if(pz?.ok){const g=await committeeEntryGate({symbol:sym,side,rule,entry:sg.refPrice,stop:pz.stopPrice,target:pz.tpPrice,trigger:sg,management:committeeManagement(cfg,side,true),context:{rank:sg.rank,rankName:'volatility rank (top 5)'},experience:ef.similar,flags});ef.committee=g.record;
+            if(g.veto){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_COMMITTEE_SKIP',rank:sg.rank});try{store.journal('ZIRVE5_COMMITTEE_SKIP',sym,{side,rule,flags,...g.record});}catch{}continue;}
+            if(flags.length&&g.record.error){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_FLAGGED_NEEDS_COMMITTEE',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_FLAGGED_NEEDS_COMMITTEE',flags,committeeError:g.record.error,rank:sg.rank});}catch{}continue;}
+            }}
+        const opened=await top3Open({z5:true,side,rule,zone:sg,z5cfg:cfg,maxHoldMs:cfg.maxHoldH*TOP3_HOUR,advisory:z5Adv},sym,sizing,jev,{signalKind:'FRESH',entryFeatures:ef});
         const res={symbol:sym,side,opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,stopPct:finite(opened.stopPct)??finite(opened.active?.stopPct),rank:sg.rank};
         z5Note(z,res);
         if(opened.ok){entries++;entryCommitteeShadow(Object.values(top3State.active||{}).find(a=>a&&a.symbol===sym&&a.lane==='ZIRVE5')).catch(()=>{});} // R2544.87 gölge kurul
@@ -7090,9 +7127,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const sig=J('TOP3_SIGNAL'),out=[...J('TOP3_ENTRY'),...J('TOP3_BLOCKED'),...J('TOP3_COMMITTEE_SKIP'),...J('TOP3_SIGNAL_EXPIRED')],used=new Set(),rows=[];
     for(const x of sig){const o=out.filter(y=>!used.has(y)&&y.symbol===x.symbol&&y.ts>=x.ts-2000&&y.ts<=x.ts+12*60000).sort((a,b)=>a.ts-b.ts)[0];if(o)used.add(o);
       const fate=!o?'NO_RESULT':o.k==='TOP3_ENTRY'?'OPENED':o.k==='TOP3_COMMITTEE_SKIP'?'COMMITTEE_SKIP':o.k==='TOP3_SIGNAL_EXPIRED'?'EXPIRED':'RULE_BLOCKED';
-      rows.push({at:x.ts,lane:'TOP3',symbol:x.symbol,side:x.p.side||null,rule:x.p.rule||null,fate,reason:fate==='RULE_BLOCKED'?(o.p.result?.reason||o.p.reason||null):fate==='COMMITTEE_SKIP'?(o.p.consensus||null):fate==='NO_RESULT'?(x.p.gate&&x.p.gate!=='OPEN'?x.p.gate:null):null,stopPct:finite(o?.p?.result?.stopPct)});}
+      rows.push({at:x.ts,lane:'TOP3',symbol:x.symbol,side:x.p.side||null,rule:x.p.rule||null,fate,warn:fate==='OPENED'?((o.p.entryFeatures?.ruleFlags||[]).map(f=>f.code)):undefined,reason:fate==='RULE_BLOCKED'?(o.p.result?.reason||o.p.reason||null):fate==='COMMITTEE_SKIP'?(o.p.consensus||null):fate==='NO_RESULT'?(x.p.gate&&x.p.gate!=='OPEN'?x.p.gate:null):null,stopPct:finite(o?.p?.result?.stopPct)});}
     for(const y of [...J('ZIRVE5_ENTRY'),...J('ZIRVE5_BLOCKED'),...J('ZIRVE5_COMMITTEE_SKIP')])
-      rows.push({at:y.ts,lane:'ZIRVE5',symbol:y.symbol,side:y.p.side||null,rule:y.p.rule||null,fate:y.k==='ZIRVE5_ENTRY'?'OPENED':y.k==='ZIRVE5_COMMITTEE_SKIP'?'COMMITTEE_SKIP':'RULE_BLOCKED',reason:y.k==='ZIRVE5_BLOCKED'?(y.p.reason||y.p.result?.reason||null):null,stopPct:finite(y.p.stopPct??y.p.result?.stopPct)});
+      rows.push({at:y.ts,lane:'ZIRVE5',symbol:y.symbol,side:y.p.side||null,rule:y.p.rule||null,warn:y.k==='ZIRVE5_ENTRY'?((y.p.entryFeatures?.ruleFlags||[]).map(f=>f.code)):undefined,fate:y.k==='ZIRVE5_ENTRY'?'OPENED':y.k==='ZIRVE5_COMMITTEE_SKIP'?'COMMITTEE_SKIP':'RULE_BLOCKED',reason:y.k==='ZIRVE5_BLOCKED'?(y.p.reason||y.p.result?.reason||null):null,stopPct:finite(y.p.stopPct??y.p.result?.stopPct)});
     // ZİRVE-5 notes that never reach the journal (lane closed: LIVE_NOT_ARMED / deploy pause, stale, side off, busy)
     for(const n of (z5State().recent||[]))if(n&&n.opened===false&&Date.parse(n.at)>=since&&!rows.some(r=>r.lane==='ZIRVE5'&&r.symbol===n.symbol&&Math.abs(r.at-Date.parse(n.at))<120000))
       rows.push({at:Date.parse(n.at),lane:'ZIRVE5',symbol:n.symbol,side:n.side||null,rule:null,fate:n.held?'HELD':/NOT_ARMED|STOPPED|PAUSE|RUN_|DISABLED/.test(String(n.reason||''))?'PAUSED':'RULE_BLOCKED',reason:n.reason||null,stopPct:finite(n.stopPct)});

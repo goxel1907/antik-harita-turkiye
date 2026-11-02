@@ -62,7 +62,7 @@ test('R2544.114 wiring: the live gate passes the trigger and the real management
   const src=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(src,/committeeEntryGate\(\{symbol:x\.symbol,[^}]*trigger:x\.trig,management:committeeManagement\(cfg,x\.side,false\),context:/);
   assert.match(src,/committeeEntryGate\(\{symbol:sym,[^}]*trigger:sg,management:committeeManagement\(cfg,side,true\),context:/);
-  assert.match(src,/TB\.entryPacket\(\{k,plan:\{side,rule,entry,stop,target\},t:t0,trigger,management,context:ctx,experience\}\)/);
+  assert.match(src,/TB\.entryPacket\(\{k,plan:\{side,rule,entry,stop,target\},t:t0,trigger,management,context:ctx,experience,flags\}\)/);
   assert.match(src,/plan:\{entry,stop,target,targetR:packet\.plan\?\.targetR\?\?null\},screenTally:packet\.screen\?\.timeframeTally/);
   assert.match(TB.ENTRY_SYSTEM,/START WITH `screen`/);assert.match(TB.ENTRY_SYSTEM,/break-even hit rate/);
   assert.doesNotMatch(TB.ENTRY_SYSTEM,/Most signals of this setup lose/);

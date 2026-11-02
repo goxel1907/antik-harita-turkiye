@@ -47,6 +47,7 @@ function readConfig(root) {
   const raw = readRaw(root), c = { ...DEFAULT_CONFIG };
   for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled', 'requireSweep']) if (typeof raw[k] === 'boolean') c[k] = raw[k];
   c.committeeMode = raw.committeeMode === true; // R2544.89
+  c.committeeEntryVeto = raw.committeeEntryVeto === true; // R2544.116: off = every signal opens, the committee votes after the entry and manages it
   const mq = finite(raw.marginQuote); if (mq !== null && mq >= 5) c.marginQuote = mq;
   const lev = finite(raw.leverage); if (lev !== null && lev >= 1 && lev <= 20) c.leverage = Math.floor(lev);
   const ma = finite(raw.maxActive); if (ma !== null && ma >= 1 && ma <= 5) c.maxActive = Math.floor(ma);
@@ -57,7 +58,7 @@ function readConfig(root) {
 }
 function writeConfig(root, patch = {}) {
   const raw = readRaw(root);
-  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled', 'requireSweep', 'committeeMode']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
+  for (const k of ['enabled', 'liveEnabled', 'jevMode', 'longEnabled', 'shortEnabled', 'partialEnabled', 'requireSweep', 'committeeMode', 'committeeEntryVeto']) if (typeof patch[k] === 'boolean') raw[k] = patch[k];
   delete raw.requireFalling24h;                               // R2544.67.5'in yanlış şartı: dosyada kalmışsa silinir
   // ZİRVE-5'in kendi marjı (null = riske göre) ve kaldıracı (null = İlk 3'ünki)
   if (Object.prototype.hasOwnProperty.call(patch, 'marginQuote')) {
@@ -213,12 +214,14 @@ function target(entry, stop, liq, long) {
   const tp = liq > 0 ? (long ? Math.max(liq, oneR) : Math.min(liq, oneR)) : oneR;
   return { tpPrice:tp, targetR:Number(((long ? tp / entry - 1 : 1 - tp / entry) / s).toFixed(3)) };
 }
-function plan(price, sig, cfg = DEFAULT_CONFIG) {
-  const p = finite(price), st = finite(sig?.stopPrice), liq = finite(sig?.liquidity), long = sig?.side === 'LONG';
+// R2544.116: { advisory:true } -> a stop outside the band is a flag for the trader (committee), not a drop; hard sanity 0.15 %..9.5 % (10x floor)
+function plan(price, sig, cfg = DEFAULT_CONFIG, { advisory = false } = {}) {
+  const p = finite(price), st = finite(sig?.stopPrice), liq = finite(sig?.liquidity), long = sig?.side === 'LONG', flags = [];
   if (!(p > 0 && st > 0)) return { ok:false, reason:'ZIRVE5_PRICE_OR_ZONE_MISSING' };
   const stopPct = long ? 1 - st / p : st / p - 1;
-  if (!(stopPct >= cfg.minStopPct && stopPct <= cfg.maxStopPct)) return { ok:false, reason:'ZIRVE5_STOP_OUT_OF_BAND', stopPct:Number(stopPct.toFixed(5)) };
-  return { ok:true, side:long ? 'LONG' : 'SHORT', stopPrice:st, stopPct:Number(stopPct.toFixed(5)), ...target(p, st, liq, long) };
+  if (!(stopPct >= cfg.minStopPct && stopPct <= cfg.maxStopPct)) { if (!advisory || !(stopPct >= 0.0015 && stopPct <= 0.095)) return { ok:false, reason:'ZIRVE5_STOP_OUT_OF_BAND', stopPct:Number(stopPct.toFixed(5)) };
+    flags.push({ code:'ZIRVE5_STOP_OUT_OF_BAND', stopPct:Number(stopPct.toFixed(5)), band:[cfg.minStopPct, cfg.maxStopPct] }); }
+  return { ok:true, side:long ? 'LONG' : 'SHORT', stopPrice:st, stopPct:Number(stopPct.toFixed(5)), ...target(p, st, liq, long), flags };
 }
 
 module.exports = { MTF_VERSION, aggregate, htfStructure, m5Confirm, mtfInfo, ZIRVE5_VERSION, LANE, SETUP, RULE, SETUP_LONG, SETUP_SHORT, setupFor, M15, DEFAULT_CONFIG, configFile, readConfig, writeConfig, rankByRange, confirmation, trackVideo, videoStates, videoScan, plan, target };

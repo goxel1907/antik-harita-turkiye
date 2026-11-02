@@ -100,7 +100,7 @@ test('R2544.115 Office funnel: a committee SKIP shows the average pTarget agains
   const r=c.top3Status().funnel.rows[0];
   assert.deepEqual(r.committee,{pAvg:35,breakEven:29,voters:2,img:1,tally:'leaning FOR this LONG: 4h, 15m, 5m; leaning AGAINST: 1d, 1h',why:'1h aşırı gerilmiş'});
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  assert.match(html,/function funCm\(c\)/);assert.match(html,/kendi tahminiyle çelişkili GİRME/);assert.match(html,/\$\{pc\(r\.stopPct\)\}\$\{funCm\(r\.committee\)\}/);
+  assert.match(html,/function funCm\(c\)/);assert.match(html,/kendi tahminiyle çelişkili GİRME/);assert.match(html,/\$\{pc\(r\.stopPct\)\}\$\{Array\.isArray\(r\.warn\)/);assert.match(html,/\$\{funCm\(r\.committee\)\}<\/span><\/div>/); // R2544.116 warning before the committee line
 });
 
 test('R2544.115 null is not 0: no "rank #null", no invented "funding 0%"; an empty brain memory is said plainly',()=>{

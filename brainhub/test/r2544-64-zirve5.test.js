@@ -286,7 +286,7 @@ test('R2544.67.3 self-audit: without its own margin ZİRVE-5 sizes by risk (2 % 
   const g=fixture({top3:{marginQuote:70,leverage:10},z5:{enabled:true,marginQuote:10,leverage:5}});await g.controller.testSupervisorTick();
   assert.equal(g.controller.z5Status().sizing.automatic,false);
   assert.equal((await g.controller.z5Tick()).entries,1);
-  const b=Object.values(g.controller._testTop3State().active)[0];assert.ok(Math.abs(b.notional-50)<1,'10 USDT x 5x = 50, got '+b.notional);
+  const b=Object.values(g.controller._testTop3State().active)[0];assert.ok(Math.abs(b.notional-100)<1,'R2544.116 (kullanıcı: 10x kaldıracın altına asla düşmeyecek): 10 USDT x 10x = 100, got '+b.notional);
 });
 
 // R2544.108 (kullanıcı 02.11 onayı; AKE 10:00 deploy duraklamasında kaçtı): onay en çok 5 dk saklanır
