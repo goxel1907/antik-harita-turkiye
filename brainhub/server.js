@@ -1594,6 +1594,8 @@ let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
 setInterval(()=>refreshCommitteeRouterIds().catch(()=>{}),30*60*1000).unref?.();
+// R2544.101 (02.11: PC açıldı, 9Router çekirdekten sonra açıldı -> kurulda 9Router modeli yoktu): liste hiç alınamadıysa 2 dk'da bir yeniden iste
+setInterval(()=>{if(!committeeRouterIds.at)refreshCommitteeRouterIds().catch(()=>{});},2*60*1000).unref?.();
 const routerCall=m=>async({system,prompt,validate})=>{try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:4096,validate});return {ok:true,text:out.text,model:m};}catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}};
 // R2544.99: the exam never spends the Google AI Studio daily quota (28.10 05:00: Gemini 3.6 Flash answered 429 to the LIVE desk; the exam used the same key)
 function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){

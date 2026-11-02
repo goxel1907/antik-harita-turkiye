@@ -124,7 +124,7 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   const withTimeout = (p, ms) => { let t; return Promise.race([Promise.resolve(p).finally(() => clearTimeout(t)), new Promise(r => { t = setTimeout(() => r({ ok:false, reason:'COMMITTEE_TIMEOUT' }), ms); })]); };
   // R2544.100: a member that answered "busy" (429, not a monthly quota) is asked again after 10 min instead of waiting for the hourly probe
   const RETRY_BUSY_MS = 10 * 60000;
-  const busyAgain = m => { const h = health[m.id]; if (!h || h.lastOk !== false || !/\b429\b|RATE_LIMIT/i.test(String(h.error || ''))) return false; const q = quotaOf(h.error, h.at); return q?.kind !== 'MONTHLY' && clock() - (Number(h.at) || 0) >= RETRY_BUSY_MS; };
+  const busyAgain = m => { const h = health[m.id]; if (!h || h.lastOk !== false || !/\b429\b|RATE_LIMIT|fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(String(h.error || ''))) return false; /* R2544.101: 9Router down at boot -> back in 10 min, not 1 h */ const q = quotaOf(h.error, h.at); return q?.kind !== 'MONTHLY' && clock() - (Number(h.at) || 0) >= RETRY_BUSY_MS; };
   async function probe({ force = false } = {}) {
     if (probing) return null;
     const due = force || clock() - lastProbeAt >= probeEveryMs, list = due ? membersNow() : membersNow().filter(busyAgain);

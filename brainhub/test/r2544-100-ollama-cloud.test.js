@@ -30,3 +30,11 @@ test('R2544.100 quotaOf: a bare 402 counts as a used-up quota (an R2544.94 patch
   assert.equal(MC.quotaOf('HTTP 402 Payment Required',1).kind,'QUOTA');
   assert.ok(!fs.readFileSync(path.join(__dirname,'..','model-committee.js'),'utf8').includes('\x08'),'no control characters in the source');
 });
+test('R2544.101 9Router down at boot: "fetch failed" members are asked again after 10 min; the model list is asked again every 2 min until it comes',async()=>{
+  let t=Date.UTC(2026,10,2,6,21,0),down=true;const calls={};
+  const mk=id=>({id,call:async()=>{calls[id]=(calls[id]||0)+1;return down?{ok:false,reason:'fetch failed'}:{ok:true,text:'{"ok":true}'};}});
+  const c=MC.createCommittee({clock:()=>t,members:[mk('ROUTER:gemini/x'),mk('ROUTER:nvidia/y')]});
+  await c.probe({force:true});assert.equal(c.healthy().length,0);
+  down=false;t+=10*60000;await c.probe();assert.equal(c.healthy().length,2,'back after 10 min');assert.deepEqual(calls,{'ROUTER:gemini/x':2,'ROUTER:nvidia/y':2});
+  assert.match(sv,/setInterval\(\(\)=>\{if\(!committeeRouterIds\.at\)refreshCommitteeRouterIds\(\)\.catch\(\(\)=>\{\}\);\},2\*60\*1000\)/);
+});
