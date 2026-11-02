@@ -693,7 +693,22 @@ function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } 
   const days14 = []; for (let i = 13; i >= 0; i--) { const d = new Date(now - i * 86400000).toISOString().slice(0, 10); days14.push([d.slice(5), Number((day[d] || 0).toFixed(2))]); }
   const strategies = CC_STRATS.map(s => { const a = W.filter(x => s.rules.includes(x.rule)); return { key:s.key, name:s.name, lane:s.lane, ...stat(a), last:a.slice(-20).map(x => Number(Number(x.rMultiple).toFixed(2))) }; });
   const acts = {}; let deskN = 0, deskAuth = 0; for (const x of W) for (const d of (x.desk?.decisions || [])) { deskN++; if (d.authority === true) deskAuth++; acts[d.action] = (acts[d.action] || 0) + 1; }
-  return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts } };
+  // R2544.106 (kullanıcı 02.11: "pozisyon kartı afilli; geçmiş pozlar son 5 poz durumu; geçmiş poz bilgileri istatistik ve grafiklerle"):
+  // last 5 trades with their R path (desk reviews; open 0R, close final R), R distribution, exit types, hold / best R / given-back averages
+  const ruleName = r => (CC_STRATS.find(s => s.rules.includes(r)) || {}).name || r;
+  const recent = W.slice(-5).reverse().map(x => { const o = Number(x.openedAt) || (x.closedAt - (Number(x.holdH) || 0) * 3600000), R = Number(x.rMultiple);
+    const path = [[0, 0], ...(x.desk?.decisions || []).filter(d => Number.isFinite(Number(d.R)) && Number.isFinite(Number(d.at))).map(d => [Math.round((d.at - o) / 60000), Number(Number(d.R).toFixed(2))]), [Math.round((x.closedAt - o) / 60000), Number(R.toFixed(2))]]
+      .filter(p => p[0] >= 0).sort((a, b) => a[0] - b[0]).slice(-60);
+    return { symbol:x.symbol, side:x.side, rule:x.rule, name:ruleName(x.rule), R:Number(R.toFixed(2)), mfeR:Number.isFinite(Number(x.mfeR)) ? Number(Number(x.mfeR).toFixed(2)) : null,
+      exit:x.exitType || null, holdMin:Math.round((Number(x.holdH) || 0) * 60), closedAt:x.closedAt, netPnl:Number.isFinite(Number(x.netPnl)) ? Number(Number(x.netPnl).toFixed(2)) : null,
+      autopsy:x.autopsy?.text ? String(x.autopsy.text).slice(0, 160) : null, deskActed:(x.desk?.decisions || []).some(d => d.authority === true && d.action !== 'HOLD'), path }; });
+  const bins = [['≤ -1', -Infinity, -0.99], ['-1…0', -0.99, 0], ['0…1', 0, 1], ['1…2', 1, 2], ['≥ 2', 2, Infinity]].map(([label, lo, hi]) => ({ label, n:W.filter(x => { const r = Number(x.rMultiple); return label === '0…1' ? r >= lo && r < hi : r > lo && r <= hi || (lo === -Infinity && r <= hi); }).length }));
+  const exitKind = e => /DESK/.test(e) ? 'MASA' : /TAKE_PROFIT|TP/.test(e) ? 'HEDEF' : /BE_STOP|BREAKEVEN/.test(e) ? 'BAŞABAŞ' : /STOP/.test(e) ? 'STOP' : /TIME|DEADLINE|24/.test(e) ? 'SÜRE' : 'DİĞER';
+  const exits = {}; for (const x of W) { const k = exitKind(String(x.exitType || '')); exits[k] = (exits[k] || 0) + 1; }
+  const avg = a => a.length ? Number((a.reduce((p, q) => p + q, 0) / a.length).toFixed(2)) : null, mfe = W.map(x => Number(x.mfeR)).filter(Number.isFinite);
+  const give = W.filter(x => Number.isFinite(Number(x.mfeR)) && Number(x.mfeR) >= 1).map(x => Number(x.mfeR) - Number(x.rMultiple));
+  const pos = { recent, bins, exits, avgHoldMin:avg(W.map(x => (Number(x.holdH) || 0) * 60)), avgMfeR:avg(mfe), avgGivebackR:avg(give), sawOneR:give.length };
+  return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts }, pos };
 }
 module.exports = { CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

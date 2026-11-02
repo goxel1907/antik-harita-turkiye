@@ -191,6 +191,49 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 /* R2544.102 KARAR REAKTÖRÜ */
 /* R2544.104 KOMUTA MERKEZİ */
+/* R2544.106 POZİSYON MASASI */
+.cc-pos{margin-top:12px}
+.ps-grid{display:grid;grid-template-columns:minmax(300px,1.15fr) minmax(320px,1.6fr);gap:12px}
+@media (max-width:1100px){.ps-grid{grid-template-columns:1fr}}
+.ps-open{border-radius:14px;padding:12px;background:radial-gradient(120% 120% at 0% 0%,rgba(46,197,255,.14),rgba(10,12,24,1) 55%);border:1px solid rgba(46,197,255,.45);box-shadow:0 0 24px rgba(46,197,255,.15);margin-bottom:10px;position:relative;overflow:hidden}
+.ps-open.loss{background:radial-gradient(120% 120% at 0% 0%,rgba(255,77,109,.16),rgba(10,12,24,1) 55%);border-color:rgba(255,77,109,.5);box-shadow:0 0 24px rgba(255,77,109,.18)}
+.ps-open.win{background:radial-gradient(120% 120% at 0% 0%,rgba(43,214,123,.16),rgba(10,12,24,1) 55%);border-color:rgba(43,214,123,.5);box-shadow:0 0 24px rgba(43,214,123,.18)}
+.ps-open:after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.05) 50%,transparent 60%);background-size:250% 100%;animation:ccsheen 6s linear infinite;pointer-events:none}
+.ps-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ps-sym{font:900 20px system-ui,sans-serif;color:#fff;letter-spacing:.02em}
+.ps-side{font:900 11px system-ui,sans-serif;padding:3px 8px;border-radius:7px}
+.ps-side.LONG{background:rgba(43,214,123,.2);color:#7ff0b0}.ps-side.SHORT{background:rgba(255,77,109,.22);color:#ff9aac}
+.ps-r{margin-left:auto;font:900 30px system-ui,sans-serif;text-shadow:0 0 18px currentColor}
+.ps-meta{display:flex;flex-wrap:wrap;gap:10px;font:600 11px system-ui,sans-serif;color:#9aa3c4;margin:4px 0 8px}.ps-meta b{color:#eef1fb}
+.ps-track{position:relative;height:30px;margin:6px 4px 14px}
+.ps-track .ln{position:absolute;left:0;right:0;top:12px;height:6px;border-radius:3px;background:linear-gradient(90deg,#ff4d6d 0%,#3a3f5c 25%,#3a3f5c 25%,#2bd67b 60%,#2ec5ff 100%);opacity:.55}
+.ps-track .tk{position:absolute;top:4px;width:2px;height:22px;background:#c9cfe6;opacity:.7}
+.ps-track .lb{position:absolute;top:27px;transform:translateX(-50%);font:700 9px system-ui,sans-serif;color:#9aa3c4;white-space:nowrap}
+.ps-track .now{position:absolute;top:6px;width:18px;height:18px;margin-left:-9px;border-radius:50%;box-shadow:0 0 14px currentColor,0 0 4px #fff;animation:pspulse 1.4s ease-in-out infinite}
+.ps-track .best{position:absolute;top:2px;width:0;height:0;margin-left:-6px;border-left:6px solid transparent;border-right:6px solid transparent;border-top:9px solid #ffd54f;filter:drop-shadow(0 0 4px #ffd54f)}
+@keyframes pspulse{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+.ps-path{width:100%;height:110px;display:block}
+.ps-votes{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.ps-votes span{font:700 10px system-ui,sans-serif;padding:2px 7px;border-radius:999px;background:#10142a;border:1px solid #262c48}
+.ps-last5{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.ps-c{border-radius:11px;padding:8px;background:#0b0e1c;border:1px solid #1f2540;position:relative;transition:transform .15s}
+.ps-c:hover{transform:translateY(-2px)}
+.ps-c .h{display:flex;align-items:center;gap:5px;font:800 12px system-ui,sans-serif;color:#eef1fb}
+.ps-c .h .R{margin-left:auto;font:900 15px system-ui,sans-serif;text-shadow:0 0 10px currentColor}
+.ps-c .x{font:700 9px system-ui,sans-serif;padding:2px 6px;border-radius:6px;display:inline-block;margin-top:4px}
+.ps-c svg{width:100%;height:46px;display:block;margin-top:4px}
+.ps-c .gb{position:relative;height:8px;border-radius:4px;background:#151a33;margin-top:5px}
+.ps-c .gb i{position:absolute;top:0;bottom:0;border-radius:4px}
+.ps-c .a{font:500 10px system-ui,sans-serif;color:#9aa3c4;margin-top:4px;line-height:1.3;max-height:2.6em;overflow:hidden}
+.ps-hist{display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-top:10px}
+@media (max-width:700px){.ps-hist{grid-template-columns:1fr}}
+.ps-bars{display:flex;align-items:flex-end;gap:6px;height:90px;padding-top:14px}
+.ps-bars div{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font:700 10px system-ui,sans-serif;color:#9aa3c4}
+.ps-bars div i{width:100%;border-radius:5px 5px 0 0;display:block}
+.ps-exits{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0}
+.ps-exits span{height:100%}
+.ps-leg{display:flex;flex-wrap:wrap;gap:6px;font:600 10px system-ui,sans-serif;color:#aeb6d6}.ps-leg i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:3px}
+
 /* R2544.105 BEYİN — NE ÖĞRENDİ */
 .cc-brain canvas#brCanvas{width:100%;height:240px;display:block;border-radius:12px;background:#05060c;margin-bottom:10px;box-shadow:inset 0 0 40px rgba(167,139,250,.18)}
 @media (max-width:700px){.cc-brain canvas#brCanvas{height:200px}}
@@ -439,6 +482,8 @@ body.cc-compact .cc-extra{display:none !important}
       </div>
     </div>
     <div class="cc-now" id="ccNow"></div>
+    <div class="cc-panel cc-pos" id="ccPos"><div class="cc-h">🎯 POZİSYON MASASI <span class="x">açık pozisyon canlı • son 5 pozisyon • geçmişin dağılımı (o anki mod, son 30 gün)</span></div>
+      <div class="ps-grid"><div id="psOpen"></div><div><div id="psLast5"></div><div class="ps-hist" id="psHist"></div></div></div></div>
     <div class="cc-panel cc-brain" id="ccBrain"><div class="cc-h">🧠 BEYİN — NE ÖĞRENDİ <span class="x" id="ccBrainSub">her kapanan işlemin otopsisi • "ders" = son dersler VE 6 aylık hafıza aynı yönü gösterdi</span></div><canvas id="brCanvas" role="img" aria-label="Beyin: her nöron bir kapanan işlem, altın çekirdekler doğrulanmış dersler"></canvas><div id="ccBrainBody">—</div></div>
   </section>
   <section class="kpis" id="kpis"></section>
@@ -968,6 +1013,52 @@ function renderBrain(s){
   const bars=(p,col)=>p?`<div class="br-sec" style="color:${col}">${p.kind.toUpperCase()} (${p.n}) NASIL OLDU</div>`+p.items.slice(0,4).map(x=>`<div class="br-bar"><div class="tr"><i style="width:${x.pct}%;background:linear-gradient(90deg,${col}aa,${col});box-shadow:0 0 8px ${col}"></i><span>${esc(x.label)}</span></div><b style="color:${col}">%${x.pct}</b></div>`).join('')+(p.extra?`<div class="br-line wait">${esc(p.extra)}</div>`:''):'';
   el.innerHTML=(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${c.lines.map(x=>`<div class="br-line ${x.cls}">${x.cls==='ders'?'✅ DERS: ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• '}${esc(x.text)}</div>`).join('')}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
     +(m.auto.length?`<div class="br-sec" style="margin-top:10px">SON OTOPSİLER</div><div class="br-auto">${m.auto.map(a=>`<span title="${esc(a.text)}"><b style="color:${Number(a.R)>0?'#2bd67b':'#ff4d6d'}">${esc(String(a.s||'').replace(/USDT$/,''))} ${Number(a.R)>=0?'+':''}${Number(a.R).toFixed(2)}R</b>${esc(String(a.text||'').slice(0,90))}</span>`).join('')}</div>`:'');
+}
+// ---------- R2544.106 POZİSYON MASASI (kullanıcı 02.11: "pozisyon kartı afilli olsun; geçmiş pozlar son 5 poz durumu; geçmiş poz bilgileri istatistik ve grafiklerle") ----------
+const PS_EXIT={STOP:'#ff4d6d',HEDEF:'#2bd67b','BAŞABAŞ':'#2ec5ff',MASA:'#a78bfa','SÜRE':'#ffd54f','DİĞER':'#6f789c'};
+const psExit=e=>{e=String(e||'');return /DESK/.test(e)?'MASA':/TAKE_PROFIT|TP/.test(e)?'HEDEF':/BE_STOP|BREAKEVEN/.test(e)?'BAŞABAŞ':/STOP/.test(e)?'STOP':/TIME|DEADLINE|24/.test(e)?'SÜRE':'DİĞER';};
+const psMin=m=>m===null||m===undefined?'—':m>=60?Math.floor(m/60)+' sa '+String(Math.round(m%60)).padStart(2,'0')+' dk':Math.round(m)+' dk';
+// R path as an SVG: green above 0, red below, gold 2R line, stop line, glow
+function psPathSvg(path,{w=300,h=110,partR=2,best=null}={}){
+  if(!path||path.length<2)return `<svg class="ps-path" viewBox="0 0 ${w} ${h}"><text x="${w/2}" y="${h/2}" fill="#5d6585" font-size="11" text-anchor="middle">yol verisi yok</text></svg>`;
+  const xs=path.map(p=>p[0]),ys=path.map(p=>p[1]),x0=Math.min(...xs),x1=Math.max(...xs)||1,lo=Math.min(-1.05,...ys),hi=Math.max(partR+0.2,...ys,best??0);
+  const X=v=>6+(w-12)*(v-x0)/((x1-x0)||1),Y=v=>h-6-(h-12)*(v-lo)/((hi-lo)||1),pts=path.map(p=>`${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ');
+  const last=ys[ys.length-1],col=last>=0?'#2bd67b':'#ff4d6d',id='g'+Math.random().toString(36).slice(2,7);
+  return `<svg class="ps-path" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".45"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <line x1="0" x2="${w}" y1="${Y(0)}" y2="${Y(0)}" stroke="#c9cfe6" stroke-opacity=".35" stroke-dasharray="3 4"/><line x1="0" x2="${w}" y1="${Y(-1)}" y2="${Y(-1)}" stroke="#ff4d6d" stroke-opacity=".5"/>
+    <line x1="0" x2="${w}" y1="${Y(partR)}" y2="${Y(partR)}" stroke="#ffd54f" stroke-opacity=".55" stroke-dasharray="5 3"/>
+    <polygon points="${X(x0)},${Y(lo)} ${pts} ${X(xs[xs.length-1])},${Y(lo)}" fill="url(#${id})"/>
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2.4" style="filter:drop-shadow(0 0 4px ${col})"/>
+    <circle cx="${X(xs[xs.length-1])}" cy="${Y(last)}" r="4" fill="${col}" style="filter:drop-shadow(0 0 6px ${col})"/>
+    <text x="${w-4}" y="${Y(partR)-3}" fill="#ffd54f" font-size="9" text-anchor="end">2R</text><text x="${w-4}" y="${Y(-1)-3}" fill="#ff8fa3" font-size="9" text-anchor="end">stop</text></svg>`;
+}
+function psTrack(now,best,stopR,partR,targetR){const lo=Math.min(-1,stopR??-1),cap=Math.max(4,partR+1,(best??0)+0.8,(now??0)+0.8),hi=Math.min(Math.max(targetR??3,partR+0.5),cap),P=v=>Math.max(0,Math.min(100,100*(v-lo)/(hi-lo)));
+  const col=now>=0?'#2bd67b':'#ff4d6d',t=(v,l)=>`<span class="tk" style="left:${P(v)}%"></span><span class="lb" style="left:${P(v)}%">${l}</span>`;
+  return `<div class="ps-track"><div class="ln"></div>${t(lo,'stop')}${t(0,'giriş')}${t(partR,partR+'R')}${t(hi,(targetR??0)>hi+0.01?'hedef '+targetR.toFixed(1)+'R →':'hedef')}${best!==null?`<span class="best" style="left:${P(best)}%" title="en iyi ${best.toFixed(2)}R"></span>`:''}<span class="now" style="left:${P(now)}%;background:${col};color:${col}"></span></div>`;}
+function renderPos(s){
+  const t=s?.top3?.data||s?.top3||{},z=s?.zirve5?.data||s?.zirve5||{},pos=t.cc?.pos||null,$=id=>document.getElementById(id);
+  const lots=[...(t.active||[]).map(a=>({...a,lane:'İlk 3'})),...(z.active||[]).map(a=>({...a,lane:'ZİRVE-5'}))];
+  const op=$('psOpen');if(op){op.innerHTML=lots.length?lots.slice(0,2).map(a=>{const e=Number(a.entryPrice),st0=Number(a.initialStopPrice??a.stopPrice),mk=Number(a.markPrice),L=a.side==='LONG',risk=Math.abs(e-st0)||null,fav=p=>risk&&Number.isFinite(p)?(L?p-e:e-p)/risk:null;
+      const now=fav(mk),dec=(a.desk?.decisions||[]),o=Number(a.openedAt)||null,path=[[0,0],...dec.filter(d=>Number.isFinite(Number(d.R))&&o).map(d=>[Math.round((d.at-o)/60000),Number(d.R)]),...(o&&now!==null?[[Math.round((Date.now()-o)/60000),now]]:[])];
+      const best=Math.max(now??-9,...dec.map(d=>Number(d.R)).filter(Number.isFinite)),partR=Number(a.part?.atR)||2,last=a.deskInfo?.last,pnl=Number(a.unrealizedPnl);
+      const votes=(last?.committee?.votes||[]).map(v=>`<span style="color:${RX_COL[v.a]||'#9aa3c4'};border-color:${(RX_COL[v.a]||'#9aa3c4')}66">${esc(rxShort(v.m))}: ${esc(RX_TR[v.a]||v.a)}</span>`).join('');
+      return `<div class="ps-open ${now>=0?'win':'loss'}"><div class="ps-top"><span class="ps-sym">${esc(String(a.symbol||'').replace(/USDT$/,''))}</span><span class="ps-side ${a.side}">${a.side}</span><span class="cc-tag">${esc(a.lane)}</span><span class="ps-r" style="color:${now>=0?'#2bd67b':'#ff4d6d'}">${ccR(now)}</span></div>
+        <div class="ps-meta"><span>kâr/zarar <b style="color:${pnl>=0?'#7ff0b0':'#ff9aac'}">${Number.isFinite(pnl)?(pnl>=0?'+':'')+pnl.toFixed(2)+' $':'—'}</b></span><span>açık <b>${o?psMin((Date.now()-o)/60000):'—'}</b></span><span>kalan <b>${psMin(a.remainingMin)}</b></span><span>en iyi <b style="color:#ffd54f">${ccR(best>-9?best:null)}</b></span>${best-now>0.05?`<span>geri verilen <b style="color:#ff9aac">${(best-now).toFixed(2)}R</b></span>`:''}${a.part?.done?'<span><b style="color:#7ff0b0">2R kâr koruma alındı ✓</b></span>':''}</div>
+        ${psTrack(now??0,best>-9?best:null,fav(Number(a.stopPrice)),partR,fav(Number(a.tpPrice)))}${psPathSvg(path,{partR,best})}
+        ${last?`<div class="ps-meta" style="margin-top:6px">🧑‍💼 masa: <b style="color:${RX_COL[last.action]||'#fff'}">${esc(RX_TR[last.action]||last.action)}</b> ${last.committee?.consensus?'• '+esc(RX_CONS[last.committee.consensus]||last.committee.consensus):''} ${last.authority?'• YETKİLİ':'• gölge'}</div><div class="ps-votes">${votes}</div>`:''}</div>`;}).join('')
+    :`<div class="ps-open"><div class="ps-top"><span class="ps-sym" style="font-size:16px">Açık pozisyon yok</span></div><div class="ps-meta">${pos?.recent?.[0]?`son işlem: <b>${esc(String(pos.recent[0].symbol).replace(/USDT$/,''))} ${pos.recent[0].side}</b> <b style="color:${ccCol(pos.recent[0].R)}">${ccR(pos.recent[0].R)}</b> (${esc(psExit(pos.recent[0].exit))})`:'kural sinyal bekliyor'}</div>${pos?.recent?.[0]?psPathSvg(pos.recent[0].path,{best:pos.recent[0].mfeR}):''}</div>`;}
+  const l5=$('psLast5');if(l5)l5.innerHTML=pos?.recent?.length?`<div class="cc-h">SON ${pos.recent.length} POZİSYON</div><div class="ps-last5">${pos.recent.map(r=>{const ek=psExit(r.exit),c=PS_EXIT[ek],mx=Math.max(2.5,r.mfeR||0,Math.abs(r.R)),P=v=>Math.max(0,Math.min(100,100*(v+1)/(mx+1)));
+      return `<div class="ps-c" style="border-color:${r.R>0?'#2bd67b55':'#ff4d6d55'};box-shadow:0 0 12px ${r.R>0?'#2bd67b22':'#ff4d6d22'}" title="${esc(r.autopsy||'')}"><div class="h">${esc(String(r.symbol).replace(/USDT$/,''))} <span class="ps-side ${r.side}" style="font-size:9px;padding:1px 5px">${r.side}</span><span class="R" style="color:${ccCol(r.R)}">${ccR(r.R)}</span></div>
+        <span class="x" style="background:${c}22;color:${c};border:1px solid ${c}77">${ek}${r.deskActed?' • masa':''}</span> <span class="x" style="color:#9aa3c4">${psMin(r.holdMin)}</span>
+        ${psPathSvg(r.path,{w:160,h:46,best:r.mfeR}).replace('class="ps-path"','')}
+        <div class="gb" title="en iyi ${ccR(r.mfeR)} → kapanış ${ccR(r.R)}"><i style="left:${P(Math.min(r.R,r.mfeR??r.R))}%;width:${Math.max(2,P(r.mfeR??r.R)-P(Math.min(r.R,r.mfeR??r.R)))}%;background:linear-gradient(90deg,${ccCol(r.R)},#ffd54f)"></i></div>
+        <div class="a">en iyi ${ccR(r.mfeR)} → ${ccR(r.R)}${r.autopsy?' • '+esc(r.autopsy):''}</div></div>`;}).join('')}</div>`:'<div class="cc-note">kapanan pozisyon yok</div>';
+  const hs=$('psHist');if(hs&&pos){const mx=Math.max(1,...pos.bins.map(b=>b.n)),bc=['#ff4d6d','#ff8fa3','#7fd8ff','#2bd67b','#00ff9d'],tot=Object.values(pos.exits).reduce((a,b)=>a+b,0)||1;
+    hs.innerHTML=`<div><div class="cc-h">SONUÇ DAĞILIMI (R)</div><div class="ps-bars">${pos.bins.map((b,i)=>`<div><span style="color:#eef1fb">${b.n}</span><i style="height:${Math.max(3,Math.round(64*b.n/mx))}px;background:linear-gradient(180deg,${bc[i]},${bc[i]}55);box-shadow:0 0 10px ${bc[i]}88"></i>${esc(b.label)}</div>`).join('')}</div></div>
+      <div><div class="cc-h">ÇIKIŞ TÜRLERİ</div><div class="ps-exits">${Object.entries(pos.exits).map(([k,v])=>`<span title="${esc(k)} ${v}" style="width:${100*v/tot}%;background:${PS_EXIT[k]||'#6f789c'};box-shadow:0 0 8px ${PS_EXIT[k]||'#6f789c'}"></span>`).join('')}</div>
+        <div class="ps-leg">${Object.entries(pos.exits).map(([k,v])=>`<span><i style="background:${PS_EXIT[k]||'#6f789c'}"></i>${esc(k)} ${v}</span>`).join('')}</div>
+        <div class="cc-kpis" style="margin-top:8px"><div class="cc-kpi">ort. süre<b>${psMin(pos.avgHoldMin)}</b></div><div class="cc-kpi">ort. en iyi<b>${ccR(pos.avgMfeR)}</b></div>
+          <div class="cc-kpi" title="1R ve üstünü gören işlemlerde en iyi R ile kapanış arasındaki ortalama fark">1R+ görüp geri verilen<b style="color:#ff9aac">${pos.avgGivebackR!==null?pos.avgGivebackR.toFixed(2)+'R':'—'}</b></div><div class="cc-kpi">1R+ gören işlem<b>${pos.sawOneR}</b></div></div></div>`;}
 }
 // ---------- R2544.104 KOMUTA MERKEZİ ----------
 // Tek kart: mod (TEST / CANLI), çalışıyor mu, karar sahibi (KURAL / JEV / KURUL), JEV, kurul sağlığı, hesap; sonuç (o anki modun son 30 günü:
@@ -1857,6 +1948,7 @@ function renderOffice(s, vinfo){
   try{renderCommittee(s);}catch(e){console.warn('committee',e);} // R2544.86
   try{renderReactor(s);}catch(e){console.warn('reactor',e);} // R2544.102
   try{renderCC(s);}catch(e){console.warn('cc',e);} // R2544.104
+  try{renderPos(s);}catch(e){console.warn('pos',e);} // R2544.106
   try{renderBrain(s);}catch(e){console.warn('brain',e);} // R2544.105
   // R2544.84: İlk 3 / ZİRVE-5 pozisyon masasının son kararı kattaki Pozisyon Yöneticisi masasında (gölge)
   {const dk=[...(s.top3?.active||[]),...(s.zirve5?.active||[])].map(a=>({sym:String(a.symbol||'').replace(/USDT$/,''),d:a.deskInfo?.last})).filter(x=>x.d&&x.d.atIso).sort((x,y)=>Date.parse(y.d.atIso)-Date.parse(x.d.atIso))[0];
