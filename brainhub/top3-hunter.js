@@ -678,5 +678,22 @@ const TOP3_SUBS = Object.freeze({ early: Object.freeze({ key: 'early', name: 'İ
 const subOf = side => (side === 'LONG' ? TOP3_SUBS.early : TOP3_SUBS.top);
 // effective JEV use of a sub-strategy: its own choice, else the lane's JEV mode
 function subJev(cfg, side) { const R = side === 'LONG' ? cfg?.early : cfg?.top; return typeof R?.jev === 'boolean' ? R.jev : cfg?.jevMode === true; }
-module.exports = { TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+// R2544.104 KOMUTA MERKEZİ özeti (kullanıcı 02.11: "office ... tek bir kartta grafik istatistik tüm bağlamı tek seferde göstermeli; canlıda da
+// aynı testte aynı olmalı"). Ders hafızasından (onarılmış R) o anki modun (TEST / LIVE) son 30 günü: strateji başına n / kazanma / ort R / toplam R,
+// bakiye eğrisi (birikimli R), en büyük düşüş, son 14 günün günlük R'si, masa kararlarının dağılımı (yetkili / gölge). Yalnız ölçer, karar vermez.
+const CC_STRATS = [{ key:'ERKEN_LONG', name:'İlk 3 ERKEN LONG', lane:'ILK3', rules:['LONG_EARLY_RETEST', 'LONG_6OF6'] }, { key:'TEPE_SHORT', name:'İlk 3 TEPE SHORT', lane:'ILK3', rules:['SHORT_TOP_BREAK', 'SHORT_TOP_FADE'] },
+  { key:'ZIRVE5', name:'ZİRVE-5', lane:'ZIRVE5', rules:['ZIRVE5_FIBO_LONG', 'ZIRVE5_FIBO_SHORT'] }];
+function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } = {}) {
+  const L = (lessons || []).filter(x => x && x.mode === mode && Number.isFinite(Number(x.rMultiple)) && Number.isFinite(Number(x.closedAt))).sort((a, b) => a.closedAt - b.closedAt);
+  const since = now - days * 86400000, W = L.filter(x => x.closedAt >= since);
+  const stat = a => { const r = a.map(x => Number(x.rMultiple)), n = r.length, tot = r.reduce((p, q) => p + q, 0), w = r.filter(v => v > 0).length;
+    return { n, wins:w, winPct:n ? Math.round(100 * w / n) : null, avgR:n ? Number((tot / n).toFixed(3)) : null, totR:Number(tot.toFixed(2)) }; };
+  let cum = 0, peak = 0, dd = 0; const curve = W.map(x => { cum += Number(x.rMultiple); peak = Math.max(peak, cum); dd = Math.min(dd, cum - peak); return [x.closedAt, Number(cum.toFixed(2))]; });
+  const day = {}; for (const x of W) { const d = new Date(x.closedAt).toISOString().slice(0, 10); day[d] = (day[d] || 0) + Number(x.rMultiple); }
+  const days14 = []; for (let i = 13; i >= 0; i--) { const d = new Date(now - i * 86400000).toISOString().slice(0, 10); days14.push([d.slice(5), Number((day[d] || 0).toFixed(2))]); }
+  const strategies = CC_STRATS.map(s => { const a = W.filter(x => s.rules.includes(x.rule)); return { key:s.key, name:s.name, lane:s.lane, ...stat(a), last:a.slice(-20).map(x => Number(Number(x.rMultiple).toFixed(2))) }; });
+  const acts = {}; let deskN = 0, deskAuth = 0; for (const x of W) for (const d of (x.desk?.decisions || [])) { deskN++; if (d.authority === true) deskAuth++; acts[d.action] = (acts[d.action] || 0) + 1; }
+  return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts } };
+}
+module.exports = { CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

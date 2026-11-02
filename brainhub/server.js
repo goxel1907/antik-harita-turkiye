@@ -1583,6 +1583,8 @@ const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {o
 //    Mistral, NVIDIA, Cloudflare, GLM, Kimi ...) kod değişmeden katılır;
 //  - OpenRouter: adı verilen güçlü ücretsiz modeller TEK TEK üye (her biri kendi soğuması), en sonda ücretsiz havuz;
 //  - kurul seçimi sağlayıcılar arasında sırayla yapılır (Kiro biterse OpenRouter / Gemini / Groq devam eder).
+// R2544.104: OpenRouter has ~450 models but only ~14 are free (02.11: 14) -> every free text model joins the bench except safety / code / tiny ones
+const OR_SKIP=/safety|guard|lfm-|code|nano|embed/i,OR_MAX=10; // R2544.104
 const OR_FREE_PREF=['nvidia/nemotron-3-ultra-550b-a55b:free','google/gemma-4-31b-it:free','poolside/laguna-s-2.1:free','nvidia/nemotron-3.5-super-vl:free','xingchen-agi/xing4.0-29b-a4b:free','dots-studio/dots-3-note-preview:free','google/gemma-4-26b-a4b-it:free'];
 const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)|minimax-m[2-9]|deepseek-v[4-9]|qwen3\.\d+-\d+b|gemma-4-31b/i; // R2544.95 + MiniMax M2 (NVIDIA); R2544.96 + DeepSeek V4, MiniMax M3, Qwen 3.x, Gemma 4 31B
 // R2544.96: providers' models open TODAY (NVIDIA public /v1/models 27.10; Groq docs 27.10: llama-3.3 / maverick / qwen3-32b moved to enterprise;
@@ -1602,9 +1604,13 @@ const routerCall=m=>async({system,prompt,validate})=>{try{const out=await callMo
 // R2544.99: the exam never spends the Google AI Studio daily quota (28.10 05:00: Gemini 3.6 Flash answered 429 to the LIVE desk; the exam used the same key)
 function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){
   const fixed=traderRouterMembers(),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
-  const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:12,candidates:ROUTER_CANDIDATES,gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
+  const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:16,candidates:ROUTER_CANDIDATES,gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
-  const or=OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)).map(m=>({id:'OR:'+m,call:async a=>{const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
+  // R2544.104 (kullanıcı 02.11: "çalışmayan modeller çalışanlar ile değişebilsin; OpenRouter'da yüzlerce model var"): the preferred list first, then the
+  // large free models in TODAY's OpenRouter catalog; a gone / slow / always-failing one is skipped and the next takes its seat; at most OR_MAX
+  const orIds=[...OR_FREE_PREF.filter(m=>!catalog.size||catalog.has(m)),...[...catalog].filter(m=>/:free$/.test(m)&&!OR_FREE_PREF.includes(m)&&!OR_SKIP.test(m))]
+    .filter(m=>!(ctx?.gone&&ctx.gone('OR:'+m))).slice(0,OR_MAX);
+  const or=orIds.map(m=>({id:'OR:'+m,call:async a=>{const r=await freeWorker.reviewModel(m,a);return {ok:r?.ok===true,text:r?.text,model:r?.model||m,reason:r?.reason||null};}}));
   return [...fixed,...extra.filter(m=>!(noAiStudio&&/^ROUTER:(gemini|ollama)\//.test(m.id))),...or,freeMember(freeWorker,poolId)]; // R2544.100 + Ollama Cloud (one model at a time: kept for the live desk)
 }
 const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,

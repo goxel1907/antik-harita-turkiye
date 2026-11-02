@@ -49,6 +49,9 @@ const unusableWhy = rec => { const e = String(rec?.error || '');
   if (TOO_BIG_RE.test(e)) return 'TOO_BIG';
   if (GONE_RE.test(e) && !QUOTA_RE.test(e.replace(/\b404\b|\b410\b/g, ''))) return 'GONE';
   if ((rec?.consecutiveFail || 0) >= 3 && SLOW_RE.test(e)) return 'SLOW';
+  // R2544.104 (kullanıcı 02.11: "çalışmayan modeller çalışanlar ile değişebilsin"): 6 failures in a row for any other reason than a quota / busy
+  // answer -> the seat goes to the next candidate for 3 days (a quota or 429 comes back by itself and keeps its seat)
+  if ((rec?.consecutiveFail || 0) >= 6 && !QUOTA_RE.test(e)) return 'SICK';
   return null; };
 const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && unusableWhy(rec) && now - (Number(rec.at) || 0) < GONE_TTL_MS);
 // R2544.100: Ollama Cloud free = ONE cloud model at a time -> at most 1 member from it (parallel calls would collide)
@@ -128,7 +131,9 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   const busyAgain = m => { const h = health[m.id]; if (!h || h.lastOk !== false || !/\b429\b|RATE_LIMIT|fetch failed|ECONNREFUSED|ECONNRESET|socket hang up/i.test(String(h.error || ''))) return false; /* R2544.101: 9Router down at boot -> back in 10 min, not 1 h */ const q = quotaOf(h.error, h.at); return q?.kind !== 'MONTHLY' && clock() - (Number(h.at) || 0) >= RETRY_BUSY_MS; };
   async function probe({ force = false } = {}) {
     if (probing) return null;
-    const due = force || clock() - lastProbeAt >= probeEveryMs, list = due ? membersNow() : membersNow().filter(busyAgain);
+    // R2544.104 (kullanıcı 02.11: "neden bekliyor, yüzlerce model var"): a member that was never asked (a new candidate that took a dropped
+    // model's seat) is asked on the next 5-min tick, not at the next hourly probe -> a dead seat is refilled within minutes
+    const due = force || clock() - lastProbeAt >= probeEveryMs, list = due ? membersNow() : membersNow().filter(m => busyAgain(m) || !health[m.id]);
     if (!list.length) return null; probing = true; if (due) lastProbeAt = clock();
     try {
       await Promise.all(list.map(async m => { const t0 = clock(); let r;

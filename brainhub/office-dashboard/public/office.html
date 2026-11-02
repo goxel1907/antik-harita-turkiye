@@ -190,6 +190,80 @@ td.wait{max-width:340px;color:var(--text-secondary)}
 button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 /* R2544.102 KARAR REAKTÖRÜ */
+/* R2544.104 KOMUTA MERKEZİ */
+/* R2544.104 KAYNAK LABORATUVARI */
+#researchCard{background:radial-gradient(120% 120% at 0% 0%,#0f1830 0%,#0a0d18 60%,#07080e 100%) !important;border-color:#2ec5ff !important;color:#e6e9f7}
+.lab-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 10px}
+.lab-stat{padding:6px 10px;border-radius:10px;background:#0b0f20;border:1px solid #1f2848;font:700 11px system-ui,sans-serif;color:#9aa3c4}
+.lab-stat b{display:block;font:900 20px system-ui,sans-serif;color:#fff}
+.lab-bar{display:flex;height:10px;border-radius:6px;overflow:hidden;margin:6px 0 12px;box-shadow:0 0 14px rgba(46,197,255,.25)}
+.lab-bar span{height:100%}
+.lab-row{display:grid;grid-template-columns:34px minmax(0,1fr) 170px 120px;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:#0b0e1c;border:1px solid #1a2140;margin-bottom:6px;transition:transform .15s,border-color .15s}
+.lab-row:hover{transform:translateX(3px);border-color:#2ec5ff}
+.lab-ico{font-size:20px;text-align:center;filter:drop-shadow(0 0 6px rgba(46,197,255,.5))}
+.lab-t{font:800 13px system-ui,sans-serif;color:#eef1fb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lab-s{font:600 11px system-ui,sans-serif;color:#8f97b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lab-badge{font:800 10px system-ui,sans-serif;padding:3px 8px;border-radius:999px;letter-spacing:.04em;text-align:center}
+.lab-gauge{position:relative;height:16px;border-radius:8px;background:#11152a;overflow:hidden}
+.lab-gauge:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.35)}
+.lab-gauge i{position:absolute;top:2px;bottom:2px;border-radius:6px}
+.lab-gauge em{position:absolute;inset:0;font:800 10px system-ui,sans-serif;color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;text-shadow:0 0 4px #000}
+.lab-row details{grid-column:1/-1;font:500 12px system-ui,sans-serif;color:#c9cfe6}
+.lab-row details summary{cursor:pointer;color:#7db8ff;font-weight:700;font-size:11px}
+.lab-row details p{margin:4px 0}
+.oss-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;margin-top:8px}
+.oss{padding:7px 9px;border-radius:9px;background:#0b0e1c;border:1px solid #1d2442}
+.oss b{font:800 12px system-ui,sans-serif;color:#eef1fb}.oss .lic{float:right;font:700 10px system-ui,sans-serif;color:#7ff0b0}
+.oss .roles{margin-top:4px;display:flex;flex-wrap:wrap;gap:3px}.oss .roles span{font:700 9px system-ui,sans-serif;padding:1px 5px;border-radius:5px;background:#1a2040;color:#a9b4dd}
+@media (max-width:700px){.lab-row{grid-template-columns:28px minmax(0,1fr)}.lab-row .lab-badge,.lab-row .lab-gauge{grid-column:2}}
+
+.cc{position:relative;margin:14px 0 18px;border-radius:16px;padding:14px;background:radial-gradient(120% 140% at 50% 0%,#151a36 0%,#0a0c18 55%,#06070d 100%);border:1px solid rgba(124,77,255,.45);box-shadow:0 0 0 1px rgba(124,77,255,.12),0 10px 40px rgba(60,30,160,.25);color:#e6e9f7;overflow:hidden}
+.cc:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(124,77,255,.08),transparent);background-size:200% 100%;animation:ccsheen 9s linear infinite;pointer-events:none}
+@keyframes ccsheen{from{background-position:200% 0}to{background-position:-200% 0}}
+.cc-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;position:relative}
+.cc-brand{font:900 15px system-ui,sans-serif;letter-spacing:.08em;margin-right:6px;background:linear-gradient(90deg,#a78bfa,#2ec5ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.cc-mode{font:900 14px system-ui,sans-serif;padding:6px 12px;border-radius:10px;letter-spacing:.06em}
+.cc-mode.test{background:rgba(57,135,229,.18);color:#7db8ff;border:1px solid rgba(57,135,229,.6)}
+.cc-mode.live{background:rgba(255,77,109,.2);color:#ff8fa3;border:1px solid #ff4d6d;animation:ccalarm 1.4s ease-in-out infinite}
+@keyframes ccalarm{0%,100%{box-shadow:0 0 0 rgba(255,77,109,0)}50%{box-shadow:0 0 18px rgba(255,77,109,.7)}}
+.cc-pill{display:inline-flex;align-items:center;gap:6px;font:700 12px system-ui,sans-serif;padding:5px 10px;border-radius:999px;background:#0d1020;border:1px solid #262c48;color:#cfd5ee}
+.cc-pill b{color:#fff}.cc-pill i{width:8px;height:8px;border-radius:50%;background:#5b6170;display:inline-block}
+.cc-pill.on i{background:#2bd67b;box-shadow:0 0 8px #2bd67b;animation:rxled 1.6s ease-in-out infinite}.cc-pill.off i{background:#ff4d6d}
+.cc-pill .own{padding:1px 6px;border-radius:6px;font-weight:800;font-size:11px}
+.cc-pill .own.KURUL{background:#3b2a7a;color:#d9ccff}.cc-pill .own.JEV{background:#5a3d10;color:#ffd58a}.cc-pill .own.KURAL{background:#1d2a3a;color:#9fc1e6}
+.cc-clock{margin-left:auto;font:800 16px ui-monospace,Consolas,monospace;color:#cdd3f0;letter-spacing:.06em}
+.cc-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(360px,1.7fr) minmax(280px,1.1fr);gap:12px;margin-top:12px;position:relative}
+@media (max-width:1100px){.cc-grid{grid-template-columns:1fr}}
+.cc-panel{background:rgba(9,11,22,.78);border:1px solid #20263f;border-radius:12px;padding:10px 12px;min-width:0}
+.cc-h{font:800 11px system-ui,sans-serif;letter-spacing:.12em;color:#8f97b8;margin:0 0 8px;display:flex;align-items:center;gap:6px}
+.cc-h .x{margin-left:auto;font-weight:600;letter-spacing:0;color:#6f789c}
+.cc-big{font:900 34px system-ui,sans-serif;line-height:1.05;text-shadow:0 0 22px currentColor}
+.cc-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;margin:8px 0}
+.cc-kpi{font:600 11px system-ui,sans-serif;color:#8f97b8}.cc-kpi b{display:block;font:800 16px system-ui,sans-serif;color:#eef1fb}
+.cc canvas.cc-eq{width:100%;height:120px;display:block;border-radius:8px;background:#05060c}
+.cc-days{display:flex;align-items:flex-end;gap:3px;height:42px;margin-top:6px}
+.cc-days span{flex:1;border-radius:2px 2px 0 0;min-height:2px;position:relative}
+.cc-strat{border:1px solid #1f2540;border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#0b0e1c}
+.cc-strat .t{display:flex;align-items:center;gap:6px;font:800 13px system-ui,sans-serif}
+.cc-strat .t .tags{margin-left:auto;display:flex;gap:4px}
+.cc-tag{font:700 10px system-ui,sans-serif;padding:2px 6px;border-radius:6px;background:#1b2036;color:#aeb6d6}
+.cc-tag.on{background:rgba(43,214,123,.18);color:#7ff0b0}.cc-tag.off{background:rgba(255,77,109,.14);color:#ff9aac}.cc-tag.live{background:rgba(255,77,109,.25);color:#ffb3c0}
+.cc-strat .s{font:600 11px system-ui,sans-serif;color:#9aa3c4;margin-top:3px}
+.cc-spark{display:flex;align-items:center;gap:2px;height:26px;margin-top:5px}
+.cc-spark span{width:7px;border-radius:2px}
+.cc-models{width:100%;border-collapse:collapse;font:600 11px system-ui,sans-serif}
+.cc-models td{padding:3px 4px;border-bottom:1px solid #161b30;white-space:nowrap}
+.cc-models td:first-child{max-width:130px;overflow:hidden;text-overflow:ellipsis}
+.cc-models .led{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+.cc-note{font:600 11px system-ui,sans-serif;color:#aeb6d6;line-height:1.45;margin-top:6px}
+.cc-note b{color:#fff}
+.cc-now{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font:700 12px system-ui,sans-serif;position:relative}
+.cc-now .why{padding:6px 10px;border-radius:10px;background:#0d1020;border:1px solid #2a3150;color:#dfe3f5}
+.cc-toggle{margin-left:auto;cursor:pointer;font:700 12px system-ui,sans-serif;padding:6px 12px;border-radius:10px;background:#1a1f38;color:#c9cfe6;border:1px solid #333b63}
+.cc .rx-health{margin:0 0 8px}.cc .rx-ticker{margin:0 0 8px}.cc canvas#rxCanvas{height:420px}
+.cc .rx-chip.more{cursor:pointer}
+body.cc-compact .cc-extra{display:none !important}
+@media (prefers-reduced-motion:reduce){.cc:before,.cc-mode.live{animation:none}}
 .rx{border-color:#7c4dff !important;background:linear-gradient(180deg,rgba(124,77,255,.10),rgba(0,0,0,0) 40%),var(--surface-1)}
 .rx canvas{width:100%;height:440px;display:block;border-radius:12px;background:#05060c;box-shadow:inset 0 0 40px rgba(124,77,255,.25),0 0 24px rgba(124,77,255,.18)}
 .rx-ticker{overflow:hidden;white-space:nowrap;margin:8px 0 10px;border-radius:8px;background:#07080f;border:1px solid rgba(124,77,255,.35);padding:6px 0;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
@@ -321,6 +395,29 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div class="mmsg" id="modeMsg"></div>
   </section>
 
+  <!-- R2544.104 KOMUTA MERKEZİ (kullanıcı 02.11: "tek bir kartta grafik istatistik tüm bağlamı tek seferde göstermeli; canlıda da aynı testte aynı";
+       R2544.102 Karar Reaktörü bunun ortasında) -->
+  <section class="cc" id="ccCard" aria-label="Komuta merkezi">
+    <div class="cc-top" id="ccTop"><span class="cc-brand">⚡ KOMUTA MERKEZİ</span><span class="cc-mode test" id="ccMode">—</span><span class="cc-clock" id="ccClock">--:--:--</span></div>
+    <div class="cc-grid">
+      <div class="cc-panel" id="ccPnl"><div class="cc-h">💰 SONUÇ <span class="x" id="ccPnlSub">son 30 gün</span></div>
+        <div class="cc-big" id="ccTotR">—</div><div class="cc-note" id="ccBal">—</div>
+        <div class="cc-kpis" id="ccKpis"></div>
+        <canvas class="cc-eq" id="ccEq" role="img" aria-label="Birikimli R eğrisi"></canvas>
+        <div class="cc-days" id="ccDays" title="son 14 gün, günlük R"></div>
+        <div class="cc-h" style="margin-top:10px">SON İŞLEMLER</div><div class="rx-strip" id="rxStrip"></div>
+      </div>
+      <div class="cc-panel rx" id="rxCard" aria-label="Karar reaktörü"><div class="cc-h">🧠 KURUL • KARAR REAKTÖRÜ <span class="x">her modelin oyu kendi renginde çekirdeğe akar • kırmızı yanıp sönen yay = geri verilen kâr</span></div>
+        <div class="rx-health" id="rxHealth" aria-label="Kurul modellerinin sağlığı"></div>
+        <div class="rx-ticker" aria-hidden="true"><div class="rx-track" id="rxTrack"></div></div>
+        <canvas id="rxCanvas" role="img" aria-label="Kurul karar akışı ve açık pozisyon radarı"></canvas>
+      </div>
+      <div class="cc-panel" id="ccRight"><div class="cc-h">🎯 STRATEJİLER <span class="x" id="ccStratSub">son 30 gün</span></div><div id="ccStrats"></div>
+        <div class="cc-h" style="margin-top:10px">🏅 MODEL KARNESİ <span class="x">ilk oy (tartışmadan önce)</span></div><div id="ccModels"></div><div class="cc-note" id="ccJudge"></div>
+      </div>
+    </div>
+    <div class="cc-now" id="ccNow"></div>
+  </section>
   <section class="kpis" id="kpis"></section>
   <section class="guard-strip" id="guardStrip" aria-label="Karar ve koruma (R2544)"></section>
   <section class="card" id="burstCard" aria-label="Vur-kaç: JEV seçimi ve durumları" style="margin:16px 0;border-color:#ddaa43">
@@ -347,7 +444,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
     <div id="z5Host" aria-live="polite">ZİRVE-5 verisi bekleniyor.</div>
   </section>
   <section class="card" id="researchCard" aria-label="Referans projeler ve test sonuçları" style="margin:16px 0;border-color:#58a6ff">
-    <h2>📚 Referans projeler ve test sonuçları <span class="hint">GitHub / TradingView / YouTube kaynaklarından ne alındı, nerede kullanılıyor, aynı veride ölçülen sonuç • kod çalıştırılmaz, mantık yeniden yazılıp ölçülür</span></h2>
+    <h2>📚 KAYNAK LABORATUVARI — referans projeler ve ölçülen sonuçları <span class="hint">GitHub / TradingView / YouTube kaynaklarından ne alındı, nerede kullanılıyor, aynı veride ölçülen sonuç • kod çalıştırılmaz, mantık yeniden yazılıp ölçülür</span></h2>
     <div id="researchHost" aria-live="polite">Kayıt bekleniyor.</div>
     <details style="margin-top:10px"><summary><b>Açık Kaynak Bilgi Provenance — JEV bilgi tabanı (31 repo)</b> <span class="hint">REFERENCE_ONLY • emir/strateji otoritesi yok • JEV çalışırken okunur</span></summary>
       <div id="ossMeta" class="muted"></div>
@@ -357,14 +454,6 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
   <section class="card" id="moverCard" aria-label="Kaçan hareket denetimi" style="margin:16px 0;border-color:#9a7bd8">
     <h2>🔎 Kaçan hareket denetimi <span class="hint">her kapanan 15 dk mumda: 24 sa en çok yükselen 6 / düşen 4 + ZİRVE-5 listesi • her hat O ANDA ne gördü, neden girmedi • emir vermez</span></h2>
     <div id="moverHost" aria-live="polite">Denetim verisi bekleniyor.</div>
-  </section>
-  <!-- R2544.102 KARAR REAKTÖRÜ (kullanıcı 02.11: "afilli animasyonlar, daha afilli") -->
-  <section class="card rx" id="rxCard" aria-label="Karar reaktörü" style="margin:16px 0">
-    <h2>⚡ KARAR REAKTÖRÜ <span class="hint">kurulun son ortak kararı canlı • her modelin oyu kendi renginde çekirdeğe akar • pozisyon radarı: kırmızı yanıp sönen yay = geri verilen kâr • yalnız gösterim</span></h2>
-    <div class="rx-health" id="rxHealth" aria-label="Kurul modellerinin sağlığı"></div>
-    <div class="rx-ticker" aria-hidden="true"><div class="rx-track" id="rxTrack"></div></div>
-    <canvas id="rxCanvas" role="img" aria-label="Kurul karar akışı ve açık pozisyon radarı"></canvas>
-    <div class="rx-strip" id="rxStrip"></div>
   </section>
   <!-- R2544.67.2 (user 20.10: "office katını da kaldırmışsın"): R2544.59 folded these sections closed; they are OPEN by default again -->
   <details class="legacy-jev" id="legacyJevA" open><summary>JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
@@ -788,6 +877,88 @@ function committeeSvg(){
     <text class="o-sub" id="cmBench" x="${CM.x}" y="${CM.y+52}" text-anchor="middle" font-size="10">—</text>
   </g>`;
 }
+// ---------- R2544.104 KOMUTA MERKEZİ ----------
+// Tek kart: mod (TEST / CANLI), çalışıyor mu, karar sahibi (KURAL / JEV / KURUL), JEV, kurul sağlığı, hesap; sonuç (o anki modun son 30 günü:
+// toplam R, işlem, kazanma, ort R, en büyük düşüş, birikimli R eğrisi, günlük R); ortada Karar Reaktörü; sağda stratejiler ve model karnesi;
+// altta "şimdi". TEST'te ve CANLI'da aynı kart, aynı ölçü (veri o anki moddan gelir). Yalnız gösterim.
+const CC={eq:null};
+const ccG=o=>o&&o.data?o.data:o;
+const ccOwner=sw=>!sw?'—':sw.committeeMode===true?'KURUL':sw.jevMode===true?'JEV':'KURAL';
+const ccR=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+'R';
+const ccCol=v=>v>0?'#2bd67b':v<0?'#ff4d6d':'#c9cfe6';
+function ccModel(s){
+  const st=ccG(s?.status)||{},t=ccG(s?.top3)||{},z=ccG(s?.zirve5)||{},acc=ccG(s?.account)||{},tm=st.tradingMode||{},paper=tm.paper||null;
+  const mode=(tm.mode||t.tradingMode||'TEST')==='LIVE'?'LIVE':'TEST',run=tm.run||{},armed=st.armed===true||/ARMED|RUNNING/.test(String(run.state||''));
+  const pd=t.positionDesk||z.positionDesk||{},rows=pd.cmBoard?.rows||[],cc=t.cc||null;
+  const lanes=[{name:'İlk 3',sw:t.switches||null,running:t.running===true,gate:t.gate||null},{name:'ZİRVE-5',sw:z.switches||null,running:z.running===true,gate:z.gate||null}];
+  const jevOn=lanes.some(l=>l.sw?.jevMode===true),bud=ccG(s?.jevBudget)||null;
+  const bal=mode==='LIVE'?{equity:acc.equity??null,net:null,src:'Binance'}:{equity:paper?.equity??acc.equity??null,net:paper?.net??null,src:'sanal hesap'};
+  const open=[...(t.active||[]),...(z.active||[])].length;
+  const models=rows.filter(r=>(r.live?.n||0)+(r.exam?.n||0)>0||r.inTeam).map(r=>({m:rxShort(r.key||r.id),ok:r.healthy===true,team:r.inTeam===true,
+    liveN:r.live?.n||0,examN:r.exam?.n||0,take:r.live?.take||null,skip:r.live?.skip||null,exTake:r.exam?.take||null,exSkip:r.exam?.skip||null,hit:r.exam?.hitPct??r.live?.hitPct??null}))
+    .sort((a,b)=>(b.liveN+b.examN)-(a.liveN+a.examN)).slice(0,8);
+  const strat=(cc?.strategies||[]).map(x=>({...x,sw:x.lane==='ZIRVE5'?z.switches:t.switches,sub:x.key==='ERKEN_LONG'?t.switches?.earlyEnabled:x.key==='TEPE_SHORT'?t.switches?.topEnabled:null}));
+  // why no trade (first blocking reason, in plain words)
+  let why=null;
+  if(!armed)why='Sistem durdu (başlatılmadı)';else if(open)why=null;else{const g=[t.gate,z.gate].filter(x=>x&&x!=='OPEN');why=g.length?('Kapı kapalı: '+g.join(', ')):'Kurala uyan sinyal bekleniyor';}
+  const nm=(t.lastScan5?.nearMisses||[]).slice(0,2).map(x=>`${String(x.symbol||'').replace(/USDT$/,'')} ${x.side||''}: ${x.reason||''}`);
+  return {mode,armed,lanes,jevOn,bud,bal,open,cc,strat,models,committee:pd.cmBoard?.committee||null,desk:pd.comparison||null,deskCounts:cc?.desk||null,why,nm,healthy:rows.filter(r=>r.healthy).length,total:rows.length};
+}
+function ccEq(cv,curve){
+  if(!cv)return;const W=cv.clientWidth||300,H=cv.clientHeight||120,dpr=Math.min(2,window.devicePixelRatio||1);cv.width=W*dpr;cv.height=H*dpr;const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);
+  g.fillStyle='#05060c';g.fillRect(0,0,W,H);if(!curve||curve.length<2){g.fillStyle='#5d6585';g.font='600 12px system-ui';g.fillText('henüz yeterli işlem yok',10,H/2);return;}
+  const ys=[0,...curve.map(p=>p[1])],mn=Math.min(...ys),mx=Math.max(...ys),pad=8,sx=i=>pad+(W-2*pad)*i/(curve.length),sy=v=>H-pad-(H-2*pad)*(v-mn)/((mx-mn)||1);
+  g.strokeStyle='rgba(255,255,255,.12)';g.setLineDash([3,4]);g.beginPath();g.moveTo(0,sy(0));g.lineTo(W,sy(0));g.stroke();g.setLineDash([]);
+  const last=curve[curve.length-1][1],col=last>=0?'#2bd67b':'#ff4d6d';
+  const gr=g.createLinearGradient(0,0,0,H);gr.addColorStop(0,col+'66');gr.addColorStop(1,col+'00');
+  g.beginPath();g.moveTo(sx(0),sy(0));curve.forEach((p,i)=>g.lineTo(sx(i+1),sy(p[1])));g.lineTo(sx(curve.length),sy(mn));g.lineTo(sx(0),sy(mn));g.closePath();g.fillStyle=gr;g.fill();
+  g.shadowColor=col;g.shadowBlur=10;g.strokeStyle=col;g.lineWidth=2;g.beginPath();g.moveTo(sx(0),sy(0));curve.forEach((p,i)=>g.lineTo(sx(i+1),sy(p[1])));g.stroke();g.shadowBlur=0;
+  g.fillStyle=col;g.beginPath();g.arc(sx(curve.length),sy(last),3.5,0,Math.PI*2);g.fill();
+  g.fillStyle='#8f97b8';g.font='600 10px system-ui';g.fillText(ccR(mx),4,12);g.fillText(ccR(mn),4,H-4);
+}
+function renderCC(s){
+  let m;try{m=ccModel(s);}catch(e){console.warn('cc',e);return;}CC.m=m;
+  const $=id=>document.getElementById(id);
+  const md=$('ccMode');if(md){md.className='cc-mode '+(m.mode==='LIVE'?'live':'test');md.textContent=m.mode==='LIVE'?'● CANLI • GERÇEK PARA':'● TEST • sanal hesap';}
+  const top=$('ccTop');if(top){top.querySelectorAll('.cc-pill').forEach(x=>x.remove());const clk=$('ccClock');const add=h=>{const sp=document.createElement('span');sp.innerHTML=h;top.insertBefore(sp.firstChild,clk);};
+    add(`<span class="cc-pill ${m.armed?'on':'off'}"><i></i>${m.armed?'ÇALIŞIYOR':'DURDU'}</span>`);
+    for(const l of m.lanes)add(`<span class="cc-pill ${l.sw?.enabled?(l.running?'on':''):'off'}" title="${esc(l.name)}: ${l.sw?.enabled?'açık':'kapalı'}${l.sw?.liveEnabled?' • CANLI seçili':''} • kapı ${esc(l.gate||'—')}"><i></i>${esc(l.name)} <span class="own ${ccOwner(l.sw)}">${ccOwner(l.sw)}</span>${l.sw?.liveEnabled?' <b>CANLI✓</b>':''}</span>`);
+    add(`<span class="cc-pill ${m.jevOn?'on':''}"><i></i>JEV ${m.jevOn?'<b>AÇIK</b>'+(m.bud?` • ${esc(String(m.bud.remainingUsd??'—'))}$ kaldı`:''):'kapalı'}</span>`);
+    add(`<span class="cc-pill ${m.healthy>=2?'on':'off'}"><i></i>Kurul <b>${m.healthy}/${m.total}</b></span>`);
+    add(`<span class="cc-pill"><i style="background:#2ec5ff"></i>${esc(m.bal.src)} <b>${m.bal.equity!==null&&m.bal.equity!==undefined?Number(m.bal.equity).toFixed(2)+' $':'—'}</b>${m.bal.net!==null&&m.bal.net!==undefined?` <span style="color:${ccCol(m.bal.net)}">${m.bal.net>=0?'+':''}${Number(m.bal.net).toFixed(2)}$</span>`:''}</span>`);
+    add(`<span class="cc-pill ${m.open?'on':''}"><i></i>açık <b>${m.open}</b></span>`);}
+  const a=m.cc?.all||null;
+  const tr=$('ccTotR');if(tr){tr.textContent=a?ccR(a.totR):'—';tr.style.color=a?ccCol(a.totR):'#c9cfe6';}
+  if($('ccPnlSub'))$('ccPnlSub').textContent=`son ${m.cc?.days||30} gün • ${m.mode==='LIVE'?'CANLI':'TEST'}`;
+  if($('ccBal'))$('ccBal').innerHTML=a?`${a.n} işlem • <b style="color:#7ff0b0">${a.wins} kazanç</b> / <b style="color:#ff9aac">${a.n-a.wins} kayıp</b>`:'kapanan işlem yok';
+  if($('ccKpis'))$('ccKpis').innerHTML=a?[['kazanma',a.winPct!==null?'%'+a.winPct:'—'],['işlem başı',ccR(a.avgR)],['en büyük düşüş',ccR(a.maxDDR)],['masa kararı',m.cc?.desk?`${m.cc.desk.decisions} (${m.cc.desk.authorized} yetkili)`:'—']].map(([k,v])=>`<div class="cc-kpi">${k}<b>${esc(v)}</b></div>`).join(''):'';
+  ccEq($('ccEq'),m.cc?.curve||null);
+  const dv=$('ccDays');if(dv){const ds=m.cc?.days14||[],mx=Math.max(0.5,...ds.map(d=>Math.abs(d[1])));dv.innerHTML=ds.map(([d,v])=>`<span title="${esc(d)}: ${ccR(v)}" style="height:${Math.max(2,Math.round(40*Math.abs(v)/mx))}px;background:${v>0?'#2bd67b':v<0?'#ff4d6d':'#2a3150'};box-shadow:0 0 6px ${v>0?'#2bd67b88':v<0?'#ff4d6d88':'transparent'}"></span>`).join('');}
+  // strategies
+  const sv=$('ccStrats');if(sv)sv.innerHTML=m.strat.length?m.strat.map(x=>{const on=x.sw?.enabled===true&&x.sub!==false,live=x.sw?.liveEnabled===true;
+    return `<div class="cc-strat"><div class="t">${esc(x.name)}<span class="tags"><span class="cc-tag ${on?'on':'off'}">${on?'AÇIK':'KAPALI'}</span><span class="cc-tag">${ccOwner(x.sw)}</span>${live?'<span class="cc-tag live">CANLI✓</span>':''}</span></div>
+      <div class="s">${x.n} işlem • %${x.winPct??'—'} • ort <b style="color:${ccCol(x.avgR||0)}">${ccR(x.avgR)}</b> • toplam <b style="color:${ccCol(x.totR)}">${ccR(x.totR)}</b></div>
+      <div class="cc-spark">${(x.last||[]).map(v=>`<span title="${ccR(v)}" style="height:${Math.max(3,Math.round(24*Math.min(1,Math.abs(v)/2.5)))}px;background:${v>0?'#2bd67b':'#ff4d6d'};box-shadow:0 0 5px ${v>0?'#2bd67b':'#ff4d6d'}"></span>`).join('')||'<span style="width:auto;color:#5d6585;font-size:11px">işlem yok</span>'}</div></div>`;}).join(''):'<div class="cc-note">özet yok (PC sürümü eski)</div>';
+  // model scorecard
+  const mv=$('ccModels');if(mv)mv.innerHTML=m.models.length?`<table class="cc-models"><tr style="color:#6f789c"><td>model</td><td>oy</td><td>GİR → ort</td><td>GİRME → ort</td><td>isabet</td></tr>`+m.models.map(x=>{const tk=x.take?.n?ccR(x.take.avgR)+` (${x.take.n})`:x.exTake?.n?ccR(x.exTake.avgR)+` (${x.exTake.n}s)`:'—',sk=x.skip?.n?ccR(x.skip.avgR)+` (${x.skip.n})`:x.exSkip?.n?ccR(x.exSkip.avgR)+` (${x.exSkip.n}s)`:'—';
+    return `<tr><td title="${esc(x.m)}"><span class="led" style="background:${x.ok?'#2bd67b':'#ff4d6d'};box-shadow:0 0 6px ${x.ok?'#2bd67b':'transparent'}"></span>${esc(x.m)}${x.team?' ★':''}</td><td>${x.liveN}+${x.examN}s</td><td>${tk}</td><td>${sk}</td><td>${x.hit!==null?'%'+x.hit:'—'}</td></tr>`;}).join('')+'</table>':'<div class="cc-note">henüz oy yok</div>';
+  const c=m.committee,dk=m.desk?.ILK3,dz=m.desk?.ZIRVE5,acts=m.deskCounts?.acts||{};
+  if($('ccJudge'))$('ccJudge').innerHTML=[
+    c?`<b>Kurul girişte:</b> GİR dediği ${c.live?.take?.n||0} işlem ${ccR(c.live?.take?.avgR)} • GİRME dediği ${c.live?.skip?.n||0} işlem ${ccR(c.live?.skip?.avgR)}${c.missed?` • ${c.missed} işlemde kurul toplanamadı`:''}`:null,
+    dk||dz?`<b>Masa mı kural mı:</b> ${[dk?`İlk 3 ${dk.n} işlem, masa uygulasaydı ${ccR(dk.deskR)} / kural ${ccR(dk.ruleR)} (${dk.better} iyi, ${dk.worse} kötü)`:null,dz?`ZİRVE-5 ${dz.n} işlem ${ccR(dz.deltaR)} fark`:null].filter(Boolean).join(' • ')}`:null,
+    Object.keys(acts).length?`<b>Masa kararları (30 gün):</b> ${Object.entries(acts).map(([k,v])=>`${RX_TR[k]||k} ${v}`).join(' • ')}`:null].filter(Boolean).join('<br>');
+  // JEV panels (vur-kaç, 5M / 15M masaları, JEV kanıt kartları) stay visible only while JEV / OTO actually runs: their numbers are live then
+  {const jevLive=m.jevOn||((ccG(s?.status)||{}).leaderAuto?.enabled===true);for(const id of ['burstCard','legacyJevA','legacyJevB']){const e=$(id);if(e)e.classList.toggle('cc-extra',!jevLive);}}
+  const nw=$('ccNow');if(nw){const btn=`<button class="cc-toggle" id="ccToggle">${document.body.classList.contains('cc-compact')?'⚙️ Ayrıntılı panelleri göster':'⚙️ Ayrıntılı panelleri gizle'}</button>`;
+    nw.innerHTML=`<span class="why">⏱ ŞİMDİ: ${m.open?`<b>${m.open} açık pozisyon</b> masada izleniyor`:esc(m.why||'—')}</span>${m.nm.map(x=>`<span class="why" style="color:#aeb6d6">son bekleyen: ${esc(x)}</span>`).join('')}${btn}`;
+    $('ccToggle').onclick=()=>{const on=!document.body.classList.contains('cc-compact');document.body.classList.toggle('cc-compact',on);try{localStorage.setItem('ccCompact',on?'1':'0');}catch{}renderCC(s);};}
+}
+// compact mode: only the header, mode bar, command center and the two strategy control cards stay; the rest is one click away
+function ccCompactInit(){const wrap=document.querySelector('.wrap');if(!wrap)return;const keep=new Set(['demoBanner','modeBar','ccCard','top3Card','z5Card','researchCard','moverCard']);
+  for(const el of wrap.children){if(el.tagName==='HEADER'||keep.has(el.id))continue;el.classList.add('cc-extra');}
+  let on=true;try{const v=localStorage.getItem('ccCompact');if(v==='0')on=false;}catch{}document.body.classList.toggle('cc-compact',on);}
+setInterval(()=>{const c=document.getElementById('ccClock');if(c)c.textContent=new Date().toLocaleTimeString('tr-TR');},1000);
+
 // RX_BEGIN ---------- R2544.102 KARAR REAKTÖRÜ (kullanıcı 02.11: "bu afilli animasyonlardan ekleyebilir misin, daha afilli olarak")
 // Kurulun son ORTAK kararı canlı: her modelin oyu kendi renginde ışık akışı olarak dönen çekirdeğe akar, çekirdek mutabakatın rengini alır ve
 // sonuç kapısına (GİR / GİRME / TUT / STOP ↑ / YARI AL / ÇIK) tek bir parlak akış gider. Altında açık pozisyon radarı (stop → giriş → 2R → hedef;
@@ -903,7 +1074,10 @@ function renderReactor(s){
   let m;try{m=rxModel(s);}catch(e){console.warn('reactor',e);return;}RX.m=m;
   const hh=document.getElementById('rxHealth');if(hh){const lbl={ok:'çalışıyor',busy:'yoğun',quota:'kota bitti',sick:'hasta'};
     hh.innerHTML=`<span class="hd">KURUL SAĞLIĞI <b style="color:${m.healthy>=3?'#2bd67b':m.healthy>=1?'#ffd54f':'#ff4d6d'}">${m.healthy}/${m.total}</b> çalışıyor • masada ${m.team}${m.healthy<2?' • <span style="color:#ff4d6d">tek modelin yetkisi yok, kural karar verir</span>':''}</span>`+
-      (m.health.length?m.health.map(h=>`<span class="rx-chip ${h.st}${h.team?' team':''}" title="${esc(h.m)} • ${lbl[h.st]}${h.why?' • '+esc(h.why):''}${h.team?' • masada':''}"><i></i>${esc(h.m)} <small>${esc(h.p)}${h.st==='ok'?(h.team?' • masada':''):' • '+esc(h.why||lbl[h.st])}</small></span>`).join(''):'<span class="rx-chip sick"><i></i>kurul bilgisi yok</span>');}
+      // R2544.104: working models always; the others behind one '+N' chip (click to open)
+      // R2544.104 (kullanıcı: '+N çalışmayan kalmasın'): yalnız çalışan modeller (+ masadakiler) ve JEV
+      (()=>{const vis=m.health.filter(h=>h.st==='ok'||h.team);const mh={...m,health:vis};const t3=s.top3?.data||s.top3||{},z5=s.zirve5?.data||s.zirve5||{},jon=t3.switches?.jevMode===true||z5.switches?.jevMode===true,bud=s.jevBudget?.data||s.jevBudget||null;const jev=`<span class="rx-chip ${jon?'ok team':'quota'}" title="JEV (ücretli, OpenRouter): ${jon?'açık':'kapalı'}${bud?' • bugün '+(bud.calls||0)+' çağrı • kalan '+(bud.remainingUsd??'—')+' $':''}"><i></i>JEV <small>${jon?'açık • '+(bud?.calls||0)+' çağrı • '+(bud?.remainingUsd??'—')+'$ kaldı':'kapalı (kural / kurul karar verir)'}</small></span>`;return jev+(vis.length?mh.health.map(h=>`<span class="rx-chip ${h.st}${h.team?' team':''}" title="${esc(h.m)} • ${lbl[h.st]}${h.why?' • '+esc(h.why):''}${h.team?' • masada':''}"><i></i>${esc(h.m)} <small>${esc(h.p)}${h.st==='ok'?(h.team?' • masada':''):' • '+esc(h.why||lbl[h.st])}</small></span>`).join(''):'<span class="rx-chip sick"><i></i>çalışan model yok • kural karar verir</span>');})();
+  }
   const tr=document.getElementById('rxTrack');if(tr){const items=(m.ticker.length?m.ticker:['🤝 kurul kararı bekleniyor • yeni sinyal ya da masa kararı geldiğinde burada akar']).map(x=>`<span>${esc(x)}</span>`).join('<i>✦</i>');tr.innerHTML=items+'<i>✦</i>'+items;}
   const sq=document.getElementById('rxStrip');if(sq){sq.innerHTML=m.closes.length?m.closes.slice().reverse().map(c=>{const a=Math.min(1,Math.abs(c.R)/2.5),col=c.R>0?`rgba(43,214,123,${0.35+0.65*a})`:`rgba(255,77,109,${0.35+0.65*a})`;
     return `<b class="rx-sq" style="background:${col};box-shadow:0 0 ${4+8*a}px ${col}" title="${esc(c.s)} ${c.R>0?'+':''}${c.R.toFixed(2)}R • ${esc(c.lane)}"></b>`;}).join('')+`<span class="rx-sqlbl">son ${m.closes.length} işlem • kazanan ${m.closes.filter(c=>c.R>0).length} • toplam ${(m.closes.reduce((a,c)=>a+c.R,0)>=0?'+':'')}${m.closes.reduce((a,c)=>a+c.R,0).toFixed(1)}R</span>`:'<span class="rx-sqlbl">kapanan işlem yok</span>';}
@@ -1588,6 +1762,7 @@ function renderOffice(s, vinfo){
   setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${(s.derived?.execution?.lastBlock||la.activeBlocker)?'son engel: '+[].concat((s.derived?.execution?.lastBlock||la.activeBlocker).reasons||(s.derived?.execution?.lastBlock||la.activeBlocker).reason||[]).map(trUi).join(', '):'kayıtlı zorunlu engel yok'}`:'LIVE KAPALI');
   try{renderCommittee(s);}catch(e){console.warn('committee',e);} // R2544.86
   try{renderReactor(s);}catch(e){console.warn('reactor',e);} // R2544.102
+  try{renderCC(s);}catch(e){console.warn('cc',e);} // R2544.104
   // R2544.84: İlk 3 / ZİRVE-5 pozisyon masasının son kararı kattaki Pozisyon Yöneticisi masasında (gölge)
   {const dk=[...(s.top3?.active||[]),...(s.zirve5?.active||[])].map(a=>({sym:String(a.symbol||'').replace(/USDT$/,''),d:a.deskInfo?.last})).filter(x=>x.d&&x.d.atIso).sort((x,y)=>Date.parse(y.d.atIso)-Date.parse(x.d.atIso))[0];
    const nm=st.positionManager?.lastReview?.actionTr;
@@ -2509,14 +2684,29 @@ onClick('#btnZ5Save',()=>{
 });
 // ===== R2544.66 referans projeler ve test sonuçları =====
 function renderResearch(s){
-  const el=document.getElementById('researchHost');if(!el)return;const r=s.research;
+  // R2544.104 KAYNAK LABORATUVARI (kullanıcı 02.11: "githublar vs bunlarda alt alta sıralama istatistik grafik afilli veriler olsun"):
+  // her kaynak bir satır, durumuna göre sıralı (kullanılan en üstte), ölçülen R bir çubuk göstergede, ayrıntı tıklayınca; altta JEV'in GitHub bilgi tabanı.
+  const el=document.getElementById('researchHost');if(!el)return;const r=s.research?.data||s.research;
   if(!r||!Array.isArray(r.entries)){el.innerHTML='<p>Kayıt okunamadı (Office klasöründe research-registry.json yok).</p>';return;}
-  const L=r.statusLabels||{},cls={USED:'good',DRAWN:'good',WATCH:'warn',TESTED_NO_EDGE:'bad',NOT_FOUND:'bad',REFERENCE:''};
-  const n=k=>r.entries.filter(e=>e.status===k).length;
-  let html=`<p>${esc(r.note||'')}</p><p>Durum: <b>${n('USED')}</b> kullanılıyor • ${n('DRAWN')} grafikte • ${n('WATCH')} izleniyor • ${n('TESTED_NO_EDGE')} test edildi, kenar yok • ${n('REFERENCE')} JEV referansı • güncelleme ${esc(r.updatedAt||'—')}</p>`;
-  html+='<div style="overflow-x:auto"><table class="perf"><thead><tr><th>Kaynak</th><th>Ne alındı</th><th>Nerede</th><th>Test</th><th>Sonuç</th><th>Durum</th></tr></thead><tbody>';
-  for(const e of r.entries)html+=`<tr><td><b>${esc(e.source)}</b><br><span class="muted">${esc(e.kind||'')}</span></td><td>${esc(e.taken||'—')}</td><td>${esc(e.where||'—')}</td><td>${esc(e.test||'—')}</td><td>${esc(e.result||'—')}</td><td><span class="${cls[e.status]||''}">${esc(L[e.status]||e.status)}</span></td></tr>`;
-  el.innerHTML=html+'</tbody></table></div>';
+  const L=r.statusLabels||{},ORDER=['USED','DRAWN','WATCH','REFERENCE','TESTED_NO_EDGE','NOT_FOUND'],COL={USED:'#2bd67b',DRAWN:'#2ec5ff',WATCH:'#ffd54f',REFERENCE:'#a78bfa',TESTED_NO_EDGE:'#ff7a59',NOT_FOUND:'#ff4d6d'};
+  const ICO=k=>/youtube/i.test(k)?'▶️':/tradingview/i.test(k)?'📈':/github/i.test(k)?'🐙':/laborat/i.test(k)?'🧪':/yerel/i.test(k)?'🏠':'📄';
+  const num=t=>{const m=String(t||'').replace(/−/g,'-').match(/([+-]\d+(?:[.,]\d+)?|\d+[.,]\d+)\s*R\b/);return m?Number(m[1].replace(',','.')):null;};
+  const nOf=t=>{const m=String(t||'').match(/\bn\s?([\d.]+)/);return m?m[1]:null;};
+  const es=[...r.entries].sort((a,b)=>ORDER.indexOf(a.status)-ORDER.indexOf(b.status));
+  const cnt=k=>r.entries.filter(e=>e.status===k).length,tot=r.entries.length||1;
+  let h=`<div class="lab-head">${ORDER.filter(k=>cnt(k)).map(k=>`<div class="lab-stat" style="border-color:${COL[k]}55"><b style="color:${COL[k]};text-shadow:0 0 12px ${COL[k]}">${cnt(k)}</b>${esc(L[k]||k)}</div>`).join('')}
+    <div class="lab-stat"><b>${r.entries.length}</b>kaynak • güncelleme ${esc(r.updatedAt||'—')}</div></div>
+    <div class="lab-bar">${ORDER.filter(k=>cnt(k)).map(k=>`<span title="${esc(L[k]||k)} ${cnt(k)}" style="width:${100*cnt(k)/tot}%;background:${COL[k]}"></span>`).join('')}</div>`;
+  for(const e of es){const R=num(e.result),n=nOf(e.result),c=COL[e.status]||'#8f97b8',w=R===null?0:Math.min(50,Math.abs(R)/0.5*50);
+    h+=`<div class="lab-row" style="border-left:3px solid ${c}"><div class="lab-ico">${ICO(e.kind||'')}</div>
+      <div><div class="lab-t" title="${esc(e.source)}">${esc(e.source)}</div><div class="lab-s">${esc(e.kind||'')} • ${esc(e.where||e.taken||'')}</div></div>
+      <div class="lab-gauge" title="ölçülen sonuç (işlem başı R)">${R===null?'':`<i style="${R>=0?'left:50%':'right:50%'};width:${w}%;background:${R>=0?'#2bd67b':'#ff4d6d'};box-shadow:0 0 8px ${R>=0?'#2bd67b':'#ff4d6d'}"></i>`}<em>${R===null?'ölçü yok':(R>=0?'+':'')+R.toFixed(2)+'R'}${n?' • n '+esc(n):''}</em></div>
+      <div class="lab-badge" style="background:${c}22;color:${c};border:1px solid ${c}88;box-shadow:0 0 10px ${c}33">${esc(L[e.status]||e.status)}</div>
+      <details><summary>ne alındı • nasıl ölçüldü • sonuç</summary><p><b>Alınan:</b> ${esc(e.taken||'—')}</p><p><b>Nerede:</b> ${esc(e.where||'—')}</p><p><b>Test:</b> ${esc(e.test||'—')}</p><p><b>Sonuç:</b> ${esc(e.result||'—')}</p></details></div>`;}
+  const k=s.knowledge?.data||{},repos=Array.isArray(k.openSourceRepos)?k.openSourceRepos:[];
+  if(repos.length)h+=`<div class="cc-h" style="margin-top:12px;color:#8f97b8">🐙 JEV BİLGİ TABANI • ${repos.length} GitHub deposu <span class="x">yalnız referans • emir yetkisi yok</span></div><div class="oss-grid">${repos.map(o=>`<div class="oss"><span class="lic">${esc(o.license||'')}</span><b>${esc(o.repo||'')}</b><div class="roles">${(o.roles||[]).slice(0,4).map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`).join('')}</div>`;
+  h+=`<p class="cc-note" style="margin-top:10px">${esc(r.note||'')}</p>`;
+  el.innerHTML=h;
 }
 // ===== R2544.65 kaçan hareket denetimi =====
 const AUD_TR={SIGNAL:'SİNYAL',V2_NO_BREAKOUT:'kırılım yok',V2_WAITING_RETEST:'kırıldı, geri test bekleniyor',V2_RETEST_ALREADY_PASSED:'geri test geçti (kovalamaz)',V2_BREAKOUT_FAILED:'kırılım bozuldu',
@@ -2644,6 +2834,7 @@ $('#mirrorZoomReset').addEventListener('click',()=>{mirrorView.z=1;mirrorView.x=
   bp.addEventListener('click',()=>{mirrorOpts.pos=!mirrorOpts.pos;try{localStorage.setItem('jev-mirror-pos',mirrorOpts.pos?'1':'0');}catch{}paint();if(last)renderMirror(last);});
   paint();
 })();
+try{ccCompactInit();}catch(e){console.warn("ccCompact",e);} // R2544.104
 buildOffice(); tick(); setInterval(tick, 5000);
 </script>
 </body>

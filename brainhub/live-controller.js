@@ -7055,7 +7055,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const measured=closes.filter(p=>finite(p.netPnl)!==null),mode=testModeNow()?'TEST':'LIVE';
     const sum=xs=>({closed:xs.length,wins:xs.filter(p=>p.netPnl>0).length,losses:xs.filter(p=>p.netPnl<0).length,netPnl:Number(xs.reduce((a,p)=>a+p.netPnl,0).toFixed(4))});
     const open=new Map((ledgerState.open||[]).map(p=>[p.symbol,p]));
-    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),
+    // R2544.104 KOMUTA MERKEZİ: o anki modun son 30 günü (İlk 3 + ZİRVE-5 dersleri)
+    const cc=(()=>{try{return top3Lib.commandSummary([...(top3State.lessons||[]),...(z5State().lessons||[])],{mode,now});}catch{return null;}})();
+    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),cc,
       switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,committeeMode:cfg.committeeMode===true,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true,topSweep:cfg.top?.requireSweep!==false},partial:{...(cfg.partial||{})},
       subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
         const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};

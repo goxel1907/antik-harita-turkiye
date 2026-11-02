@@ -21,7 +21,7 @@ test('R2544.102 reactor model: the latest committee event wins (desk vs entry), 
   m=ctx.rxModel({});assert.equal(m.ev,null);assert.equal(m.radars.length,0);assert.equal(m.closes.length,0);
 });
 test('R2544.102 reactor wiring: section, canvas, ticker and strip exist; it runs on every snapshot; reduced motion respected; display only',()=>{
-  assert.match(html,/<section class="card rx" id="rxCard"/);assert.match(html,/<canvas id="rxCanvas"/);assert.match(html,/id="rxTrack"/);assert.match(html,/id="rxStrip"/);
+  assert.match(html,/<div class="cc-panel rx" id="rxCard"/); // R2544.104: inside the command centerassert.match(html,/<canvas id="rxCanvas"/);assert.match(html,/id="rxTrack"/);assert.match(html,/id="rxStrip"/);
   assert.match(html,/try\{renderReactor\(s\);\}catch\(e\)\{console\.warn\('reactor',e\);\}/);assert.match(html,/prefers-reduced-motion: reduce/);assert.match(html,/@media \(prefers-reduced-motion:reduce\)\{\.rx-track,\.rx-sq\{animation:none\}\}/);
   assert.doesNotMatch(src,/fetch\(|\/api\/control|postJson|top3Control|z5Control/,'the reactor never sends anything');
 });
