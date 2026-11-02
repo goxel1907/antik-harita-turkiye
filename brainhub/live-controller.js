@@ -6876,8 +6876,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const gate=z5Gate(cfg);z.lastGate=gate.ok?'OPEN':gate.reason;
       const now=clock(),bar=Math.floor(now/z5Lib.M15)*z5Lib.M15-z5Lib.M15;
       let scanned=false;
-      if(now-(bar+z5Lib.M15)>=8000&&z.lastBar!==bar){
+      if(now-(bar+z5Lib.M15)>=8000&&z.lastBar!==bar&&!(z.retryBar===bar&&(now<(finite(z.retryAt)||0)||now-(bar+z5Lib.M15)>=180000))){
         z.lastBar=bar;const r=await z5Scan(cfg,bar);z.lastScan=r;scanned=true;
+        // R2544.108 (kullanıcı 02.11 "hiç işleme giremedi"): 24 sa listesi gelmezse mum kullanılmış sayılmaz (25.10'da 96 taramanın 73'ü
+        // bu yüzden boş geçti); kapanıştan sonraki 3 dk içinde 20 sn arayla yeniden denenir. Sonra mum bırakılır (onay bayatlar, kovalama yok).
+        if(r.errors.includes('TICKER_24HR')&&clock()-(bar+z5Lib.M15)<180000){z.lastBar=null;z.retryBar=bar;z.retryAt=clock()+20000;}
         try{store.journal('ZIRVE5_SCAN',null,{bar:r.bar,top:r.top.map(x=>({symbol:x.symbol,rank:x.rank,range24:x.range24,change24:x.change24,zones:x.zones.length,signals:x.signals})),armed:r.armed,signals:r.signals,errors:r.errors.slice(0,6),gate:z.lastGate,version:z5Lib.ZIRVE5_VERSION});}catch{}
         saveTop3State();
       }
