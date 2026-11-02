@@ -56,14 +56,15 @@ const unusableWhy = rec => { const e = String(rec?.error || '');
 const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && unusableWhy(rec) && now - (Number(rec.at) || 0) < GONE_TTL_MS);
 // R2544.100: Ollama Cloud free = ONE cloud model at a time -> at most 1 member from it (parallel calls would collide)
 // R2544.103: Groq free = ~8K tokens per minute per model (prompt + max_tokens); two Groq members asked in the same minute overflow it
-const PROVIDER_CAP = { ollama:1, groq:1 };
+// R2544.112: Google AI Studio quota is per MODEL (each Gemini model its own daily pool) -> up to 5 Gemini seats; a cap may now be above perProvider
+const PROVIDER_CAP = { ollama:1, groq:1, gemini:5 };
 function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false, caps = PROVIDER_CAP } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
     if (seen.has(m)) continue; seen.add(m);
     if (have.has(m) || /^(kr|gc|oc)\//.test(m) || /qwen3-coder/.test(m) || ROUTER_NOT_TEXT.test(m) || (!cand.has(m) && !strong.test(m))) continue;
     if (gone('ROUTER:' + m)) continue;
-    const p = String(m).split('/')[0], n = per.get(p) || 0; if (n >= Math.min(perProvider, caps?.[p] ?? perProvider)) continue;
+    const p = String(m).split('/')[0], n = per.get(p) || 0; if (n >= (caps?.[p] ?? perProvider)) continue;
     per.set(p, n + 1); out.push(m); if (out.length >= max) break;
   }
   return out;

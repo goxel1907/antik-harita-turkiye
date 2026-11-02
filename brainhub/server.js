@@ -1590,8 +1590,17 @@ const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|
 // R2544.96: providers' models open TODAY (NVIDIA public /v1/models 27.10; Groq docs 27.10: llama-3.3 / maverick / qwen3-32b moved to enterprise;
 // Gemini 3.7 / 3.8 Flash answered 429 quota 0 on the free key, 3.6 Flash works). Tried first; a gone one gives its seat to the next.
 // R2544.100: Ollama Cloud (user added the key 28.10; ollama.com/api/tags 28.10: gpt-oss:120b, glm-5.3, deepseek-v4.1-flash ... - 9Router's own list is partly stale)
-const ROUTER_CANDIDATES=['ollama/gpt-oss:120b','ollama/glm-5.3','ollama/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/minimaxai/minimax-m3.1-flash','nvidia/nvidia/nemotron-3-super-120b-a12b',
-  'groq/openai/gpt-oss-120b','groq/qwen/qwen3.8-27b','gemini/gemini-3.6-flash','gemini/gemma-4-31b-it','gemini/gemini-3.5-flash-lite'];
+// R2544.112 (kullanıcı 02.11: "kotası dolmayanları ekle, router ayarlarımız boşa gitmesin; tüm router özelliklerine bak"): 9Router kataloğu 02.11
+// (%APPDATA%\9router\model-catalog.json) ve sağlayıcı sayfaları. Google AI Studio'da her model AYRI günlük kota -> Gemini'den 5 koltuk;
+// NVIDIA NIM / Groq eski adlar 410/404 verdi -> kataloğun bugünkü adları; GitHub Models (model başına günde 50-150) ve Cloudflare Workers AI
+// (günde 10.000 neuron) ücretsiz, kart istemez: kullanıcı 9Router'da bağlayınca kendiliğinden devreye girer (bağlı değilse 6 hatada yer bırakır).
+const COMMITTEE_DROP=/^ROUTER:(kr|gc)\//;
+const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash','gemini/gemini-2.5-flash','gemini/gemma-4-31b-it',
+  'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
+  'nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
+  'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
+  'github/claude-sonnet-4.6','github/gpt-5.4','github/gemini-3.6-flash','github/grok-4.5',
+  'cloudflare-ai/deepseek-v4.1-flash-1017','cloudflare-ai/glm-5.3-flash','cloudflare-ai/kimi-k2.6']; // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
@@ -1603,7 +1612,9 @@ const routerMaxTokens=m=>/^groq\//.test(String(m))?1500:4096;
 const routerCall=m=>async({system,prompt,validate})=>{try{const out=await callModel(m,[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}],110000,{maxTokens:routerMaxTokens(m),validate});return {ok:true,text:out.text,model:m};}catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:m};}};
 // R2544.99: the exam never spends the Google AI Studio daily quota (28.10 05:00: Gemini 3.6 Flash answered 429 to the LIVE desk; the exam used the same key)
 function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){
-  const fixed=traderRouterMembers(),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
+  // R2544.112 (kullanıcı 02.11: "Kiro'nun aylık istek limiti çok çabuk doluyor, çıkaralım"): Kiro (kr/, aylık MONTHLY_REQUEST_COUNT 402) ve
+  // Gemini CLI (gc/, 02.11 41 kez üst üste zaman aşımı) kurulda yer tutmaz; JEV'in kendi model ayarına dokunulmaz.
+  const fixed=traderRouterMembers().filter(m=>!COMMITTEE_DROP.test(m.id)),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
   const extra=pickRouterExtras(committeeRouterIds.ids||[],{have,strong:ROUTER_STRONG,perProvider:3,max:16,candidates:ROUTER_CANDIDATES,gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
   // R2544.104 (kullanıcı 02.11: "çalışmayan modeller çalışanlar ile değişebilsin; OpenRouter'da yüzlerce model var"): the preferred list first, then the
@@ -2477,7 +2488,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.111';
+const RUNTIME_RELEASE='R2544.112';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

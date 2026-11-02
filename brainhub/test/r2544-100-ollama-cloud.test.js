@@ -9,8 +9,8 @@ test('R2544.100 one Ollama Cloud member at most (today\'s models first); a gone 
   const ids=['ollama/gpt-oss:120b','ollama/kimi-k2.5','ollama/glm-5','ollama/minimax-m2.5','ollama/deepseek-v4.1-flash:cloud','groq/openai/gpt-oss-120b'];
   let out=MC.pickRouterExtras(ids,{strong:STRONG,perProvider:3,max:12,candidates:CAND});
   assert.deepEqual(out.filter(m=>m.startsWith('ollama/')),['ollama/gpt-oss:120b']);
-  out=MC.pickRouterExtras(ids,{strong:STRONG,perProvider:3,max:12,candidates:CAND,gone:id=>id==='ROUTER:ollama/gpt-oss:120b'});
-  assert.deepEqual(out.filter(m=>m.startsWith('ollama/')),['ollama/glm-5.3'],'the next of today\'s list');
+  out=MC.pickRouterExtras(ids,{strong:STRONG,perProvider:3,max:16,candidates:CAND,gone:id=>id==='ROUTER:ollama/gpt-oss:120b'});
+  assert.deepEqual(out.filter(m=>m.startsWith('ollama/')),['ollama/kimi-k2.5'],'the next model takes the seat (R2544.112: Ollama is paid, one candidate left)');
   assert.equal(MC.limitOf('ROUTER:ollama/gpt-oss:120b').text,'Ollama Cloud oturum/hafta');
   assert.ok(sv.includes(String.raw`...extra.filter(m=>!(noAiStudio&&/^ROUTER:(gemini|ollama)\//.test(m.id)))`));
 });
