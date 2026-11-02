@@ -566,7 +566,7 @@ const DISCRIM_MIN_N = 8, DISCRIM_GAP = 0.25, LAB_FACTOR_GAP = 0.10;
 // trade-autopsy.js ile aynı tanımlar): etken değerinin kayıplardaki / kazançlardaki sıklığı. TEST'te 18 dersle 'ayırt edici' çıkan
 // 'TEPE SHORT: hacim gelmedi' (kayıp %60 / kazanç %25) 6 ayda kayıp %25 / kazanç %25: tesadüf; 30 dk erken çıkış da sonucu bozdu (-0,03R).
 // Son dersler bir etkeni ayırt edici gösterse bile bu hafıza aynı yönde en az 10 puan fark göstermiyorsa ders sayılmaz (TEST_ONLY).
-const LAB_FACTORS = Object.freeze({"LONG_EARLY_RETEST":{"losses":331,"wins":173,"gecGiris:true":{"lossPct":0.698,"winPct":0.751},"btc:TERS":{"lossPct":0.018,"winPct":0.058},"btc:YONDE":{"lossPct":0.012,"winPct":0.035},"hacim:YOK":{"lossPct":0.112,"winPct":0.075},"hacim:GUCLU":{"lossPct":0.659,"winPct":0.803},"seviye2R:true":{"lossPct":0.193,"winPct":0.133}},"SHORT_TOP_BREAK":{"losses":307,"wins":188,"gecGiris:true":{"lossPct":0,"winPct":0},"btc:TERS":{"lossPct":0.104,"winPct":0.165},"btc:YONDE":{"lossPct":0.052,"winPct":0.314},"hacim:YOK":{"lossPct":0.254,"winPct":0.245},"hacim:GUCLU":{"lossPct":0.27,"winPct":0.271},"seviye2R:true":{"lossPct":0.824,"winPct":0.846}},"ZIRVE5_FIBO_LONG":{"losses":133,"wins":98,"gecGiris:true":{"lossPct":0.12,"winPct":0.122},"btc:TERS":{"lossPct":0.075,"winPct":0.071},"btc:YONDE":{"lossPct":0.068,"winPct":0.122},"hacim:YOK":{"lossPct":0.353,"winPct":0.265},"hacim:GUCLU":{"lossPct":0.241,"winPct":0.418},"seviye2R:true":{"lossPct":0.293,"winPct":0.235}},"ZIRVE5_FIBO_SHORT":{"losses":133,"wins":98,"gecGiris:true":{"lossPct":0.12,"winPct":0.122},"btc:TERS":{"lossPct":0.075,"winPct":0.071},"btc:YONDE":{"lossPct":0.068,"winPct":0.122},"hacim:YOK":{"lossPct":0.353,"winPct":0.265},"hacim:GUCLU":{"lossPct":0.241,"winPct":0.418},"seviye2R:true":{"lossPct":0.293,"winPct":0.235}}});
+const LAB_FACTORS = Object.freeze({"LONG_EARLY_RETEST":{"losses":331,"wins":173,"gecGiris:true":{"lossPct":0.698,"winPct":0.751},"btc:TERS":{"lossPct":0.018,"winPct":0.058},"btc:YONDE":{"lossPct":0.012,"winPct":0.035},"hacim:YOK":{"lossPct":0.112,"winPct":0.075},"hacim:GUCLU":{"lossPct":0.659,"winPct":0.803},"seviye2R:true":{"lossPct":0.193,"winPct":0.133},"rankBand:11+":{"lossPct":0.565,"winPct":0.532},"levelType:PWH":{"lossPct":0.447,"winPct":0.422},"volBand:5-15":{"lossPct":0.447,"winPct":0.393},"stopBand:2-4":{"lossPct":0.278,"winPct":0.318},"fundBand:NORMAL":{"lossPct":0.795,"winPct":0.78},"session:ASYA":{"lossPct":0.459,"winPct":0.451},"pos24Band:ORTA":{"lossPct":0.411,"winPct":0.382},"rankBand:4-10":{"lossPct":0.423,"winPct":0.439},"levelType:PMH":{"lossPct":0.553,"winPct":0.578},"stopBand:<2":{"lossPct":0.695,"winPct":0.665},"fundBand:NEGATIF":{"lossPct":0.063,"winPct":0.069},"pos24Band:TEPE":{"lossPct":0.574,"winPct":0.595},"volBand:<5":{"lossPct":0.211,"winPct":0.243},"session:AVRUPA":{"lossPct":0.278,"winPct":0.254},"pos24Band:ALT":{"lossPct":0.015,"winPct":0.023},"fundBand:YUKSEK":{"lossPct":0.142,"winPct":0.15},"volBand:15+":{"lossPct":0.341,"winPct":0.364},"session:ABD":{"lossPct":0.263,"winPct":0.295},"stopBand:4+":{"lossPct":0.027,"winPct":0.017},"rankBand:1-3":{"lossPct":0.012,"winPct":0.029}},"SHORT_TOP_BREAK":{"losses":307,"wins":188,"gecGiris:true":{"lossPct":0,"winPct":0},"btc:TERS":{"lossPct":0.104,"winPct":0.165},"btc:YONDE":{"lossPct":0.052,"winPct":0.314},"hacim:YOK":{"lossPct":0.254,"winPct":0.245},"hacim:GUCLU":{"lossPct":0.27,"winPct":0.271},"seviye2R:true":{"lossPct":0.824,"winPct":0.846},"rankBand:4-10":{"lossPct":0.622,"winPct":0.606},"volBand:15+":{"lossPct":0.13,"winPct":0.128},"stopBand:4+":{"lossPct":0.524,"winPct":0.569},"fundBand:NORMAL":{"lossPct":0.795,"winPct":0.803},"session:ASYA":{"lossPct":0.407,"winPct":0.452},"pos24Band:ORTA":{"lossPct":0.971,"winPct":0.989},"volBand:5-15":{"lossPct":0.44,"winPct":0.495},"stopBand:2-4":{"lossPct":0.463,"winPct":0.41},"fundBand:NEGATIF":{"lossPct":0.046,"winPct":0.053},"volBand:<5":{"lossPct":0.43,"winPct":0.378},"fundBand:YUKSEK":{"lossPct":0.16,"winPct":0.144},"rankBand:11+":{"lossPct":0.218,"winPct":0.266},"rankBand:1-3":{"lossPct":0.16,"winPct":0.128},"session:AVRUPA":{"lossPct":0.238,"winPct":0.261},"session:ABD":{"lossPct":0.355,"winPct":0.287},"stopBand:<2":{"lossPct":0.013,"winPct":0.021},"pos24Band:TEPE":{"lossPct":0.029,"winPct":0.011}},"ZIRVE5_FIBO_LONG":{"losses":133,"wins":98,"gecGiris:true":{"lossPct":0.12,"winPct":0.122},"btc:TERS":{"lossPct":0.075,"winPct":0.071},"btc:YONDE":{"lossPct":0.068,"winPct":0.122},"hacim:YOK":{"lossPct":0.353,"winPct":0.265},"hacim:GUCLU":{"lossPct":0.241,"winPct":0.418},"seviye2R:true":{"lossPct":0.293,"winPct":0.235},"lthWith:false":{"lossPct":0.447,"winPct":0.5},"pocInPath2R:true":{"lossPct":0.171,"winPct":0.24},"obOppIn2R:true":{"lossPct":0.25,"winPct":0.2},"stopBand:4+":{"lossPct":0.763,"winPct":0.84},"session:ASYA":{"lossPct":0.355,"winPct":0.4},"lthWith:true":{"lossPct":0.553,"winPct":0.5},"obOppIn2R:false":{"lossPct":0.75,"winPct":0.8},"stopBand:2-4":{"lossPct":0.211,"winPct":0.16},"session:ABD":{"lossPct":0.355,"winPct":0.34},"pocInPath2R:false":{"lossPct":0.829,"winPct":0.76},"session:AVRUPA":{"lossPct":0.289,"winPct":0.26},"stopBand:<2":{"lossPct":0.026,"winPct":0}},"ZIRVE5_FIBO_SHORT":{"losses":133,"wins":98,"gecGiris:true":{"lossPct":0.12,"winPct":0.122},"btc:TERS":{"lossPct":0.075,"winPct":0.071},"btc:YONDE":{"lossPct":0.068,"winPct":0.122},"hacim:YOK":{"lossPct":0.353,"winPct":0.265},"hacim:GUCLU":{"lossPct":0.241,"winPct":0.418},"seviye2R:true":{"lossPct":0.293,"winPct":0.235},"lthWith:true":{"lossPct":0.316,"winPct":0.563},"pocInPath2R:true":{"lossPct":0.14,"winPct":0.167},"obOppIn2R:true":{"lossPct":0.281,"winPct":0.375},"stopBand:2-4":{"lossPct":0.193,"winPct":0.104},"session:AVRUPA":{"lossPct":0.333,"winPct":0.417},"lthWith:false":{"lossPct":0.684,"winPct":0.438},"pocInPath2R:false":{"lossPct":0.86,"winPct":0.833},"obOppIn2R:false":{"lossPct":0.719,"winPct":0.625},"stopBand:4+":{"lossPct":0.789,"winPct":0.813},"session:ASYA":{"lossPct":0.439,"winPct":0.417},"session:ABD":{"lossPct":0.228,"winPct":0.167},"stopBand:<2":{"lossPct":0.018,"winPct":0.083}}});
 const CAUSE_SHORT = { HIZLI_TERS:'hızlı ters dönüş', STOP_AVI:'stop avı (yön doğru)', YANLIS_YON:'yön yanlış', KARSI_SEVIYE:'karşı seviyeden döndü', PIYASA_TERS:'BTC ters',
   TAKIP_HACMI_YOK:'hacim gelmedi', GEC_GIRIS:'giriş öncesi koşu', ZAMAN:'süre doldu', BELIRSIZ_YON:'yön belirsiz', TEMIZ_DEVAM:'temiz devam', DIRENC_SONRASI:'sarsılıp döndü',
   PIYASA_DESTEGI:'BTC destekledi', HACIMLI_TAKIP:'hacimli takip', KAR_GERI_VERDI:'kârı geri verdi', HEDEF_ERKEN:'hedef erken', KAR_KORUMA:'kâr koruma + başabaş' };
@@ -575,17 +575,50 @@ const FACTOR_DEFS = [
   ['gecGiris', v => (v === true ? 'girişten önce 30 dk içinde fiyat zaten 1,5R+ yönde gitmişti' : null)],
   ['btc', v => (v === 'TERS' ? 'BTC işlem süresince ters' : v === 'YONDE' ? 'BTC işlem süresince yönde' : null)],
   ['hacim', v => (v === 'YOK' ? 'girişten sonra hacim gelmedi' : v === 'GUCLU' ? 'girişten sonra güçlü hacim' : null)],
-  ['seviye2R', v => (v === true ? '2R içinde karşı hacim seviyesi vardı' : null)]
+  ['seviye2R', v => (v === true ? '2R içinde karşı hacim seviyesi vardı' : null)],
+  // R2544.107 (kullanıcı 02.11: "110 derste nasıl 1 doğrulanmış ders oluyor"): GİRİŞTE BİLİNEN etkenler; bantlar önceden sabit, 6 aylık hafızası
+  // harness/indikator/lab_factors2.js ile aynı tanımla (İlk 3 504+495 işlem, ZİRVE-5 105+126). Değer canlı dersin özelliklerinden okunur.
+  ['rankBand', v => (v ? 'yükselen sırası ' + v : null)],
+  ['levelType', v => (v === 'PDH' ? 'kırılan seviye: önceki GÜN tepesi' : v === 'PWH' ? 'kırılan seviye: önceki HAFTA tepesi' : v === 'PMH' ? 'kırılan seviye: önceki AY tepesi' : null)],
+  ['volBand', v => (v ? 'hacim katı ' + v : null)],
+  ['stopBand', v => (v ? 'stop %' + v : null)],
+  ['fundBand', v => (v === 'YUKSEK' ? 'fonlama yüksek (>= %0,03)' : v === 'NEGATIF' ? 'fonlama negatif' : null)],
+  ['session', v => (v === 'ASYA' ? 'saat: Asya (UTC 0-7)' : v === 'AVRUPA' ? 'saat: Avrupa (UTC 8-13)' : v === 'ABD' ? 'saat: ABD (UTC 14-23)' : null)],
+  ['pos24Band', v => (v === 'TEPE' ? '24 sa aralığın tepesinde (>= %90)' : v === 'ALT' ? '24 sa aralığın alt yarısında' : null)],
+  ['lthWith', v => (v === 'true' ? 'trend işlemle aynı yönde (LTH)' : v === 'false' ? 'trend işlemle aynı yönde değil (LTH)' : null)],
+  ['pocInPath2R', v => (v === 'true' ? 'POC 2R yolunun üstünde' : null)],
+  ['obOppIn2R', v => (v === 'true' ? '2R içinde karşı order block' : null)]
 ];
+// R2544.107: the value of a factor for one lesson (the old four come from the autopsy, the new ones from the features known at entry)
+const FB = { rank:v => v === null || v === undefined ? null : v <= 3 ? '1-3' : v <= 10 ? '4-10' : '11+', vol:v => !Number.isFinite(v) ? null : v < 5 ? '<5' : v < 15 ? '5-15' : '15+',
+  stop:v => !Number.isFinite(v) ? null : v < 0.02 ? '<2' : v < 0.04 ? '2-4' : '4+', fund:v => !Number.isFinite(v) ? null : v >= 0.0003 ? 'YUKSEK' : v <= -0.0003 ? 'NEGATIF' : 'NORMAL',
+  session:h => !Number.isFinite(h) ? null : h < 8 ? 'ASYA' : h < 14 ? 'AVRUPA' : 'ABD', pos:p => !Number.isFinite(p) ? null : p >= 0.9 ? 'TEPE' : p < 0.5 ? 'ALT' : 'ORTA' };
+const ZRULE = r => /^ZIRVE5/.test(String(r));
+function factorValue(l, key) {
+  const f = l?.features || {}, ind = f.ind || {}, z = ZRULE(l?.rule), num = v => (v === null || v === undefined || v === '' ? NaN : Number(v));
+  switch (key) {
+    case 'rankBand': return z ? null : FB.rank(num(f.rank) || null);
+    case 'levelType': return z || l.side !== 'LONG' ? null : (['PDH', 'PWH', 'PMH'].includes(f.levelName) ? f.levelName : null);
+    case 'volBand': return z ? null : FB.vol(num(l.side === 'LONG' ? f.volMult : f.topVolMult));
+    case 'stopBand': return FB.stop(num(l.stopPct ?? f.entryCtx?.stopPct));
+    case 'fundBand': return z ? null : FB.fund(num(f.fund));
+    case 'session': return Number.isFinite(Number(l.openedAt)) ? FB.session(new Date(Number(l.openedAt)).getUTCHours()) : null;
+    case 'pos24Band': return z ? null : FB.pos(num(f.pa?.range?.posPct) / 100);
+    case 'lthWith': return !z || !ind.lth?.trend ? null : String(ind.lth.trend === 'WITH');
+    case 'pocInPath2R': return !z || typeof ind.lth?.pocInPath2R !== 'boolean' ? null : String(ind.lth.pocInPath2R);
+    case 'obOppIn2R': return !z || typeof ind.vwob?.oppIn2R !== 'boolean' ? null : String(ind.vwob.oppIn2R);
+    default: return l?.autopsy?.factors?.[key];
+  }
+}
 function causeStats(lessons, rule) {
   const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.rule === rule && l.autopsy?.ok);
   const loss = xs.filter(l => l.autopsy.outcome === 'KAYIP'), win = xs.filter(l => l.autopsy.outcome === 'KAZANC');
   const dist = z => { const c = {}; for (const l of z) for (const k of l.autopsy.causes || []) c[k] = (c[k] || 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([code, n]) => ({ code, n, pct:Number((n / z.length).toFixed(2)) })); };
   const factors = [];
   for (const [key, label] of FACTOR_DEFS) {
-    const vals = [...new Set(xs.map(l => l.autopsy.factors?.[key]).filter(v => v !== null && v !== undefined && label(v)))];
+    const vals = [...new Set(xs.map(l => factorValue(l, key)).filter(v => v !== null && v !== undefined && label(v)))];
     for (const v of vals) {
-      const lp = loss.length ? loss.filter(l => l.autopsy.factors?.[key] === v).length / loss.length : null, wp = win.length ? win.filter(l => l.autopsy.factors?.[key] === v).length / win.length : null;
+      const lp = loss.length ? loss.filter(l => factorValue(l, key) === v).length / loss.length : null, wp = win.length ? win.filter(l => factorValue(l, key) === v).length / win.length : null;
       const enough = loss.length >= DISCRIM_MIN_N && win.length >= DISCRIM_MIN_N;
       let call = !enough ? 'AZ_ORNEK' : Math.max(lp, wp) < 0.15 ? 'NADIR' : lp - wp >= DISCRIM_GAP ? 'KAYIP_TARAFI' : wp - lp >= DISCRIM_GAP ? 'KAZANC_TARAFI' : 'IKI_TARAFTA';
       const lab = LAB_FACTORS[rule]?.[key + ':' + v] || null, labDiff = lab ? lab.lossPct - lab.winPct : null;
@@ -604,7 +637,13 @@ function causeStats(lessons, rule) {
   const tOnly = factors.filter(f => f.call === 'TEST_ONLY');
   if (tOnly.length) lines.push('Son derslerde ayırt edici görünüyor ama 6 ayda TUTMUYOR (ders sayılmaz): ' + tOnly.map(f => `${f.label} (son: kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)}; 6 ay: ${pc(f.labLossPct)} / ${pc(f.labWinPct)})`).join('; '));
   const labRows = Object.entries(LAB_FACTORS[rule] || {}).filter(([k, x]) => x && x.lossPct !== undefined && Math.abs(x.lossPct - x.winPct) >= LAB_FACTOR_GAP);
-  if (labRows.length) lines.push('6 aylık hafıza: ' + labRows.map(([k, x]) => { const [key, val] = k.split(':'), def = FACTOR_DEFS.find(d => d[0] === key), lbl = def ? def[1](val === 'true' ? true : val) : k; return `${lbl} (kayıp ${pc(x.lossPct)} / kazanç ${pc(x.winPct)})`; }).join('; ') + ' — BTC ve hacim işlem sırasında ortaya çıkar: giriş kararı değil, yönetim bilgisi.');
+  // R2544.107: 6-month memory split: what is known at entry (an entry filter candidate) vs what shows up during the trade (management info)
+  const labTxt = rows => rows.map(([k, x]) => { const [key, val] = k.split(':'), def = FACTOR_DEFS.find(d => d[0] === key), lbl = def ? (def[1](val) || def[1](val === 'true' ? true : val === 'false' ? false : val) || k) : k; return `${lbl} (kayıp ${pc(x.lossPct)} / kazanç ${pc(x.winPct)})`; }).join('; ');
+  const during = labRows.filter(([k]) => /^(btc|hacim):/.test(k)), atEntry = labRows.filter(([k]) => !/^(btc|hacim):/.test(k));
+  if (atEntry.length) lines.push('6 aylık hafıza, girişte bilinen: ' + labTxt(atEntry) + ' — giriş süzgeci adayı; ders sayılması için son dersler de aynı yönü göstermeli.');
+  if (during.length) lines.push('6 aylık hafıza, işlem sırasında: ' + labTxt(during) + ' — giriş kararı değil, yönetim bilgisi.');
+  // R2544.107: how many questions the brain asked and what came of them (a factor that splits nothing is also something learned)
+  if (factors.length) { const n = c => factors.filter(f => c.includes(f.call)).length; lines.push(`Sorulan ${factors.length} soru (etken değeri): ${n(['KAYIP_TARAFI', 'KAZANC_TARAFI'])} ders • ${n(['IKI_TARAFTA'])} tek başına neden değil • ${n(['TEST_ONLY'])} 6 ayda tutmadı • ${n(['NADIR'])} nadir • ${n(['AZ_ORNEK'])} az örnek`); }
   if (loss.length < DISCRIM_MIN_N || win.length < DISCRIM_MIN_N) lines.push(`Ayırt edicilik için her iki tarafta en az ${DISCRIM_MIN_N} otopsili ders gerekir (şimdi kayıp ${loss.length}, kazanç ${win.length}).`);
   return { version:'R2544.81-LEARN', lessons:xs.length, losses:loss.length, wins:win.length, lossHow:dist(loss), winHow:dist(win), lossDirection:dir, factors, text:lines };
 }

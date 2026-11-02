@@ -251,6 +251,7 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .br-bar b{text-align:right}
 .br-line{font:600 11px system-ui,sans-serif;line-height:1.45;padding:5px 8px;border-radius:8px;margin:4px 0;background:#0d1124;color:#c9cfe6;border-left:3px solid #39406a}
 .br-line.ders{border-left-color:#ffd54f;background:rgba(255,213,79,.08);color:#fff3c4;box-shadow:0 0 12px rgba(255,213,79,.12)}
+.br-line.sum{border-left-color:#a78bfa;background:rgba(167,139,250,.1);color:#e6dcff;font-weight:800}
 .br-line.no{border-left-color:#ff7a59;color:#ffcab9}.br-line.mem{border-left-color:#2ec5ff}.br-line.wait{border-left-color:#6f789c;color:#9aa3c4}
 .br-auto{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .br-auto span{font:600 11px system-ui,sans-serif;padding:5px 9px;border-radius:9px;background:#0d1124;border:1px solid #232a4a;color:#cfd5ee;max-width:100%}
@@ -956,10 +957,11 @@ function brModel(s){
   const causes={...(t.learning?.causes||{}),...(z.learning?.causes||{})};
   const cards=Object.entries(causes).filter(([k,v])=>BR_NAME[k]&&Array.isArray(v)&&v.length).map(([k,v])=>{const c={key:k,name:BR_NAME[k],loss:null,win:null,lines:[]};
     for(const l of v){const p=brParse(l);if(p){if(p.kind==='Kayıplar')c.loss=p;else c.win=p;continue;}
-      const cls=/gerekir/.test(l)?'wait':/^Ayırt edici\s*\(/.test(l)?'ders':/TUTMUYOR|ders sayılmaz/.test(l)?'no':/^6 aylık hafıza/.test(l)?'mem':''; /* "Ayırt edicilik için ... gerekir" is a wait, not a lesson */c.lines.push({cls,text:String(l)});}
+      const cls=/^Sorulan \d+ soru/.test(l)?'sum':/gerekir/.test(l)?'wait':/^Ayırt edici\s*\(/.test(l)?'ders':/TUTMUYOR|ders sayılmaz/.test(l)?'no':/^6 aylık hafıza/.test(l)?'mem':''; /* "Ayırt edicilik için ... gerekir" is a wait, not a lesson */c.lines.push({cls,text:String(l)});}
     return c;});
   const auto=[...(t.learning?.autopsies||[]).map(a=>({s:a.symbol,R:a.R,text:a.text})),...(z.learning?.recent||[]).filter(a=>a.autopsy).map(a=>({s:a.symbol,R:a.R,text:a.autopsy}))].slice(0,8);
-  return {lessons:(Number(t.learning?.lessons)||0)+(Number(z.learning?.lessons)||0),cards,auto,ders:cards.reduce((a,c)=>a+c.lines.filter(x=>x.cls==='ders').length,0)};
+  const asked=cards.reduce((a,c)=>{const l=c.lines.find(x=>x.cls==='sum');const n=l?Number((String(l.text).match(/^Sorulan (\d+)/)||[])[1]):0;return a+(n||0);},0);
+  return {lessons:(Number(t.learning?.lessons)||0)+(Number(z.learning?.lessons)||0),cards,auto,asked,ders:cards.reduce((a,c)=>a+c.lines.filter(x=>x.cls==='ders').length,0)};
 }
 // R2544.105 beyin animasyonu (kullanıcı 02.11: "beyni de afilli bir animasyonla göster"): her nöron bir kapanan işlem (yeşil kazanç / kırmızı kayıp,
 // büyüklük |R|), aralarında akan sinyaller; ortada her doğrulanmış DERS altın bir çekirdek. Yalnız gösterim.
@@ -1009,9 +1011,9 @@ function brAnimUpdate(s,model){
 function renderBrain(s){
   const el=document.getElementById('ccBrainBody');if(!el)return;let m;try{m=brModel(s);}catch(e){console.warn('brain',e);return;}
   try{brAnimUpdate(s,m);}catch(e){console.warn('brAnim',e);}
-  const sub=document.getElementById('ccBrainSub');if(sub)sub.textContent=`${m.lessons} ders (kapanan işlem) • ${m.ders} doğrulanmış ders • "ders" = son dersler VE 6 aylık hafıza aynı yönü gösterdi • gölge: kararı değiştirmez`;
+  const sub=document.getElementById('ccBrainSub');if(sub)sub.textContent=`${m.lessons} kapanan işlem • ${m.asked||0} soru soruldu • ${m.ders} doğrulanmış ders • "ders" = son dersler VE 6 aylık hafıza aynı yönü gösterdi • gölge: kararı değiştirmez`;
   const bars=(p,col)=>p?`<div class="br-sec" style="color:${col}">${p.kind.toUpperCase()} (${p.n}) NASIL OLDU</div>`+p.items.slice(0,4).map(x=>`<div class="br-bar"><div class="tr"><i style="width:${x.pct}%;background:linear-gradient(90deg,${col}aa,${col});box-shadow:0 0 8px ${col}"></i><span>${esc(x.label)}</span></div><b style="color:${col}">%${x.pct}</b></div>`).join('')+(p.extra?`<div class="br-line wait">${esc(p.extra)}</div>`:''):'';
-  el.innerHTML=(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${c.lines.map(x=>`<div class="br-line ${x.cls}">${x.cls==='ders'?'✅ DERS: ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• '}${esc(x.text)}</div>`).join('')}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
+  el.innerHTML=(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${c.lines.map(x=>`<div class="br-line ${x.cls}">${x.cls==='ders'?'✅ DERS: ':x.cls==='sum'?'🔍 ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• '}${esc(x.text)}</div>`).join('')}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
     +(m.auto.length?`<div class="br-sec" style="margin-top:10px">SON OTOPSİLER</div><div class="br-auto">${m.auto.map(a=>`<span title="${esc(a.text)}"><b style="color:${Number(a.R)>0?'#2bd67b':'#ff4d6d'}">${esc(String(a.s||'').replace(/USDT$/,''))} ${Number(a.R)>=0?'+':''}${Number(a.R).toFixed(2)}R</b>${esc(String(a.text||'').slice(0,90))}</span>`).join('')}</div>`:'');
 }
 // ---------- R2544.106 POZİSYON MASASI (kullanıcı 02.11: "pozisyon kartı afilli olsun; geçmiş pozlar son 5 poz durumu; geçmiş poz bilgileri istatistik ve grafiklerle") ----------
