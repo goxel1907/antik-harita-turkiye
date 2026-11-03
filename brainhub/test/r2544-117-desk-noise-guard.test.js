@@ -37,10 +37,10 @@ test('R2544.117 the free daily quota is spread: inside a provider the member use
   assert.equal(c.pick()[0].id,'ROUTER:gemini/b');
 });
 
-test('R2544.117 Cohere (trial, ~1000 calls a month) gets one seat; Mistral is paid (user) and never joins by itself',()=>{
-  const MC=require('../model-committee');assert.equal(MC.PROVIDER_CAP.cohere,1);assert.equal(MC.PROVIDER_CAP.mistral,undefined);
-  assert.equal(MC.limitOf('ROUTER:cohere/command-a-vision-07-2025').text,'Cohere deneme ~1000/ay');
-  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.match(sv,/'cohere\/command-a-vision-07-2025'\]/);
+test('R2544.119 Mistral and Cohere are paid (user 03.11): neither joins by itself',()=>{
+  const MC=require('../model-committee');assert.equal(MC.PROVIDER_CAP.cohere,undefined);assert.equal(MC.PROVIDER_CAP.mistral,undefined);
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.doesNotMatch(sv,/'cohere\//);
+  const FREE=new Function('return '+sv.match(/const ROUTER_FREE_PROVIDERS=(\/.*\/);/)[1])();assert.ok(!FREE.test('cohere/x')&&!FREE.test('mistral/x'));
 });
 
 test('R2544.117 brain: a trade the desk cut is learned on the plan\'s own result (a desk exit at -0.2R / +0.1R made 5 of 6 trades BASABAS); a guarded order never counts as executed',()=>{
@@ -66,4 +66,16 @@ test('R2544.119 Cloudflare: the full @cf ids (03.11 "No such model glm-5.3-flash
   for(const m of ['cloudflare-ai/@cf/zai-org/glm-5.3-flash','cloudflare-ai/@cf/moonshotai/kimi-k2.6','cloudflare-ai/@cf/deepseek-ai/deepseek-v4.1-flash-1017','cloudflare-ai/@cf/qwen/qwen3.8-27b'])assert.ok(sv.includes("'"+m+"'"),m);
   assert.doesNotMatch(sv,/'cloudflare-workers-ai\/glm-5\.3-flash'|'cloudflare-ai\/glm-5\.3-flash'/);
   const re=new Function('return '+sv.match(/k=String\(m\)\.replace\((\/.*?\/),/)[1])();assert.equal('cloudflare-ai/@cf/zai-org/glm-5.3-flash'.replace(re,'$1/'),'cloudflare-ai/glm-5.3-flash');
+});
+
+test('R2544.119 Z.ai and Requesty (verified free on their pricing pages 03.11): only their FREE model ids can be called; their image models get charts',()=>{
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+  const FREE=new Function('return '+sv.match(/const ROUTER_FREE_PROVIDERS=(\/.*\/);/)[1])();
+  const fo=new Function('return '+sv.match(/const FREE_ONLY=(\[\[[\s\S]*?\]\]);/)[1])();const ok=m=>{for(const [p,o] of fo)if(p.test(m))return o.test(m);return true;};
+  for(const m of ['zai/glm-4.6v-flash','zai/glm-4.7-flash','requesty/google/gemma-4-31b-it','requesty/nvidia/nemotron-3-ultra-550b-a55b'])assert.ok(FREE.test(m)&&ok(m),m);
+  for(const m of ['zai/glm-5.3','zai/glm-4.6v','requesty/openai/gpt-6-luna','requesty/anthropic/claude-x'])assert.ok(!ok(m),m+' is paid: never called');
+  assert.ok(ok('gemini/gemini-3.6-flash'),'other providers untouched');
+  assert.match(sv,/candidates:\[\.\.\.visionFirst,\.\.\.ROUTER_CANDIDATES\]\.filter\(freeModelOk\)/);assert.match(sv,/ROUTER_FREE_PROVIDERS\.test\(m\)&&freeModelOk\(m\)/);
+  const re=new Function('return '+sv.match(/const COMMITTEE_VISION=(\/.*\/i);/)[1])();assert.ok(re.test('zai/glm-4.6v-flash')&&re.test('requesty/meta/muse-glimmer-30b'));
+  const MC=require('../model-committee');assert.equal(MC.PROVIDER_CAP.requesty,2);assert.equal(MC.limitOf('ROUTER:requesty/google/gemma-4-31b-it').perDay,200);
 });
