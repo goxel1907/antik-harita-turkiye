@@ -40,7 +40,7 @@ test('R2544.117 the free daily quota is spread: inside a provider the member use
 test('R2544.119 Mistral and Cohere are paid (user 03.11): neither joins by itself',()=>{
   const MC=require('../model-committee');assert.equal(MC.PROVIDER_CAP.cohere,undefined);assert.equal(MC.PROVIDER_CAP.mistral,undefined);
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.doesNotMatch(sv,/'cohere\//);
-  const FREE=new Function('return '+sv.match(/const ROUTER_FREE_PROVIDERS=(\/.*\/);/)[1])();assert.ok(!FREE.test('cohere/x')&&!FREE.test('mistral/x'));
+  const FREE=new Function('return '+sv.match(/const ROUTER_FREE_PROVIDERS=(\/.*\/i?);/)[1])();assert.ok(!FREE.test('cohere/x')&&!FREE.test('mistral/x'));
 });
 
 test('R2544.117 brain: a trade the desk cut is learned on the plan\'s own result (a desk exit at -0.2R / +0.1R made 5 of 6 trades BASABAS); a guarded order never counts as executed',()=>{
@@ -70,11 +70,12 @@ test('R2544.119 Cloudflare: the full @cf ids (03.11 "No such model glm-5.3-flash
 
 test('R2544.119 Requesty (free plan, verified on its pricing page 03.11): only its FREE model ids can be called; Z.ai is gone (it asked the user to pay)',()=>{
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
-  const FREE=new Function('return '+sv.match(/const ROUTER_FREE_PROVIDERS=(\/.*\/);/)[1])();
+  const FREE=new Function('return '+sv.match(/const ROUTER_FREE_PROVIDERS=(\/.*\/i?);/)[1])();
   const fo=new Function('return '+sv.match(/const FREE_ONLY=(\[\[[\s\S]*?\]\]);/)[1])();const ok=m=>{for(const [p,o] of fo)if(p.test(m))return o.test(m);return true;};
   for(const m of ['requesty/google/gemma-4-31b-it','requesty/nvidia/nemotron-3-ultra-550b-a55b'])assert.ok(FREE.test(m)&&ok(m),m);assert.ok(!FREE.test('zai/glm-4.6v-flash'),'Z.ai: paid for the user');
   for(const m of ['requesty/openai/gpt-6-luna','requesty/anthropic/claude-x'])assert.ok(!ok(m),m+' is paid: never called');
   assert.ok(ok('gemini/gemini-3.6-flash'),'other providers untouched');
+  assert.ok(FREE.test('Requesty/google/gemma-4-31b-it')&&ok('Requesty/google/gemma-4-31b-it')&&!ok('Requesty/particle/particle-1'),'a capital R prefix works the same; a model off the free list is never called');
   assert.match(sv,/candidates:\[\.\.\.visionFirst,\.\.\.ROUTER_CANDIDATES\]\.filter\(freeModelOk\)/);assert.match(sv,/ROUTER_FREE_PROVIDERS\.test\(m\)&&freeModelOk\(m\)/);
   const re=new Function('return '+sv.match(/const COMMITTEE_VISION=(\/.*\/i);/)[1])();assert.ok(re.test('requesty/meta/muse-glimmer-30b')&&re.test('requesty/google/gemma-4-31b-it'));
   const MC=require('../model-committee');assert.equal(MC.PROVIDER_CAP.requesty,2);assert.equal(MC.limitOf('ROUTER:requesty/google/gemma-4-31b-it').perDay,200);

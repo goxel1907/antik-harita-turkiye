@@ -1634,7 +1634,7 @@ const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|
 const COMMITTEE_DROP=/^ROUTER:(kr|gc)\//;
 // R2544.115: providers that cost nothing on the user's keys (Google AI Studio, NVIDIA NIM, Groq, Cloudflare Workers AI, Mistral experiment, Ollama Cloud
 // free, GitHub = Copilot plan requests, capped at 2). OpenAI / xAI / Perplexity / Venice / ... never join by themselves even when connected.
-const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|ollama|github|huggingface|requesty)\//;
+const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|ollama|github|huggingface|requesty)\//i; // R2544.119: case-insensitive (the user's 9Router node showed 'Requesty/...')
 // R2544.119 (kullanıcı 03.11: "başka router sitelerine bakmıyorsun, her zaman ücretlileri ekletiyorsun"): two providers verified FREE on their own
 // pricing pages (03.11): Z.ai - GLM-4.7-Flash / GLM-4.5-Flash / GLM-4.6V-Flash "Free" (docs.z.ai/guides/overview/pricing); Requesty - "Free: 200 requests
 // per day, access to all free models, No credit card required" (requesty.ai/pricing). Both sell paid models too -> ONLY these model ids may be called.
