@@ -151,7 +151,7 @@ function simulate(plan, k5, decisions) {
   return Number(R.toFixed(3));
 }
 function counterfactual(desk, k5raw) {
-  const plan = desk?.plan, ds = (desk?.decisions || []).filter(d => d.action !== 'HOLD'), k5 = rows(k5raw);
+  const plan = desk?.plan, ds = (desk?.decisions || []).filter(d => d.action !== 'HOLD' && !d.guard && !d.downgraded), k5 = rows(k5raw); // R2544.117: a guarded order was never executed
   if (!plan || !k5.length) return { ok:false, reason:'NO_PATH' };
   const ruleR = simulate(plan, k5, []), deskR = ds.length ? simulate(plan, k5, ds) : ruleR;
   if (ruleR === null || deskR === null) return { ok:false, reason:'SIM_FAILED' };

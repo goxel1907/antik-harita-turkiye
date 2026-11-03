@@ -6717,14 +6717,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(autopsyBusy)return null;autopsyBusy=true;
     try{
       const now=clock(),z=z5State(),DAYMS=24*TOP3_HOUR;
-      const due=l=>l&&top3Lib.CAT_BUCKETS[l.rule]&&finite(l.closedAt)&&finite(l.openedAt)&&((!l.autopsy&&(l.autopsyTries||0)<3&&now>=l.closedAt+30*60000)||(l.autopsy&&l.autopsy.ok&&!l.autopsy.complete&&(l.autopsyTries||0)<6&&now>=l.closedAt+DAYMS+10*60000));
+      const deskCut=l=>(l?.desk?.decisions||[]).some(d=>d&&d.action!=='HOLD'&&d.authority===true&&!d.guard&&!d.downgraded);
+      const due=l=>l&&top3Lib.CAT_BUCKETS[l.rule]&&finite(l.closedAt)&&finite(l.openedAt)&&((!l.autopsy&&(l.autopsyTries||0)<3&&now>=l.closedAt+30*60000)||(l.autopsy&&l.autopsy.ok&&!l.autopsy.complete&&(l.autopsyTries||0)<6&&now>=l.closedAt+DAYMS+10*60000)
+        ||(l.autopsy&&l.autopsy.ok&&l.autopsy.complete&&l.autopsy.basis!=='PLAN'&&deskCut(l)&&(l.autopsyTries||0)<8)); // R2544.117: a desk-cut lesson done before this fix is redone once on the plan's result
       const pool=[...(top3State.lessons||[]),...(z.lessons||[])].filter(due).sort((a,b)=>a.closedAt-b.closedAt).slice(0,2);
       if(!pool.length)return null;
       for(const l of pool){
         l.autopsyTries=(l.autopsyTries||0)+1;
         try{
           const start=Math.floor(l.openedAt/top3Lib.M5)*top3Lib.M5-3*TOP3_HOUR,end=Math.min(now,l.closedAt+DAYMS+top3Lib.M5);
-          const k5w=await k5Window(l.symbol,start,end),a=AUTOPSY.autopsy(l,k5w,await k5Window('BTCUSDT',start,end),{now});
+          // R2544.117: a trade the desk cut (an executed, authorised reducing order) is judged on the plan's own result; real R stays the P&L
+          const k5w=await k5Window(l.symbol,start,end),deskActed=(l.desk?.decisions||[]).some(d=>d&&d.action!=='HOLD'&&d.authority===true&&!d.guard&&!d.downgraded);
+          let planR=null;if(deskActed){try{const cf=DESK.counterfactual(l.desk,k5w);if(cf?.ok&&finite(cf.ruleR)!==null)planR=cf.ruleR;}catch{}}
+          const a=AUTOPSY.autopsy(l,k5w,await k5Window('BTCUSDT',start,end),{now,planR});
           if(a.ok&&a.complete&&l.desk?.decisions?.length&&!l.desk.cf)try{l.desk.cf=DESK.counterfactual(l.desk,k5w);store.journal('POSITION_DESK_COUNTERFACTUAL',l.symbol,{id:l.id,rule:l.rule,...l.desk.cf});}catch{} // R2544.84
           if(a.ok){l.autopsy=a;if(a.complete)try{store.journal('LESSON_AUTOPSY',l.symbol,{id:l.id,rule:l.rule,mode:l.mode,R:l.rMultiple,outcome:a.outcome,direction:a.direction,causes:a.causes,factors:a.factors,text:a.text,version:a.version});}catch{}}
         }catch{}

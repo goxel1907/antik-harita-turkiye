@@ -42,3 +42,21 @@ test('R2544.117 Cohere (trial, ~1000 calls a month) gets one seat; Mistral is pa
   assert.equal(MC.limitOf('ROUTER:cohere/command-a-vision-07-2025').text,'Cohere deneme ~1000/ay');
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.match(sv,/'cohere\/command-a-vision-07-2025'\]/);
 });
+
+test('R2544.117 brain: a trade the desk cut is learned on the plan\'s own result (a desk exit at -0.2R / +0.1R made 5 of 6 trades BASABAS); a guarded order never counts as executed',()=>{
+  const AUT=require('../trade-autopsy'),t0=Date.UTC(2026,10,2,23,10),M5=300000;
+  const k5=Array.from({length:400},(_,i)=>{const t=t0-10*3600000+i*M5,p=100-(t>t0?(t-t0)/3600000*0.6:0);return [t,p,p+0.1,p-0.1,p,1000,0,0,0,500];});
+  const btc=k5.map(r=>[r[0],50000,50010,49990,50000,10,0,0,0,5]);
+  const lesson={side:'SHORT',entryPrice:100,stopPct:0.036,openedAt:t0,closedAt:t0+7*60000,rMultiple:-0.21,targetPct:0.09,exitType:'TOP3_DESK_EXIT',features:{},tags:[]};
+  const now=t0+30*3600000,real=AUT.autopsy(lesson,k5,btc,{now}),plan=AUT.autopsy(lesson,k5,btc,{now,planR:2.25});
+  assert.equal(real.outcome,'BASABAS');assert.equal(real.basis,'REAL');
+  assert.equal(plan.outcome,'KAZANC');assert.equal(plan.basis,'PLAN');assert.equal(plan.realR,-0.21);assert.equal(plan.judgedR,2.25);
+  assert.equal(AUT.autopsy(lesson,k5,btc,{now,planR:null}).basis,'REAL','null is not 0');
+  const DESK=require('../position-desk');const plan0={side:'SHORT',entry:100,stop:103.6,target:91,partAtR:2,partShare:0.5};
+  const k=k5.map(r=>[r[0],r[1],r[2],r[3],r[4],r[5]]);
+  const g=DESK.counterfactual({plan:plan0,decisions:[{at:t0+5*60000,action:'EXIT',authority:true,guard:{code:'NOISE_GUARD'}}]},k);
+  assert.equal(g.acted,0,'a guarded EXIT was never executed');assert.equal(g.deltaR,0);
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  assert.match(lc,/if\(deskActed\)\{try\{const cf=DESK\.counterfactual\(l\.desk,k5w\);if\(cf\?\.ok&&finite\(cf\.ruleR\)!==null\)planR=cf\.ruleR;\}catch\{\}\}/);
+  assert.match(lc,/l\.autopsy\.basis!=='PLAN'&&deskCut\(l\)&&\(l\.autopsyTries\|\|0\)<8/);
+});

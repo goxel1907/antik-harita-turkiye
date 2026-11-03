@@ -27,9 +27,11 @@ const CAUSE_TR = {
 };
 // lesson: {side, entryPrice, stopPct, targetPct, openedAt, closedAt, rMultiple, exitType, mfeR?, tags?, features?.ind?.vdpm?.nearestR}
 // k5 / btc5: 5 dk mumlar [t, o, h, l, c, (base), (closeTime), quoteVolume] ya da {t,o,h,l,c,v}; now: şimdi (24 sa sonrası tamamlanmış mı)
-function autopsy(lesson, k5, btc5, { now = Date.now() } = {}) {
+// R2544.117 (kullanıcı 03.11: "beyin öğrenmesi düzeltildi mi"): when the desk cut the trade, the ENTRY is judged on the plan's own result
+// (planR: the same path with stop / target / 24 h, no desk) - a desk exit at -0.2R / +0.1R made 5 of 6 trades 'BASABAS' and the brain learned nothing
+function autopsy(lesson, k5, btc5, { now = Date.now(), planR = null } = {}) {
   const base = { version:AUTOPSY_VERSION };
-  const L = lesson?.side === 'LONG', e = finite(lesson?.entryPrice), sp = finite(lesson?.stopPct), t0 = finite(lesson?.openedAt), t1 = finite(lesson?.closedAt), R = finite(lesson?.rMultiple);
+  const L = lesson?.side === 'LONG', e = finite(lesson?.entryPrice), sp = finite(lesson?.stopPct), t0 = finite(lesson?.openedAt), t1 = finite(lesson?.closedAt), realR = finite(lesson?.rMultiple), hasPlan = planR !== null && planR !== undefined && Number.isFinite(Number(planR)), R = hasPlan ? Number(planR) : realR;
   if (!(e > 0 && sp > 0 && t0 && t1 && R !== null)) return { ...base, ok:false, reason:'AUTOPSY_LESSON_INCOMPLETE' };
   const k = rows5(k5), risk = e * sp, fav = p => (L ? p - e : e - p) / risk, tR = finite(lesson.targetPct) > 0 ? lesson.targetPct / sp : null;
   const i0 = k.findIndex(x => x.t + M5 > t0), iX = k.findIndex(x => x.t + M5 > t1);
@@ -88,7 +90,7 @@ function autopsy(lesson, k5, btc5, { now = Date.now() } = {}) {
   }
   const head = outcome === 'KAYIP' ? (direction === 'DOGRU' ? 'Yön doğruydu ama zarar' : direction === 'YANLIS' ? 'Yön yanlıştı' : 'Kayıp') : outcome === 'KAZANC' ? 'Kazanç' : 'Başabaş';
   const text = `${head}: ` + (causes.length ? causes.map(c => c.tr + ev(c)).join('; ') : 'belirgin bir neden ölçülmedi') + (complete ? '' : ' (çıkış sonrası 24 sa henüz tamamlanmadı)');
-  return { ...base, ok:true, complete, outcome, direction, causes:causes.map(c => c.code), evidence:Object.fromEntries(causes.map(c => [c.code, c.evidence])), factors, metrics:m, text };
+  return { ...base, ok:true, complete, outcome, basis:hasPlan ? 'PLAN' : 'REAL', realR, judgedR:Number(R.toFixed(3)), direction, causes:causes.map(c => c.code), evidence:Object.fromEntries(causes.map(c => [c.code, c.evidence])), factors, metrics:m, text };
 }
 function ev(c) { const x = c.evidence || {};
   if (c.code === 'STOP_AVI' || c.code === 'YANLIS_YON') return ` (stoptan ${x.minutesAfterStop} dk sonra)`;
