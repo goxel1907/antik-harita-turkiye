@@ -60,3 +60,10 @@ test('R2544.117 brain: a trade the desk cut is learned on the plan\'s own result
   assert.match(lc,/if\(deskActed\)\{try\{const cf=DESK\.counterfactual\(l\.desk,k5w\);if\(cf\?\.ok&&finite\(cf\.ruleR\)!==null\)planR=cf\.ruleR;\}catch\{\}\}/);
   assert.match(lc,/l\.autopsy\.basis!=='PLAN'&&deskCut\(l\)&&\(l\.autopsyTries\|\|0\)<8/);
 });
+
+test('R2544.119 Cloudflare: the full @cf ids (03.11 "No such model glm-5.3-flash"), mapped to the catalog for the image flag; the unconnected cloudflare-workers-ai candidates are gone',()=>{
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+  for(const m of ['cloudflare-ai/@cf/zai-org/glm-5.3-flash','cloudflare-ai/@cf/moonshotai/kimi-k2.6','cloudflare-ai/@cf/deepseek-ai/deepseek-v4.1-flash-1017','cloudflare-ai/@cf/qwen/qwen3.8-27b'])assert.ok(sv.includes("'"+m+"'"),m);
+  assert.doesNotMatch(sv,/'cloudflare-workers-ai\/glm-5\.3-flash'|'cloudflare-ai\/glm-5\.3-flash'/);
+  const re=new Function('return '+sv.match(/k=String\(m\)\.replace\((\/.*?\/),/)[1])();assert.equal('cloudflare-ai/@cf/zai-org/glm-5.3-flash'.replace(re,'$1/'),'cloudflare-ai/glm-5.3-flash');
+});

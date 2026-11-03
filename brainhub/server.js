@@ -1600,7 +1600,7 @@ function routerVisionMap(){const now=Date.now();if(routerVisionCache.map&&now-ro
   let map=null;try{const f=path.join(process.env.APPDATA||path.join(require('os').homedir(),'AppData','Roaming'),'9router','model-catalog.json');const c=JSON.parse(fs.readFileSync(f,'utf8'))?.models;
     if(c&&typeof c==='object'){map=new Map();for(const [k,v] of Object.entries(c)){const i=k.indexOf(':');if(i>0)map.set(k.slice(0,i)+'/'+k.slice(i+1),v?.vision===true);}}}catch{}
   routerVisionCache={at:now,map};return map;}
-function committeeSeesCharts(m){const map=routerVisionMap();if(map&&map.has(m))return map.get(m)===true;return COMMITTEE_VISION.test(m);}
+function committeeSeesCharts(m){const map=routerVisionMap(),k=String(m).replace(/^([^/]+)\/@(?:cf|hf)\/[^/]+\//,'$1/');if(map&&map.has(m))return map.get(m)===true;if(map&&map.has(k))return map.get(k)===true;return COMMITTEE_VISION.test(m);} // R2544.119: '@cf/publisher/' ids map to the catalog's short name
 function committeeChartContent(prompt){
   try{const pk=JSON.parse(prompt);const desk=pk?.task!=='ENTRY'&&!!pk?.position&&!!pk?.market?.candles;if(pk?.task!=='ENTRY'&&!desk)return null;
     const specs=desk?DESKLIB.chartSpecs(pk):TB.chartSpecs(pk);if(!specs.length)return null;
@@ -1636,13 +1636,14 @@ const COMMITTEE_DROP=/^ROUTER:(kr|gc)\//;
 // free, GitHub = Copilot plan requests, capped at 2). OpenAI / xAI / Perplexity / Venice / ... never join by themselves even when connected.
 const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|ollama|github|huggingface|cohere)\//; // R2544.117: every 9Router name of a free tier (Cerebras / SambaNova: card trials; Mistral: paid API per the user 03.11 - never by themselves)
 const ROUTER_NOT_COMMITTEE=/code|embed|tts|image-gen|imagen|veo|lyria|audio|whisper|guard|safety|-ocr/i;
+// R2544.119 (03.11 08:00 health: "AiError: No such model glm-5.3-flash"): Cloudflare wants its full ids (developers.cloudflare.com/workers-ai/models, 03.11);
+// all four read images; the user connected the 'cloudflare-ai' provider in 9Router.
 const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash','gemini/gemini-2.5-flash','gemini/gemma-4-31b-it',
   'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
   'nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
   'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
   'github/claude-sonnet-4.6','github/gpt-5.4','github/grok-4.5',
-  'cloudflare-ai/deepseek-v4.1-flash-1017','cloudflare-ai/glm-5.3-flash','cloudflare-ai/kimi-k2.6',
-  'cloudflare-workers-ai/deepseek-v4.1-flash-1017','cloudflare-workers-ai/glm-5.3-flash','cloudflare-workers-ai/kimi-k2.6','cloudflare-workers-ai/gemma-4-26b-a4b-it','cloudflare-ai/gemma-4-26b-a4b-it',
+  'cloudflare-ai/@cf/zai-org/glm-5.3-flash','cloudflare-ai/@cf/moonshotai/kimi-k2.6','cloudflare-ai/@cf/deepseek-ai/deepseek-v4.1-flash-1017','cloudflare-ai/@cf/qwen/qwen3.8-27b',
   'cohere/command-a-vision-07-2025']; // R2544.117 both Cloudflare names; Cohere trial key (user connected 03.11; ~1000 calls/month -> 1 seat) // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
@@ -2540,7 +2541,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.118';
+const RUNTIME_RELEASE='R2544.119';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
