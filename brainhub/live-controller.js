@@ -6731,6 +6731,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           let planR=null;if(deskActed){try{const cf=DESK.counterfactual(l.desk,k5w);if(cf?.ok&&finite(cf.ruleR)!==null)planR=cf.ruleR;}catch{}}
           const a=AUTOPSY.autopsy(l,k5w,await k5Window('BTCUSDT',start,end),{now,planR});
           if(a.ok&&a.complete&&l.desk?.decisions?.length&&!l.desk.cf)try{l.desk.cf=DESK.counterfactual(l.desk,k5w);store.journal('POSITION_DESK_COUNTERFACTUAL',l.symbol,{id:l.id,rule:l.rule,...l.desk.cf});}catch{} // R2544.84
+          if(!l.exitFacts)try{const kx=await k5Window(l.symbol,l.closedAt-14*TOP3_HOUR,l.closedAt+top3Lib.M5);let k15x=[];try{const q=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:l.symbol,interval:'15m',endTime:String(l.closedAt),limit:'80'}});k15x=Array.isArray(q)?q:[];}catch{}
+            const ef2=TB.exitFacts(kx,l.closedAt,l.side,l.entryPrice,finite(l.desk?.plan?.stop)??(l.side==='LONG'?l.entryPrice*(1-l.stopPct):l.entryPrice*(1+l.stopPct)),k15x);if(ef2)l.exitFacts=ef2;}catch{} // R2544.118 the chart at the exit
           if(a.ok){l.autopsy=a;if(a.complete)try{store.journal('LESSON_AUTOPSY',l.symbol,{id:l.id,rule:l.rule,mode:l.mode,R:l.rMultiple,outcome:a.outcome,direction:a.direction,causes:a.causes,factors:a.factors,text:a.text,version:a.version});}catch{}}
         }catch{}
       }
@@ -6832,7 +6834,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // kararı verir. GÖLGE: girişi durdurmaz/açmaz; lota, derse ve günlüğe yazılır -> TAKE/SKIP sonuçları ileriye dönük ölçülür.
   let entryCommitteeBusy=0;
   async function entryCommitteeShadow(lot){
-    if(!lot||!deskJudges?.committee||typeof deskJudges.committee.decide!=='function'||lot.entryFeatures?.committee||entryCommitteeBusy>=2)return null;
+    // R2544.118: the entry screen is stored as numbers for the brain even when the committee cannot vote
+    if(!lot||(lot.entryFeatures?.committee&&lot.entryFeatures?.screenFacts)||entryCommitteeBusy>=3)return null;
     entryCommitteeBusy++;
     try{
       const t=finite(lot.openedAt)||clock(),end=t-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
@@ -6843,6 +6846,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const f0=lot.entryFeatures||{},z5=lot.lane==='ZIRVE5';let mg=null;try{mg=committeeManagement(z5?z5Lib.readConfig(root):top3Lib.readTop3Config(root),lot.side,z5);}catch{}
       const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t,trigger:f0.trig||null,management:mg,flags:f0.ruleFlags||[],experience:f0.similar||null,
         context:{rank:f0.rank??null,rankName:z5?'volatility rank (top 5)':'24h gainer rank',fund:f0.fund??null,premium:f0.premium??null}});
+      {const sf=TB.screenFacts(packet);if(sf){(lot.entryFeatures||(lot.entryFeatures={})).screenFacts=sf;saveTop3State();}}
+      if(lot.entryFeatures?.committee||!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return null;
       const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES,size:ENTRY_TEAM});
       const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220),...(v.img?{img:true}:{}),...(v.compact?{cmp:true}:{}),...(v.imgError?{imgErr:String(v.imgError).slice(0,80)}:{})}));
       const f=lot.entryFeatures||(lot.entryFeatures={});

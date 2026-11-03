@@ -306,9 +306,41 @@ function parseEntry(text) {
   } catch { return { ok:false, reason:'TB_JSON_INVALID' }; }
 }
 const validEntry = text => parseEntry(text).ok;
+// R2544.118: the entry screen in numbers for the lesson (what the models saw at the entry, so the brain can learn from it)
+function screenFacts(pk) {
+  if (!pk || !pk.screen || !pk.plan) return null;
+  try { const s = pk.screen, L = pk.side === 'LONG', tf = pk.timeframes || {}, sd = Number(pk.plan.stopDistancePct);
+    const lean = (s.timeframes || []).map(x => (String(x).match(/leans (FOR|AGAINST|MIXED)/) || [])[1]).filter(Boolean);
+    const atr = n => { const a = Number(tf[n]?.structure?.atrPct); return a > 0 && Number.isFinite(sd) ? Number((sd / a).toFixed(2)) : null; };
+    const sw = n => { const x = L ? tf[n]?.chartReading?.swing?.lastLow : tf[n]?.chartReading?.swing?.lastHigh, r = Number(x?.R); return Number.isFinite(r) && r < 0 ? r < -1 : null; };
+    const fo = (String(s.roomToTarget || '').match(/First one at ([+-]?[\d.]+)R/) || [])[1];
+    const chase = Object.values(tf).some(t => t?.chartReading?.momentum?.chaseRisk?.[L ? 'LONG' : 'SHORT'] === 'HIGH');
+    const rsi = n => { const v = Number(tf[n]?.chartReading?.momentum?.rsi14); return Number.isFinite(v) ? Math.round(v) : null; };
+    const chg = (String(s.coin || '').match(/coin ([+-]?[\d.]+)% in 24 h, now at (\d+)%/) || []);
+    return { v:'R2544.118', leanFor:lean.filter(x => x === 'FOR').length, leanAgainst:lean.filter(x => x === 'AGAINST').length, lean,
+      stopPct:Number.isFinite(sd) ? sd : null, stopAtr5:atr('m5'), stopAtr15:atr('m15'), swingBeyond5:sw('m5'), swingBeyond15:sw('m15'),
+      firstObstacleR:fo !== undefined ? Number(fo) : null, targetR:Number(pk?.plan?.targetR) || null, liqMagnet:/magnet/.test(String(s.liquidity || '')), liqTrap:/sweep target/.test(String(s.liquidity || '')),
+      chaseHigh:chase, rsi1h:rsi('h1'), rsi15:rsi('m15'), trend:{ d1:tf.d1?.structure?.trend || null, h4:tf.h4?.structure?.trend || null, h1:tf.h1?.structure?.trend || null, m15:tf.m15?.structure?.trend || null, m5:tf.m5?.structure?.trend || null },
+      chg24:chg[1] !== undefined ? Number(chg[1]) : null, pos24:chg[2] !== undefined ? Number(chg[2]) : null, btc:pk?.btc || null,
+      warnings:Array.isArray(s.ruleWarnings) ? s.ruleWarnings.length : 0 };
+  } catch { return null; }
+}
+// R2544.118: the chart at the EXIT (5m + 15m from the 5m candles up to the exit) - what the trade looked like when it was closed
+function exitFacts(k5raw, t, side, entry, stop, k15raw = null) {
+  try { const L = side === 'LONG', risk = Math.abs(entry - stop), R = p => risk > 0 ? Number((((L ? p - entry : entry - p) / risk)).toFixed(2)) : null;
+    const k = (Array.isArray(k5raw) ? k5raw : []).filter(r => Number(r[0]) + 300000 <= t);
+    const agg = [];for (let i = 0; i < k.length; i++) { const r = k[i], b = Math.floor(Number(r[0]) / 900000) * 900000, last = agg[agg.length - 1];
+      if (!last || last[0] !== b) agg.push([b, +r[1], +r[2], +r[3], +r[4], +r[5], b + 899999, 0, 0, +(r[9] || 0)]); else { last[2] = Math.max(last[2], +r[2]); last[3] = Math.min(last[3], +r[3]); last[4] = +r[4]; last[5] += +r[5]; last[9] += +(r[9] || 0); } }
+    const cr = (rows, frame) => { const c = chartReading(rows, frame, { t, P:x => x, R }); if (!c) return null; const ev = (c.events || []).filter(e => Number.isFinite(e.barsAgo)).sort((a, b) => a.barsAgo - b.barsAgo)[0];
+      const w = ev ? ((L && ev.side === 'BULL') || (!L && ev.side === 'BEAR')) : null;
+      return { trend:c.trend, swing:c.swing?.state || null, lastEvent:ev ? { side:ev.side, kind:ev.kind, barsAgo:ev.barsAgo, R:ev.R ?? null, withTrade:w } : null, rsi:Number.isFinite(c.momentum?.rsi14) ? Math.round(c.momentum.rsi14) : null }; };
+    const k15 = Array.isArray(k15raw) && k15raw.length ? k15raw.filter(r => Number(r[0]) + 900000 <= t) : agg;
+    return { v:'R2544.118', at:t, m5:cr(k.slice(-80), '5m'), m15:cr(k15.slice(-80), '15m') };
+  } catch { return null; }
+}
 // R2544.115: Groq answered 413 "request too large" on the full screen -> the same screen without the raw candle rows
 function compactPacket(prompt) { try { const p = typeof prompt === 'string' ? JSON.parse(prompt) : prompt; if (p?.task !== 'ENTRY' || !p.timeframes) return null;
   // Groq free = 8K tokens per minute INCLUDING the answer budget: the briefing already reads every chartReading, so only the structure stays
   const c = { ...p, timeframes:Object.fromEntries(Object.entries(p.timeframes).map(([k, v]) => [k, v ? { structure:v.structure } : v])), note:'compact (model context limit): raw candles and the detailed chart reading are left out; the screen briefing above already reads them for you' };
   return JSON.stringify(c); } catch { return null; } }
-module.exports = { TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, chartSpecs, compactPacket, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };
+module.exports = { screenFacts, exitFacts, TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, chartSpecs, compactPacket, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

@@ -599,7 +599,16 @@ const FACTOR_DEFS = [
   ['pos24Band', v => (v === 'TEPE' ? '24 sa aralığın tepesinde (>= %90)' : v === 'ALT' ? '24 sa aralığın alt yarısında' : null)],
   ['lthWith', v => (v === 'true' ? 'trend işlemle aynı yönde (LTH)' : v === 'false' ? 'trend işlemle aynı yönde değil (LTH)' : null)],
   ['pocInPath2R', v => (v === 'true' ? 'POC 2R yolunun üstünde' : null)],
-  ['obOppIn2R', v => (v === 'true' ? '2R içinde karşı order block' : null)]
+  ['obOppIn2R', v => (v === 'true' ? '2R içinde karşı order block' : null)],
+  // R2544.118 (kullanıcı 03.11: "giriş yaptığı durumun verileri, grafikteki o anki durum ... her şeyi öğreniyor değil mi"): the entry screen the
+  // models saw (stored at the entry as features.screenFacts) becomes questions too
+  ['tfLean', v => (v === 'COK_LEHTE' ? 'girişte 3+ zaman dilimi lehte' : v === 'COK_ALEYHTE' ? 'girişte 3+ zaman dilimi aleyhte' : v === 'KARISIK' ? 'zaman dilimleri karışık' : null)],
+  ['stopNoise', v => (v === 'true' ? 'stop 5 dk gürültüsünün içinde (< 1 ATR)' : v === 'false' ? 'stop 5 dk gürültüsünün dışında (>= 1 ATR)' : null)],
+  ['swingBeyond', v => (v === 'true' ? 'son 5 dk salınımı stopun ötesinde (süpürme stopu vurur)' : v === 'false' ? 'yapı stopu koruyor' : null)],
+  ['obstacleNear', v => (v === 'true' ? 'ilk karşı seviye 1R içinde' : v === 'false' ? 'ilk karşı seviye 1R ötesinde' : null)],
+  ['chaseHigh', v => (v === 'true' ? 'kovalama riski yüksek (hareketin tabanından uzak)' : null)],
+  ['liqMagnet', v => (v === 'true' ? 'hedef yolunda likidite mıknatısı' : null)],
+  ['ruleWarn', v => (v === 'true' ? 'kural uyarısıyla açıldı (stop bandı / süpürme / seviye)' : v === 'false' ? 'kural uyarısı yok' : null)]
 ];
 // R2544.107: the value of a factor for one lesson (the old four come from the autopsy, the new ones from the features known at entry)
 const FB = { rank:v => v === null || v === undefined ? null : v <= 3 ? '1-3' : v <= 10 ? '4-10' : '11+', vol:v => !Number.isFinite(v) ? null : v < 5 ? '<5' : v < 15 ? '5-15' : '15+',
@@ -619,6 +628,13 @@ function factorValue(l, key) {
     case 'lthWith': return !z || !ind.lth?.trend ? null : String(ind.lth.trend === 'WITH');
     case 'pocInPath2R': return !z || typeof ind.lth?.pocInPath2R !== 'boolean' ? null : String(ind.lth.pocInPath2R);
     case 'obOppIn2R': return !z || typeof ind.vwob?.oppIn2R !== 'boolean' ? null : String(ind.vwob.oppIn2R);
+    case 'tfLean': { const s = f.screenFacts; if (!s) return null; return s.leanFor >= 3 ? 'COK_LEHTE' : s.leanAgainst >= 3 ? 'COK_ALEYHTE' : 'KARISIK'; }
+    case 'stopNoise': { const a = f.screenFacts?.stopAtr5; return Number.isFinite(a) ? String(a < 1) : null; }
+    case 'swingBeyond': { const b = f.screenFacts?.swingBeyond5; return typeof b === 'boolean' ? String(b) : null; }
+    case 'obstacleNear': { const o = f.screenFacts?.firstObstacleR; return f.screenFacts ? String(Number.isFinite(o) && o < 1) : null; }
+    case 'chaseHigh': return f.screenFacts ? String(f.screenFacts.chaseHigh === true) : null;
+    case 'liqMagnet': return f.screenFacts ? String(f.screenFacts.liqMagnet === true) : null;
+    case 'ruleWarn': return l.openedAt >= Date.UTC(2026, 10, 2, 21) ? String(Array.isArray(f.ruleFlags) && f.ruleFlags.length > 0) : null; // R2544.116 onward
     default: return l?.autopsy?.factors?.[key];
   }
 }
@@ -633,8 +649,9 @@ function causeStats(lessons, rule) {
       const lp = loss.length ? loss.filter(l => factorValue(l, key) === v).length / loss.length : null, wp = win.length ? win.filter(l => factorValue(l, key) === v).length / win.length : null;
       const enough = loss.length >= DISCRIM_MIN_N && win.length >= DISCRIM_MIN_N;
       let call = !enough ? 'AZ_ORNEK' : Math.max(lp, wp) < 0.15 ? 'NADIR' : lp - wp >= DISCRIM_GAP ? 'KAYIP_TARAFI' : wp - lp >= DISCRIM_GAP ? 'KAZANC_TARAFI' : 'IKI_TARAFTA';
-      const lab = LAB_FACTORS[rule]?.[key + ':' + v] || null, labDiff = lab ? lab.lossPct - lab.winPct : null;
-      if ((call === 'KAYIP_TARAFI' && !(labDiff >= LAB_FACTOR_GAP)) || (call === 'KAZANC_TARAFI' && !(labDiff <= -LAB_FACTOR_GAP))) call = 'TEST_ONLY';
+      // R2544.118 (kullanıcı 03.11: "6 ay diye sınama saçmalık, bu gerçek işlem gelecek, o anki kararları daha net öğrenir"): a lesson comes from
+      // the REAL trades only (both sides >= 8 autopsied lessons, a 25-point gap); the 6-month lab (old rules, no desk) is shown as information
+      const lab = LAB_FACTORS[rule]?.[key + ':' + v] || null;
       factors.push({ key, value:v, label:label(v), lossPct:lp === null ? null : Number(lp.toFixed(2)), winPct:wp === null ? null : Number(wp.toFixed(2)), labLossPct:lab?.lossPct ?? null, labWinPct:lab?.winPct ?? null, call });
     }
   }
@@ -644,18 +661,16 @@ function causeStats(lessons, rule) {
   if (loss.length) lines.push(`Kayıplar (${loss.length}) nasıl oldu: ` + dist(loss).slice(0, 4).map(x => `${causeTr(x.code)} ${pc(x.pct)}`).join(', ') + ` • yön doğru ${dir.DOGRU} / yanlış ${dir.YANLIS}${dir.BELIRSIZ ? ' / belirsiz ' + dir.BELIRSIZ : ''}`);
   if (win.length) lines.push(`Kazançlar (${win.length}) nasıl oldu: ` + dist(win).slice(0, 4).map(x => `${causeTr(x.code)} ${pc(x.pct)}`).join(', '));
   const d = factors.filter(f => f.call === 'KAYIP_TARAFI' || f.call === 'KAZANC_TARAFI'), same = factors.filter(f => f.call === 'IKI_TARAFTA');
-  if (d.length) lines.push('Ayırt edici (son dersler + 6 ay aynı yönde): ' + d.map(f => `${f.label} (kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)}; 6 ay ${pc(f.labLossPct)} / ${pc(f.labWinPct)})`).join('; '));
+  if (d.length) lines.push('Ayırt edici (gerçek işlemler): ' + d.map(f => `${f.label} (kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)}${f.labLossPct !== null ? `; eski 6 ay laboratuvarı ${pc(f.labLossPct)} / ${pc(f.labWinPct)}, yalnız bilgi` : ''})`).join('; '));
   if (same.length) lines.push('Tek başına neden DEĞİL (kazançta da kayıpta da benzer): ' + same.map(f => `${f.label} (kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)})`).join('; '));
-  const tOnly = factors.filter(f => f.call === 'TEST_ONLY');
-  if (tOnly.length) lines.push('Son derslerde ayırt edici görünüyor ama 6 ayda TUTMUYOR (ders sayılmaz): ' + tOnly.map(f => `${f.label} (son: kayıp ${pc(f.lossPct)} / kazanç ${pc(f.winPct)}; 6 ay: ${pc(f.labLossPct)} / ${pc(f.labWinPct)})`).join('; '));
   const labRows = Object.entries(LAB_FACTORS[rule] || {}).filter(([k, x]) => x && x.lossPct !== undefined && Math.abs(x.lossPct - x.winPct) >= LAB_FACTOR_GAP);
   // R2544.107: 6-month memory split: what is known at entry (an entry filter candidate) vs what shows up during the trade (management info)
   const labTxt = rows => rows.map(([k, x]) => { const [key, val] = k.split(':'), def = FACTOR_DEFS.find(d => d[0] === key), lbl = def ? (def[1](val) || def[1](val === 'true' ? true : val === 'false' ? false : val) || k) : k; return `${lbl} (kayıp ${pc(x.lossPct)} / kazanç ${pc(x.winPct)})`; }).join('; ');
   const during = labRows.filter(([k]) => /^(btc|hacim):/.test(k)), atEntry = labRows.filter(([k]) => !/^(btc|hacim):/.test(k));
-  if (atEntry.length) lines.push('6 aylık hafıza, girişte bilinen: ' + labTxt(atEntry) + ' — giriş süzgeci adayı; ders sayılması için son dersler de aynı yönü göstermeli.');
-  if (during.length) lines.push('6 aylık hafıza, işlem sırasında: ' + labTxt(during) + ' — giriş kararı değil, yönetim bilgisi.');
+  if (atEntry.length) lines.push('Eski 6 aylık laboratuvar (eski kurallar, yalnız bilgi), girişte bilinen: ' + labTxt(atEntry));
+  if (during.length) lines.push('Eski 6 aylık laboratuvar (yalnız bilgi), işlem sırasında: ' + labTxt(during));
   // R2544.107: how many questions the brain asked and what came of them (a factor that splits nothing is also something learned)
-  if (factors.length) { const n = c => factors.filter(f => c.includes(f.call)).length; lines.push(`Sorulan ${factors.length} soru (etken değeri): ${n(['KAYIP_TARAFI', 'KAZANC_TARAFI'])} ders • ${n(['IKI_TARAFTA'])} tek başına neden değil • ${n(['TEST_ONLY'])} 6 ayda tutmadı • ${n(['NADIR'])} nadir • ${n(['AZ_ORNEK'])} az örnek`); }
+  if (factors.length) { const n = c => factors.filter(f => c.includes(f.call)).length; lines.push(`Sorulan ${factors.length} soru (etken değeri): ${n(['KAYIP_TARAFI', 'KAZANC_TARAFI'])} ders • ${n(['IKI_TARAFTA'])} tek başına neden değil • ${n(['NADIR'])} nadir • ${n(['AZ_ORNEK'])} az örnek`); }
   if (loss.length < DISCRIM_MIN_N || win.length < DISCRIM_MIN_N) lines.push(`Ayırt edicilik için her iki tarafta en az ${DISCRIM_MIN_N} otopsili ders gerekir (şimdi kayıp ${loss.length}, kazanç ${win.length}).`);
   return { version:'R2544.81-LEARN', lessons:xs.length, losses:loss.length, wins:win.length, lossHow:dist(loss), winHow:dist(win), lossDirection:dir, factors, text:lines };
 }

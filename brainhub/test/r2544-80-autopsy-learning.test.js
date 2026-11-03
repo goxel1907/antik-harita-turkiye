@@ -39,10 +39,10 @@ test('R2544.80 learning: a factor is a lesson only if it SEPARATES losses from w
   const f=(k,v)=>c.factors.find(x=>x.key===k&&x.value===v);
   assert.equal(f('gecGiris',true).call,'IKI_TARAFTA','70 % of losses AND wins -> not a cause');
   // R2544.81: 'no volume' separates these recent lessons, but over 6 months TEPE SHORT losses and wins have it equally (25 % / 25 %) -> not a lesson
-  assert.equal(f('hacim','YOK').call,'TEST_ONLY');assert.ok(c.text.some(t=>/6 ayda TUTMUYOR/.test(t)));
+  assert.equal(f('hacim','YOK').call,'KAYIP_TARAFI','R2544.118: the real trades decide (60 % / 20 %); the 6-month lab is information');assert.ok(!c.text.some(t=>/6 ayda TUTMUYOR/.test(t)));
   // 'BTC with the trade' separates the recent lessons AND the 6-month memory (5 % / 31 %) -> a lesson
   assert.equal(f('btc','YONDE').call,'KAZANC_TARAFI');assert.equal(f('btc','YONDE').labWinPct,T3.LAB_FACTORS.SHORT_TOP_BREAK['btc:YONDE'].winPct);
-  assert.ok(c.text.some(t=>/6 aylık hafıza/.test(t)&&/giriş kararı değil/.test(t)),'BTC / volume are known only during the trade');
+  assert.ok(c.text.some(t=>/Eski 6 aylık laboratuvar \(yalnız bilgi\), işlem sırasında/.test(t)),'BTC / volume are known only during the trade');
   assert.ok(c.text.some(t=>/Tek başına neden DEĞİL/.test(t)));assert.ok(c.text.some(t=>/Ayırt edici/.test(t)));
   assert.equal(c.lossDirection.DOGRU,5);
   // too few lessons -> no distinction claimed at all
