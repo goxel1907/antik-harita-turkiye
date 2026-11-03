@@ -1592,7 +1592,7 @@ async function routerAsk(m,{system,prompt,validate}={}){
     return {ok:false,reason:msg.slice(0,160),model:m,imgError};}
 }
 // R2544.115: which 9Router members can read an image (Gemini / Gemma 4 / NVIDIA vision-language); others get the text screen only
-const COMMITTEE_VISION=/^(gemini\/|github\/gemini|nvidia\/.*-vl|nvidia\/google\/gemma-4|gemini\/gemma-4|(zai|z-ai)\/glm-4\.6v|requesty\/(google\/gemma-4|meta\/muse-glimmer|nvidia\/nemotron-3-nano-omni))/i; // R2544.119 + Z.ai GLM-4.6V-Flash, Requesty vision models
+const COMMITTEE_VISION=/^(gemini\/|github\/gemini|nvidia\/.*-vl|nvidia\/google\/gemma-4|gemini\/gemma-4|requesty\/(google\/gemma-4|meta\/muse-glimmer|nvidia\/nemotron-3-nano-omni))/i; // R2544.119 + Z.ai GLM-4.6V-Flash, Requesty vision models
 // the 9Router catalog says which model takes an image ("vision": true); only the catalog file is read (never the 9Router db / keys).
 // Not in the catalog (NVIDIA) -> the name rule above. Re-read at most every 10 min.
 let routerVisionCache={at:0,map:null};
@@ -1634,12 +1634,12 @@ const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|
 const COMMITTEE_DROP=/^ROUTER:(kr|gc)\//;
 // R2544.115: providers that cost nothing on the user's keys (Google AI Studio, NVIDIA NIM, Groq, Cloudflare Workers AI, Mistral experiment, Ollama Cloud
 // free, GitHub = Copilot plan requests, capped at 2). OpenAI / xAI / Perplexity / Venice / ... never join by themselves even when connected.
-const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|ollama|github|huggingface|zai|z-ai|requesty)\//;
+const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|ollama|github|huggingface|requesty)\//;
 // R2544.119 (kullanıcı 03.11: "başka router sitelerine bakmıyorsun, her zaman ücretlileri ekletiyorsun"): two providers verified FREE on their own
 // pricing pages (03.11): Z.ai - GLM-4.7-Flash / GLM-4.5-Flash / GLM-4.6V-Flash "Free" (docs.z.ai/guides/overview/pricing); Requesty - "Free: 200 requests
 // per day, access to all free models, No credit card required" (requesty.ai/pricing). Both sell paid models too -> ONLY these model ids may be called.
-const FREE_ONLY=[[/^(zai|z-ai)\//i,/^(zai|z-ai)\/(glm-4\.7-flash|glm-4\.5-flash|glm-4\.6v-flash)$/i],
-  [/^requesty\//i,/^requesty\/(inclusionai\/ling-3\.1-flash|nvidia\/nemotron-3\.5-lightning-30b-a3b|meta\/muse-glimmer-30b|nvidia\/nemotron-3-ultra-550b-a55b|nvidia\/nemotron-3-nano-omni-30b-a3b-reasoning|poolside\/laguna-m\.1|google\/gemma-4-31b-it|nvidia\/nemotron-3-super-120b-a12b)$/i]];
+// 03.11 later: Z.ai asked the user to pay -> removed; only Requesty stays (free plan, free model ids only)
+const FREE_ONLY=[[/^requesty\//i,/^requesty\/(inclusionai\/ling-3\.1-flash|nvidia\/nemotron-3\.5-lightning-30b-a3b|meta\/muse-glimmer-30b|nvidia\/nemotron-3-ultra-550b-a55b|nvidia\/nemotron-3-nano-omni-30b-a3b-reasoning|poolside\/laguna-m\.1|google\/gemma-4-31b-it|nvidia\/nemotron-3-super-120b-a12b)$/i]];
 const freeModelOk=m=>{for(const [prov,ok] of FREE_ONLY)if(prov.test(m))return ok.test(m);return true;}; // R2544.117: every 9Router name of a free tier (Cerebras / SambaNova: card trials; Mistral and Cohere: paid per the user 03.11 - never by themselves)
 const ROUTER_NOT_COMMITTEE=/code|embed|tts|image-gen|imagen|veo|lyria|audio|whisper|guard|safety|-ocr/i;
 // R2544.119 (03.11 08:00 health: "AiError: No such model glm-5.3-flash"): Cloudflare wants its full ids (developers.cloudflare.com/workers-ai/models, 03.11);
@@ -1649,7 +1649,7 @@ const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite
   'nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
   'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
   'github/claude-sonnet-4.6','github/gpt-5.4','github/grok-4.5',
-  'zai/glm-4.6v-flash','zai/glm-4.7-flash','zai/glm-4.5-flash','requesty/google/gemma-4-31b-it','requesty/meta/muse-glimmer-30b','requesty/nvidia/nemotron-3-ultra-550b-a55b',
+  'requesty/google/gemma-4-31b-it','requesty/meta/muse-glimmer-30b','requesty/nvidia/nemotron-3-ultra-550b-a55b',
   'cloudflare-ai/@cf/zai-org/glm-5.3-flash','cloudflare-ai/@cf/moonshotai/kimi-k2.6','cloudflare-ai/@cf/deepseek-ai/deepseek-v4.1-flash-1017','cloudflare-ai/@cf/qwen/qwen3.8-27b']; // R2544.119: Cohere removed (paid, user 03.11) // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}

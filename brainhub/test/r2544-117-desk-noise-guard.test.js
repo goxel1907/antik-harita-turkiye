@@ -68,14 +68,14 @@ test('R2544.119 Cloudflare: the full @cf ids (03.11 "No such model glm-5.3-flash
   const re=new Function('return '+sv.match(/k=String\(m\)\.replace\((\/.*?\/),/)[1])();assert.equal('cloudflare-ai/@cf/zai-org/glm-5.3-flash'.replace(re,'$1/'),'cloudflare-ai/glm-5.3-flash');
 });
 
-test('R2544.119 Z.ai and Requesty (verified free on their pricing pages 03.11): only their FREE model ids can be called; their image models get charts',()=>{
+test('R2544.119 Requesty (free plan, verified on its pricing page 03.11): only its FREE model ids can be called; Z.ai is gone (it asked the user to pay)',()=>{
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   const FREE=new Function('return '+sv.match(/const ROUTER_FREE_PROVIDERS=(\/.*\/);/)[1])();
   const fo=new Function('return '+sv.match(/const FREE_ONLY=(\[\[[\s\S]*?\]\]);/)[1])();const ok=m=>{for(const [p,o] of fo)if(p.test(m))return o.test(m);return true;};
-  for(const m of ['zai/glm-4.6v-flash','zai/glm-4.7-flash','requesty/google/gemma-4-31b-it','requesty/nvidia/nemotron-3-ultra-550b-a55b'])assert.ok(FREE.test(m)&&ok(m),m);
-  for(const m of ['zai/glm-5.3','zai/glm-4.6v','requesty/openai/gpt-6-luna','requesty/anthropic/claude-x'])assert.ok(!ok(m),m+' is paid: never called');
+  for(const m of ['requesty/google/gemma-4-31b-it','requesty/nvidia/nemotron-3-ultra-550b-a55b'])assert.ok(FREE.test(m)&&ok(m),m);assert.ok(!FREE.test('zai/glm-4.6v-flash'),'Z.ai: paid for the user');
+  for(const m of ['requesty/openai/gpt-6-luna','requesty/anthropic/claude-x'])assert.ok(!ok(m),m+' is paid: never called');
   assert.ok(ok('gemini/gemini-3.6-flash'),'other providers untouched');
   assert.match(sv,/candidates:\[\.\.\.visionFirst,\.\.\.ROUTER_CANDIDATES\]\.filter\(freeModelOk\)/);assert.match(sv,/ROUTER_FREE_PROVIDERS\.test\(m\)&&freeModelOk\(m\)/);
-  const re=new Function('return '+sv.match(/const COMMITTEE_VISION=(\/.*\/i);/)[1])();assert.ok(re.test('zai/glm-4.6v-flash')&&re.test('requesty/meta/muse-glimmer-30b'));
+  const re=new Function('return '+sv.match(/const COMMITTEE_VISION=(\/.*\/i);/)[1])();assert.ok(re.test('requesty/meta/muse-glimmer-30b')&&re.test('requesty/google/gemma-4-31b-it'));
   const MC=require('../model-committee');assert.equal(MC.PROVIDER_CAP.requesty,2);assert.equal(MC.limitOf('ROUTER:requesty/google/gemma-4-31b-it').perDay,200);
 });
