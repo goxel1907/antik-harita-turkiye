@@ -96,7 +96,8 @@ function createOpenRouterFreeWorker({
     if(!r.ok){
       const err=new Error('HTTP '+r.status+' '+clip(raw,300));err.status=r.status;err.payload=j;err.headers=r.headers;throw err;
     }
-    if(j?.choices?.[0]?.finish_reason==='length')throw new Error('RESPONSE_TRUNCATED');
+    // R2544.122: hit the token limit AFTER a complete, valid answer -> the answer counts (reasoning models)
+    if(j?.choices?.[0]?.finish_reason==='length'&&!(text&&typeof validate==='function'&&validate(text)===true))throw new Error('RESPONSE_TRUNCATED');
     if(!text)throw new Error(j?.error?'PROVIDER_RESPONSE_ERROR':'EMPTY_MODEL_OUTPUT');
     if(text.length>16000)throw new Error('RESPONSE_SCHEMA_INVALID: output too large');
     if(typeof validate==='function'&&validate(text)!==true)throw new Error('RESPONSE_SCHEMA_INVALID');

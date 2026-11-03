@@ -115,10 +115,31 @@ const DESK_ROLES = [
   { key:'5dk+akış', prefer:['DEEPSEEK'], text:'TAPE READER. You own the 5m candles and the 5m chartReading (the trigger timeframe of Ilk 3): volume, taker-buy share, wicks, the last 5m swing, BTC and open interest right now. Say whether the tape still pushes with the position or has flipped.' },
   { key:'risk', prefer:['GLM'], text:'RISK OFFICER. You own the plan and the open profit: nowR, mfeR, givebackR, toPartR, toTargetR, noiseR, time left and the stopChoices. Protect profit that is already paid when the screen turns against it; do not choke a trade that is working inside normal noise.' },
   { key:'yapı', prefer:['MINIMAX'], text:'STRUCTURE TRADER. You own the structure timeframe of this trade (tradeTimeframe.structure: 15m for Ilk 3, 1h for ZIRVE-5): has structure broken against the position (CHoCH, close back through the broken level), is the move extended, is the target zone being rejected?' }];
+// R2544.122 (03.11 11:20: 7 of 18 sick desk members had ANSWERED - RESPONSE_SCHEMA_INVALID / INVALID_RESPONSE): the old reader took
+// everything from the first '{' to the last '}' as one JSON, so a model that thought aloud, wrote two objects or put a '}' in its
+// comment lost its vote (and the free quota of that call). Now every complete {...} in the answer is tried, the last valid one wins.
+function jsonObjects(text) {
+  let s = String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, ' ').replace(/```(?:json)?/gi, ' ');
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== '{') continue;
+    let depth = 0, inStr = false, esc = false;
+    for (let k = i; k < s.length; k++) {
+      const ch = s[k];
+      if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true; else if (ch === '{') depth++; else if (ch === '}') { depth--; if (depth === 0) { try { const j = JSON.parse(s.slice(i, k + 1)); if (j && typeof j === 'object' && !Array.isArray(j)) out.push(j); } catch {} break; } }
+    }
+  }
+  return out;
+}
+const wordOf = v => String(v ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+const DESK_SYN = { CLOSE:'EXIT', CLOSE_ALL:'EXIT', EXIT_ALL:'EXIT', CIK:'EXIT', 'ÇIK':'EXIT', PARTIAL:'TAKE_PARTIAL', TAKE_PROFIT_PARTIAL:'TAKE_PARTIAL', PARTIAL_EXIT:'TAKE_PARTIAL', TIGHTEN:'TIGHTEN_STOP', MOVE_STOP:'TIGHTEN_STOP', TUT:'HOLD', KEEP:'HOLD' };
 function parseFree(text) {
-  try { const raw = String(text || '').match(/\{[\s\S]*\}/)?.[0]; const j = JSON.parse(raw);
-    if (!ACTIONS.includes(j.action)) return { ok:false, reason:'DESK_ACTION_INVALID' };
-    return { ok:true, action:j.action, stopChoice:STOP_CHOICES.includes(j.stopChoice) ? j.stopChoice : 'KEEP', reason:REASONS.includes(j.reason) ? j.reason : 'NO_EDGE',
+  try { const all = jsonObjects(text); if (!all.length) return { ok:false, reason:'DESK_JSON_INVALID' };
+    const act = o => { const w = wordOf(o.action); return ACTIONS.includes(w) ? w : DESK_SYN[w] || null; };
+    const j = [...all].reverse().find(o => act(o)); if (!j) return { ok:false, reason:'DESK_ACTION_INVALID' };
+    const sc = wordOf(j.stopChoice);
+    return { ok:true, action:act(j), stopChoice:STOP_CHOICES.includes(sc) ? sc : 'KEEP', reason:REASONS.includes(j.reason) ? j.reason : 'NO_EDGE',
       confidence:Math.max(0, Math.min(100, finite(j.confidence) ?? 50)), reasonTr:String(j.reasonTr || '').slice(0, 300), watchTr:String(j.watchTr || '').slice(0, 200) };
   } catch { return { ok:false, reason:'DESK_JSON_INVALID' }; }
 }
@@ -193,10 +214,12 @@ async function judge({ packet, mode, cfg, judges, stats }) {
         const fin = reduceAgreed ? REDUCE.find(a => red.some(v => v.vote.action === a)) : r.final, all = [...(r.round2 || []), ...(r.votes || [])].filter(v => v.ok), pickV = all.find(v => v.vote.action === fin)?.vote || null;
         const stops = all.filter(v => v.vote.action === 'TIGHTEN_STOP').map(v => v.vote.stopChoice), order = ['BREAKEVEN', 'LAST_5M_SWING', 'LOCK_1R'];
         const stopChoice = fin === 'TIGHTEN_STOP' ? (order.find(k => stops.includes(k)) || 'KEEP') : 'KEEP'; // the least aggressive tightening that was voted
-        const votes = (r.round2 || r.votes || []).map(v => ({ m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/, ''), a:v.vote?.action || 'ERR', s:v.seat || null }));
+        const short = m => String(m || '').replace(/^ROUTER:|^FREE:|^OR:/, '');
+        const votes = (r.round2 || r.votes || []).map(v => ({ m:short(v.member), a:v.vote?.action || 'ERR', s:v.seat || null, ...(v.reserveFor ? { r:short(v.reserveFor) } : {}) }));
+        const replaced = (r.replaced || []).map(x => ({ m:short(x.member), by:short(x.by), s:x.seat || null })); // R2544.122: which empty seat a reserve took
         return { ok:true, judge:'COMMITTEE', model:votes.map(v => v.m).join(' + '), d:{ ok:true, action:fin, stopChoice, reason:pickV?.reason || 'NO_EDGE', confidence:null,
           reasonTr:(r.consensus === 'UNANIMOUS' ? 'oybirliği: ' : r.consensus === 'MAJORITY_AFTER_DEBATE' ? 'tartışma sonrası çoğunluk: ' : reduceAgreed ? `çoğunluk riski azaltmak istedi (${red.length}/${finalV.length}) → en yumuşağı: ` : r.consensus === 'SINGLE_VOTER_DEFAULT' ? 'tek oy, yetki yok → TUT: ' : 'çoğunluk yok → TUT: ') + (pickV?.reasonTr || ''), watchTr:pickV?.watchTr || '' },
-          committee:{ consensus:reduceAgreed ? 'REDUCE_MAJORITY' : r.consensus, rounds:r.rounds, votes }, tried };
+          committee:{ consensus:reduceAgreed ? 'REDUCE_MAJORITY' : r.consensus, rounds:r.rounds, votes, replaced, voters:r.voters ?? null }, tried };
       }
       tried.push('COMMITTEE:' + (r?.reason || 'FAILED')); continue;
     }
@@ -228,5 +251,5 @@ function chartSpecs(pk) {
     out.push({ tf, candles, lines }); }
   return out;
 }
-module.exports = { chartSpecs, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
+module.exports = { jsonObjects, wordOf, chartSpecs, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
   SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary };

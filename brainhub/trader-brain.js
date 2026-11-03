@@ -298,11 +298,14 @@ const ENTRY_ROLES = [
   { key:'ayı', prefer:['GLM', 'NEMOTRON', 'GPTOSS', 'MINIMAX'], text:'BEAR ADVOCATE / RISK OFFICER. Build the strongest honest case AGAINST the trade: stop distance, opposite levels between entry and target, extension, the base rate. Vote SKIP unless the evidence for the trade is clear; if you vote TAKE, say what convinced you.' },
   { key:'1g/4sa', prefer:['GEMINI', 'MINIMAX', 'CLAUDE'], text:'HIGHER-TIMEFRAME ANALYST. You own the 1d and 4h timeframes and the day/week/month levels: the larger trend, where price sits in the larger range, which levels are above and below and how far they are in R. Judge the trade from that context first.' },
   { key:'5dk+akış', prefer:['DEEPSEEK', 'MINIMAX', 'XING'], text:'TRIGGER AND FLOW ANALYST. You own the 5m timeframe: the trigger candle and the last candles, wicks, volume versus median, taker-buy share, and BTC right now.' }];
+// R2544.122: the same tolerant reader as the desk (every complete {...} tried, last valid wins; 'take' / 'Skip' accepted)
+const ENTRY_SYN = { ENTER:'TAKE', GIR:'TAKE', 'GİR':'TAKE', PASS:'SKIP', NO_TRADE:'SKIP', GIRME:'SKIP', 'GİRME':'SKIP' };
 function parseEntry(text) {
-  try { const j = JSON.parse(String(text || '').match(/\{[\s\S]*\}/)?.[0]);
-    if (!['TAKE', 'SKIP'].includes(j.decision)) return { ok:false, reason:'TB_DECISION_INVALID' };
+  try { const PD = require('./position-desk'), all = PD.jsonObjects(text); if (!all.length) return { ok:false, reason:'TB_JSON_INVALID' };
+    const dec = o => { const w = PD.wordOf(o.decision); return ['TAKE', 'SKIP'].includes(w) ? w : ENTRY_SYN[w] || null; };
+    const j = [...all].reverse().find(o => dec(o)); if (!j) return { ok:false, reason:'TB_DECISION_INVALID' };
     const cl = v => Math.max(0, Math.min(100, finite(v) ?? 50));
-    return { ok:true, decision:j.decision, confidence:cl(j.confidence), pTarget:cl(j.pTarget), reasonTr:String(j.reasonTr || '').slice(0, 400), keyRisk:String(j.keyRisk || '').slice(0, 200) };
+    return { ok:true, decision:dec(j), confidence:cl(j.confidence), pTarget:cl(j.pTarget), reasonTr:String(j.reasonTr || '').slice(0, 400), keyRisk:String(j.keyRisk || '').slice(0, 200) };
   } catch { return { ok:false, reason:'TB_JSON_INVALID' }; }
 }
 const validEntry = text => parseEntry(text).ok;

@@ -348,8 +348,9 @@ async function callModel(model,messages,timeoutMs=12000,requestOptions={}){
     throw new Error('HTTP '+r.status+' '+raw.slice(0,300));
   }
   let parsed;try{parsed=JSON.parse(raw);}catch{}
-  if(parsed?.choices?.[0]?.finish_reason==='length')throw new Error('RESPONSE_TRUNCATED');
   const text=extract(raw);
+  // R2544.122: a reasoning model that hit the token limit AFTER writing a complete, valid answer keeps its vote (requesty nano-omni 03.11)
+  if(parsed?.choices?.[0]?.finish_reason==='length'&&!(text&&typeof requestOptions.validate==='function'&&requestOptions.validate(text)===true))throw new Error('RESPONSE_TRUNCATED');
   if(!text)throw new Error('empty response');
   const workerSchema=messages.some(m=>String(m?.content||'').includes('WORKER_STATE')&&String(m?.content||'').includes('RECHECK_TFS'));
   if(workerSchema&&require('./plan-workers').parseWorkerDecision(text).ok!==true)throw new Error('RESPONSE_SCHEMA_INVALID');
@@ -2550,7 +2551,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.121';
+const RUNTIME_RELEASE='R2544.122';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
