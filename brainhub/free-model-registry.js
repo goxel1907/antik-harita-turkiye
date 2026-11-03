@@ -60,6 +60,12 @@ function normalizeModelPayload(payload){
   const rows=Array.isArray(payload)?payload:Array.isArray(payload?.data)?payload.data:Array.isArray(payload?.models)?payload.models:[];
   return unique(rows.map(x=>typeof x==='string'?x:(x?.id||x?.model||x?.name||'')));
 }
+// R2544.120: 9Router's /v1/models says per model whether it takes an image (capabilities.vision) -> { id:true|false }, only rows that say it
+function visionOfPayload(payload){
+  const rows=Array.isArray(payload)?payload:Array.isArray(payload?.data)?payload.data:Array.isArray(payload?.models)?payload.models:[],out={};
+  for(const x of rows){const id=x&&typeof x==='object'?(x.id||x.model||x.name):null,v=x?.capabilities?.vision;if(id&&typeof v==='boolean')out[id]=v;}
+  return out;
+}
 // A free suffix alone is insufficient when a catalog contains stale or priced entries.
 function freeCatalogModels(payload){
   const rows=Array.isArray(payload?.data)?payload.data:[];
@@ -106,7 +112,7 @@ async function discoverOpenAIModels({baseUrl,key='',fetchImpl=globalThis.fetch,t
     const raw=await r.text();let j=null;try{j=raw?JSON.parse(raw):null;}catch{}
     if(!r.ok)return {ok:false,models:[],status:r.status,error:('HTTP '+r.status+' '+raw).slice(0,400),durationMs:Date.now()-started};
     if(!Array.isArray(j)&&!Array.isArray(j?.data)&&!Array.isArray(j?.models))return {ok:false,models:[],status:r.status,error:'MODEL_CATALOG_SCHEMA_INVALID',durationMs:Date.now()-started};
-    return {ok:true,models:normalizeModelPayload(j),status:r.status,durationMs:Date.now()-started};
+    return {ok:true,models:normalizeModelPayload(j),vision:visionOfPayload(j),status:r.status,durationMs:Date.now()-started};
   }catch(e){return {ok:false,models:[],error:String(e?.message||e).slice(0,400),durationMs:Date.now()-started};}
 }
 

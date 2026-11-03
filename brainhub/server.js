@@ -1600,7 +1600,8 @@ function routerVisionMap(){const now=Date.now();if(routerVisionCache.map&&now-ro
   let map=null;try{const f=path.join(process.env.APPDATA||path.join(require('os').homedir(),'AppData','Roaming'),'9router','model-catalog.json');const c=JSON.parse(fs.readFileSync(f,'utf8'))?.models;
     if(c&&typeof c==='object'){map=new Map();for(const [k,v] of Object.entries(c)){const i=k.indexOf(':');if(i>0)map.set(k.slice(0,i)+'/'+k.slice(i+1),v?.vision===true);}}}catch{}
   routerVisionCache={at:now,map};return map;}
-function committeeSeesCharts(m){const map=routerVisionMap(),k=String(m).replace(/^([^/]+)\/@(?:cf|hf)\/[^/]+\//,'$1/');if(map&&map.has(m))return map.get(m)===true;if(map&&map.has(k))return map.get(k)===true;return COMMITTEE_VISION.test(m);} // R2544.119: '@cf/publisher/' ids map to the catalog's short name
+// R2544.120 (03.11: Cloudflare is 'cf/@cf/...' in 9Router, not in the catalog file): 9Router's own model list says vision per connected model -> asked first
+function committeeSeesCharts(m){const live=(typeof committeeRouterIds!=='undefined'&&committeeRouterIds?.vision)||null;if(live&&typeof live[m]==='boolean')return live[m];const map=routerVisionMap(),k=String(m).replace(/^([^/]+)\/@(?:cf|hf)\/[^/]+\//,'$1/');if(map&&map.has(m))return map.get(m)===true;if(map&&map.has(k))return map.get(k)===true;return COMMITTEE_VISION.test(m);} // R2544.119: '@cf/publisher/' ids map to the catalog's short name
 function committeeChartContent(prompt){
   try{const pk=JSON.parse(prompt);const desk=pk?.task!=='ENTRY'&&!!pk?.position&&!!pk?.market?.candles;if(pk?.task!=='ENTRY'&&!desk)return null;
     const specs=desk?DESKLIB.chartSpecs(pk):TB.chartSpecs(pk);if(!specs.length)return null;
@@ -1634,7 +1635,7 @@ const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|
 const COMMITTEE_DROP=/^ROUTER:(kr|gc)\//;
 // R2544.115: providers that cost nothing on the user's keys (Google AI Studio, NVIDIA NIM, Groq, Cloudflare Workers AI, Mistral experiment, Ollama Cloud
 // free, GitHub = Copilot plan requests, capped at 2). OpenAI / xAI / Perplexity / Venice / ... never join by themselves even when connected.
-const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|ollama|github|huggingface|requesty)\//i; // R2544.119: case-insensitive (the user's 9Router node showed 'Requesty/...')
+const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cf|cloudflare-ai|cloudflare-workers-ai|cloudflare|ollama|github|huggingface|requesty)\//i; // R2544.120: 'cf' = the user's Cloudflare node in 9Router // R2544.119: case-insensitive (the user's 9Router node showed 'Requesty/...')
 // R2544.119 (kullanıcı 03.11: "başka router sitelerine bakmıyorsun, her zaman ücretlileri ekletiyorsun"): two providers verified FREE on their own
 // pricing pages (03.11): Z.ai - GLM-4.7-Flash / GLM-4.5-Flash / GLM-4.6V-Flash "Free" (docs.z.ai/guides/overview/pricing); Requesty - "Free: 200 requests
 // per day, access to all free models, No credit card required" (requesty.ai/pricing). Both sell paid models too -> ONLY these model ids may be called.
@@ -1642,17 +1643,19 @@ const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-worke
 const FREE_ONLY=[[/^requesty\//i,/^requesty\/(inclusionai\/ling-3\.1-flash|nvidia\/nemotron-3\.5-lightning-30b-a3b|meta\/muse-glimmer-30b|nvidia\/nemotron-3-ultra-550b-a55b|nvidia\/nemotron-3-nano-omni-30b-a3b-reasoning|poolside\/laguna-m\.1|google\/gemma-4-31b-it|nvidia\/nemotron-3-super-120b-a12b)$/i]];
 const freeModelOk=m=>{for(const [prov,ok] of FREE_ONLY)if(prov.test(m))return ok.test(m);return true;}; // R2544.117: every 9Router name of a free tier (Cerebras / SambaNova: card trials; Mistral and Cohere: paid per the user 03.11 - never by themselves)
 const ROUTER_NOT_COMMITTEE=/code|embed|tts|image-gen|imagen|veo|lyria|audio|whisper|guard|safety|-ocr/i;
-// R2544.119 (03.11 08:00 health: "AiError: No such model glm-5.3-flash"): Cloudflare wants its full ids (developers.cloudflare.com/workers-ai/models, 03.11);
-// all four read images; the user connected the 'cloudflare-ai' provider in 9Router.
+// R2544.119 (03.11 08:00 health: "AiError: No such model glm-5.3-flash"): Cloudflare wants its full ids.
+// R2544.120 (03.11 11:00 health: the R2544.119 ids answered 403 "Model ... is not available"): my ids were from the docs, not from the user's account;
+// 9Router lists the user's Cloudflare models as 'cf/@cf/...' (14 models, /v1/models 03.11) -> only those ids, vision ones first.
+// R2544.120: the NVIDIA member that works (Nemotron 3.5 Super VL, 33 ok 03.11) is the first NVIDIA candidate.
 const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash','gemini/gemini-2.5-flash','gemini/gemma-4-31b-it',
   'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
-  'nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
+  'nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
   'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
   'github/claude-sonnet-4.6','github/gpt-5.4','github/grok-4.5',
   'requesty/google/gemma-4-31b-it','requesty/meta/muse-glimmer-30b','requesty/nvidia/nemotron-3-ultra-550b-a55b',
-  'cloudflare-ai/@cf/zai-org/glm-5.3-flash','cloudflare-ai/@cf/moonshotai/kimi-k2.6','cloudflare-ai/@cf/deepseek-ai/deepseek-v4.1-flash-1017','cloudflare-ai/@cf/qwen/qwen3.8-27b']; // R2544.119: Cohere removed (paid, user 03.11) // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
+  'cf/@cf/moonshotai/kimi-k2.6','cf/@cf/moonshotai/kimi-k2.5','cf/@cf/mistralai/mistral-small-3.1-24b-instruct','cf/@cf/zai-org/glm-4.7-flash','cf/@cf/meta/llama-3.3-70b-instruct-fp8-fast','cf/@cf/qwen/qwq-32b']; // R2544.119: Cohere removed (paid, user 03.11) // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
 let committeeRouterIds={at:0,ids:[]};
-async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
+async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean),vision:out.vision||{}};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
 setInterval(()=>refreshCommitteeRouterIds().catch(()=>{}),30*60*1000).unref?.();
 // R2544.101 (02.11: PC açıldı, 9Router çekirdekten sonra açıldı -> kurulda 9Router modeli yoktu): liste hiç alınamadıysa 2 dk'da bir yeniden iste
@@ -2547,7 +2550,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.119';
+const RUNTIME_RELEASE='R2544.120';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

@@ -21,7 +21,6 @@ const PROVIDER_LIMITS = [
   [/^ROUTER:(cf|cloudflare)/i, { perDay:null, text:'Cloudflare 10k nöron/gün' }],
   [/^ROUTER:mistral\//i, { perDay:null, text:'Mistral ~1/sn' }],
   [/^ROUTER:requesty\//i, { perDay:200, text:'Requesty ücretsiz 200/gün' }], // R2544.119
-  [/^ROUTER:cohere\//i, { perDay:null, text:'Cohere deneme ~1000/ay' }], // R2544.117
   [/^ROUTER:(glm|zai)\//i, { perDay:null, text:'GLM aynı anda 1' }],
   [/^ROUTER:(gemini|google|aistudio)\//i, { perDay:null, text:'AI Studio günlük' }],
   [/^ROUTER:kc\//i, { perDay:null, text:'Kilo 200/saat' }],
@@ -40,7 +39,8 @@ const ROUTER_NOT_TEXT = /tts|whisper|embed|rerank|guard|safety|transcri|speech|a
 // R2544.96 (27.10 kurulumdan sonra): 9Router'ın model listesi eski; Groq / NVIDIA'da listedeki modellerin çoğu kalkmış (410 Gone, 404 "does not
 // exist"). Kalkmış model 3 gün boyunca yer TUTMAZ (sıradaki model geçer; 3 gün sonra bir kez daha denenir). Sağlayıcının bugün açık olan modelleri
 // (candidates) listeden önce gelir ve güçlü-model süzgecinden muaftır (elle seçildiler).
-const GONE_RE = /\[404\]|\b410\b|\bGone\b|end of life|does not exist|Not Found|not found|decommission|no longer (available|supported)/i;
+// R2544.120: Cloudflare 403 'AiError: Model ... is not available' (03.11) = not on this account -> gives its seat away like a 404
+const GONE_RE = /\[404\]|\b410\b|AiError: Model \S+ is not available|\bGone\b|end of life|does not exist|Not Found|not found|decommission|no longer (available|supported)/i;
 const GONE_TTL_MS = 3 * 24 * 3600000;
 // R2544.97 (R96 kurulumundan sonra): Groq ücretsiz katmanı tek istekte ~8K jeton kabul eder; masa / sınav paketi (~17K karakter + 4096 cevap)
 // "413 Request too large" alır: sağlık yoklamasını geçer ama gerçek soruda hep düşer → o da 3 gün yer tutmaz. Üst üste 3 zaman aşımı (NVIDIA
@@ -65,7 +65,7 @@ const isGone = (rec, now = Date.now()) => { const why = rec && rec.lastOk === fa
 // R2544.103: Groq free = ~8K tokens per minute per model (prompt + max_tokens); two Groq members asked in the same minute overflow it
 // R2544.112: Google AI Studio quota is per MODEL (each Gemini model its own daily pool) -> up to 5 Gemini seats; a cap may now be above perProvider
 // R2544.115: every image-reading model the user connected joins (Gemini: each model its own daily quota); GitHub = Copilot premium requests -> 2
-const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, 'cloudflare-workers-ai':4, nvidia:4, requesty:2 }; // R2544.119: Mistral and Cohere are paid (user 03.11) -> no seat; Z.ai Flash 3, Requesty 200/day -> 2
+const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, 'cloudflare-workers-ai':4, cf:4, nvidia:4, requesty:2 }; // R2544.120: cf = Cloudflare in 9Router // R2544.119: Mistral and Cohere are paid (user 03.11) -> no seat; Z.ai Flash 3, Requesty 200/day -> 2
 function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false, caps = PROVIDER_CAP } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
@@ -188,12 +188,22 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     const team = pick(Number(teamSize) > 0 ? Number(teamSize) : size); if (!team.length) { save(); return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] }; }
     // R2544.91: seats go to the preferred model family first (Claude = price action even when Gemini is missing), then by order
     const seatMap = assignSeats(team, roles), seatOf = i => seatMap[i] || null, sysOf = i => seatOf(i) ? system + '\n\nYOUR SEAT AT THE DESK: ' + seatOf(i).text : system;
-    const r1 = await Promise.all(team.map((m, i) => ask(m, sysOf(i), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(i)?.key || null })))), v1 = r1.filter(x => x.ok);
+    const r1 = await Promise.all(team.map((m, i) => ask(m, sysOf(i), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(i)?.key || null }))));
+    // R2544.120 RESERVE SEATS (03.11 09:06 + 09:36: the MEGA desk asked 5, 4 answered an error -> one voter, no decision twice): when fewer than
+    // 3 answered, every empty seat is given ONCE to a healthy member that was not asked (the failed ones are already marked sick by ask)
+    const replaced = [], want = Math.min(3, team.length);
+    if (r1.filter(x => x.ok).length < want) {
+      const asked = new Set(team.map(m => m.id)), empty = r1.map((x, i) => x.ok ? -1 : i).filter(i => i >= 0);
+      const reserves = pick(team.length + empty.length).filter(m => !asked.has(m.id)).slice(0, empty.length);
+      const rb = await Promise.all(reserves.map((m, k) => ask(m, sysOf(empty[k]), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(empty[k])?.key || null, reserveFor:r1[empty[k]].member }))));
+      reserves.forEach((m, k) => { const i = empty[k]; replaced.push({ member:r1[i].member, error:r1[i].error, seat:r1[i].seat, by:m.id }); team[i] = m; r1[i] = rb[k]; });
+    }
+    const v1 = r1.filter(x => x.ok);
     const tally = vs => { const c = {}; for (const v of vs) c[v.vote[field]] = (c[v.vote[field]] || 0) + 1; return c; };
     const majority = (vs) => { const c = tally(vs), need = Math.floor(vs.length / 2) + 1; const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; return top && top[1] >= need ? top[0] : null; };
-    if (!v1.length) { save(); return { ok:false, reason:'COMMITTEE_NO_ANSWER', votes:r1, rounds:1 }; }
+    if (!v1.length) { save(); return { ok:false, reason:'COMMITTEE_NO_ANSWER', votes:r1, rounds:1, replaced }; }
     const unanimous = Object.keys(tally(v1)).length === 1;
-    if (unanimous || v1.length === 1) { save(); return { ok:true, final:v1.length >= 2 ? v1[0].vote[field] : fallback, consensus:v1.length >= 2 ? 'UNANIMOUS' : 'SINGLE_VOTER_DEFAULT', votes:r1, round2:null, rounds:1, voters:v1.length, version:COMMITTEE_VERSION }; }
+    if (unanimous || v1.length === 1) { save(); return { ok:true, final:v1.length >= 2 ? v1[0].vote[field] : fallback, consensus:v1.length >= 2 ? 'UNANIMOUS' : 'SINGLE_VOTER_DEFAULT', votes:r1, round2:null, rounds:1, voters:v1.length, replaced, version:COMMITTEE_VERSION }; }
     // round 2: each member sees the others' views and gives a final answer
     const views = v1.map((x, i) => `Trader ${String.fromCharCode(65 + i)}${x.seat ? ' (' + x.seat + ')' : ''}: ${x.vote[field]} — ${reasonOf(x.vote)}`).join('\n');
     const r2 = await Promise.all(v1.map(x => { const i = team.findIndex(m => m.id === x.member);
@@ -201,7 +211,7 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
       return ask(team[i], sys2, prompt, validate, parse).then(y => ({ ...y, seat:x.seat })); })), v2 = r2.filter(x => x.ok);
     const fin = v2.length >= 2 ? majority(v2) : null;
     save();
-    return { ok:true, final:fin ?? fallback, consensus:fin ? 'MAJORITY_AFTER_DEBATE' : 'NO_MAJORITY_DEFAULT', votes:r1, round2:r2, rounds:2, voters:v2.length, version:COMMITTEE_VERSION };
+    return { ok:true, final:fin ?? fallback, consensus:fin ? 'MAJORITY_AFTER_DEBATE' : 'NO_MAJORITY_DEFAULT', votes:r1, round2:r2, rounds:2, voters:v2.length, replaced, version:COMMITTEE_VERSION };
   }
   function assignSeats(team, roles) {
     if (!Array.isArray(roles) || !roles.length) return [];
