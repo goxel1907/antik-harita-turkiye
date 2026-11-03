@@ -6821,8 +6821,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   function deskView(a){const d=a?.desk;if(!d)return null;return {last:d.last?{...d.last,atIso:new Date(d.last.at).toISOString(),text:DESK.decisionText(d.last)}:null,reviews:(d.decisions||[]).length,
     acted:(d.decisions||[]).filter(x=>x.action!=='HOLD').length,lastError:d.lastError||null,shadow:true};}
+  // R2544.121 (03.11 Office: "Pozisyon masası AÇIK (gölge: karar yazar, emir göndermez)" while the committee desk closed JCT / HOT / TA itself):
+  // the summary says the real authority = the lane's committee switch (the same switch deskAuthority reads for every decision)
   function deskStatus(){const cfg=DESK.readConfig(root),st=deskStats(),z=z5State();
-    return {version:DESK.DESK_VERSION,enabled:cfg.enabled,shadow:true,authority:false,cadenceMin:cfg.cadenceMin,cmRecent:(top3State.cmRecent||[]).slice(0,10),judges:{TEST:cfg.testJudges,LIVE:cfg.liveJudges},
+    let authTop3=false,authZ5=false;try{authTop3=top3Lib.readTop3Config(root).committeeMode===true;}catch{}try{authZ5=z5Lib.readConfig(root).committeeMode===true;}catch{}
+    return {version:DESK.DESK_VERSION,enabled:cfg.enabled,shadow:!(authTop3||authZ5),authority:authTop3||authZ5,authorityByLane:{TOP3:authTop3,ZIRVE5:authZ5},guard:{...DESK_GUARD},cadenceMin:cfg.cadenceMin,cmRecent:(top3State.cmRecent||[]).slice(0,10),judges:{TEST:cfg.testJudges,LIVE:cfg.liveJudges},
       committee:typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null,exam:typeof deskJudges?.examStatus==='function'?deskJudges.examStatus():null,freeWired:!!deskJudges?.free,routerWired:!!deskJudges?.router,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
       comparison:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))]),
       cmBoard:(()=>{try{const cs=typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null;if(!cs)return null; // R2544.94 model karnesi + kalan limit

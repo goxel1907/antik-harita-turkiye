@@ -2745,11 +2745,14 @@ function entryCmLine(c){
 }
 function deskSummaryLine(p,lane){
   const c=p.comparison?.[lane],td=p.today||{};
-  const jn=x=>x==='JEV'?'JEV':x==='ROUTER'?'9Router':'OpenRouter ücretsiz';
+  const jn=x=>x==='JEV'?'JEV':x==='ROUTER'?'9Router':x==='COMMITTEE'?'Kurul':'OpenRouter ücretsiz'; // R2544.121: COMMITTEE was shown as "OpenRouter ücretsiz"
   const who=`TEST: ${(p.judges?.TEST||[]).map(jn).join(' → ')||'—'} • CANLI: ${(p.judges?.LIVE||[]).map(jn).join(' → ')||'—'}`;
   const cmp=c&&c.n?` • kapanan ${esc(c.n)} işlemde masa uygulasaydı ortalama <b>${(c.deltaR>=0?'+':'')+esc(String(c.deltaR).replace('.',','))}R</b> fark (kural ${esc(String(c.ruleR).replace('.',','))}R → masa ${esc(String(c.deskR).replace('.',','))}R; daha iyi ${esc(c.better)}, daha kötü ${esc(c.worse)})`:' • karşılaştırma için kapanmış ve 24 sa otopsisi biten işlem bekleniyor';
   const ec=p.entryComparison,ecTxt=ec&&(ec.TAKE?.n||ec.SKIP?.n)?` • kurul giriş kararı (kapananlar): GİR dedikleri ${esc(ec.TAKE.n)} işlem ${ec.TAKE.avgR===null?'—':esc(String(ec.TAKE.avgR).replace('.',','))+'R'}, GİRME dedikleri ${esc(ec.SKIP.n)} işlem ${ec.SKIP.avgR===null?'—':esc(String(ec.SKIP.avgR).replace('.',','))+'R'}`:'';
-  return `<p class="muted">Pozisyon masası <b>${p.enabled?'AÇIK':'KAPALI'}</b> (gölge: karar yazar, emir göndermez) • ${who} • bugün 9Router ${esc(td.router||0)} • OpenRouter ücretsiz ${esc(td.free||0)}/${esc(p.freeDailyCap)} • JEV ${esc(td.jev||0)}${td.lastError?' • son sorun: '+esc(td.lastError):''}${cmp}${ecTxt}</p>`;
+  // R2544.121: the real authority (the lane's committee switch) and the committee's own calls today; "gölge" only when it really is
+  const laneAuth=p.authorityByLane?p.authorityByLane[lane==='ZIRVE5'?'ZIRVE5':'TOP3']:p.authority; // each lane has its own committee switch
+  const gd=p.guard||{},authTxt=laneAuth===true?`<b>KURUL YETKİLİ</b> (azaltan emri uygular: yarı al / stop yaklaştır / çık; gürültü koruması: ${esc(gd.minOpenMin??30)} dk açık ve ${esc(String(gd.failR??-0.6).replace('.',','))}R altı ya da en iyi +${esc(String(gd.protectR??1).replace('.',','))}R)`:'(gölge: karar yazar, emir göndermez)';
+  return `<p class="muted">Pozisyon masası <b>${p.enabled?'AÇIK':'KAPALI'}</b> ${authTxt} • ${who} • bugün kurul ${esc(td.committee||0)} çağrı • 9Router ${esc(td.router||0)} • OpenRouter ücretsiz ${esc(td.free||0)}/${esc(p.freeDailyCap)} • JEV ${esc(td.jev||0)}${td.lastError?' • son sorun: '+esc(td.lastError):''}${cmp}${ecTxt}</p>`;
 }
 function indLine(ind,exp){if(!ind&&!exp)return '';return '<br><span class="muted">indikatör (kural değil): '+esc(ind?.text||'—')+(exp?' • <b>'+esc(exp.text||exp.verdict)+'</b>':'')+'</span>';}
 function catTables(rule,b){if(!b||!b.categorical)return '';let h='';for(const c of b.cats||[]){const rows=(c.rows||[]).filter(r=>r.n);if(!rows.length)continue;
