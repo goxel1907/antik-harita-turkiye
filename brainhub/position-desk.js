@@ -17,7 +17,8 @@ const ACTION_TR = { HOLD:'TUT', TAKE_PARTIAL:'KISMİ KÂR AL', TIGHTEN_STOP:'STO
 const REASON_TR = { STRUCTURE_INTACT:'yapı sağlam', MOMENTUM_FADING:'ivme zayıflıyor', STRUCTURE_BROKEN_AGAINST:'yapı aleyhe kırıldı', TARGET_ZONE_NEAR:'hedef bölgesine yakın',
   OPPOSITE_FLOW_STRONG:'karşı akış güçlü', VOLUME_CLIMAX:'hacim doruğu', TIME_DECAY:'süre doluyor', NO_EDGE:'belirgin avantaj yok' };
 // R2544.86: 9Router (Kiro'daki ücretsiz Claude Sonnet/Haiku, DeepSeek, GLM) önce, OpenRouter ücretsiz sonra; CANLI'da JEV en önde
-const DEFAULT_CONFIG = { enabled:true, cadenceMin:15, firstAfterMin:5, moveTriggerR:0.5, freeDailyCap:300, routerDailyCap:300, testJudges:['COMMITTEE', 'FREE'], liveJudges:['JEV', 'COMMITTEE', 'FREE'], authority:false };
+const DEFAULT_CONFIG = { enabled:true, cadenceMin:30, firstAfterMin:30, moveTriggerR:0.8, // R2544.117: 15/5/0.5 -> 30/30/0.8 (kota; gürültüde inceleme yok)
+  freeDailyCap:300, routerDailyCap:300, testJudges:['COMMITTEE', 'FREE'], liveJudges:['JEV', 'COMMITTEE', 'FREE'], authority:false };
 const finite = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const configFile = root => path.join(root, 'config', 'position-desk.json');
 function readConfig(root) {
@@ -26,7 +27,7 @@ function readConfig(root) {
   const num = (v, lo, hi, d) => { const n = finite(v); return n !== null && n >= lo && n <= hi ? n : d; };
   const judges = (v, d) => Array.isArray(v) ? v.filter(x => ['FREE', 'JEV', 'ROUTER', 'COMMITTEE'].includes(x)) : d;
   // authority stays false in this build: the desk is shadow-only until it is measured
-  return { enabled:c.enabled !== false, cadenceMin:num(c.cadenceMin, 5, 120, 15), firstAfterMin:num(c.firstAfterMin, 1, 60, 5), moveTriggerR:num(c.moveTriggerR, 0.2, 3, 0.5),
+  return { enabled:c.enabled !== false, cadenceMin:num(c.cadenceMin, 5, 120, 30), firstAfterMin:num(c.firstAfterMin, 1, 60, 30), moveTriggerR:num(c.moveTriggerR, 0.2, 3, 0.8),
     freeDailyCap:num(c.freeDailyCap, 0, 2000, 300), routerDailyCap:num(c.routerDailyCap, 0, 2000, 300), testJudges:judges(c.testJudges, DEFAULT_CONFIG.testJudges), liveJudges:judges(c.liveJudges, DEFAULT_CONFIG.liveJudges), authority:false };
 }
 const rows = k => (Array.isArray(k) ? k : []).map(r => ({ t:Number(r[0]), o:+r[1], h:+r[2], l:+r[3], c:+r[4], v:+r[5], tb:r.length > 9 ? +r[9] : null })).filter(r => Number.isFinite(r.t) && r.c > 0);
@@ -128,7 +129,7 @@ function validate(d, cands) {
   if (d.action === 'TIGHTEN_STOP') { const p = finite(cands?.[d.stopChoice]); if (d.stopChoice === 'KEEP' || !(p > 0)) return { ...d, action:'HOLD', downgraded:'STOP_CHOICE_NOT_TIGHTER' }; return { ...d, stopPrice:p }; }
   return d;
 }
-function decisionText(d) { if (!d) return null; return `${ACTION_TR[d.action] || d.action}${d.action === 'TIGHTEN_STOP' && d.stopPrice ? ' → ' + d.stopPrice : ''} • ${REASON_TR[d.reason] || d.reason || ''}${d.reasonTr ? ' • ' + d.reasonTr : ''}`; }
+function decisionText(d) { if (!d) return null; return `${ACTION_TR[d.action] || d.action}${d.action === 'TIGHTEN_STOP' && d.stopPrice ? ' → ' + d.stopPrice : ''} • ${REASON_TR[d.reason] || d.reason || ''}${d.reasonTr ? ' • ' + d.reasonTr : ''}${d.guard?.code === 'NOISE_GUARD' ? ` • GÜRÜLTÜ KORUMASI: uygulanmadı (${d.guard.openMin} dk, ${d.guard.R}R; ancak 30 dk sonra ve -0,6R altı ya da en iyi +1R üstü)` : ''}`; } // R2544.117
 // same 5m path, same rules for both: plan only vs plan + desk decisions (each applied from the next candle on)
 function simulate(plan, k5, decisions) {
   const L = plan.side === 'LONG', e = plan.entry, r = Math.abs(e - plan.stop), fv = p => (L ? p - e : e - p) / r; if (!(r > 0)) return null;

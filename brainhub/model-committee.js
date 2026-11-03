@@ -45,7 +45,11 @@ const GONE_TTL_MS = 3 * 24 * 3600000;
 // ücretsiz kuyruğu GLM 5.3 / DeepSeek V4.1: 110 sn) da öyle; yer sıradaki modele geçer.
 const TOO_BIG_RE = /\b413\b|Request too large|maximum context|context.{0,12}(length|window).{0,20}exceed/i;
 const SLOW_RE = /timeout|timed out|aborted/i;
+// R2544.117 (kullanıcı 03.11: "cloudflare'ı da kurduk ama oradan model gelmiyor"): 02.11 18:06 Cloudflare 6 kez "No active credentials" aldı
+// (henüz bağlanmamıştı) -> SICK, 3 gün dışarıda; kullanıcı bağlayınca hiç denenmedi. A not-connected provider now waits only 1 h.
+const NOT_CONNECTED_RE = /No active credentials|no credentials|not connected|missing api key|invalid api key|Unauthorized|\b401\b/i;
 const unusableWhy = rec => { const e = String(rec?.error || '');
+  if (NOT_CONNECTED_RE.test(e)) return 'NOT_CONNECTED';
   if (TOO_BIG_RE.test(e)) return 'TOO_BIG';
   if (GONE_RE.test(e) && !QUOTA_RE.test(e.replace(/\b404\b|\b410\b/g, ''))) return 'GONE';
   if ((rec?.consecutiveFail || 0) >= 3 && SLOW_RE.test(e)) return 'SLOW';
@@ -53,12 +57,13 @@ const unusableWhy = rec => { const e = String(rec?.error || '');
   // answer -> the seat goes to the next candidate for 3 days (a quota or 429 comes back by itself and keeps its seat)
   if ((rec?.consecutiveFail || 0) >= 6 && !QUOTA_RE.test(e)) return 'SICK';
   return null; };
-const isGone = (rec, now = Date.now()) => !!(rec && rec.lastOk === false && unusableWhy(rec) && now - (Number(rec.at) || 0) < GONE_TTL_MS);
+const GONE_TTL_BY = { NOT_CONNECTED:3600000, TOO_BIG:6 * 3600000 }; // R2544.117: Groq now gets the compact screen -> an old 413 expires in 6 h
+const isGone = (rec, now = Date.now()) => { const why = rec && rec.lastOk === false ? unusableWhy(rec) : null; return !!(why && now - (Number(rec.at) || 0) < (GONE_TTL_BY[why] ?? GONE_TTL_MS)); };
 // R2544.100: Ollama Cloud free = ONE cloud model at a time -> at most 1 member from it (parallel calls would collide)
 // R2544.103: Groq free = ~8K tokens per minute per model (prompt + max_tokens); two Groq members asked in the same minute overflow it
 // R2544.112: Google AI Studio quota is per MODEL (each Gemini model its own daily pool) -> up to 5 Gemini seats; a cap may now be above perProvider
 // R2544.115: every image-reading model the user connected joins (Gemini: each model its own daily quota); GitHub = Copilot premium requests -> 2
-const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, nvidia:4, mistral:2 };
+const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, 'cloudflare-workers-ai':4, nvidia:4, mistral:2 };
 function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false, caps = PROVIDER_CAP } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
@@ -151,6 +156,9 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   // sit first, spread over providers round-robin; the rest of the seats keep the old one-family-at-a-time spread. n = this decision's team size.
   function pick(n = size) {
     const h = healthy(), out = [], fams = new Set(), byProv = new Map();
+    // R2544.117 (03.11 06:00 Gemini günlük kotası bitti, kurul 1/15): inside every provider the member used least TODAY sits first
+    const day = dayOf(clock()), used = m => { const x = health[m.id]; return x && x.day === day ? x.callsToday || 0 : 0; };
+    h.sort((a, b) => used(a) - used(b));
     if (typeof prefer === 'function') {
       const pv = new Map(); for (const m of h) { let ok = false; try { ok = prefer(m.id) === true; } catch {} if (!ok) continue; const p = provider(m.id); if (!pv.has(p)) pv.set(p, []); pv.get(p).push(m); }
       let more = true; while (out.length < n && more) { more = false; for (const list of pv.values()) { if (!list.length) continue; const m = list.shift(); out.push(m); fams.add(family(m.id)); more = true; if (out.length >= n) break; } }

@@ -1623,7 +1623,7 @@ const freeMember=(w,id)=>({id,call:async a=>{const r=await w.review(a);return {o
 // R2544.104: OpenRouter has ~450 models but only ~14 are free (02.11: 14) -> every free text model joins the bench except safety / code / tiny ones
 const OR_SKIP=/safety|guard|lfm-|code|nano|embed|lyria/i,OR_MAX=12; // R2544.104; R2544.115 12 (image models first)
 const OR_FREE_PREF=['nvidia/nemotron-3-ultra-550b-a55b:free','google/gemma-4-31b-it:free','poolside/laguna-s-2.1:free','nvidia/nemotron-3.5-super-vl:free','xingchen-agi/xing4.0-29b-a4b:free','dots-studio/dots-3-note-preview:free','google/gemma-4-26b-a4b-it:free'];
-const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)|minimax-m[2-9]|deepseek-v[4-9]|qwen3\.\d+-\d+b|gemma-4-31b/i; // R2544.95 + MiniMax M2 (NVIDIA); R2544.96 + DeepSeek V4, MiniMax M3, Qwen 3.x, Gemma 4 31B
+const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|scout|qwen3-(235b|32b|max)|deepseek-(v3|r1|chat|3)|gpt-oss-120b|mistral-(large|medium)|magistral|glm-(4\.[5-9]|5)|kimi-k2|nemotron.*(ultra|super)|minimax-m[2-9]|deepseek-v[4-9]|qwen3\.\d+-\d+b|gemma-4-31b|command-a|pixtral|mistral-small-3|mistral-medium/i; // R2544.117 + Cohere Command A, Mistral (free tiers, connect in 9Router); R2544.95 + MiniMax M2 (NVIDIA); R2544.96 + DeepSeek V4, MiniMax M3, Qwen 3.x, Gemma 4 31B
 // R2544.96: providers' models open TODAY (NVIDIA public /v1/models 27.10; Groq docs 27.10: llama-3.3 / maverick / qwen3-32b moved to enterprise;
 // Gemini 3.7 / 3.8 Flash answered 429 quota 0 on the free key, 3.6 Flash works). Tried first; a gone one gives its seat to the next.
 // R2544.100: Ollama Cloud (user added the key 28.10; ollama.com/api/tags 28.10: gpt-oss:120b, glm-5.3, deepseek-v4.1-flash ... - 9Router's own list is partly stale)
@@ -1634,14 +1634,15 @@ const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|
 const COMMITTEE_DROP=/^ROUTER:(kr|gc)\//;
 // R2544.115: providers that cost nothing on the user's keys (Google AI Studio, NVIDIA NIM, Groq, Cloudflare Workers AI, Mistral experiment, Ollama Cloud
 // free, GitHub = Copilot plan requests, capped at 2). OpenAI / xAI / Perplexity / Venice / ... never join by themselves even when connected.
-const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|mistral|ollama|github)\//;
+const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|mistral|ollama|github|huggingface|cohere)\//; // R2544.117: every 9Router name of a free tier (Cerebras / SambaNova: card-required trials, never by themselves)
 const ROUTER_NOT_COMMITTEE=/code|embed|tts|image-gen|imagen|veo|lyria|audio|whisper|guard|safety|-ocr/i;
 const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash','gemini/gemini-2.5-flash','gemini/gemma-4-31b-it',
   'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
   'nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
   'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
   'github/claude-sonnet-4.6','github/gpt-5.4','github/grok-4.5',
-  'cloudflare-ai/deepseek-v4.1-flash-1017','cloudflare-ai/glm-5.3-flash','cloudflare-ai/kimi-k2.6']; // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
+  'cloudflare-ai/deepseek-v4.1-flash-1017','cloudflare-ai/glm-5.3-flash','cloudflare-ai/kimi-k2.6',
+  'cloudflare-workers-ai/deepseek-v4.1-flash-1017','cloudflare-workers-ai/glm-5.3-flash','cloudflare-workers-ai/kimi-k2.6','cloudflare-workers-ai/gemma-4-26b-a4b-it','cloudflare-ai/gemma-4-26b-a4b-it']; // R2544.117 both Cloudflare names // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
@@ -2538,7 +2539,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.116';
+const RUNTIME_RELEASE='R2544.117';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

@@ -151,7 +151,7 @@ test('R2544.89 switches: KURUL and JEV are exclusive; LIVE needs the explicit co
   assert.match(lc,/if\(!testModeNow\(\)&&\(p\.earlyEnabled===true\|\|p\.topEnabled===true\|\|p\.committeeMode===true\|\|/);
   assert.match(lc,/if\(\(p\.liveEnabled===true\|\|\(live&&\(p\.committeeMode===true\|\|/);
   assert.match(lc,/cfg:\{\.\.\.cfg,testJudges:\['COMMITTEE'\],liveJudges:\['COMMITTEE'\]\}/,'with authority only the committee decides');
-  assert.match(lc,/if\(rec\.action!=='HOLD'&&!rec\.downgraded&&rec\.judge==='COMMITTEE'\)a\.deskOrder=/);
+  assert.match(lc,/if\(rec\.action!=='HOLD'&&!rec\.downgraded&&rec\.judge==='COMMITTEE'&&!rec\.guard\)a\.deskOrder=/);
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.equal((sv.match(/committeeMode:body\?\.committeeMode/g)||[]).length,2);
   const os2=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');assert.equal((os2.match(/'committeeMode'\]\) if \(typeof b\[k\] === 'boolean'\)/g)||[]).length,2);
   const of=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
@@ -183,9 +183,14 @@ test('R2544.98 desk with authority, real tick: 3 of 5 want less risk after the d
   const c=cm(o=>o.field==='action'?desk:TAKE);
   const f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:c}});await f.controller.testSupervisorTick();
   assert.equal((await f.controller.z5Tick()).entries,1);const a=JSON.parse(JSON.stringify(f.lot())),R=a.stopPrice-a.entryPrice;
-  await f.beat(a.entryPrice-0.8*R);f.state.now+=6*60000;                 // in profit (SHORT), first desk look after 5 min
+  await f.beat(a.entryPrice-0.8*R);f.state.now+=31*60000;                // in profit (SHORT), first desk look after 30 min (R2544.117)
   let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));} // the scan's own desk look may still be running (deskBusy)
   assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.action,'TIGHTEN_STOP');
+  // R2544.117 noise guard: +0.8R and never +1R -> the desk's order is recorded, not executed
+  assert.equal(f.lot().desk.last.guard.code,'NOISE_GUARD');assert.ok(!f.lot().deskOrder,'not executed');
+  f.controller._testDeskGuard({protectR:-99});f.state.now+=31*60000;r=null;  // guard opened (the fixture's 5m path gives no mfe): the order runs
+  for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}
+  assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.action,'TIGHTEN_STOP');f.controller._testDeskGuard({protectR:1});
   const call=c.calls.find(x=>x.field==='action');assert.doesNotMatch(call.system,/measured default/);const pk=JSON.parse(call.prompt);
   assert.equal(pk.tradeTimeframe.trigger,'15m');assert.ok(pk.position.givebackR!==undefined&&pk.noiseR);
   const rec=f.lot().desk.last;assert.equal(rec.shadow,false);assert.equal(rec.authority,true);assert.equal(rec.committee.consensus,'REDUCE_MAJORITY');assert.ok(f.lot().deskOrder,'order queued');

@@ -6088,7 +6088,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     for(const x of out.signals){
       const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
       if(!testModeNow()&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit
-      const cd=top3Cooldown(x.symbol,x.side,cfg);if(cd){res.reason=cd;continue;}
+      const cd=top3Cooldown(x.symbol,x.side,cfg); // R2544.117: a re-entry on the same coin is a warning, not a silent drop (03.11 TA 06:05 "sonuç yok")
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       if(prem===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex');prem=new Map((Array.isArray(pi)?pi:[]).map(r=>[r.symbol,r]));}catch{prem=new Map();}}
       const pr=prem.get(x.symbol),fund=finite(pr?.lastFundingRate),premium=finite(pr?.markPrice)&&finite(pr?.indexPrice)?Number((finite(pr.markPrice)/finite(pr.indexPrice)-1).toFixed(5)):null;
@@ -6119,7 +6119,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       // R2544.89 KURUL KAPISI (kullanıcı 27.10: "istediğim zaman tek tık ile canlıya geçebilmeliyim bu modeller ile"): kural sinyal verdi;
       // kurul GİR demezse işlem yok (yalnız veto, kendisi işlem açmaz). Kurul yok / zaman aşımı -> kural devam eder (kayıtlı).
-      const flags=(pl0?.ok&&Array.isArray(pl0.flags))?pl0.flags:[];if(flags.length)ef.ruleFlags=flags;
+      const flags=[...(cd?[{code:cd}]:[]),...((pl0?.ok&&Array.isArray(pl0.flags))?pl0.flags:[])];if(flags.length)ef.ruleFlags=flags;
       // R2544.116: the entry no longer waits for a committee vote (every signal opens; the vote comes right after the entry, from the same
       // screen, and is learned from; the committee's desk manages the open position with authority). committeeEntryVeto:true brings the gate back.
       if(cfg.committeeEntryVeto===true&&pl0?.ok){const g=await committeeEntryGate({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,management:committeeManagement(cfg,x.side,false),context:{rank:ef.rank,rankName:'24h gainer rank',fund:ef.fund,premium:ef.premium},experience:ef.similar,flags});
@@ -6173,6 +6173,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!(margin>=5))return {ok:false,reason:'TOP3_MARGIN_TOO_SMALL',marginQuote:margin};
     if(margin>avail*0.95)return {ok:false,reason:'TOP3_MARGIN_ABOVE_FREE_BALANCE',marginQuote:margin,availableBalance:avail};
     let px;try{px=await paperPrice(symbol);}catch{px=null;}
+    if(!(finite(side==='LONG'?px?.ask:px?.bid)>0)){await new Promise(r=>setTimeout(r,1500));try{px=await paperPrice(symbol);}catch{px=null;}} // R2544.117: one retry (03.11 AGT 05:20)
     const price=finite(side==='LONG'?px?.ask:px?.bid);if(!(price>0))return {ok:false,reason:'TOP3_PRICE_UNAVAILABLE'};
     // v2: structural stop / zone target from the 5m trigger (plan rejects a stop outside its band or a long right under a zone)
     // R2544.64 ZİRVE-5: the plan comes from the armed 15m zone (stop above the zone, targetR x stop)
@@ -6798,7 +6799,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const d=DESK.validate(res.d,packet.stopChoices);
       const rec={at:now,mark:pickMark,R:Number((desk.lastR??0).toFixed(3)),action:d.action,stopChoice:d.stopChoice||'KEEP',stopPrice:finite(d.stopPrice),reason:d.reason,confidence:finite(d.confidence),
         reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true};
-      if(auth){rec.shadow=false;rec.authority=true;if(rec.action!=='HOLD'&&!rec.downgraded&&rec.judge==='COMMITTEE')a.deskOrder={action:rec.action,stopPrice:rec.stopPrice,at:now,by:'COMMITTEE'};}
+      // R2544.117 (kullanıcı 03.11 "boğazını sıkıyorsun"; 02-03.11 ölçüm: masa 5 işlemin 5'ini gürültüde kesti, HAEDAL 7. dk -0,18R -> plan +2,25R hedef;
+      // gerçek -0,75R / plana bırakılsa +0,36R): the desk's reducing order runs only when the trade has left its noise - open >= 30 min AND
+      // (now <= -0.6R: the idea is failing before the stop, or best >= +1R: there is profit to protect). Otherwise it is recorded, not executed.
+      const mfe=finite(packet?.position?.mfeR),openMin=(now-a.openedAt)/60000,beyondNoise=openMin>=DESK_GUARD.minOpenMin&&((finite(rec.R)??0)<=DESK_GUARD.failR||(mfe??-9)>=DESK_GUARD.protectR);
+      if(auth&&rec.action!=='HOLD'&&!beyondNoise){rec.guard={code:'NOISE_GUARD',openMin:Math.round(openMin),R:rec.R,mfeR:mfe};}
+      if(auth){rec.shadow=false;rec.authority=true;if(rec.action!=='HOLD'&&!rec.downgraded&&rec.judge==='COMMITTEE'&&!rec.guard)a.deskOrder={action:rec.action,stopPrice:rec.stopPrice,at:now,by:'COMMITTEE'};}
       desk.decisions.push(rec);if(desk.decisions.length>120)desk.decisions=desk.decisions.slice(-120);desk.last=rec;desk.lastError=null;
       saveTop3State();
       try{store.journal('POSITION_DESK_REVIEW',a.symbol,{lane,mode,id:a.id,rule:a.rule,...rec,text:DESK.decisionText(rec),version:DESK.DESK_VERSION,tried:res.tried});}catch{}
@@ -6850,7 +6856,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(be>0)out.push(`at +${be}R the stop moves to entry (a later return to entry closes at about 0R)`);
     if(p?.enabled)out.push(`${Math.round((p.share??0.5)*100)}% is closed at +${p.atR}R and the rest moves to break-even`);
     out.push('the rest runs to the target',`exit after ${hold} h at the latest`);return out.join('; ');}catch{return null;}}
-  const ENTRY_TEAM=9; // R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): 9 seats at the entry, image models first
+  const ENTRY_TEAM=5; // R2544.117: 9 -> 5 (03.11 06:00 Gemini günlük kotası bitti, kurul 1/15; giriş oyu artık engellemiyor, öğrenme için) | R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): 9 seats at the entry, image models first
   async function committeeEntryGate({symbol,side,rule,entry,stop,target,trigger=null,management=null,context=null,experience=null,flags=[]}){
     const t0=clock();
     if(!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return {veto:false,record:{at:t0,error:'COMMITTEE_NOT_WIRED',fallback:'RULE',authority:true}};
@@ -6879,6 +6885,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {veto,record:{at:clock(),decision:skipAgreed&&ownOddsOk?'TAKE_BY_OWN_ODDS':agreed?r.final:'RULE',committeeDecision:r.final,ownOdds:{pAvg,breakEven},agreed,consensus:r.consensus,voters:r.voters||null,rounds:r.rounds,plan:{entry,stop,target,targetR:packet.plan?.targetR??null},screenTally:packet.screen?.timeframeTally||null,votes:slim(r.round2||r.votes),round1:slim(r.votes),authority:true,ms:clock()-t0,version:TB.TB_VERSION}};
     }catch(e){return {veto:false,record:{at:clock(),error:String(e?.message||e).slice(0,120),fallback:'RULE',authority:true}};}
   }
+  const DESK_GUARD={minOpenMin:30,failR:-0.6,protectR:1}; // R2544.117 masa gürültü koruması
   function deskAuthority(a){try{return (a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root)).committeeMode===true;}catch{return false;}}
   // R2544.89 masanın yetkili emri: yalnız AZALTAN (yarısını kapat = kâr korumayı şimdi al + kalan başabaşa, stopu yaklaştır, çık).
   // Bir kez denenir, 10 dk'dan eskiyse düşer; emir yalnız başlatma (arm) varken; stop asla uzaklaşmaz.
@@ -7237,7 +7244,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
   return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
-    _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
+    _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
 }
