@@ -36,3 +36,9 @@ test('R2544.117 the free daily quota is spread: inside a provider the member use
   const c=MC.createCommittee({size:1,members:[mk('ROUTER:gemini/a'),mk('ROUTER:gemini/b')],healthFile:hf});await c.probe({force:true});
   assert.equal(c.pick()[0].id,'ROUTER:gemini/b');
 });
+
+test('R2544.117 Cohere (trial, ~1000 calls a month) gets one seat; Mistral is paid (user) and never joins by itself',()=>{
+  const MC=require('../model-committee');assert.equal(MC.PROVIDER_CAP.cohere,1);assert.equal(MC.PROVIDER_CAP.mistral,undefined);
+  assert.equal(MC.limitOf('ROUTER:cohere/command-a-vision-07-2025').text,'Cohere deneme ~1000/ay');
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.match(sv,/'cohere\/command-a-vision-07-2025'\]/);
+});

@@ -130,8 +130,8 @@ test('R2544.115 "resim kabul eden bütün modelleri görevlendir": image models 
 test('R2544.115 only free providers join by themselves; image models come from the user\'s connected list x the 9Router catalog',()=>{
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   const FREE=new Function('return '+sv.match(/const ROUTER_FREE_PROVIDERS=(\/.*\/);/)[1])();
-  for(const m of ['gemini/gemini-3.6-flash','nvidia/x/y','groq/a','cloudflare-ai/b','mistral/c','ollama/d','github/e'])assert.ok(FREE.test(m),m);
-  for(const m of ['openai/gpt-6','xai/grok-5','perplexity/sonar','venice/x','cerebras/y','kimi/k3','minimax/m3'])assert.ok(!FREE.test(m),m+' costs money: never by itself');
+  for(const m of ['gemini/gemini-3.6-flash','nvidia/x/y','groq/a','cloudflare-ai/b','cloudflare-workers-ai/b','cohere/c','ollama/d','github/e'])assert.ok(FREE.test(m),m);
+  for(const m of ['openai/gpt-6','xai/grok-5','perplexity/sonar','venice/x','cerebras/y','kimi/k3','minimax/m3','mistral/mistral-small-3','sambanova/z'])assert.ok(!FREE.test(m),m+' costs money: never by itself');
   assert.match(sv,/const connected=\(committeeRouterIds\.ids\|\|\[\]\)\.filter\(m=>ROUTER_FREE_PROVIDERS\.test\(m\)\),visionFirst=connected\.filter\(m=>committeeSeesCharts\(m\)&&!ROUTER_NOT_COMMITTEE\.test\(m\)\);/);
   assert.match(sv,/'9router','model-catalog\.json'/);assert.doesNotMatch(sv.slice(sv.indexOf('function routerVisionMap'),sv.indexOf('function committeeChartContent')),/db\.json|credential|apiKey/i,'only the catalog is read');
   const MC=require('../model-committee');assert.equal(MC.PROVIDER_CAP.github,2);assert.equal(MC.PROVIDER_CAP.gemini,8);

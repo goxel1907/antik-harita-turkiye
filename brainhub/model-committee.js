@@ -20,6 +20,7 @@ const PROVIDER_LIMITS = [
   [/^ROUTER:cerebras\//i, { perDay:null, text:'Cerebras jeton kovası' }],
   [/^ROUTER:(cf|cloudflare)/i, { perDay:null, text:'Cloudflare 10k nöron/gün' }],
   [/^ROUTER:mistral\//i, { perDay:null, text:'Mistral ~1/sn' }],
+  [/^ROUTER:cohere\//i, { perDay:null, text:'Cohere deneme ~1000/ay' }], // R2544.117
   [/^ROUTER:(glm|zai)\//i, { perDay:null, text:'GLM aynı anda 1' }],
   [/^ROUTER:(gemini|google|aistudio)\//i, { perDay:null, text:'AI Studio günlük' }],
   [/^ROUTER:kc\//i, { perDay:null, text:'Kilo 200/saat' }],
@@ -63,7 +64,7 @@ const isGone = (rec, now = Date.now()) => { const why = rec && rec.lastOk === fa
 // R2544.103: Groq free = ~8K tokens per minute per model (prompt + max_tokens); two Groq members asked in the same minute overflow it
 // R2544.112: Google AI Studio quota is per MODEL (each Gemini model its own daily pool) -> up to 5 Gemini seats; a cap may now be above perProvider
 // R2544.115: every image-reading model the user connected joins (Gemini: each model its own daily quota); GitHub = Copilot premium requests -> 2
-const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, 'cloudflare-workers-ai':4, nvidia:4, mistral:2 };
+const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, 'cloudflare-workers-ai':4, nvidia:4, cohere:1 }; // R2544.117: Cohere trial = monthly cap -> 1 seat; Mistral is paid (user) -> no seat
 function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false, caps = PROVIDER_CAP } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {

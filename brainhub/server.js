@@ -1634,7 +1634,7 @@ const ROUTER_STRONG=/gemini-(2\.5|3)[\w.-]*(pro|flash)|llama-?(3\.3|4)|maverick|
 const COMMITTEE_DROP=/^ROUTER:(kr|gc)\//;
 // R2544.115: providers that cost nothing on the user's keys (Google AI Studio, NVIDIA NIM, Groq, Cloudflare Workers AI, Mistral experiment, Ollama Cloud
 // free, GitHub = Copilot plan requests, capped at 2). OpenAI / xAI / Perplexity / Venice / ... never join by themselves even when connected.
-const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|mistral|ollama|github|huggingface|cohere)\//; // R2544.117: every 9Router name of a free tier (Cerebras / SambaNova: card-required trials, never by themselves)
+const ROUTER_FREE_PROVIDERS=/^(gemini|nvidia|groq|cloudflare-ai|cloudflare-workers-ai|cloudflare|ollama|github|huggingface|cohere)\//; // R2544.117: every 9Router name of a free tier (Cerebras / SambaNova: card trials; Mistral: paid API per the user 03.11 - never by themselves)
 const ROUTER_NOT_COMMITTEE=/code|embed|tts|image-gen|imagen|veo|lyria|audio|whisper|guard|safety|-ocr/i;
 const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash','gemini/gemini-2.5-flash','gemini/gemma-4-31b-it',
   'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
@@ -1642,7 +1642,8 @@ const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite
   'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
   'github/claude-sonnet-4.6','github/gpt-5.4','github/grok-4.5',
   'cloudflare-ai/deepseek-v4.1-flash-1017','cloudflare-ai/glm-5.3-flash','cloudflare-ai/kimi-k2.6',
-  'cloudflare-workers-ai/deepseek-v4.1-flash-1017','cloudflare-workers-ai/glm-5.3-flash','cloudflare-workers-ai/kimi-k2.6','cloudflare-workers-ai/gemma-4-26b-a4b-it','cloudflare-ai/gemma-4-26b-a4b-it']; // R2544.117 both Cloudflare names // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
+  'cloudflare-workers-ai/deepseek-v4.1-flash-1017','cloudflare-workers-ai/glm-5.3-flash','cloudflare-workers-ai/kimi-k2.6','cloudflare-workers-ai/gemma-4-26b-a4b-it','cloudflare-ai/gemma-4-26b-a4b-it',
+  'cohere/command-a-vision-07-2025']; // R2544.117 both Cloudflare names; Cohere trial key (user connected 03.11; ~1000 calls/month -> 1 seat) // bağlanmamış sağlayıcılar en sonda: bağlı olanların yerini almaz
 let committeeRouterIds={at:0,ids:[]};
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean)};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
