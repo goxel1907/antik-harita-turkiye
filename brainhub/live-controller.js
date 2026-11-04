@@ -7167,6 +7167,23 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       reasons,rows:rows.slice(0,30).map(r=>({...r,at:new Date(r.at).toISOString()}))};
     funnelCache={at:now,v};return v;
   }
+  // R2544.124: the account ledger for the P&L panel - ONE code path in both modes (TEST: the paper answers GET /fapi/v1/income; LIVE: Binance).
+  // Binance doc (Get Income History, 04.11): weight 30, limit <= 1000, startTime/endTime inclusive, data of the last 3 months -> paged, every 5 min.
+  const pnlCache={TEST:{at:0,rows:[],error:null},LIVE:{at:0,rows:[],error:null}};let pnlBusy=false;
+  async function pnlRefresh(){
+    const mode=testModeNow()?'TEST':'LIVE',c=pnlCache[mode];if(pnlBusy||clock()-c.at<5*60000)return c;pnlBusy=true;
+    try{const creds=currentCredentials();if(mode==='LIVE'&&!credentialsReady(creds)){c.error='BINANCE_CREDENTIALS_REQUIRED';c.at=clock();return c;}
+      if(mode==='LIVE')await transport._syncServerTime();
+      const keep=clock()-60*86400000,key=x=>String(x?.incomeType)+':'+String(x?.tranId),seen=new Map(c.rows.map(x=>[key(x),x]));
+      let start=c.rows.length?Math.max(...c.rows.map(x=>Number(x.time))):keep;
+      for(let i=0;i<30;i++){const r=await transport._fetchJson('GET','/fapi/v1/income',{params:{startTime:Math.floor(start),endTime:Math.floor(clock()),limit:1000},credentials:creds,signed:true});
+        if(!Array.isArray(r))throw new Error('BINANCE_INCOME_UNAVAILABLE');let fresh=0;for(const x of r){if(!seen.has(key(x)))fresh++;seen.set(key(x),x);}
+        if(r.length<1000||!fresh)break;start=Math.max(...r.map(x=>Number(x.time)));}
+      c.rows=[...seen.values()].filter(x=>Number(x.time)>=keep).sort((a,b)=>Number(a.time)-Number(b.time));c.at=clock();c.error=null;
+    }catch(e){c.error=String(e?.message||e).slice(0,120);c.at=clock();}finally{pnlBusy=false;}return c;}
+  // a status read only SHOWS the cache: the read runs on its own server timer (a refresh from inside top3Status interleaved with the tick)
+  function pnlView(mode,now){const c=pnlCache[mode];
+    try{return {...top3Lib.pnlLedger(c.rows,{now,mode,lessons:[...(top3State.lessons||[]),...(z5State().lessons||[])]}),readAt:c.at||null,error:c.error};}catch{return null;}}
   function top3Status(){
     const cfg=top3Lib.readTop3Config(root),gate=cfg.enabled?top3Gate(cfg):{ok:false,reason:'TOP3_DISABLED'};
     const now=clock(),T=Math.floor(now/TOP3_HOUR)*TOP3_HOUR-TOP3_HOUR;
@@ -7178,7 +7195,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // R2544.104 KOMUTA MERKEZİ: o anki modun son 30 günü (İlk 3 + ZİRVE-5 dersleri)
     const cc=(()=>{try{return top3Lib.commandSummary([...(top3State.lessons||[]),...(z5State().lessons||[])],{mode,now});}catch{return null;}})();
     let funnel=null;try{funnel=signalFunnel();}catch{}
-    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),cc,funnel,
+    const pnl=pnlView(mode,now);
+    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),cc,funnel,pnl,
       switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,committeeMode:cfg.committeeMode===true,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true,topSweep:cfg.top?.requireSweep!==false},partial:{...(cfg.partial||{})},
       subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
         const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};
@@ -7260,7 +7278,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
+  return { pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };

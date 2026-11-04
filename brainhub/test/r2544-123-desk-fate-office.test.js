@@ -24,5 +24,5 @@ test('R2544.123 result card: dollars next to R (fixed margin: a tight stop loses
   const c=T.commandSummary(L,{mode:'TEST',now});
   assert.equal(c.all.totR,-1.03);assert.equal(c.all.netUsd,9,'R negative, dollars positive - both true');
   assert.equal(c.last24.n,2);assert.equal(c.last24.netUsd,39);assert.equal(c.last24.totR,-0.13);
-  assert.match(html,/net <b style="color:\$\{\(a\.netUsd\|\|0\)>=0/);assert.match(html,/son 24 sa: \$\{l24\.n\} işlem/);assert.match(html,/TEST'e eklenen sanal ek bakiye bu sonuca katılmaz/);
+  assert.match(html,/net <b style="color:\$\{\(L30\?L30\.net:\(a\.netUsd\|\|0\)\)>=0/,'R2544.124: the ledger first');assert.match(html,/son 24 sa: \$\{l24\.trades\?\?l24\.n\} işlem/);assert.match(html,/TEST'e eklenen sanal ek bakiye bu sonuca katılmaz/);
 });

@@ -2551,7 +2551,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.123';
+const RUNTIME_RELEASE='R2544.124';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
@@ -2621,6 +2621,10 @@ const top3Timer=setInterval(async()=>{
   catch(e){log('TOP3 TIMER '+String(e?.message||e).slice(0,180));}
 },30000);
 if(typeof top3Timer.unref==='function')top3Timer.unref();
+// R2544.124 kâr / zarar paneli: the account ledger (TEST paper or Binance, same call) every 5 min; first read 20 s after start
+const pnlTimer=setInterval(()=>{live.pnlRefresh?.().catch(e=>log('PNL LEDGER '+String(e?.message||e).slice(0,160)));},5*60000);
+if(typeof pnlTimer.unref==='function')pnlTimer.unref();
+{const t=setTimeout(()=>{live.pnlRefresh?.().catch(()=>{});},20000);if(typeof t.unref==='function')t.unref();}
 // R2544.64 ZİRVE-5 SHORT: 5 s (one market scan per closed 15m candle; between scans only the armed top-5 coins' bid).
 const z5Timer=setInterval(async()=>{
   try{const out=await live.z5Tick();if(out?.scanned||out?.entries)log('ZIRVE5 scanned='+(out.scanned===true)+' entries='+(out.entries||0));}

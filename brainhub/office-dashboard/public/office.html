@@ -191,6 +191,26 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 /* R2544.102 KARAR REAKTÖRÜ */
 /* R2544.104 KOMUTA MERKEZİ */
+/* R2544.124 KÂR / ZARAR — hesap defteri */
+.pl-card{margin-top:12px}
+.pl-tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:6px 0 10px}
+@media (max-width:900px){.pl-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.pl-tile{border-radius:12px;padding:8px 10px;background:rgba(255,255,255,.03);border:1px solid rgba(140,150,190,.18)}
+.pl-tile .k{font-size:11px;color:#9aa3c4}.pl-tile .v{font-size:20px;font-weight:800;margin-top:2px}.pl-tile .s{font-size:11px;color:#9aa3c4;margin-top:2px}
+.pl-charts{display:grid;grid-template-columns:1.4fr 1fr .8fr;gap:12px}
+@media (max-width:1100px){.pl-charts{grid-template-columns:1fr}}
+.pl-ch{border-radius:12px;padding:8px 10px;background:rgba(255,255,255,.02);border:1px solid rgba(140,150,190,.14)}
+.pl-ch .t{font-size:11px;font-weight:700;color:#c9cfe6;letter-spacing:.04em;margin-bottom:6px}
+.pl-bars{display:flex;align-items:stretch;gap:3px;height:110px;position:relative}
+.pl-bars:before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px dashed rgba(140,150,190,.3)}
+.pl-b{flex:1;min-width:6px;display:flex;flex-direction:column;justify-content:center;position:relative;cursor:default}
+.pl-b .up,.pl-b .dn{height:50%;display:flex;flex-direction:column}
+.pl-b .up{justify-content:flex-end}.pl-b .dn{justify-content:flex-start}
+.pl-b i{display:block;border-radius:3px;min-height:0}
+.pl-b .up i{background:linear-gradient(180deg,#7ff0b0,#2bd67b);box-shadow:0 0 8px rgba(43,214,123,.35)}
+.pl-b .dn i{background:linear-gradient(180deg,#ff4d6d,#ff9aac);box-shadow:0 0 8px rgba(255,77,109,.35)}
+.pl-lab{display:flex;gap:3px;margin-top:4px}.pl-lab span{flex:1;min-width:6px;text-align:center;font-size:9px;color:#8a92b2;overflow:hidden;white-space:nowrap}
+.pl-note{font-size:11px;color:#9aa3c4;margin-top:8px}
 /* R2544.106 POZİSYON MASASI */
 .cc-pos{margin-top:12px}
 .ps-grid{display:grid;grid-template-columns:minmax(300px,1.15fr) minmax(320px,1.6fr);gap:12px}
@@ -498,6 +518,8 @@ body.cc-compact .cc-extra{display:none !important}
       </div>
     </div>
     <div class="cc-now" id="ccNow"></div>
+    <div class="cc-panel pl-card" id="plCard" aria-label="Kâr zarar"><div class="cc-h">💵 KÂR / ZARAR <span class="x" id="plSub">hesabın kendi defteri (gerçekleşen kâr + komisyon + fonlama) • TEST ve CANLI aynı hesap</span></div>
+      <div class="pl-tiles" id="plTiles"></div><div class="pl-charts" id="plCharts"></div><div class="pl-note" id="plNote"></div></div>
     <div class="cc-panel cc-pos" id="ccPos"><div class="cc-h">🎯 POZİSYON MASASI <span class="x">açık pozisyon canlı • son 5 pozisyon • geçmişin dağılımı (o anki mod, son 30 gün)</span></div>
       <div class="ps-grid"><div id="psOpen"></div><div><div id="psLast5"></div><div class="ps-hist" id="psHist"></div></div></div></div>
     <div class="cc-panel cc-brain" id="ccBrain"><div class="cc-h">🧠 BEYİN — NE ÖĞRENDİ <span class="x" id="ccBrainSub">her kapanan işlemin otopsisi • "ders" = gerçek işlemlerde kazananı kaybedenden ayıran bilgi (her iki tarafta en az 8 işlem)</span></div><canvas id="brCanvas" role="img" aria-label="Beyin: her nöron bir kapanan işlem, altın çekirdekler doğrulanmış dersler"></canvas><div id="ccBrainBody">—</div></div>
@@ -1123,6 +1145,24 @@ function ccEq(cv,curve){
   g.fillStyle=col;g.beginPath();g.arc(sx(curve.length),sy(last),3.5,0,Math.PI*2);g.fill();
   g.fillStyle='#8f97b8';g.font='600 10px system-ui';g.fillText(ccR(mx),4,12);g.fillText(ccR(mn),4,H-4);
 }
+// R2544.124 (kullanıcı 04.11: "test bakiyesi eklense bile saatlik günlük haftalık kâr zararları net görmemiz lazım"): the account ledger, per hour / day / week
+function plUsd(v){return v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+' $';}
+function plCol(v){return Number(v)>0?'#7ff0b0':Number(v)<0?'#ff9aac':'#c9cfe6';}
+function plTip(b,name){return `${name}: net ${plUsd(b.net)} (gerçekleşen ${plUsd(b.realized)}, komisyon ${plUsd(b.fees)}${b.funding?', fonlama '+plUsd(b.funding):''}) • ${b.trades} işlem, ${b.wins} kazanç${b.R!==null&&b.R!==undefined?' • '+(b.R>=0?'+':'')+b.R+'R':''}`;}
+function plBars(list,name,labelEvery){const mx=Math.max(1,...list.map(b=>Math.abs(Number(b.net)||0)));
+  return `<div class="pl-bars">${list.map(b=>{const h=Math.round(100*Math.abs(Number(b.net)||0)/mx);return `<div class="pl-b" title="${esc(plTip(b,name+' '+b.label))}"><div class="up">${b.net>0?`<i style="height:${h}%"></i>`:''}</div><div class="dn">${b.net<0?`<i style="height:${h}%"></i>`:''}</div></div>`;}).join('')}</div>`
+    +`<div class="pl-lab">${list.map((b,i)=>`<span>${i%labelEvery===0||i===list.length-1?esc(b.label):''}</span>`).join('')}</div>`;}
+function plRender(p){
+  const T=document.getElementById('plTiles'),C=document.getElementById('plCharts'),N=document.getElementById('plNote');if(!T||!C||!N)return;
+  if(!p||!p.totals){T.innerHTML='';C.innerHTML='';N.textContent=p&&p.error?'Hesap defteri okunamadı: '+p.error:'Hesap defteri bekleniyor (5 dk’da bir okunur).';return;}
+  const t=p.totals,tile=(k,b,extra)=>`<div class="pl-tile"><div class="k">${k}</div><div class="v" style="color:${plCol(b.net)}">${plUsd(b.net)}</div><div class="s">${b.trades} işlem • ${b.wins} kazanç${b.R!==null&&b.R!==undefined?' • '+(b.R>=0?'+':'')+b.R+'R':''}${extra||''}</div></div>`;
+  T.innerHTML=tile('Bugün',t.today)+tile('Son 24 saat',t.last24h)+tile('Bu hafta (Pzt’den)',t.week)+tile('Son 30 gün',t.last30d)+tile('Başlangıçtan beri',t.all,` • komisyon ${plUsd(t.all.fees)}`);
+  C.innerHTML=`<div class="pl-ch"><div class="t">SAATLİK • son 24 saat</div>${plBars(p.hours,'saat',3)}</div><div class="pl-ch"><div class="t">GÜNLÜK • son 14 gün</div>${plBars(p.days,'gün',2)}</div><div class="pl-ch"><div class="t">HAFTALIK • son 8 hafta (Pzt)</div>${plBars(p.weeks,'hafta',1)}</div>`;
+  const gross=Number(t.all.realized)||0,fee=Math.abs(Number(t.all.fees)||0);
+  N.innerHTML=`Kaynak: ${p.mode==='LIVE'?'Binance':'TEST sanal hesap'} defteri (GET /fapi/v1/income)${p.readAt?' • okundu '+new Date(p.readAt).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}):''}${p.error?' • <b style="color:#ff9aac">son okuma hatası: '+esc(p.error)+'</b>':''}`
+    +` • ${p.cash&&p.cash.n?`<b>${p.mode==='LIVE'?'Hesaba yatan / çekilen':'TEST’e eklenen sanal ek bakiye'}: ${plUsd(p.cash.total)} (${p.cash.n} kez) — kâr/zarara KATILMAZ</b>`:'hesaba ek para hareketi yok'}`
+    +(gross>0?` • komisyon brüt kârın %${Math.round(100*fee/gross)}’i`:'')+` • çubuğun üstüne gelince ayrıntı`;
+}
 function renderCC(s){
   let m;try{m=ccModel(s);}catch(e){console.warn('cc',e);return;}CC.m=m;
   const $=id=>document.getElementById(id);
@@ -1138,9 +1178,9 @@ function renderCC(s){
   const tr=$('ccTotR');if(tr){tr.textContent=a?ccR(a.totR):'—';tr.style.color=a?ccCol(a.totR):'#c9cfe6';}
   if($('ccPnlSub'))$('ccPnlSub').textContent=`son ${m.cc?.days||30} gün • ${m.mode==='LIVE'?'CANLI':'TEST'}`;
   // R2544.123: dollars next to R (R = risk units; fixed margin x leverage makes 1R worth ~4 $ on a tight stop and ~40 $ on a wide one); last 24 h too
-  const usdTxt=v=>v===null||v===undefined?'—':(v>=0?'+':'')+Number(v).toFixed(2)+' $',l24=m.cc?.last24||null;
-  if($('ccBal'))$('ccBal').innerHTML=a?`${a.n} işlem • <b style="color:#7ff0b0">${a.wins} kazanç</b> / <b style="color:#ff9aac">${a.n-a.wins} kayıp</b> • net <b style="color:${(a.netUsd||0)>=0?'#7ff0b0':'#ff9aac'}">${usdTxt(a.netUsd)}</b>`
-    +(l24&&l24.n?`<br><span style="color:#9aa3c4">son 24 sa: ${l24.n} işlem • ${l24.wins} kazanç • ${ccR(l24.totR)} • net <b style="color:${(l24.netUsd||0)>=0?'#7ff0b0':'#ff9aac'}">${usdTxt(l24.netUsd)}</b></span>`:'')
+  const usdTxt=v=>v===null||v===undefined?'—':(v>=0?'+':'')+Number(v).toFixed(2)+' $',pl=(ccG(s?.top3)||{}).pnl||null,L30=pl?.totals?.last30d||null,l24=pl?.totals?.last24h||m.cc?.last24||null; // R2544.124: dollars from the ledger
+  if($('ccBal'))$('ccBal').innerHTML=a?`${a.n} işlem • <b style="color:#7ff0b0">${a.wins} kazanç</b> / <b style="color:#ff9aac">${a.n-a.wins} kayıp</b> • net <b style="color:${(L30?L30.net:(a.netUsd||0))>=0?'#7ff0b0':'#ff9aac'}">${usdTxt(L30?L30.net:a.netUsd)}</b>${L30?' (hesap defteri)':''}`
+    +(l24&&(l24.trades??l24.n)?`<br><span style="color:#9aa3c4">son 24 sa: ${l24.trades??l24.n} işlem • ${l24.wins} kazanç • ${ccR(l24.R??l24.totR)} • net <b style="color:${(l24.net??l24.netUsd??0)>=0?'#7ff0b0':'#ff9aac'}">${usdTxt(l24.net??l24.netUsd)}</b></span>`:'')
     +`<br><span style="color:#9aa3c4;font-size:11px">R = risk birimi (stop mesafesi); marj ve kaldıraç sabit olduğu için dar stoplu işlemde 1R az, geniş stoplu işlemde çok dolar eder. TEST'e eklenen sanal ek bakiye bu sonuca katılmaz.</span>`:'kapanan işlem yok';
   if($('ccKpis'))$('ccKpis').innerHTML=a?[['kazanma',a.winPct!==null?'%'+a.winPct:'—'],['işlem başı',ccR(a.avgR)],['en büyük düşüş',ccR(a.maxDDR)],['masa kararı',m.cc?.desk?`${m.cc.desk.decisions} (${m.cc.desk.authorized} yetkili)`:'—']].map(([k,v])=>`<div class="cc-kpi">${k}<b>${esc(v)}</b></div>`).join(''):'';
   ccEq($('ccEq'),m.cc?.curve||null);
@@ -1160,6 +1200,7 @@ function renderCC(s){
     Object.keys(acts).length?`<b>Masa kararları (30 gün):</b> ${Object.entries(acts).map(([k,v])=>`${RX_TR[k]||k} ${v}`).join(' • ')}`:null].filter(Boolean).join('<br>');
   // JEV panels (vur-kaç, 5M / 15M masaları, JEV kanıt kartları) stay visible only while JEV / OTO actually runs: their numbers are live then
   {const jevLive=m.jevOn||((ccG(s?.status)||{}).leaderAuto?.enabled===true);for(const id of ['burstCard','legacyJevA','legacyJevB']){const e=$(id);if(e)e.classList.toggle('cc-extra',!jevLive);}}
+  try{plRender((ccG(s?.top3)||{}).pnl||null);}catch(e){console.warn('pl',e);} // R2544.124
   const nw=$('ccNow');if(nw){const btn=`<button class="cc-toggle" id="ccToggle">${document.body.classList.contains('cc-compact')?'⚙️ Ayrıntılı panelleri göster':'⚙️ Ayrıntılı panelleri gizle'}</button>`;
     nw.innerHTML=`<span class="why">⏱ ŞİMDİ: ${m.open?`<b>${m.open} açık pozisyon</b> masada izleniyor`:esc(m.why||'—')}</span>${m.nm.map(x=>`<span class="why" style="color:#aeb6d6">son bekleyen: ${esc(x)}</span>`).join('')}${btn}`;
     $('ccToggle').onclick=()=>{const on=!document.body.classList.contains('cc-compact');document.body.classList.toggle('cc-compact',on);try{localStorage.setItem('ccCompact',on?'1':'0');}catch{}renderCC(s);};}

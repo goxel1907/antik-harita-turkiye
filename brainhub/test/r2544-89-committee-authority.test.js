@@ -226,3 +226,18 @@ test('R2544.123 the desk decision says what happened to its order: a refused sto
   const g=f.lot().desk.decisions.find(d=>d.at===good.at);assert.equal(g.done.ok,true);assert.equal(g.done.kind,'STOP');assert.ok(g.done.price>0);
   assert.equal(f.controller.z5Status().active.find(x=>x.id===lot.id).deskInfo.pending,null,'nothing pending after it ran');
 });
+
+test('R2544.124 P&L panel: the controller reads the account ledger through the SAME call in TEST (paper) as in LIVE (Binance); a closed trade shows up, a virtual top-up does not',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:cm(TAKE)}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=f.lot(),R=a.stopPrice-a.entryPrice;
+  await f.beat(a.entryPrice-0.3*R);f.lot().deskOrder={action:'EXIT',at:f.state.now,by:'COMMITTEE'};await f.beat();assert.equal(f.lot(),null);
+  await f.paper.deposit(100,'TOPUP_TEST');
+  assert.equal(f.controller.top3Status().pnl.readAt,null,'a status read does not fetch by itself');await f.controller.pnlRefresh();
+  const p=f.controller.top3Status().pnl;assert.ok(p&&p.totals,'ledger read');assert.equal(p.mode,'TEST');assert.equal(p.error,null);
+  const inc=f.paper.state.income,net=inc.filter(x=>x.incomeType!=='TRANSFER').reduce((s,x)=>s+Number(x.income),0);
+  assert.equal(p.totals.all.net,Number(net.toFixed(2)),'panel = paper ledger (realized + commission)');assert.ok(p.totals.all.fees<0,'commission counted');
+  assert.equal(p.cash.total,100,'the top-up is listed apart');assert.equal(p.cash.n,1);
+  const src=require('fs').readFileSync(require('path').join(__dirname,'..','live-controller.js'),'utf8');
+  assert.match(src,/transport\._fetchJson\('GET','\/fapi\/v1\/income',\{params:\{startTime:Math\.floor\(start\),endTime:Math\.floor\(clock\(\)\),limit:1000\},credentials:creds,signed:true\}\)/,'one call, both modes');
+});

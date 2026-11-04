@@ -749,6 +749,31 @@ function subJev(cfg, side) { const R = side === 'LONG' ? cfg?.early : cfg?.top; 
 // bakiye eğrisi (birikimli R), en büyük düşüş, son 14 günün günlük R'si, masa kararlarının dağılımı (yetkili / gölge). Yalnız ölçer, karar vermez.
 const CC_STRATS = [{ key:'ERKEN_LONG', name:'İlk 3 ERKEN LONG', lane:'ILK3', rules:['LONG_EARLY_RETEST', 'LONG_6OF6'] }, { key:'TEPE_SHORT', name:'İlk 3 TEPE SHORT', lane:'ILK3', rules:['SHORT_TOP_BREAK', 'SHORT_TOP_FADE'] },
   { key:'ZIRVE5', name:'ZİRVE-5', lane:'ZIRVE5', rules:['ZIRVE5_FIBO_LONG', 'ZIRVE5_FIBO_SHORT'] }];
+// R2544.124 (kullanıcı 04.11: "test bakiyesi eklense bile saatlik günlük haftalık kâr zararları net görmemiz lazım, canlıya geçeceğiz"):
+// the account's OWN ledger (Binance GET /fapi/v1/income; the TEST paper answers the same call) -> trading result per hour / day / week.
+// Trading = realized P&L + commission + funding (+ rebates / insurance clear); transfers and bonuses (TEST virtual top-ups) are listed apart.
+const PNL_TRADE_TYPES = ['REALIZED_PNL', 'COMMISSION', 'FUNDING_FEE', 'INSURANCE_CLEAR', 'COMMISSION_REBATE', 'API_REBATE'];
+function pnlLedger(rows, { now = Date.now(), tzMin = 180, lessons = [], mode = 'TEST' } = {}) {
+  const R = (Array.isArray(rows) ? rows : []).map(x => ({ t:Number(x?.time), type:String(x?.incomeType || ''), v:Number(x?.income) })).filter(x => Number.isFinite(x.t) && Number.isFinite(x.v));
+  const trade = R.filter(x => PNL_TRADE_TYPES.includes(x.type)), cash = R.filter(x => !PNL_TRADE_TYPES.includes(x.type));
+  const off = tzMin * 60000, H = 3600000, D = 86400000;
+  const dayStart = t => Math.floor((t + off) / D) * D - off, hourStart = t => Math.floor(t / H) * H;
+  const weekStart = t => { const d = dayStart(t), wd = (new Date(d + off).getUTCDay() + 6) % 7; return d - wd * D; }; // Monday, local time
+  const L = (lessons || []).filter(l => l && l.mode === mode && Number.isFinite(Number(l.closedAt)));
+  const sumOf = (a, b) => { const xs = trade.filter(x => x.t >= a && x.t < b), g = k => Number(xs.filter(x => x.type === k).reduce((p, x) => p + x.v, 0).toFixed(2));
+    const ls = L.filter(l => l.closedAt >= a && l.closedAt < b), r = ls.map(l => Number(l.rMultiple)).filter(Number.isFinite);
+    return { net:Number(xs.reduce((p, x) => p + x.v, 0).toFixed(2)), realized:g('REALIZED_PNL'), fees:g('COMMISSION'), funding:g('FUNDING_FEE'),
+      trades:ls.length, wins:ls.filter(l => Number(l.rMultiple) > 0).length, R:r.length ? Number(r.reduce((p, q) => p + q, 0).toFixed(2)) : null }; };
+  const lab = (t, f) => { const d = new Date(t + off); return f === 'h' ? String(d.getUTCHours()).padStart(2, '0') : String(d.getUTCDate()).padStart(2, '0') + '.' + String(d.getUTCMonth() + 1).padStart(2, '0'); };
+  const hours = [], days = [], weeks = [];
+  for (let i = 23; i >= 0; i--) { const a = hourStart(now) - i * H; hours.push({ at:a, label:lab(a, 'h'), ...sumOf(a, a + H) }); }
+  for (let i = 13; i >= 0; i--) { const a = dayStart(now) - i * D; days.push({ at:a, label:lab(a, 'd'), ...sumOf(a, a + D) }); }
+  for (let i = 7; i >= 0; i--) { const a = weekStart(now) - i * 7 * D; weeks.push({ at:a, label:lab(a, 'd'), ...sumOf(a, a + 7 * D) }); }
+  const first = trade.length ? Math.min(...trade.map(x => x.t)) : now;
+  return { mode, at:now, source:'GET /fapi/v1/income', hours, days, weeks,
+    totals:{ today:sumOf(dayStart(now), now + 1), week:sumOf(weekStart(now), now + 1), last24h:sumOf(now - D, now + 1), last7d:sumOf(now - 7 * D, now + 1), last30d:sumOf(now - 30 * D, now + 1), all:{ ...sumOf(0, now + 1), since:first } },
+    cash:{ total:Number(cash.reduce((p, x) => p + x.v, 0).toFixed(2)), n:cash.length, rows:cash.slice(-10).map(x => ({ at:x.t, type:x.type, amount:Number(x.v.toFixed(2)) })) } };
+}
 function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } = {}) {
   const L = (lessons || []).filter(x => x && x.mode === mode && Number.isFinite(Number(x.rMultiple)) && Number.isFinite(Number(x.closedAt))).sort((a, b) => a.closedAt - b.closedAt);
   const since = now - days * 86400000, W = L.filter(x => x.closedAt >= since);
@@ -780,5 +805,5 @@ function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } 
   const pos = { recent, bins, exits, avgHoldMin:avg(W.map(x => (Number(x.holdH) || 0) * 60)), avgMfeR:avg(mfe), avgGivebackR:avg(give), sawOneR:give.length };
   return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, last24:stat(W.filter(x => x.closedAt >= now - 86400000)), curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts }, pos };
 }
-module.exports = { CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+module.exports = { pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
