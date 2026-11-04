@@ -6106,6 +6106,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(pl0?.ok)ef.entryCtx=AUTOPSY.entryContext(x.k5tail||[],x.side,x.close,pl0.stopPrice,await btc5Recent());}catch{} // R2544.80
       ef.experience=top3Lib.experienceVerdict(top3State.lessons,x.rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
       {const sc=top3Lib.similarCases(top3State.lessons,x.rule,ef);ef.similar={n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))};} // R2544.80 karar vermez
+      try{ef.brain=top3Lib.brainCase(top3State.lessons,x.rule,ef);}catch{} // R2544.125 beyin: en benzer 5 geçmiş işlem + eğilim; işlem kapanınca puanlanır, karar vermez
       let jev=null;const sub=top3Lib.subOf(x.side);res.strategy=sub.name;
       if(top3Lib.subJev(cfg,x.side)){
         if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}
@@ -6122,7 +6123,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const flags=[...(cd?[{code:cd}]:[]),...((pl0?.ok&&Array.isArray(pl0.flags))?pl0.flags:[])];if(flags.length)ef.ruleFlags=flags;
       // R2544.116: the entry no longer waits for a committee vote (every signal opens; the vote comes right after the entry, from the same
       // screen, and is learned from; the committee's desk manages the open position with authority). committeeEntryVeto:true brings the gate back.
-      if(cfg.committeeEntryVeto===true&&pl0?.ok){const g=await committeeEntryGate({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,management:committeeManagement(cfg,x.side,false),context:{rank:ef.rank,rankName:'24h gainer rank',fund:ef.fund,premium:ef.premium},experience:ef.similar,flags});
+      if(cfg.committeeEntryVeto===true&&pl0?.ok){const g=await committeeEntryGate({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,management:committeeManagement(cfg,x.side,false),context:{rank:ef.rank,rankName:'24h gainer rank',fund:ef.fund,premium:ef.premium},experience:ef.brain||ef.similar,flags});
         ef.committee=g.record;res.committee={decision:g.record.decision||null,consensus:g.record.consensus||null,error:g.record.error||null};
         if(g.veto){res.reason='TOP3_COMMITTEE_SKIP';try{store.journal('TOP3_COMMITTEE_SKIP',x.symbol,{side:x.side,rule:x.rule,flags,...g.record});}catch{}continue;}
         // a signal the strict rule would drop opens only on the trader's word: no committee answer -> no trade
@@ -6847,7 +6848,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const e=finite(lot.entryPrice),st=finite(lot.initialStopPrice)??finite(lot.stopPrice),tp=finite(lot.tpPrice);if(!(e>0&&st>0&&tp>0))return null;
       const rule=lot.lane==='ZIRVE5'?(lot.side==='LONG'?'ZIRVE5_FIBO_LONG':'ZIRVE5_FIBO_SHORT'):lot.rule;
       const f0=lot.entryFeatures||{},z5=lot.lane==='ZIRVE5';let mg=null;try{mg=committeeManagement(z5?z5Lib.readConfig(root):top3Lib.readTop3Config(root),lot.side,z5);}catch{}
-      const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t,trigger:f0.trig||null,management:mg,flags:f0.ruleFlags||[],experience:f0.similar||null,
+      const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t,trigger:f0.trig||null,management:mg,flags:f0.ruleFlags||[],experience:f0.brain||f0.similar||null,
         context:{rank:f0.rank??null,rankName:z5?'volatility rank (top 5)':'24h gainer rank',fund:f0.fund??null,premium:f0.premium??null}});
       {const sf=TB.screenFacts(packet);if(sf){(lot.entryFeatures||(lot.entryFeatures={})).screenFacts=sf;saveTop3State();}}
       if(lot.entryFeatures?.committee||!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return null;
@@ -6993,6 +6994,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{ef.entryCtx=AUTOPSY.entryContext(sg.tail2||[],side,sg.refPrice,sg.stopPrice,await btc5Recent());}catch{} // R2544.80
         ef.experience=top3Lib.experienceVerdict(z.lessons,rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
         {const sc=top3Lib.similarCases(z.lessons,rule,ef);ef.similar={n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))};} // R2544.80 karar vermez
+        try{ef.brain=top3Lib.brainCase(z.lessons,rule,ef);}catch{} // R2544.125
         let jev=null;
         if(cfg.jevMode===true){
           let chartContext=market?.cachedChartContext?.(sym,clock())||null;
@@ -7007,7 +7009,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         {const pz0=z5Lib.plan(sg.refPrice,sg,cfg,{advisory:true});const fl=[...z5Flags,...(pz0?.ok&&Array.isArray(pz0.flags)?pz0.flags:[])];if(fl.length)ef.ruleFlags=fl;}
         if(cfg.committeeEntryVeto===true){const pz=z5Lib.plan(sg.refPrice,sg,cfg,{advisory:true}); // R2544.89 kurul kapısı (R2544.116: yalnız committeeEntryVeto ile)
           const flags=[...z5Flags,...(pz?.ok&&Array.isArray(pz.flags)?pz.flags:[])];
-          if(pz?.ok){const g=await committeeEntryGate({symbol:sym,side,rule,entry:sg.refPrice,stop:pz.stopPrice,target:pz.tpPrice,trigger:sg,management:committeeManagement(cfg,side,true),context:{rank:sg.rank,rankName:'volatility rank (top 5)'},experience:ef.similar,flags});ef.committee=g.record;
+          if(pz?.ok){const g=await committeeEntryGate({symbol:sym,side,rule,entry:sg.refPrice,stop:pz.stopPrice,target:pz.tpPrice,trigger:sg,management:committeeManagement(cfg,side,true),context:{rank:sg.rank,rankName:'volatility rank (top 5)'},experience:ef.brain||ef.similar,flags});ef.committee=g.record;
             if(g.veto){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_COMMITTEE_SKIP',rank:sg.rank});try{store.journal('ZIRVE5_COMMITTEE_SKIP',sym,{side,rule,flags,...g.record});}catch{}continue;}
             if(flags.length&&g.record.error){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_FLAGGED_NEEDS_COMMITTEE',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_FLAGGED_NEEDS_COMMITTEE',flags,committeeError:g.record.error,rank:sg.rank});}catch{}continue;}
             }}
@@ -7210,6 +7212,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
       settings:{marginQuote:cfg.marginQuote,marginAuto:cfg.marginQuote===null,leverage:cfg.leverage,safeLeverage:{long:top3Lib.safeLeverage(cfg.long.stopPct),shortMin:top3Lib.safeLeverage(cfg.short.maxStopPct),shortMax:top3Lib.safeLeverage(cfg.short.minStopPct)},effectiveLong:Math.min(cfg.leverage,top3Lib.safeLeverage(cfg.long.stopPct))},
+      brain:(()=>{try{const all=[...(top3State.lessons||[]),...(z5State().lessons||[])],sc=top3Lib.brainScore(all,{mode});
+        // the latest recall: an open lot's entry recall, else the newest lesson that has one, else the newest lesson replayed on what came before it
+        const act=Object.values(top3State.active||{}).filter(a=>a?.entryFeatures?.brain).sort((a,b)=>(b.openedAt||0)-(a.openedAt||0))[0];
+        let last=act?{symbol:act.symbol,side:act.side,rule:act.rule,lane:act.lane||'ILK3',openedAt:act.openedAt,status:'OPEN',...act.entryFeatures.brain}:null;
+        if(!last){const ls=all.filter(l=>l&&l.mode===mode).sort((a,b)=>(b.openedAt||0)-(a.openedAt||0)),w=ls.find(l=>l.features?.brain),l=w||ls[0];
+          if(l){const b=w?w.features.brain:top3Lib.brainCase(all.filter(p=>p&&p.mode===mode&&p.closedAt<l.openedAt),l.rule,{...(l.features||{}),stopPct:l.stopPct});
+            last={symbol:l.symbol,side:l.side,rule:l.rule,openedAt:l.openedAt,status:'CLOSED',R:Number(Number(l.rMultiple).toFixed(2)),hit:top3Lib.brainHit(b.lean,Number(l.rMultiple)),replay:!w,...b};}}
+        return {score:sc,last};}catch{return null;}})(),
       learning:{...top3Lib.experienceSummary(top3State.lessons),causes:{LONG_EARLY_RETEST:top3Lib.causeStats(top3State.lessons,'LONG_EARLY_RETEST').text,SHORT_TOP_BREAK:top3Lib.causeStats(top3State.lessons,'SHORT_TOP_BREAK').text},
         autopsies:(top3State.lessons||[]).filter(l=>l.autopsy?.ok).slice(-5).reverse().map(l=>({symbol:l.symbol,side:l.side,rule:l.rule,R:l.rMultiple,text:l.autopsy.text})),limitsInTest:'NONE',limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'},
         sameCoinPauseH:cfg.rulesVersion===2?{long:cfg.early.cooldownH,short:cfg.top.cooldownH,afterStop:cfg.top.cooldownAfterStopH}:null},

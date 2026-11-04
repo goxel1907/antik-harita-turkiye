@@ -255,8 +255,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .ps-leg{display:flex;flex-wrap:wrap;gap:6px;font:600 10px system-ui,sans-serif;color:#aeb6d6}.ps-leg i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:3px}
 
 /* R2544.105 BEYİN — NE ÖĞRENDİ */
-.cc-brain canvas#brCanvas{width:100%;height:240px;display:block;border-radius:12px;background:#05060c;margin-bottom:10px;box-shadow:inset 0 0 40px rgba(167,139,250,.18)}
-@media (max-width:700px){.cc-brain canvas#brCanvas{height:200px}}
+.cc-brain canvas#brCanvas{width:100%;height:300px;display:block;border-radius:12px;background:#05060c;margin-bottom:10px;box-shadow:inset 0 0 40px rgba(167,139,250,.18)}
+@media (max-width:700px){.cc-brain canvas#brCanvas{height:260px}}
 
 .cc-brain{margin-top:12px;position:relative}
 .br-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
@@ -522,7 +522,7 @@ body.cc-compact .cc-extra{display:none !important}
       <div class="pl-tiles" id="plTiles"></div><div class="pl-charts" id="plCharts"></div><div class="pl-note" id="plNote"></div></div>
     <div class="cc-panel cc-pos" id="ccPos"><div class="cc-h">🎯 POZİSYON MASASI <span class="x">açık pozisyon canlı • son 5 pozisyon • geçmişin dağılımı (o anki mod, son 30 gün)</span></div>
       <div class="ps-grid"><div id="psOpen"></div><div><div id="psLast5"></div><div class="ps-hist" id="psHist"></div></div></div></div>
-    <div class="cc-panel cc-brain" id="ccBrain"><div class="cc-h">🧠 BEYİN — NE ÖĞRENDİ <span class="x" id="ccBrainSub">her kapanan işlemin otopsisi • "ders" = gerçek işlemlerde kazananı kaybedenden ayıran bilgi (her iki tarafta en az 8 işlem)</span></div><canvas id="brCanvas" role="img" aria-label="Beyin: her nöron bir kapanan işlem, altın çekirdekler doğrulanmış dersler"></canvas><div id="ccBrainBody">—</div></div>
+    <div class="cc-panel cc-brain" id="ccBrain"><div class="cc-h">🧠 BEYİN — NE ÖĞRENDİ <span class="x" id="ccBrainSub">her kapanan işlem hafızada • yeni sinyalde en benzer 5 işlemi hatırlar, eğilim söyler, işlem kapanınca puanlanır</span></div><canvas id="brCanvas" role="img" aria-label="Beyin: son sinyal ortada, hatırladığı en benzer 5 geçmiş işlem çevresinde, altta beynin kararı, sağda karnesi"></canvas><div id="ccBrainBody">—</div></div>
   </section>
   <section class="kpis" id="kpis"></section>
   <section class="guard-strip" id="guardStrip" aria-label="Karar ve koruma (R2544)"></section>
@@ -1000,61 +1000,77 @@ function brModel(s){
   const asked=cards.reduce((a,c)=>{const l=c.lines.find(x=>x.cls==='sum');const n=l?Number((String(l.text).match(/^Sorulan (\d+)/)||[])[1]):0;return a+(n||0);},0);
   return {lessons:(Number(t.learning?.lessons)||0)+(Number(z.learning?.lessons)||0),cards,auto,asked,ders:cards.reduce((a,c)=>a+c.lines.filter(x=>x.cls==='ders').length,0)};
 }
-// R2544.105 beyin animasyonu (kullanıcı 02.11: "beyni de afilli bir animasyonla göster"): her nöron bir kapanan işlem (yeşil kazanç / kırmızı kayıp,
-// büyüklük |R|), aralarında akan sinyaller; ortada her doğrulanmış DERS altın bir çekirdek. Yalnız gösterim.
-const BR={raf:0,nodes:null,key:'',pulses:[],last:0,reduce:typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches,m:null};
-function brBuild(W,H,rs){let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};const nodes=[];
-  rs.forEach((R,i)=>{const left=i%2===0,cx=W*(left?0.36:0.64),cy=H*0.5;let x,y;
-    for(let k=0;k<40;k++){const a=rnd()*Math.PI*2,r=Math.sqrt(rnd());x=cx+Math.cos(a)*r*W*0.17;y=cy+Math.sin(a)*r*H*0.38;if(Math.abs(x-W/2)>W*0.025)break;}
-    nodes.push({x,y,R,ph:rnd()*6.28,s:2.2+Math.min(4,Math.abs(R)*1.6)});});
-  const edges=[];nodes.forEach((a,i)=>{const near=nodes.map((b,j)=>({j,d:(a.x-b.x)**2+(a.y-b.y)**2})).filter(o=>o.j!==i).sort((p,q)=>p.d-q.d).slice(0,3);for(const o of near)if(o.j>i)edges.push([i,o.j]);});
-  return {nodes,edges};}
+// R2544.105 beyin animasyonu -> R2544.125 ile yeniden çizildi
+// R2544.125 BEYİN ANİMASYONU (kullanıcı 04.11: "beyin ne öğrendi animasyonunu daha görsel olarak mükemmelleştir, ne dediği ne yaptığı net belli olsun"):
+// ortada beynin baktığı SON SİNYAL; çevresinde hatırladığı en benzer 5 geçmiş işlem (yeşil kazanç / kırmızı kayıp, coin, R, neden), hatıradan
+// sinyale akan ışık; altta beynin cümlesi (olumlu / olumsuz / karışık); sağda karnesi: dediği oldu mu (canlı + geçmişe dönük). Yalnız gösterim.
+const BR={raf:0,last:0,pulses:[],reduce:typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches,m:null};
+const BR_LEAN={OLUMLU:{t:'OLUMLU',c:'#2bd67b'},OLUMSUZ:{t:'OLUMSUZ',c:'#ff4d6d'},KARISIK:{t:'KARIŞIK',c:'#ffd54f'},AZ:{t:'AZ ÖRNEK',c:'#9aa3c4'},BILGI_YOK:{t:'BENZER YOK',c:'#9aa3c4'}};
+function brFit(g,t,w){t=String(t||'');if(g.measureText(t).width<=w)return t;while(t.length>1&&g.measureText(t+'…').width>w)t=t.slice(0,-1);return t+'…';}
+function brR(v){return v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2).replace('.',',')+'R';}
 function brDraw(now){
   const cv=document.getElementById('brCanvas');if(!cv){BR.raf=0;return;}
-  const W=cv.clientWidth||600,H=cv.clientHeight||240,dpr=Math.min(2,window.devicePixelRatio||1);if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);BR.key='';}
-  const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);const m=BR.m||{rs:[],ders:[],lessons:0},T=now/1000,dt=Math.min(0.05,(now-(BR.last||now))/1000);BR.last=now;
-  const key=W+'x'+H+':'+m.rs.length;if(key!==BR.key){BR.net=brBuild(W,H,m.rs.length?m.rs:[0]);BR.key=key;BR.pulses=[];}
-  const net=BR.net;
-  const bg=g.createRadialGradient(W/2,H/2,10,W/2,H/2,W*0.6);bg.addColorStop(0,'#17123a');bg.addColorStop(0.6,'#090a18');bg.addColorStop(1,'#04050a');g.fillStyle=bg;g.fillRect(0,0,W,H);
-  // hemisphere glow outlines
-  for(const cx of [W*0.36,W*0.64]){g.strokeStyle='rgba(167,139,250,'+(0.12+0.06*Math.sin(T*1.3))+')';g.lineWidth=1.5;g.beginPath();g.ellipse(cx,H*0.5,W*0.19,H*0.43,0,0,Math.PI*2);g.stroke();}
-  // synapses
-  g.lineWidth=1;for(const [i,j] of net.edges){const a=net.nodes[i],b=net.nodes[j];g.strokeStyle='rgba(140,150,230,0.10)';g.beginPath();g.moveTo(a.x,a.y);g.lineTo(b.x,b.y);g.stroke();}
-  // pulses along synapses
-  if(!BR.reduce&&net.edges.length){if(Math.random()<0.6)for(let k=0;k<2;k++){const e=net.edges[(Math.random()*net.edges.length)|0],a=net.nodes[e[0]];BR.pulses.push({e,t:0,v:0.6+Math.random()*0.9,col:a.R>0?'#2bd67b':a.R<0?'#ff4d6d':'#a78bfa'});}
-    if(BR.pulses.length>260)BR.pulses.splice(0,BR.pulses.length-260);}
-  g.globalCompositeOperation='lighter';
-  BR.pulses=BR.pulses.filter(p=>(p.t+=p.v*dt)<1);for(const p of BR.pulses){const a=net.nodes[p.e[0]],b=net.nodes[p.e[1]],x=a.x+(b.x-a.x)*p.t,y=a.y+(b.y-a.y)*p.t;g.globalAlpha=Math.sin(p.t*Math.PI);g.drawImage(rxSprite(p.col),x-6,y-6,12,12);}
+  const W=cv.clientWidth||900,H=cv.clientHeight||300,dpr=Math.min(2,window.devicePixelRatio||1);if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);}
+  const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);const T=now/1000,dt=Math.min(0.05,(now-(BR.last||now))/1000);BR.last=now;
+  const m=BR.m||{},b=m.last||null,sc=m.score||null,narrow=W<760;
+  const bg=g.createRadialGradient(W*0.33,H*0.5,10,W*0.33,H*0.5,W*0.7);bg.addColorStop(0,'#1a1440');bg.addColorStop(0.55,'#0a0b1c');bg.addColorStop(1,'#04050a');g.fillStyle=bg;g.fillRect(0,0,W,H);
+  const LW=narrow?W:W*0.64,cx=LW*0.5,cy=H*0.47,R0=Math.min(LW*0.36,H*0.36);
+  g.textAlign='left';g.fillStyle='#e8ebf7';g.font='800 13px system-ui,sans-serif';g.fillText(`🧠 ${m.lessons||0} işlem hafızada`,12,20);
+  g.font='600 11px system-ui,sans-serif';g.fillStyle='#8f97b8';g.fillText('her yeni sinyalde en benzer 5 işlemi hatırlar',12,36);
+  if(!b){g.textAlign='center';g.fillStyle='#9aa3c4';g.font='700 14px system-ui,sans-serif';g.fillText('Beyin ilk sinyali bekliyor',cx,cy);BR.raf=BR.reduce?0:requestAnimationFrame(brDraw);return;}
+  const lean=BR_LEAN[b.lean]||BR_LEAN.BILGI_YOK,cases=(b.cases||[]).slice(0,5);
+  const pts=cases.map((c,i)=>{const n=Math.max(1,cases.length),a=-Math.PI*0.92+(i+0.5)*(Math.PI*1.84/n);return {c,x:cx+Math.cos(a)*R0*1.25,y:cy+Math.sin(a)*R0*0.86,col:c.R>0?'#2bd67b':c.R<0?'#ff4d6d':'#9aa3c4'};});
+  // memory threads (thickness = similarity) and light flowing from each memory into the signal
+  for(const p of pts){g.strokeStyle=p.col+'55';g.lineWidth=1+3*(Number(p.c.sim)||0.5);g.beginPath();g.moveTo(p.x,p.y);g.lineTo(cx,cy);g.stroke();}
+  if(!BR.reduce&&pts.length&&Math.random()<0.5)BR.pulses.push({i:(Math.random()*pts.length)|0,t:0,v:0.5+Math.random()*0.5});
+  g.globalCompositeOperation='lighter';BR.pulses=BR.pulses.filter(q=>(q.t+=q.v*dt)<1&&pts[q.i]);
+  for(const q of BR.pulses){const p=pts[q.i],x=p.x+(cx-p.x)*q.t,y=p.y+(cy-p.y)*q.t;g.globalAlpha=Math.sin(q.t*Math.PI);g.drawImage(rxSprite(p.col),x-7,y-7,14,14);}
   g.globalAlpha=1;
-  // neurons
-  for(const n of net.nodes){const col=n.R>0?'#2bd67b':n.R<0?'#ff4d6d':'#8f97b8',b=1+0.25*Math.sin(T*2+n.ph),s=n.s*b;g.drawImage(rxSprite(col),n.x-s*3,n.y-s*3,s*6,s*6);}
-  // lesson cores (gold) in the middle
-  const D=m.ders.length?m.ders:[{t:'henüz doğrulanmış ders yok'}];const cy=H*0.5;
-  D.forEach((d,i)=>{const y=cy+(i-(D.length-1)/2)*Math.min(46,H*0.8/Math.max(1,D.length)),r=(m.ders.length?13:8)*(1+0.12*Math.sin(T*3+i));const col=m.ders.length?'#ffd54f':'#6f789c';
-    g.drawImage(rxSprite(col),W/2-r*2.4,y-r*2.4,r*4.8,r*4.8);});
-  g.globalCompositeOperation='source-over';
-  D.forEach((d,i)=>{const y=cy+(i-(D.length-1)/2)*Math.min(46,H*0.8/Math.max(1,D.length));g.fillStyle=m.ders.length?'#fff3c4':'#9aa3c4';g.font='700 11px system-ui,sans-serif';g.textAlign='center';
-    const t=String(d.t);g.fillText(t.length>46?t.slice(0,45)+'…':t,W/2,y+ (m.ders.length?26:18));});
-  g.textAlign='left';g.fillStyle='#e8ebf7';g.font='800 13px system-ui,sans-serif';g.fillText(`🧠 ${m.lessons} ders`,12,20);g.font='600 11px system-ui,sans-serif';g.fillStyle='#8f97b8';
-  g.fillText(`${m.rs.filter(r=>r>0).length} kazanç • ${m.rs.filter(r=>r<0).length} kayıp (son ${m.rs.length})`,12,36);
-  g.textAlign='right';g.fillStyle='#ffd54f';g.font='800 12px system-ui,sans-serif';g.fillText(`✅ ${m.ders.length} doğrulanmış ders`,W-12,20);
+  // the signal in the centre, glowing in the colour of the brain's lean
+  const pr=R0*0.34*(1+0.05*Math.sin(T*2.4));g.drawImage(rxSprite(lean.c),cx-pr*2.2,cy-pr*2.2,pr*4.4,pr*4.4);g.globalCompositeOperation='source-over';
+  const orb=g.createRadialGradient(cx-pr*0.3,cy-pr*0.3,2,cx,cy,pr);orb.addColorStop(0,'#ffffff');orb.addColorStop(0.3,lean.c);orb.addColorStop(1,'#0b0d1a');g.fillStyle=orb;g.beginPath();g.arc(cx,cy,pr,0,Math.PI*2);g.fill();
+  g.textAlign='center';g.fillStyle='#fff';g.font='800 '+Math.round(Math.max(11,pr*0.36))+'px system-ui,sans-serif';g.fillText(String(b.symbol||'').replace(/USDT$/,''),cx,cy-2);
+  g.font='700 10px system-ui,sans-serif';g.fillText(`${b.side||''} • ${b.status==='OPEN'?'AÇIK':b.replay?'son işlem (geçmişe dönük)':'son işlem'}`,cx,cy+12);
+  if(b.status!=='OPEN'&&b.R!==undefined){g.fillStyle=Number(b.R)>0?'#7ff0b0':'#ff9aac';g.fillText('sonuç '+brR(b.R)+(b.hit===true?' ✓ dediği oldu':b.hit===false?' ✗ dediği olmadı':''),cx,cy+26);}
+  // the memories: coin, side, R and why
+  for(const p of pts){const s=7+Math.min(9,Math.abs(Number(p.c.R)||0)*5);g.drawImage(rxSprite(p.col),p.x-s*2.2,p.y-s*2.2,s*4.4,s*4.4);
+    g.fillStyle='#0b0d1a';g.beginPath();g.arc(p.x,p.y,s*0.7,0,Math.PI*2);g.fill();g.strokeStyle=p.col;g.lineWidth=2;g.stroke();
+    const right=p.x>=cx,tx=p.x+(right?s+6:-s-6);g.textAlign=right?'left':'center';if(!right)g.textAlign='right';
+    const room=right?LW-tx-6:tx-6;g.fillStyle='#eef1fb';g.font='800 12px system-ui,sans-serif';g.fillText(brFit(g,`${String(p.c.symbol||'').replace(/USDT$/,'')} ${p.c.side||''} ${brR(p.c.R)}`,room),tx,p.y-2);
+    g.fillStyle=p.col;g.font='600 10px system-ui,sans-serif';g.fillText(brFit(g,p.c.why||'',room),tx,p.y+11);}
+  // the brain's sentence
+  g.textAlign='center';g.fillStyle=lean.c;g.font='900 '+(narrow?14:17)+'px system-ui,sans-serif';g.fillText('BEYİN: '+lean.t,cx,H-30);
+  g.fillStyle='#d6dbf2';g.font='600 12px system-ui,sans-serif';g.fillText(brFit(g,b.sentence||'',LW-20),cx,H-12);
+  // report card
+  if(!narrow&&sc){const x0=W*0.67,w=W*0.31,y0=18;g.textAlign='left';g.fillStyle='#e8ebf7';g.font='800 13px system-ui,sans-serif';g.fillText('📒 BEYNİN KARNESİ',x0,y0+4);
+    const B=sc.live&&sc.live.n?sc.live:sc.back,tag=sc.live&&sc.live.n?'canlı tahmin':'geçmişe dönük (yalnız önceki işlemlerle)';
+    g.font='600 11px system-ui,sans-serif';g.fillStyle='#8f97b8';g.fillText(`${tag}: ${B.n||0} tahmin`,x0,y0+22);
+    const rr=30,rx=x0+rr+4,ry=y0+66,pct=(B.hitPct||0)/100;g.lineWidth=7;g.strokeStyle='#1c2142';g.beginPath();g.arc(rx,ry,rr,0,Math.PI*2);g.stroke();
+    g.strokeStyle='#a78bfa';g.beginPath();g.arc(rx,ry,rr,-Math.PI/2,-Math.PI/2+Math.PI*2*pct);g.stroke();g.textAlign='center';g.fillStyle='#fff';g.font='800 14px system-ui,sans-serif';g.fillText(B.hitPct===null?'—':'%'+B.hitPct,rx,ry+5);
+    g.textAlign='left';g.font='600 11px system-ui,sans-serif';g.fillStyle='#c9cfe6';g.fillText('isabet',x0+rr*2+16,ry-14);g.fillStyle='#8f97b8';g.fillText(brFit(g,`hep "olumsuz" deseydi %${sc.alwaysNegPct??'—'}`,w-rr*2-20),x0+rr*2+16,ry+2);
+    g.fillText(brFit(g,'asıl ölçü aşağıda: dediği işlemlerin sonucu',w-rr*2-20),x0+rr*2+16,ry+17);
+    const bar=(y,lbl,o,col)=>{g.fillStyle='#c9cfe6';g.font='700 11px system-ui,sans-serif';g.fillText(`${lbl} (${o.n||0})`,x0,y);const v=Number(o.avgR)||0,mid=x0+w*0.62,sc2=w*0.3;
+      g.fillStyle='#1c2142';g.fillRect(x0+w*0.32,y-9,w*0.6,11);g.fillStyle=col;const L2=Math.max(-1,Math.min(1,v))*sc2;g.fillRect(L2>=0?mid:mid+L2,y-9,Math.abs(L2),11);g.fillStyle='#fff';g.textAlign='right';g.fillText(brR(o.avgR),x0+w,y);g.textAlign='left';};
+    bar(ry+52,'olumlu dediğinde',B.olumlu||{},'#2bd67b');bar(ry+72,'olumsuz dediğinde',B.olumsuz||{},'#ff4d6d');
+    const rec=(B.recent||[]).slice(-12),yy=ry+100;g.fillStyle='#8f97b8';g.font='600 10px system-ui,sans-serif';g.fillText('son tahminler (✓ dediği oldu / ✗ olmadı):',x0,yy);
+    rec.forEach((r,i)=>{const x=x0+(i%6)*(w/6),y=yy+16+Math.floor(i/6)*28;g.fillStyle=r.hit?'#2bd67b':'#ff4d6d';g.font='800 12px system-ui,sans-serif';g.fillText(r.hit?'✓':'✗',x,y);
+      g.fillStyle='#c9cfe6';g.font='600 9px system-ui,sans-serif';g.fillText(brFit(g,String(r.symbol||'').replace(/USDT$/,''),w/6-14),x+12,y-1);g.fillStyle=r.lean==='OLUMLU'?'#7ff0b0':'#ff9aac';g.fillText(r.lean==='OLUMLU'?'olumlu':'olumsuz',x+12,y+9);});}
   BR.raf=BR.reduce?0:requestAnimationFrame(brDraw);
 }
 function brAnimUpdate(s,model){
-  const cc=(s?.top3?.data||s?.top3||{}).cc,cur=cc?.curve||[];const rs=cur.map((p,i)=>i?+(p[1]-cur[i-1][1]).toFixed(2):p[1]).slice(-120);
-  const ders=[];for(const c of model.cards)for(const l of c.lines)if(l.cls==='ders')ders.push({t:c.name+': '+String(l.text).replace(/^Ayırt edici[^:]*:\s*/,'')});
-  BR.m={rs,ders,lessons:model.lessons};if(!BR.raf)BR.raf=requestAnimationFrame(brDraw);
+  const t=s?.top3?.data||s?.top3||{},br=t.brain||null;
+  BR.m={lessons:br?.score?.lessons??model.lessons,last:br?.last||null,score:br?.score||null};if(!BR.raf)BR.raf=requestAnimationFrame(brDraw);
 }
 function renderBrain(s){
   const el=document.getElementById('ccBrainBody');if(!el)return;let m;try{m=brModel(s);}catch(e){console.warn('brain',e);return;}
   try{brAnimUpdate(s,m);}catch(e){console.warn('brAnim',e);}
-  const sub=document.getElementById('ccBrainSub');if(sub)sub.textContent=`${m.lessons} kapanan işlem • ${m.asked||0} soru soruldu • ${m.ders} doğrulanmış ders • "ders" = gerçek işlemlerde kazananı kaybedenden ayıran bilgi (her iki tarafta en az 8) • gölge: kararı değiştirmez`;
+  const sub=document.getElementById('ccBrainSub');if(sub)sub.textContent=`${m.lessons} işlem hafızada • her yeni sinyalde en benzer 5 işlemi hatırlar ve eğilim söyler, işlem kapanınca puanlanır • ${m.ders} tekrar eden kalıp • kurul ve masa okur, işlemi engellemez`; // R2544.125
   const bars=(p,col)=>p?`<div class="br-sec" style="color:${col}">${p.kind.toUpperCase()} (${p.n}) NASIL OLDU</div>`+p.items.slice(0,4).map(x=>`<div class="br-bar"><div class="tr"><i style="width:${x.pct}%;background:linear-gradient(90deg,${col}aa,${col});box-shadow:0 0 8px ${col}"></i><span>${esc(x.label)}</span></div><b style="color:${col}">%${x.pct}</b></div>`).join('')+(p.extra?`<div class="br-line wait">${esc(p.extra)}</div>`:''):'';
   // R2544.113 (kullanıcı 02.11: "hâlâ 1 doğrulanmış ders gösteriyor"): öğrenilen en üstte, sayıyla: kaç soru, kaçı ders, kaçı 6 ayda tutmadı, kaçında fark yok
   const dl=[];for(const c of m.cards)for(const l of c.lines)if(l.cls==='ders')dl.push(c.name+': '+String(l.text).replace(/^Ayırt edici[^:]*:\s*/,''));
   const Q={asked:0,ders:0,same:0,notHold:0,rare:0,few:0};for(const c of m.cards)for(const l of c.lines){const x=String(l.text).match(/^Sorulan (\d+) soru[^:]*:\s*(\d+) ders • (\d+) tek başına neden değil • (?:(\d+) 6 ayda tutmadı • )?(\d+) nadir • (\d+) az örnek/);
     if(x){Q.asked+=+x[1];Q.ders+=+x[2];Q.same+=+x[3];Q.notHold+=+(x[4]||0);Q.rare+=+x[5];Q.few+=+x[6];}}
-  const sum=`<div class="br-sum"><h5>✅ BEYİN NE ÖĞRENDİ — ${dl.length} doğrulanmış ders</h5>${dl.length?dl.map(t=>`<p>• ${esc(t)}</p>`).join(''):'<p>Henüz doğrulanmış ders yok.</p>'}
+  const sum=`<div class="br-sum"><h5>✅ BEYİN NE ÖĞRENDİ: TEKRAR EDEN KALIPLAR — ${dl.length} (çok işlemde aynı yönü gösteren; her işlem ayrıca yukarıdaki hafızada)</h5>${dl.length?dl.map(t=>`<p>• ${esc(t)}</p>`).join(''):'<p>Henüz doğrulanmış ders yok.</p>'}
     <p>Sorulan <b>${Q.asked||m.asked||0}</b> sorunun: <b style="color:#ffd54f">${Q.ders}</b> tanesi ders oldu • <b>${Q.same}</b> tanesinde kazanan ve kaybeden işlem girişte aynı görünüyor ${Q.notHold?` • <b>${Q.notHold}</b> tanesi eski kuralla 6 aylık veride tutmadı`:''} • <b>${Q.rare}</b> tanesi çok nadir görülen durum • <b>${Q.few}</b> tanesi için henüz yeterli örnek yok (her iki tarafta en az 8 otopsili işlem gerekir).</p>
     <p>Yani beynin bulgusu şu: girişte bilinen bu bilgilerin çoğu kazananı kaybedenden ayırmıyor. Bu bir hata değil, ölçüm sonucu. Ders artık yalnız gerçek işlemlerden çıkar (her iki tarafta en az 8 otopsili işlem, belirgin fark); giriş ekranı ve çıkıştaki grafik de her derse yazılır (R2544.118).</p></div>`;
   el.innerHTML=sum+(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${c.lines.map(x=>`<div class="br-line ${x.cls}">${x.cls==='ders'?'✅ DERS: ':x.cls==='sum'?'🔍 ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• '}${esc(x.text)}</div>`).join('')}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')

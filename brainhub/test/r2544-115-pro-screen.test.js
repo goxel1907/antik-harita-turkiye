@@ -71,8 +71,8 @@ test('R2544.115 every vote keeps whether the member saw the chart or the compact
   assert.equal(v['ROUTER:gemini/gemini-3.6-flash'].img,true);assert.equal(v['ROUTER:groq/openai/gpt-oss-120b'].compact,true);assert.equal(v['ROUTER:groq/openai/gpt-oss-120b'].img,false);
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.equal((lc.match(/\.\.\.\(v\.img\?\{img:true\}:\{\}\),\.\.\.\(v\.compact\?\{cmp:true\}:\{\}\)/g)||[]).length,2,'gate record and shadow record');
-  assert.match(lc,/context:\{rank:ef\.rank,rankName:'24h gainer rank',fund:ef\.fund,premium:ef\.premium\},experience:ef\.similar/);
-  assert.match(lc,/context:\{rank:sg\.rank,rankName:'volatility rank \(top 5\)'\},experience:ef\.similar/);
+  assert.match(lc,/context:\{rank:ef\.rank,rankName:'24h gainer rank',fund:ef\.fund,premium:ef\.premium\},experience:ef\.(brain\|\|ef\.)?similar/);
+  assert.match(lc,/context:\{rank:sg\.rank,rankName:'volatility rank \(top 5\)'\},experience:ef\.(brain\|\|ef\.)?similar/);
   assert.match(lc,/\/fapi\/v1\/premiumIndex',\{params:\{symbol\}\}/);
 });
 

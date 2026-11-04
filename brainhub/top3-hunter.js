@@ -705,6 +705,42 @@ function similarCases(lessons, rule, features, { k = 8, minSim = 0.6, perSymbol 
   return { version:'R2544.80-SIMILAR', n, wins, losses, avgR:avgR === null ? null : Number(avgR.toFixed(3)), coins, days, mixed, thin, features:me,
     cases:pick.map(q => ({ symbol:q.l.symbol, R:Number(q.l.rMultiple.toFixed(2)), sim:Number(q.sim.toFixed(2)), outcome:q.l.autopsy?.outcome || null, causes:q.l.autopsy?.causes || [], at:q.l.openedAt || null })), text };
 }
+// ===== R2544.125 BEYİN (kullanıcı 04.11: "128 ders nasıl 2 doğrulanmış oluyor, her dersten bir şey öğrenmesi gerekir; algoritma saçma geliyor")
+// Every closed trade is a memory. For a new signal the brain recalls the 5 most similar past trades of the same rule (entry facts), shows each
+// one (coin, result, why it won / lost) and says a lean; the prediction is stored and SCORED when the trade closes (its report card).
+// Measured 04.11, walk-forward on 128 real TEST trades (only earlier trades known): k=5 split +0,44..+0,52R at every similarity threshold
+// (both halves the same way), k=3 / 8 / 12 weaker (0..+0,26R) -> NOT proven: information for the committee and the desk, never a block.
+const BRAIN = Object.freeze({ k:5, minSim:0.5, lean:0.15, version:'R2544.125-BRAIN' });
+const BRAIN_TR = { OLUMLU:'olumlu', OLUMSUZ:'olumsuz', KARISIK:'karışık', AZ:'az örnek', BILGI_YOK:'benzer işlem yok' };
+function brainCase(lessons, rule, features) {
+  const pool = Array.isArray(lessons) ? lessons : [];
+  const sc = similarCases(pool, rule, features, { k:BRAIN.k, minSim:BRAIN.minSim, perSymbol:2 });
+  const lean = !sc.n ? 'BILGI_YOK' : sc.n < 3 ? 'AZ' : sc.avgR >= BRAIN.lean ? 'OLUMLU' : sc.avgR <= -BRAIN.lean ? 'OLUMSUZ' : 'KARISIK';
+  const cases = sc.cases.map(c => { const l = pool.find(x => x && x.symbol === c.symbol && x.openedAt === c.at) || {};
+    const why = (c.causes || []).slice(0, 2).map(causeTr).join(', ') || (c.R > 0 ? 'kazandı' : c.R < 0 ? 'kaybetti' : 'başabaş');
+    return { symbol:c.symbol, side:l.side || null, R:c.R, sim:c.sim, why, at:c.at, closedAt:l.closedAt || null }; });
+  const r2 = v => String(Number(v).toFixed(2)).replace('.', ',');
+  const sentence = !sc.n ? 'Benzer geçmiş işlem yok.' : `Benzer ${sc.n} işlem: ${sc.wins} kazanç / ${sc.losses} kayıp, ort ${r2(sc.avgR)}R → ${BRAIN_TR[lean]}`;
+  return { version:BRAIN.version, k:BRAIN.k, n:sc.n, wins:sc.wins, losses:sc.losses, avgR:sc.avgR, lean, sentence, cases };
+}
+// the brain's report card: live predictions (stored at entry from R2544.125 on) and the walk-forward replay of the past (only earlier trades)
+const brainHit = (lean, R) => lean === 'OLUMLU' ? R > 0 : lean === 'OLUMSUZ' ? R <= 0 : null;
+let brainScoreCache = { key:'', out:null };
+function brainScore(lessons, { mode = 'TEST' } = {}) {
+  const L = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.mode === mode && finite(l.rMultiple) !== null && Number.isFinite(Number(l.openedAt))).sort((a, b) => a.openedAt - b.openedAt);
+  const key = mode + ':' + L.length + ':' + (L.length ? L[L.length - 1].closedAt : 0);
+  if (brainScoreCache.key === key) return brainScoreCache.out;
+  const sum = rows => { const d = rows.filter(r => r.hit !== null), avg = a => a.length ? Number((a.reduce((p, q) => p + q, 0) / a.length).toFixed(2)) : null;
+    const pos = d.filter(r => r.lean === 'OLUMLU').map(r => r.R), neg = d.filter(r => r.lean === 'OLUMSUZ').map(r => r.R);
+    return { n:d.length, hits:d.filter(r => r.hit).length, hitPct:d.length ? Math.round(100 * d.filter(r => r.hit).length / d.length) : null,
+      olumlu:{ n:pos.length, avgR:avg(pos) }, olumsuz:{ n:neg.length, avgR:avg(neg) } }; };
+  const row = (l, b) => ({ symbol:l.symbol, side:l.side, rule:l.rule, lean:b.lean, avgR:b.avgR, R:Number(Number(l.rMultiple).toFixed(2)), hit:brainHit(b.lean, Number(l.rMultiple)), at:l.closedAt });
+  const live = L.filter(l => l.features?.brain?.lean).map(l => row(l, l.features.brain));
+  const back = []; for (const l of L) { const b = brainCase(L.filter(p => p.closedAt < l.openedAt), l.rule, { ...(l.features || {}), stopPct:l.stopPct }); if (b.lean === 'OLUMLU' || b.lean === 'OLUMSUZ') back.push(row(l, b)); }
+  const lossShare = L.length ? Math.round(100 * L.filter(l => Number(l.rMultiple) <= 0).length / L.length) : null;
+  const out = { version:BRAIN.version, k:BRAIN.k, lessons:L.length, live:{ ...sum(live), recent:live.slice(-12) }, back:{ ...sum(back), recent:back.slice(-12) }, alwaysNegPct:lossShare };
+  brainScoreCache = { key, out }; return out;
+}
 function bucketsFor(lessons, rule) {
   if (CAT_BUCKETS[rule]) { const xs = lessons.filter(l => l.rule === rule); return { categorical:true, label:'çıkarım tablosu', cats:catTable(xs, CAT_BUCKETS[rule]) }; }
   const b = BUCKETS[rule]; if (!b) return null;
@@ -805,5 +841,5 @@ function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } 
   const pos = { recent, bins, exits, avgHoldMin:avg(W.map(x => (Number(x.holdH) || 0) * 60)), avgMfeR:avg(mfe), avgGivebackR:avg(give), sawOneR:give.length };
   return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, last24:stat(W.filter(x => x.closedAt >= now - 86400000)), curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts }, pos };
 }
-module.exports = { pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+module.exports = { BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };
