@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.129-r2544.89-kurul + MODEL KURULU + KURULLA CANLI + MARJ/KALDIRAC + BAKIYE + CANLI OTOMATIK YENILEME + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
+    name: Futures 15m Alarm PRO APK v9.5.132-r2544.129-jevkurul + KAR/ZARAR + BEYIN + JEV+KURUL CANLI + v9.5.129-r2544.89-kurul + MODEL KURULU + KURULLA CANLI + MARJ/KALDIRAC + BAKIYE + CANLI OTOMATIK YENILEME + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -652,6 +652,19 @@ workflows:
             exit 1
           fi
           echo V95139_R2544_103_SAGLIK_OK
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95140_r2544_129_jevkurul.py"
+          grep -q V95140_R2544_129_JEVKURUL /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'static String v95140Pnl(SharedPreferences sp)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q 'static String v95140Brain(SharedPreferences sp)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q 'public static JSONObject setJevCommitteeLive(Context c, String lane)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
+          grep -q 'private void v95140JkLive()' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "versionName '9.5.132-r2544.129-jevkurul'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26110401' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'post(c, "/live/execute", intent, true)\|post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_129_ANDROID_ORDER_INITIATION_FORBIDDEN'
+            exit 1
+          fi
+          echo V95140_R2544_129_JEVKURUL_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
