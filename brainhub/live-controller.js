@@ -6819,7 +6819,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }catch(e){try{deskStats().lastError=String(e?.message||e).slice(0,160);}catch{}return {ok:false,error:true};}
     finally{deskBusy=false;}
   }
-  function deskView(a){const d=a?.desk;if(!d)return null;return {last:d.last?{...d.last,atIso:new Date(d.last.at).toISOString(),text:DESK.decisionText(d.last)}:null,reviews:(d.decisions||[]).length,
+  function deskView(a){const d=a?.desk;if(!d)return null;return {pending:a.deskOrder?{action:a.deskOrder.action,at:a.deskOrder.at,waiting:a.exitWaiting||null}:null,last:d.last?{...d.last,atIso:new Date(d.last.at).toISOString(),text:DESK.decisionText(d.last)}:null,reviews:(d.decisions||[]).length,
     acted:(d.decisions||[]).filter(x=>x.action!=='HOLD').length,lastError:d.lastError||null,shadow:true};}
   // R2544.121 (03.11 Office: "Pozisyon masası AÇIK (gölge: karar yazar, emir göndermez)" while the committee desk closed JCT / HOT / TA itself):
   // the summary says the real authority = the lane's committee switch (the same switch deskAuthority reads for every decision)
@@ -6904,7 +6904,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // Bir kez denenir, 10 dk'dan eskiyse düşer; emir yalnız başlatma (arm) varken; stop asla uzaklaşmaz.
   async function deskExecute(a,amt,mark,creds){
     const o=a.deskOrder;if(!o)return null;
-    const J=(k,p)=>{try{store.journal(k,a.symbol,{id:a.id,lane:a.lane||'ILK3',action:o.action,...p});}catch{}};
+    // R2544.123 (kullanıcı 04.11: "komut verildikten sonra ekranda kalıyor, emir gerçekleşmedi hissi veriyor"): the decision itself now says
+    // what happened to its order (done / failed / skipped / expired, when, at what price) so Office can show it next to the command
+    const rec=(a.desk?.decisions||[]).find(d=>d&&d.at===o.at)||null;
+    const J=(k,p)=>{try{store.journal(k,a.symbol,{id:a.id,lane:a.lane||'ILK3',action:o.action,...p});}catch{}
+      if(rec){const kind=k.replace('POSITION_DESK_',''),ok=['EXIT','PARTIAL','STOP'].includes(kind);rec.done={ok,kind,at:clock(),price:finite(p?.price)??finite(p?.stopPrice)??null,reason:ok?null:String(p?.reason||kind).slice(0,80)};try{saveTop3State();}catch{}}};
     if(clock()-o.at>10*60000){a.deskOrder=null;J('POSITION_DESK_ORDER_EXPIRED',{});return null;}
     if(!armedNow()){a.exitWaiting='DESK_WAITING_ARM';return null;}
     a.deskOrder=null;const L=a.side==='LONG',held=Math.min(Math.abs(amt),a.quantity);

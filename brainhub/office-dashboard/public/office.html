@@ -1069,7 +1069,7 @@ function renderPos(s){
       return `<div class="ps-open ${now>=0?'win':'loss'}"><div class="ps-top"><span class="ps-sym">${esc(String(a.symbol||'').replace(/USDT$/,''))}</span><span class="ps-side ${a.side}">${a.side}</span><span class="cc-tag">${esc(a.lane)}</span><span class="ps-r" style="color:${now>=0?'#2bd67b':'#ff4d6d'}">${ccR(now)}</span></div>
         <div class="ps-meta"><span>kâr/zarar <b style="color:${pnl>=0?'#7ff0b0':'#ff9aac'}">${Number.isFinite(pnl)?(pnl>=0?'+':'')+pnl.toFixed(2)+' $':'—'}</b></span><span>açık <b>${o?psMin((Date.now()-o)/60000):'—'}</b></span><span>kalan <b>${psMin(a.remainingMin)}</b></span><span>en iyi <b style="color:#ffd54f">${ccR(best>-9?best:null)}</b></span>${best-now>0.05?`<span>geri verilen <b style="color:#ff9aac">${(best-now).toFixed(2)}R</b></span>`:''}${a.part?.done?'<span><b style="color:#7ff0b0">2R kâr koruma alındı ✓</b></span>':''}</div>
         ${psTrack(now??0,best>-9?best:null,fav(Number(a.stopPrice)),partR,fav(Number(a.tpPrice)))}${psPathSvg(path,{partR,best})}
-        ${last?`<div class="ps-meta" style="margin-top:6px">🧑‍💼 masa: <b style="color:${RX_COL[last.action]||'#fff'}">${esc(RX_TR[last.action]||last.action)}</b> ${last.committee?.consensus?'• '+esc(RX_CONS[last.committee.consensus]||last.committee.consensus):''} ${last.authority?'• YETKİLİ':'• gölge'}</div><div class="ps-votes">${votes}</div>`:''}</div>`;}).join('')
+        ${last?`<div class="ps-meta" style="margin-top:6px">🧑‍💼 masa: <b style="color:${RX_COL[last.action]||'#fff'}">${esc(RX_TR[last.action]||last.action)}</b> ${last.committee?.consensus?'• '+esc(RX_CONS[last.committee.consensus]||last.committee.consensus):''} ${last.authority?'• YETKİLİ':'• gölge'}${(f=>f?` • <b style="color:${f.c}">${esc(f.t)}</b>`:'')(deskFate(last,a.deskInfo))}</div><div class="ps-votes">${votes}</div>`:''}</div>`;}).join('')
     :`<div class="ps-open"><div class="ps-top"><span class="ps-sym" style="font-size:16px">Açık pozisyon yok</span></div><div class="ps-meta">${pos?.recent?.[0]?`son işlem: <b>${esc(String(pos.recent[0].symbol).replace(/USDT$/,''))} ${pos.recent[0].side}</b> <b style="color:${ccCol(pos.recent[0].R)}">${ccR(pos.recent[0].R)}</b> (${esc(psExit(pos.recent[0].exit))})`:'kural sinyal bekliyor'}</div>${pos?.recent?.[0]?psPathSvg(pos.recent[0].path,{best:pos.recent[0].mfeR}):''}</div>`;}
   const l5=$('psLast5');if(l5)l5.innerHTML=pos?.recent?.length?`<div class="cc-h">SON ${pos.recent.length} POZİSYON</div><div class="ps-last5">${pos.recent.map(r=>{const ek=psExit(r.exit),c=PS_EXIT[ek],mx=Math.max(2.5,r.mfeR||0,Math.abs(r.R)),P=v=>Math.max(0,Math.min(100,100*(v+1)/(mx+1)));
       return `<div class="ps-c" style="border-color:${r.R>0?'#2bd67b55':'#ff4d6d55'};box-shadow:0 0 12px ${r.R>0?'#2bd67b22':'#ff4d6d22'}" title="${esc(r.autopsy||'')}"><div class="h">${esc(String(r.symbol).replace(/USDT$/,''))} <span class="ps-side ${r.side}" style="font-size:9px;padding:1px 5px">${r.side}</span><span class="R" style="color:${ccCol(r.R)}">${ccR(r.R)}</span></div>
@@ -1137,7 +1137,11 @@ function renderCC(s){
   const a=m.cc?.all||null;
   const tr=$('ccTotR');if(tr){tr.textContent=a?ccR(a.totR):'—';tr.style.color=a?ccCol(a.totR):'#c9cfe6';}
   if($('ccPnlSub'))$('ccPnlSub').textContent=`son ${m.cc?.days||30} gün • ${m.mode==='LIVE'?'CANLI':'TEST'}`;
-  if($('ccBal'))$('ccBal').innerHTML=a?`${a.n} işlem • <b style="color:#7ff0b0">${a.wins} kazanç</b> / <b style="color:#ff9aac">${a.n-a.wins} kayıp</b>`:'kapanan işlem yok';
+  // R2544.123: dollars next to R (R = risk units; fixed margin x leverage makes 1R worth ~4 $ on a tight stop and ~40 $ on a wide one); last 24 h too
+  const usdTxt=v=>v===null||v===undefined?'—':(v>=0?'+':'')+Number(v).toFixed(2)+' $',l24=m.cc?.last24||null;
+  if($('ccBal'))$('ccBal').innerHTML=a?`${a.n} işlem • <b style="color:#7ff0b0">${a.wins} kazanç</b> / <b style="color:#ff9aac">${a.n-a.wins} kayıp</b> • net <b style="color:${(a.netUsd||0)>=0?'#7ff0b0':'#ff9aac'}">${usdTxt(a.netUsd)}</b>`
+    +(l24&&l24.n?`<br><span style="color:#9aa3c4">son 24 sa: ${l24.n} işlem • ${l24.wins} kazanç • ${ccR(l24.totR)} • net <b style="color:${(l24.netUsd||0)>=0?'#7ff0b0':'#ff9aac'}">${usdTxt(l24.netUsd)}</b></span>`:'')
+    +`<br><span style="color:#9aa3c4;font-size:11px">R = risk birimi (stop mesafesi); marj ve kaldıraç sabit olduğu için dar stoplu işlemde 1R az, geniş stoplu işlemde çok dolar eder. TEST'e eklenen sanal ek bakiye bu sonuca katılmaz.</span>`:'kapanan işlem yok';
   if($('ccKpis'))$('ccKpis').innerHTML=a?[['kazanma',a.winPct!==null?'%'+a.winPct:'—'],['işlem başı',ccR(a.avgR)],['en büyük düşüş',ccR(a.maxDDR)],['masa kararı',m.cc?.desk?`${m.cc.desk.decisions} (${m.cc.desk.authorized} yetkili)`:'—']].map(([k,v])=>`<div class="cc-kpi">${k}<b>${esc(v)}</b></div>`).join(''):'';
   ccEq($('ccEq'),m.cc?.curve||null);
   const dv=$('ccDays');if(dv){const ds=m.cc?.days14||[],mx=Math.max(0.5,...ds.map(d=>Math.abs(d[1])));dv.innerHTML=ds.map(([d,v])=>`<span title="${esc(d)}: ${ccR(v)}" style="height:${Math.max(2,Math.round(40*Math.abs(v)/mx))}px;background:${v>0?'#2bd67b':v<0?'#ff4d6d':'#2a3150'};box-shadow:0 0 6px ${v>0?'#2bd67b88':v<0?'#ff4d6d88':'transparent'}"></span>`).join('');}
@@ -1169,6 +1173,18 @@ function ccCompactInit(){const wrap=document.querySelector('.wrap');if(!wrap)ret
 setInterval(()=>{const c=document.getElementById('ccClock');if(c)c.textContent=new Date().toLocaleTimeString('tr-TR');},1000);
 
 // RX_BEGIN ---------- R2544.102 KARAR REAKTÖRÜ (kullanıcı 02.11: "bu afilli animasyonlardan ekleyebilir misin, daha afilli olarak")
+// R2544.123 (kullanıcı 04.11: "komut ekranda kalıyor, emir gerçekleşmedi hissi"): what happened to the desk's command, said next to it
+function deskFate(L,info){
+  if(!L||L.action==='HOLD')return null;
+  const hm=x=>{const d=new Date(Number(x));return Number.isFinite(d.getTime())?d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';};
+  if(L.done&&L.done.ok)return {t:`✓ uygulandı ${hm(L.done.at)}${L.done.price?' @ '+L.done.price:''}`,c:'#2bd67b',short:'✓ UYGULANDI'};
+  if(L.done)return {t:`✗ uygulanamadı: ${L.done.reason||L.done.kind}`,c:'#ff4d6d',short:'✗ UYGULANAMADI'};
+  if(L.guard&&L.guard.code==='NOISE_GUARD')return {t:`⛔ uygulanmadı: gürültü koruması (açık ${L.guard.openMin} dk, ${String(L.guard.R).replace('.',',')}R; ancak 30 dk sonra ve -0,6R altı ya da en iyi +1R)`,c:'#9aa3c4',short:'⛔ KORUMA: UYGULANMADI'};
+  if(L.downgraded)return {t:'uygulanmadı: karar geçerli emre çevrilemedi',c:'#9aa3c4',short:'UYGULANMADI'};
+  if(!L.authority)return {t:'gölge: emir gönderilmez',c:'#9aa3c4',short:'GÖLGE'};
+  if(info&&info.pending)return {t:`⏳ emir yolda${info.pending.waiting?' ('+info.pending.waiting+')':''}`,c:'#ffd54f',short:'⏳ EMİR YOLDA'};
+  return {t:'emir sonucu kaydı yok (R2544.123 öncesi karar)',c:'#9aa3c4',short:''};
+}
 // Kurulun son ORTAK kararı canlı: her modelin oyu kendi renginde ışık akışı olarak dönen çekirdeğe akar, çekirdek mutabakatın rengini alır ve
 // sonuç kapısına (GİR / GİRME / TUT / STOP ↑ / YARI AL / ÇIK) tek bir parlak akış gider. Altında açık pozisyon radarı (stop → giriş → 2R → hedef;
 // görülen en iyi R ve geri verilen kâr kırmızı yay), üstünde kayan karar şeridi, altta son 40 işlem. Yalnız gösterim: hiçbir karar değiştirmez.
@@ -1184,7 +1200,7 @@ function rxModel(s){
   const lots=[...(t.active||[]).map(a=>({...a,lane:'İlk 3'})),...(z.active||[]).map(a=>({...a,lane:'ZİRVE-5'}))];
   let ev=null;
   for(const a of lots){const d=a.deskInfo?.last;if(d&&d.committee&&(!ev||(rxNum(d.at)||0)>ev.at))ev={at:rxNum(d.at)||0,kind:'MASA',symbol:a.symbol,side:a.side,final:d.action,cons:d.committee.consensus||null,
-    votes:(d.committee.votes||[]).map(v=>({m:rxShort(v.m),d:v.a||'ERR',s:v.s||null})),auth:d.authority===true,blocked:false};}
+    votes:(d.committee.votes||[]).map(v=>({m:rxShort(v.m),d:v.a||'ERR',s:v.s||null})),auth:d.authority===true,blocked:false,fate:deskFate(d,a.deskInfo)};}
   const r=(pd.cmRecent||[])[0];
   if(r&&(!ev||(rxNum(r.at)||0)>ev.at))ev={at:rxNum(r.at)||0,kind:'GİRİŞ',symbol:r.symbol,side:r.side,final:r.ag?r.d:'RULE',committeeFinal:r.d,cons:r.c||null,
     votes:(r.v||[]).map(v=>({m:rxShort(v.m),d:v.d||'ERR',s:null})),auth:true,blocked:r.blocked===true};
@@ -1198,7 +1214,7 @@ function rxModel(s){
     .filter(c=>c.R!==null).sort((a,b)=>b.at-a.at).slice(0,40);
   const ticker=[];
   for(const x of (pd.cmRecent||[]).slice(0,6))ticker.push(`${rxT(x.at)}🤝 ${String(x.symbol||'').replace(/USDT$/,'')} ${x.side||''}: kurul ${RX_TR[x.d]||x.d} — ${RX_CONS[x.c]||x.c||''}${x.blocked?' → İŞLEM AÇILMADI':''}`);
-  for(const a of lots){const d=a.deskInfo?.last;if(d)ticker.push(`🧑‍💼 ${String(a.symbol||'').replace(/USDT$/,'')} masa: ${RX_TR[d.action]||d.action}${d.committee?.consensus?' — '+(RX_CONS[d.committee.consensus]||d.committee.consensus):''}${d.authority===true?' (YETKİLİ)':' (gölge)'}`);}
+  for(const a of lots){const d=a.deskInfo?.last;if(d)ticker.push(`🧑‍💼 ${String(a.symbol||'').replace(/USDT$/,'')} masa: ${RX_TR[d.action]||d.action}${d.committee?.consensus?' — '+(RX_CONS[d.committee.consensus]||d.committee.consensus):''}${d.authority===true?' (YETKİLİ)':' (gölge)'}${(f=>f&&f.short?' • '+f.short:'')(deskFate(d,a.deskInfo))}`);}
   for(const c of closes.slice(0,6))ticker.push(`${rxT(c.at)}${c.R>0?'✅':'⛔'} ${c.s} ${c.R>0?'+':''}${c.R.toFixed(2)}R kapandı (${c.lane})`);
   // R2544.103: every committee model with a plain state (çalışıyor / yoğun / kota bitti / hasta) and the short reason
   const why=r=>{const e=String(r.lastError||'');return /MONTH/i.test(e)?'aylık kota':/credits|\b402\b/i.test(e)?'kredi istiyor':/quota/i.test(e)?'günlük kota':/429|RATE_LIMIT/i.test(e)?'yoğun':/timeout|aborted|TIMEOUT/i.test(e)?'zaman aşımı':/fetch failed|ECONN/i.test(e)?'bağlantı yok':/\b5\d\d\b/.test(e)?'sağlayıcı hatası':/SCHEMA|INVALID/i.test(e)?'yanlış cevap':e?'hata':'denenmedi';};
@@ -1248,7 +1264,7 @@ function rxDraw(now){
   const orb=g.createRadialGradient(L.core.x-R0*0.3,L.core.y-R0*0.3,2,L.core.x,L.core.y,R0*0.75);orb.addColorStop(0,'#ffffff');orb.addColorStop(0.25,finalCol);orb.addColorStop(1,'#0b0d1a');g.fillStyle=orb;g.beginPath();g.arc(L.core.x,L.core.y,R0*0.72,0,Math.PI*2);g.fill();
   g.textAlign='center';g.fillStyle='#fff';g.font='800 '+Math.round(R0*0.32)+'px system-ui,sans-serif';g.fillText(ev?(RX_TR[ev.final]||ev.final):'—',L.core.x,L.core.y+R0*0.1);
   g.font='700 12px system-ui,sans-serif';g.fillStyle=finalCol;g.fillText(ev?(RX_CONS[ev.cons]||ev.cons||''):'KURUL BEKLEMEDE',L.core.x,L.core.y+R0*0.95+14);
-  {const narrow=W<560,l1=ev?`${ev.kind} • ${String(ev.symbol||'').replace(/USDT$/,'')} ${ev.side||''}`:`sağlıklı ${m.healthy}/${m.total} model`,l2=ev?`${ev.blocked?'İŞLEM AÇILMADI • ':''}${ev.kind==='MASA'?(ev.auth?'YETKİLİ • ':'gölge • '):''}${rxT(ev.at).trim()}`:`masada ${m.team}`;
+  {const narrow=W<560,l1=ev?`${ev.kind} • ${String(ev.symbol||'').replace(/USDT$/,'')} ${ev.side||''}`:`sağlıklı ${m.healthy}/${m.total} model`,l2=ev?`${ev.blocked?'İŞLEM AÇILMADI • ':''}${ev.kind==='MASA'?(ev.auth?'YETKİLİ • ':'gölge • '):''}${ev.fate&&ev.fate.short?ev.fate.short+' • ':''}${rxT(ev.at).trim()}`:`masada ${m.team}`;
    g.fillStyle='#c9cfe6';g.font='600 '+(narrow?10:11)+'px system-ui,sans-serif';const top=L.core.y-R0*0.95-8;
    if(narrow){g.fillText(l1,L.core.x,top-12);if(l2)g.fillText(l2,L.core.x,top);}else g.fillText(l1+(l2?' • '+l2:''),L.core.x,top);}
   // member nodes
@@ -2733,7 +2749,7 @@ function deskLine(d){
   if(!d)return '<br><span class="muted">masa: henüz bakmadı (açılıştan 5 dk sonra, sonra 15 dk’da bir)</span>';
   const L=d.last;if(!L)return `<br><span class="muted">masa: karar yok${d.lastError?' • '+esc((d.lastError.tried||[]).join(', ')):''}</span>`;
   const ago=Math.max(0,Math.round((Date.now()-Date.parse(L.atIso))/60000)),act=L.action!=='HOLD';
-  return `<br><span class="muted"${act?' style="color:var(--warning)"':''}>🧑‍💼 masa (${L.judge==='JEV'?'JEV':L.judge==='COMMITTEE'?'kurul':L.judge==='ROUTER'?'9Router '+esc(String(L.model||'').replace(/^[a-z]+\//,'')):'ücretsiz model'}, ${L.authority?'<b>YETKİLİ</b>':'gölge'}): <b>${esc(L.text||L.action)}</b>${L.watchTr?' • izliyor: '+esc(L.watchTr):''} • ${ago} dk önce • ${esc(d.reviews)} bakış, ${esc(d.acted)} eylem</span>`;
+  return `<br><span class="muted"${act?' style="color:var(--warning)"':''}>🧑‍💼 masa (${L.judge==='JEV'?'JEV':L.judge==='COMMITTEE'?'kurul':L.judge==='ROUTER'?'9Router '+esc(String(L.model||'').replace(/^[a-z]+\//,'')):'ücretsiz model'}, ${L.authority?'<b>YETKİLİ</b>':'gölge'}): <b>${esc(L.text||L.action)}</b>${(f=>f&&!(L.guard&&L.guard.code==='NOISE_GUARD')?` • <b style="color:${f.c}">${esc(f.t)}</b>`:'')(deskFate(L,d))}${L.watchTr?' • izliyor: '+esc(L.watchTr):''} • ${ago} dk önce • ${esc(d.reviews)} bakış, ${esc(d.acted)} eylem</span>`;
 }
 // R2544.87 kurulun giriş kararı (gölge): koltuk koltuk oylar
 function entryCmLine(c){

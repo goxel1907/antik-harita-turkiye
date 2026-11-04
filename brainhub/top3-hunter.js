@@ -753,7 +753,11 @@ function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } 
   const L = (lessons || []).filter(x => x && x.mode === mode && Number.isFinite(Number(x.rMultiple)) && Number.isFinite(Number(x.closedAt))).sort((a, b) => a.closedAt - b.closedAt);
   const since = now - days * 86400000, W = L.filter(x => x.closedAt >= since);
   const stat = a => { const r = a.map(x => Number(x.rMultiple)), n = r.length, tot = r.reduce((p, q) => p + q, 0), w = r.filter(v => v > 0).length;
-    return { n, wins:w, winPct:n ? Math.round(100 * w / n) : null, avgR:n ? Number((tot / n).toFixed(3)) : null, totR:Number(tot.toFixed(2)) }; };
+    // R2544.123 (kullanıcı 04.11: "bakiye 380'den 520'ye çıktı, nasıl zarar?"): R and dollars differ (margin and leverage are fixed, so 1R in $ =
+    // notional x stop %: a 0,5 % stop loses 1R for ~4 $, a 6 % stop wins 1R for ~40 $) -> the card shows both; virtual TEST top-ups are not in it
+    const usd = a.map(x => Number(x.netPnl)).filter(Number.isFinite);
+    return { n, wins:w, winPct:n ? Math.round(100 * w / n) : null, avgR:n ? Number((tot / n).toFixed(3)) : null, totR:Number(tot.toFixed(2)),
+      netUsd:usd.length ? Number(usd.reduce((p, q) => p + q, 0).toFixed(2)) : null, usdN:usd.length }; };
   let cum = 0, peak = 0, dd = 0; const curve = W.map(x => { cum += Number(x.rMultiple); peak = Math.max(peak, cum); dd = Math.min(dd, cum - peak); return [x.closedAt, Number(cum.toFixed(2))]; });
   const day = {}; for (const x of W) { const d = new Date(x.closedAt).toISOString().slice(0, 10); day[d] = (day[d] || 0) + Number(x.rMultiple); }
   const days14 = []; for (let i = 13; i >= 0; i--) { const d = new Date(now - i * 86400000).toISOString().slice(0, 10); days14.push([d.slice(5), Number((day[d] || 0).toFixed(2))]); }
@@ -774,7 +778,7 @@ function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } 
   const avg = a => a.length ? Number((a.reduce((p, q) => p + q, 0) / a.length).toFixed(2)) : null, mfe = W.map(x => Number(x.mfeR)).filter(Number.isFinite);
   const give = W.filter(x => Number.isFinite(Number(x.mfeR)) && Number(x.mfeR) >= 1).map(x => Number(x.mfeR) - Number(x.rMultiple));
   const pos = { recent, bins, exits, avgHoldMin:avg(W.map(x => (Number(x.holdH) || 0) * 60)), avgMfeR:avg(mfe), avgGivebackR:avg(give), sawOneR:give.length };
-  return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts }, pos };
+  return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, last24:stat(W.filter(x => x.closedAt >= now - 86400000)), curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts }, pos };
 }
 module.exports = { CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

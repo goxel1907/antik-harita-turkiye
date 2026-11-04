@@ -209,3 +209,20 @@ test('R2544.98 "Kurulla CANLI" switches: both strategies to the committee AND se
   assert.equal(f.controller.tradingModeStatus().mode,'TEST','nothing went LIVE by itself');
   assert.equal(f.controller.configureZ5({liveEnabled:true}).ok,false,'without the LIVE confirmation ZİRVE-5 is not selected');
 });
+
+test('R2544.123 the desk decision says what happened to its order: a refused stop -> done.ok=false with the reason; a moved stop -> done.ok=true; the view shows a pending order',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:cm(TAKE)}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=JSON.parse(JSON.stringify(f.lot())),R=a.stopPrice-a.entryPrice;
+  await f.beat(a.entryPrice-0.6*R);
+  const lot=f.lot();lot.desk=lot.desk||{decisions:[]};lot.desk.decisions=lot.desk.decisions||[];
+  const bad={at:f.state.now,action:'TIGHTEN_STOP',authority:true};lot.desk.decisions.push(bad);lot.desk.last=bad;
+  lot.deskOrder={action:'TIGHTEN_STOP',stopPrice:a.stopPrice+0.5,at:bad.at};
+  const v=f.controller.z5Status().active.find(x=>x.id===lot.id).deskInfo;assert.equal(v.pending.action,'TIGHTEN_STOP','Office sees the order on its way');
+  await f.beat();
+  const b1=f.lot().desk.decisions.find(d=>d.at===bad.at);assert.equal(b1.done.ok,false);assert.equal(b1.done.kind,'STOP_SKIPPED');assert.equal(b1.done.reason,'NOT_TIGHTER_OR_THROUGH_PRICE');
+  f.state.now+=60000;const be=Number((a.entryPrice*0.999).toFixed(2)),good={at:f.state.now,action:'TIGHTEN_STOP',authority:true};
+  f.lot().desk.decisions.push(good);f.lot().deskOrder={action:'TIGHTEN_STOP',stopPrice:be,at:good.at};await f.beat();
+  const g=f.lot().desk.decisions.find(d=>d.at===good.at);assert.equal(g.done.ok,true);assert.equal(g.done.kind,'STOP');assert.ok(g.done.price>0);
+  assert.equal(f.controller.z5Status().active.find(x=>x.id===lot.id).deskInfo.pending,null,'nothing pending after it ran');
+});
