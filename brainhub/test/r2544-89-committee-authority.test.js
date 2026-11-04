@@ -274,3 +274,14 @@ test('R2544.127 JEV + KURUL desk: JEV decides first and its reducing order runs;
   await f.beat();assert.equal(f.lot(),null,'JEV\'s EXIT ran (JEV + KURUL: authorised)');assert.equal(f.kinds('POSITION_DESK_EXIT').length,1);
   f.controller._testDeskGuard({protectR:1});
 });
+
+test('R2544.128 the open lot keeps a real R path (one point a minute from the mark, R from the entry stop); ZİRVE-5 status carries it',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({z5:{enabled:true},deskJudges:{committee:cm(TAKE)}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=JSON.parse(JSON.stringify(f.lot())),R=a.stopPrice-a.entryPrice;
+  for(const k of [0.2,0.5,0.3]){f.state.now+=61000;await f.beat(a.entryPrice-k*R);}
+  const lp=f.lot().livePath;assert.ok(Array.isArray(lp)&&lp.length>=3,JSON.stringify(lp));
+  assert.ok(lp.every((p,i)=>i===0||p[0]-lp[i-1][0]>=60000),'one point a minute at most');
+  assert.ok(Math.abs(lp.at(-1)[1]-0.3)<0.05,'R from the entry stop: '+lp.at(-1)[1]);assert.ok(Math.max(...lp.map(p=>p[1]))>=0.45);
+  assert.deepEqual(f.controller.z5Status().active[0].livePath,lp,'Office gets it for ZİRVE-5 lots too');
+});

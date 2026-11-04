@@ -272,7 +272,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .br-line{font:600 11px system-ui,sans-serif;line-height:1.45;padding:5px 8px;border-radius:8px;margin:4px 0;background:#0d1124;color:#c9cfe6;border-left:3px solid #39406a}
 .br-line.ders{border-left-color:#ffd54f;background:rgba(255,213,79,.08);color:#fff3c4;box-shadow:0 0 12px rgba(255,213,79,.12)}
 .br-line.sum{border-left-color:#a78bfa;background:rgba(167,139,250,.1);color:#e6dcff;font-weight:800}
-.br-line.no{border-left-color:#ff7a59;color:#ffcab9}.br-line.mem{border-left-color:#2ec5ff}.br-line.wait{border-left-color:#6f789c;color:#9aa3c4}
+.br-line.no{border-left-color:#ff7a59;color:#ffcab9}
+.br-more{margin:6px 0 2px}.br-more summary{cursor:pointer;font:700 11px system-ui,sans-serif;color:#a78bfa;padding:4px 2px}.br-more summary:hover{color:#d6c9ff}.br-line.mem{border-left-color:#2ec5ff}.br-line.wait{border-left-color:#6f789c;color:#9aa3c4}
 .br-auto{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .br-auto span{font:600 11px system-ui,sans-serif;padding:5px 9px;border-radius:9px;background:#0d1124;border:1px solid #232a4a;color:#cfd5ee;max-width:100%}
 .br-auto span b{margin-right:5px}
@@ -1061,6 +1062,11 @@ function brAnimUpdate(s,model){
   const t=s?.top3?.data||s?.top3||{},br=t.brain||null;
   BR.m={lessons:br?.score?.lessons??model.lessons,last:br?.last||null,score:br?.score||null};if(!BR.raf)BR.raf=requestAnimationFrame(brDraw);
 }
+// R2544.128 (04.11 ekran: kartlar yazı yığını): ders, özet ve bekleme görünür; "tek başına neden değil" ile eski laboratuvar notları açılır kutuda
+function brLines(lines){const ico=x=>x.cls==='ders'?'✅ DERS: ':x.cls==='sum'?'🔍 ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• ';
+  const row=x=>`<div class="br-line ${x.cls}">${ico(x)}${esc(x.text)}</div>`,more=x=>!x.cls||x.cls==='mem'||/^Tek başına neden DEĞİL|^Eski 6 aylık laboratuvar/.test(String(x.text));
+  const main=lines.filter(x=>!more(x)),rest=lines.filter(more),n=rest.reduce((k,x)=>k+Math.max(1,(String(x.text).match(/;/g)||[]).length+1),0);
+  return main.map(row).join('')+(rest.length?`<details class="br-more"><summary>${n} etken daha: kazançta da kayıpta da benzer görünenler ve eski laboratuvar notları (aç)</summary>${rest.map(row).join('')}</details>`:'');}
 function renderBrain(s){
   const el=document.getElementById('ccBrainBody');if(!el)return;let m;try{m=brModel(s);}catch(e){console.warn('brain',e);return;}
   try{brAnimUpdate(s,m);}catch(e){console.warn('brAnim',e);}
@@ -1073,7 +1079,7 @@ function renderBrain(s){
   const sum=`<div class="br-sum"><h5>✅ BEYİN NE ÖĞRENDİ: TEKRAR EDEN KALIPLAR — ${dl.length} (çok işlemde aynı yönü gösteren; her işlem ayrıca yukarıdaki hafızada)</h5>${dl.length?dl.map(t=>`<p>• ${esc(t)}</p>`).join(''):'<p>Henüz doğrulanmış ders yok.</p>'}
     <p>Sorulan <b>${Q.asked||m.asked||0}</b> sorunun: <b style="color:#ffd54f">${Q.ders}</b> tanesi ders oldu • <b>${Q.same}</b> tanesinde kazanan ve kaybeden işlem girişte aynı görünüyor ${Q.notHold?` • <b>${Q.notHold}</b> tanesi eski kuralla 6 aylık veride tutmadı`:''} • <b>${Q.rare}</b> tanesi çok nadir görülen durum • <b>${Q.few}</b> tanesi için henüz yeterli örnek yok (her iki tarafta en az 8 otopsili işlem gerekir).</p>
     <p>Yani beynin bulgusu şu: girişte bilinen bu bilgilerin çoğu kazananı kaybedenden ayırmıyor. Bu bir hata değil, ölçüm sonucu. Ders artık yalnız gerçek işlemlerden çıkar (her iki tarafta en az 8 otopsili işlem, belirgin fark); giriş ekranı ve çıkıştaki grafik de her derse yazılır (R2544.118).</p></div>`;
-  el.innerHTML=sum+(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${c.lines.map(x=>`<div class="br-line ${x.cls}">${x.cls==='ders'?'✅ DERS: ':x.cls==='sum'?'🔍 ':x.cls==='no'?'⚠ ':x.cls==='mem'?'📚 ':x.cls==='wait'?'⏳ ':'• '}${esc(x.text)}</div>`).join('')}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
+  el.innerHTML=sum+(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${brLines(c.lines)}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
     +(m.auto.length?`<div class="br-sec" style="margin-top:10px">SON OTOPSİLER</div><div class="br-auto">${m.auto.map(a=>`<span title="${esc(a.text)}"><b style="color:${Number(a.R)>0?'#2bd67b':'#ff4d6d'}">${esc(String(a.s||'').replace(/USDT$/,''))} ${Number(a.R)>=0?'+':''}${Number(a.R).toFixed(2)}R</b>${esc(String(a.text||'').slice(0,90))}</span>`).join('')}</div>`:'');
 }
 // ---------- R2544.106 POZİSYON MASASI (kullanıcı 02.11: "pozisyon kartı afilli olsun; geçmiş pozlar son 5 poz durumu; geçmiş poz bilgileri istatistik ve grafiklerle") ----------
@@ -1101,7 +1107,9 @@ function renderPos(s){
   const t=s?.top3?.data||s?.top3||{},z=s?.zirve5?.data||s?.zirve5||{},pos=t.cc?.pos||null,$=id=>document.getElementById(id);
   const lots=[...(t.active||[]).map(a=>({...a,lane:'İlk 3'})),...(z.active||[]).map(a=>({...a,lane:'ZİRVE-5'}))];
   const op=$('psOpen');if(op){op.innerHTML=lots.length?lots.slice(0,2).map(a=>{const e=Number(a.entryPrice),st0=Number(a.initialStopPrice??a.stopPrice),mk=Number(a.markPrice),L=a.side==='LONG',risk=Math.abs(e-st0)||null,fav=p=>risk&&Number.isFinite(p)?(L?p-e:e-p)/risk:null;
-      const now=fav(mk),dec=(a.desk?.decisions||[]),o=Number(a.openedAt)||null,path=[[0,0],...dec.filter(d=>Number.isFinite(Number(d.R))&&o).map(d=>[Math.round((d.at-o)/60000),Number(d.R)]),...(o&&now!==null?[[Math.round((Date.now()-o)/60000),now]]:[])];
+      const now=fav(mk),dec=(a.desk?.decisions||a.deskInfo?.decisions||[]),o=Number(a.openedAt)||Date.parse(a.openedAt)||null,lp=Array.isArray(a.livePath)&&o?a.livePath.filter(p=>Number.isFinite(Number(p[0]))&&Number.isFinite(Number(p[1]))).map(p=>[Math.max(0,(Number(p[0])-o)/60000),Number(p[1])]):[],
+        // R2544.128: the real path (one R point a minute); the desk looks only when the minute path is not there yet (a lot opened before R2544.128)
+        path=[[0,0],...(lp.length>=2?lp:dec.filter(d=>Number.isFinite(Number(d.R))&&o).map(d=>[Math.round((d.at-o)/60000),Number(d.R)])),...(o&&now!==null?[[Math.round((Date.now()-o)/60000),now]]:[])];
       const best=Math.max(now??-9,...dec.map(d=>Number(d.R)).filter(Number.isFinite)),partR=Number(a.part?.atR)||2,last=a.deskInfo?.last,pnl=Number(a.unrealizedPnl);
       const votes=(last?.committee?.votes||[]).map(v=>`<span style="color:${RX_COL[v.a]||'#9aa3c4'};border-color:${(RX_COL[v.a]||'#9aa3c4')}66">${esc(rxShort(v.m))}: ${esc(RX_TR[v.a]||v.a)}</span>`).join('');
       return `<div class="ps-open ${now>=0?'win':'loss'}"><div class="ps-top"><span class="ps-sym">${esc(String(a.symbol||'').replace(/USDT$/,''))}</span><span class="ps-side ${a.side}">${a.side}</span><span class="cc-tag">${esc(a.lane)}</span><span class="ps-r" style="color:${now>=0?'#2bd67b':'#ff4d6d'}">${ccR(now)}</span></div>
