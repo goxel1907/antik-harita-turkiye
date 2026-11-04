@@ -6087,7 +6087,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let prem=null;
     for(const x of out.signals){
       const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
-      if(Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit; R2544.126: TEST = CANLI
+      // R2544.129 (04.11: EVAA / VVV / JCT showed "sonuç yok"): a full lane is written down, so the funnel and the phone say "lot sınırı dolu"
+      if(Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:{ok:false,reason:'TOP3_SLOTS_FULL',open:Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').map(a=>a.symbol),max:cfg.maxActive}});}catch{}continue;} // R2544.67.2: ZİRVE-5 lots have their own limit; R2544.126: TEST = CANLI
       const cd=top3Cooldown(x.symbol,x.side,cfg); // R2544.117: a re-entry on the same coin is a warning, not a silent drop (03.11 TA 06:05 "sonuç yok")
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       if(prem===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex');prem=new Map((Array.isArray(pi)?pi:[]).map(r=>[r.symbol,r]));}catch{prem=new Map();}}
