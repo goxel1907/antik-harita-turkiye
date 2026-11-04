@@ -239,7 +239,7 @@ test('R56 Office: switch route forwards only the three switches; card, labels an
   assert.ok(html.includes("laneAction({top3:true,confirm:'LIVE'}"),'R2544.57: İlk 3 goes LIVE as a lane (double press + LIVE)');assert.ok(html.includes("TOP3_HUNTER:'İLK 3 AVCISI'"));assert.ok(html.includes("BRAINHUB_TOP3"));
   const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.ok(server.includes('top3Judge:jev.sovereignTop3Gate'));assert.ok(server.includes("u.pathname==='/live/top3'"));assert.ok(server.includes('live.top3Tick()'));
-  assert.ok(server.includes("const RUNTIME_RELEASE='R2544.125'"));
+  assert.ok(server.includes("const RUNTIME_RELEASE='R2544.126'"));
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.ok(lc.includes("'BRAINHUB_TOP3'")&&lc.includes("'BRAINHUB_ZIRVE5'"));assert.ok(lc.includes('!activeTop3For(p.symbol)'),'core position review skips top3 lots');
   assert.ok(fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').includes('sovereignBurstExit,sovereignTop3Gate,'));
@@ -344,18 +344,19 @@ test('R56 repeat signal (rule already fired on the coin within 24 h, GTC/W 13.10
   assert.equal(g.kinds('TOP3_SIGNAL_STALE').length,1);
 });
 
-test('R56 TEST has no slot limit (user 13.10: "testte sınır koyma"): every signal is entered; LIVE keeps maxActive',async()=>{
+test('R2544.126 TEST = CANLI slot limit (user 04.11 "TEST’e de 2 sınırı"; was R56 "testte sınır koyma"): the 3rd signal waits in TEST too',async()=>{
   const f=fixture({top3:{enabled:true}});
   const syms=['S1USDT','S2USDT','S3USDT'],extra={};syms.forEach(x=>{extra[x]=6;});
   f.seed({[HOUR0-H-50*H]:extra});
   syms.forEach((x,i)=>{f.state.tick[x]=40-i;f.state.px[x]={bid:1.40,ask:1.401};f.state.klines[x]=e=>candles(e,721,LONG_TAIL);});
   await startTest(f);atScan(f);
   const r=await f.controller.top3Tick();
-  assert.equal(r.signals,3);assert.equal(r.entries,3,'maxActive 2 does not apply in TEST');
-  assert.equal(f.controller.top3Status().active.length,3);
-  assert.equal(f.controller.top3Status().learning.limitsInTest,'NONE');assert.equal(f.controller.top3Status().learning.limitsInLive.maxActive,2);
+  assert.equal(r.signals,3);assert.equal(r.entries,2,'maxActive 2 applies in TEST as in LIVE');
+  assert.equal(f.controller.top3Status().active.length,2);
+  assert.deepEqual(f.controller.top3Status().learning.limitsInTest,{maxActive:2});assert.equal(f.controller.top3Status().learning.limitsInLive.maxActive,2);
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
-  assert.ok(lc.includes("if(liveLimits&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}"),'LIVE slot limit kept (ZİRVE-5 lots counted separately)');
+  assert.ok(lc.includes("if(liveLimits&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;}"),'slot limit kept (ZİRVE-5 lots counted separately)');
+  assert.ok(lc.includes('const liveLimits=true;'));assert.ok(!lc.includes("if(!testModeNow()&&z5Open()>=cfg.maxActive)"),'ZİRVE-5 limit in TEST too');
 });
 
 test('R56 İlk 3 hafızası: a closed lot becomes a lesson (5m best/worst excursion), JEV mode reads it on the next signal, it survives a restart',async()=>{

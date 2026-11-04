@@ -31,7 +31,7 @@ const DEFAULT_CONFIG = Object.freeze({ enabled:true, liveEnabled:false, jevMode:
   // SHORT artı, 5/5 hafta); komşu ayarlar da artı (2,0x/%30 +0,34R, 2,0x/%40 +0,31R). Süpürmesiz her ayar ~0R.
   volMult:1.5, bodyMin:0.3, volLookback:96,                   // onay mumu
   topN:5, minQuote24h:20e6, marginQuote:null, leverage:null,
-  maxActive:2,                                                // CANLI'da en çok açık lot; TEST'te sınır yok
+  maxActive:2,                                                // en çok açık lot - R2544.126: TEST ve CANLI aynı
   riskPct:0.02,                                               // kendi marjı yokken stopta hesabın bu payı
   // R2544.69 kâr koruma: +1R'de lotun yarısı (girişte konan reduce-only hedef), kalanın stopu başabaş + ücret (Office anahtarı)
   partialEnabled:true, partAtR:2, partShare:0.5, partBeFee:0.0012, // R2544.73 (user 22.10: "1R'ı erken mi alıyor" -> 1 ay ölçüm, bugünkü kurallar n74: 1R yarısı +0,27R, 2R yarısı +0,41R, hiç +0,44R)

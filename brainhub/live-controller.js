@@ -5990,9 +5990,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let prem=null; // funding/premium at entry, one premiumIndex read per scan
     for(const x of out.signals){
       const res={symbol:x.symbol,side:x.side,rule:x.rule,kind:x.kind};out.entries.push(res);
-      // R2544.56 (user 13.10: "testte sınır koyma, canlıda max poz sınırı var"): TEST enters every signal (only a coin that
-      // already has a position is skipped, Binance would merge the lots); LIVE keeps maxActive and the 24 h same-signal block.
-      const liveLimits=!testModeNow();
+      // R2544.56 (user 13.10: "testte sınır koyma"): TEST entered every signal. R2544.126 (kullanıcı 04.11, canlıya geçiş: "TEST'e de 2 sınırı"):
+      // TEST = CANLI - the slot limit and the 24 h same-signal block hold in both modes, so a TEST result is what LIVE would have done.
+      const liveLimits=true;
       if(liveLimits&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit
       const key=x.symbol+':'+x.side;if(liveLimits&&clock()-(finite(top3State.lastEntry?.[key])||0)<24*TOP3_HOUR){res.reason='TOP3_SAME_SIGNAL_24H';continue;}
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
@@ -6087,7 +6087,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let prem=null;
     for(const x of out.signals){
       const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
-      if(!testModeNow()&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit
+      if(Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit; R2544.126: TEST = CANLI
       const cd=top3Cooldown(x.symbol,x.side,cfg); // R2544.117: a re-entry on the same coin is a warning, not a silent drop (03.11 TA 06:05 "sonuç yok")
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       if(prem===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex');prem=new Map((Array.isArray(pi)?pi:[]).map(r=>[r.symbol,r]));}catch{prem=new Map();}}
@@ -6983,7 +6983,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         // R2544.70: no liquidity sweep (SFP) on the zone side in the last 24 closed 15m candles -> no entry (the zone is used up, like the lab)
         const z5Flags=[];if(cfg.requireSweep!==false&&!sg.sweep)z5Flags.push({code:'ZIRVE5_NO_SWEEP'}); // R2544.116: a warning, never a drop
         if(clock()-sg.confirmAt>5*60000){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SIGNAL_STALE',rank:sg.rank});continue;}
-        if(!testModeNow()&&z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SLOTS_FULL',rank:sg.rank});continue;}
+        if(z5Open()>=cfg.maxActive){z.lastGate='ZIRVE5_SLOTS_FULL';z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SLOTS_FULL',rank:sg.rank});continue;}
         if(activeTop3For(sym)||burstCurrentPosition(sym)||activeBurstFor(sym)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sym)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_SYMBOL_BUSY',rank:sg.rank});continue;}
         const t3=top3Lib.readTop3Config(root);
         // without its OWN margin ZİRVE-5 sizes by risk (riskPct of equity lost at the stop); it never borrows İlk 3's fixed margin
@@ -7221,7 +7221,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
             last={symbol:l.symbol,side:l.side,rule:l.rule,openedAt:l.openedAt,status:'CLOSED',R:Number(Number(l.rMultiple).toFixed(2)),hit:top3Lib.brainHit(b.lean,Number(l.rMultiple)),replay:!w,...b};}}
         return {score:sc,last};}catch{return null;}})(),
       learning:{...top3Lib.experienceSummary(top3State.lessons),causes:{LONG_EARLY_RETEST:top3Lib.causeStats(top3State.lessons,'LONG_EARLY_RETEST').text,SHORT_TOP_BREAK:top3Lib.causeStats(top3State.lessons,'SHORT_TOP_BREAK').text},
-        autopsies:(top3State.lessons||[]).filter(l=>l.autopsy?.ok).slice(-5).reverse().map(l=>({symbol:l.symbol,side:l.side,rule:l.rule,R:l.rMultiple,text:l.autopsy.text})),limitsInTest:'NONE',limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'},
+        autopsies:(top3State.lessons||[]).filter(l=>l.autopsy?.ok).slice(-5).reverse().map(l=>({symbol:l.symbol,side:l.side,rule:l.rule,R:l.rMultiple,text:l.autopsy.text})),limitsInTest:{maxActive:cfg.maxActive},limitsInLive:{maxActive:cfg.maxActive,sameSignalBlockH:24,repeatSignals:'NOT_TAKEN'},
         sameCoinPauseH:cfg.rulesVersion===2?{long:cfg.early.cooldownH,short:cfg.top.cooldownH,afterStop:cfg.top.cooldownAfterStopH}:null},
       windowResults:top3State.window?sum(measured.filter(p=>p.tradingMode==='TEST'&&Date.parse(p.openedAt||p.closedAt||'')>=top3State.window.startedAt)):null,
       history:{hours7d:top3Ranks.hoursCovered(T,168*TOP3_HOUR),hours24h:top3Ranks.hoursCovered(T+TOP3_HOUR,24*TOP3_HOUR),bootstrap:top3State.bootstrap||null},
