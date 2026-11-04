@@ -21,7 +21,7 @@ function scenario(side,lastOpen){
 }
 const FAKE={apiKey:'fake-test-key-r89',apiSecret:'fake-test-secret-r89'}; // made-up, never real
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
-function fixture({side='SHORT',z5={enabled:true},top3={},deskJudges=null}={}){
+function fixture({side='SHORT',z5={enabled:true},top3={},deskJudges=null,extra={}}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r89-'));fs.mkdirSync(path.join(root,'config'));
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
@@ -52,7 +52,7 @@ function fixture({side='SHORT',z5={enabled:true},top3={},deskJudges=null}={}){
   };
   const events=[];
   const controller=require('../live-controller').createLiveController({root,clock:()=>state.now,store:{journal:(k2,s,p)=>events.push({k:k2,s,p}),recordLearning:()=>{}},
-    scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),credentials:FAKE,fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',deskJudges,
+    scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),credentials:FAKE,fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',deskJudges,...extra,
     market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol(){}}}});
   // TEST: record what the paper exchange receives (the same request objects the transport would sign for Binance)
   const paper=controller._testPaper(),h=paper.handle.bind(paper);
@@ -150,8 +150,9 @@ test('R2544.89 switches: KURUL and JEV are exclusive; LIVE needs the explicit co
   assert.equal((lc.match(/if\(p\.committeeMode===true\)p\.jevMode=false;else if\(p\.jevMode===true\)p\.committeeMode=false;/g)||[]).length,2);
   assert.match(lc,/if\(!testModeNow\(\)&&\(p\.earlyEnabled===true\|\|p\.topEnabled===true\|\|p\.committeeMode===true\|\|/);
   assert.match(lc,/if\(\(p\.liveEnabled===true\|\|\(live&&\(p\.committeeMode===true\|\|/);
-  assert.match(lc,/cfg:\{\.\.\.cfg,testJudges:\['COMMITTEE'\],liveJudges:\['COMMITTEE'\]\}/,'with authority only the committee decides');
-  assert.match(lc,/if\(rec\.action!=='HOLD'&&!rec\.downgraded&&rec\.judge==='COMMITTEE'&&!rec\.guard\)a\.deskOrder=/);
+  assert.match(lc,/order=both\?\['JEV','COMMITTEE'\]:\['COMMITTEE'\];/,'with authority only the committee decides (R2544.127: JEV + KURUL -> JEV first, then the committee)');
+  assert.match(lc,/cfg:\{\.\.\.cfg,testJudges:order,liveJudges:order\}/,'the same order in TEST and LIVE');
+  assert.match(lc,/if\(rec\.action!=='HOLD'&&!rec\.downgraded&&\(rec\.judge==='COMMITTEE'\|\|\(both&&rec\.judge==='JEV'\)\)&&!rec\.guard\)a\.deskOrder=/,'R2544.127: JEV orders run only in JEV + KURUL');
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.equal((sv.match(/committeeMode:body\?\.committeeMode/g)||[]).length,2);
   const os2=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');assert.equal((os2.match(/'committeeMode'\]\) if \(typeof b\[k\] === 'boolean'\)/g)||[]).length,2);
   const of=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
@@ -240,4 +241,36 @@ test('R2544.124 P&L panel: the controller reads the account ledger through the S
   assert.equal(p.cash.total,100,'the top-up is listed apart');assert.equal(p.cash.n,1);
   const src=require('fs').readFileSync(require('path').join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(src,/transport\._fetchJson\('GET','\/fapi\/v1\/income',\{params:\{startTime:Math\.floor\(start\),endTime:Math\.floor\(clock\(\)\),limit:1000\},credentials:creds,signed:true\}\)/,'one call, both modes');
+});
+
+test('R2544.127 JEV + KURUL + bot: both switches in one press; the bot opens even when JEV says no (JEV votes); JEV alone still gates',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const NO=async()=>({ok:true,called:true,decision:'REJECT_ENTRY',reason:'jev says no'});
+  let f=fixture({z5:{enabled:true},deskJudges:{committee:cm(TAKE)},extra:{zirve5Judge:NO}});await f.controller.testSupervisorTick();
+  assert.equal(f.controller.configureZ5({committeeMode:true,jevMode:true}).ok,true);
+  let sw=f.controller.z5Status().switches;assert.equal(sw.committeeMode,true);assert.equal(sw.jevMode,true,'both on together = JEV + KURUL');assert.equal(f.controller.z5Status().decisions,'RULE_PLUS_JEV_COMMITTEE');
+  assert.equal((await f.controller.z5Tick()).entries,1,'the bot opens; JEV only votes');assert.equal(f.lot().entryFeatures.jevVote.decision,'REJECT_ENTRY');
+  assert.equal(f.controller.runStatus().lanes?.zirve5?.decisions??'RULE_PLUS_JEV_COMMITTEE','RULE_PLUS_JEV_COMMITTEE');
+  require('../binance-rate-limit').resetForTests();
+  f=fixture({z5:{enabled:true},deskJudges:{committee:cm(TAKE)},extra:{zirve5Judge:NO}});await f.controller.testSupervisorTick();
+  f.controller.configureZ5({jevMode:true});sw=f.controller.z5Status().switches;assert.equal(sw.committeeMode,false,'one alone stays exclusive');
+  assert.equal((await f.controller.z5Tick()).entries,0,'JEV alone still gates the entry (unchanged)');
+});
+
+test('R2544.127 JEV + KURUL desk: JEV decides first and its reducing order runs; when JEV cannot answer the committee decides',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const vote=(m,action)=>({member:m,ok:true,seat:null,vote:{ok:true,action,stopChoice:'KEEP',reason:'MOMENTUM_FADING',confidence:60,reasonTr:m,watchTr:''}});
+  const deskHold={ok:true,final:'HOLD',consensus:'UNANIMOUS',rounds:1,voters:2,votes:[vote('a','HOLD'),vote('b','HOLD')]};
+  const c=cm(o=>o.field==='action'?deskHold:TAKE);let jevUp=true;const jevCalls=[];
+  const jev=async({packet})=>{jevCalls.push(packet);return jevUp?{ok:true,action:'EXIT',stopChoice:'KEEP',reason:'MOMENTUM_FADING',reasonTr:'JEV: çık',model:'jev'}:{ok:false,reason:'OPENROUTER_402'};};
+  const f=fixture({z5:{enabled:true,committeeMode:true,jevMode:true},deskJudges:{committee:c,jev},extra:{zirve5Judge:async()=>({ok:true,called:true,decision:'APPROVE_ENTRY'})}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=JSON.parse(JSON.stringify(f.lot())),R=a.stopPrice-a.entryPrice;
+  f.controller._testDeskGuard({protectR:-99});
+  await f.beat(a.entryPrice-0.5*R);f.state.now+=31*60000;
+  jevUp=false;let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}
+  assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.judge,'COMMITTEE','JEV down -> the committee decides');assert.equal(f.lot().desk.last.authority,true);
+  jevUp=true;f.state.now+=31*60000;r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}
+  assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.judge,'JEV');assert.equal(r.action,'EXIT');assert.ok(jevCalls.length>=2);
+  await f.beat();assert.equal(f.lot(),null,'JEV\'s EXIT ran (JEV + KURUL: authorised)');assert.equal(f.kinds('POSITION_DESK_EXIT').length,1);
+  f.controller._testDeskGuard({protectR:1});
 });

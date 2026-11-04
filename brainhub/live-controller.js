@@ -6116,7 +6116,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
         const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
-        res.jev=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
+        // R2544.127 JEV + KURUL + bot (kullanıcı 04.11 seçimi: "bot açar, JEV+kurul yönetir"): the rule opens every signal; JEV's entry review is a vote
+        res.jev=ev;ef.jevVote=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')&&!jevKurul(cfg)){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
       }
       // R2544.89 KURUL KAPISI (kullanıcı 27.10: "istediğim zaman tek tık ile canlıya geçebilmeliyim bu modeller ile"): kural sinyal verdi;
       // kurul GİR demezse işlem yok (yalnız veto, kendisi işlem açmaz). Kurul yok / zaman aşımı -> kural devam eder (kayıtlı).
@@ -6799,7 +6800,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const chart={m5:TB.chartReading(k5.raw,'5m',{t:now,R:Rf}),m15:TB.chartReading(k15.raw,'15m',{t:now,R:Rf}),h1:TB.chartReading(k1h.raw,'1h',{t:now,R:Rf})}; // R2544.98 + 5m (İlk 3'ün tetik zaman dilimi)
       const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15).slice(-30),k1h:closed(k1h).slice(-30),btc5:btc,oi,why:top3Why(a),now,lane,chart});
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
-      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:['COMMITTEE'],liveJudges:['COMMITTEE']},judges:deskJudges,stats:deskStats()}):deskJudge(packet,mode,cfg)),st=deskStats();st.lastAt=new Date(now).toISOString();
+      // R2544.127 JEV + KURUL: JEV decides first; when JEV cannot answer (credit, error) the committee decides - the same order in TEST and LIVE
+      const both=auth&&jevKurul(laneCfgOf(a)),order=both?['JEV','COMMITTEE']:['COMMITTEE'];
+      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:deskJudges,stats:deskStats()}):deskJudge(packet,mode,cfg)),st=deskStats();st.lastAt=new Date(now).toISOString();
       const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
       desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);
       if(!res.ok){st.failed++;st.lastError=res.tried.join(', ').slice(0,200);desk.lastError={at:now,tried:res.tried};saveTop3State();
@@ -6812,7 +6815,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // (now <= -0.6R: the idea is failing before the stop, or best >= +1R: there is profit to protect). Otherwise it is recorded, not executed.
       const mfe=finite(packet?.position?.mfeR),openMin=(now-a.openedAt)/60000,beyondNoise=openMin>=DESK_GUARD.minOpenMin&&((finite(rec.R)??0)<=DESK_GUARD.failR||(mfe??-9)>=DESK_GUARD.protectR);
       if(auth&&rec.action!=='HOLD'&&!beyondNoise){rec.guard={code:'NOISE_GUARD',openMin:Math.round(openMin),R:rec.R,mfeR:mfe};}
-      if(auth){rec.shadow=false;rec.authority=true;if(rec.action!=='HOLD'&&!rec.downgraded&&rec.judge==='COMMITTEE'&&!rec.guard)a.deskOrder={action:rec.action,stopPrice:rec.stopPrice,at:now,by:'COMMITTEE'};}
+      if(auth){rec.shadow=false;rec.authority=true;if(rec.action!=='HOLD'&&!rec.downgraded&&(rec.judge==='COMMITTEE'||(both&&rec.judge==='JEV'))&&!rec.guard)a.deskOrder={action:rec.action,stopPrice:rec.stopPrice,at:now,by:rec.judge};}
       desk.decisions.push(rec);if(desk.decisions.length>120)desk.decisions=desk.decisions.slice(-120);desk.last=rec;desk.lastError=null;
       saveTop3State();
       try{store.journal('POSITION_DESK_REVIEW',a.symbol,{lane,mode,id:a.id,rule:a.rule,...rec,text:DESK.decisionText(rec),version:DESK.DESK_VERSION,tried:res.tried});}catch{}
@@ -6900,6 +6903,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }catch(e){return {veto:false,record:{at:clock(),error:String(e?.message||e).slice(0,120),fallback:'RULE',authority:true}};}
   }
   const DESK_GUARD={minOpenMin:30,failR:-0.6,protectR:1}; // R2544.117 masa gürültü koruması
+  // R2544.127: a lane is JEV + KURUL when both switches are on; the lane's own config
+  function jevKurul(c){return c?.jevMode===true&&c?.committeeMode===true;}
+  function laneCfgOf(a){try{return a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root);}catch{return null;}}
   function deskAuthority(a){try{return (a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root)).committeeMode===true;}catch{return false;}}
   // R2544.89 masanın yetkili emri: yalnız AZALTAN (yarısını kapat = kâr korumayı şimdi al + kalan başabaşa, stopu yaklaştır, çık).
   // Bir kez denenir, 10 dk'dan eskiyse düşer; emir yalnız başlatma (arm) varken; stop asla uzaklaşmaz.
@@ -7003,7 +7009,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
           const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null};
           try{store.journal('ZIRVE5_JEV_REVIEW',sym,{...ev,side});}catch{}
-          if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;}
+          ef.jevVote=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')&&!jevKurul(cfg)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;} // R2544.127: in JEV+KURUL a vote
         }
         const z5Adv=true;ef.trig={side,top:sg.top,bottom:sg.bottom,equilibrium:sg.equilibrium,confirm:sg.confirm||null,sweep:sg.sweep||null};
         {const pz0=z5Lib.plan(sg.refPrice,sg,cfg,{advisory:true});const fl=[...z5Flags,...(pz0?.ok&&Array.isArray(pz0.flags)?pz0.flags:[])];if(fl.length)ef.ruleFlags=fl;}
@@ -7038,7 +7044,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {ok:true,name:'ZİRVE-5',lane:'ZIRVE5',positionDesk:deskStatus(),setup:z5Lib.SETUP,setups:{LONG:z5Lib.SETUP_LONG,SHORT:z5Lib.SETUP_SHORT},version:z5Lib.ZIRVE5_VERSION,tf:'15m',
       tradingMode:testModeNow()?'TEST':'LIVE',switches:{enabled:cfg.enabled,liveEnabled:cfg.liveEnabled,jevMode:cfg.jevMode,committeeMode:cfg.committeeMode===true,longEnabled:cfg.longEnabled,shortEnabled:cfg.shortEnabled,partialEnabled:cfg.partialEnabled,requireSweep:cfg.requireSweep},
       partial:{enabled:cfg.partialEnabled===true,atR:cfg.partAtR,share:cfg.partShare,beFee:cfg.partBeFee},
-      jevAvailable:typeof zirve5Judge==='function',decisions:cfg.committeeMode?'RULE_PLUS_COMMITTEE':cfg.jevMode?'RULE_PLUS_JEV':'RULE',
+      jevAvailable:typeof zirve5Judge==='function',decisions:jevKurul(cfg)?'RULE_PLUS_JEV_COMMITTEE':cfg.committeeMode?'RULE_PLUS_COMMITTEE':cfg.jevMode?'RULE_PLUS_JEV':'RULE',
       rules:{k:cfg.k,entry:'VOLUME_CONFIRMATION',volMult:cfg.volMult,bodyMin:cfg.bodyMin,volLookback:cfg.volLookback,target:'LIQUIDITY_MIN_1R',maxHoldH:cfg.maxHoldH,windowBars:cfg.windowBars,topN:cfg.topN,minQuote24h:cfg.minQuote24h,minStopPct:cfg.minStopPct,maxStopPct:cfg.maxStopPct,sides:['LONG','SHORT'],liveAllowed:cfg.liveEnabled,maxActiveLive:cfg.maxActive},
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
@@ -7057,7 +7063,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // ON in LIVE (the lane or a side while LIVE, or liveEnabled) and a margin/leverage change in LIVE need the explicit 'LIVE'.
   function configureZ5(patch={}){
     const p={};for(const k of ['enabled','liveEnabled','jevMode','longEnabled','shortEnabled','partialEnabled','requireSweep','committeeMode'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
-    if(p.committeeMode===true)p.jevMode=false;else if(p.jevMode===true)p.committeeMode=false; // R2544.89
+    // R2544.127 (kullanıcı 04.11: "ister kurul ile ister JEV+kurul+bot ile tek tık canlı"): both in one press = JEV + KURUL; one alone stays exclusive
+    if(p.committeeMode===true&&p.jevMode===true){}else if(p.committeeMode===true)p.jevMode=false;else if(p.jevMode===true)p.committeeMode=false; // R2544.89
     for(const k of ['marginQuote','leverage','partAtR','partShare'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&patch[k]!==undefined)p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['ZIRVE5_SWITCH_MISSING']};
     const live=!testModeNow(),sizingChange=('marginQuote' in p)||('leverage' in p)||('partAtR' in p)||('partShare' in p);
@@ -7232,9 +7239,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {mode:m.mode,running:armed,normal:{selected:l.normal,active:armed&&oto,defaulted:l.defaulted,decisions:'JEV',
         sub:{scalp5m:{selected:l.scalp5m,active:armed&&oto&&l.scalp5m},trade15m:{selected:l.trade15m,active:armed&&oto&&l.trade15m},
           burst:{selected:l.burst,active:armed&&oto&&l.burst&&burstAllowedNow(),liveAllowed:readLeaderAutoConfig().config?.burstLiveEnabled===true}}},
-      top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:t.committeeMode===true?'RULE_PLUS_COMMITTEE':t.jevMode?'RULE_PLUS_JEV':'RULE',
+      top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:jevKurul(t)?'RULE_PLUS_JEV_COMMITTEE':t.committeeMode===true?'RULE_PLUS_COMMITTEE':t.jevMode?'RULE_PLUS_JEV':'RULE',
         sub:{early:{name:top3Lib.TOP3_SUBS.early.name,selected:t.early.enabled===true,jev:top3Lib.subJev(t,'LONG')},top:{name:top3Lib.TOP3_SUBS.top.name,selected:t.top.enabled===true,jev:top3Lib.subJev(t,'SHORT')}}},
-      zirve5:(()=>{const c=z5Lib.readConfig(root);return {selected:c.enabled,liveAllowed:c.liveEnabled,active:armed&&c.enabled&&(m.mode==='TEST'||c.liveEnabled),decisions:c.committeeMode===true?'RULE_PLUS_COMMITTEE':c.jevMode?'RULE_PLUS_JEV':'RULE',name:'ZİRVE-5'};})()};
+      zirve5:(()=>{const c=z5Lib.readConfig(root);return {selected:c.enabled,liveAllowed:c.liveEnabled,active:armed&&c.enabled&&(m.mode==='TEST'||c.liveEnabled),decisions:jevKurul(c)?'RULE_PLUS_JEV_COMMITTEE':c.committeeMode===true?'RULE_PLUS_COMMITTEE':c.jevMode?'RULE_PLUS_JEV':'RULE',name:'ZİRVE-5'};})()};
   }
   // R2544.57 lane switches (Office / APK / API). Turning a lane ON in LIVE needs confirm 'LIVE'; OFF is immediate (open lots
   // keep their own exits). The normal lane's OTO follows only while the run is on (never analysis while stopped).
@@ -7262,7 +7269,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // Only the user's Office buttons call this (server route). LIVE needs the explicit 'LIVE' confirmation.
   function configureTop3(patch={}){
     const p={};for(const k of ['enabled','jevMode','liveEnabled','earlyEnabled','topEnabled','partialEnabled','topSweep','committeeMode'])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
-    if(p.committeeMode===true)p.jevMode=false;else if(p.jevMode===true)p.committeeMode=false; // R2544.89 karar sahibi tek: KURAL / JEV / KURUL
+    if(p.committeeMode===true&&p.jevMode===true){}else if(p.committeeMode===true)p.jevMode=false;else if(p.jevMode===true)p.committeeMode=false; // R2544.89 karar sahibi: KURAL / JEV / KURUL; R2544.127 + JEV+KURUL (ikisi birlikte)
     for(const k of ['earlyJev','topJev'])if(patch&&Object.prototype.hasOwnProperty.call(patch,k)&&(typeof patch[k]==='boolean'||patch[k]===null))p[k]=patch[k];
     const restart=patch?.restartWindow===true;if(restart)p.enabled=true;
     // R2544.73: kâr koruma level (R 0,5-5) / share (0,1-0,9); null = default 2R / 50 %. LIVE needs the 'LIVE' confirmation.

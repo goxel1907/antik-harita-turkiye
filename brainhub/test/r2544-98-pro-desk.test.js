@@ -57,6 +57,7 @@ test('R2544.98 phone: each open lot carries the committee agreement (type + ever
   assert.equal(cm.desk.c,'REDUCE_MAJORITY');assert.deepEqual(cm.desk.v.map(v=>v.d),['TIGHTEN_STOP','HOLD','EXIT']);
   assert.deepEqual(o.committee.recent[0],{at:1,s:'XAN',side:'LONG',d:'SKIP',ag:true,c:'MAJORITY_AFTER_DEBATE',b:true,v:[{m:'gemini-3.5-flash-lite',d:'SKIP'},{m:'openrouter',d:'SKIP'},{m:'x',d:'TAKE'}]});
   const fs=require('fs'),path=require('path'),html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  assert.match(html,/top3Control\(\{committeeMode:true,liveEnabled:true,confirm:'LIVE'\}/);assert.match(html,/z5Control\(\{committeeMode:true,liveEnabled:true,confirm:'LIVE'\}/);assert.match(html,/Kurul ANLAŞARAK GİRME derse işlem açılmaz/);
-  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');assert.match(lc,/decisions:t\.committeeMode===true\?'RULE_PLUS_COMMITTEE'/);assert.match(lc,/ring\.unshift\(\{at:clock\(\),symbol,side,rule,d:r\.final,ag:agreed/);
+  assert.match(html,/top3Control\(\{committeeMode:true,jevMode:false,liveEnabled:true,confirm:'LIVE'\}/);assert.match(html,/z5Control\(\{committeeMode:true,jevMode:false,liveEnabled:true,confirm:'LIVE'\}/);
+  assert.match(html,/kurul girişte oy verir, engellemez/,'R2544.127: the warning says what really happens since R2544.116');assert.doesNotMatch(html,/Kurul ANLAŞARAK GİRME derse işlem açılmaz/);
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');assert.match(lc,/decisions:jevKurul\(t\)\?'RULE_PLUS_JEV_COMMITTEE':t\.committeeMode===true\?'RULE_PLUS_COMMITTEE'/);assert.match(lc,/ring\.unshift\(\{at:clock\(\),symbol,side,rule,d:r\.final,ag:agreed/);
 });

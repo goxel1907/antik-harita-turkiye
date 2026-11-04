@@ -485,7 +485,7 @@ body.cc-compact .cc-extra{display:none !important}
       <button id="btnLaneBurst" disabled title="Normal sistemin vur-kaç hattı (canlıda ayrıca izin gerekir)">Vur-kaç: —</button>
       <button id="btnLaneTop3" disabled title="İlk 3 Avcısı: kural (JEV modu açıksa kural + JEV)">İlk 3 Avcısı: —</button>
       <button id="btnLaneZirve5" disabled title="ZİRVE-5: piyasa geneli ilk 5 volatil coin, 15 dk FiboBuLL alanlarında hacimli mum onayıyla LONG ve SHORT (JEV modu açıksa kural + JEV)">ZİRVE-5: —</button>
-      <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button><button class="live" id="btnCmLive" disabled title="R2544.89: İlk 3 ve ZİRVE-5 kararını kurula verir, sonra CANLI’ya geç onayını açar">Kurulla CANLI’ya geç</button>
+      <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button><button class="live" id="btnCmLive" disabled title="R2544.89: İlk 3 ve ZİRVE-5 kararını kurula verir, sonra CANLI’ya geç onayını açar">Kurulla CANLI’ya geç</button><button class="live" id="btnJkLive" disabled title="R2544.127: İlk 3 ve ZİRVE-5 JEV + Kurul + bot olur (bot açar, önce JEV sonra kurul yönetir), sonra CANLI’ya geç onayını açar">JEV + Kurul ile CANLI’ya geç</button>
       <button id="btnGoTest" disabled style="display:none">CANLI’yı kapat — TEST’e dön</button>
       <button class="go" id="btnStartTest" disabled style="display:none">TEST’i başlat</button>
       <button id="btnResetTest" disabled>TEST’i sıfırla</button>
@@ -2549,9 +2549,9 @@ function renderMode(s){
     lbs('btnLane15m','15 dk ana işlem',sub.trade15m?.selected);
     lbs('btnLaneBurst','Vur-kaç',sub.burst?.selected,mode==='LIVE'&&sub.burst?.selected&&!sub.burst?.liveAllowed?' • canlıda kapalı':'');
     {const sb=lanes.top3?.sub,parts=sb?[sb.early?.selected?'LONG':null,sb.top?.selected?'SHORT':null].filter(Boolean):null;
-     lb('btnLaneTop3','İlk 3 Avcısı',lanes.top3?.selected,lanes.top3?.selected?(parts?(parts.length?' • '+parts.join('+'):' • alt strateji yok'):'')+(lanes.top3.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz'):'');}
+     lb('btnLaneTop3','İlk 3 Avcısı',lanes.top3?.selected,lanes.top3?.selected?(parts?(parts.length?' • '+parts.join('+'):' • alt strateji yok'):'')+DEC_TR(lanes.top3.decisions):'');}
     // R2544.64 ZİRVE-5 (LONG + SHORT): own switch; in LIVE it trades only after its own LIVE confirmation
-    lb('btnLaneZirve5','ZİRVE-5',lanes.zirve5?.selected,lanes.zirve5?.selected?(lanes.zirve5.decisions==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz')+(mode==='LIVE'&&!lanes.zirve5.liveAllowed?' • canlıda kapalı':''):'');
+    lb('btnLaneZirve5','ZİRVE-5',lanes.zirve5?.selected,lanes.zirve5?.selected?DEC_TR(lanes.zirve5.decisions)+(mode==='LIVE'&&!lanes.zirve5.liveAllowed?' • canlıda kapalı':''):'');
     info+=`<br>Hatlar: Normal sistem (yalnız JEV karar verir) <b>${lanes.normal?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.normal?.active?' • çalışıyor':''} • İlk 3 Avcısı <b>${lanes.top3?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.top3?.active?' • çalışıyor':''}${mode==='LIVE'&&lanes.top3?.selected&&!lanes.top3?.liveAllowed?' • (canlıda değil)':''}`;
   } else for(const id of ['btnLaneNormal','btnLaneScalp','btnLane15m','btnLaneBurst','btnLaneTop3','btnLaneZirve5']){const b=$('#'+id);if(b)b.style.display='none';}
   let warn='';
@@ -2690,6 +2690,7 @@ function renderTop3(s){
   btn('btnTop3Jev',sw.jevMode?'JEV modu: AÇIK → kapat':'JEV modu: KAPALI → aç',sw.jevMode,!t.jevAvailable&&!sw.jevMode);
   btn('btnTop3Cm',typeof sw.committeeMode!=='boolean'?'Kurul: PC sürümü eski':sw.committeeMode?'Kurul: AÇIK → kapat':'Kurul: KAPALI → aç',sw.committeeMode===true,typeof sw.committeeMode!=='boolean'); // R2544.89
   {const b=document.getElementById('btnCmLive');if(b)b.disabled=typeof sw.committeeMode!=='boolean'||t.tradingMode==='LIVE';}
+  {const b=document.getElementById('btnJkLive');if(b)b.disabled=typeof sw.committeeMode!=='boolean'||t.tradingMode==='LIVE';} // R2544.127
   // R2544.69 kâr koruma (PC before R2544.69 has no such switch -> disabled)
   btn('btnT3TopSweep',typeof sw.topSweep!=='boolean'?'Süpürme: PC sürümü eski':sw.topSweep?'Süpürme şartı: AÇIK → kapat':'Süpürme şartı: KAPALI → aç',sw.topSweep===true,typeof sw.topSweep!=='boolean');
   {const pp=t.partial||{},lab=`Kâr koruma ${partLab(pp.atR,pp.share)}`;
@@ -2850,8 +2851,9 @@ onClick('#btnZ5Sweep',()=>{const z=last?.zirve5,on=z?.switches?.requireSweep===t
 onClick('#btnT3TopSweep',()=>{const t=last?.top3,on=t?.switches?.topSweep===true,live=t?.tradingMode==='LIVE';
   if(live&&!top3Second('btnT3TopSweep',`İLK 3 TEPE SHORT süpürme şartı ${on?'KAPAT':'AÇ'} — CANLI girişler değişir`))return;
   top3Control({topSweep:!on,...(live?{confirm:'LIVE'}:{})},on?'TEPE SHORT süpürme şartı kapatıldı':'TEPE SHORT süpürme şartı açıldı: SFP yoksa SHORT yok');});
-// R2544.89 KURUL: karar sahibi kurul (girişte veto, açık pozisyonda masa yetkili; yalnız azaltan emirler). CANLI'da GERÇEK PARA onayı.
-const CM_WARN='Kurul henüz ölçülmedi (sınav sürüyor). Kurul ANLAŞARAK GİRME derse işlem açılmaz (oybirliği / tartışma sonrası çoğunluk, en az 2 model); tek model ya da anlaşmazlıkta kural karar verir. Açık pozisyonda kurul yarısını kapatabilir, stopu yaklaştırabilir, çıkabilir; modeller çalışmazsa kural devam eder.'; // R2544.98
+const DEC_TR=d=>d==='RULE_PLUS_JEV_COMMITTEE'?' • JEV+Kurul':d==='RULE_PLUS_COMMITTEE'?' • Kurul':d==='RULE_PLUS_JEV'?' • JEV’li':' • JEV’siz'; // R2544.127
+// R2544.89 KURUL: karar sahibi kurul (açık pozisyonda masa yetkili; yalnız azaltan emirler). CANLI'da GERÇEK PARA onayı.
+// R2544.127: R2544.116'dan beri girişte veto yok (her sinyal açılır, kurul oyu kayıt olur) - uyarı metni buna göre
 onClick('#btnTop3Cm',()=>{const t=last?.top3,on=t?.switches?.committeeMode===true,live=t?.tradingMode==='LIVE';
   if(on){top3Control({committeeMode:false},'Kurul kapatıldı: İlk 3 kararı kurala döndü (kurul gölgede kayıt tutmaya devam eder).');return;}
   if(!top3Second('btnTop3Cm',`İlk 3 karar sahibi KURUL${live?' — CANLI, GERÇEK PARA':''}. ${CM_WARN}`))return;
@@ -2860,11 +2862,19 @@ onClick('#btnZ5Cm',()=>{const z=last?.zirve5,on=z?.switches?.committeeMode===tru
   if(on){z5Control({committeeMode:false},'Kurul kapatıldı: ZİRVE-5 kararı kurala döndü.');return;}
   if(!top3Second('btnZ5Cm',`ZİRVE-5 karar sahibi KURUL${live?' — CANLI, GERÇEK PARA':''}. ${CM_WARN}`))return;
   z5Control({committeeMode:true,...(live?{confirm:'LIVE'}:{})},'ZİRVE-5 kararı kurulda.');});
+const CM_WARN='Kural (bot) her sinyalde işlemi açar; kurul girişte oy verir, engellemez. Açık pozisyonu kurul yönetir: yarısını kapatabilir, stopu yaklaştırabilir, çıkabilir (yalnız risk azaltan emirler; gürültü koruması: 30 dk ve -0,6R altı ya da en iyi +1R). Marj ve kaldıraç hattın ayarıdır (kaldıraç en az 10x); CANLI’da Binance serbest bakiyesi okunur, yetmezse geçiş olmaz. Modeller cevap veremezse pozisyonu kural yönetir.';
+const JK_WARN='JEV + KURUL + BOT: kural (bot) her sinyalde işlemi açar; JEV ve kurul girişte oy verir, engellemez. Açık pozisyonda önce JEV karar verir; JEV cevap veremezse (OpenRouter kredisi / hata) kurul karar verir (yalnız risk azaltan emirler, gürültü koruması aynı). JEV çağrıları ÜCRETLİ (OpenRouter). Marj ve kaldıraç hattın ayarıdır; CANLI’da Binance serbest bakiyesi okunur.';
+// R2544.127 (kullanıcı 04.11: "ister kurul ile ister JEV+kurul+bot ile tek tık ile ... canlı işlemler alacak şekilde hazır"): iki strateji JEV+KURUL'a ve CANLI'da seçili; son onay CANLI'ya geç düğmesinde
+onClick('#btnJkLive',async()=>{
+  if(!top3Second('btnJkLive',`JEV + KURUL ile CANLI: İlk 3 ve ZİRVE-5 JEV+Kurul+bot olur, sonra CANLI’ya geç onayı açılır. ${JK_WARN}`))return;
+  await top3Control({committeeMode:true,jevMode:true,liveEnabled:true,confirm:'LIVE'},'İlk 3: JEV+Kurul+bot, CANLI’da seçili.');await z5Control({committeeMode:true,jevMode:true,liveEnabled:true,confirm:'LIVE'},'ZİRVE-5: JEV+Kurul+bot, CANLI’da seçili.');
+  const g=document.getElementById('btnGoLive');if(g&&!g.disabled){g.click();modeMsg('JEV + Kurul hazır. CANLI’ya geçmek için “CANLI’ya geç” düğmesine 6 sn içinde bir kez daha basın.');}
+  else modeMsg('JEV + Kurul hazır; “CANLI’ya geç” düğmesi şu an kullanılamıyor (hat seçimi / başlatma durumu).',true);});
 // tek tık: iki stratejinin kararını kurula verir (TEST'te onay gerekmez), ardından normal CANLI’ya geç onayı açılır (son karar sizde)
 onClick('#btnCmLive',async()=>{
   if(!top3Second('btnCmLive',`KURULLA CANLI: İlk 3 ve ZİRVE-5 kararı kurula verilir, sonra CANLI’ya geç onayı açılır. ${CM_WARN}`))return;
   // R2544.98 (kullanıcı 28.10: "istersem direk canlıya geçeceğim gibi ayarla"): iki strateji kurula VE CANLI'da seçili olur; son onay yine CANLI'ya geç düğmesinde
-  await top3Control({committeeMode:true,liveEnabled:true,confirm:'LIVE'},'İlk 3 kararı kurulda, CANLI’da seçili.');await z5Control({committeeMode:true,liveEnabled:true,confirm:'LIVE'},'ZİRVE-5 kararı kurulda, CANLI’da seçili.');
+  await top3Control({committeeMode:true,jevMode:false,liveEnabled:true,confirm:'LIVE'},'İlk 3 kararı kurulda, CANLI’da seçili.');await z5Control({committeeMode:true,jevMode:false,liveEnabled:true,confirm:'LIVE'},'ZİRVE-5 kararı kurulda, CANLI’da seçili.');
   const g=document.getElementById('btnGoLive');if(g&&!g.disabled){g.click();modeMsg('Kurul hazır. CANLI’ya geçmek için “CANLI’ya geç” düğmesine 6 sn içinde bir kez daha basın.');}
   else modeMsg('Kurul hazır; “CANLI’ya geç” düğmesi şu an kullanılamıyor (hat seçimi / başlatma durumu).',true);});
 onClick('#btnTop3Jev',()=>{
