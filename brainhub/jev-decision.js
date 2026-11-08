@@ -61,6 +61,8 @@ function finiteNumber(v){
   if(v===null||v===undefined||(typeof v==='string'&&!v.trim()))return null;
   const n=Number(v);return Number.isFinite(n)?n:null;
 }
+// R2544.131: JEV's leverage choice (LEV_10 / 12 / 15 / 20) -> a number; anything else -> null (the committee / the setting decides)
+function jevLev(answer){const v=choiceValue(answer),m=/^LEV_(10|12|15|20)$/.exec(String(v||''));return m?Number(m[1]):null;}
 function choiceValue(answer){
   if(!answer||typeof answer!=='object'||Array.isArray(answer))return null;
   const v=String(answer.choice||'').trim();
@@ -1844,6 +1846,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     state.inferenceNote='features.ind = 4 volume/liquidity indicators at entry (information only, NOT a rule; 6-month lab: an opposite volume-pivot level before 2R was worse on ZİRVE-5 and İlk 3 LONG but the opposite in the latest month). features.experience = the lane own shadow inference from its closed lots (AVOID/FAVOR only with >=15 lots and both halves agreeing). Weigh them with laneExperience; never treat them as certainty. laneExperience.learning = how past losses and wins of this rule happened (post-trade autopsy: direction right or wrong, fast reversal, stop hunt, BTC, follow-through volume) and which measured factors SEPARATE losses from wins (a factor seen as often in wins as in losses is not a cause); laneExperience.similar = the most similar past entries by many entry-time features with their outcomes and causes; mixed results mean the conditions alone do not decide - judge this market as it is now.';
     const body={model:cfg.model,state,questions:{
       top3_decision:{type:'choice',instructions:'Approve or reject this single rule-fired entry.',criteria:{APPROVE_ENTRY:'Enter now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
+      top3_leverage:{type:'choice',instructions:'R2544.131: the entry is taken anyway; choose the leverage by your confidence that price reaches the target before the stop (floor 10x, ceiling 20x; liquidation stays beyond the stop).',criteria:{LEV_10:'Doubtful or mixed.',LEV_12:'Decent.',LEV_15:'Good, clean structure with room.',LEV_20:'Exceptional, everything aligned.'}},
       top3_reason:{type:'choice',instructions:'Primary reason for the decision.',criteria:{EARLY_CONTINUATION:'LONG move still early with room to the target.',EXHAUSTION_CONFIRMED:'SHORT: the top is in and the fade has room.',LATE_OR_CROWDED:'Move already extended/crowded; poor remaining path.',STRUCTURE_ADVERSE:'Nearby opposing structure blocks the target.',MARKET_ADVERSE:'BTC/market context is adverse.',DATA_NOT_READY:'Material data missing or stale.',NO_EDGE:'No credible edge.'}}
     }};
     const out=await decisions(body,{reserve:true});
@@ -1851,7 +1854,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const a=out.data?.answers||{};
     const decision=choiceValue(a.top3_decision),reason=choiceValue(a.top3_reason);
     if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_GATE',decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_GATE',leverage:jevLev(a.top3_leverage),decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
 
   async function sovereignTop3V2Gate({symbol,signal,features,rank,candle,chartContext,experience,r4}){
@@ -1878,6 +1881,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     state.inferenceNote='features.ind = 4 volume/liquidity indicators at entry (information only, NOT a rule; 6-month lab: an opposite volume-pivot level before 2R was worse on ZİRVE-5 and İlk 3 LONG but the opposite in the latest month). features.experience = the lane own shadow inference from its closed lots (AVOID/FAVOR only with >=15 lots and both halves agreeing). Weigh them with laneExperience; never treat them as certainty. laneExperience.learning = how past losses and wins of this rule happened (post-trade autopsy: direction right or wrong, fast reversal, stop hunt, BTC, follow-through volume) and which measured factors SEPARATE losses from wins (a factor seen as often in wins as in losses is not a cause); laneExperience.similar = the most similar past entries by many entry-time features with their outcomes and causes; mixed results mean the conditions alone do not decide - judge this market as it is now.';
     const body={model:cfg.model,state,questions:{
       top3_decision:{type:'choice',instructions:'Approve or reject this single rule-fired entry.',criteria:{APPROVE_ENTRY:'Enter now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
+      top3_leverage:{type:'choice',instructions:'R2544.131: the entry is taken anyway; choose the leverage by your confidence that price reaches the target before the stop (floor 10x, ceiling 20x; liquidation stays beyond the stop).',criteria:{LEV_10:'Doubtful or mixed.',LEV_12:'Decent.',LEV_15:'Good, clean structure with room.',LEV_20:'Exceptional, everything aligned.'}},
       top3_reason:{type:'choice',instructions:'Primary reason for the decision.',criteria:{EARLY_CONTINUATION:'LONG move still early with room to the next zone.',EXHAUSTION_CONFIRMED:'SHORT: the zone is taken and the top is in.',LATE_OR_CROWDED:'Move already extended/crowded; poor remaining path.',STRUCTURE_ADVERSE:'An untaken liquidation zone or nearby structure blocks the path.',MARKET_ADVERSE:'BTC/market context is adverse.',DATA_NOT_READY:'Material data missing or stale.',NO_EDGE:'No credible edge.'}}
     }};
     const out=await decisions(body,{reserve:true});
@@ -1885,7 +1889,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const a=out.data?.answers||{};
     const decision=choiceValue(a.top3_decision),reason=choiceValue(a.top3_reason);
     if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_V2_GATE',decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_V2_GATE',leverage:jevLev(a.top3_leverage),decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
 
   // R2544.68 ZİRVE-5 gate, both sides (user 20.10: "istenirse JEV aktif edildiğinde bu stratejiler JEV ile çalışmalı, istenildiğinde
@@ -1929,6 +1933,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     // R2544.79: indikatör bilgisi ve lane'in kendi gölge çıkarımı (ikisi de kural değil)
     state.inferenceNote='features.ind = 4 volume/liquidity indicators at entry (information only, NOT a rule; 6-month lab: an opposite volume-pivot level before 2R was worse on ZİRVE-5 and İlk 3 LONG but the opposite in the latest month). features.experience = the lane own shadow inference from its closed lots (AVOID/FAVOR only with >=15 lots and both halves agreeing). Weigh them with laneExperience; never treat them as certainty. laneExperience.learning = how past losses and wins of this rule happened (post-trade autopsy: direction right or wrong, fast reversal, stop hunt, BTC, follow-through volume) and which measured factors SEPARATE losses from wins (a factor seen as often in wins as in losses is not a cause); laneExperience.similar = the most similar past entries by many entry-time features with their outcomes and causes; mixed results mean the conditions alone do not decide - judge this market as it is now.';
     const body={model:cfg.model,state,questions:{
+      zirve5_leverage:{type:'choice',instructions:'R2544.131: the entry is taken anyway; choose the leverage by your confidence that price reaches the target before the stop (floor 10x, ceiling 20x; liquidation stays beyond the stop).',criteria:{LEV_10:'Doubtful or mixed.',LEV_12:'Decent.',LEV_15:'Good, clean structure with room.',LEV_20:'Exceptional, everything aligned.'}},
       zirve5_decision:{type:'choice',instructions:'Approve or reject this single rule-fired '+signal.side+'.',criteria:{APPROVE_ENTRY:(long?'Buy':'Short')+' now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
       zirve5_reason:{type:'choice',instructions:'Primary reason for the decision.',criteria:{WEAK_RETEST:'The retest into the zone is weak and was rejected in the trade direction; the break should continue.',SQUEEZE_RISK:'The opposite side is absorbing; a move back through the zone is likely.',STRUCTURE_ADVERSE:'Higher-timeframe structure or a nearby level argues against the entry.',MARKET_ADVERSE:'Market-wide flow argues against the entry.',DATA_NOT_READY:'Data is missing or stale.',NO_EDGE:'No clear edge either way.'}}
     }};
@@ -1937,7 +1942,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const a=out.data?.answers||{};
     const decision=choiceValue(a.zirve5_decision),reason=choiceValue(a.zirve5_reason);
     if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_ZIRVE5_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'ZIRVE5_GATE',decision,reason:['WEAK_RETEST','SQUEEZE_RISK','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'ZIRVE5_GATE',leverage:jevLev(a.zirve5_leverage),decision,reason:['WEAK_RETEST','SQUEEZE_RISK','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
 
   // R2544.84 POZİSYON MASASI (kullanıcı 26.10: trader ofisi gibi açık pozisyonu grafik ve veriyle yönetmek): İlk 3 / ZİRVE-5 açık lotu

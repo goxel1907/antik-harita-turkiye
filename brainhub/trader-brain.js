@@ -350,4 +350,25 @@ function compactPacket(prompt) { try { const p = typeof prompt === 'string' ? JS
   // Groq free = 8K tokens per minute INCLUDING the answer budget: the briefing already reads every chartReading, so only the structure stays
   const c = { ...p, timeframes:Object.fromEntries(Object.entries(p.timeframes).map(([k, v]) => [k, v ? { structure:v.structure } : v])), note:'compact (model context limit): raw candles and the detailed chart reading are left out; the screen briefing above already reads them for you' };
   return JSON.stringify(c); } catch { return null; } }
-module.exports = { screenFacts, exitFacts, TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, chartSpecs, compactPacket, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };
+// R2544.131 (kullanıcı 09.11: "kaldıraç min 10x, üstünü kurul güvene göre belirleyecek; JEV açıkken JEV + kurul, son söz JEV; gecikme yok"):
+// the leverage officer. The entry is taken anyway; the answer only sizes it (margin is fixed by the user). 10x is the floor.
+const LEVERAGE_MIN = 10, LEVERAGE_MAX = 20;
+const LEVERAGE_SYSTEM = 'You are the leverage officer of a professional crypto-futures desk. A fixed rule has fired and this entry WILL be taken now '
+  + 'with the user\'s fixed margin; you only choose the leverage, i.e. how big the position is. The floor is 10x, the ceiling 20x '
+  + '(liquidation always stays beyond the stop; the exchange limit is applied after you). Read the screen (trend per timeframe, '
+  + 'structure, room to the target, the first obstacle, the stop against the noise, crowding, the brain\'s similar past trades) and '
+  + 'set the leverage by your confidence that price reaches the target before the stop: doubtful or mixed -> 10; decent -> 12; '
+  + 'good, clean structure with room -> 15; exceptional, everything aligned -> 20. Be precise: size up only on real evidence. '
+  + 'Answer ONLY with JSON: {"leverage":10-20,"confidence":0-100,"reasonTr":"Türkçe tek cümle"}';
+function parseLeverage(text) {
+  try { const PD = require('./position-desk'), all = PD.jsonObjects(text);
+    const j = [...all].reverse().find(o => Number.isFinite(Number(o.leverage))); if (!j) return { ok:false, reason:'LEV_JSON_INVALID' };
+    const lev = Math.round(Number(j.leverage)); if (!(lev >= 1 && lev <= 125)) return { ok:false, reason:'LEV_OUT_OF_RANGE' };
+    return { ok:true, leverage:Math.max(LEVERAGE_MIN, Math.min(LEVERAGE_MAX, lev)), confidence:Math.max(0, Math.min(100, finite(j.confidence) ?? 50)), reasonTr:String(j.reasonTr || '').slice(0, 200) };
+  } catch { return { ok:false, reason:'LEV_JSON_INVALID' }; }
+}
+const validLeverage = text => parseLeverage(text).ok;
+// the committee's pick: the median of the answers (rounded down: two close answers never round up the risk)
+function leverageOf(votes) { const xs = (votes || []).filter(v => v && v.ok && v.vote && Number.isFinite(v.vote.leverage)).map(v => v.vote.leverage).sort((a, b) => a - b);
+  if (!xs.length) return null; const mid = xs.length % 2 ? xs[(xs.length - 1) / 2] : Math.floor((xs[xs.length / 2 - 1] + xs[xs.length / 2]) / 2); return Math.max(LEVERAGE_MIN, Math.min(LEVERAGE_MAX, mid)); }
+module.exports = { LEVERAGE_MIN, LEVERAGE_MAX, LEVERAGE_SYSTEM, parseLeverage, validLeverage, leverageOf, screenFacts, exitFacts, TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, chartSpecs, compactPacket, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

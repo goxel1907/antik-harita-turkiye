@@ -119,6 +119,6 @@ test('R2544.67 Office and API wiring: sub rows, buttons, routes forward only the
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   for(const id of ['t3Subs','btnT3Early','btnT3EarlyJev','btnT3Top','btnT3TopJev','t3EarlyRes','t3TopRes'])assert.ok(html.includes(`id="${id}"`),id);
   assert.ok(html.includes("top3Control({[key]:true,confirm:'LIVE'}"));
-  const srv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.ok(srv.includes('earlyEnabled:body?.earlyEnabled,topEnabled:body?.topEnabled'));assert.ok(srv.includes("const RUNTIME_RELEASE='R2544.130'"));
+  const srv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.ok(srv.includes('earlyEnabled:body?.earlyEnabled,topEnabled:body?.topEnabled'));assert.ok(srv.includes("const RUNTIME_RELEASE='R2544.131'"));
   assert.ok(fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').includes('strategy:signal.strategy||null'));
 });

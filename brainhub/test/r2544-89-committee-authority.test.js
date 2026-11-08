@@ -308,3 +308,55 @@ test('R2544.130 LIVE sizing on (simulated) Binance: 100 $ balance, lane margin 3
   assert.equal((await g.controller.z5Tick()).entries,0,'99 $ > 95 % of the 100 $ free balance: refused, never resized');
   assert.ok(!g.state.orders.some(o=>o.mode==='LIVE'&&o.p==='/fapi/v1/order'),'no order sent');
 });
+
+// R2544.131: a committee stub that also answers the quick leverage vote
+const cmq=(answer,levs)=>{const c=cm(answer);c.quick=async o=>{c.calls.push({...o,quick:true});if(levs===null)return {ok:false,reason:'COMMITTEE_NO_HEALTHY_MEMBER',votes:[]};
+  return {ok:true,votes:levs.map((l,i)=>({member:'ROUTER:p'+i+'/m',ok:true,vote:{ok:true,leverage:l,confidence:70,reasonTr:'x'}})),rounds:1};};return c;};
+test('R2544.131 leverage: the committee picks it (median of the quick vote, floor 10x, ceiling 20x); no answer -> the lane setting; the vote sees the entry screen',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  let c=cmq(TAKE,[15,15,12]);let f=fixture({z5:{enabled:true,committeeMode:true,leverage:10,marginQuote:30},deskJudges:{committee:c}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);let a=f.lot();
+  assert.equal(a.leverage,15,'the committee chose 15x');assert.equal(a.leverageBy,'KURUL');assert.equal(a.entryFeatures.leverageVote.by,'KURUL');assert.equal(a.entryFeatures.leverageVote.want,15);
+  const q=c.calls.find(x=>x.quick);assert.match(q.system,/leverage officer/);assert.equal(q.size,3);assert.ok(q.callTimeoutMs<=8000);
+  require('../binance-rate-limit').resetForTests();
+  c=cmq(TAKE,[30,40,25]);f=fixture({z5:{enabled:true,committeeMode:true,leverage:10,marginQuote:30},deskJudges:{committee:c}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);a=f.lot();assert.ok(a.leverage<=20,'ceiling 20x: '+a.leverage);
+  require('../binance-rate-limit').resetForTests();
+  c=cmq(TAKE,null);f=fixture({z5:{enabled:true,committeeMode:true,leverage:10,marginQuote:30},deskJudges:{committee:c}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1,'no answer: the entry still opens (no wait)');a=f.lot();assert.equal(a.leverage,10);assert.equal(a.leverageBy,'AYAR');
+  assert.equal(require('../trader-brain').leverageOf([{ok:true,vote:{leverage:12}},{ok:true,vote:{leverage:15}}]),13,'two answers: rounded down');
+  assert.equal(require('../trader-brain').parseLeverage('{"leverage":7}').leverage,10,'never below 10x');
+});
+test('R2544.131 JEV + KURUL: JEV has the last word on leverage (JEV 20x over the committee 12x); JEV without an answer -> the committee',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  let f=fixture({z5:{enabled:true,committeeMode:true,jevMode:true,leverage:10,marginQuote:30},deskJudges:{committee:cmq(TAKE,[12,12,12])},extra:{zirve5Judge:async()=>({ok:true,called:true,decision:'APPROVE_ENTRY',leverage:20})}});
+  await f.controller.testSupervisorTick();assert.equal((await f.controller.z5Tick()).entries,1);let a=f.lot();
+  assert.equal(a.leverageBy,'JEV');assert.equal(a.entryFeatures.leverageVote.jev,20);assert.ok(a.leverage>12,'JEV over the committee: '+a.leverage);
+  require('../binance-rate-limit').resetForTests();
+  f=fixture({z5:{enabled:true,committeeMode:true,jevMode:true,leverage:10,marginQuote:30},deskJudges:{committee:cmq(TAKE,[12,12,12])},extra:{zirve5Judge:async()=>({ok:false,called:true,decision:'REJECT_ENTRY',reason:'OPENROUTER_402'})}});
+  await f.controller.testSupervisorTick();assert.equal((await f.controller.z5Tick()).entries,1,'JEV out of credit: the bot still opens');a=f.lot();
+  assert.equal(a.leverage,12);assert.equal(a.leverageBy,'KURUL','JEV without credit -> the committee decides');
+});
+test('R2544.131 LIVE (simulated Binance): committee-only desk STOP and JEV + KURUL desk EXIT reach the exchange right after the decision',async()=>{
+  const vote=(m,action,stopChoice='KEEP')=>({member:m,ok:true,seat:null,vote:{ok:true,action,stopChoice,reason:'MOMENTUM_FADING',confidence:60,reasonTr:m,watchTr:''}});
+  const goLive=async f=>{await f.controller.testSupervisorTick();const g=await f.controller.runControl({action:'GO_LIVE'});assert.equal(g.ok,true,JSON.stringify(g));
+    for(let i=0;i<40&&!(f.controller.status().tradingMode?.mode==='LIVE'&&f.controller.status().armed);i++){f.state.now+=2000;await f.controller.testSupervisorTick();}assert.equal(f.controller.status().tradingMode.mode,'LIVE');};
+  const look=async f=>{let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}return r;};
+  // 1) committee only: 3 of 3 say TIGHTEN_STOP to break-even -> the stop order is on Binance before the desk look returns
+  require('../binance-rate-limit').resetForTests();
+  const desk={ok:true,final:'TIGHTEN_STOP',consensus:'STRONG_MAJORITY',rounds:1,voters:3,votes:[vote('a','TIGHTEN_STOP','BREAKEVEN'),vote('b','TIGHTEN_STOP','BREAKEVEN'),vote('c','TIGHTEN_STOP','BREAKEVEN')]};
+  let f=fixture({z5:{enabled:true,committeeMode:true,marginQuote:30},deskJudges:{committee:cmq(o=>o.field==='action'?desk:TAKE,[10,10,10])}});await goLive(f);
+  assert.equal((await f.controller.z5Tick()).entries,1);let a=JSON.parse(JSON.stringify(f.lot())),R=a.stopPrice-a.entryPrice;
+  f.controller._testDeskGuard({protectR:-99});await f.beat(a.entryPrice-0.8*R);f.state.now+=31*60000;
+  const before=f.state.orders.length;let r=await look(f);assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.action,'TIGHTEN_STOP');
+  assert.ok(f.state.orders.slice(before).some(o=>o.mode==='LIVE'&&/algo/i.test(o.p)),'a LIVE stop order was sent during the desk look itself');assert.equal(f.lot().desk.last.done?.ok,true);
+  // 2) JEV + KURUL: JEV says EXIT -> the position is closed on Binance at once
+  require('../binance-rate-limit').resetForTests();
+  const jev=async()=>({ok:true,action:'EXIT',stopChoice:'KEEP',reason:'MOMENTUM_FADING',reasonTr:'JEV: çık',model:'jev'});
+  f=fixture({z5:{enabled:true,committeeMode:true,jevMode:true,marginQuote:30},deskJudges:{committee:cmq(o=>o.field==='action'?{...desk,final:'HOLD',votes:[vote('a','HOLD'),vote('b','HOLD')]}:TAKE,[10,10,10]),jev},extra:{zirve5Judge:async()=>({ok:true,called:true,decision:'APPROVE_ENTRY',leverage:10})}});
+  await goLive(f);assert.equal((await f.controller.z5Tick()).entries,1);a=JSON.parse(JSON.stringify(f.lot()));f.controller._testDeskGuard({protectR:-99}); // outside the noise guard
+  await f.beat(a.entryPrice-0.5*(a.stopPrice-a.entryPrice));f.state.now+=31*60000;
+  r=await look(f);assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.judge,'JEV');assert.equal(r.action,'EXIT');
+  assert.equal(f.lot(),null,'closed on (simulated) Binance during the desk look');assert.equal(await pos(f.binance),0);
+  f.controller._testDeskGuard({protectR:1});
+});

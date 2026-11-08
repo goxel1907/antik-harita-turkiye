@@ -176,16 +176,28 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     for (const m of h) { if (out.length >= size) break; if (!out.includes(m)) out.push(m); }
     return out;
   }
-  async function ask(m, system, prompt, validate, parse) {
+  // R2544.131: tmo = this call's time limit; soft = a quick vote's time-out does not make the member sick (slow but good members keep their desk seat)
+  async function ask(m, system, prompt, validate, parse, tmo = timeoutMs, soft = false) {
     const t0 = clock(); let r;
-    try { r = await withTimeout(m.call({ system, prompt, validate, role:'TRADER' }), timeoutMs); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
+    try { r = await withTimeout(m.call({ system, prompt, validate, role:'TRADER' }), tmo); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
     const p = r?.ok ? parse(r.text) : null, ok = !!p?.ok;
+    if (soft && !ok && /TIMEOUT/i.test(String(r?.reason || ''))) return { member:m.id, model:r?.model || null, ok:false, vote:null, ms:clock() - t0, error:'QUICK_TIMEOUT' };
     mark(m.id, ok, { latencyMs:clock() - t0, model:r?.model || health[m.id]?.model || null, error:ok ? null : String(r?.reason || p?.reason || 'FAILED').slice(0, 200) });
     return { member:m.id, model:r?.model || null, ok, vote:ok ? p : null, ms:clock() - t0, error:ok ? null : String(r?.reason || p?.reason || 'FAILED').slice(0, 160),
       img:r?.img === true, compact:r?.compact === true, imgError:r?.imgError || null }; // R2544.115: did this member see the chart / the compact screen
   }
   // field = the voted key ('decision' | 'action'); fallback = value when there is no majority
   // R2544.87 SEATS: each member owns a part of the screen (e.g. 1d/4h, 1h/15m, 5m+flow, risk); the seat text is added to its system prompt
+  // R2544.131 quick: one round with the n fastest healthy members (measured time today), callTimeoutMs each; the caller reads the votes
+  function pickFast(n) {
+    const lat = m => { const x = health[m.id] || {}; return x.callsToday ? (x.msToday || 0) / x.callsToday : (Number(x.latencyMs) || 1e9); };
+    return healthy().sort((a, b) => lat(a) - lat(b)).slice(0, n);
+  }
+  async function quick({ system, prompt, validate, parse, size:n = 3, callTimeoutMs = 8000 }) {
+    const team = pickFast(n); if (!team.length) return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] };
+    const r1 = await Promise.all(team.map(m => ask(m, system, prompt, validate, parse, callTimeoutMs, true))); save();
+    return { ok:r1.some(x => x.ok), votes:r1, rounds:1, voters:r1.filter(x => x.ok).length, version:COMMITTEE_VERSION };
+  }
   async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '', size:teamSize = null }) {
     const team = pick(Number(teamSize) > 0 ? Number(teamSize) : size); if (!team.length) { save(); return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] }; }
     // R2544.91: seats go to the preferred model family first (Claude = price action even when Gemini is missing), then by order
@@ -229,6 +241,6 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   // R2544.103: compare by id - the members function builds new objects on every call, so includes(m) was always false and Office showed
   // every model as sick since R2544.92 (the committee itself picked healthy members correctly)
   function status() { const ok = new Set(healthy().map(m => m.id)); return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:ok.has(m.id) })), team:pick().map(m => m.id), lastProbeAt }; }
-  return { probe, healthy, pick, decide, status, assignSeats };
+  return { probe, healthy, pick, decide, quick, status, assignSeats };
 }
 module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone, unusableWhy, PROVIDER_CAP };

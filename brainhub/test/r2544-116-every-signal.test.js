@@ -35,7 +35,9 @@ test('R2544.116 wiring: every signal opens (no entry vote wait, opt-in committee
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(lc,/const adv=true;ef\.trig=x\.trig;/);assert.match(lc,/if\(cfg\.committeeEntryVeto===true&&pl0\?\.ok\)\{/);assert.match(lc,/if\(cfg\.committeeEntryVeto===true\)\{const pz=z5Lib\.plan/);
   assert.match(lc,/maxHoldMs:R\.maxHoldH\*TOP3_HOUR,advisory:true\}/);assert.match(lc,/maxHoldMs:cfg\.maxHoldH\*TOP3_HOUR,advisory:z5Adv\}/);
-  assert.match(lc,/LEV_FLOOR=10;/);assert.match(lc,/Math\.max\(LEV_FLOOR,Math\.min\(refStop>0\?Math\.max\(cfg\.leverage,Math\.ceil\(cfg\.leverage\*refStop\/pre\.stopPct\)\):cfg\.leverage,exchangeMax,safeMax,maxLev\)\)/);
+  // R2544.131 (kullanıcı 09.11): the committee / JEV choose 10..20x (ctx.leverageWant); the stop formula no longer picks it; floor 10x kept
+  assert.match(lc,/LEV_FLOOR=10;/);assert.match(lc,/const wantLev=finite\(ctx\.leverageWant\)\?\?finite\(cfg\.leverage\)\?\?LEV_FLOOR;/);
+  assert.match(lc,/let leverage=eqRisk\?Math\.max\(LEV_FLOOR,Math\.min\(wantLev,exchangeMax,safeMax,maxLev\)\)/);assert.doesNotMatch(lc,/Math\.ceil\(cfg\.leverage\*refStop\/pre\.stopPct\)/);
   assert.doesNotMatch(lc,/notional=Math\.min\(notional,margin\*cfg\.leverage\*refStop/,'the margin is never cut');
   assert.match(lc,/TOP3_STOP_BEYOND_LIQUIDATION_AT_10X/);assert.match(lc,/TOP3_BRACKET_UNDER_10X/);
   assert.equal(T3.readTop3Config('C:/__none__').committeeEntryVeto,false);assert.equal(Z5.readConfig('C:/__none__').committeeEntryVeto,false);

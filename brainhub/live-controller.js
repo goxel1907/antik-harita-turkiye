@@ -6108,6 +6108,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       ef.experience=top3Lib.experienceVerdict(top3State.lessons,x.rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
       {const sc=top3Lib.similarCases(top3State.lessons,x.rule,ef);ef.similar={n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))};} // R2544.80 karar vermez
       try{ef.brain=top3Lib.brainCase(top3State.lessons,x.rule,ef);}catch{} // R2544.125 beyin: en benzer 5 geçmiş işlem + eğilim; işlem kapanınca puanlanır, karar vermez
+      const levOn=cfg.committeeMode===true||top3Lib.subJev(cfg,x.side); // R2544.131: the committee (and JEV) choose the leverage; runs alongside JEV
+      const levP=levOn&&pl0?.ok?quickLeverage({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,context:{rank:ef.rank,rankName:'24h gainer rank',fund:ef.fund,premium:ef.premium},experience:ef.brain||ef.similar,flags:pl0.flags||[]}).catch(()=>null):Promise.resolve(null);
       let jev=null;const sub=top3Lib.subOf(x.side);res.strategy=sub.name;
       if(top3Lib.subJev(cfg,x.side)){
         if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}
@@ -6132,7 +6134,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         if(flags.length&&g.record.error){res.reason='TOP3_FLAGGED_NEEDS_COMMITTEE';try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:{ok:false,reason:'TOP3_FLAGGED_NEEDS_COMMITTEE',flags,committeeError:g.record.error,stopPct:finite(pl0.stopPct)}});}catch{}continue;}
         if(flags.length)ef.ruleFlags=flags;}
       const R=x.side==='LONG'?cfg.early:cfg.top;
-      const opened=await top3Open({ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels,maxHoldMs:R.maxHoldH*TOP3_HOUR,advisory:true},x.symbol,cfg,jev,{signalKind:'FRESH',entryFeatures:ef});
+      const lv=await levP,lc=leverageChoice(jev,lv,cfg);ef.leverageVote={by:lc.by,want:lc.want,jev:finite(jev?.leverage),committee:lv||null};
+      const opened=await top3Open({ok:true,side:x.side,rule:x.rule,v2:x.trig,levels:x.levels,maxHoldMs:R.maxHoldH*TOP3_HOUR,advisory:true},x.symbol,cfg,jev,{signalKind:'FRESH',entryFeatures:ef,leverageWant:lc.want,leverageBy:lc.by});
       Object.assign(res,{opened:opened.ok===true,reason:opened.ok?null:opened.reason,stopPct:finite(opened.stopPct)});
       if(opened.ok){top3State.lastEntry={...(top3State.lastEntry||{}),[x.symbol+':'+x.side]:clock()};saveTop3State();
         // R2544.83: indikatör / giriş bağlamı gerçek giriş fiyatıyla (sinyal kapanışında eksik kaldıysa)
@@ -6195,7 +6198,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // wider than ~9.5 % would sit behind the liquidation (the stop could never fire) and an exchange max under 10x cannot be used -> no trade.
     const eqRisk=!!(sig.v2||sig.z5),refStop=eqRisk?refStopPct(sig,cfg):null,maxLev=Math.max(10,finite(cfg.maxLeverage)??20),LEV_FLOOR=10;
     if(eqRisk&&(exchangeMax<LEV_FLOOR||safeMax<LEV_FLOOR))return {ok:false,reason:exchangeMax<LEV_FLOOR?'TOP3_EXCHANGE_MAX_UNDER_10X':'TOP3_STOP_BEYOND_LIQUIDATION_AT_10X',stopPct:Number(pre.stopPct.toFixed(5)),exchangeMax,safeMax};
-    let leverage=eqRisk?Math.max(LEV_FLOOR,Math.min(refStop>0?Math.max(cfg.leverage,Math.ceil(cfg.leverage*refStop/pre.stopPct)):cfg.leverage,exchangeMax,safeMax,maxLev))
+    // R2544.131: the committee / JEV choose (ctx.leverageWant, 10..20); no answer -> the lane setting. The stop formula no longer picks the leverage.
+    const wantLev=finite(ctx.leverageWant)??finite(cfg.leverage)??LEV_FLOOR;
+    let leverage=eqRisk?Math.max(LEV_FLOOR,Math.min(wantLev,exchangeMax,safeMax,maxLev))
       :Math.max(1,Math.min(cfg.leverage,exchangeMax,safeMax));
     for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);leverage=Math.max(1,Math.min(leverage,Number(br?.initialLeverage)||exchangeMax));}
     if(eqRisk&&leverage<LEV_FLOOR)return {ok:false,reason:'TOP3_BRACKET_UNDER_10X',leverage}; // the bracket for this size allows less than 10x
@@ -6257,7 +6262,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // when it fills top3Manage moves the rest's stop to break-even + fees and re-places the target for the rest.
     const part=await top3PlacePartial({sig,side,symbol,hedge,executed,entryPrice,stopPrice,tpPrice,f,id,creds,cfg});
     const a={id,symbol,side,rule:sig.rule,initialQuantity:executed,part,lotStep:f.lotStep,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
-      stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
+      stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,leverageBy:ctx.leverageBy||"AYAR",marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
       jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0,
       signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0,
       ...(sig.v2?{rulesVersion:2,tickSize:f.tickSize,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{}),
@@ -6887,6 +6892,32 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(p?.enabled)out.push(`${Math.round((p.share??0.5)*100)}% is closed at +${p.atR}R and the rest moves to break-even`);
     out.push('the rest runs to the target',`exit after ${hold} h at the latest`);return out.join('; ');}catch{return null;}}
   const ENTRY_TEAM=5; // R2544.117: 9 -> 5 (03.11 06:00 Gemini günlük kotası bitti, kurul 1/15; giriş oyu artık engellemiyor, öğrenme için) | R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): 9 seats at the entry, image models first
+  // R2544.131 (kullanıcı 09.11: "kaldıraç min 10x, üstünü kurul güvene göre belirleyecek; JEV açıkken JEV + kurul, son söz JEV; işlemlerde
+  // gecikme istemiyorum"): the fastest healthy committee members get the entry screen (compact) and choose 10..20x; at most LEV_VOTE_MS,
+  // one round, a time-out never makes a member sick. No answer -> null (the lane's setting, never below 10x). It runs alongside JEV.
+  const LEV_VOTE_MS=8000;
+  async function quickLeverage({symbol,side,rule,entry,stop,target,trigger=null,context=null,experience=null,flags=[]}){
+    const t0=clock();
+    if(!deskJudges?.committee||typeof deskJudges.committee.quick!=='function')return {leverage:null,error:'COMMITTEE_NOT_WIRED',ms:0};
+    if(!(entry>0&&stop>0&&target>0))return {leverage:null,error:'PLAN_INVALID',ms:0};
+    try{
+      const end=t0-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
+      const [m5,m15,h1]=await Promise.all([get(symbol,'5m',TB.FETCH.m5,end),get(symbol,'15m',TB.FETCH.m15,end),get(symbol,'1h',TB.FETCH.h1,end)]);
+      const packet=TB.compactPacket(TB.entryPacket({k:{m5,m15,h1,h4:[],d1:[],btc1h:[]},plan:{side,rule,entry,stop,target},t:t0,trigger,context:context||{},experience,flags}));
+      const left=Math.max(1500,LEV_VOTE_MS-(clock()-t0));
+      let timer=null;const r=await Promise.race([Promise.resolve(deskJudges.committee.quick({system:TB.LEVERAGE_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validLeverage,parse:TB.parseLeverage,size:3,callTimeoutMs:left})).finally(()=>clearTimeout(timer)),
+        new Promise(res=>{timer=setTimeout(()=>res({ok:false,reason:'LEV_VOTE_TIMEOUT',votes:[]}),left+500);})]);
+      const votes=(r?.votes||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),lev:v.vote?.leverage??null,c:v.vote?.confidence??null,why:String(v.vote?.reasonTr||v.error||'').slice(0,160)}));
+      return {leverage:TB.leverageOf(r?.votes),votes,ms:clock()-t0,error:r?.ok?null:(r?.reason||'NO_ANSWER')};
+    }catch(e){return {leverage:null,error:String(e?.message||e).slice(0,80),ms:clock()-t0};}
+  }
+  // the final word: JEV's choice when JEV answered, else the committee's, else the lane setting; always 10..20x before the safety caps
+  function leverageChoice(jev,lv,cfg){
+    const set=Math.max(TB.LEVERAGE_MIN,finite(cfg?.leverage)??TB.LEVERAGE_MIN);
+    if(jev&&jev.ok===true&&finite(jev.leverage)!==null)return {want:Math.max(TB.LEVERAGE_MIN,Math.min(TB.LEVERAGE_MAX,jev.leverage)),by:'JEV'};
+    if(lv&&finite(lv.leverage)!==null)return {want:lv.leverage,by:'KURUL'};
+    return {want:Math.min(set,TB.LEVERAGE_MAX),by:'AYAR'};
+  }
   async function committeeEntryGate({symbol,side,rule,entry,stop,target,trigger=null,management=null,context=null,experience=null,flags=[]}){
     const t0=clock();
     if(!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return {veto:false,record:{at:t0,error:'COMMITTEE_NOT_WIRED',fallback:'RULE',authority:true}};
@@ -7014,6 +7045,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         ef.experience=top3Lib.experienceVerdict(z.lessons,rule,ef); // R2544.79 gölge tecrübe kararı (karar vermez)
         {const sc=top3Lib.similarCases(z.lessons,rule,ef);ef.similar={n:sc.n,wins:sc.wins,losses:sc.losses,avgR:sc.avgR,mixed:sc.mixed,thin:sc.thin,text:sc.text,cases:sc.cases.map(c=>({symbol:c.symbol,R:c.R,causes:c.causes}))};} // R2544.80 karar vermez
         try{ef.brain=top3Lib.brainCase(z.lessons,rule,ef);}catch{} // R2544.125
+        const pzL=z5Lib.plan(sg.refPrice,sg,cfg,{advisory:true}),levOn=cfg.committeeMode===true||cfg.jevMode===true; // R2544.131
+        const levP=levOn&&pzL?.ok?quickLeverage({symbol:sym,side,rule,entry:sg.refPrice,stop:pzL.stopPrice,target:pzL.tpPrice,trigger:sg,context:{rank:sg.rank,rankName:'volatility rank (top 5)'},experience:ef.brain||ef.similar,flags:pzL.flags||[]}).catch(()=>null):Promise.resolve(null);
         let jev=null;
         if(cfg.jevMode===true){
           let chartContext=market?.cachedChartContext?.(sym,clock())||null;
@@ -7032,7 +7065,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
             if(g.veto){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_COMMITTEE_SKIP',rank:sg.rank});try{store.journal('ZIRVE5_COMMITTEE_SKIP',sym,{side,rule,flags,...g.record});}catch{}continue;}
             if(flags.length&&g.record.error){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_FLAGGED_NEEDS_COMMITTEE',rank:sg.rank});try{store.journal('ZIRVE5_BLOCKED',sym,{symbol:sym,side,reason:'ZIRVE5_FLAGGED_NEEDS_COMMITTEE',flags,committeeError:g.record.error,rank:sg.rank});}catch{}continue;}
             }}
-        const opened=await top3Open({z5:true,side,rule,zone:sg,z5cfg:cfg,maxHoldMs:cfg.maxHoldH*TOP3_HOUR,advisory:z5Adv},sym,sizing,jev,{signalKind:'FRESH',entryFeatures:ef});
+        const lv=await levP,lc=leverageChoice(jev,lv,sizing);ef.leverageVote={by:lc.by,want:lc.want,jev:finite(jev?.leverage),committee:lv||null};
+        const opened=await top3Open({z5:true,side,rule,zone:sg,z5cfg:cfg,maxHoldMs:cfg.maxHoldH*TOP3_HOUR,advisory:z5Adv},sym,sizing,jev,{signalKind:'FRESH',entryFeatures:ef,leverageWant:lc.want,leverageBy:lc.by});
         const res={symbol:sym,side,opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,stopPct:finite(opened.stopPct)??finite(opened.active?.stopPct),rank:sg.rank};
         z5Note(z,res);
         if(opened.ok){entries++;entryCommitteeShadow(Object.values(top3State.active||{}).find(a=>a&&a.symbol===sym&&a.lane==='ZIRVE5')).catch(()=>{});} // R2544.87 gölge kurul
