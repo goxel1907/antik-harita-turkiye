@@ -1255,7 +1255,7 @@ function deskFate(L,info){
 // görülen en iyi R ve geri verilen kâr kırmızı yay), üstünde kayan karar şeridi, altta son 40 işlem. Yalnız gösterim: hiçbir karar değiştirmez.
 const RX_COL={TAKE:'#2bd67b',HOLD:'#2bd67b',SKIP:'#ff4d6d',EXIT:'#ff4d6d',TIGHTEN_STOP:'#ffb020',TAKE_PARTIAL:'#2ec5ff',RULE:'#a78bfa',ERR:'#4b5263'};
 const RX_TR={TAKE:'GİR',SKIP:'GİRME',HOLD:'TUT',TIGHTEN_STOP:'STOP ↑',TAKE_PARTIAL:'YARI AL',EXIT:'ÇIK',RULE:'KURAL',ERR:'cevap yok'};
-const RX_CONS={UNANIMOUS:'OYBİRLİĞİ',MAJORITY_AFTER_DEBATE:'TARTIŞMA → ÇOĞUNLUK',REDUCE_MAJORITY:'ÇOĞUNLUK: RİSKİ AZALT',SINGLE_VOTER_DEFAULT:'TEK OY • YETKİSİZ',NO_MAJORITY_DEFAULT:'ANLAŞMA YOK'};
+const RX_CONS={STRONG_MAJORITY:'GÜÇLÜ ÇOĞUNLUK',UNANIMOUS:'OYBİRLİĞİ',MAJORITY_AFTER_DEBATE:'TARTIŞMA → ÇOĞUNLUK',REDUCE_MAJORITY:'ÇOĞUNLUK: RİSKİ AZALT',SINGLE_VOTER_DEFAULT:'TEK OY • YETKİSİZ',NO_MAJORITY_DEFAULT:'ANLAŞMA YOK'};
 const RX_OUT=['TAKE','SKIP','HOLD','TIGHTEN_STOP','TAKE_PARTIAL','EXIT'];
 function rxShort(m){return String(m||'').replace(/^ROUTER:|^OR:|^FREE:/,'').replace(/:free$/,'').split('/').pop().replace(/-preview$/,'').slice(0,32);}
 function rxNum(v){const n=Number(v);return Number.isFinite(n)?n:null;}

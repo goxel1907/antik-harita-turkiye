@@ -120,7 +120,9 @@ function board({ status = null, freeStatus = null, score = null, now = Date.now(
 const PROBE_SYSTEM = 'Health check. Answer ONLY with this JSON and nothing else: {"ok":true,"model":"<your model name>"}';
 const validProbe = t => { try { return JSON.parse(String(t || '').match(/\{[\s\S]*\}/)?.[0]).ok === true; } catch { return false; } };
 // members: [{ id, call:async({system,prompt,validate,role})=>({ok,text,model}) }]  (id = 'ROUTER:kr/claude-sonnet-4.5' or 'FREE:openrouter')
-function createCommittee({ members: membersIn = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000, prefer = null } = {}) {
+// R2544.130 (kullanıcı 09.11 "önerilerini yap"; 09.11 ölçüm: kurul düşünme ortanca 111 sn, en çok 303 sn): debateSkipShare - when at least
+// that share of 3+ first-round voters already agree, the debate round is skipped (consensus STRONG_MAJORITY)
+function createCommittee({ members: membersIn = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000, prefer = null, debateSkipShare = null } = {}) {
   // R2544.92: members may be a function (re-discovered: models added to 9Router / OpenRouter join without a code change)
   let health = {}; try { if (healthFile) health = JSON.parse(fs.readFileSync(healthFile, 'utf8')).health || {}; } catch {}
   // R2544.96: the members function is told which models are gone (from THIS committee's own health)
@@ -203,6 +205,8 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     const majority = (vs) => { const c = tally(vs), need = Math.floor(vs.length / 2) + 1; const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; return top && top[1] >= need ? top[0] : null; };
     if (!v1.length) { save(); return { ok:false, reason:'COMMITTEE_NO_ANSWER', votes:r1, rounds:1, replaced }; }
     const unanimous = Object.keys(tally(v1)).length === 1;
+    if (!unanimous && Number(debateSkipShare) > 0 && v1.length >= 3) { const top = Object.entries(tally(v1)).sort((a, b) => b[1] - a[1])[0];
+      if (top && top[1] / v1.length >= Number(debateSkipShare)) { save(); return { ok:true, final:top[0], consensus:'STRONG_MAJORITY', votes:r1, round2:null, rounds:1, voters:v1.length, replaced, version:COMMITTEE_VERSION }; } }
     if (unanimous || v1.length === 1) { save(); return { ok:true, final:v1.length >= 2 ? v1[0].vote[field] : fallback, consensus:v1.length >= 2 ? 'UNANIMOUS' : 'SINGLE_VOTER_DEFAULT', votes:r1, round2:null, rounds:1, voters:v1.length, replaced, version:COMMITTEE_VERSION }; }
     // round 2: each member sees the others' views and gives a final answer
     const views = v1.map((x, i) => `Trader ${String.fromCharCode(65 + i)}${x.seat ? ' (' + x.seat + ')' : ''}: ${x.vote[field]} — ${reasonOf(x.vote)}`).join('\n');

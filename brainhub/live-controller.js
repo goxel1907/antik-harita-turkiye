@@ -6784,7 +6784,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});const r=DESK.rows(k).filter(x=>x.t<=clock());r.raw=Array.isArray(k)?k:[];return r;}catch{const r=[];r.raw=[];return r;}}
   const deskJudge=(packet,mode,cfg)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats()});
-  async function positionDeskTick(){
+  // R2544.130 (09.11 ölçüm: karar -> borsa emri ortanca 19 sn, en çok 34 sn = sıradaki 30 sn'lik tur): a fresh desk order is carried out at once
+  // (the lane manager runs now; when a tick is already running it is retried every second, at most 30 s)
+  function kickDeskOrders(n=0){if(!Object.values(top3State.active||{}).some(a=>a&&a.deskOrder))return;
+    if(top3Busy){if(n<30){const t=setTimeout(()=>kickDeskOrders(n+1),1000);if(typeof t.unref==='function')t.unref();}return;}
+    top3Settle().catch(()=>{});}
+  // a NEW order from this look runs now: in turn (awaited) when no lane tick is running, otherwise right after it (retried every second)
+  async function positionDeskTick(){const r=await positionDeskLook();if(r&&r.freshOrder){if(!top3Busy){try{await top3Settle();}catch{}}else kickDeskOrders();}return r;}
+  async function positionDeskLook(){
     if(deskBusy)return null;const cfg=DESK.readConfig(root);if(!cfg.enabled)return null;
     if(!deskJudges?.free&&!deskJudges?.router&&!deskJudges?.committee&&typeof deskJudges?.jev!=='function')return {skipped:true,reason:'DESK_NO_JUDGE_WIRED'};
     deskBusy=true;
@@ -6825,7 +6832,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       desk.decisions.push(rec);if(desk.decisions.length>120)desk.decisions=desk.decisions.slice(-120);desk.last=rec;desk.lastError=null;
       saveTop3State();
       try{store.journal('POSITION_DESK_REVIEW',a.symbol,{lane,mode,id:a.id,rule:a.rule,...rec,text:DESK.decisionText(rec),version:DESK.DESK_VERSION,tried:res.tried});}catch{}
-      return {ok:true,symbol:a.symbol,action:rec.action,judge:rec.judge};
+      return {ok:true,symbol:a.symbol,action:rec.action,judge:rec.judge,freshOrder:!!(a.deskOrder&&a.deskOrder.at===now)};
     }catch(e){try{deskStats().lastError=String(e?.message||e).slice(0,160);}catch{}return {ok:false,error:true};}
     finally{deskBusy=false;}
   }

@@ -218,7 +218,7 @@ async function judge({ packet, mode, cfg, judges, stats }) {
         const votes = (r.round2 || r.votes || []).map(v => ({ m:short(v.member), a:v.vote?.action || 'ERR', s:v.seat || null, ...(v.reserveFor ? { r:short(v.reserveFor) } : {}) }));
         const replaced = (r.replaced || []).map(x => ({ m:short(x.member), by:short(x.by), s:x.seat || null })); // R2544.122: which empty seat a reserve took
         return { ok:true, judge:'COMMITTEE', model:votes.map(v => v.m).join(' + '), d:{ ok:true, action:fin, stopChoice, reason:pickV?.reason || 'NO_EDGE', confidence:null,
-          reasonTr:(r.consensus === 'UNANIMOUS' ? 'oybirliği: ' : r.consensus === 'MAJORITY_AFTER_DEBATE' ? 'tartışma sonrası çoğunluk: ' : reduceAgreed ? `çoğunluk riski azaltmak istedi (${red.length}/${finalV.length}) → en yumuşağı: ` : r.consensus === 'SINGLE_VOTER_DEFAULT' ? 'tek oy, yetki yok → TUT: ' : 'çoğunluk yok → TUT: ') + (pickV?.reasonTr || ''), watchTr:pickV?.watchTr || '' },
+          reasonTr:(r.consensus === 'UNANIMOUS' ? 'oybirliği: ' : r.consensus === 'STRONG_MAJORITY' ? 'güçlü çoğunluk (tartışmasız): ' : r.consensus === 'MAJORITY_AFTER_DEBATE' ? 'tartışma sonrası çoğunluk: ' : reduceAgreed ? `çoğunluk riski azaltmak istedi (${red.length}/${finalV.length}) → en yumuşağı: ` : r.consensus === 'SINGLE_VOTER_DEFAULT' ? 'tek oy, yetki yok → TUT: ' : 'çoğunluk yok → TUT: ') + (pickV?.reasonTr || ''), watchTr:pickV?.watchTr || '' },
           committee:{ consensus:reduceAgreed ? 'REDUCE_MAJORITY' : r.consensus, rounds:r.rounds, votes, replaced, voters:r.voters ?? null }, tried };
       }
       tried.push('COMMITTEE:' + (r?.reason || 'FAILED')); continue;

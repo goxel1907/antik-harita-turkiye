@@ -194,7 +194,9 @@ test('R2544.98 desk with authority, real tick: 3 of 5 want less risk after the d
   assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.action,'TIGHTEN_STOP');f.controller._testDeskGuard({protectR:1});
   const call=c.calls.find(x=>x.field==='action');assert.doesNotMatch(call.system,/measured default/);const pk=JSON.parse(call.prompt);
   assert.equal(pk.tradeTimeframe.trigger,'15m');assert.ok(pk.position.givebackR!==undefined&&pk.noiseR);
-  const rec=f.lot().desk.last;assert.equal(rec.shadow,false);assert.equal(rec.authority,true);assert.equal(rec.committee.consensus,'REDUCE_MAJORITY');assert.ok(f.lot().deskOrder,'order queued');
+  const rec=f.lot().desk.last;assert.equal(rec.shadow,false);assert.equal(rec.authority,true);assert.equal(rec.committee.consensus,'REDUCE_MAJORITY');
+  // R2544.130: the order ran right after the decision (no queue until the next tick)
+  assert.ok(!f.lot().deskOrder,'not queued: already done');assert.equal(rec.done?.ok,true,'done right away: '+JSON.stringify(rec.done));assert.equal(f.kinds('POSITION_DESK_STOP').length,1);
   await f.beat();const b=f.lot();assert.ok(b.stopPrice<a.stopPrice&&b.stopPrice<=a.entryPrice*1.0012+0.011,'stop moved to break-even on the exchange: '+b.stopPrice);
   const st=f.paper.state.algos.filter(x=>x.algoStatus==='NEW').find(x=>String(x.algoId)===String(b.stopAlgoId));assert.ok(st&&Math.abs(Number(st.triggerPrice)-b.stopPrice)<1e-9);
 });
@@ -284,4 +286,25 @@ test('R2544.128 the open lot keeps a real R path (one point a minute from the ma
   assert.ok(lp.every((p,i)=>i===0||p[0]-lp[i-1][0]>=60000),'one point a minute at most');
   assert.ok(Math.abs(lp.at(-1)[1]-0.3)<0.05,'R from the entry stop: '+lp.at(-1)[1]);assert.ok(Math.max(...lp.map(p=>p[1]))>=0.45);
   assert.deepEqual(f.controller.z5Status().active[0].livePath,lp,'Office gets it for ZİRVE-5 lots too');
+});
+
+test('R2544.130 LIVE sizing on (simulated) Binance: 100 $ balance, lane margin 30 $ -> the position locks exactly 30 $ margin, leverage >= the lane setting (10x); a margin above 95 % of the free balance is refused',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const live=async z5=>{const f=fixture({z5:{enabled:true,committeeMode:true,...z5},deskJudges:{committee:cm(TAKE)}});await f.controller.testSupervisorTick();
+    const g=await f.controller.runControl({action:'GO_LIVE'});assert.equal(g.ok,true,JSON.stringify(g));
+    for(let i=0;i<40&&!(f.controller.status().tradingMode?.mode==='LIVE'&&f.controller.status().armed);i++){f.state.now+=2000;await f.controller.testSupervisorTick();}
+    assert.equal(f.controller.status().tradingMode.mode,'LIVE');assert.equal(f.controller.status().armed,true,'armed against (simulated) Binance');return f;};
+  const f=await live({marginQuote:30,leverage:10});
+  assert.equal((await f.controller.z5Tick()).entries,1,'the bot opens in LIVE with the committee as owner');
+  const lev=f.state.orders.filter(o=>o.mode==='LIVE'&&o.p==='/fapi/v1/leverage').at(-1),ord=f.state.orders.find(o=>o.mode==='LIVE'&&o.p==='/fapi/v1/order'&&o.params.type==='MARKET');
+  assert.ok(lev&&Number(lev.params.leverage)>=10,'leverage sent to Binance >= 10x: '+JSON.stringify(lev));assert.ok(ord,'a market entry order went to Binance');
+  const a=f.lot(),notional=Number(ord.params.quantity)*a.entryPrice,L=Number(lev.params.leverage);
+  if(process.env.SHOW_LIVE_SIZE)console.log('CANLI_OLCU marj',a.marginQuote,'kaldirac',L,'pozisyon',notional.toFixed(2),'kilitlenen marj',(notional/L).toFixed(2),'stop%',(a.stopPct*100).toFixed(2),'stopta kayip',(notional*a.stopPct).toFixed(2));
+  assert.equal(a.marginQuote,30,'the lane margin, not resized');assert.equal(a.leverage,L);
+  assert.ok(Math.abs(notional/L-30)<=30*0.03+0.01*a.entryPrice/L,'locked margin = notional / leverage ≈ 30 $: '+(notional/L).toFixed(2)+' (lot step rounding)');
+  const r=(await f.binance.handle('GET','/fapi/v3/positionRisk',{params:{symbol:'Z5USDT'}}))[0];assert.ok(Math.abs(Number(r.positionAmt))>0,'the position is on (simulated) Binance');
+  require('../binance-rate-limit').resetForTests();
+  const g=await live({marginQuote:99,leverage:10});
+  assert.equal((await g.controller.z5Tick()).entries,0,'99 $ > 95 % of the 100 $ free balance: refused, never resized');
+  assert.ok(!g.state.orders.some(o=>o.mode==='LIVE'&&o.p==='/fapi/v1/order'),'no order sent');
 });

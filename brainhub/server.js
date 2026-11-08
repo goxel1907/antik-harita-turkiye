@@ -1689,7 +1689,7 @@ function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){
 const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoDiscovery:true,preferredModels:cfg.openRouterFreeWorker?.preferredModels,timeoutMs:30000,maxAttempts:3,
   dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota
 const memberSeesCharts=w=>id=>{const s=String(id||'');if(s.startsWith('ROUTER:'))return committeeSeesCharts(s.slice(7));if(s.startsWith('OR:'))return ((typeof w?.status==='function'?w.status().visionModels:[])||[]).includes(s.slice(3));return false;};
-const deskCommittee=createCommittee({size:5,prefer:memberSeesCharts(deskFreeWorker),members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json')}); // R2544.115 image models first; entry team 9 (live-controller)
+const deskCommittee=createCommittee({size:5,timeoutMs:60000,debateSkipShare:2/3,prefer:memberSeesCharts(deskFreeWorker),members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json')}); // R2544.115 image models first; entry team 9 (live-controller)
 const examCommittee=createCommittee({size:5,prefer:memberSeesCharts(examFreeWorker),members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx,{noAiStudio:true}),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
 const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav','r2544-115'),committee:examCommittee,dailyCap:100,keyFile:process.env.BRAINHUB_EXAM_KEY||path.join(ROOT,'..','Claud-Work','gelistirme','harness','indikator','sinav_key.json')}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
@@ -2551,7 +2551,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.129';
+const RUNTIME_RELEASE='R2544.130';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
