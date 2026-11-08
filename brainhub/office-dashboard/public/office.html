@@ -273,6 +273,8 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .br-line.ders{border-left-color:#ffd54f;background:rgba(255,213,79,.08);color:#fff3c4;box-shadow:0 0 12px rgba(255,213,79,.12)}
 .br-line.sum{border-left-color:#a78bfa;background:rgba(167,139,250,.1);color:#e6dcff;font-weight:800}
 .br-line.no{border-left-color:#ff7a59;color:#ffcab9}
+.pb-t{width:100%;border-collapse:collapse;font:600 11px system-ui,sans-serif;margin:6px 0}.pb-t th{color:#8f97b8;text-align:left;font-weight:700;padding:3px 6px;border-bottom:1px solid #262c4a}.pb-t td{padding:3px 6px;border-bottom:1px solid #161a33;color:#d6dbf2}
+.pb-v{font-weight:800;border-radius:6px;padding:1px 6px}.pb-v.ok{background:rgba(43,214,123,.18);color:#7ff0b0}.pb-v.cur{background:rgba(167,139,250,.18);color:#d6c9ff}.pb-v.no{background:rgba(255,77,109,.14);color:#ff9aac}.pb-v.wait{background:rgba(154,163,196,.14);color:#c9cfe6}
 .br-more{margin:6px 0 2px}.br-more summary{cursor:pointer;font:700 11px system-ui,sans-serif;color:#a78bfa;padding:4px 2px}.br-more summary:hover{color:#d6c9ff}.br-line.mem{border-left-color:#2ec5ff}.br-line.wait{border-left-color:#6f789c;color:#9aa3c4}
 .br-auto{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .br-auto span{font:600 11px system-ui,sans-serif;padding:5px 9px;border-radius:9px;background:#0d1124;border:1px solid #232a4a;color:#cfd5ee;max-width:100%}
@@ -1067,6 +1069,23 @@ function brLines(lines){const ico=x=>x.cls==='ders'?'✅ DERS: ':x.cls==='sum'?'
   const row=x=>`<div class="br-line ${x.cls}">${ico(x)}${esc(x.text)}</div>`,more=x=>!x.cls||x.cls==='mem'||/^Tek başına neden DEĞİL|^Eski 6 aylık laboratuvar/.test(String(x.text));
   const main=lines.filter(x=>!more(x)),rest=lines.filter(more),n=rest.reduce((k,x)=>k+Math.max(1,(String(x.text).match(/;/g)||[]).length+1),0);
   return main.map(row).join('')+(rest.length?`<details class="br-more"><summary>${n} etken daha: kazançta da kayıpta da benzer görünenler ve eski laboratuvar notları (aç)</summary>${rest.map(row).join('')}</details>`:'');}
+// R2544.132 BEYİN v2 — OYUN KİTABI (kullanıcı 09.11: "trader'ın gelişen tecrübesi gibi: hatalardan ve kazançlardan ders, buna göre strateji")
+const PB_NAME={HEPSİ:'Bütün stratejiler',LONG_EARLY_RETEST:'İlk 3 ERKEN LONG',SHORT_TOP_BREAK:'İlk 3 TEPE SHORT',SHORT_TOP_FADE:'İlk 3 TEPE SHORT (fade)',LONG_6OF6:'İlk 3 6/6 LONG',ZIRVE5_FIBO_LONG:'ZİRVE-5 LONG',ZIRVE5_FIBO_SHORT:'ZİRVE-5 SHORT'};
+function pbR(v){return v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2).replace('.',',')+'R';}
+function pbVerdict(v){const c=v==='ÖNERİLİR'?'ok':v==='ŞİMDİKİ'?'cur':v==='ŞİMDİKİ DAHA İYİ'?'no':'wait';return `<span class="pb-v ${c}">${esc(v==='ŞİMDİKİ DAHA İYİ'?'şimdiki daha iyi':v==='ŞİMDİKİ'?'şimdiki kural':v==='ÖNERİLİR'?'ÖNERİLİR':'kanıtlanmadı')}</span>`;}
+function pbTable(g){return `<table class="pb-t"><tr><th>yönetim</th><th>ort</th><th>kazanan</th><th>şimdikine göre (ort / uç değersiz)</th><th>1. yarı / 2. yarı</th><th>t</th><th>karar</th></tr>`
+  +g.rules.map(r=>`<tr><td>${esc(r.tr)}</td><td>${pbR(r.avgR)}</td><td>%${r.win}</td><td>${r.key==='KK2'?'—':pbR(r.diff)+' / '+pbR(r.robust)}</td><td>${r.key==='KK2'?'—':pbR(r.halfA)+' / '+pbR(r.halfB)}</td><td>${r.key==='KK2'?'—':String(r.t).replace('.',',')}</td><td>${pbVerdict(r.verdict)}</td></tr>`).join('')+`</table>`;}
+function pbHtml(pb){
+  if(!pb||!pb.groups?.length)return '';const A=pb.groups[0];
+  if(!A.n)return `<div class="br-sum"><h5>📘 OYUN KİTABI</h5><p>İşlemler yeniden oynatılıyor (her işlem açıldıktan 24 saat sonra kendi 5 dk mumlarında). Birazdan burada.</p></div>`;
+  const rs=A.rescue||{},line=k=>rs[k]?`${esc(A.rules.find(r=>r.key===k)?.tr||k)}: ${rs[k].saved} kaybı kurtarırdı, kazançlardan ${pbR(Math.abs(rs[k].cost)).replace('+','')} götürürdü`:'';
+  return `<div class="br-sum"><h5>📘 OYUN KİTABI — ${pb.replayed} işlem kendi mumlarında ${A.rules.length} yönetimle yeniden oynatıldı (aynı işlemler, aynı kötümser varsayım)</h5>`
+    +`<p><b>Sonuç:</b> ${esc(A.text)}. Bir yönetim ancak en az 20 işlemde, iki zaman yarısında da, t ≥ 2 ve en büyük tek işlem çıkarılınca da daha iyiyse önerilir; öneri sana gelir, onayla uygulanır.</p>`
+    +pbTable(A)
+    +`<p><b>Kâra çevirme dengesi:</b> ${['KK1','BE1','T15','Z4'].map(line).filter(Boolean).map(esc).join(' • ')} (kayıpları kurtaran kural kazançları da keser; ikisini birlikte tartar).</p>`
+    +(pb.recent?.length?`<p><b>Son işlemler — hangi yönetim ne yapardı:</b> ${pb.recent.slice(0,8).map(x=>`${esc(String(x.symbol).replace(/USDT$/,''))} ${esc(x.side)} ${pbR(x.R)} → ${x.best?esc(x.bestTr)+' '+pbR(x.best.R):(x.R>=0?'şimdiki yönetim en iyisiydi':'hiçbir kural kurtarmazdı')}`).join(' • ')}</p>`:'')
+    +pb.groups.slice(1).filter(g=>g.n).map(g=>`<details class="br-more"><summary>${esc(PB_NAME[g.rule]||g.rule)} — ${g.n} işlem • gerçek ${pbR(g.realR)} • ${esc(g.text)}</summary>${pbTable(g)}</details>`).join('')+`</div>`;
+}
 function renderBrain(s){
   const el=document.getElementById('ccBrainBody');if(!el)return;let m;try{m=brModel(s);}catch(e){console.warn('brain',e);return;}
   try{brAnimUpdate(s,m);}catch(e){console.warn('brAnim',e);}
@@ -1079,7 +1098,8 @@ function renderBrain(s){
   const sum=`<div class="br-sum"><h5>✅ BEYİN NE ÖĞRENDİ: TEKRAR EDEN KALIPLAR — ${dl.length} (çok işlemde aynı yönü gösteren; her işlem ayrıca yukarıdaki hafızada)</h5>${dl.length?dl.map(t=>`<p>• ${esc(t)}</p>`).join(''):'<p>Henüz doğrulanmış ders yok.</p>'}
     <p>Sorulan <b>${Q.asked||m.asked||0}</b> sorunun: <b style="color:#ffd54f">${Q.ders}</b> tanesi ders oldu • <b>${Q.same}</b> tanesinde kazanan ve kaybeden işlem girişte aynı görünüyor ${Q.notHold?` • <b>${Q.notHold}</b> tanesi eski kuralla 6 aylık veride tutmadı`:''} • <b>${Q.rare}</b> tanesi çok nadir görülen durum • <b>${Q.few}</b> tanesi için henüz yeterli örnek yok (her iki tarafta en az 8 otopsili işlem gerekir).</p>
     <p>Yani beynin bulgusu şu: girişte bilinen bu bilgilerin çoğu kazananı kaybedenden ayırmıyor. Bu bir hata değil, ölçüm sonucu. Ders artık yalnız gerçek işlemlerden çıkar (her iki tarafta en az 8 otopsili işlem, belirgin fark); giriş ekranı ve çıkıştaki grafik de her derse yazılır (R2544.118).</p></div>`;
-  el.innerHTML=sum+(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${brLines(c.lines)}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
+  let pbh='';try{pbh=pbHtml((s?.top3?.data||s?.top3||{}).playbook||null);}catch(e){console.warn('pb',e);} // R2544.132
+  el.innerHTML=sum+pbh+(m.cards.length?`<div class="br-grid">${m.cards.map(c=>`<div class="br-card"><h4>${esc(c.name)} <small>${(c.loss?.n||0)+(c.win?.n||0)} otopsi</small></h4>${bars(c.loss,'#ff4d6d')}${bars(c.win,'#2bd67b')}${brLines(c.lines)}</div>`).join('')}</div>`:'<div class="cc-note">henüz otopsili ders yok</div>')
     +(m.auto.length?`<div class="br-sec" style="margin-top:10px">SON OTOPSİLER</div><div class="br-auto">${m.auto.map(a=>`<span title="${esc(a.text)}"><b style="color:${Number(a.R)>0?'#2bd67b':'#ff4d6d'}">${esc(String(a.s||'').replace(/USDT$/,''))} ${Number(a.R)>=0?'+':''}${Number(a.R).toFixed(2)}R</b>${esc(String(a.text||'').slice(0,90))}</span>`).join('')}</div>`:'');
 }
 // ---------- R2544.106 POZİSYON MASASI (kullanıcı 02.11: "pozisyon kartı afilli olsun; geçmiş pozlar son 5 poz durumu; geçmiş poz bilgileri istatistik ve grafiklerle") ----------

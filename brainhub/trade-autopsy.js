@@ -113,4 +113,40 @@ function entryContext(k5, side, entry, stop, btc5) {
   let btc1hWith = null; if (b.length >= 12) { const chg = (b.at(-1).c / b.at(-12).o - 1) * 100; btc1hWith = Number((L ? chg : -chg).toFixed(2)); }
   return { preRunR, btc1hWith, stopPct:Number((risk / e).toFixed(4)) };
 }
-module.exports = { AUTOPSY_VERSION, autopsy, entryContext, CAUSE_TR };
+// R2544.132 BEYİN v2 (kullanıcı 09.11: "beyin v2'ye başla; eldeki test verilerini de bilmesi lazım, test boşa gitmesin") yeniden oynatma motoru: kapanan bir işlemi kendi 5 dk mumlarında farklı yönetim kurallarıyla tekrar oynatır.
+// Kötümser: aynı mumda stop ve hedef/kâr seviyesi birlikte değdiyse önce stop sayılır; başabaşa çekme bir SONRAKİ mumdan geçerlidir.
+// Sonuç giriş stopunun R'si cinsindendir (ücretsiz); bütün kurallar aynı varsayımla oynandığı için birbirleriyle karşılaştırılabilir.
+const RP_M5 = 5 * 60000, RP_H = 3600000;
+const POLICIES = Object.freeze([
+  { key:'PLAN', tr:'plan (dokunma)' },
+  { key:'KK2', tr:'şimdiki kâr koruma: 2R’de yarısı + başabaş', partialAt:2, share:0.5, beAfterPartial:true },
+  { key:'BE1', tr:'+1R’de stopu girişe çek', beAt:1 },
+  { key:'KK1', tr:'1R’de yarısı + başabaş', partialAt:1, share:0.5, beAfterPartial:true },
+  { key:'T15', tr:'hedef 1,5R', targetMax:1.5 },
+  { key:'Z4', tr:'4 saatte kapat', timeH:4 },
+  { key:'Z8', tr:'8 saatte kapat', timeH:8 }
+]);
+const rpNum = v => (v === null || v === undefined || v === '' ? NaN : Number(v));
+function rpBars(raw) { return (Array.isArray(raw) ? raw : []).map(r => Array.isArray(r) ? { t:rpNum(r[0]), o:rpNum(r[1]), h:rpNum(r[2]), l:rpNum(r[3]), c:rpNum(r[4]) } : r)
+  .filter(b => b && [b.t, b.h, b.l, b.c].every(Number.isFinite)).sort((a, b) => a.t - b.t); }
+function replayOne(trade, k5, p) {
+  const L = trade.side === 'LONG', e = rpNum(trade.entryPrice), sp = rpNum(trade.stopPct), tp = rpNum(trade.targetPct), t0 = rpNum(trade.openedAt), maxH = rpNum(trade.maxHoldH) > 0 ? rpNum(trade.maxHoldH) : 24;
+  if (!(e > 0 && sp > 0 && tp > 0 && t0 > 0)) return null;
+  const risk = e * sp, fav = px => (L ? px - e : e - px) / risk, tR = Math.min(tp / sp, p.targetMax ?? Infinity);
+  const end = t0 + Math.min(maxH, p.timeH ?? Infinity) * RP_H, B = rpBars(k5).filter(b => b.t >= t0 && b.t < end);
+  if (!B.length) return null;
+  let stopR = -1, rest = 1, booked = 0, partDone = false, beNext = false, last = null;
+  for (const b of B) {
+    if (beNext) { stopR = Math.max(stopR, 0); beNext = false; }
+    const hi = fav(L ? b.h : b.l), lo = fav(L ? b.l : b.h); last = b;
+    if (lo <= stopR) return { R:booked + rest * stopR, how:stopR >= 0 ? 'BASABAS' : 'STOP', bars:B.indexOf(b) + 1 };
+    if (p.partialAt && !partDone && hi >= p.partialAt && p.partialAt < tR) { booked += p.share * p.partialAt; rest -= p.share; partDone = true; if (p.beAfterPartial) beNext = true; }
+    if (hi >= tR) return { R:booked + rest * tR, how:'HEDEF', bars:B.indexOf(b) + 1 };
+    if (p.beAt && hi >= p.beAt) beNext = true;
+  }
+  const covered = last.t + RP_M5 >= end - RP_M5;
+  return { R:booked + rest * fav(last.c), how:p.timeH && covered ? 'SURE' : covered ? 'SURE_24' : 'VERI_BITTI', bars:B.length, partialData:!covered };
+}
+function replayAll(trade, k5) { const out = {}; for (const p of POLICIES) { const r = replayOne(trade, k5, p); if (r) out[p.key] = { R:Number(r.R.toFixed(3)), how:r.how }; } return out; }
+
+module.exports = { AUTOPSY_VERSION, autopsy, entryContext, CAUSE_TR, REPLAY_POLICIES:POLICIES, replayOne, replayAll };

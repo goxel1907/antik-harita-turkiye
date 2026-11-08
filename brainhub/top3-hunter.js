@@ -705,6 +705,49 @@ function similarCases(lessons, rule, features, { k = 8, minSim = 0.6, perSymbol 
   return { version:'R2544.80-SIMILAR', n, wins, losses, avgR:avgR === null ? null : Number(avgR.toFixed(3)), coins, days, mixed, thin, features:me,
     cases:pick.map(q => ({ symbol:q.l.symbol, R:Number(q.l.rMultiple.toFixed(2)), sim:Number(q.sim.toFixed(2)), outcome:q.l.autopsy?.outcome || null, causes:q.l.autopsy?.causes || [], at:q.l.openedAt || null })), text };
 }
+// ===== R2544.132 BEYİN v2 — OYUN KİTABI (kullanıcı 09.11: "trader'ın gelişen tecrübesi gibi: hatalardan ve kazançlardan ders çıkarma,
+// buna göre strateji belirleme"; "eldeki test verileri boşa gitmesin"). Every closed trade is replayed on its own 5m candles under each
+// management rule (trade-autopsy replayAll). Per strategy the brain compares every rule with TODAY's rule (KK2: half at 2R + break-even)
+// on the SAME trades. A rule is recommended only when it is better with >= 20 trades, in BOTH halves of time, t >= 2, and still better
+// without the single trade that moves it most (one ONE-like trade never decides). Information + a proposal to the user; nothing changes alone.
+const PB_TR = { PLAN:'plan (dokunma)', KK2:'şimdiki kâr koruma (2R’de yarısı + başabaş)', BE1:'+1R’de stopu girişe çek', KK1:'1R’de yarısı + başabaş', T15:'hedef 1,5R', Z4:'4 saatte kapat', Z8:'8 saatte kapat' };
+let playbookCache = { key:'', out:null };
+// the best rule for ONE trade only when it beats today's rule by > 0,05R (all equal -> null: no rule would have changed it)
+function pbBest(R) { if (!R || !R.KK2) return null; const b = Object.entries(R).filter(([k]) => k !== 'KK2').map(([k, v]) => ({ k, R:v.R })).filter(x => Number.isFinite(x.R) && x.R > R.KK2.R + 0.05).sort((a, b) => b.R - a.R)[0]; return b || null; }
+function playbook(lessons, { mode = 'TEST' } = {}) {
+  const L = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.mode === mode && l.replay?.R?.KK2 && Number.isFinite(Number(l.rMultiple))).sort((a, b) => a.openedAt - b.openedAt);
+  const key = mode + ':' + L.length + ':' + (L.length ? L[L.length - 1].id : '');
+  if (playbookCache.key === key) return playbookCache.out;
+  const avg = a => a.length ? a.reduce((p, q) => p + q, 0) / a.length : null, med = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+  const r2 = v => v === null ? null : Number(v.toFixed(3));
+  const tst = d => { const m = avg(d), sd = Math.sqrt(d.reduce((p, q) => p + (q - m) ** 2, 0) / Math.max(1, d.length - 1)); return sd > 0 ? m / (sd / Math.sqrt(d.length)) : 0; };
+  const group = xs => {
+    const half = Math.floor(xs.length / 2), rules = [];
+    for (const k of Object.keys(PB_TR)) {
+      const ok = xs.filter(l => Number.isFinite(l.replay.R[k]?.R)); if (ok.length !== xs.length || !xs.length) continue;
+      const d = xs.map(l => l.replay.R[k].R - l.replay.R.KK2.R), da = d.slice(0, half), db = d.slice(half);
+      const big = d.reduce((bi, v, i) => Math.abs(v) > Math.abs(d[bi]) ? i : bi, 0), robust = avg(d.filter((_, i) => i !== big));
+      const t = tst(d), better = d.filter(v => v > 0.05).length, worse = d.filter(v => v < -0.05).length;
+      const verdict = k === 'KK2' ? 'ŞİMDİKİ' : xs.length >= 20 && avg(da) > 0 && avg(db) > 0 && t >= 2 && robust > 0 && med(d) >= 0 ? 'ÖNERİLİR'
+        : (avg(d) < 0 && robust <= 0) ? 'ŞİMDİKİ DAHA İYİ' : 'KANITLANMADI'; // ahead only through one trade -> not proven (not 'worse')
+      rules.push({ key:k, tr:PB_TR[k], avgR:r2(avg(xs.map(l => l.replay.R[k].R))), win:Math.round(100 * xs.filter(l => l.replay.R[k].R > 0).length / xs.length),
+        diff:r2(avg(d)), diffMed:r2(med(d)), robust:r2(robust), t:Number(t.toFixed(2)), halfA:r2(avg(da)), halfB:r2(avg(db)), better, worse, verdict });
+    }
+    const loss = xs.filter(l => Number(l.rMultiple) < 0), win = xs.filter(l => Number(l.rMultiple) > 0);
+    const rescue = Object.fromEntries(Object.keys(PB_TR).map(k => [k, { saved:loss.filter(l => (l.replay.R[k]?.R ?? -9) >= 0).length, cost:r2(win.reduce((p, l) => p + Math.min(0, (l.replay.R[k]?.R ?? 0) - l.replay.R.KK2.R), 0)) }]));
+    const rec = rules.filter(r => r.verdict === 'ÖNERİLİR').sort((a, b) => b.diff - a.diff)[0] || null;
+    return { n:xs.length, realR:r2(avg(xs.map(l => Number(l.rMultiple)))), rules, rescue, losses:loss.length, wins:win.length, recommend:rec ? rec.key : null,
+      text:!xs.length ? 'henüz yeniden oynatılmış işlem yok' : rec ? `ÖNERİ: ${rec.tr} — şimdiki kurala göre işlem başına ${rec.diff >= 0 ? '+' : ''}${String(rec.diff.toFixed(2)).replace('.', ',')}R (iki yarıda da daha iyi, t ${String(rec.t).replace('.', ',')})`
+        : 'şimdiki kural (2R’de yarısı + başabaş) en iyisi ya da fark kanıtlanmadı' };
+  };
+  const groups = [{ rule:'HEPSİ', ...group(L) }];
+  for (const r of [...new Set(L.map(l => l.rule))]) groups.push({ rule:r, ...group(L.filter(l => l.rule === r)) });
+  // the latest trades: what happened and what each rule would have done ("kâra nasıl çevirirdim")
+  const recent = L.slice(-10).reverse().map(l => { const R = Number(l.rMultiple), b = pbBest(l.replay.R);
+    return { symbol:l.symbol, side:l.side, rule:l.rule, R:r2(R), plan:l.replay.R.PLAN?.R ?? null, now:l.replay.R.KK2.R, best:b, bestTr:b ? PB_TR[b.k] : null }; });
+  const out = { version:'R2544.132-PLAYBOOK', mode, replayed:L.length, current:'KK2', groups, recent };
+  playbookCache = { key, out }; return out;
+}
 // ===== R2544.125 BEYİN (kullanıcı 04.11: "128 ders nasıl 2 doğrulanmış oluyor, her dersten bir şey öğrenmesi gerekir; algoritma saçma geliyor")
 // Every closed trade is a memory. For a new signal the brain recalls the 5 most similar past trades of the same rule (entry facts), shows each
 // one (coin, result, why it won / lost) and says a lean; the prediction is stored and SCORED when the trade closes (its report card).
@@ -718,7 +761,8 @@ function brainCase(lessons, rule, features) {
   const lean = !sc.n ? 'BILGI_YOK' : sc.n < 3 ? 'AZ' : sc.avgR >= BRAIN.lean ? 'OLUMLU' : sc.avgR <= -BRAIN.lean ? 'OLUMSUZ' : 'KARISIK';
   const cases = sc.cases.map(c => { const l = pool.find(x => x && x.symbol === c.symbol && x.openedAt === c.at) || {};
     const why = (c.causes || []).slice(0, 2).map(causeTr).join(', ') || (c.R > 0 ? 'kazandı' : c.R < 0 ? 'kaybetti' : 'başabaş');
-    return { symbol:c.symbol, side:l.side || null, R:c.R, sim:c.sim, why, at:c.at, closedAt:l.closedAt || null }; });
+    const rp = l.replay?.R || null, best = rp ? pbBest(rp) : null; // R2544.132
+    return { symbol:c.symbol, side:l.side || null, R:c.R, sim:c.sim, why, at:c.at, closedAt:l.closedAt || null, plan:rp?.PLAN?.R ?? null, best:best ? { k:best.k, R:best.R } : null }; });
   const r2 = v => String(Number(v).toFixed(2)).replace('.', ',');
   const sentence = !sc.n ? 'Benzer geçmiş işlem yok.' : `Benzer ${sc.n} işlem: ${sc.wins} kazanç / ${sc.losses} kayıp, ort ${r2(sc.avgR)}R → ${BRAIN_TR[lean]}`;
   return { version:BRAIN.version, k:BRAIN.k, n:sc.n, wins:sc.wins, losses:sc.losses, avgR:sc.avgR, lean, sentence, cases };
@@ -841,5 +885,5 @@ function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } 
   const pos = { recent, bins, exits, avgHoldMin:avg(W.map(x => (Number(x.holdH) || 0) * 60)), avgMfeR:avg(mfe), avgGivebackR:avg(give), sawOneR:give.length };
   return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, last24:stat(W.filter(x => x.closedAt >= now - 86400000)), curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts }, pos };
 }
-module.exports = { BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+module.exports = { playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

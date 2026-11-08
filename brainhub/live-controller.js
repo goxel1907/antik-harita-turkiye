@@ -6733,8 +6733,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const deskCut=l=>(l?.desk?.decisions||[]).some(d=>d&&d.action!=='HOLD'&&d.authority===true&&!d.guard&&!d.downgraded);
       const due=l=>l&&top3Lib.CAT_BUCKETS[l.rule]&&finite(l.closedAt)&&finite(l.openedAt)&&((!l.autopsy&&(l.autopsyTries||0)<3&&now>=l.closedAt+30*60000)||(l.autopsy&&l.autopsy.ok&&!l.autopsy.complete&&(l.autopsyTries||0)<6&&now>=l.closedAt+DAYMS+10*60000)
         ||(l.autopsy&&l.autopsy.ok&&l.autopsy.complete&&l.autopsy.basis!=='PLAN'&&deskCut(l)&&(l.autopsyTries||0)<8)); // R2544.117: a desk-cut lesson done before this fix is redone once on the plan's result
+      // R2544.132 BEYİN v2: every lesson (the old TEST ones too) is replayed once on its own 5m candles (24 h after the open) under each
+      // management rule; up to 6 per pass, 3 tries each. Information for the playbook, the recall and Office - nothing changes by itself.
+      let replayed=0;
+      const rpDue=l=>l&&!l.replay&&(l.replayTries||0)<3&&finite(l.openedAt)&&finite(l.entryPrice)>0&&finite(l.stopPct)>0&&finite(l.targetPct)>0&&now>=l.openedAt+DAYMS+10*60000;
+      for(const l of [...(top3State.lessons||[]),...(z.lessons||[])].filter(rpDue).sort((a,b)=>a.openedAt-b.openedAt).slice(0,6)){
+        l.replayTries=(l.replayTries||0)+1;
+        try{const k=await k5Window(l.symbol,Math.floor(l.openedAt/top3Lib.M5)*top3Lib.M5,l.openedAt+DAYMS+top3Lib.M5);
+          const rr=AUTOPSY.replayAll({side:l.side,entryPrice:l.entryPrice,stopPct:l.stopPct,targetPct:l.targetPct,openedAt:l.openedAt},k);
+          if(rr.PLAN&&rr.KK2){l.replay={version:'R2544.132-REPLAY',at:now,R:rr};replayed++;}}catch{}
+      }
+      if(replayed)saveTop3State();
       const pool=[...(top3State.lessons||[]),...(z.lessons||[])].filter(due).sort((a,b)=>a.closedAt-b.closedAt).slice(0,2);
-      if(!pool.length)return null;
+      if(!pool.length)return replayed?{replayed}:null;
       for(const l of pool){
         l.autopsyTries=(l.autopsyTries||0)+1;
         try{
@@ -7266,6 +7277,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
       settings:{marginQuote:cfg.marginQuote,marginAuto:cfg.marginQuote===null,leverage:cfg.leverage,safeLeverage:{long:top3Lib.safeLeverage(cfg.long.stopPct),shortMin:top3Lib.safeLeverage(cfg.short.maxStopPct),shortMax:top3Lib.safeLeverage(cfg.short.minStopPct)},effectiveLong:Math.min(cfg.leverage,top3Lib.safeLeverage(cfg.long.stopPct))},
+      playbook:(()=>{try{return top3Lib.playbook([...(top3State.lessons||[]),...(z5State().lessons||[])],{mode});}catch{return null;}})(), // R2544.132
       brain:(()=>{try{const all=[...(top3State.lessons||[]),...(z5State().lessons||[])],sc=top3Lib.brainScore(all,{mode});
         // the latest recall: an open lot's entry recall, else the newest lesson that has one, else the newest lesson replayed on what came before it
         const act=Object.values(top3State.active||{}).filter(a=>a?.entryFeatures?.brain).sort((a,b)=>(b.openedAt||0)-(a.openedAt||0))[0];
