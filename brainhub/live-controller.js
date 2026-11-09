@@ -6841,7 +6841,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         funding={rate8hPct:fr!==null?Number((fr*100).toFixed(4)):null,premiumPct:mk&&ix?Number(((mk/ix-1)*100).toFixed(4)):null,nextInMin:finite(pi?.nextFundingTime)?Math.max(0,Math.round((pi.nextFundingTime-now)/60000)):null,
           note:'+ funding = longs pay (crowded long), - = shorts pay (crowded short)'};}catch{}
       const ms=market?.marketStream||marketStream;for(const x of lots){try{ms.ensureSymbol(x.symbol);}catch{}} // open lots stay subscribed
-      let sn=null;try{sn=ms.snapshot(a.symbol,now);}catch{}const micro=DESK.microOf(sn,Rf);
+      let sn=null;try{sn=ms.snapshot(a.symbol,clock());}catch{} /* R2544.139 bug (09.11 16:16 STREAM_WARMING_OR_STALE although the stream flowed): ask with the time NOW, not the look's start */const micro=DESK.microOf(sn,Rf);
       const last5=k5.length?k5.at(-1):null,dataCheck={asOf:now,k5LastOpenAgeSec:last5?Math.round((now-last5.t)/1000):null,
         markVsStreamBps:finite(sn?.markPrice)&&pickMark?Number(((pickMark/sn.markPrice-1)*10000).toFixed(2)):null,
         frames:{m5:!!chart.m5,m15:!!chart.m15,h1:!!chart.h1,h4:!!chart.h4,d1:!!chart.d1},funding:!!funding,orderBook:micro.available===true,...(micro.available===true?{}:{orderBookReason:String(micro.reason||'').slice(0,60)})}; // R2544.139: why the stream was not ready

@@ -175,7 +175,11 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     } finally { probing = false; }
   }
   // healthy = last probe or last real call ok; never more than 2 consecutive failures
-  function healthy() { return membersNow().filter(m => health[m.id]?.lastOk === true && (health[m.id].consecutiveFail || 0) < 3 && !sleeping(m)); }
+  // R2544.140 (09.11 16:38: after one slow round 8 of 26 were 'healthy' - a single 60 s timeout took a member out until the hourly probe):
+  // a timeout is slowness, not sickness; the member keeps its seat until 3 failures in a row. Any other error still takes it out at once.
+  const SLOW_RE = /COMMITTEE_TIMEOUT|aborted due to timeout|QUICK_TIMEOUT/i;
+  function healthy() { return membersNow().filter(m => { const h = health[m.id]; if (!h || sleeping(m)) return false; const slow = h.lastOk === false && SLOW_RE.test(String(h.error || ''));
+    return (h.lastOk === true || slow) && (h.consecutiveFail || 0) < 3; }); }
   // up to `size` members from different families first (diversity), then fill
   // R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): `prefer` (the members that can SEE the chart)
   // sit first, spread over providers round-robin; the rest of the seats keep the old one-family-at-a-time spread. n = this decision's team size.

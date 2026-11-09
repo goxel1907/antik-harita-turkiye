@@ -1673,7 +1673,7 @@ const DIRECT_FREE=[
   // 14 s with reasoning_effort low; Kilo Nemotron ultra > 150 s -> 7 s with reasoning off; Kilo super-vl ran out of tokens while thinking)
   {id:'OVH:gpt-oss-120b',base:'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',model:'gpt-oss-120b',maxTokens:3000,extra:{reasoning_effort:'low'}},
   {id:'OVH:Meta-Llama-3_3-70B-Instruct',base:'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',model:'Meta-Llama-3_3-70B-Instruct',maxTokens:1500},
-  {id:'KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',maxTokens:3000},
+  {id:'KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',maxTokens:3000,extra:{reasoning:{enabled:false}}},
   {id:'KILO:nvidia/nemotron-3-ultra-550b-a55b:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3-ultra-550b-a55b:free',maxTokens:3000,extra:{reasoning:{enabled:false}}},
   {id:'KILO:nvidia/nemotron-3.5-super-vl:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3.5-super-vl:free',maxTokens:3000,extra:{reasoning:{enabled:false}}}];
 async function directAsk(d,{system,prompt}={},fetchImpl=fetch){
@@ -2580,7 +2580,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.139';
+const RUNTIME_RELEASE='R2544.140';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
