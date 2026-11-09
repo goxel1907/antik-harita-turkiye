@@ -44,7 +44,7 @@ test('R2542 tags new live trades and separates desk decision/result telemetry',(
   assert.match(live,/deskSummary:deskSummary/);
   assert.match(server,/releaseVersion:'R2542-JEV-TRADER-OFFICE'/);
   assert.match(server,/R2542_DESK_PERFORMANCE_TELEMETRY/);
-  assert.match(officeServer,/2.5.116-R2544.134/);
+  assert.match(officeServer,/2.5.117-R2544.135/);
   assert.match(office,/id="deskPerf"/);
   assert.match(office,/karar → zamanlama → emir → sonuç/);
 });
