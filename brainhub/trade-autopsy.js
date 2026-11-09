@@ -133,12 +133,14 @@ function replayOne(trade, k5, p) {
   const L = trade.side === 'LONG', e = rpNum(trade.entryPrice), sp = rpNum(trade.stopPct), tp = rpNum(trade.targetPct), t0 = rpNum(trade.openedAt), maxH = rpNum(trade.maxHoldH) > 0 ? rpNum(trade.maxHoldH) : 24;
   if (!(e > 0 && sp > 0 && tp > 0 && t0 > 0)) return null;
   const risk = e * sp, fav = px => (L ? px - e : e - px) / risk, tR = Math.min(tp / sp, p.targetMax ?? Infinity);
-  const end = t0 + Math.min(maxH, p.timeH ?? Infinity) * RP_H, B = rpBars(k5).filter(b => b.t >= t0 && b.t < end);
+  // R2544.134: the entry bar counts (09.11: without it a stop in the first minutes was not seen; CAP stopped in 3 min, the replay said +6,1R).
+  // In that bar the adverse extreme counts in full, the favourable side only at its close (the bar's high may have come before the entry).
+  const end = t0 + Math.min(maxH, p.timeH ?? Infinity) * RP_H, B = rpBars(k5).filter(b => b.t + RP_M5 > t0 && b.t < end);
   if (!B.length) return null;
   let stopR = -1, rest = 1, booked = 0, partDone = false, beNext = false, last = null;
   for (const b of B) {
     if (beNext) { stopR = Math.max(stopR, 0); beNext = false; }
-    const hi = fav(L ? b.h : b.l), lo = fav(L ? b.l : b.h); last = b;
+    const hi = b.t < t0 ? fav(b.c) : fav(L ? b.h : b.l), lo = fav(L ? b.l : b.h); last = b;
     if (lo <= stopR) return { R:booked + rest * stopR, how:stopR >= 0 ? 'BASABAS' : 'STOP', bars:B.indexOf(b) + 1 };
     if (p.partialAt && !partDone && hi >= p.partialAt && p.partialAt < tR) { booked += p.share * p.partialAt; rest -= p.share; partDone = true; if (p.beAfterPartial) beNext = true; }
     if (hi >= tR) return { R:booked + rest * tR, how:'HEDEF', bars:B.indexOf(b) + 1 };
@@ -149,4 +151,30 @@ function replayOne(trade, k5, p) {
 }
 function replayAll(trade, k5) { const out = {}; for (const p of POLICIES) { const r = replayOne(trade, k5, p); if (r) out[p.key] = { R:Number(r.R.toFixed(3)), how:r.how }; } return out; }
 
-module.exports = { AUTOPSY_VERSION, autopsy, entryContext, CAUSE_TR, REPLAY_POLICIES:POLICIES, replayOne, replayAll };
+// R2544.134 KURUL KARNESİ: for every desk decision of a closed trade, what an EXIT at that moment (the 5m close) gave against holding
+// with today's rule (2R half + break-even) to the end, on the same candles. Only the EXIT-like votes are kept: v = exit - hold
+// (positive = exiting was right). "Always hold" is the baseline, so a member adds value only through the exits it calls.
+const RP_EXIT = /EXIT|PARTIAL|HALF/;
+function replayVotes(trade, k5, decisions) {
+  const L = trade.side === 'LONG', e = rpNum(trade.entryPrice), sp = rpNum(trade.stopPct), tp = rpNum(trade.targetPct), t0 = rpNum(trade.openedAt);
+  if (!(e > 0 && sp > 0 && tp > 0 && t0 > 0)) return [];
+  const D = (Array.isArray(decisions) ? decisions : []).filter(d => d && Number.isFinite(rpNum(d.at)) && Array.isArray(d.committee?.votes) && d.committee.votes.some(v => RP_EXIT.test(String(v?.a || '')))).sort((a, b) => a.at - b.at);
+  if (!D.length) return [];
+  const risk = e * sp, fav = px => (L ? px - e : e - px) / risk, tR = tp / sp, B = rpBars(k5).filter(b => b.t + RP_M5 > t0 && b.t < t0 + 24 * RP_H);
+  if (!B.length) return [];
+  let stopR = -1, rest = 1, booked = 0, part = false, beNext = false, final = null, di = 0; const at = [];
+  for (const b of B) {
+    if (beNext) { stopR = Math.max(stopR, 0); beNext = false; }
+    const hi = b.t < t0 ? fav(b.c) : fav(L ? b.h : b.l), lo = fav(L ? b.l : b.h);
+    if (lo <= stopR) { final = booked + rest * stopR; break; }
+    if (!part && hi >= 2 && 2 < tR) { booked += 1; rest = 0.5; part = true; beNext = true; }
+    if (hi >= tR) { final = booked + rest * tR; break; }
+    while (di < D.length && D[di].at < b.t + RP_M5) { at.push({ d:D[di], exitR:booked + rest * fav(b.c) }); di++; }
+  }
+  if (final === null) { const lb = B[B.length - 1]; final = booked + rest * fav(lb.c); }
+  const out = [];
+  for (const x of at) for (const v of x.d.committee.votes) if (v && v.m && RP_EXIT.test(String(v.a || ''))) out.push({ m:String(v.m).slice(0, 120), v:Number((x.exitR - final).toFixed(3)) });
+  return out;
+}
+
+module.exports = { AUTOPSY_VERSION, autopsy, entryContext, CAUSE_TR, REPLAY_POLICIES:POLICIES, replayOne, replayAll, replayVotes };

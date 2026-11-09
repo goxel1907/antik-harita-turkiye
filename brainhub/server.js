@@ -1650,7 +1650,7 @@ const ROUTER_NOT_COMMITTEE=/code|embed|tts|image-gen|imagen|veo|lyria|audio|whis
 // R2544.120: the NVIDIA member that works (Nemotron 3.5 Super VL, 33 ok 03.11) is the first NVIDIA candidate.
 const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash','gemini/gemini-2.5-flash','gemini/gemma-4-31b-it',
   'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
-  'nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/minimaxai/minimax-m3.1-flash','nvidia/moonshotai/kimi-k3','nvidia/google/gemma-4-31b-it','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/z-ai/glm-5.3',
+  'nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/deepseek-ai/deepseek-v4-pro','nvidia/moonshotai/kimi-k2.6','nvidia/z-ai/glm-5.2','nvidia/minimaxai/minimax-m3','nvidia/deepseek-ai/deepseek-v4-flash','nvidia/nemotron-3-ultra-550b-a55b',
   'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
   'github/claude-sonnet-4.6','github/gpt-5.4','github/grok-4.5',
   'requesty/google/gemma-4-31b-it','requesty/meta/muse-glimmer-30b','requesty/nvidia/nemotron-3-ultra-550b-a55b',
@@ -2551,7 +2551,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.133';
+const RUNTIME_RELEASE='R2544.134';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

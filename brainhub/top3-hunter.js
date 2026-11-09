@@ -885,5 +885,19 @@ function commandSummary(lessons, { mode = 'TEST', now = Date.now(), days = 30 } 
   const pos = { recent, bins, exits, avgHoldMin:avg(W.map(x => (Number(x.holdH) || 0) * 60)), avgMfeR:avg(mfe), avgGivebackR:avg(give), sawOneR:give.length };
   return { mode, days, since, all:{ ...stat(W), maxDDR:Number(dd.toFixed(2)) }, last24:stat(W.filter(x => x.closedAt >= now - 86400000)), curve:curve.slice(-200), days14, strategies, desk:{ decisions:deskN, authorized:deskAuth, acts }, pos };
 }
-module.exports = { playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+// R2544.134 KURUL KARNESİ (kullanıcı 09.11: "zayıflamada yerine geçecek, aratmayacak modeller"): per model, its EXIT votes weighed
+// against the moment's truth (trade-autopsy replayVotes). score = half median + half mean without its single biggest vote (clipped to
+// +-2R); a member with >= 8 exit votes, right < 40 % and that robust mean < -0,3R is benched (09.11: gemini-3-flash-preview 13 votes,
+// 31 % right, -1,14R). Fewer than 8 votes = no opinion (score 0, keeps its seat).
+function committeeKarne(lessons, { minExits = 8 } = {}) {
+  const M = {}; for (const l of (Array.isArray(lessons) ? lessons : [])) for (const v of (l?.replay?.votes || [])) { if (!v || !v.m || !Number.isFinite(v.v)) continue; (M[v.m] ||= []).push(v.v); }
+  const clip = x => Math.max(-2, Math.min(2, x)), models = {};
+  for (const [m, vs] of Object.entries(M)) {
+    const n = vs.length, s = [...vs].sort((a, b) => a - b), med = s[Math.floor(n / 2)], big = vs.reduce((bi, q, i) => Math.abs(q) > Math.abs(vs[bi]) ? i : bi, 0);
+    const rob = n > 1 ? vs.filter((_, i) => i !== big).reduce((a, b) => a + b, 0) / (n - 1) : vs[0], right = vs.filter(x => x > 0).length / n, enough = n >= minExits;
+    models[m] = { n, right:Number(right.toFixed(2)), median:Number(med.toFixed(3)), robust:Number(rob.toFixed(3)), score:enough ? Number((0.5 * clip(med) + 0.5 * clip(rob)).toFixed(3)) : 0, bench:enough && right < 0.4 && rob < -0.3 };
+  }
+  return { version:'R2544.134-KARNE', minExits, models, votes:Object.values(M).reduce((a, v) => a + v.length, 0) };
+}
+module.exports = { committeeKarne, playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

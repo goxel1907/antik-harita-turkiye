@@ -78,6 +78,10 @@ function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3
   return out;
 }
 const memberKey = id => String(id || '').replace(/^ROUTER:|^FREE:|^OR:/, '');
+// R2544.134: Google AI Studio daily pools (each Gemini model its own) reset at midnight Pacific (TR 11:00 in winter)
+const DAILY_POOL = /^ROUTER:gemini\//;
+function nextPacificMidnight(t) { try { const p = new Intl.DateTimeFormat('en-US', { timeZone:'America/Los_Angeles', hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' }).formatToParts(new Date(t));
+  const g = k => Number(p.find(x => x.type === k)?.value || 0), sec = (g('hour') % 24) * 3600 + g('minute') * 60 + g('second'); return t - (t % 1000) + (86400 - sec) * 1000; } catch { return t + 86400000; } }
 const avg = (s, n) => n ? Number((s / n).toFixed(3)) : null;
 // a vote is scored only when the outcome (R) is known: TAKE is right when R > 0, SKIP is right when R <= 0.
 // The edge (avg R of its TAKEs - avg R of its SKIPs) is the number that matters: "always SKIP" gets a high hit rate and no edge.
@@ -134,7 +138,24 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   const mark = (id, ok, extra = {}) => { const h = health[id] || { ok:0, fail:0 }, today = dayOf(clock()), same = h.day === today, err = String(extra.error || '');
     health[id] = { ...h, ...extra, lastOk:ok, at:clock(), ok:(h.ok || 0) + (ok ? 1 : 0), fail:(h.fail || 0) + (ok ? 0 : 1), consecutiveFail:ok ? 0 : (h.consecutiveFail || 0) + 1,
       day:today, callsToday:(same ? h.callsToday || 0 : 0) + 1, okToday:(same ? h.okToday || 0 : 0) + (ok ? 1 : 0), msToday:(same ? h.msToday || 0 : 0) + (Number(extra.latencyMs) || 0),
-      quota:ok ? null : quotaOf(err, clock()) || (h.quota || null) }; };
+      quota:ok ? null : quotaOf(err, clock()) || (h.quota || null) };
+    // R2544.134 KOTA UYKUSU + BÜTÇE (09.11: Gemini 4 Argon 367 quota errors in a row, still asked 27 times today): a daily-pool member that
+    // keeps answering "quota" for 3 minutes (a per-minute 429 clears within a minute) sleeps until the pool resets; the answers it gave in
+    // that pool day are remembered as its daily allowance (capSeen) and spread over the next days.
+    if (DAILY_POOL.test(id)) { const r = health[id], qd = nextPacificMidnight(clock()), sameQ = h.qDay === qd;
+      r.qDay = qd; r.okQ = (sameQ ? h.okQ || 0 : 0) + (ok ? 1 : 0);
+      if (ok) { r.quotaSince = null; r.sleepUntil = null; }
+      else if (QUOTA_RE.test(err)) { r.quotaSince = h.quotaSince || clock();
+        if (clock() - r.quotaSince >= 3 * 60000 && r.consecutiveFail >= 3) { r.sleepUntil = qd; r.capSeen = Math.max(h.capSeen || 0, r.okQ); } } } };
+  const sleeping = m => (health[m.id]?.sleepUntil || 0) > clock();
+  // pace: a daily-pool member with a known allowance may use only its share of the pool day so far (+2), so the night keeps voters
+  const paceOk = m => { if (!DAILY_POOL.test(m.id)) return true; const x = health[m.id]; if (!(x?.capSeen > 0)) return true;
+    const qd = nextPacificMidnight(clock()), frac = Math.min(1, Math.max(0, (clock() - (qd - 86400000)) / 86400000)), used = x.qDay === qd ? x.okQ || 0 : 0;
+    return used < x.capSeen * frac + 2; };
+  // R2544.134 KARNE: the desk ranks members by their measured exit calls (top3-hunter committeeKarne); a benched member does not sit
+  let karne = {}; const karneOf = m => karne[memberKey(m.id)] || karne[health[m.id]?.model] || null;
+  const benched = m => karneOf(m)?.bench === true, scoreOf = m => Number(karneOf(m)?.score) || 0;
+  function setRank(k) { karne = k && typeof k.models === 'object' ? k.models : {}; return Object.keys(karne).length; }
   // R2544.90: the timer is cleared when the answer comes (an open timer kept every test process alive ~2 min; deploy runs tests one by one)
   const withTimeout = (p, ms) => { let t; return Promise.race([Promise.resolve(p).finally(() => clearTimeout(t)), new Promise(r => { t = setTimeout(() => r({ ok:false, reason:'COMMITTEE_TIMEOUT' }), ms); })]); };
   // R2544.100: a member that answered "busy" (429, not a monthly quota) is asked again after 10 min instead of waiting for the hourly probe
@@ -144,7 +165,7 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     if (probing) return null;
     // R2544.104 (kullanıcı 02.11: "neden bekliyor, yüzlerce model var"): a member that was never asked (a new candidate that took a dropped
     // model's seat) is asked on the next 5-min tick, not at the next hourly probe -> a dead seat is refilled within minutes
-    const due = force || clock() - lastProbeAt >= probeEveryMs, list = due ? membersNow() : membersNow().filter(m => busyAgain(m) || !health[m.id]);
+    const due = force || clock() - lastProbeAt >= probeEveryMs, list = (due ? membersNow() : membersNow().filter(m => busyAgain(m) || !health[m.id])).filter(m => !sleeping(m)); // R2544.134: a sleeper is not probed
     if (!list.length) return null; probing = true; if (due) lastProbeAt = clock();
     try {
       await Promise.all(list.map(async m => { const t0 = clock(); let r;
@@ -154,15 +175,16 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     } finally { probing = false; }
   }
   // healthy = last probe or last real call ok; never more than 2 consecutive failures
-  function healthy() { return membersNow().filter(m => health[m.id]?.lastOk === true && (health[m.id].consecutiveFail || 0) < 3); }
+  function healthy() { return membersNow().filter(m => health[m.id]?.lastOk === true && (health[m.id].consecutiveFail || 0) < 3 && !sleeping(m)); }
   // up to `size` members from different families first (diversity), then fill
   // R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): `prefer` (the members that can SEE the chart)
   // sit first, spread over providers round-robin; the rest of the seats keep the old one-family-at-a-time spread. n = this decision's team size.
   function pick(n = size) {
-    const h = healthy(), out = [], fams = new Set(), byProv = new Map();
+    const h = healthy().filter(m => !benched(m) && paceOk(m)), out = [], fams = new Set(), byProv = new Map();
     // R2544.117 (03.11 06:00 Gemini günlük kotası bitti, kurul 1/15): inside every provider the member used least TODAY sits first
+    // R2544.134: the measured karne first (better exit calls sit first), then the least used today
     const day = dayOf(clock()), used = m => { const x = health[m.id]; return x && x.day === day ? x.callsToday || 0 : 0; };
-    h.sort((a, b) => used(a) - used(b));
+    h.sort((a, b) => (scoreOf(b) - scoreOf(a)) || (used(a) - used(b)));
     if (typeof prefer === 'function') {
       const pv = new Map(); for (const m of h) { let ok = false; try { ok = prefer(m.id) === true; } catch {} if (!ok) continue; const p = provider(m.id); if (!pv.has(p)) pv.set(p, []); pv.get(p).push(m); }
       let more = true; while (out.length < n && more) { more = false; for (const list of pv.values()) { if (!list.length) continue; const m = list.shift(); out.push(m); fams.add(family(m.id)); more = true; if (out.length >= n) break; } }
@@ -191,7 +213,7 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   // R2544.131 quick: one round with the n fastest healthy members (measured time today), callTimeoutMs each; the caller reads the votes
   function pickFast(n) {
     const lat = m => { const x = health[m.id] || {}; return x.callsToday ? (x.msToday || 0) / x.callsToday : (Number(x.latencyMs) || 1e9); };
-    return healthy().sort((a, b) => lat(a) - lat(b)).slice(0, n);
+    return healthy().filter(m => !benched(m)).sort((a, b) => lat(a) - lat(b)).slice(0, n);
   }
   async function quick({ system, prompt, validate, parse, size:n = 3, callTimeoutMs = 8000 }) {
     const team = pickFast(n); if (!team.length) return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] };
@@ -240,7 +262,7 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   }
   // R2544.103: compare by id - the members function builds new objects on every call, so includes(m) was always false and Office showed
   // every model as sick since R2544.92 (the committee itself picked healthy members correctly)
-  function status() { const ok = new Set(healthy().map(m => m.id)); return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:ok.has(m.id) })), team:pick().map(m => m.id), lastProbeAt }; }
-  return { probe, healthy, pick, decide, quick, status, assignSeats };
+  function status() { const ok = new Set(healthy().map(m => m.id)); return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:ok.has(m.id) })), team:pick().map(m => m.id), lastProbeAt, karne:{ models:Object.keys(karne).length, benched:Object.entries(karne).filter(([, v]) => v?.bench).map(([k]) => k) } }; }
+  return { probe, healthy, pick, decide, quick, status, assignSeats, setRank };
 }
-module.exports = { COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone, unusableWhy, PROVIDER_CAP };
+module.exports = { nextPacificMidnight, DAILY_POOL, COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone, unusableWhy, PROVIDER_CAP };

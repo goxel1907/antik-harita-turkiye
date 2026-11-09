@@ -35,7 +35,7 @@ test('R2544.132 playbook: a rule is recommended only when better in both halves,
 });
 test('R2544.132 wiring: old lessons are replayed in the autopsy pass (6 a pass, 24 h after the open); the recall carries plan / best rule; Office shows the playbook',()=>{
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8'),tb=fs.readFileSync(path.join(__dirname,'..','trader-brain.js'),'utf8'),h=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  assert.match(lc,/now>=l\.openedAt\+DAYMS\+10\*60000/);assert.match(lc,/\.filter\(rpDue\)\.sort\(\(a,b\)=>a\.openedAt-b\.openedAt\)\.slice\(0,6\)/);assert.match(lc,/l\.replay=\{version:'R2544\.132-REPLAY',at:now,R:rr\}/);
+  assert.match(lc,/now>=l\.openedAt\+DAYMS\+10\*60000/);assert.match(lc,/\.filter\(rpDue\)\.sort\(\(a,b\)=>a\.openedAt-b\.openedAt\)\.slice\(0,6\)/);assert.match(lc,/l\.replay=\{version:RP_VERSION,at:now,R:rr,votes:AUTOPSY\.replayVotes\(tr,k,l\.desk\?\.decisions\|\|\[\]\)\}/);
   assert.match(lc,/playbook:\(\(\)=>\{try\{return top3Lib\.playbook\(/);assert.match(tb,/left to the plan/);assert.match(tb,/best management/);
   assert.match(h,/📘 OYUN KİTABI/);assert.match(h,/function pbHtml\(pb\)/);assert.match(h,/hiçbir kural kurtarmazdı/);
 });

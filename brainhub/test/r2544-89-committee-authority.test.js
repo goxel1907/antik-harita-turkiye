@@ -368,6 +368,6 @@ test('R2544.132 the core replays an OLD lesson (TEST data is not wasted): 24 h a
   f.state.k15.OLDUSDT=B;
   f.controller._testTop3State().lessons.push({id:'old-1',mode:'TEST',rule:'SHORT_TOP_BREAK',symbol:'OLDUSDT',side:'LONG',entryPrice:100,stopPct:0.01,targetPct:0.03,openedAt:t0,closedAt:t0+3600000,rMultiple:-1});
   for(let i=0;i<3&&!f.controller._testTop3State().lessons.find(l=>l.id==='old-1').replay;i++){f.state.now+=31000;await f.controller.top3Tick();}
-  const l=f.controller._testTop3State().lessons.find(x=>x.id==='old-1');assert.ok(l.replay,'replayed');assert.equal(l.replay.version,'R2544.132-REPLAY');
+  const l=f.controller._testTop3State().lessons.find(x=>x.id==='old-1');assert.ok(l.replay,'replayed');assert.equal(l.replay.version,'R2544.134-REPLAY');
   assert.deepEqual(Object.keys(l.replay.R).sort(),['BE1','KK1','KK2','PLAN','T15','Z4','Z8']);assert.ok(f.controller.top3Status().playbook.replayed>=1);
 });

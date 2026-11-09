@@ -18,9 +18,9 @@ test('R2544.96 gone = 410 / [404] model errors from the real 27.10 health file; 
 });
 test('R2544.96 today\'s models first, a gone model gives its seat to the next, still 3 per provider; the committee tells the members function which are gone',async()=>{
   const ids=['nvidia/minimaxai/minimax-m2.7','nvidia/z-ai/glm-5.2','nvidia/moonshotai/kimi-k2.6','groq/llama-3.3-70b-versatile','groq/qwen/qwen3-32b','gemini/gemini-3.8-flash','gemini/gemini-3.7-flash','gemini/gemini-3.6-flash'];
-  const out=MC.pickRouterExtras(ids,{strong:STRONG,perProvider:3,max:12,candidates:CAND,gone:id=>id==='ROUTER:nvidia/moonshotai/kimi-k3',caps:{ollama:1}});
+  const out=MC.pickRouterExtras(ids,{strong:STRONG,perProvider:3,max:12,candidates:CAND,gone:id=>id==='ROUTER:nvidia/deepseek-ai/deepseek-v4-pro',caps:{ollama:1}});
   const by=p=>out.filter(m=>m.startsWith(p+'/'));
-  assert.deepEqual(by('nvidia'),['nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/minimaxai/minimax-m3.1-flash','nvidia/google/gemma-4-31b-it'],'gone Kimi K3 skipped, the 4th candidate takes the seat (R2544.112 list; R2544.120 the working Nemotron VL first)');
+  assert.deepEqual(by('nvidia'),['nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/moonshotai/kimi-k2.6','nvidia/z-ai/glm-5.2'],'gone DeepSeek V4 Pro skipped, the next candidate takes the seat (R2544.134 connected NVIDIA ids; R2544.120 the working Nemotron VL first)');
   assert.deepEqual(by('groq'),['groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b']);
   assert.deepEqual(by('gemini'),['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash'],'Gemini 3.7 / 3.8 (free quota 0) are not taken');
   assert.equal(new Set(out).size,out.length,'no duplicates');

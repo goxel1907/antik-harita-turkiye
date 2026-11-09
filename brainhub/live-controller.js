@@ -6738,14 +6738,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // R2544.132 BEYİN v2: every lesson (the old TEST ones too) is replayed once on its own 5m candles (24 h after the open) under each
       // management rule; up to 6 per pass, 3 tries each. Information for the playbook, the recall and Office - nothing changes by itself.
       let replayed=0;
-      const rpDue=l=>l&&!l.replay&&(l.replayTries||0)<3&&finite(l.openedAt)&&finite(l.entryPrice)>0&&finite(l.stopPct)>0&&finite(l.targetPct)>0&&now>=l.openedAt+DAYMS+10*60000;
+      deskKarneApply(); // R2544.134: the desk seats follow the measured karne (refreshed on every pass, cheap)
+      // R2544.134: a lesson replayed by R2544.132 (no entry bar, no vote truths) is replayed once more (3 tries)
+      const rpDue=l=>l&&l.replay?.version!==RP_VERSION&&(l.rpTries134||0)<3&&finite(l.openedAt)&&finite(l.entryPrice)>0&&finite(l.stopPct)>0&&finite(l.targetPct)>0&&now>=l.openedAt+DAYMS+10*60000;
       for(const l of [...(top3State.lessons||[]),...(z.lessons||[])].filter(rpDue).sort((a,b)=>a.openedAt-b.openedAt).slice(0,6)){
-        l.replayTries=(l.replayTries||0)+1;
-        try{const k=await k5Window(l.symbol,Math.floor(l.openedAt/top3Lib.M5)*top3Lib.M5,l.openedAt+DAYMS+top3Lib.M5);
-          const rr=AUTOPSY.replayAll({side:l.side,entryPrice:l.entryPrice,stopPct:l.stopPct,targetPct:l.targetPct,openedAt:l.openedAt},k);
-          if(rr.PLAN&&rr.KK2){l.replay={version:'R2544.132-REPLAY',at:now,R:rr};replayed++;}}catch{}
+        l.rpTries134=(l.rpTries134||0)+1;
+        try{const k=await k5Window(l.symbol,Math.floor(l.openedAt/top3Lib.M5)*top3Lib.M5,l.openedAt+DAYMS+top3Lib.M5),tr={side:l.side,entryPrice:l.entryPrice,stopPct:l.stopPct,targetPct:l.targetPct,openedAt:l.openedAt};
+          const rr=AUTOPSY.replayAll(tr,k);
+          if(rr.PLAN&&rr.KK2){l.replay={version:RP_VERSION,at:now,R:rr,votes:AUTOPSY.replayVotes(tr,k,l.desk?.decisions||[])};replayed++;}}catch{}
       }
-      if(replayed)saveTop3State();
+      if(replayed){saveTop3State();deskKarneApply();}
       const pool=[...(top3State.lessons||[]),...(z.lessons||[])].filter(due).sort((a,b)=>a.closedAt-b.closedAt).slice(0,2);
       if(!pool.length)return replayed?{replayed}:null;
       for(const l of pool){
@@ -6802,6 +6804,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});const r=DESK.rows(k).filter(x=>x.t<=clock());r.raw=Array.isArray(k)?k:[];return r;}catch{const r=[];r.raw=[];return r;}}
   const deskJudge=(packet,mode,cfg)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats()});
+  // R2544.134 KURUL KARNESİ: measured from the replayed lessons, handed to the desk committee (seat order, bench)
+  const RP_VERSION='R2544.134-REPLAY';let deskKarne=null;
+  function deskKarneApply(){try{const K=top3Lib.committeeKarne([...(top3State.lessons||[]),...((z5State()||{}).lessons||[])]);deskKarne=K;if(typeof deskJudges?.committee?.setRank==='function')deskJudges.committee.setRank(K);return K;}catch{return null;}}
   // R2544.130 (09.11 ölçüm: karar -> borsa emri ortanca 19 sn, en çok 34 sn = sıradaki 30 sn'lik tur): a fresh desk order is carried out at once
   // (the lane manager runs now; when a tick is already running it is retried every second, at most 30 s)
   function kickDeskOrders(n=0){if(!Object.values(top3State.active||{}).some(a=>a&&a.deskOrder))return;
@@ -6861,7 +6866,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function deskStatus(){const cfg=DESK.readConfig(root),st=deskStats(),z=z5State();
     let authTop3=false,authZ5=false;try{authTop3=top3Lib.readTop3Config(root).committeeMode===true;}catch{}try{authZ5=z5Lib.readConfig(root).committeeMode===true;}catch{}
     return {version:DESK.DESK_VERSION,enabled:cfg.enabled,shadow:!(authTop3||authZ5),authority:authTop3||authZ5,authorityByLane:{TOP3:authTop3,ZIRVE5:authZ5},guard:{...DESK_GUARD},cadenceMin:cfg.cadenceMin,cmRecent:(top3State.cmRecent||[]).slice(0,10),judges:{TEST:cfg.testJudges,LIVE:cfg.liveJudges},
-      committee:typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null,exam:typeof deskJudges?.examStatus==='function'?deskJudges.examStatus():null,freeWired:!!deskJudges?.free,routerWired:!!deskJudges?.router,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
+      committee:typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null,karne:deskKarne, // R2544.134exam:typeof deskJudges?.examStatus==='function'?deskJudges.examStatus():null,freeWired:!!deskJudges?.free,routerWired:!!deskJudges?.router,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
       comparison:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))]),
       cmBoard:(()=>{try{const cs=typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null;if(!cs)return null; // R2544.94 model karnesi + kalan limit
         const ex=typeof deskJudges?.examScoreInput==='function'?deskJudges.examScoreInput():{};
