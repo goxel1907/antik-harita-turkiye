@@ -33,3 +33,9 @@ test('R2544.138 the desk packet carries 5m/15m/1h AND 4h/1d readings, funding, t
     chart:{m5:null,m15:{},h1:{},h4:{},d1:{}},micro:{available:false},funding:{rate8hPct:-0.1},dataCheck:{frames:{h4:true}}});
   assert.deepEqual(p.market.funding,{rate8hPct:-0.1});assert.deepEqual(p.market.microstructure,{available:false});assert.ok(p.market.chartReading.h4&&p.market.chartReading.d1);assert.deepEqual(p.dataCheck,{frames:{h4:true}});
 });
+test('R2544.138 open-source registry review (09.11): 31 repos alive, none archived; two license records corrected from GitHub',()=>{
+  const kr=fs.readFileSync(path.join(__dirname,'..','knowledge-research.js'),'utf8');
+  assert.match(kr,/repo:'crisari666\/liquidity-scanner',[^\n]*license:'MIT',licenseCheckedAt:'2026-11-09'/);
+  assert.match(kr,/repo:'minchillo4\/btc-liquidation-heatmap',[^\n]*license:'NONE_DETECTED',licenseCheckedAt:'2026-11-09'/);
+  assert.ok(!/UNVERIFIED_CURRENT/.test(kr));
+});
