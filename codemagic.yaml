@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.132-r2544.129-jevkurul + KAR/ZARAR + BEYIN + JEV+KURUL CANLI + v9.5.129-r2544.89-kurul + MODEL KURULU + KURULLA CANLI + MARJ/KALDIRAC + BAKIYE + CANLI OTOMATIK YENILEME + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
+    name: Futures 15m Alarm PRO APK v9.5.133-r2544.135-kaldirac + DURDUR TEST=CANLI + KALDIRAC 10-20x + v9.5.132-r2544.129-jevkurul + KAR/ZARAR + BEYIN + JEV+KURUL CANLI + v9.5.129-r2544.89-kurul + MODEL KURULU + KURULLA CANLI + MARJ/KALDIRAC + BAKIYE + CANLI OTOMATIK YENILEME + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -665,6 +665,16 @@ workflows:
             exit 1
           fi
           echo V95140_R2544_129_JEVKURUL_OK
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95141_r2544_135_kaldirac.py"
+          grep -q V95141_R2544_135_KALDIRAC /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'static String v95141Lev(JSONObject x)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/V95113PcTruth.java
+          grep -q "versionName '9.5.133-r2544.135-kaldirac'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q 'versionCode 26110901' /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'post(c, "/live/execute", intent, true)\|post(c, "/live/burst"' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_135_ANDROID_ORDER_INITIATION_FORBIDDEN'
+            exit 1
+          fi
+          echo V95141_R2544_135_KALDIRAC_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
