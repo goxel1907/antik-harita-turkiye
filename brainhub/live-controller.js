@@ -6844,7 +6844,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       let sn=null;try{sn=ms.snapshot(a.symbol,now);}catch{}const micro=DESK.microOf(sn,Rf);
       const last5=k5.length?k5.at(-1):null,dataCheck={asOf:now,k5LastOpenAgeSec:last5?Math.round((now-last5.t)/1000):null,
         markVsStreamBps:finite(sn?.markPrice)&&pickMark?Number(((pickMark/sn.markPrice-1)*10000).toFixed(2)):null,
-        frames:{m5:!!chart.m5,m15:!!chart.m15,h1:!!chart.h1,h4:!!chart.h4,d1:!!chart.d1},funding:!!funding,orderBook:micro.available===true};
+        frames:{m5:!!chart.m5,m15:!!chart.m15,h1:!!chart.h1,h4:!!chart.h4,d1:!!chart.d1},funding:!!funding,orderBook:micro.available===true,...(micro.available===true?{}:{orderBookReason:String(micro.reason||'').slice(0,60)})}; // R2544.139: why the stream was not ready
       const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15).slice(-30),k1h:closed(k1h).slice(-30),btc5:btc,oi,why:top3Why(a),now,lane,chart,micro,funding,dataCheck});
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
       // R2544.127 JEV + KURUL: JEV decides first; when JEV cannot answer (credit, error) the committee decides - the same order in TEST and LIVE

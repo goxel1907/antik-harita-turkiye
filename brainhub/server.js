@@ -1669,14 +1669,16 @@ setInterval(()=>refreshNvidiaLive().catch(()=>{}),6*3600*1000).unref?.();
 // No daily pool -> the desk keeps 5 voters when the Gemini pools are empty. Measured 09.11 with a desk-size prompt: OVH Llama-3.3-70B 1,9 s,
 // OVH gpt-oss-120b 20 s, Kilo Nemotron nano-omni 20 s, Kilo Nemotron ultra 27 s (OVH Qwen3.5-397B > 120 s: left out). Text screen only.
 const DIRECT_FREE=[
-  {id:'OVH:gpt-oss-120b',base:'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',model:'gpt-oss-120b',maxTokens:3000},
+  // R2544.139 (09.11 15:46 first full desk: 12 of 18 seats timed out at 60 s; measured with the real 18 kB desk prompt: gpt-oss 60 s ->
+  // 14 s with reasoning_effort low; Kilo Nemotron ultra > 150 s -> 7 s with reasoning off; Kilo super-vl ran out of tokens while thinking)
+  {id:'OVH:gpt-oss-120b',base:'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',model:'gpt-oss-120b',maxTokens:3000,extra:{reasoning_effort:'low'}},
   {id:'OVH:Meta-Llama-3_3-70B-Instruct',base:'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',model:'Meta-Llama-3_3-70B-Instruct',maxTokens:1500},
   {id:'KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',maxTokens:3000},
-  {id:'KILO:nvidia/nemotron-3-ultra-550b-a55b:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3-ultra-550b-a55b:free',maxTokens:3000},
-  {id:'KILO:nvidia/nemotron-3.5-super-vl:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3.5-super-vl:free',maxTokens:3000}];
+  {id:'KILO:nvidia/nemotron-3-ultra-550b-a55b:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3-ultra-550b-a55b:free',maxTokens:3000,extra:{reasoning:{enabled:false}}},
+  {id:'KILO:nvidia/nemotron-3.5-super-vl:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3.5-super-vl:free',maxTokens:3000,extra:{reasoning:{enabled:false}}}];
 async function directAsk(d,{system,prompt}={},fetchImpl=fetch){
   try{const r=await fetchImpl(d.base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(110000),
-      body:JSON.stringify({model:d.model,max_tokens:d.maxTokens,temperature:0.2,messages:[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}]})});
+      body:JSON.stringify({...(d.extra||{}),model:d.model,max_tokens:d.maxTokens,temperature:0.2,messages:[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}]})});
     const t=await r.text();if(!r.ok)return {ok:false,reason:('HTTP '+r.status+' '+t).slice(0,160),model:d.model};
     let j=null;try{j=JSON.parse(t);}catch{}const text=String(j?.choices?.[0]?.message?.content||'').trim();
     return text?{ok:true,text,model:d.model,img:false,compact:false}:{ok:false,reason:'EMPTY_ANSWER '+String(j?.choices?.[0]?.finish_reason||''),model:d.model};
@@ -2578,7 +2580,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.138';
+const RUNTIME_RELEASE='R2544.139';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
