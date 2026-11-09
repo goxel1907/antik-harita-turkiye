@@ -77,7 +77,7 @@ function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3
   }
   return out;
 }
-const memberKey = id => String(id || '').replace(/^ROUTER:|^FREE:|^OR:/, '');
+const memberKey = id => String(id || '').replace(/^ROUTER:|^FREE:|^OR:|^OVH:|^KILO:/, ''); // R2544.136: keyless seats share the karne of the same model
 // R2544.134: Google AI Studio daily pools (each Gemini model its own) reset at midnight Pacific (TR 11:00 in winter)
 const DAILY_POOL = /^ROUTER:gemini\//;
 function nextPacificMidnight(t) { try { const p = new Intl.DateTimeFormat('en-US', { timeZone:'America/Los_Angeles', hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' }).formatToParts(new Date(t));

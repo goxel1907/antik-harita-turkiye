@@ -45,9 +45,9 @@ test('R2544.134 quota sleep: a Gemini member answering "quota" for 3 minutes sle
   assert.ok(!c.pick(2).some(m=>m.id==='ROUTER:gemini/x'),'over its hourly share: the seat goes to another member');
   assert.equal(MC.nextPacificMidnight(Date.UTC(2026,6,9,9,0,0)),Date.UTC(2026,6,10,7,0,0),'summer (PDT) = 07:00 UTC');
 });
-test('R2544.134 wiring: replays carry vote truths, the karne reaches the desk committee, the NVIDIA seats use the connected ids',()=>{
+test('R2544.134 wiring: replays carry vote truths, the karne reaches the desk committee (NVIDIA ids: R2544.136 live list)',()=>{
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8'),sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.match(lc,/deskJudges\.committee\.setRank\(K\)/);assert.match(lc,/karne:deskKarne/);assert.match(lc,/l\.replay\?\.version!==RP_VERSION&&\(l\.rpTries134\|\|0\)<3/);
-  for(const id of ['nvidia/deepseek-ai/deepseek-v4-pro','nvidia/moonshotai/kimi-k2.6','nvidia/z-ai/glm-5.2'])assert.ok(sv.includes(`'${id}'`));
-  assert.ok(!sv.includes("'nvidia/moonshotai/kimi-k3'"));
+  for(const id of ['nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/minimaxai/minimax-m3.1-flash','nvidia/mistralai/mistral-large-4-1t-a52b'])assert.ok(sv.includes(`'${id}'`));
+  for(const gone of ['nvidia/deepseek-ai/deepseek-v4-pro','nvidia/z-ai/glm-5.2','nvidia/minimaxai/minimax-m3'])assert.ok(!sv.includes(`'${gone}'`),gone+' was removed by NVIDIA (410)');
 });
