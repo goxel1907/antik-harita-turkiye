@@ -14,6 +14,6 @@ test('R2544.130 a 2/3 first-round majority decides at once (no debate round); a 
 });
 test('R2544.130 wiring: desk committee 60 s per member + 2/3 skip; the reason text and Office know STRONG_MAJORITY; a fresh desk order runs at once',()=>{
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8'),pd=fs.readFileSync(path.join(__dirname,'..','position-desk.js'),'utf8'),lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8'),h=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
-  assert.match(sv,/createCommittee\(\{size:5,timeoutMs:60000,debateSkipShare:2\/3,/);assert.match(pd,/r\.consensus === 'STRONG_MAJORITY' \? 'güçlü çoğunluk \(tartışmasız\): '/);assert.match(h,/STRONG_MAJORITY:'GÜÇLÜ ÇOĞUNLUK'/);
+  assert.match(sv,/createCommittee\(\{size:DESK_ALL,timeoutMs:60000,debateSkipShare:2\/3,/);assert.match(pd,/r\.consensus === 'STRONG_MAJORITY' \? 'güçlü çoğunluk \(tartışmasız\): '/);assert.match(h,/STRONG_MAJORITY:'GÜÇLÜ ÇOĞUNLUK'/);
   assert.match(lc,/async function positionDeskTick\(\)\{const r=await positionDeskLook\(\);if\(r&&r\.freshOrder\)\{if\(!top3Busy\)\{try\{await top3Settle\(\);\}catch\{\}\}else kickDeskOrders\(\);\}return r;\}/);
 });

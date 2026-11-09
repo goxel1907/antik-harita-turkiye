@@ -15,7 +15,7 @@ test('R2544.117 the desk looks less often (quota): first look 30 min, then every
   const c=DESK.readConfig('C:/__none__');assert.equal(c.cadenceMin,30);assert.equal(c.firstAfterMin,30);assert.equal(c.moveTriggerR,0.8);
 });
 test('R2544.117 entry learning vote 5 seats; a re-entry on the same coin is a warning; one price retry',()=>{
-  assert.match(lc,/const ENTRY_TEAM=5;/);
+  assert.match(lc,/const ENTRY_TEAM=99;/);
   assert.match(lc,/const flags=\[\.\.\.\(cd\?\[\{code:cd\}\]:\[\]\),/);assert.doesNotMatch(lc,/if\(cd\)\{res\.reason=cd;continue;\}/);
   assert.match(lc,/await new Promise\(r=>setTimeout\(r,1500\)\);try\{px=await paperPrice\(symbol\);\}catch\{px=null;\}\} \/\/ R2544\.117/);
 });

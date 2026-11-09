@@ -6909,7 +6909,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(be>0)out.push(`at +${be}R the stop moves to entry (a later return to entry closes at about 0R)`);
     if(p?.enabled)out.push(`${Math.round((p.share??0.5)*100)}% is closed at +${p.atR}R and the rest moves to break-even`);
     out.push('the rest runs to the target',`exit after ${hold} h at the latest`);return out.join('; ');}catch{return null;}}
-  const ENTRY_TEAM=5; // R2544.117: 9 -> 5 (03.11 06:00 Gemini günlük kotası bitti, kurul 1/15; giriş oyu artık engellemiyor, öğrenme için) | R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): 9 seats at the entry, image models first
+  const ENTRY_TEAM=99; // R2544.137 (kullanıcı 09.11: "hedef koyma, ne kadar çok model oturacaksa otursun"): every healthy member; the entry vote never blocks
+  // (old:  // R2544.117: 9 -> 5 (03.11 06:00 Gemini günlük kotası bitti, kurul 1/15; giriş oyu artık engellemiyor, öğrenme için) | R2544.115 (kullanıcı 02.11: "resim kabul eden bütün modelleri bu iş için görevlendir"): 9 seats at the entry, image models first
   // R2544.131 (kullanıcı 09.11: "kaldıraç min 10x, üstünü kurul güvene göre belirleyecek; JEV açıkken JEV + kurul, son söz JEV; işlemlerde
   // gecikme istemiyorum"): the fastest healthy committee members get the entry screen (compact) and choose 10..20x; at most LEV_VOTE_MS,
   // one round, a time-out never makes a member sick. No answer -> null (the lane's setting, never below 10x). It runs alongside JEV.

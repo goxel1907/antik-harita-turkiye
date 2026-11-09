@@ -215,7 +215,7 @@ async function judge({ packet, mode, cfg, judges, stats }) {
         const stops = all.filter(v => v.vote.action === 'TIGHTEN_STOP').map(v => v.vote.stopChoice), order = ['BREAKEVEN', 'LAST_5M_SWING', 'LOCK_1R'];
         const stopChoice = fin === 'TIGHTEN_STOP' ? (order.find(k => stops.includes(k)) || 'KEEP') : 'KEEP'; // the least aggressive tightening that was voted
         const short = m => String(m || '').replace(/^ROUTER:|^FREE:|^OR:/, '');
-        const votes = (r.round2 || r.votes || []).map(v => ({ m:short(v.member), a:v.vote?.action || 'ERR', s:v.seat || null, ...(v.reserveFor ? { r:short(v.reserveFor) } : {}) }));
+        const votes = (r.round2 || r.votes || []).map(v => ({ m:short(v.member), a:v.vote?.action || 'ERR', s:v.seat || null, ...(v.reserveFor ? { r:short(v.reserveFor) } : {}), img:v.img === true, ...(v.compact ? { compact:true } : {}), ...(v.imgError ? { imgError:String(v.imgError).slice(0, 80) } : {}) })); // R2544.137: chart seen?
         const replaced = (r.replaced || []).map(x => ({ m:short(x.member), by:short(x.by), s:x.seat || null })); // R2544.122: which empty seat a reserve took
         return { ok:true, judge:'COMMITTEE', model:votes.map(v => v.m).join(' + '), d:{ ok:true, action:fin, stopChoice, reason:pickV?.reason || 'NO_EDGE', confidence:null,
           reasonTr:(r.consensus === 'UNANIMOUS' ? 'oybirliği: ' : r.consensus === 'STRONG_MAJORITY' ? 'güçlü çoğunluk (tartışmasız): ' : r.consensus === 'MAJORITY_AFTER_DEBATE' ? 'tartışma sonrası çoğunluk: ' : reduceAgreed ? `çoğunluk riski azaltmak istedi (${red.length}/${finalV.length}) → en yumuşağı: ` : r.consensus === 'SINGLE_VOTER_DEFAULT' ? 'tek oy, yetki yok → TUT: ' : 'çoğunluk yok → TUT: ') + (pickV?.reasonTr || ''), watchTr:pickV?.watchTr || '' },

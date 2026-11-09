@@ -120,9 +120,9 @@ test('R2544.115 "resim kabul eden bütün modelleri görevlendir": image models 
   const r=await c.decide({system:'S',prompt:'P',validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',size:9});
   assert.equal(r.votes.length,9);assert.equal(r.votes.slice(0,8).filter(v=>vis.has(v.member)).length,8,'all 8 image models at the entry, then the next one');
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
-  assert.match(lc,/const ENTRY_TEAM=5;/); // R2544.117 quotaassert.equal((lc.match(/roles:TB\.ENTRY_ROLES,size:ENTRY_TEAM\}\)/g)||[]).length,2,'gate + shadow');
+  assert.match(lc,/const ENTRY_TEAM=99;/); // R2544.117 quotaassert.equal((lc.match(/roles:TB\.ENTRY_ROLES,size:ENTRY_TEAM\}\)/g)||[]).length,2,'gate + shadow');
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
-  assert.match(sv,/const deskCommittee=createCommittee\(\{size:5,timeoutMs:60000,debateSkipShare:2\/3,prefer:memberSeesCharts\(deskFreeWorker\)/);
+  assert.match(sv,/const deskCommittee=createCommittee\(\{size:DESK_ALL,timeoutMs:60000,debateSkipShare:2\/3,prefer:memberSeesCharts\(deskFreeWorker\)/);
   assert.match(sv,/const routerCall=m=>a=>routerAsk\(m,a\);/,'the REAL members go through routerAsk (images / compact)');
   assert.match(sv,/return ord\.map\(m=>\(\{id:'ROUTER:'\+m,call:a=>routerAsk\(m,a\)\}\)\);/);
 });
