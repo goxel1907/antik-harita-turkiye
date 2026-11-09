@@ -20,7 +20,7 @@ test('R2544.87 seats: every member gets its own timeframe seat in round 1 and ke
 test('R2544.87 wiring: Gemini first, 4 seats, live TEST lots get a SHADOW committee entry decision from candles closed before the entry; Office shows it',()=>{
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.match(sv,/const TRADER_ROUTER_ORDER=\['gc\/gemini-3\.1-pro-preview','kr\/claude-sonnet-4\.5','kr\/deepseek-3\.2','kr\/glm-5','kr\/minimax-m2\.5'/);
-  assert.match(sv,/const deskCommittee=createCommittee\(\{size:5,/);assert.match(sv,/const examCommittee=createCommittee\(\{size:5,prefer:memberSeesCharts\(examFreeWorker\),/); // R2544.115: exam 5 members, image models first // R2544.88: 5 seats
+  assert.match(sv,/const deskCommittee=createCommittee\(\{size:DESK_ALL,/);assert.match(sv,/const examCommittee=createCommittee\(\{size:5,prefer:memberSeesCharts\(examFreeWorker\),/); // R2544.115: exam 5 members, image models first // R2544.88: 5 seats
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8'),i=lc.indexOf('async function entryCommitteeShadow('),b=lc.slice(i,lc.indexOf('\n  // R2544.89 kurul kap',i)); // R2544.89: the gate and the desk executor follow
   assert.ok(i>0);assert.match(b,/end=t-1/);assert.match(b,/roles:TB\.ENTRY_ROLES/);assert.match(b,/shadow:true/);
   assert.doesNotMatch(b,/placeAlgo|placeRunnerStop|top3CloseMarket|top3Open\(|cancel/,'never trades');
