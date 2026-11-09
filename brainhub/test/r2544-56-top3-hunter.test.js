@@ -239,7 +239,7 @@ test('R56 Office: switch route forwards only the three switches; card, labels an
   assert.ok(html.includes("laneAction({top3:true,confirm:'LIVE'}"),'R2544.57: İlk 3 goes LIVE as a lane (double press + LIVE)');assert.ok(html.includes("TOP3_HUNTER:'İLK 3 AVCISI'"));assert.ok(html.includes("BRAINHUB_TOP3"));
   const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.ok(server.includes('top3Judge:jev.sovereignTop3Gate'));assert.ok(server.includes("u.pathname==='/live/top3'"));assert.ok(server.includes('live.top3Tick()'));
-  assert.ok(server.includes("const RUNTIME_RELEASE='R2544.132'"));
+  assert.ok(server.includes("const RUNTIME_RELEASE='R2544.133'"));
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.ok(lc.includes("'BRAINHUB_TOP3'")&&lc.includes("'BRAINHUB_ZIRVE5'"));assert.ok(lc.includes('!activeTop3For(p.symbol)'),'core position review skips top3 lots');
   assert.ok(fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').includes('sovereignBurstExit,sovereignTop3Gate,'));
@@ -422,18 +422,19 @@ test('R57 lesson labels: SYSTEM_CLOSE is cut short (not a stop); legacy deploy-S
   assert.equal(T3.repairLessons([legacy('L','LONG',0.3,0.08,0)]).lessons[0].exitType,'TOP3_EXTERNAL_CLOSE','alone (no other close within 5 s) = closed outside the lane');
 });
 
-test('R57 STOP in TEST: the İlk 3 lot is booked as SYSTEM_CLOSE with its real exit fill; a manual close is EXTERNAL_CLOSE; the state file is repaired on load',async()=>{
+test('R57 a TEST reset closes the İlk 3 lot (STOP keeps it, R2544.133): booked as SYSTEM_CLOSE with its real exit fill; a manual close is EXTERNAL_CLOSE; the state file is repaired on load',async()=>{
   require('../binance-rate-limit').resetForTests();
   const f=fixture({top3:{enabled:true}});
   f.seed({[HOUR0-H-50*H]:{SIGUSDT:5}});f.state.tick.SIGUSDT=40;f.state.px.SIGUSDT={bid:1.40,ask:1.401};f.state.klines.SIGUSDT=e=>candles(e,721,LONG_TAIL);
   await startTest(f);atScan(f);
   assert.equal((await f.controller.top3Tick()).entries,1);
   f.state.px.SIGUSDT={bid:1.50,ask:1.501};f.state.now+=20*60000;
-  const s=await f.controller.runControl({action:'STOP'});assert.equal(s.ok,true);assert.equal(s.paperClosed,1);
-  f.state.now+=30000;await f.controller.top3Tick();
-  const closed=f.kinds('TOP3_CLOSED')[0].p;assert.equal(closed.exitReason,'TOP3_SYSTEM_CLOSE');assert.equal(closed.systemClose.reason,'USER_STOP');
+  const s=await f.controller.runControl({action:'STOP'});assert.equal(s.ok,true);assert.equal(s.paperClosed,0);assert.equal(f.kinds('TOP3_CLOSED').length,0,'STOP does not close it');
+  const rs=await f.controller.runControl({action:'RESET_TEST'});assert.equal(rs.ok,true,JSON.stringify(rs.reasons));
+  for(let i=0;i<20&&!f.kinds('TOP3_LESSON').length;i++){f.state.now+=30000;await f.controller.testSupervisorTick();await f.controller.top3Tick();}
+  const closed=f.kinds('TOP3_CLOSED')[0].p;assert.equal(closed.exitReason,'TOP3_SYSTEM_CLOSE');assert.equal(closed.systemClose.reason,'TEST_RESET');
   assert.ok(Math.abs(closed.exitPrice-1.50)<1e-9,'exit = the paper close fill');
-  const rec=f.kinds('POSITION_CLOSED').map(e=>e.p).find(p=>p.tradeLane==='TOP3_HUNTER');assert.equal(rec.exitType,'TOP3_SYSTEM_CLOSE');assert.equal(rec.entryContext.top3.closedBy,'USER_STOP');
+  // (a reset starts a fresh paper account: its position-ledger row is not kept; the lane close and the lesson above are)
   const lesson=f.kinds('TOP3_LESSON')[0].p;assert.equal(lesson.exitType,'TOP3_SYSTEM_CLOSE');assert.ok(lesson.tags.includes('CUT_SHORT'));assert.equal(lesson.tags.includes('STOPPED'),false);
   assert.ok(Math.abs(lesson.resultPct-(1.50/1.401-1))<1e-4);assert.equal(f.controller.top3Status().learning.groups[0].cutShort,1);
   // a lot closed by hand (not by its stop/target, not by the core) is EXTERNAL_CLOSE; one closed at its stop price is a stop

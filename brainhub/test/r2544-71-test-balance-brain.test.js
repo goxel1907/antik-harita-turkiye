@@ -129,8 +129,8 @@ test('R2544.71 PAUSE_TEST (TEST deploy): new entries stop, the open lot stays op
   const g=fixture({mode:'LIVE'});assert.deepEqual((await g.controller.runControl({action:'PAUSE_TEST'})).reasons,['NOT_IN_TEST_MODE']);
   // START_TEST after the deploy arms again; the lot is still there
   assert.equal((await f.controller.runControl({action:'START_TEST'})).ok,true);assert.ok(f.controller._testTop3State().active[a.id]);
-  // STOP (Office "Durdur") keeps its meaning: virtual lots are closed
-  const st=await f.controller.runControl({action:'STOP'});assert.equal(st.paperClosed,1);
+  // R2544.133 TEST = CANLI: STOP (Office "Durdur") keeps the virtual lot open like a LIVE stop keeps the real one
+  const st=await f.controller.runControl({action:'STOP'});assert.equal(st.paperClosed,0);assert.ok(f.controller._testTop3State().active[a.id]);assert.equal(Object.keys(f.controller._testPaper().state.positions).length,1);
 });
 
 test('R2544.71 BACKFILL: a lot opened by an older build (no brain record) is written once on the next tick',async()=>{

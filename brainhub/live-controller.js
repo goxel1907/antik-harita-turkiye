@@ -3517,19 +3517,21 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       runState.liveSwitch=null;setAutoRun(false);runState.sawOtoOn=false;
       setLiveAutoRun(false,'USER_STOP');patchMode({liveWindDownAt:null}); // R2544.78: Durdur ends the LIVE auto-renew
       const o=stopEntries('USER_STOP');if(armedNow())disarm('USER_STOP');
-      // TEST: a full stop also closes the virtual lots (booked as TEST) so the system is flat (deploy needs 0 positions).
-      // LIVE: real lots are never touched here; their exchange stop/TP orders stay.
-      let paperClosed=0;
-      if(m.mode==='TEST'&&paper.hasExposure()){top3MarkSystemClose('USER_STOP');paperClosed=(await paper.closeAll('TESTSTOP')).closed;try{await positionLedgerTick();}catch{}}
-      runJournal('RUN_CONTROL',{action:act,mode:m.mode,paperClosed});
-      return o.ok===false?{ok:false,reasons:o.reasons}:done({action:act,paperClosed});
+      // R2544.133 TEST = CANLI (09.11: 6.11 16:37 "Durdur" closed ONE at +11,9R; left to its plan it made +28R): STOP never closes
+      // positions in either mode. LIVE real lots and TEST virtual lots both keep their stop/TP on the exchange (paper exchange for
+      // TEST); their state is written to the brain. A flat TEST is RESET_TEST ("TEST'i sıfırla"); the switch to LIVE closes them.
+      let paperClosed=0,snap=[];
+      if(m.mode==='TEST'){try{snap=await top3OpenSnapshot('USER_STOP');}catch{}}
+      const keptOpen=m.mode==='TEST'?Object.keys(paper.state?.positions||{}):[];
+      runJournal('RUN_CONTROL',{action:act,mode:m.mode,paperClosed,keptOpen,lotsToBrain:snap.length});
+      return o.ok===false?{ok:false,reasons:o.reasons}:done({action:act,paperClosed,keptOpen,lotsToBrain:snap.length});
     }
     if(busy)return {ok:false,reasons:['SWITCH_IN_PROGRESS'],tradingMode:tradingModeStatus()};
     if(act==='PAUSE_TEST'){
       // R2544.71 (user 21.10: "açık olan pozları beyine yaz deploy sonrası kapanacağından garantiye alalım"): the TEST deploy
       // stops NEW entries only. Open virtual lots stay open with their stop/TP on the paper exchange and their manager (as a
       // real account keeps its positions through a PC restart); the restart gap is caught up from 1m candles. Their state
-      // at this moment is written to the brain first. STOP (Office "Durdur") still closes them.
+      // at this moment is written to the brain first. R2544.133: STOP (Office "Durdur") keeps them too (TEST = CANLI).
       if(m.mode!=='TEST')return {ok:false,reasons:['NOT_IN_TEST_MODE']};
       runState.liveSwitch=null;setAutoRun(false);runState.sawOtoOn=false;
       const o=stopEntries('TEST_PAUSE');if(armedNow())disarm('TEST_PAUSE');

@@ -2636,7 +2636,7 @@ async function systemAction(start){
   }catch(e){modeMsg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);}
   systemBusy=false;await tick();
 }
-onClick('#btnSystem',()=>{ if(systemUp){ if(secondPress('btnSystem',systemMode==='LIVE'?'Sistemi kapat (CANLI: yeni gerçek işlem açılmaz; açık gerçek pozisyonlar Binance’teki stop/TP ile korunur, 24 saat çıkışı ve başabaş taşıma sistem kapalıyken yapılmaz)':'Sistemi kapat (TEST: sanal pozisyonlar kapatılır)'))systemAction(false); } else systemAction(true); });
+onClick('#btnSystem',()=>{ if(systemUp){ if(secondPress('btnSystem',systemMode==='LIVE'?'Sistemi kapat (CANLI: yeni gerçek işlem açılmaz; açık gerçek pozisyonlar Binance’teki stop/TP ile korunur, 24 saat çıkışı ve başabaş taşıma sistem kapalıyken yapılmaz)':'Sistemi kapat (TEST = CANLI: yeni sanal işlem açılmaz; açık sanal pozisyonlar sanal borsadaki stop/TP ile korunur, kapatılmaz. Hepsini kapatmak için TEST’i sıfırla)'))systemAction(false); } else systemAction(true); });
 const CONFIRM_MS=6000, pendingPress={};
 function secondPress(id,what){
   const el=$('#'+id), now=Date.now();

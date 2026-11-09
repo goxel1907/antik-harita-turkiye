@@ -62,11 +62,11 @@ test('R57 (was R52) OTO switched off elsewhere (APK) is the normal-lane choice: 
   f.controller.rememberNormalLane(true);await f.controller.testSupervisorTick();assert.equal(f.oto(),true);
 });
 
-test('R52 STOP turns autorun, OTO and arm off, closes the virtual lots, and the supervisor leaves it off',async()=>{
+test('R52 STOP turns autorun, OTO and arm off, KEEPS the virtual lots (R2544.133 TEST = CANLI), and the supervisor leaves it off',async()=>{
   const f=fixture();await f.controller.testSupervisorTick();
   await f.paper.handle('POST','/fapi/v1/order',{params:{symbol:'AUSDT',side:'BUY',type:'MARKET',quantity:'1'}});
   const s=await f.controller.runControl({action:'STOP'});
-  assert.equal(s.ok,true);assert.equal(s.tradingMode.run.state,'STOPPED');assert.equal(s.paperClosed,1);assert.equal(f.paper.hasExposure(),false);
+  assert.equal(s.ok,true);assert.equal(s.tradingMode.run.state,'STOPPED');assert.equal(s.paperClosed,0);assert.equal(f.paper.hasExposure(),true,'like a LIVE stop: the position stays');assert.deepEqual(s.keptOpen,['AUSDT']);
   assert.equal(f.oto(),false);assert.equal(f.controller.status().armed,false);
   await f.ticks(3);assert.equal(f.controller.status().armed,false);
 });
