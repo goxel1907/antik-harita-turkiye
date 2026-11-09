@@ -59,6 +59,26 @@ const SETUP_TEXT = {
 // R2544.88 GRAFİK OKUMASI (kullanıcı 27.10: "verileri ve oluşan formasyonları price action, fvg, fibo, trend ... grafik okumayı hangi model
 // yapacak"): grafiği KOD kesin hesaplar (engine.js, JEV ile aynı; yalnız kapanmış mumlar), model yorumlar. Fiyatlar ekran ölçeğinde (P) ve
 // işlemin R'si cinsinden uzaklık (R: + işlem yönünde, - aleyhte).
+// R2544.138 (kullanıcı 09.11: "grafiğin en hassas şekilde ne anlattığı ... balinaların tercih edeceği bölgeler, range, yükselen ve düşen
+// trendler, spike mumlara karşı koruma, iğne ucu bırakıp alınmış likiditeler"; "binance botlarının ve market maker'ın oyuncağı olmayalım").
+// Closed candles only. Long-wick candles that took liquidity and closed back (a stop hunt, not a breakout):
+function wickHunts(c, atr, lvl, n = 24) {
+  if (!(atr > 0)) return []; const a = c.slice(-n), out = [];
+  for (let i = 0; i < a.length; i++) { const k = a[i], body = Math.abs(k.close - k.open), up = k.high - Math.max(k.open, k.close), dn = Math.min(k.open, k.close) - k.low;
+    if (up >= 1.5 * atr && up >= 2 * body) out.push({ side:'UPPER_WICK', ...lvl(k.high), wickAtr:Number((up / atr).toFixed(2)), barsAgo:a.length - 1 - i });
+    if (dn >= 1.5 * atr && dn >= 2 * body) out.push({ side:'LOWER_WICK', ...lvl(k.low), wickAtr:Number((dn / atr).toFixed(2)), barsAgo:a.length - 1 - i }); }
+  return out.slice(-3);
+}
+// where the volume traded (whale / high-volume zones): point of control, the 70 % value area and the strongest nodes
+function volumeProfile(c, lvl, n = 96, bins = 24) {
+  const a = c.slice(-n); if (a.length < 20) return null; const lo = Math.min(...a.map(k => k.low)), hi = Math.max(...a.map(k => k.high)); if (!(hi > lo)) return null;
+  const w = (hi - lo) / bins, vol = new Array(bins).fill(0);
+  for (const k of a) { const v = Number(k.volume) || 0; if (!(v > 0)) continue; const b0 = Math.min(bins - 1, Math.floor((k.low - lo) / w)), b1 = Math.min(bins - 1, Math.floor((k.high - lo) / w)); for (let b = b0; b <= b1; b++) vol[b] += v / (b1 - b0 + 1); }
+  const tot = vol.reduce((s, x) => s + x, 0); if (!(tot > 0)) return null; const q6 = x => Number(Number(x).toPrecision(6)), mid = b => q6(lo + (b + 0.5) * w), poc = vol.indexOf(Math.max(...vol));
+  let l = poc, h = poc, acc = vol[poc]; while (acc < 0.7 * tot && (l > 0 || h < bins - 1)) { const nl = l > 0 ? vol[l - 1] : -1, nh = h < bins - 1 ? vol[h + 1] : -1; if (nh >= nl) { h++; acc += vol[h]; } else { l--; acc += vol[l]; } }
+  const nodes = vol.map((v, b) => ({ b, v })).filter(x => x.b !== poc && (x.b === 0 || vol[x.b - 1] <= x.v) && (x.b === bins - 1 || vol[x.b + 1] <= x.v)).sort((x, y) => y.v - x.v).slice(0, 3);
+  return { candles:a.length, poc:lvl(mid(poc)), valueArea:{ low:lvl(q6(lo + l * w)), high:lvl(q6(lo + (h + 1) * w)) }, highVolumeNodes:nodes.map(x => ({ ...lvl(mid(x.b)), share:Number((x.v / tot).toFixed(3)) })) };
+}
 function chartReading(raw, frame, { t, P = x => x, R = () => null } = {}) {
   try {
     const c = ENGINE.parseKlines(Array.isArray(raw) ? raw : [], t); if (c.length < 52) return null;
@@ -78,7 +98,12 @@ function chartReading(raw, frame, { t, P = x => x, R = () => null } = {}) {
       liquidity:{ equalHigh:lvl(s.liquidity?.equalHigh?.price ?? s.liquidity?.equalHigh), equalLow:lvl(s.liquidity?.equalLow?.price ?? s.liquidity?.equalLow), lastSweep:s.liquidity?.lastSweep ? { side:s.liquidity.lastSweep.side || null, ...lvl(s.liquidity.lastSweep.level ?? s.liquidity.lastSweep.price) } : null,
         buySide20:lvl(s.buySideLiquidity), sellSide20:lvl(s.sellSideLiquidity) },
       momentum:{ rsi14:finite(s.rsi14), squeeze:rd.squeeze?.state || null, displacement:rd.displacement ? { dir:rd.displacement.dir, barsAgo:rd.displacement.barsAgo, retracePct:rd.displacement.retracePct, inOte:rd.displacement.inOte } : null,
-        stretchZone:rd.stretch?.zone || null, chaseRisk:rd.stretch?.chaseRisk || null }
+        stretchZone:rd.stretch?.zone || null, chaseRisk:rd.stretch?.chaseRisk || null },
+      // R2544.138: rising support / falling resistance lines (from confirmed pivots; active = not broken by a close)
+      trendLines:(() => { const tl = sw.trendLines || {}, f = x => x && finite(x.projected?.price) !== null ? { active:x.active === true, ...lvl(Number(Number(x.projected.price).toPrecision(6))) } : null; return { risingSupport:f(tl.upSupport), fallingResistance:f(tl.downResistance) }; })(),
+      spike:s.volatility?.spike ? { dir:s.volatility.spike.dir, barsAgo:s.volatility.spike.barsAgo, bodyAtr:s.volatility.spike.bodyAtr, pct:s.volatility.spike.pct, extAtr:s.volatility.extAtr ?? null } : null,
+      wickHunts:wickHunts(c, finite(s.atr14), lvl),
+      volumeProfile:volumeProfile(c, lvl)
     };
   } catch { return null; }
 }
@@ -371,4 +396,4 @@ const validLeverage = text => parseLeverage(text).ok;
 // the committee's pick: the median of the answers (rounded down: two close answers never round up the risk)
 function leverageOf(votes) { const xs = (votes || []).filter(v => v && v.ok && v.vote && Number.isFinite(v.vote.leverage)).map(v => v.vote.leverage).sort((a, b) => a - b);
   if (!xs.length) return null; const mid = xs.length % 2 ? xs[(xs.length - 1) / 2] : Math.floor((xs[xs.length / 2 - 1] + xs[xs.length / 2]) / 2); return Math.max(LEVERAGE_MIN, Math.min(LEVERAGE_MAX, mid)); }
-module.exports = { LEVERAGE_MIN, LEVERAGE_MAX, LEVERAGE_SYSTEM, parseLeverage, validLeverage, leverageOf, screenFacts, exitFacts, TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, chartSpecs, compactPacket, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };
+module.exports = { wickHunts, volumeProfile, LEVERAGE_MIN, LEVERAGE_MAX, LEVERAGE_SYSTEM, parseLeverage, validLeverage, leverageOf, screenFacts, exitFacts, TB_VERSION, ENTRY_TF, TF, FETCH, chartReading, rows, swings, structure, htfLevels, SETUP_TEXT, BASE_RATES, MANAGEMENT, briefing, chartSpecs, compactPacket, entryPacket, ENTRY_SYSTEM, ENTRY_ROLES, parseEntry, validEntry };

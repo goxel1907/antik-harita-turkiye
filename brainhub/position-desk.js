@@ -60,7 +60,7 @@ function compactK(k, n) { return k.slice(-n).map(x => [new Date(x.t).toISOString
 const TRADE_TF = { ILK3:{ trigger:'5m', structure:'15m', context:'1h', note:'Ilk 3: 5m breakout/retest of a day/week/month level (LONG) or a 5m break of the pre-top structure (SHORT); intraday trade, 24 h at most' },
   ZIRVE5:{ trigger:'15m', structure:'1h', context:'1h', note:'ZIRVE-5: 15m swing break and retest of the breakout zone; intraday trade, 24 h at most' } };
 function atrR(k, r) { if (!(r > 0) || k.length < 15) return null; const a = k.slice(-15); let s = 0; for (let i = 1; i < a.length; i++) s += Math.max(a[i].h - a[i].l, Math.abs(a[i].h - a[i - 1].c), Math.abs(a[i].l - a[i - 1].c)); return Number((s / 14 / r).toFixed(2)); }
-function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = null }) {
+function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = null, micro = null, funding = null, dataCheck = null }) {
   const L = lot.side === 'LONG', e = finite(lot.entryPrice), r = riskOf(lot), nowR = favR(lot, mark);
   const path5 = k5.filter(x => x.t + M5 > lot.openedAt);
   const mfeR = path5.length ? Math.max(...path5.map(x => favR(lot, L ? x.h : x.l))) : null, maeR = path5.length ? Math.min(...path5.map(x => favR(lot, L ? x.l : x.h))) : null;
@@ -78,8 +78,10 @@ function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = nul
     stopChoices:cands,
     entryInfo:{ indicators:f.ind?.ok ? { vdpmObstacle2R:f.ind.vdpm?.obstacle2R ?? null, lthTrend:f.ind.lth?.trend ?? null, lrvpTrendWith:f.ind.lrvp?.trendWith ?? null } : null, entryContext:f.entryCtx || null,
       experience:f.experience ? { verdict:f.experience.verdict, text:String(f.experience.text || '').slice(0, 300) } : null, similar:f.similar?.text ? String(f.similar.text).slice(0, 300) : null },
-    market:{ levels:lv, btc1hPct:btc1h, openInterestChange1hPct:oiChg1h, chartReading:chart, // R2544.88: code-computed price action (15m, 1h)
+    market:{ levels:lv, btc1hPct:btc1h, openInterestChange1hPct:oiChg1h, chartReading:chart, // R2544.88: code-computed price action (5m, 15m, 1h; R2544.138 + 4h, 1d)
+      funding, microstructure:micro, // R2544.138: funding / premium, live order book, taker flow and OBSERVED liquidations (Binance public streams)
       candles:{ note:'[time UTC, open, high, low, close, volume, takerBuyShare]', m5:compactK(k5, 36), m15:compactK(k15, 24), h1:compactK(k1h, 24) } },
+    dataCheck,
     measuredFacts:['the plan already takes half at +2R and moves the rest to break-even by itself (6 months: +0.41R per trade versus +0.27R at +1R)',
       'mechanical habits did not help on average over 6 months: always trailing the stop, or always exiting early; a fixed trailing stop on TOP SHORT was clearly worse (t -3.3)',
       'what is tested now is case-by-case judgment on this screen: holding through a broken trade and choking a healthy one both cost R'],
@@ -214,7 +216,7 @@ async function judge({ packet, mode, cfg, judges, stats }) {
         const fin = reduceAgreed ? REDUCE.find(a => red.some(v => v.vote.action === a)) : r.final, all = [...(r.round2 || []), ...(r.votes || [])].filter(v => v.ok), pickV = all.find(v => v.vote.action === fin)?.vote || null;
         const stops = all.filter(v => v.vote.action === 'TIGHTEN_STOP').map(v => v.vote.stopChoice), order = ['BREAKEVEN', 'LAST_5M_SWING', 'LOCK_1R'];
         const stopChoice = fin === 'TIGHTEN_STOP' ? (order.find(k => stops.includes(k)) || 'KEEP') : 'KEEP'; // the least aggressive tightening that was voted
-        const short = m => String(m || '').replace(/^ROUTER:|^FREE:|^OR:/, '');
+        const short = m => String(m || '').replace(/^ROUTER:|^FREE:|^OR:|^OVH:|^KILO:/, ''); // R2544.138: keyless seats too (karne key)
         const votes = (r.round2 || r.votes || []).map(v => ({ m:short(v.member), a:v.vote?.action || 'ERR', s:v.seat || null, ...(v.reserveFor ? { r:short(v.reserveFor) } : {}), img:v.img === true, ...(v.compact ? { compact:true } : {}), ...(v.imgError ? { imgError:String(v.imgError).slice(0, 80) } : {}) })); // R2544.137: chart seen?
         const replaced = (r.replaced || []).map(x => ({ m:short(x.member), by:short(x.by), s:x.seat || null })); // R2544.122: which empty seat a reserve took
         return { ok:true, judge:'COMMITTEE', model:votes.map(v => v.m).join(' + '), d:{ ok:true, action:fin, stopChoice, reason:pickV?.reason || 'NO_EDGE', confidence:null,
@@ -251,5 +253,16 @@ function chartSpecs(pk) {
     out.push({ tf, candles, lines }); }
   return out;
 }
-module.exports = { jsonObjects, wordOf, chartSpecs, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
+// R2544.138: the live microstructure in a few numbers (R distance from the entry); facts only, never a claim of intent
+function microOf(sn, R = () => null) {
+  if (!sn || sn.available !== true) return { available:false, reason:sn?.reason || 'STREAM_NOT_READY' };
+  const ds = sn.depthSoftContext || null, liq = sn.observedLiquidations || {}, zR = p => { const r = R(p); return r === null || r === undefined ? null : r; };
+  return { available:true, ageMs:sn.ageMs ?? null, spreadBps:sn.spreadBps ?? null,
+    orderBook:{ depth20Imbalance:sn.depth20Imbalance ?? null, note:'+ = more bid size in the top 20 levels, - = more ask size; wall share = the biggest single level of that side', bidWallShare:ds?.bidWallShare ?? null, askWallShare:ds?.askWallShare ?? null, wallPressure:ds?.wallPressure ?? null, micropriceBps:ds?.micropriceBps ?? null },
+    takerFlow:{ cvdQuote120s:sn.cvdQuote120s ?? null, complete:sn.cvdComplete === true },
+    observedLiquidations:{ count:liq.count ?? 0, windowMin:liq.windowMs ? Math.round(liq.windowMs / 60000) : null, longLiquidatedQuote:liq.longLiquidatedQuote ?? 0, shortLiquidatedQuote:liq.shortLiquidatedQuote ?? 0,
+      zones:(liq.zones || []).slice(0, 4).map(z => ({ side:z.side, price:z.price ?? null, R:zR(z.price), quote:z.quote ?? null })), cascade:liq.cascade || null,
+      note:'observed Binance force-order prints only; not a full liquidation heatmap' } };
+}
+module.exports = { microOf, jsonObjects, wordOf, chartSpecs, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
   SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary };

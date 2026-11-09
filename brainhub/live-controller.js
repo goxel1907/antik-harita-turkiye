@@ -6834,7 +6834,18 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(k5.length<20)return {skipped:true,reason:'DESK_NO_CANDLES'};
       const rk=DESK.riskOf(a),Rf=p=>rk?Number(((a.side==='LONG'?p-a.entryPrice:a.entryPrice-p)/rk).toFixed(2)):null; // R2544.88 grafik okuması (gerçek fiyat, R uzaklığı)
       const chart={m5:TB.chartReading(k5.raw,'5m',{t:now,R:Rf}),m15:TB.chartReading(k15.raw,'15m',{t:now,R:Rf}),h1:TB.chartReading(k1h.raw,'1h',{t:now,R:Rf})}; // R2544.98 + 5m (İlk 3'ün tetik zaman dilimi)
-      const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15).slice(-30),k1h:closed(k1h).slice(-30),btc5:btc,oi,why:top3Why(a),now,lane,chart});
+      // R2544.138 (kullanıcı 09.11: "15m 1h da olmalı; 4 saatlik ve günlük okuma, fonlama ve emir defteri"; "market maker'ın oyuncağı olmayalım"):
+      // the big frames, funding / premium and the live order book, taker flow and observed liquidations join the same screen (TEST = LIVE; JEV sees it too)
+      const [k4h,k1d]=[await deskKlines(a.symbol,'4h',80),await deskKlines(a.symbol,'1d',80)];chart.h4=TB.chartReading(k4h.raw,'4h',{t:now,R:Rf});chart.d1=TB.chartReading(k1d.raw,'1d',{t:now,R:Rf});
+      let funding=null;try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex',{params:{symbol:a.symbol}});const fr=finite(pi?.lastFundingRate),mk=finite(pi?.markPrice),ix=finite(pi?.indexPrice);
+        funding={rate8hPct:fr!==null?Number((fr*100).toFixed(4)):null,premiumPct:mk&&ix?Number(((mk/ix-1)*100).toFixed(4)):null,nextInMin:finite(pi?.nextFundingTime)?Math.max(0,Math.round((pi.nextFundingTime-now)/60000)):null,
+          note:'+ funding = longs pay (crowded long), - = shorts pay (crowded short)'};}catch{}
+      const ms=market?.marketStream||marketStream;for(const x of lots){try{ms.ensureSymbol(x.symbol);}catch{}} // open lots stay subscribed
+      let sn=null;try{sn=ms.snapshot(a.symbol,now);}catch{}const micro=DESK.microOf(sn,Rf);
+      const last5=k5.length?k5.at(-1):null,dataCheck={asOf:now,k5LastOpenAgeSec:last5?Math.round((now-last5.t)/1000):null,
+        markVsStreamBps:finite(sn?.markPrice)&&pickMark?Number(((pickMark/sn.markPrice-1)*10000).toFixed(2)):null,
+        frames:{m5:!!chart.m5,m15:!!chart.m15,h1:!!chart.h1,h4:!!chart.h4,d1:!!chart.d1},funding:!!funding,orderBook:micro.available===true};
+      const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15).slice(-30),k1h:closed(k1h).slice(-30),btc5:btc,oi,why:top3Why(a),now,lane,chart,micro,funding,dataCheck});
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
       // R2544.127 JEV + KURUL: JEV decides first; when JEV cannot answer (credit, error) the committee decides - the same order in TEST and LIVE
       const both=auth&&jevKurul(laneCfgOf(a)),order=both?['JEV','COMMITTEE']:['COMMITTEE'];
@@ -6845,7 +6856,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{store.journal('POSITION_DESK_UNAVAILABLE',a.symbol,{lane,mode,tried:res.tried});}catch{}return {ok:false,tried:res.tried};}
       const d=DESK.validate(res.d,packet.stopChoices);
       const rec={at:now,mark:pickMark,R:Number((desk.lastR??0).toFixed(3)),action:d.action,stopChoice:d.stopChoice||'KEEP',stopPrice:finite(d.stopPrice),reason:d.reason,confidence:finite(d.confidence),
-        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true};
+        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true,data:dataCheck}; // R2544.138: what the screen carried
       // R2544.117 (kullanıcı 03.11 "boğazını sıkıyorsun"; 02-03.11 ölçüm: masa 5 işlemin 5'ini gürültüde kesti, HAEDAL 7. dk -0,18R -> plan +2,25R hedef;
       // gerçek -0,75R / plana bırakılsa +0,36R): the desk's reducing order runs only when the trade has left its noise - open >= 30 min AND
       // (now <= -0.6R: the idea is failing before the stop, or best >= +1R: there is profit to protect). Otherwise it is recorded, not executed.
