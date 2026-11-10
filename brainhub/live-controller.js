@@ -3405,7 +3405,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // R2544.57: the selected lanes decide what goes live and how much free balance is needed (the larger lane margin).
     const lanes=readLanes(),t3=top3Lib.readTop3Config(root);
     // R2544.60: the normal system counts only with at least one of its sub-lanes chosen (burst alone stays TEST-only)
-    const normalLive=lanes.normal===true&&(lanes.scalp5m||lanes.trade15m||(lanes.burst&&la.config?.burstLiveEnabled===true));
+    // R2544.142 (kullanıcı 10.11: "hangi işlemi aktif etmek istiyorsam o aktif çalışmalı"): a selected vur-kaç is a lane like the others
+    const normalLive=lanes.normal===true&&(lanes.scalp5m||lanes.trade15m||lanes.burst);
     // R2544.67.2 (self-audit): İlk 3 counts only with a sub-strategy on; ZİRVE-5 is a lane of its own (alone it may go LIVE)
     const t3Live=t3.enabled===true&&(t3.rulesVersion!==2||t3.early?.enabled===true||t3.top?.enabled===true),z5=z5Lib.readConfig(root),z5Live=z5.enabled===true&&(z5.longEnabled===true||z5.shortEnabled===true);
     if(!normalLive&&!t3Live&&!z5Live)return {ok:false,reasons:['LANES_NONE_SELECTED']};
@@ -3423,7 +3424,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // R2544.57: what a LIVE start switches on: OTO = normal lane selection; İlk 3 live = its own selection (the user confirmed LIVE).
   function applyLiveLanes(){
     const lanes=readLanes(),t3=top3Lib.readTop3Config(root);
-    const o=configureLeaderAuto({enabled:lanes.normal===true});if(!o.ok)return o;
+    // R2544.142: like İlk 3 / ZİRVE-5, a selected vur-kaç goes LIVE with the user's LIVE confirmation (TEST = CANLI); not selected = off
+    const o=configureLeaderAuto({enabled:lanes.normal===true,burstLiveEnabled:lanes.normal===true&&lanes.burst===true});if(!o.ok)return o;
     top3Lib.writeTop3Switches(root,{liveEnabled:t3.enabled===true});
     // R2544.67.2 (self-audit): "CANLI'ya geç (seçili hatlar)" also takes a selected ZİRVE-5 live (the user confirmed LIVE)
     const z5=z5Lib.readConfig(root);z5Lib.writeConfig(root,{liveEnabled:z5.enabled===true});
@@ -3681,6 +3683,31 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         exchangeError:e?.body || null,
         reasons:[String(e?.message || 'BINANCE_ACCOUNT_SUMMARY_FAILED').slice(0,160)]
       };
+    }
+  }
+
+  // R2544.142 (kullanıcı 10.11: "Binance'in cüzdan durumu da olsun"): the REAL Binance wallet, one read-only GET, also in TEST.
+  // In TEST every account call is answered by the paper exchange, so without this the user cannot see the deposit before LIVE.
+  // It never sends an order and never feeds sizing or risk (those keep using accountSummary, which is the paper account in TEST).
+  let realWalletCache = { at:0, value:null };
+  async function realWalletSummary({ maxAgeMs = 30000 } = {}) {
+    const now = clock();
+    if (realWalletCache.value && Number.isFinite(now) && now - realWalletCache.at >= 0 && now - realWalletCache.at <= maxAgeMs) return { ...realWalletCache.value, cached:true };
+    const creds = currentCredentials();
+    if (!credentialsReady(creds)) return { ok:false, configured:false, reasons:['BINANCE_CREDENTIALS_REQUIRED'] };
+    try {
+      await transport._syncServerTime();
+      const read = typeof transport._fetchJsonReal === 'function' ? transport._fetchJsonReal.bind(transport) : transport._fetchJson.bind(transport);
+      const account = await read('GET', '/fapi/v3/account', { credentials:creds, signed:true });
+      const walletBalance = finite(account?.totalWalletBalance), equity = finite(account?.totalMarginBalance), availableBalance = finite(account?.availableBalance);
+      if (walletBalance === null || equity === null || availableBalance === null) throw new Error('BINANCE_ACCOUNT_BALANCE_FIELDS_MISSING');
+      const positions = Array.isArray(account?.positions) ? account.positions : [];
+      const value = { ok:true, real:true, walletBalance, equity, availableBalance, unrealizedPnl:finite(account?.totalUnrealizedProfit) ?? 0,
+        openPositions:positions.filter(x => Math.abs(finite(x?.positionAmt) || 0) > 0).length, asOf:new Date(now).toISOString() };
+      realWalletCache = { at:now, value };
+      return { ...value, cached:false };
+    } catch (e) {
+      return { ok:false, configured:true, reasons:[String(e?.message || 'BINANCE_REAL_WALLET_FAILED').slice(0,160)] };
     }
   }
 
@@ -6481,7 +6508,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const openedAt=finite(c.openedAt)||finite(c.closedAt)||clock(),closedAt=finite(c.closedAt)||clock();
     const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
     const netPnl=inc?inc.net:null;
-    const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_DESK_EXIT:'TOP3_DESK_EXIT',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
+    const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_DESK_EXIT:'TOP3_DESK_EXIT',TOP3_USER_CLOSE:'TOP3_USER_CLOSE',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
       TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE',TOP3_BE_STOP:'TOP3_BE_STOP'}[c.exitReason]||'TOP3_OTHER_EXIT';
     // R2544.64: a ZİRVE-5 lot is booked under its own name (lane ZIRVE5, setup ZIRVE5_FIBO_SHORT, 15m) so TEST shows which
     // strategy made or lost money and learns per strategy
@@ -6983,6 +7010,24 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function deskAuthority(a){try{return (a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root)).committeeMode===true;}catch{return false;}}
   // R2544.89 masanın yetkili emri: yalnız AZALTAN (yarısını kapat = kâr korumayı şimdi al + kalan başabaşa, stopu yaklaştır, çık).
   // Bir kez denenir, 10 dk'dan eskiyse düşer; emir yalnız başlatma (arm) varken; stop asla uzaklaşmaz.
+  // R2544.142 (kullanıcı 10.11: "Office'te pozisyonu direk kapat butonu ekle; kâr seviyesinde ters bir durum gördüğümde kapatabileyim"):
+  // the user's close uses the same order path as the desk's EXIT (market, reduce-only, stop / target / partial orders cancelled),
+  // recorded as TOP3_USER_CLOSE (cut short by the user: neither a stop nor a desk decision). TEST = LIVE; LIVE needs confirm 'LIVE'.
+  async function userCloseLot({id,confirm}={}){
+    const a=Object.values(top3State.active||{}).find(x=>x&&x.id===String(id||''));
+    if(!a)return {ok:false,reasons:['LOT_NOT_FOUND']};
+    if(a.closing)return {ok:false,reasons:['LOT_ALREADY_CLOSING']};
+    if(a.mode==='LIVE'&&String(confirm||'').toUpperCase()!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
+    if(a.deskOrder?.by==='USER')return {ok:true,symbol:a.symbol,id:a.id,already:true};
+    const now=clock();a.deskOrder={action:'EXIT',stopPrice:null,at:now,by:'USER'};
+    const d=a.desk||(a.desk={decisions:[]});(d.decisions||(d.decisions=[])).push({at:now,mark:finite(a.lastMark),R:null,action:'EXIT',judge:'USER',model:'kullanıcı (Office)',reasonTr:'kullanıcı Office’ten kapattı',shadow:false,authority:true});
+    try{store.journal('USER_CLOSE_REQUEST',a.symbol,{id:a.id,lane:a.lane||'ILK3',mode:a.mode||null});}catch{}
+    saveTop3State();
+    // like a fresh desk order (R2544.130): carried out now when no lane tick runs, otherwise right after it
+    if(!top3Busy){try{await top3Settle();}catch{}}else kickDeskOrders();
+    const gone=!Object.values(top3State.active||{}).some(x=>x&&x.id===a.id);
+    return {ok:true,symbol:a.symbol,id:a.id,lane:a.lane||'ILK3',closed:gone};
+  }
   async function deskExecute(a,amt,mark,creds){
     const o=a.deskOrder;if(!o)return null;
     // R2544.123 (kullanıcı 04.11: "komut verildikten sonra ekranda kalıyor, emir gerçekleşmedi hissi veriyor"): the decision itself now says
@@ -6996,7 +7041,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(o.action==='EXIT'){
       const r=await top3CloseMarket(a,held);if(!r.ok){J('POSITION_DESK_EXIT_FAILED',{reason:r.reason});return null;}
       for(const id of [a.stopAlgoId,a.tpAlgoId,a.part&&!a.part.done?a.part.algoId:null])if(id!==null&&id!==undefined)try{await transport.cancelAlgoOrder({algoId:id,credentials:creds});}catch{}
-      J('POSITION_DESK_EXIT',{price:r.avgPrice,mark});top3Finish(a,{exitReason:'TOP3_DESK_EXIT',exitPrice:r.avgPrice});return 'CLOSED';
+      J('POSITION_DESK_EXIT',{price:r.avgPrice,mark,by:o.by||null});top3Finish(a,{exitReason:o.by==='USER'?'TOP3_USER_CLOSE':'TOP3_DESK_EXIT',exitPrice:r.avgPrice});return 'CLOSED';
     }
     if(o.action==='TAKE_PARTIAL'){
       const p=a.part;
@@ -7126,7 +7171,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       sizing:(()=>{const t3=top3Lib.readTop3Config(root);return {marginQuote:cfg.marginQuote,leverage:cfg.leverage??t3.leverage,ownLeverage:cfg.leverage,source:cfg.marginQuote!==null?'ZIRVE5':'RISK',automatic:cfg.marginQuote===null,riskPct:cfg.riskPct??t3.riskPct};})(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,lastScan:z.lastScan||null,nextScanAt:new Date(Math.floor(now/z5Lib.M15)*z5Lib.M15+z5Lib.M15+8000).toISOString(),
       armed:Object.entries(z.armed||{}).map(([symbol,zs])=>({symbol,rank:zs[0]?.rank??null,zones:zs.map(x=>({side:x.side,equilibrium:x.equilibrium,top:x.top,bottom:x.bottom,liquidity:x.liquidity,expiresAt:new Date(x.expiresAt).toISOString()}))})),
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,deskInfo:deskView(a),entryCommittee:entryCommitteeView(a),symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),livePath:a.livePath||null,
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane==='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {id:a.id,quantity:finite(a.quantity),mode:a.mode||null,leverageBy:a.leverageBy||null,deskInfo:deskView(a),entryCommittee:entryCommitteeView(a),symbol:a.symbol,side:a.side,mtf:a.entryFeatures?.mtf?{h1:a.entryFeatures.mtf.h1?.trend??null,h4:a.entryFeatures.mtf.h4?.trend??null,m5:a.entryFeatures.mtf.m5?.confirmed===true?a.entryFeatures.mtf.m5.minutesEarly:null,against1h:a.entryFeatures.mtf.against1h===true,against4h:a.entryFeatures.mtf.against4h===true}:null,ind:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind),obstacle2R:a.entryFeatures.ind.vdpm?.obstacle2R===true}:null,experience:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,part:a.part||null,beMoved:a.beMoved===true,initialStopPrice:finite(a.initialStopPrice),entryPrice:a.entryPrice,stopPrice:a.stopPrice,tpPrice:a.tpPrice,stopPct:a.stopPct,leverage:a.leverage,marginQuote:a.marginQuote,targetR:finite(a.targetR),openedAt:new Date(a.openedAt).toISOString(),livePath:a.livePath||null,
         markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       recentEntries:(z.recent||[]).slice(0,12),
       recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup||null,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt||null,holdMinutes:finite(p.holdMinutes)})),
@@ -7329,6 +7374,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!Object.keys(p).length)return {ok:false,reasons:['LANE_SWITCH_MISSING']};
     if(live&&Object.values(p).some(v=>v===true)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     {const sp={};for(const k of SUB_LANES)if(k in p)sp[k]=p[k];if(Object.keys(sp).length)writeLanes(sp);}
+    if('burst' in p&&live){const o=configureLeaderAuto({burstLiveEnabled:p.burst===true});if(!o.ok)return o;} // R2544.142
     if('normal' in p){
       writeLanes({normal:p.normal});
       if(!p.normal||running){const o=configureLeaderAuto({enabled:p.normal&&running});if(!o.ok)return o;}
@@ -7373,7 +7419,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
+  return { userCloseLot, realWalletSummary, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };

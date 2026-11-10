@@ -367,6 +367,68 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .cc .rx-chip.more{cursor:pointer}
 body.cc-compact .cc-extra{display:none !important}
 @media (prefers-reduced-motion:reduce){.cc:before,.cc-mode.live{animation:none}}
+/* ===== R2544.142 CÜZDAN • BÜYÜKLÜK • AÇIK POZİSYONLAR (kullanıcı 10.11: en üstte, dikkat çekici, estetik, animasyonlu) ===== */
+@property --wc-a{syntax:'<angle>';inherits:false;initial-value:0deg}
+.wcard{position:relative;margin:16px 0;padding:16px 18px;border-radius:14px;background:linear-gradient(160deg,var(--surface-1),var(--surface-2));overflow:hidden;isolation:isolate}
+.wcard:before{content:"";position:absolute;inset:0;z-index:-1;border-radius:14px;padding:2px;background:conic-gradient(from var(--wc-a),#3987e5,#199e70,#9085e9,#c98500,#3987e5);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:wcSpin 8s linear infinite}
+.wcard.live:before{background:conic-gradient(from var(--wc-a),#d03b3b,#fab219,#ec835a,#d03b3b)}
+.wcard:after{content:"";position:absolute;inset:0;z-index:-2;background:radial-gradient(600px 180px at 8% 0%,rgba(57,135,229,.16),transparent 60%),radial-gradient(520px 200px at 92% 100%,rgba(25,158,112,.13),transparent 60%);animation:wcBreath 6s ease-in-out infinite alternate}
+.wcard.live:after{background:radial-gradient(600px 180px at 8% 0%,rgba(208,59,59,.16),transparent 60%),radial-gradient(520px 200px at 92% 100%,rgba(250,178,25,.12),transparent 60%)}
+@keyframes wcSpin{to{--wc-a:360deg}} @keyframes wcBreath{from{opacity:.55}to{opacity:1}}
+.wc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.wc-head h2{margin:0;font-size:17px;letter-spacing:.01em}
+.wc-mode{font-weight:800;font-size:12px;letter-spacing:.06em;padding:4px 11px;border-radius:999px;display:inline-flex;align-items:center;gap:7px}
+.wc-mode:before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;animation:wcPulse 1.6s ease-in-out infinite}
+.wc-mode.test{color:#7fb6ff;background:rgba(57,135,229,.16)} .wc-mode.live{color:#ff8f8f;background:rgba(208,59,59,.2)}
+@keyframes wcPulse{0%,100%{box-shadow:0 0 0 0 currentColor;opacity:1}60%{box-shadow:0 0 0 7px transparent;opacity:.55}}
+.wc-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0 4px}
+.wc-tile{background:rgba(0,0,0,.18);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0}
+.wc-tile span{display:block;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.wc-tile b{display:block;font-size:22px;font-variant-numeric:tabular-nums;margin-top:2px;transition:color .4s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wc-tile b.pos,.wc-pnl b.pos{color:#3ddc84} .wc-tile b.neg,.wc-pnl b.neg{color:#ff6b6b}
+.wc-up{animation:wcUp 1.3s ease-out} .wc-down{animation:wcDown 1.3s ease-out}
+@keyframes wcUp{0%{background:rgba(61,220,132,.38)}100%{background:rgba(0,0,0,.18)}} @keyframes wcDown{0%{background:rgba(255,107,107,.38)}100%{background:rgba(0,0,0,.18)}}
+.wc-spark{width:100%;height:46px;display:block;margin:4px 0 10px}
+.wc-sizes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.wc-size{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:rgba(0,0,0,.14);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.wc-sz-name{flex:1 1 150px;min-width:0} .wc-sz-name b{display:block} .wc-sz-name span{color:var(--text-muted);font-size:11px}
+.wc-size label{font-size:12px;color:var(--text-secondary)}
+.wc-size input{width:66px;background:var(--surface-3);color:var(--text-primary);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit}
+.wc-save{background:var(--info);color:#fff;border:0;border-radius:6px;padding:5px 12px;font-weight:700;cursor:pointer}
+.wc-save.arm2{background:var(--critical)}
+.wc-sz-now{width:100%;color:var(--text-muted);font-size:11px} .wc-sz-now.warn{color:var(--warning);font-weight:700}
+.wc-pos{margin-top:12px;display:grid;gap:8px}
+.wc-lot{display:grid;grid-template-columns:minmax(130px,1.1fr) minmax(0,3fr) minmax(120px,auto);gap:12px;align-items:center;background:rgba(0,0,0,.18);border:1px solid var(--line);border-left:4px solid var(--good);border-radius:10px;padding:10px 12px}
+.wc-lot.new{animation:wcIn .5s ease-out}
+.wc-lot.neg{border-left-color:var(--critical)} @keyframes wcIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.wc-lot .sym b{font-size:16px} .wc-lot .sym span{display:block;color:var(--text-muted);font-size:11px}
+.wc-side{font-weight:800;font-size:11px;padding:1px 6px;border-radius:4px;margin-left:6px} .wc-lot .sym .wc-side{display:inline-block}
+.wc-bin{font-size:12px;color:var(--text-muted);margin:-6px 0 10px} .wc-bin b{color:var(--text)} .wc-bin .bad{color:#ff8f8f} .wc-side.L{background:rgba(12,163,12,.22);color:#3ddc84} .wc-side.S{background:rgba(208,59,59,.22);color:#ff8f8f}
+.wc-prices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;font-size:12px;min-width:0}
+.wc-prices span{color:var(--text-muted);display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.wc-prices b{font-variant-numeric:tabular-nums} .wc-prices small{display:block;font-size:11px;font-variant-numeric:tabular-nums}
+.wc-prices small.neg{color:#ff6b6b} .wc-prices small.pos{color:#3ddc84}
+.wc-track{grid-column:1/-1;position:relative;height:8px;border-radius:4px;background:linear-gradient(90deg,rgba(208,59,59,.6),rgba(255,255,255,.07) 50%,rgba(12,163,12,.6));margin-top:8px}
+.wc-track i{position:absolute;top:-4px;width:4px;height:16px;margin-left:-2px;border-radius:2px;background:#fff;box-shadow:0 0 12px #fff;transition:left .9s cubic-bezier(.2,.8,.2,1)}
+.wc-track em{position:absolute;top:-2px;width:2px;height:12px;margin-left:-1px;background:var(--text-muted)}
+.wc-pnl{text-align:right} .wc-pnl b{display:block;font-size:20px;font-variant-numeric:tabular-nums} .wc-pnl span{display:block;font-size:11px;color:var(--text-muted)}
+.wc-close{margin-top:6px;background:transparent;border:1px solid var(--critical);color:#ff8f8f;border-radius:6px;padding:5px 14px;font-weight:800;cursor:pointer}
+.wc-close:hover{background:rgba(208,59,59,.15)} .wc-close.arm2{background:var(--critical);color:#fff} .wc-close:disabled{opacity:.6;cursor:wait}
+.wc-empty{color:var(--text-muted);font-size:13px;padding:6px 2px}
+.wc-msg{margin:8px 0 0;font-size:12px;color:var(--text-secondary);min-height:1em} .wc-msg.err{color:#ff8f8f}
+.wc-lanes{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;align-items:center}
+.wc-lanes .wl-t{font-size:12px;color:var(--text-muted);margin-right:2px;font-weight:700;letter-spacing:.3px}
+.wc-ln{font:inherit;font-size:13px;font-weight:700;display:inline-flex;align-items:center;gap:8px;padding:7px 13px 7px 8px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.25);color:var(--text-secondary);cursor:pointer;transition:border-color .25s,box-shadow .25s,color .25s}
+.wc-ln i{width:30px;height:16px;border-radius:999px;background:#3a3f4b;position:relative;flex:none;transition:background .25s}
+.wc-ln i:after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#c3c6cf;transition:transform .25s}
+.wc-ln.on{color:#eafff2;border-color:rgba(61,220,132,.75);box-shadow:0 0 14px rgba(61,220,132,.28)} .wc-ln.on i{background:#16a34a} .wc-ln.on i:after{transform:translateX(14px);background:#fff}
+.wcard.live .wc-ln.on{border-color:rgba(255,107,107,.85);box-shadow:0 0 14px rgba(255,107,107,.32)} .wcard.live .wc-ln.on i{background:#dc2626}
+.wc-ln small{font-weight:600;font-size:11px;color:var(--warning)} .wc-ln:disabled{opacity:.5;cursor:wait} .wc-ln.arm2{outline:2px solid var(--warning);outline-offset:2px}
+.wc-lnote{flex-basis:100%;font-size:12px;color:var(--text-muted)} .wc-lnote b{color:var(--text)} .wc-lnote .bad{color:#ff8f8f;font-weight:700}
+@media (prefers-reduced-motion:reduce){.wc-ln,.wc-ln i,.wc-ln i:after{transition:none}}
+@media (max-width:760px){.wc-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.wc-sizes{grid-template-columns:1fr}.wc-lot{grid-template-columns:1fr}.wc-pnl{text-align:left}.wc-prices{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (prefers-reduced-motion:reduce){.wcard:before,.wcard:after,.wc-mode:before,.wc-up,.wc-down,.wc-lot.new{animation:none}.wc-track i{transition:none}}
+
 .rx{border-color:#7c4dff !important;background:linear-gradient(180deg,rgba(124,77,255,.10),rgba(0,0,0,0) 40%),var(--surface-1)}
 .rx canvas{width:100%;height:440px;display:block;border-radius:12px;background:#05060c;box-shadow:inset 0 0 40px rgba(124,77,255,.25),0 0 24px rgba(124,77,255,.18)}
 .rx-ticker{overflow:hidden;white-space:nowrap;margin:8px 0 10px;border-radius:8px;background:#07080f;border:1px solid rgba(124,77,255,.35);padding:6px 0;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
@@ -500,6 +562,16 @@ body.cc-compact .cc-extra{display:none !important}
 
   <!-- R2544.104 KOMUTA MERKEZİ (kullanıcı 02.11: "tek bir kartta grafik istatistik tüm bağlamı tek seferde göstermeli; canlıda da aynı testte aynı";
        R2544.102 Karar Reaktörü bunun ortasında) -->
+  <section class="wcard" id="walletCard" aria-label="Cüzdan, büyüklük ve açık pozisyonlar">
+    <div class="wc-head"><h2>💼 Cüzdan • Marj / Kaldıraç • Açık pozisyonlar</h2><span class="wc-mode test" id="wcMode">—</span></div>
+    <div class="wc-tiles" id="wcTiles"></div>
+    <canvas class="wc-spark" id="wcSpark" height="46" aria-hidden="true"></canvas>
+    <div class="wc-bin" id="wcBin"></div>
+    <div class="wc-lanes" id="wcLanes" role="group" aria-label="Hatlar: aç / kapa"></div>
+    <div class="wc-sizes" id="wcSizes"></div>
+    <div class="wc-pos" id="wcPos"></div>
+    <p class="wc-msg" id="wcMsg" role="status"></p>
+  </section>
   <section class="cc" id="ccCard" aria-label="Komuta merkezi">
     <div class="cc-top" id="ccTop"><span class="cc-brand">⚡ KOMUTA MERKEZİ</span><span class="cc-mode test" id="ccMode">—</span><span class="cc-clock" id="ccClock">--:--:--</span></div>
     <div class="cc-grid">
@@ -986,6 +1058,158 @@ function committeeSvg(){
     <text class="o-sub" id="cmBench" x="${CM.x}" y="${CM.y+52}" text-anchor="middle" font-size="10">—</text>
   </g>`;
 }
+// ===== R2544.142 CÜZDAN • MARJ / KALDIRAÇ • AÇIK POZİSYONLAR (kullanıcı 10.11) =====
+// TEST'te sanal hesap, CANLI'da Binance hesabı (çekirdeğin okuduğu /fapi hesap ve pozisyonları). Dolar cinsinden; R yok.
+const WC={eqHist:[],last:{},built:false,busy:false,live:false,closing:{}};
+const wcNum=v=>{if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;};
+const wcUsd=(v,sign)=>{const n=wcNum(v);if(n===null)return '—';const t=Math.abs(n).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});return (n<0?'−':sign&&n>0?'+':'')+t+' $';};
+const wcPx=v=>{const n=wcNum(v);if(n===null||n<=0)return '—';const d=n>=100?2:n>=1?4:n>=0.01?5:7;return n.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:d});};
+const WC_ROWS=[
+  {k:'normal',name:'Normal sistem (JEV)',sub:'5 dk scalp + 15 dk ana işlem',m:'wcNormM',l:'wcNormL'},
+  {k:'burst',name:'Vur-kaç',sub:'kendi marjı • kaldıraç üst sınırı',m:'wcBurstM',l:'wcBurstL'},
+  {k:'top3',name:'İlk 3 Avcısı',sub:'erken LONG + tepe SHORT • kaldıraç tabanı',m:'wcT3M',l:'wcT3L'},
+  {k:'z5',name:'ZİRVE-5',sub:'LONG + SHORT • kaldıraç tabanı',m:'wcZ5M',l:'wcZ5L'}];
+function wcMsg(t,err){const m=document.getElementById('wcMsg');if(m){m.textContent=t||'';m.className='wc-msg'+(err?' err':'');}}
+function wcBuild(){
+  const box=document.getElementById('wcSizes');if(!box||WC.built)return;WC.built=true;
+  box.innerHTML=WC_ROWS.map(r=>`<div class="wc-size" data-k="${r.k}"><div class="wc-sz-name"><b>${esc(r.name)}</b><span>${esc(r.sub)}</span></div>`
+    +`<label>Marj <input id="${r.m}" type="number" min="5" step="1" inputmode="decimal" aria-label="${esc(r.name)} marj"> $</label>`
+    +`<label>Kaldıraç <input id="${r.l}" type="number" min="1" max="20" step="1" inputmode="numeric" aria-label="${esc(r.name)} kaldıraç"> x</label>`
+    +`<button id="${r.m}Save" class="wc-save" type="button">Kaydet</button><span class="wc-sz-now" id="${r.m}Now"></span></div>`).join('');
+  for(const r of WC_ROWS){for(const id of [r.m,r.l]){const el=document.getElementById(id);if(el)el.addEventListener('input',()=>{el.dataset.dirty='1';});}
+    const b=document.getElementById(r.m+'Save');if(b)b.addEventListener('click',()=>wcSave(r));}
+  const pos=document.getElementById('wcPos');if(pos)pos.addEventListener('click',e=>{const b=e.target.closest?.('button[data-close]');if(b)wcClose(b);});
+}
+async function wcPost(path,body){
+  const r=await fetch(path+location.search,{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-jev-office-control':'1'},body:JSON.stringify(body)});
+  let d=null;try{d=await r.json();}catch{}return {ok:r.ok&&d?.ok!==false,d,status:r.status};
+}
+const wcWhy=x=>(typeof reasonsTr==='function'&&reasonsTr(x.d?.reasons))||x.d?.error||('HTTP '+x.status);
+async function wcSave(r){
+  if(WC.busy)return;const mEl=document.getElementById(r.m),lEl=document.getElementById(r.l);
+  const m=Number(String(mEl?.value??'').trim().replace(',','.')),l=Number(String(lEl?.value??'').trim());
+  if(!(m>=5)){wcMsg(`${r.name}: marj en az 5 $ olmalı. Boş bırakma: boş marj "riske göre" boyut demek, senin rakamın kullanılmaz.`,true);return;}
+  if(!(Number.isInteger(l)&&l>=1&&l<=20)){wcMsg(`${r.name}: kaldıraç 1–20 arası tam sayı olmalı.`,true);return;}
+  if(WC.live&&!secondPress(r.m+'Save',`CANLI — GERÇEK PARA: ${r.name} marj ${m} $, kaldıraç ${l}x`)){wcMsg(`CANLI: ${r.name} için 6 sn içinde "Kaydet"e bir kez daha bas.`);return;}
+  const path=r.k==='top3'?'/api/control/top3':r.k==='z5'?'/api/control/zirve5':'/api/control/sizing';
+  const body=r.k==='burst'?{burstMarginQuote:m,burstMaxLeverage:l}:{marginQuote:m,leverage:l};if(WC.live)body.confirm='LIVE';
+  WC.busy=true;wcMsg('Kaydediliyor…');
+  try{const x=await wcPost(path,body);
+    if(x.ok){delete mEl.dataset.dirty;delete lEl.dataset.dirty;wcMsg(`✓ ${r.name}: marj ${m} $, kaldıraç ${l}x kaydedildi${r.k==='top3'||r.k==='z5'?' (kaldıraç tabanı; kurul güvene göre en çok 20x seçebilir)':''}.`);}
+    else wcMsg(`${r.name} kaydedilmedi: ${wcWhy(x)}`,true);}
+  catch(e){wcMsg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);}finally{WC.busy=false;}
+}
+// R2544.142 (kullanıcı 10.11: "kartta hangi işlemi aktif etmek istiyorsam o aktif çalışmalı: İlk 3 tek, İlk 3 + ZİRVE-5, herhangi biri
+// veya hepsi; 5 dk scalp, 15 dk ana işlem, vur-kaç, İlk 3 Avcısı, ZİRVE-5"). Five switches. 5 dk / 15 dk / vur-kaç are the normal
+// system's sub-lanes: turning one ON also turns the normal system on (if it was off, ONLY the chosen sub-lane runs); turning the last
+// one OFF turns the normal system off. ON in LIVE: second press + 'LIVE'. OFF is immediate; open lots keep their own stop / target.
+const WC_LANES=[{k:'scalp5m',name:'5 dk scalp',sub:true},{k:'trade15m',name:'15 dk ana işlem',sub:true},{k:'burst',name:'Vur-kaç',sub:true},{k:'top3',name:'İlk 3 Avcısı'},{k:'zirve5',name:'ZİRVE-5'}];
+function wcLaneState(ln){const n=ln?.normal||{},sub=n.sub||{},nOn=n.selected===true,o={};
+  for(const L of WC_LANES)o[L.k]=L.sub?(nOn&&sub[L.k]?.selected===true):ln?.[L.k]?.selected===true;return o;}
+function wcLaneBody(ln,k){
+  const st=wcLaneState(ln),L=WC_LANES.find(x=>x.k===k),on=!st[k],body={[k]:on};
+  if(L&&L.sub){const nOn=ln?.normal?.selected===true;
+    if(on&&!nOn){body.normal=true;for(const x of WC_LANES)if(x.sub&&x.k!==k)body[x.k]=false;}
+    if(!on&&!WC_LANES.some(x=>x.sub&&x.k!==k&&st[x.k]))body.normal=false;}
+  return {on,body};
+}
+function renderWcLanes(s){
+  const box=document.getElementById('wcLanes');if(!box)return;
+  if(!WC.lanesBound){WC.lanesBound=true;box.addEventListener('click',e=>{const b=e.target.closest?.('button[data-lane]');if(b)wcLane(b.dataset.lane);});}
+  const ln=s?.status?.data?.tradingMode?.run?.lanes;
+  if(!ln){box.innerHTML='<span class="wl-t">HATLAR</span><span class="wc-lnote">Hat bilgisi henüz gelmedi.</span>';return;}
+  const st=wcLaneState(ln),la=s?.status?.data?.leaderAuto||{},sub=ln.normal?.sub||{};
+  const act={scalp5m:sub.scalp5m?.active,trade15m:sub.trade15m?.active,burst:sub.burst?.active,top3:ln.top3?.active,zirve5:ln.zirve5?.active};
+  const note=k=>k==='burst'&&st.burst&&WC.live&&sub.burst?.liveAllowed!==true?'canlı izni yok: kapatıp aç':k==='burst'&&st.burst&&wcNum(la.burstMaxLeverage)>20?`⚠ ${wcNum(la.burstMaxLeverage)}x`:'';
+  const on=WC_LANES.filter(L=>st[L.k]),running=WC_LANES.filter(L=>st[L.k]&&act[L.k]);
+  box.innerHTML='<span class="wl-t">HATLAR</span>'+WC_LANES.map(L=>{const id='wcLn_'+L.k,n=note(L.k);
+    return `<button type="button" class="wc-ln${st[L.k]?' on':''}${typeof pendingPress!=='undefined'&&pendingPress[id]?' arm2':''}" id="${id}" data-lane="${L.k}" aria-pressed="${st[L.k]?'true':'false'}"${WC.busy?' disabled':''} title="${esc(L.name)}: ${st[L.k]?'AÇIK — basınca kapanır':'KAPALI — basınca açılır'}"><i></i>${esc(L.name)}${n?` <small>${esc(n)}</small>`:''}</button>`;}).join('')
+    +`<span class="wc-lnote">${on.length?`Açık: <b>${on.map(L=>esc(L.name)).join(' + ')}</b>`:'<span class="bad">Hiçbir hat açık değil: işlem açılmaz.</span>'}`
+    +`${ln.running?(running.length?` • şu an çalışan: <b>${running.map(L=>esc(L.name)).join(', ')}</b>`:''):' • sistem durdurulmuş: açık hatlar “TEST’i başlat” / “CANLI’ya geç” ile çalışır'}`
+    +`${wcNum(la.burstMaxLeverage)>20?` • <span class="bad">Vur-kaç kaldıraç tavanı ${wcNum(la.burstMaxLeverage)}x, kuralın (en çok 20x) üstünde: aşağıda 20 ya da altını yazıp Kaydet</span>`:''}</span>`;
+}
+async function wcLane(k){
+  if(WC.busy)return;const ln=last?.status?.data?.tradingMode?.run?.lanes;if(!ln){wcMsg('Hat bilgisi yok; birkaç saniye sonra tekrar dene.',true);return;}
+  const L=WC_LANES.find(x=>x.k===k);if(!L)return;const {on,body}=wcLaneBody(ln,k),id='wcLn_'+k;
+  if(on&&WC.live){if(!secondPress(id,`CANLI — GERÇEK PARA: ${L.name} AÇ`)){wcMsg(`CANLI: ${L.name} gerçek para ile işlem açar. Onay için 6 sn içinde aynı düğmeye bir kez daha bas.`);if(last)renderWcLanes(last);return;}body.confirm='LIVE';}
+  WC.busy=true;wcMsg('Gönderiliyor…');
+  try{const x=await wcPost('/api/control/lanes',body);
+    wcMsg(x.ok?`✓ ${L.name} ${on?'AÇILDI':'KAPATILDI'}${on?'':' (yeni giriş yok; açık işlemleri kendi stop / hedefiyle yönetilir)'}${body.normal===true?' • Normal sistem de açıldı':''}${body.normal===false?' • Normal sistem kapandı (alt hatlarından hiçbiri açık değil)':''}.`:`${L.name}: yapılmadı — ${wcWhy(x)}`,!x.ok);}
+  catch(e){wcMsg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);}
+  finally{WC.busy=false;}
+  try{await tick();}catch{}
+}
+async function wcClose(b){
+  const id=b.dataset.close,sym=b.dataset.sym,live=b.dataset.live==='1';
+  if(!secondPress(b.id,`${live?'CANLI — GERÇEK PARA: ':''}${sym} pozisyonu piyasa fiyatından kapatılacak`)){b.textContent='Emin misin? Tekrar bas';wcMsg(`${sym}: kapatmak için 6 sn içinde aynı düğmeye bir kez daha bas.`);return;}
+  WC.closing[id]=Date.now();b.disabled=true;b.textContent='Kapatılıyor…';
+  try{const x=await wcPost('/api/control/close',{id,...(live?{confirm:'LIVE'}:{})});
+    if(x.ok)wcMsg(`✓ ${sym}: kapatma emri gönderildi; birkaç saniye içinde piyasa fiyatından kapanır (stop ve hedef emirleri silinir).`);
+    else{delete WC.closing[id];wcMsg(`${sym} kapatılmadı: ${wcWhy(x)}`,true);b.disabled=false;b.textContent='Kapat';}}
+  catch(e){delete WC.closing[id];wcMsg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);b.disabled=false;b.textContent='Kapat';}
+}
+function wcSpark(){
+  const c=document.getElementById('wcSpark');if(!c||!c.getContext)return;const w=c.clientWidth||600,h=46,dpr=window.devicePixelRatio||1;
+  if(c.width!==Math.round(w*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(h*dpr);}const g=c.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);
+  const pts=WC.eqHist;if(pts.length<2){g.fillStyle='rgba(139,144,156,.8)';g.font='11px Segoe UI, sans-serif';g.fillText('özsermaye çizgisi: veri toplanıyor…',4,28);return;}
+  const vs=pts.map(p=>p.v),lo=Math.min(...vs),hi=Math.max(...vs),span=hi-lo||1,x=i=>4+i*(w-8)/(pts.length-1),y=v=>h-6-(v-lo)/span*(h-14);
+  const up=vs.at(-1)>=vs[0],col=up?'61,220,132':'255,107,107',fill=g.createLinearGradient(0,0,0,h);fill.addColorStop(0,`rgba(${col},.35)`);fill.addColorStop(1,`rgba(${col},0)`);
+  g.beginPath();pts.forEach((p,i)=>i?g.lineTo(x(i),y(p.v)):g.moveTo(x(i),y(p.v)));g.lineTo(x(pts.length-1),h);g.lineTo(x(0),h);g.closePath();g.fillStyle=fill;g.fill();
+  g.beginPath();pts.forEach((p,i)=>i?g.lineTo(x(i),y(p.v)):g.moveTo(x(i),y(p.v)));g.strokeStyle=`rgb(${col})`;g.lineWidth=2;g.shadowColor=`rgba(${col},.8)`;g.shadowBlur=8;g.stroke();g.shadowBlur=0;
+  g.beginPath();g.arc(x(pts.length-1),y(vs.at(-1)),3.5,0,Math.PI*2);g.fillStyle=`rgb(${col})`;g.fill();
+}
+function renderWallet(s){
+  wcBuild();const t=s?.top3?.data||s?.top3||{},z=s?.zirve5?.data||s?.zirve5||{},acc=s?.account?.data||{},la=s?.status?.data?.leaderAuto||{};
+  const live=t.tradingMode==='LIVE'||z.tradingMode==='LIVE';WC.live=live;
+  const card=document.getElementById('walletCard');if(card)card.classList.toggle('live',live);
+  const mode=document.getElementById('wcMode');if(mode){mode.textContent=live?'CANLI • GERÇEK PARA':'TEST • SANAL HESAP';mode.className='wc-mode '+(live?'live':'test');}
+  // cüzdan kutuları (değişince yeşil / kırmızı parlar)
+  const accOk=s?.account?.ok===true,paper=!live&&s?.status?.data?.tradingMode?.mode==='TEST'?s?.status?.data?.tradingMode?.paper:null;
+  const src=paper?{w:paper.wallet,e:paper.equity,a:paper.available,u:paper.unrealized}:{w:acc.walletBalance,e:acc.equity,a:acc.availableBalance,u:acc.unrealizedPnl},srcOk=paper?true:accOk;
+  const tiles=[['wallet',paper?'Cüzdan (TEST sanal)':'Cüzdan (Binance)',src.w,false],['equity','Özsermaye',src.e,false],['avail','Kullanılabilir',src.a,false],['upnl','Açık kâr / zarar',src.u,true]];
+  const tb=document.getElementById('wcTiles');
+  if(tb){if(!tb.children.length)tb.innerHTML=tiles.map(([k,l])=>`<div class="wc-tile" id="wcT_${k}"><span>${esc(l)}</span><b>—</b></div>`).join('');
+    for(const [k,l] of tiles){const sp=document.getElementById('wcT_'+k)?.querySelector('span');if(sp&&sp.textContent!==l)sp.textContent=l;}
+    for(const [k,,v,signed] of tiles){const el=document.getElementById('wcT_'+k),b=el?.querySelector('b'),n=wcNum(v);if(!b)continue;
+      b.textContent=!srcOk?'okunamadı':wcUsd(n,signed);b.className=signed&&n!==null?(n>=0?'pos':'neg'):'';
+      const prev=WC.last[k];if(prev!==undefined&&n!==null&&prev!==null&&n!==prev){el.classList.remove('wc-up','wc-down');void el.offsetWidth;el.classList.add(n>prev?'wc-up':'wc-down');}WC.last[k]=n;}}
+  // the real Binance wallet line (R2544.142): in TEST the tiles are the paper account, this line is the real money on Binance
+  const rw=s?.realWallet||{},rd=rw.data||{},bin=document.getElementById('wcBin');
+  if(bin)bin.innerHTML=rw.ok===true&&rd.ok!==false?`Binance gerçek cüzdan: <b>${wcUsd(wcNum(rd.walletBalance))}</b> • kullanılabilir <b>${wcUsd(wcNum(rd.availableBalance))}</b>${wcNum(rd.openPositions)>0?` • ${esc(rd.openPositions)} açık pozisyon`:''}${paper?' • (TEST işlemleri bu parayı kullanmaz)':''}`
+    :rw.disabled?'Binance hesap okuma kapalı':`<span class="bad">Binance gerçek cüzdanı şu an okunamadı</span>${rw.error?' ('+esc(String(rw.error).slice(0,80))+')':''}`;
+  const eq=wcNum(src.e);if(eq!==null){const hh=WC.eqHist;if(!hh.length||hh.at(-1).v!==eq)hh.push({t:Date.now(),v:eq});if(hh.length>240)hh.shift();}
+  try{wcSpark();}catch{}
+  try{renderWcLanes(s);}catch(e){console.warn('wcLanes',e);}
+  // marj / kaldıraç: kullanıcı yazarken kutunun üstüne yazılmaz
+  const vals={normal:[la.marginQuote,la.leverage],burst:[la.burstMarginQuote,la.burstMaxLeverage],
+    top3:[t.settings?.marginAuto?null:t.settings?.marginQuote,t.settings?.leverage],z5:[z.sizing?.automatic?null:z.sizing?.marginQuote,z.sizing?.ownLeverage??z.sizing?.leverage]};
+  for(const r of WC_ROWS){const [m,l]=vals[r.k]||[],mEl=document.getElementById(r.m),lEl=document.getElementById(r.l),now=document.getElementById(r.m+'Now');
+    if(mEl&&!mEl.dataset.dirty&&document.activeElement!==mEl)mEl.value=wcNum(m)??'';if(lEl&&!lEl.dataset.dirty&&document.activeElement!==lEl)lEl.value=wcNum(l)??'';
+    if(now){const auto=wcNum(m)===null,hi=wcNum(l)>20;now.textContent=`şu an: ${auto?'riske göre (marj boş!)':wcUsd(m)} × ${wcNum(l)??'—'}x${live?' • CANLI':' • TEST'}${hi?' • ⚠ 20x kuralının üstünde':''}`;now.className='wc-sz-now'+(auto||hi?' warn':'');}}
+  // açık pozisyonlar (İlk 3 + ZİRVE-5), dolar cinsinden
+  const seen=new Set(),lots=[...(t.active||[]).map(a=>({...a,_lane:'İlk 3'})),...(z.active||[]).map(a=>({...a,_lane:'ZİRVE-5'}))].filter(a=>a&&a.id&&!seen.has(a.id)&&seen.add(a.id));
+  for(const id of Object.keys(WC.closing))if(!seen.has(id)||Date.now()-WC.closing[id]>90000)delete WC.closing[id];
+  const pos=document.getElementById('wcPos');if(!pos)return;
+  if(!lots.length){pos.innerHTML=`<div class="wc-empty">Açık pozisyon yok.${wcNum(acc.openPositions)>0?` Binance’te bu kartın dışında ${esc(acc.openPositions)} pozisyon görünüyor (normal sistem / elle açılan).`:''}</div>`;return;}
+  // the fade-in plays only when a lot first appears (the list is redrawn on every refresh)
+  const shown=WC.shown||(WC.shown=new Set());
+  pos.innerHTML=lots.map(a=>{
+    const L=a.side==='LONG',sg=L?1:-1,e=wcNum(a.entryPrice),mk=wcNum(a.markPrice),st=wcNum(a.stopPrice),tp=wcNum(a.tpPrice),lev=wcNum(a.leverage),mq=wcNum(a.marginQuote);
+    const q=wcNum(a.quantity)??(mq&&lev&&e?mq*lev/e:null),pnl=wcNum(a.unrealizedPnl)??(q&&mk&&e?(mk-e)*q*sg:null);
+    const atS=q&&st&&e?(st-e)*q*sg:null,atT=q&&tp&&e?(tp-e)*q*sg:null,pct=pnl!==null&&mq?pnl/mq*100:null;
+    const frac=v=>st&&tp&&v?Math.max(0,Math.min(1,(v-st)/(tp-st))):null,fm=frac(mk),fe=frac(e),closing=!!WC.closing[a.id],isLive=a.mode==='LIVE'||live;
+    const by=a.leverageBy==='KURUL'?'kurul seçti':a.leverageBy==='JEV'?'JEV seçti':a.leverageBy==='AYAR'?'ayar':'';
+    const fresh=!shown.has(a.id);shown.add(a.id);
+    return `<div class="wc-lot${pnl!==null&&pnl<0?' neg':''}${fresh?' new':''}">`
+      +`<div class="sym"><b>${esc(String(a.symbol||'').replace(/USDT$/,''))}</b><span class="wc-side ${L?'L':'S'}">${L?'LONG':'SHORT'}</span><span>${esc(a._lane)} • ${lev??'—'}x${by?' ('+esc(by)+')':''} • marj ${wcUsd(mq)}</span></div>`
+      +`<div class="wc-prices"><div><span>Giriş</span><b>${wcPx(e)}</b></div><div><span>Anlık</span><b>${wcPx(mk)}</b></div>`
+      +`<div><span>Stop</span><b>${wcPx(st)}</b><small class="${atS!==null&&atS<0?'neg':'pos'}">${wcUsd(atS,true)}</small></div>`
+      +`<div><span>Hedef</span><b>${wcPx(tp)}</b><small class="pos">${wcUsd(atT,true)}</small></div>`
+      +(fm!==null?`<div class="wc-track" title="stop ← fiyat → hedef">${fe!==null?`<em style="left:${(fe*100).toFixed(1)}%"></em>`:''}<i style="left:${(fm*100).toFixed(1)}%"></i></div>`:'')+`</div>`
+      +`<div class="wc-pnl"><b class="${pnl!==null&&pnl<0?'neg':'pos'}">${wcUsd(pnl,true)}</b><span>${pct!==null?(pct>=0?'+':'')+pct.toFixed(1).replace('.',',')+'% marja göre':''}</span>`
+      +`<button type="button" class="wc-close" id="wcClose_${esc(a.id)}" data-close="${esc(a.id)}" data-sym="${esc(String(a.symbol||'').replace(/USDT$/,''))}" data-live="${isLive?'1':'0'}"${closing?' disabled':''}>${closing?'Kapatılıyor…':'Kapat'}</button></div></div>`;
+  }).join('')+(wcNum(acc.openPositions)>lots.length?`<div class="wc-empty">Binance’te bu kartın dışında ${esc(wcNum(acc.openPositions)-lots.length)} pozisyon daha var (normal sistem / elle açılan).</div>`:'');
+}
 // ---------- R2544.105 BEYİN — NE ÖĞRENDİ (kullanıcı 02.11: "beynin öğrenimini kaldırmışsın, beyin neyi öğrendi nereden bileceğiz") ----------
 // Her strateji: kayıplar ve kazançlar nasıl oldu (otopsi yüzdeleri çubukla), DERS sayılanlar (son dersler + 6 ay aynı yön; altın),
 // tek başına neden olmayanlar, 6 ayda tutmayanlar, 6 aylık hafıza notu, eksik örnek uyarısı; altta son otopsiler.
@@ -1250,7 +1474,7 @@ function renderCC(s){
     $('ccToggle').onclick=()=>{const on=!document.body.classList.contains('cc-compact');document.body.classList.toggle('cc-compact',on);try{localStorage.setItem('ccCompact',on?'1':'0');}catch{}renderCC(s);};}
 }
 // compact mode: only the header, mode bar, command center and the two strategy control cards stay; the rest is one click away
-function ccCompactInit(){const wrap=document.querySelector('.wrap');if(!wrap)return;const keep=new Set(['demoBanner','modeBar','ccCard','top3Card','z5Card','researchCard','moverCard']);
+function ccCompactInit(){const wrap=document.querySelector('.wrap');if(!wrap)return;const keep=new Set(['demoBanner','modeBar','walletCard','ccCard','top3Card','z5Card','researchCard','moverCard']);
   // R2544.105 (kullanıcı 02.11: "açılan pozisyonu takip grafikleri hep kaldırmışsın"): open-position charts (JEV aynası: sade grafik + pozisyon kutusu)
   // and the live gainer ladder always stay
   for(const el of wrap.children){if(el.tagName==='HEADER'||keep.has(el.id)||el.classList.contains('mirror-wide')||el.querySelector?.('#ladderMeta'))continue;el.classList.add('cc-extra');}
@@ -2523,7 +2747,7 @@ async function renderMirror(s){
 // R2544.52 (07.10, kullanıcı): "TEST, 200 USDT yatırmışım gibi kendiliğinden çalışsın; OTO aç'a bastığımda Binance'teki
 // bakiye ve marjla canlıya geçsin." Tek çekirdek ucu POST /live/run: GO_LIVE (OTO aç), GO_TEST (OTO kapat), START_TEST,
 // RESET_TEST, STOP. Tarayıcı penceresi (confirm/prompt) yok: onay = aynı düğmeye 6 sn içinde ikinci basış; Durdur tek basış.
-const MODE_REASONS={LIVE_SHUTDOWN_CONFIRMATION_REQUIRED:'CANLI’da kapatmak için LIVE onayı gerekir',LANES_NONE_SELECTED:'Önce en az bir hat seçin (Normal sistem veya İlk 3 Avcısı)',LANE_SWITCH_MISSING:'Hat seçimi eksik',LANE_NOT_SELECTED_5M_SCALP:'5 dk scalp hattı seçili değil',LANE_NOT_SELECTED_15M_TRADE:'15 dk ana işlem hattı seçili değil',LANE_UNKNOWN_SUB_LANE_OFF:'hattı belirsiz plan (5 dk veya 15 dk kapalıyken girilmez)',BURST_LANE_NOT_SELECTED:'vur-kaç hattı seçili değil',TOP3_CLOSE_PENDING:'İlk 3 işlemlerinin kapanış kaydı bekleniyor',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'CANLI için açık onay gerekli',DISARM_FIRST:'Önce Durdur’a basın',BURST_ACTIVE:'Aktif vur-kaç var; kapanması bekleniyor',TEST_POSITION_OPEN:'Sanal pozisyon kapanıyor',POSITION_OPEN:'Açık gerçek pozisyon var (JEV yönetiyor); kapanınca TEST’e dönülür',REAL_POSITION_OPEN:'Binance’te açık gerçek pozisyon var; önce onu kapatın',EXPLICIT_MODE_CONFIRMATION_REQUIRED:'Onay eksik',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'Onay eksik',TRADING_MODE_INVALID:'Geçersiz mod',POSITION_CLOSE_PENDING:'Kapanan pozisyonun kaydı bekleniyor',BINANCE_BALANCE_TOO_LOW:'Binance bakiyesi OTO marjından az',BINANCE_ACCOUNT_UNREADABLE:'Binance hesabı okunamadı',BINANCE_CREDENTIALS_REQUIRED:'Binance API anahtarı yok',NOT_IN_TEST_MODE:'Sistem TEST modunda değil',SWITCH_IN_PROGRESS:'Bir geçiş sürüyor; bitmesini bekleyin',TEST_CLOSE_NOT_CONFIRMED:'Sanal pozisyonların kapanışı 5 dk’da doğrulanamadı; TEST’e dönüldü',LIVE_ARM_FAILED:'Canlı başlatma reddedildi; TEST’e dönüldü',LEADER_AUTO_CONFIG_INVALID:'OTO ayarı geçersiz',MODE_CHANGED_DURING_SWITCH:'Geçiş sırasında mod değişti',RUN_ACTION_INVALID:'Geçersiz işlem',BINANCE_FUTURES_CREDENTIAL_PROBE_FAILED:'Binance hesabı kontrolü geçmedi (ağ / API anahtarı izni / IP)',LIVE_ARM_CANCELLED:'Yenileme iptal edildi (Durdur / LIVE-KAPAT)'};
+const MODE_REASONS={LOT_NOT_FOUND:'pozisyon bulunamadı (zaten kapanmış olabilir)',LOT_ALREADY_CLOSING:'pozisyon zaten kapanıyor',LIVE_SHUTDOWN_CONFIRMATION_REQUIRED:'CANLI’da kapatmak için LIVE onayı gerekir',LANES_NONE_SELECTED:'Önce en az bir hat seçin (Normal sistem veya İlk 3 Avcısı)',LANE_SWITCH_MISSING:'Hat seçimi eksik',LANE_NOT_SELECTED_5M_SCALP:'5 dk scalp hattı seçili değil',LANE_NOT_SELECTED_15M_TRADE:'15 dk ana işlem hattı seçili değil',LANE_UNKNOWN_SUB_LANE_OFF:'hattı belirsiz plan (5 dk veya 15 dk kapalıyken girilmez)',BURST_LANE_NOT_SELECTED:'vur-kaç hattı seçili değil',TOP3_CLOSE_PENDING:'İlk 3 işlemlerinin kapanış kaydı bekleniyor',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'CANLI için açık onay gerekli',DISARM_FIRST:'Önce Durdur’a basın',BURST_ACTIVE:'Aktif vur-kaç var; kapanması bekleniyor',TEST_POSITION_OPEN:'Sanal pozisyon kapanıyor',POSITION_OPEN:'Açık gerçek pozisyon var (JEV yönetiyor); kapanınca TEST’e dönülür',REAL_POSITION_OPEN:'Binance’te açık gerçek pozisyon var; önce onu kapatın',EXPLICIT_MODE_CONFIRMATION_REQUIRED:'Onay eksik',EXPLICIT_LIVE_CONFIRMATION_REQUIRED:'Onay eksik',TRADING_MODE_INVALID:'Geçersiz mod',POSITION_CLOSE_PENDING:'Kapanan pozisyonun kaydı bekleniyor',BINANCE_BALANCE_TOO_LOW:'Binance bakiyesi OTO marjından az',BINANCE_ACCOUNT_UNREADABLE:'Binance hesabı okunamadı',BINANCE_CREDENTIALS_REQUIRED:'Binance API anahtarı yok',NOT_IN_TEST_MODE:'Sistem TEST modunda değil',SWITCH_IN_PROGRESS:'Bir geçiş sürüyor; bitmesini bekleyin',TEST_CLOSE_NOT_CONFIRMED:'Sanal pozisyonların kapanışı 5 dk’da doğrulanamadı; TEST’e dönüldü',LIVE_ARM_FAILED:'Canlı başlatma reddedildi; TEST’e dönüldü',LEADER_AUTO_CONFIG_INVALID:'OTO ayarı geçersiz',MODE_CHANGED_DURING_SWITCH:'Geçiş sırasında mod değişti',RUN_ACTION_INVALID:'Geçersiz işlem',BINANCE_FUTURES_CREDENTIAL_PROBE_FAILED:'Binance hesabı kontrolü geçmedi (ağ / API anahtarı izni / IP)',LIVE_ARM_CANCELLED:'Yenileme iptal edildi (Durdur / LIVE-KAPAT)'};
 let modeBusy=false, modeState=null;
 const usdt=v=>{const n=num(v);return n===null?'—':n.toFixed(2)+' USDT';};
 const usdtS=v=>{const n=num(v);return n===null?'—':(n>0?'+':'')+n.toFixed(2)+' USDT';};
@@ -3118,7 +3342,7 @@ async function tick(){
     const s = await r.json(); last=s;
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
-    try{renderMode(s);}catch(e){console.warn('mode',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderZ5(s);}catch(e){console.warn('zirve5',e);} try{renderMovers(s);}catch(e){console.warn('movers',e);} try{renderResearch(s);}catch(e){console.warn('research',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
+    try{renderMode(s);}catch(e){console.warn('mode',e);} try{renderWallet(s);}catch(e){console.warn('wallet',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderZ5(s);}catch(e){console.warn('zirve5',e);} try{renderMovers(s);}catch(e){console.warn('movers',e);} try{renderResearch(s);}catch(e){console.warn('research',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
     renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
     renderMirror(s);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yazma yalnız TEST/CANLI/Durdur`;

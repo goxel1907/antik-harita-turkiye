@@ -64,13 +64,20 @@ test('R2544.60 sub-lane gate: only the chosen lanes open; unknown lane / fast la
 
 test('R2544.60 LIVE: a sub-lane ON needs confirm LIVE, OFF is immediate; GO_LIVE needs an effective lane',async()=>{
   const h=fixture({mode:'LIVE',lanes:{normal:true,scalp5m:false,trade15m:false,burst:true},top3:{enabled:false}});
-  assert.deepEqual((await h.controller.runControl({action:'GO_LIVE'})).reasons,['LANES_NONE_SELECTED'],'normal with only burst (TEST-only in LIVE) is no lane');
+  // R2544.142 (kullanıcı 10.11): a selected vur-kaç is a lane like the others; here GO_LIVE is first refused for the sub-lane confirmation below
+  h.controller.selectLanes({burst:false});
+  assert.deepEqual((await h.controller.runControl({action:'GO_LIVE'})).reasons,['LANES_NONE_SELECTED'],'normal with no sub-lane is no lane');
   assert.deepEqual(h.controller.selectLanes({trade15m:true}).reasons,['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']);
   assert.equal(h.controller.selectLanes({trade15m:true,confirm:'LIVE'}).ok,true);
   assert.equal((await h.controller.runControl({action:'GO_LIVE'})).ok,true);
   assert.equal(h.controller.selectLanes({trade15m:false}).ok,true,'off needs no confirmation');
   assert.equal(h.controller.laneStatus().normal.sub.trade15m.selected,false);
-  assert.equal(h.controller.laneStatus().normal.sub.burst.active,false,'burst stays off in LIVE without burstLiveEnabled');
+  assert.equal(h.controller.laneStatus().normal.sub.burst.active,false,'burst not selected: off in LIVE');
+  // R2544.142: the vur-kaç switch in LIVE carries its real-money permission (ON: confirm LIVE; OFF: immediate)
+  assert.deepEqual(h.controller.selectLanes({burst:true}).reasons,['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']);
+  assert.equal(h.controller.selectLanes({burst:true,confirm:'LIVE'}).ok,true);
+  assert.equal(h.controller.laneStatus().normal.sub.burst.liveAllowed,true,'vur-kaç runs in LIVE once the user turned it on');
+  assert.equal(h.controller.selectLanes({burst:false}).ok,true);assert.equal(h.controller.laneStatus().normal.sub.burst.liveAllowed,false,'off = real-money permission off');
 });
 
 test('R2544.60 wiring: gate before the chase guard in the leader execution, burst checks, routes and Office buttons',()=>{
@@ -86,4 +93,15 @@ test('R2544.60 wiring: gate before the chase guard in the leader execution, burs
   for(const id of ['btnLaneScalp','btnLane15m','btnLaneBurst'])assert.ok(html.includes(`id="${id}"`)&&html.includes(`onClick('#${id}'`),id);
   assert.ok(!/confirm\(|prompt\(/.test(html.slice(html.indexOf('function laneToggle'),html.indexOf('function laneToggle')+800)),'no browser dialogs');
   void o;
+});
+
+test('R2544.142 the card switch: one sub-lane ON with the normal system off turns it on and runs ONLY that sub-lane; the last OFF turns it off',async()=>{
+  const h=fixture({lanes:{normal:false,scalp5m:true,trade15m:true,burst:true},top3:{enabled:true}});
+  assert.equal(h.controller.selectLanes({scalp5m:true,normal:true,trade15m:false,burst:false,source:'OFFICE'}).ok,true);
+  let l=h.controller.laneStatus();
+  assert.equal(l.normal.selected,true);assert.equal(l.normal.sub.scalp5m.selected,true);assert.equal(l.normal.sub.trade15m.selected,false);assert.equal(l.normal.sub.burst.selected,false);
+  assert.equal(l.top3.selected,true,'İlk 3 untouched');
+  assert.equal(h.controller.selectLanes({scalp5m:false,normal:false}).ok,true);
+  l=h.controller.laneStatus();assert.equal(l.normal.selected,false);assert.equal(l.top3.selected,true);
+  assert.equal(h.controller.selectLanes({top3:false}).ok,true);assert.equal(h.controller.laneStatus().top3.selected,false,'any one, several or all');
 });

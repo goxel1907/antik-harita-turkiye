@@ -371,3 +371,32 @@ test('R2544.132 the core replays an OLD lesson (TEST data is not wasted): 24 h a
   const l=f.controller._testTop3State().lessons.find(x=>x.id==='old-1');assert.ok(l.replay,'replayed');assert.equal(l.replay.version,'R2544.134-REPLAY');
   assert.deepEqual(Object.keys(l.replay.R).sort(),['BE1','KK1','KK2','PLAN','T15','Z4','Z8']);assert.ok(f.controller.top3Status().playbook.replayed>=1);
 });
+
+test('R2544.142 the user closes a lot from Office: same reduce-only market path as the desk EXIT, recorded as TOP3_USER_CLOSE (cut short, not a stop), nothing left behind',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:cm(TAKE)}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=f.lot(),R=a.stopPrice-a.entryPrice;
+  await f.beat(a.entryPrice-0.3*R);assert.ok(f.lot());
+  assert.deepEqual((await f.controller.userCloseLot({id:'nope'})).reasons,['LOT_NOT_FOUND']);
+  const r=await f.controller.userCloseLot({id:a.id});assert.equal(r.ok,true);assert.equal(r.closed,true,'carried out at once');
+  assert.equal(f.lot(),null,'closed');assert.equal(await pos(f.paper),0);assert.equal(f.paper.state.algos.filter(x=>x.algoStatus==='NEW').length,0,'stop / target orders cancelled');
+  assert.equal(f.kinds('TOP3_CLOSED').at(-1).p.exitReason,'TOP3_USER_CLOSE');assert.equal(f.kinds('POSITION_DESK_EXIT').at(-1).p.by,'USER');
+  const L=[...f.controller._testTop3State().lessons,...(f.controller._testTop3State().z5?.lessons||[])].at(-1);
+  if(L){assert.ok(/USER_CLOSE/.test(L.exitType));assert.ok(L.tags.includes('CUT_SHORT')&&L.tags.includes('USER_CLOSE'));}
+  // a LIVE lot needs the explicit LIVE confirmation
+  const b={...a,id:'x-live',mode:'LIVE'};f.controller._testTop3State().active[b.id]=b;
+  assert.deepEqual((await f.controller.userCloseLot({id:'x-live'})).reasons,['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']);delete f.controller._testTop3State().active[b.id];
+});
+
+test('R2544.142 the wallet card reads the REAL Binance wallet in TEST too (read-only; sizing keeps the paper account)',async()=>{
+  const f=fixture();
+  const seen=[],bh=f.binance.handle.bind(f.binance);f.binance.handle=async(m,p,o)=>{seen.push(m+' '+p);return bh(m,p,o);};
+  const pseen=[],ph=f.paper.handle;f.paper.handle=async(m,p,o)=>{pseen.push(m+' '+p);return ph(m,p,o);};
+  const before=f.state.orders.length;
+  const rw=await f.controller.realWalletSummary();
+  assert.equal(rw.ok,true);assert.equal(rw.real,true);assert.equal(rw.walletBalance,100,'the simulated Binance wallet, not the paper one');
+  assert.deepEqual(seen,['GET /fapi/v3/account'],'one read-only GET reached Binance');assert.deepEqual(pseen,[],'the paper exchange was not asked');
+  assert.equal(f.state.orders.length,before,'no order of any kind');
+  assert.equal((await f.controller.realWalletSummary()).cached,true,'cached for 30 s');
+  const acc=await f.controller.accountSummary({maxAgeMs:0});assert.equal(acc.ok,true);assert.ok(pseen.includes('GET /fapi/v3/account'),'sizing / risk still read the paper account in TEST');
+});

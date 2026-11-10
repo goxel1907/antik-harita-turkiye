@@ -21,7 +21,7 @@ test('R2544.104 Office command center: one card at the top, mode / owner / JEV /
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   assert.ok(html.indexOf('id="ccCard"')<html.indexOf('id="kpis"'),'right under the mode bar');
   for(const id of ['ccMode','ccTotR','ccEq','ccDays','rxHealth','rxCanvas','ccStrats','ccModels','ccJudge','ccNow','rxStrip'])assert.ok(html.includes(`id="${id}"`),id);
-  assert.match(html,/const keep=new Set\(\['demoBanner','modeBar','ccCard','top3Card','z5Card','researchCard','moverCard'\]\)/);
+  assert.match(html,/const keep=new Set\(\['demoBanner','modeBar','walletCard','ccCard','top3Card','z5Card','researchCard','moverCard'\]\)/);
   const a=html.indexOf('// ---------- R2544.104 KOMUTA MERKEZİ'),b=html.indexOf('// RX_END');const src=html.slice(a,b);
   const ctx={console,Date,Math,Number,String,JSON,Array,Object,setInterval:()=>0,document:{getElementById:()=>null}};vm.createContext(ctx);vm.runInContext(src+';this.ccModel=ccModel;',ctx);
   const snap=mode=>({status:{tradingMode:{mode,paper:{equity:429.4,net:29.4}},armed:true},account:{equity:1000},

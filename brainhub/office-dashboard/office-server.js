@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.123-R2544.141-JEV-Brain';
+const OFFICE_VERSION = '2.5.124-R2544.142-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -32,7 +32,7 @@ if (!LOOPBACK && OFFICE_KEY.length < 24) {
 
 // Brain Hub tarafında yalnız bu GET yollarına izin var.
 const ALLOWED_BRAIN_PATHS = new Set([
-  '/health', '/live/status', '/live/burst', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png',
+  '/health', '/live/status', '/live/burst', '/vision/progress', '/jev/budget', '/models/healthy', '/live/account', '/live/real-wallet', '/journal', '/live/positions', '/context/jev-live-mirror', '/chart/png',
   '/scanner/last', '/jev/knowledge', '/learning/case-memory', // R2544.19 read-only provenance/case memory
   '/live/top3', // R2544.56 İlk 3 Avcısı status
   '/live/zirve5', // R2544.64 ZİRVE-5 SHORT status
@@ -91,7 +91,7 @@ async function getJson(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
-const CONTROL_ROUTES = { '/api/control/system': '/system/shutdown', '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes', '/api/control/zirve5': '/live/zirve5' };
+const CONTROL_ROUTES = { '/api/control/close': '/live/position/close', '/api/control/sizing': '/live/leader-auto', '/api/control/system': '/system/shutdown', '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes', '/api/control/zirve5': '/live/zirve5' };
 // Only these fields ever reach the core; anything else in the Office request is dropped (OTO sizing, burst switch etc.
 // stay with the user's existing config).
 const CONTROL_BODY = {
@@ -105,6 +105,15 @@ const CONTROL_BODY = {
   '/api/control/arm': b => ({ confirm: String(b.confirm || '') }),
   '/api/control/disarm': () => ({ reason: 'OFFICE_USER' }),
   '/api/control/oto': b => ({ enabled: b.enabled === true }),
+  // R2544.142 (kullanıcı 10.11: bakiye / marj / kaldıraç kartı): the normal system's margin / leverage and the vur-kaç margin / leverage
+  // cap have their OWN route; it never carries the OTO switch (a switch request still never changes sizing)
+  '/api/control/sizing': b => {
+    const out = {};
+    for (const k of ['marginQuote', 'burstMarginQuote']) if (typeof b[k] === 'number' && Number.isFinite(b[k]) && b[k] >= 5 && b[k] <= 100000) out[k] = b[k];
+    for (const k of ['leverage', 'burstMaxLeverage']) if (Number.isInteger(b[k]) && b[k] >= 1 && b[k] <= 20) out[k] = b[k];
+    return out;
+  },
+  '/api/control/close': b => ({ id: /^[A-Za-z0-9:_-]{4,80}$/.test(String(b.id || '')) ? String(b.id) : '', ...(typeof b.confirm === 'string' ? { confirm: b.confirm.toUpperCase() } : {}) }),
   '/api/control/system': b => ({ confirm: String(b.confirm || '').toUpperCase(), source: 'OFFICE' }),
   '/api/control/run': b => {
     const action = String(b.action || '').toUpperCase();
@@ -586,6 +595,7 @@ async function buildSnapshot() {
   ]);
   // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, salt-okunur).
   const positions = ACCOUNT_ENABLED ? await cached('positions', 10000, () => brainGet('/live/positions', 'limit=40')) : null;
+  const realWallet = ACCOUNT_ENABLED ? await cached('realWallet', 30000, () => brainGet('/live/real-wallet')) : null; // R2544.142
   const caseMemory = await cached('caseMemory', 10000, () => brainGet('/learning/case-memory', 'limit=12'));
   const knowledge = await cached('knowledge', 60000, () => brainGet('/jev/knowledge'));
   const scannerLast = await cached('scannerLast', 5000, () => brainGet('/scanner/last'));
@@ -617,6 +627,7 @@ async function buildSnapshot() {
     visionProgress: { ok: visionProgress?.ok === true, data: scrub(visionProgress?.data) },
     models: { ok: models?.ok === true, data: scrub(models?.data) },
     account: account ? { ok: account.ok === true, data: scrub(account.data), error: account.error || null } : { ok: false, disabled: true },
+    realWallet: realWallet ? { ok: realWallet.ok === true, data: scrub(realWallet.data), error: realWallet.error || null } : { ok: false, disabled: true },
     positions: positions ? { ok: positions.ok === true, data: positions.ok === true ? scrub(canonicalPositions(positions.data)) : null, error: positions.error || (positions.ok ? null : 'HTTP ' + positions.status) } : { ok: false, disabled: true },
     ollama: { ok: ollama?.ok === true, data: scrub(ollama?.data), error: ollama?.error || null },
     router,

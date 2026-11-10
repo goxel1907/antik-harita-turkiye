@@ -1831,6 +1831,10 @@ const server=http.createServer(async(req,res)=>{
       const out=await live.binanceRecoveryProbe();
       return send(res,out?.ok?200:503,{...out,binanceRateLimit:binanceRate.status()});
     }
+    if(req.method==='GET'&&u.pathname==='/live/real-wallet'){ // R2544.142: the real Binance wallet (read-only, also in TEST)
+      const out=await live.realWalletSummary();
+      return send(res,out?.ok?200:503,out);
+    }
     if(req.method==='GET'&&u.pathname==='/live/account'){
       const out=await live.accountSummary();
       return send(res,out?.ok?200:503,out);
@@ -1892,6 +1896,11 @@ const server=http.createServer(async(req,res)=>{
         reasons:['REMOTE_LIVE_EXECUTE_DISABLED_PC_SCHEDULER_ONLY'],
         note:'PC BrainHub scheduler is the sole automated entry executor. Android may only arm/disarm/configure/read telemetry.'
       });
+    }
+    // R2544.142: the user's close of one İlk 3 / ZİRVE-5 lot (Office "Kapat"); LIVE needs confirm 'LIVE'
+    if(req.method==='POST'&&u.pathname==='/live/position/close'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const out=await live.userCloseLot({id:body?.id,confirm:body?.confirm});return send(res,out.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/leader-auto'){
       return send(res,200,live.leaderAutoStatus());
@@ -2589,7 +2598,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.141';
+const RUNTIME_RELEASE='R2544.142';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

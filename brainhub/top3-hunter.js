@@ -392,10 +392,12 @@ const pctTr = v => v === null || v === undefined ? '—' : (v >= 0 ? '+' : '') +
 const RULE_TR = { LONG_6OF6: 'LONG 6/6', SHORT_TOP_FADE: 'SHORT tepe sonrası', LONG_EARLY_RETEST: 'Erken LONG (5 dk geri test)', SHORT_TOP_BREAK: 'Tepe SHORT (5 dk kırılım)',
   ZIRVE5_FIBO_LONG: 'ZİRVE-5 LONG (15 dk alan onayı)', ZIRVE5_FIBO_SHORT: 'ZİRVE-5 SHORT (15 dk alan onayı)' }; // R2544.77
 const EXIT_TR = { TOP3_TAKE_PROFIT: 'hedef', TOP3_STOP: 'stop', TOP3_BE_STOP: 'başabaş stop (kâr koruma sonrası)', TOP3_TIME_EXIT: '24 saat doldu', TOP3_STOP_OR_EXTERNAL: 'stop / dış kapanış', TOP3_OTHER_EXIT: 'diğer',
-  TOP3_SYSTEM_CLOSE: 'sistem kapattı (durdurma / kurulum / mod geçişi; kural sonucu değil)', TOP3_EXTERNAL_CLOSE: 'dışarıdan kapatıldı (stop / hedef değil)' };
+  TOP3_SYSTEM_CLOSE: 'sistem kapattı (durdurma / kurulum / mod geçişi; kural sonucu değil)', TOP3_EXTERNAL_CLOSE: 'dışarıdan kapatıldı (stop / hedef değil)',
+  TOP3_USER_CLOSE: 'kullanıcı Office’ten kapattı (kural ve masa kararı değil)' }; // R2544.142
 // R2544.57 (14.10 deploy STOP): a lot the core closed itself (STOP, TEST reset, switch to LIVE) or that was closed outside
 // the lane without its stop/target is CUT_SHORT - not a stop; the rule never reached its own exit.
-const CUT_SHORT_EXITS = new Set(['TOP3_SYSTEM_CLOSE', 'TOP3_EXTERNAL_CLOSE']);
+const CUT_SHORT_EXITS = new Set(['TOP3_SYSTEM_CLOSE', 'TOP3_EXTERNAL_CLOSE', 'TOP3_USER_CLOSE']); // R2544.142: the user's close is cut short too
+const cutTag = xt => xt === 'TOP3_SYSTEM_CLOSE' ? 'SYSTEM_CLOSE' : xt === 'TOP3_USER_CLOSE' ? 'USER_CLOSE' : 'EXTERNAL_CLOSE';
 // lot: the closed lot (state record + exitPrice/closedAt); close: the POSITION_CLOSED record; path: excursions() or null.
 // R2544.77 (user 23.10: "beyine doğru öğrenim gitmiş mi"): ZİRVE-5 exits (ZIRVE5_*) map to the same tags; a lot whose part was taken
 // (kâr koruma) has a BLENDED result - the rest's exit price alone said "kazanç -0,1 %" on a +0,42 R win; a winner that ran >= 3R and
@@ -419,7 +421,7 @@ function buildLesson(lot, close, path) {
   if (xt === 'TOP3_STOP' || xt === 'TOP3_STOP_OR_EXTERNAL') tags.push('STOPPED');
   if (xt === 'TOP3_TIME_EXIT') tags.push('TIME_EXIT');
   if (xt === 'TOP3_BE_STOP') tags.push('BREAKEVEN_STOP');
-  if (CUT_SHORT_EXITS.has(xt)) tags.push('CUT_SHORT', xt === 'TOP3_SYSTEM_CLOSE' ? 'SYSTEM_CLOSE' : 'EXTERNAL_CLOSE');
+  if (CUT_SHORT_EXITS.has(xt)) tags.push('CUT_SHORT', cutTag(xt));
   if (part) tags.push('PARTIAL_TAKEN');
   if (mfeR !== null && r !== null && mfeR >= 3 && r <= mfeR - 2 && !tags.includes('TARGET_HIT')) tags.push('GAVE_BACK');
   if (tags.includes('STOPPED') && targetPct > 0 && mfe !== null && mfe >= targetPct / 2) tags.push('STOPPED_AFTER_HALF_TARGET');
@@ -463,7 +465,7 @@ function repairLessons(lessons) {
       const tags = Array.isArray(l.tags) ? [...l.tags] : []; let text = String(l.lessonTr || ''), rp = finite(l.resultPct), basis = l.resultBasis || null, changed = false;
       const add = t => { if (!tags.includes(t)) { tags.push(t); changed = true; } };
       if (xt !== l.exitType) { if (xt === 'TOP3_TAKE_PROFIT') add('TARGET_HIT'); if (xt === 'TOP3_STOP') add('STOPPED'); if (xt === 'TOP3_TIME_EXIT') add('TIME_EXIT'); if (xt === 'TOP3_BE_STOP') add('BREAKEVEN_STOP');
-        if (CUT_SHORT_EXITS.has(xt)) { add('CUT_SHORT'); add(xt === 'TOP3_SYSTEM_CLOSE' ? 'SYSTEM_CLOSE' : 'EXTERNAL_CLOSE'); } }
+        if (CUT_SHORT_EXITS.has(xt)) { add('CUT_SHORT'); add(cutTag(xt)); } }
       if (xt === 'TOP3_BE_STOP' && r !== null && r > 0.2 && sp > 0 && rp !== null && rp < r * sp - 0.002) {   // a half was taken: whole-lot result ~ R x stop %
         rp = Number((r * sp).toFixed(4)); basis = 'R_X_STOP_WHOLE_LOT'; add('PARTIAL_TAKEN');
         text = text.replace(/(kazanç|kayıp|başabaş) [-+]?[0-9]+,[0-9]+%/, 'kazanç ' + (rp >= 0 ? '+' : '') + (rp * 100).toFixed(1).replace('.', ',') + '%'); changed = true; }
