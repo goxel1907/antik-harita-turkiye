@@ -400,3 +400,13 @@ test('R2544.142 the wallet card reads the REAL Binance wallet in TEST too (read-
   assert.equal((await f.controller.realWalletSummary()).cached,true,'cached for 30 s');
   const acc=await f.controller.accountSummary({maxAgeMs:0});assert.equal(acc.ok,true);assert.ok(pseen.includes('GET /fapi/v3/account'),'sizing / risk still read the paper account in TEST');
 });
+
+test('R2544.146 the phone gives the PC a new Binance key: format checked, tested on Binance, saved with DPAPI, used at once, never echoed',{skip:process.platform!=='win32'},async()=>{
+  const f=fixture();
+  assert.deepEqual((await f.controller.updateCredentials({apiKey:'short',apiSecret:'x'})).reasons,['CREDENTIALS_FORMAT_INVALID']);
+  const k='TESTKEY'+'A'.repeat(40)+'WXYZ',s='TESTSECRET'+'B'.repeat(40);
+  const out=await f.controller.updateCredentials({apiKey:k,apiSecret:s,source:'APK'});
+  assert.equal(out.ok,true,JSON.stringify(out));assert.equal(out.keyTail,'WXYZ');assert.ok(!JSON.stringify(out).includes(s)&&!JSON.stringify(out).includes(k),'never echoed');
+  const kf=fs.readFileSync(path.join(f.root,'config','binance-api-key.dpapi'),'utf8');assert.ok(kf.length>40&&!kf.includes('TESTKEY'),'DPAPI cipher text, not the key');
+  const ev=f.kinds('BINANCE_CREDENTIALS_UPDATED');assert.equal(ev.length,1);assert.equal(ev[0].p.keyTail,'WXYZ');assert.ok(!JSON.stringify(ev).includes(s),'the journal never holds the secret');
+});

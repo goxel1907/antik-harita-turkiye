@@ -46,3 +46,10 @@ test('R2544.146 the phone 60 s sizing copy (no source) never overwrites a size t
   assert.match(sv.slice(i,j),/if\(!otoSource\)for\(const k of \['marginQuote','leverage','maxOpenPositions','burstMarginQuote','burstMaxLeverage','burstFreeMarginFraction'\]\)delete otoBody\[k\];/);
   const k=os2.indexOf("'/api/control/sizing': b =>"),l=os2.indexOf("'/api/control/close': b =>",k);assert.match(os2.slice(k,l),/out\.source = 'OFFICE';/);
 });
+
+test('R2544.146 no Office key form (kullanıcı 10.11: "officeden api girme olmasın"); the phone route exists; phone lots carry their id',()=>{
+  const os2=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8'),sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+  assert.ok(!/\/live\/credentials/.test(os2),'Office cannot reach the key route');
+  assert.match(sv,/u\.pathname==='\/live\/credentials'\)\{[\s\S]{0,300}live\.updateCredentials\(/);
+  const ms=fs.readFileSync(path.join(__dirname,'..','mobile-status.js'),'utf8');assert.match(ms,/pick\(a,\['id','symbol',/);
+});

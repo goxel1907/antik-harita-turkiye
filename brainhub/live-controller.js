@@ -63,17 +63,34 @@ function text(v) {
 function readDpapi(file) {
   if (process.platform !== 'win32' || !fs.existsSync(file)) return null;
   const script = [
-    '$p=$args[0]',
+    '$p=$env:BH_DPAPI_FILE', // R2544.146: path via env (with -Command a trailing arg is glued into the script; $args stayed empty)
     '$s=(Get-Content -LiteralPath $p -Raw).Trim() | ConvertTo-SecureString',
     '$b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)',
-    'try {[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))}',
-    'finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}'
+    // R2544.146: try / finally in ONE statement (joined with ';' PowerShell refused it: "Try statement is missing its Catch or Finally")
+    'try {[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}'
   ].join(';');
   const out = spawnSync('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script, file
-  ], { encoding:'utf8', windowsHide:true, timeout:5000, maxBuffer:16384 });
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script
+  ], { env:{ ...process.env, BH_DPAPI_FILE:String(file) }, encoding:'utf8', windowsHide:true, timeout:5000, maxBuffer:16384 });
   if (out.error || out.status !== 0) return null;
   return text(out.stdout);
+}
+
+// R2544.146: DPAPI writer (same format as manage.ps1 Save-Dpapi: ConvertFrom-SecureString, CurrentUser). The value goes through
+// stdin, never the command line or a log; written to a temp file and moved over the old one.
+function saveDpapi(file, value) {
+  if (process.platform !== 'win32') throw new Error('DPAPI_WINDOWS_ONLY');
+  const script = [
+    '$p=$env:BH_DPAPI_FILE', '$v=[Console]::In.ReadToEnd().Trim()', // path via env: -Command glues trailing args into the script
+    'if($v.Length -lt 8){exit 3}',
+    '$s=ConvertTo-SecureString -String $v -AsPlainText -Force', '$v=$null',
+    '$t=$p+\'.tmp\'', 'Set-Content -LiteralPath $t -Value ($s | ConvertFrom-SecureString) -Encoding ASCII -NoNewline',
+    'Move-Item -LiteralPath $t -Destination $p -Force'
+  ].join(';');
+  const out = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    { input:String(value), env:{ ...process.env, BH_DPAPI_FILE:String(file) }, encoding:'utf8', windowsHide:true, timeout:10000, maxBuffer:16384 });
+  if (out.error || out.status !== 0) throw new Error('DPAPI_WRITE_FAILED');
+  if (readDpapi(file) !== String(value).trim()) throw new Error('DPAPI_VERIFY_FAILED');
 }
 
 function resolveCredentials(root, supplied = {}) {
@@ -2978,8 +2995,35 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }finally{fastLaneBusy=false;}
   }
 
+  // R2544.146 (kullanıcı 10.11: "IP değişirse Binance'te API girip uygulamadan / Office'ten PC'ye vereyim"): a key saved through
+  // updateCredentials is used at once (no restart); the next start reads the same DPAPI files.
+  let credentialsOverride = null;
   function currentCredentials() {
-    return resolveCredentials(root, credentials);
+    return credentialsOverride || resolveCredentials(root, credentials);
+  }
+  async function updateCredentials({ apiKey, apiSecret, source } = {}) {
+    const k = String(apiKey || '').trim(), s = String(apiSecret || '').trim();
+    if (!/^[A-Za-z0-9]{16,128}$/.test(k) || !/^[A-Za-z0-9]{16,128}$/.test(s)) return { ok:false, reasons:['CREDENTIALS_FORMAT_INVALID'] };
+    // never swap the key under a running LIVE (its stop / target management uses it); TEST may keep running
+    if (!testModeNow() && armedNow()) return { ok:false, reasons:['LIVE_RUNNING_RETURN_TO_TEST_FIRST'] };
+    const fresh = { apiKey:k, apiSecret:s };
+    let acc;
+    try {
+      await transport._syncServerTime();
+      acc = await transport._fetchJsonReal('GET', '/fapi/v3/account', { credentials:fresh, signed:true });
+    } catch (e) {
+      return { ok:false, reasons:['BINANCE_REJECTED_NEW_KEY'], detail:{ status:e?.status ?? null, code:e?.body?.code ?? null, msg:String(e?.body?.msg || e?.message || '').slice(0,120) } };
+    }
+    const walletBalance = finite(acc?.totalWalletBalance), availableBalance = finite(acc?.availableBalance);
+    if (walletBalance === null || availableBalance === null) return { ok:false, reasons:['BINANCE_ACCOUNT_SUMMARY_INVALID'] };
+    try {
+      saveDpapi(path.join(root, 'config', 'binance-api-key.dpapi'), k);
+      saveDpapi(path.join(root, 'config', 'binance-api-secret.dpapi'), s);
+    } catch (e) { return { ok:false, reasons:['CREDENTIALS_SAVE_FAILED'], detail:{ error:String(e?.message || e).slice(0,60) } }; }
+    credentialsOverride = fresh;
+    accountSummaryCache = { at:0, value:null }; realWalletCache = { at:0, value:null };
+    try { store.journal('BINANCE_CREDENTIALS_UPDATED', null, { keyTail:k.slice(-4), source:String(source || 'API').slice(0,20), walletBalance, availableBalance }); } catch {}
+    return { ok:true, keyTail:k.slice(-4), walletBalance, availableBalance };
   }
 
   function armedNow() {
@@ -3707,7 +3751,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       realWalletCache = { at:now, value };
       return { ...value, cached:false };
     } catch (e) {
-      return { ok:false, configured:true, reasons:[String(e?.message || 'BINANCE_REAL_WALLET_FAILED').slice(0,160)] };
+      return { ok:false, configured:true, reasons:[String(e?.message || 'BINANCE_REAL_WALLET_FAILED').slice(0,160)], binance:{ code:e?.body?.code ?? null, msg:String(e?.body?.msg || '').slice(0,120) } };
     }
   }
 
@@ -7419,7 +7463,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { userCloseLot, realWalletSummary, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
+  return { userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };

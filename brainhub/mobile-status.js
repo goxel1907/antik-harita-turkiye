@@ -30,7 +30,7 @@ function mobileStatus(status={}){
   if(t&&typeof t==='object'){
     out.top3={version:t.version,tradingMode:t.tradingMode,switches:t.switches,gate:t.gate,running:t.running,settings:t.settings||null,
       testWindow:pick(t.testWindow,['startedAt','endsAt','elapsedH','remainingMin','done','scans','okScans','signals','entries']),
-      active:(t.active||[]).slice(0,12).map(a=>({...pick(a,['symbol','side','rule','signalKind','mode','entryPrice','stopPrice','tpPrice','markPrice','unrealizedPnl','leverage','leverageBy','marginQuote','remainingMin','riskQuote']),part:partOf(a.part),cm:cmOf(a),r:rOf(a)})),
+      active:(t.active||[]).slice(0,12).map(a=>({...pick(a,['id','symbol','side','rule','signalKind','mode','entryPrice','stopPrice','tpPrice','markPrice','unrealizedPnl','leverage','leverageBy','marginQuote','remainingMin','riskQuote']),part:partOf(a.part),cm:cmOf(a),r:rOf(a)})),
       lastScan:t.lastScan?{at:t.lastScan.at,candle:t.lastScan.candle,ranked:t.lastScan.ranked,signals:(t.lastScan.signals||[]).slice(0,8).map(x=>({symbol:x.symbol,side:x.side,kind:x.kind||null})),errors:(t.lastScan.errors||[]).slice(0,3)}:null,
       // R2544.58 v2: rules version, risk per trade and the last 5m pass for the phone
       rules:t.rules?{rulesVersion:t.rules.rulesVersion??1,riskPct:t.rules.riskPct??null}:null,
@@ -56,7 +56,7 @@ function mobileStatus(status={}){
       rules:pick(z.rules,['topN','volMult','bodyMin','minStopPct','maxStopPct','maxHoldH']),nextScanAt:z.nextScanAt||null,armedCoins:Array.isArray(z.armed)?z.armed.length:0,
       lastScan:ls?{at:ls.at||null,bar:ls.bar||null,signals:ls.signals??null,armed:ls.armed??null,errors:(ls.errors||[]).slice(0,3),
         top:(ls.top||[]).slice(0,5).map(r=>({symbol:r.symbol,rank:r.rank,zones:Array.isArray(r.zones)?r.zones.length:(r.zones??null),signals:(r.signals||[]).map(g=>({side:g.side,mtf:g.mtf||null}))}))}:null,
-      active:(z.active||[]).slice(0,8).map(a=>({...pick(a,['symbol','side','entryPrice','stopPrice','tpPrice','stopPct','targetR','markPrice','unrealizedPnl','leverage','leverageBy','marginQuote','remainingMin']),part:partOf(a.part),mtf:a.mtf||null,cm:cmOf(a),r:rOf(a)})),
+      active:(z.active||[]).slice(0,8).map(a=>({...pick(a,['id','symbol','side','entryPrice','stopPrice','tpPrice','stopPct','targetR','markPrice','unrealizedPnl','leverage','leverageBy','marginQuote','remainingMin']),part:partOf(a.part),mtf:a.mtf||null,cm:cmOf(a),r:rOf(a)})),
       recent:(z.recentEntries||[]).slice(0,6).map(x=>pick(x,['at','symbol','side','opened','reason','rank'])),
       results:z.results?{test:z.results.test||null,live:z.results.live||null}:null,learning:z.learning||null};
   }

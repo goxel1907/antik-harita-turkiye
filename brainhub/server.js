@@ -1831,6 +1831,13 @@ const server=http.createServer(async(req,res)=>{
       const out=await live.binanceRecoveryProbe();
       return send(res,out?.ok?200:503,{...out,binanceRateLimit:binanceRate.status()});
     }
+    // R2544.146: the user's new Binance key (the phone's Binance API dialog; no Office form - kullanıcı 10.11). Tested read-only on Binance before it is saved; the key is
+    // never logged or echoed (the answer carries only its last 4 characters).
+    if(req.method==='POST'&&u.pathname==='/live/credentials'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const out=await live.updateCredentials({apiKey:body?.apiKey,apiSecret:body?.apiSecret,source:typeof body?.source==='string'?body.source:'API'});
+      body=null;return send(res,out.ok?200:409,out);
+    }
     if(req.method==='GET'&&u.pathname==='/live/real-wallet'){ // R2544.142: the real Binance wallet (read-only, also in TEST)
       const out=await live.realWalletSummary();
       return send(res,out?.ok?200:503,out);
@@ -2602,7 +2609,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.145';
+const RUNTIME_RELEASE='R2544.146';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
