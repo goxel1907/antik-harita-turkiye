@@ -203,7 +203,8 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     return out;
   }
   // R2544.131: tmo = this call's time limit; soft = a quick vote's time-out does not make the member sick (slow but good members keep their desk seat)
-  async function ask(m, system, prompt, validate, parse, tmo = timeoutMs, soft = false) {
+  // R2544.141: a member may carry its own time (a thinking model: m.timeoutMs); the quick vote passes its own short limit
+  async function ask(m, system, prompt, validate, parse, tmo = Math.max(timeoutMs, Number(m?.timeoutMs) || 0), soft = false) {
     const t0 = clock(); let r;
     try { r = await withTimeout(m.call({ system, prompt, validate, role:'TRADER' }), tmo); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
     const p = r?.ok ? parse(r.text) : null, ok = !!p?.ok;

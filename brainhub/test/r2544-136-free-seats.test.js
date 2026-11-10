@@ -16,7 +16,7 @@ test('R2544.136 keyless seat: an OpenAI-compatible answer is read; an HTTP error
 test('R2544.136 wiring: OVH (gpt-oss-120b, Llama-3.3-70B) and Kilo (Nemotron nano-omni / ultra / super-vl) sit at the desk only; the exam never spends them',()=>{
   for(const id of ['OVH:gpt-oss-120b','OVH:Meta-Llama-3_3-70B-Instruct','KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free','KILO:nvidia/nemotron-3-ultra-550b-a55b:free','KILO:nvidia/nemotron-3.5-super-vl:free'])assert.ok(sv.includes(`id:'${id}'`),id);
   assert.match(sv,/freeMember\(freeWorker,poolId\),\.\.\.\(noAiStudio\?\[\]:directMembers\(\)\)\]/);
-  assert.ok(!/Qwen3\.5-397B/.test(sv.slice(sv.indexOf('const DIRECT_FREE'),sv.indexOf('async function directAsk'))),'Qwen 397B (> 120 s) left out');
+  assert.ok(/Qwen3\.5-397B-A17B/.test(sv.slice(sv.indexOf('const DIRECT_FREE'),sv.indexOf('async function directAsk'))),'R2544.141: Qwen 397B sits with 150 s and 8000 tokens (63 s measured)');
   assert.equal(MC.memberKey('KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'),'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free','shares the karne of the same model');
   assert.equal(MC.memberKey('OVH:gpt-oss-120b'),'gpt-oss-120b');
 });

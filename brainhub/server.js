@@ -1668,22 +1668,31 @@ setInterval(()=>refreshNvidiaLive().catch(()=>{}),6*3600*1000).unref?.();
 // (no key; 200 req/h per IP; the provider of a :free model may keep the prompt - desk prompts carry prices and the position, no keys).
 // No daily pool -> the desk keeps 5 voters when the Gemini pools are empty. Measured 09.11 with a desk-size prompt: OVH Llama-3.3-70B 1,9 s,
 // OVH gpt-oss-120b 20 s, Kilo Nemotron nano-omni 20 s, Kilo Nemotron ultra 27 s (OVH Qwen3.5-397B > 120 s: left out). Text screen only.
+// R2544.141 DÜŞÜNEN MASA (kullanıcı 10.11: "modellerin en çok düşünenleri masaya otursun, eksik model masası istemiyorum").
+// R2544.139/140 switched the thinking off to fit 60 s; measured 10.11 on 24 h of desk votes: the same Nemotron nano-omni voted HOLD 21 of 27
+// with thinking (and the chart), but an action 41 of 48 with thinking off -> the desk acted on 45 % of its looks (34 % before) and cut
+// winners early (7 trades: real -1,87R, left to the plan +0,01R). My mistake. Thinking is back ON, with the time and the tokens it needs.
+// Measured 10.11 with the real 18 kB desk prompt, thinking on, 8000 tokens, ten calls at once: Kilo nano-omni 38 s, super-vl 44 s, dots-3-note
+// 62 s, ultra 101 s; OVH Qwen3.5-397B 63 s, gpt-oss-120b 72 s, Qwen3.6-27B 127 s. Left out: Kilo lightning and OVH Qwen3.8-27B (out of tokens
+// while thinking). A thinking seat gets THINK_MS; the fast seats keep the desk's 60 s. A desk decision can now take up to ~2,5 min a round.
+const THINK_MS=150000,OVH='https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',KILO='https://api.kilo.ai/api/gateway';
 const DIRECT_FREE=[
-  // R2544.139 (09.11 15:46 first full desk: 12 of 18 seats timed out at 60 s; measured with the real 18 kB desk prompt: gpt-oss 60 s ->
-  // 14 s with reasoning_effort low; Kilo Nemotron ultra > 150 s -> 7 s with reasoning off; Kilo super-vl ran out of tokens while thinking)
-  {id:'OVH:gpt-oss-120b',base:'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',model:'gpt-oss-120b',maxTokens:3000,extra:{reasoning_effort:'low'}},
-  {id:'OVH:Meta-Llama-3_3-70B-Instruct',base:'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',model:'Meta-Llama-3_3-70B-Instruct',maxTokens:1500},
-  {id:'KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',maxTokens:3000,extra:{reasoning:{enabled:false}}},
-  {id:'KILO:nvidia/nemotron-3-ultra-550b-a55b:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3-ultra-550b-a55b:free',maxTokens:3000,extra:{reasoning:{enabled:false}}},
-  {id:'KILO:nvidia/nemotron-3.5-super-vl:free',base:'https://api.kilo.ai/api/gateway',model:'nvidia/nemotron-3.5-super-vl:free',maxTokens:3000,extra:{reasoning:{enabled:false}}}];
+  {id:'OVH:gpt-oss-120b',base:OVH,model:'gpt-oss-120b',maxTokens:8000,timeoutMs:THINK_MS},
+  {id:'OVH:Qwen3.5-397B-A17B',base:OVH,model:'Qwen3.5-397B-A17B',maxTokens:8000,timeoutMs:THINK_MS},
+  {id:'OVH:Qwen3.6-27B',base:OVH,model:'Qwen3.6-27B',maxTokens:8000,timeoutMs:THINK_MS},
+  {id:'OVH:Meta-Llama-3_3-70B-Instruct',base:OVH,model:'Meta-Llama-3_3-70B-Instruct',maxTokens:1500},
+  {id:'KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',base:KILO,model:'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',maxTokens:8000,timeoutMs:THINK_MS},
+  {id:'KILO:nvidia/nemotron-3-ultra-550b-a55b:free',base:KILO,model:'nvidia/nemotron-3-ultra-550b-a55b:free',maxTokens:8000,timeoutMs:THINK_MS},
+  {id:'KILO:nvidia/nemotron-3.5-super-vl:free',base:KILO,model:'nvidia/nemotron-3.5-super-vl:free',maxTokens:8000,timeoutMs:THINK_MS},
+  {id:'KILO:dots-studio/dots-3-note-preview:free',base:KILO,model:'dots-studio/dots-3-note-preview:free',maxTokens:8000,timeoutMs:THINK_MS}];
 async function directAsk(d,{system,prompt}={},fetchImpl=fetch){
-  try{const r=await fetchImpl(d.base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(110000),
+  try{const r=await fetchImpl(d.base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout((d.timeoutMs||100000)+10000),
       body:JSON.stringify({...(d.extra||{}),model:d.model,max_tokens:d.maxTokens,temperature:0.2,messages:[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}]})});
     const t=await r.text();if(!r.ok)return {ok:false,reason:('HTTP '+r.status+' '+t).slice(0,160),model:d.model};
     let j=null;try{j=JSON.parse(t);}catch{}const text=String(j?.choices?.[0]?.message?.content||'').trim();
     return text?{ok:true,text,model:d.model,img:false,compact:false}:{ok:false,reason:'EMPTY_ANSWER '+String(j?.choices?.[0]?.finish_reason||''),model:d.model};
   }catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:d.model};}}
-const directMembers=()=>DIRECT_FREE.map(d=>({id:d.id,call:a=>directAsk(d,a)}));
+const directMembers=()=>DIRECT_FREE.map(d=>({id:d.id,call:a=>directAsk(d,a),...(d.timeoutMs?{timeoutMs:d.timeoutMs}:{})}));
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean),vision:out.vision||{}};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
 setInterval(()=>refreshCommitteeRouterIds().catch(()=>{}),30*60*1000).unref?.();
@@ -1699,7 +1708,7 @@ function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){
   const fixed=traderRouterMembers().filter(m=>!COMMITTEE_DROP.test(m.id)),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
   // R2544.115: every connected model that reads an image (catalog) is a candidate first; only free providers (a paid provider never joins by itself)
   const connected=(committeeRouterIds.ids||[]).filter(m=>ROUTER_FREE_PROVIDERS.test(m)&&freeModelOk(m)&&nvidiaLiveOk(m)),visionFirst=connected.filter(m=>committeeSeesCharts(m)&&!ROUTER_NOT_COMMITTEE.test(m));
-  const extra=pickRouterExtras(connected,{have,strong:ROUTER_STRONG,perProvider:3,max:28,candidates:[...visionFirst,...ROUTER_CANDIDATES].filter(freeModelOk).filter(nvidiaLiveOk),gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m)})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
+  const extra=pickRouterExtras(connected,{have,strong:ROUTER_STRONG,perProvider:3,max:28,candidates:[...visionFirst,...ROUTER_CANDIDATES].filter(freeModelOk).filter(nvidiaLiveOk),gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m),...(/^nvidia\//.test(m)?{timeoutMs:115000}:{})})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
   // R2544.104 (kullanıcı 02.11: "çalışmayan modeller çalışanlar ile değişebilsin; OpenRouter'da yüzlerce model var"): the preferred list first, then the
   // large free models in TODAY's OpenRouter catalog; a gone / slow / always-failing one is skipped and the next takes its seat; at most OR_MAX
@@ -2580,7 +2589,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.140';
+const RUNTIME_RELEASE='R2544.141';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

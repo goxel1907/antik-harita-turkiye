@@ -12,5 +12,5 @@ test('R2544.140 a timeout is slowness, not sickness: the member keeps its seat u
 test('R2544.140 the desk asks the stream with the time NOW (the look start made a fresher book look stale); Kilo nano-omni reasoning off',()=>{
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8'),sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
   assert.match(lc,/sn=ms\.snapshot\(a\.symbol,clock\(\)\)/);assert.ok(!/ms\.snapshot\(a\.symbol,now\)/.test(lc));
-  assert.match(sv,/id:'KILO:nvidia\/nemotron-3-nano-omni-30b-a3b-reasoning:free',[^\n]*extra:\{reasoning:\{enabled:false\}\}/);
+  assert.match(sv,/id:'KILO:nvidia\/nemotron-3-nano-omni-30b-a3b-reasoning:free',[^\n]*maxTokens:8000,timeoutMs:THINK_MS/); // R2544.141: thinking on, with time and tokens
 });
