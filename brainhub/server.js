@@ -1922,6 +1922,11 @@ const server=http.createServer(async(req,res)=>{
       // (V95132 syncLeaderAutoSizing), which silently overwrote a size the user typed in Office ("marj = kullanıcının yazdığı rakam").
       // Sizes are taken only from a request that names its source (Office Kaydet: OFFICE, the phone's own dialog: APK).
       if(!otoSource)for(const k of ['marginQuote','leverage','maxOpenPositions','burstMarginQuote','burstMaxLeverage','burstFreeMarginFraction'])delete otoBody[k];
+      // R2544.147 (10.11 21:57, kullanıcı: "max 1'i 2 yaptım sadece, uygulamada sorun var"): the phone's OTO dialog KAYDET sends the
+      // checkbox "PC LIVE oto yürütücü" with the sizes, so saving max 2 turned the normal system ON in LIVE. From the phone this route
+      // carries sizes (and OFF) only; the phone switches the normal system ON with its lanes card (POST /live/lanes), never here.
+      // switching OFF from the phone is always accepted (the safe side); only an ON riding on a size save is dropped
+      if(String(otoSource||'').toUpperCase()==='APK'&&otoBody.enabled===true){delete otoBody.enabled;}
       const otoWasOn=live.leaderAutoStatus()?.enabled===true;
       if(live.laneStatus().mode==='LIVE'&&otoBody.enabled===true&&!otoWasOn&&String(otoConfirm||'').toUpperCase()!=='LIVE')return send(res,409,{ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']});
       const out=live.configureLeaderAuto(otoBody);

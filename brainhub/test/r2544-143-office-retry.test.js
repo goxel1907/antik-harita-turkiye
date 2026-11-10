@@ -53,3 +53,10 @@ test('R2544.146 no Office key form (kullanıcı 10.11: "officeden api girme olma
   assert.match(sv,/u\.pathname==='\/live\/credentials'\)\{[\s\S]{0,300}live\.updateCredentials\(/);
   const ms=fs.readFileSync(path.join(__dirname,'..','mobile-status.js'),'utf8');assert.match(ms,/pick\(a,\['id','symbol',/);
 });
+
+test('R2544.147 the phone OTO dialog (source APK) saves sizes only; it never switches the normal system (21:57 max 1->2 turned it on in LIVE)',()=>{
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+  const i=sv.indexOf("u.pathname==='/live/leader-auto'){\n      let body;"),j=sv.indexOf('const out=live.configureLeaderAuto(otoBody);',i);
+  assert.match(sv.slice(i,j),/if\(String\(otoSource\|\|''\)\.toUpperCase\(\)==='APK'&&otoBody\.enabled===true\)\{delete otoBody\.enabled;\}/);
+  assert.ok(sv.slice(i,j).indexOf("delete otoBody.enabled")<sv.slice(i,j).indexOf("otoBody.enabled===true&&!otoWasOn"),'removed before the LIVE check and the lane memory');
+});
