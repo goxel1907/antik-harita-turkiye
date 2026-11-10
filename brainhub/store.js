@@ -102,7 +102,9 @@ function openStore(root) {
     if (top < officeCache.lastRowid) officeCache = { lastRowid:0, rows:[] };
     if (top > officeCache.lastRowid) {
       const fresh = officeSince.all(officeCache.lastRowid, top).map(x => ({ ...x, payload:JSON.parse(x.payload) }));
-      if (fresh.length) { officeCache.rows.push(...fresh); officeCache.rows.sort((a, b) => b.ts - a.ts); }
+      // R2544.142: never push(...fresh) - the first call after a restart reads the whole ledger (126 439 rows on 10.11) and a spread
+      // of that size overflows the call stack (RangeError on every call: /live/positions 500, closes not booked)
+      if (fresh.length) { for (const r of fresh) officeCache.rows.push(r); officeCache.rows.sort((a, b) => b.ts - a.ts); }
       officeCache.lastRowid = top;
     }
     return officeCache.rows.slice();

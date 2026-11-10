@@ -7306,7 +7306,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{const creds=currentCredentials();if(mode==='LIVE'&&!credentialsReady(creds)){c.error='BINANCE_CREDENTIALS_REQUIRED';c.at=clock();return c;}
       if(mode==='LIVE')await transport._syncServerTime();
       const keep=clock()-60*86400000,key=x=>String(x?.incomeType)+':'+String(x?.tranId),seen=new Map(c.rows.map(x=>[key(x),x]));
-      let start=c.rows.length?Math.max(...c.rows.map(x=>Number(x.time))):keep;
+      let start=c.rows.length?c.rows.reduce((m,x)=>Math.max(m,Number(x.time)||0),0):keep; // R2544.142: no spread over a growing list
       for(let i=0;i<30;i++){const r=await transport._fetchJson('GET','/fapi/v1/income',{params:{startTime:Math.floor(start),endTime:Math.floor(clock()),limit:1000},credentials:creds,signed:true});
         if(!Array.isArray(r))throw new Error('BINANCE_INCOME_UNAVAILABLE');let fresh=0;for(const x of r){if(!seen.has(key(x)))fresh++;seen.set(key(x),x);}
         if(r.length<1000||!fresh)break;start=Math.max(...r.map(x=>Number(x.time)));}

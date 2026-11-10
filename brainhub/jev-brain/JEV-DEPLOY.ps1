@@ -30,6 +30,16 @@ try {
   $autoRenew = $false; try { $autoRenew = ($liveState.tradingMode.run.liveAutoRun -eq $true) } catch { $autoRenew = $false }
   if ($tmode -eq 'LIVE' -and $autoRenew) { throw 'LIVE ACIK (otomatik yenileme). Once Office/telefon: Durdur ya da TEST e don, sonra deploy edin.' }
   $pos = Open-Positions $RT
+  # R2544.142 (10.11): the running core's /live/positions failed on every call (store spread overflow) and blocked this deploy, which
+  # carries the fix. In TEST the lots are virtual and allowed through the restart anyway (R2544.71), so the paper exchange's own list
+  # from /live/status is read instead. LIVE stays fail-closed: no readable position list, no deploy.
+  if ($null -eq $pos -and $tmode -eq 'TEST') {
+    $paperPos = $null; try { $paperPos = $liveState.tradingMode.paper.positions } catch { $paperPos = $null }
+    if ($null -ne $liveState.tradingMode.paper -and $null -ne $liveState.tradingMode.paper.PSObject.Properties['positions']) {
+      $pos = @(@($paperPos) | Where-Object { $_ } | ForEach-Object { "$($_.symbol) $($_.side)" })
+      Write-Host "POSITIONS_FALLBACK_TEST_PAPER: $($pos.Count) sanal lot (/live/positions okunamadi)"
+    }
+  }
   if ($null -eq $pos) { throw 'Acik pozisyon durumu okunamadi; guvenlik icin deploy durduruldu.' }
   # R2544.71: in TEST the open lots are VIRTUAL (paper exchange file); they stay open through the restart with their stop/TP
   # and the gap is caught up from 1m candles. In LIVE (real money) the R2544.29 rule is unchanged: no deploy with a position.
