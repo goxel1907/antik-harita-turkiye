@@ -31,7 +31,7 @@ test('R2544.125 the committee sees the recall case by case and is told it is not
   const lc=src('live-controller.js');
   assert.match(lc,/try\{ef\.brain=top3Lib\.brainCase\(top3State\.lessons,x\.rule,ef\);\}catch\{\}/);assert.match(lc,/try\{ef\.brain=top3Lib\.brainCase\(z\.lessons,rule,ef\);\}catch\{\}/);
   assert.equal((lc.match(/experience:ef\.brain\|\|ef\.similar,flags\}\)/g)||[]).length,2);assert.match(lc,/experience:f0\.brain\|\|f0\.similar\|\|null/);
-  assert.match(lc,/brain:\(\(\)=>\{try\{const all=\[\.\.\.\(top3State\.lessons\|\|\[\]\),\.\.\.\(z5State\(\)\.lessons\|\|\[\]\)\],sc=top3Lib\.brainScore\(all,\{mode\}\)/);
+  assert.match(lc,/brain:\(\(\)=>\{try\{const all=\[\.\.\.\(top3State\.lessons\|\|\[\]\),\.\.\.\(z5State\(\)\.lessons\|\|\[\]\)\],sc=top3Lib\.brainScore\(all,\{mode:'ALL'\}\)/);
 });
 test('R2544.125 Office: the brain canvas shows the signal, its 5 memories, the verdict and the report card',()=>{
   const h=src('office-dashboard/public/office.html');

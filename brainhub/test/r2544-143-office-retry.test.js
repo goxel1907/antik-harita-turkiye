@@ -60,3 +60,12 @@ test('R2544.147 the phone OTO dialog (source APK) saves sizes only; it never swi
   assert.match(sv.slice(i,j),/if\(String\(otoSource\|\|''\)\.toUpperCase\(\)==='APK'&&otoBody\.enabled===true\)\{delete otoBody\.enabled;\}/);
   assert.ok(sv.slice(i,j).indexOf("delete otoBody.enabled")<sv.slice(i,j).indexOf("otoBody.enabled===true&&!otoWasOn"),'removed before the LIVE check and the lane memory');
 });
+
+test('R2544.147 the screens tell TEST from LIVE: funnel rows carry their mode; the brain shows the memory an entry recalls from (TEST + LIVE)',()=>{
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8'),h=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  assert.match(lc,/rows\.push\(\{at:x\.ts,mode:x\.p\.tradingMode\|\|null,lane:'TOP3',/);assert.match(lc,/rows\.push\(\{at:y\.ts,mode:y\.p\.tradingMode\|\|null,lane:'ZIRVE5',/);
+  assert.match(h,/r\.mode==='LIVE'\?'CANLI':'TEST'/);
+  assert.match(lc,/sc=top3Lib\.brainScore\(all,\{mode:'ALL'\}\)/);
+  const T=require('../top3-hunter');const L=[{mode:'TEST',rMultiple:1,openedAt:1,closedAt:2,rule:'X'},{mode:'LIVE',rMultiple:-1,openedAt:3,closedAt:4,rule:'X'}];
+  assert.ok(T.brainScore(L,{mode:'ALL'}));
+});

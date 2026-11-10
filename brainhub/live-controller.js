@@ -7326,9 +7326,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const sig=J('TOP3_SIGNAL'),out=[...J('TOP3_ENTRY'),...J('TOP3_BLOCKED'),...J('TOP3_COMMITTEE_SKIP'),...J('TOP3_SIGNAL_EXPIRED')],used=new Set(),rows=[];
     for(const x of sig){const o=out.filter(y=>!used.has(y)&&y.symbol===x.symbol&&y.ts>=x.ts-2000&&y.ts<=x.ts+12*60000).sort((a,b)=>a.ts-b.ts)[0];if(o)used.add(o);
       const fate=!o?'NO_RESULT':o.k==='TOP3_ENTRY'?'OPENED':o.k==='TOP3_COMMITTEE_SKIP'?'COMMITTEE_SKIP':o.k==='TOP3_SIGNAL_EXPIRED'?'EXPIRED':'RULE_BLOCKED';
-      rows.push({at:x.ts,lane:'TOP3',symbol:x.symbol,side:x.p.side||null,rule:x.p.rule||null,fate,warn:fate==='OPENED'?((o.p.entryFeatures?.ruleFlags||[]).map(f=>f.code)):undefined,reason:fate==='RULE_BLOCKED'?(o.p.result?.reason||o.p.reason||null):fate==='COMMITTEE_SKIP'?(o.p.consensus||null):fate==='NO_RESULT'?(x.p.gate&&x.p.gate!=='OPEN'?x.p.gate:null):null,stopPct:finite(o?.p?.result?.stopPct)});}
+      rows.push({at:x.ts,mode:x.p.tradingMode||null,lane:'TOP3',symbol:x.symbol,side:x.p.side||null,rule:x.p.rule||null,fate,warn:fate==='OPENED'?((o.p.entryFeatures?.ruleFlags||[]).map(f=>f.code)):undefined,reason:fate==='RULE_BLOCKED'?(o.p.result?.reason||o.p.reason||null):fate==='COMMITTEE_SKIP'?(o.p.consensus||null):fate==='NO_RESULT'?(x.p.gate&&x.p.gate!=='OPEN'?x.p.gate:null):null,stopPct:finite(o?.p?.result?.stopPct)});}
     for(const y of [...J('ZIRVE5_ENTRY'),...J('ZIRVE5_BLOCKED'),...J('ZIRVE5_COMMITTEE_SKIP')])
-      rows.push({at:y.ts,lane:'ZIRVE5',symbol:y.symbol,side:y.p.side||null,rule:y.p.rule||null,warn:y.k==='ZIRVE5_ENTRY'?((y.p.entryFeatures?.ruleFlags||[]).map(f=>f.code)):undefined,fate:y.k==='ZIRVE5_ENTRY'?'OPENED':y.k==='ZIRVE5_COMMITTEE_SKIP'?'COMMITTEE_SKIP':'RULE_BLOCKED',reason:y.k==='ZIRVE5_BLOCKED'?(y.p.reason||y.p.result?.reason||null):null,stopPct:finite(y.p.stopPct??y.p.result?.stopPct)});
+      rows.push({at:y.ts,mode:y.p.tradingMode||null,lane:'ZIRVE5',symbol:y.symbol,side:y.p.side||null,rule:y.p.rule||null,warn:y.k==='ZIRVE5_ENTRY'?((y.p.entryFeatures?.ruleFlags||[]).map(f=>f.code)):undefined,fate:y.k==='ZIRVE5_ENTRY'?'OPENED':y.k==='ZIRVE5_COMMITTEE_SKIP'?'COMMITTEE_SKIP':'RULE_BLOCKED',reason:y.k==='ZIRVE5_BLOCKED'?(y.p.reason||y.p.result?.reason||null):null,stopPct:finite(y.p.stopPct??y.p.result?.stopPct)});
     // ZİRVE-5 notes that never reach the journal (lane closed: LIVE_NOT_ARMED / deploy pause, stale, side off, busy)
     for(const n of (z5State().recent||[]))if(n&&n.opened===false&&Date.parse(n.at)>=since&&!rows.some(r=>r.lane==='ZIRVE5'&&r.symbol===n.symbol&&Math.abs(r.at-Date.parse(n.at))<120000))
       rows.push({at:Date.parse(n.at),lane:'ZIRVE5',symbol:n.symbol,side:n.side||null,rule:null,fate:n.held?'HELD':/NOT_ARMED|STOPPED|PAUSE|RUN_|DISABLED/.test(String(n.reason||''))?'PAUSED':'RULE_BLOCKED',reason:n.reason||null,stopPct:finite(n.stopPct)});
@@ -7386,12 +7386,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       testWindow:top3WindowView(now),
       settings:{marginQuote:cfg.marginQuote,marginAuto:cfg.marginQuote===null,leverage:cfg.leverage,safeLeverage:{long:top3Lib.safeLeverage(cfg.long.stopPct),shortMin:top3Lib.safeLeverage(cfg.short.maxStopPct),shortMax:top3Lib.safeLeverage(cfg.short.minStopPct)},effectiveLong:Math.min(cfg.leverage,top3Lib.safeLeverage(cfg.long.stopPct))},
       playbook:(()=>{try{return top3Lib.playbook([...(top3State.lessons||[]),...(z5State().lessons||[])],{mode});}catch{return null;}})(), // R2544.132
-      brain:(()=>{try{const all=[...(top3State.lessons||[]),...(z5State().lessons||[])],sc=top3Lib.brainScore(all,{mode});
+      // R2544.147: the memory / report card shown = what an entry recalls from (TEST + LIVE lessons), not only the current mode's
+      brain:(()=>{try{const all=[...(top3State.lessons||[]),...(z5State().lessons||[])],sc=top3Lib.brainScore(all,{mode:'ALL'});
         // the latest recall: an open lot's entry recall, else the newest lesson that has one, else the newest lesson replayed on what came before it
         const act=Object.values(top3State.active||{}).filter(a=>a?.entryFeatures?.brain).sort((a,b)=>(b.openedAt||0)-(a.openedAt||0))[0];
         let last=act?{symbol:act.symbol,side:act.side,rule:act.rule,lane:act.lane||'ILK3',openedAt:act.openedAt,status:'OPEN',...act.entryFeatures.brain}:null;
-        if(!last){const ls=all.filter(l=>l&&l.mode===mode).sort((a,b)=>(b.openedAt||0)-(a.openedAt||0)),w=ls.find(l=>l.features?.brain),l=w||ls[0];
-          if(l){const b=w?w.features.brain:top3Lib.brainCase(all.filter(p=>p&&p.mode===mode&&p.closedAt<l.openedAt),l.rule,{...(l.features||{}),stopPct:l.stopPct});
+        if(!last){const ls=all.filter(l=>l).sort((a,b)=>(b.openedAt||0)-(a.openedAt||0)),w=ls.find(l=>l.features?.brain),l=w||ls[0];
+          if(l){const b=w?w.features.brain:top3Lib.brainCase(all.filter(p=>p&&p.closedAt<l.openedAt),l.rule,{...(l.features||{}),stopPct:l.stopPct});
             last={symbol:l.symbol,side:l.side,rule:l.rule,openedAt:l.openedAt,status:'CLOSED',R:Number(Number(l.rMultiple).toFixed(2)),hit:top3Lib.brainHit(b.lean,Number(l.rMultiple)),replay:!w,...b};}}
         return {score:sc,last};}catch{return null;}})(),
       learning:{...top3Lib.experienceSummary(top3State.lessons),causes:{LONG_EARLY_RETEST:top3Lib.causeStats(top3State.lessons,'LONG_EARLY_RETEST').text,SHORT_TOP_BREAK:top3Lib.causeStats(top3State.lessons,'SHORT_TOP_BREAK').text},

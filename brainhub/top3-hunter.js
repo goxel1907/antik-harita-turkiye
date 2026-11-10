@@ -773,7 +773,8 @@ function brainCase(lessons, rule, features) {
 const brainHit = (lean, R) => lean === 'OLUMLU' ? R > 0 : lean === 'OLUMSUZ' ? R <= 0 : null;
 let brainScoreCache = { key:'', out:null };
 function brainScore(lessons, { mode = 'TEST' } = {}) {
-  const L = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.mode === mode && finite(l.rMultiple) !== null && Number.isFinite(Number(l.openedAt))).sort((a, b) => a.openedAt - b.openedAt);
+  // R2544.147: mode 'ALL' = TEST + LIVE (what an entry recalls from)
+  const L = (Array.isArray(lessons) ? lessons : []).filter(l => l && (mode === 'ALL' || l.mode === mode) && finite(l.rMultiple) !== null && Number.isFinite(Number(l.openedAt))).sort((a, b) => a.openedAt - b.openedAt);
   const key = mode + ':' + L.length + ':' + (L.length ? L[L.length - 1].closedAt : 0);
   if (brainScoreCache.key === key) return brainScoreCache.out;
   const sum = rows => { const d = rows.filter(r => r.hit !== null), avg = a => a.length ? Number((a.reduce((p, q) => p + q, 0) / a.length).toFixed(2)) : null;
