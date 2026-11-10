@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.137-r2544.147-oto + OTO BASLIK PC DURUMU + v9.5.136-r2544.147-etiket + DOGRU ETIKETLER + OTO KUTUSU PC DURUMU + v9.5.135-r2544.146-anahtar + API PC'YE + KAPAT + TEST ETIKETI + v9.5.134-r2544.142-hatlar + 5DK/15DK/VUR-KAC ANAHTARLARI + v9.5.133-r2544.135-kaldirac + DURDUR TEST=CANLI + KALDIRAC 10-20x + v9.5.132-r2544.129-jevkurul + KAR/ZARAR + BEYIN + JEV+KURUL CANLI + v9.5.129-r2544.89-kurul + MODEL KURULU + KURULLA CANLI + MARJ/KALDIRAC + BAKIYE + CANLI OTOMATIK YENILEME + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
+    name: Futures 15m Alarm PRO APK v9.5.138-r2544.147-pozkart + CANLI POZISYON KARTI + v9.5.137-r2544.147-oto + OTO BASLIK PC DURUMU + v9.5.136-r2544.147-etiket + DOGRU ETIKETLER + OTO KUTUSU PC DURUMU + v9.5.135-r2544.146-anahtar + API PC'YE + KAPAT + TEST ETIKETI + v9.5.134-r2544.142-hatlar + 5DK/15DK/VUR-KAC ANAHTARLARI + v9.5.133-r2544.135-kaldirac + DURDUR TEST=CANLI + KALDIRAC 10-20x + v9.5.132-r2544.129-jevkurul + KAR/ZARAR + BEYIN + JEV+KURUL CANLI + v9.5.129-r2544.89-kurul + MODEL KURULU + KURULLA CANLI + MARJ/KALDIRAC + BAKIYE + CANLI OTOMATIK YENILEME + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -710,6 +710,14 @@ workflows:
           grep -q V95145_R2544_147_OTO_BASLIK /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q "versionName '9.5.137-r2544.147-oto'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           echo V95145_R2544_147_OTO_BASLIK_OK
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95146_r2544_147_poz_kart.py"
+          grep -q 'private void v95146InstallPositionCard()' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "versionName '9.5.138-r2544.147-pozkart'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          if grep -q 'post(c, "/live/execute", intent, true)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
+            echo 'R2544_147_POZ_ANDROID_ORDER_INITIATION_FORBIDDEN'
+            exit 1
+          fi
+          echo V95146_R2544_147_POZ_KART_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
