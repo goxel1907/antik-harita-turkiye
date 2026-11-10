@@ -15,6 +15,7 @@ JAVA = APP / 'app/src/main/java/com/futuresalarm/app'
 MAIN = JAVA / 'MainActivity.java'
 CLIENT = JAVA / 'BrainHubClient.java'
 TRUTH = JAVA / 'V95113PcTruth.java'
+CARD = JAVA / 'AutoDecisionCard.java'  # the İşlem Merkezi summary lives here (V95123), not in MainActivity
 BUILD = APP / 'app/build.gradle'
 MARKER = 'V95144_R2544_147_ETIKET'
 
@@ -28,6 +29,7 @@ def replace(s, old, new):
 main = MAIN.read_text(encoding='utf-8')
 client = CLIENT.read_text(encoding='utf-8')
 truth = TRUTH.read_text(encoding='utf-8')
+card = CARD.read_text(encoding='utf-8')
 build = BUILD.read_text(encoding='utf-8')
 if 'V95143_R2544_146_ANAHTAR' not in main:
     raise SystemExit('V95144 requires V95143')
@@ -41,7 +43,7 @@ main = replace(main,
     'en.setText("Normal sistem (JEV) açık • PC\'deki durum (yalnız işareti değiştirirsen açar/kapatır; açmak için Hatlar kartını kullan)"); // V95144_R2544_147_ETIKET')
 
 # ------------------------------------------------------------------ İşlem Merkezi: TEST is not LIVE
-main = replace(main,
+card = replace(card,
     '        if(pc==V95113PcTruth.ARMED)b.append("\\nLIVE • AÇIK");\n',
     '        if(pc==V95113PcTruth.ARMED)b.append("TEST".equals(V95113PcTruth.v95143Mode(sp))?"\\nTEST • ÇALIŞIYOR (CANLI KAPALI)":"\\nLIVE • AÇIK"); // V95144\n')
 
@@ -68,5 +70,6 @@ build = replace(build, "versionName '9.5.135-r2544.146-anahtar'", "versionName '
 MAIN.write_text(main, encoding='utf-8')
 CLIENT.write_text(client, encoding='utf-8')
 TRUTH.write_text(truth, encoding='utf-8')
+CARD.write_text(card, encoding='utf-8')
 BUILD.write_text(build, encoding='utf-8')
 print(MARKER + '_APPLIED')
