@@ -29,3 +29,13 @@ test('R2544.144 a saved margin / leverage shows at once (the card refreshes righ
   const i=h.indexOf('async function wcSave(r){'),j=h.indexOf('\n}',i);assert.ok(i>0&&j>i);
   assert.match(h.slice(i,j+2),/finally\{WC\.busy=false;\}\n  try\{await tick\(\);\}catch\{\}/);
 });
+
+test('R2544.145 positions read: exit evidence picked once (was 126 543 rows x 460 closes, ~1.2 s core stall per call); same result',()=>{
+  const op=require('../office-performance');
+  const recs=[];for(let i=0;i<5000;i++)recs.push({kind:'R2542_OFFICE_EVENT',id:'e'+i,ts:i,symbol:'X',payload:{}});
+  const row={id:'c1',symbol:'ABCUSDT',side:'LONG',openedAt:'2026-11-01T00:00:00.000Z',closedAt:'2026-11-01T01:00:00.000Z',exitType:'EXTERNAL_CLOSE',netPnl:-1};
+  recs.push({kind:'CLOSE_EXIT_EVIDENCE',id:'v1',ts:9,symbol:'ABCUSDT',payload:{closedId:'c1',openedAt:row.openedAt,closedAt:row.closedAt,evidence:{confirmed:true,exitType:'STOP'}}});
+  const out=op.enrichCloses([row],recs)[0];assert.equal(out.exitType,'STOP','evidence still applied');
+  const src=fs.readFileSync(path.join(__dirname,'..','office-performance.js'),'utf8');assert.match(src,/const evidence=records\.filter\(x=>x\.kind==='CLOSE_EXIT_EVIDENCE'\);/);assert.match(src,/exitCorrectionFor\(row,evidence\)/);
+  const h=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');assert.match(h,/kart son bilinen değerleri gösteriyor/);
+});

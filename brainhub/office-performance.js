@@ -25,9 +25,13 @@ function reconcileCloses(rows){
 function enrichCloses(rows,records=[]){
  const entries=records.filter(x=>x.kind==='LIVE_EXECUTION'&&x.payload?.result?.orderPlaced===true);
  const exits=records.filter(x=>x.kind==='JEV_POSITION_EXECUTION'&&x.payload?.result?.orderPlaced===true&&Number(x.payload?.result?.executedQty)>0);
+ // R2544.145 (10.11: the core stalled ~1.3 s on every positions read - Office 'PC durumu okunamadı', ECONNRESET, timeouts): the
+ // exit evidence was searched in ALL ledger rows (126 543, mostly office events) once per close (460). exitCorrectionFor keeps only
+ // CLOSE_EXIT_EVIDENCE rows itself, so they are picked once here; the result is the same.
+ const evidence=records.filter(x=>x.kind==='CLOSE_EXIT_EVIDENCE');
  return rows.map(raw=>{
    const row={...raw}, at=Date.parse(row.openedAt||''), end=Date.parse(row.closedAt||'');
-   const correction=exitCorrectionFor(row,records);
+   const correction=exitCorrectionFor(row,evidence);
    if(correction&&['EXTERNAL_CLOSE','OTHER_CLOSE','UNKNOWN_CLOSE','JEV_PARTIAL_THEN_EXTERNAL_CLOSE'].includes(row.exitType)){
      row.exitEvidence=correction;row.rawExitType=raw.exitType;row.exitType=correction.confirmed?correction.exitType:'UNKNOWN_CLOSE';
      // R43: money stays in every report; only strategy learning skips a close sent by someone else.

@@ -1160,7 +1160,11 @@ function wcSpark(){
   g.beginPath();g.arc(x(pts.length-1),y(vs.at(-1)),3.5,0,Math.PI*2);g.fillStyle=`rgb(${col})`;g.fill();
 }
 function renderWallet(s){
-  wcBuild();const t=s?.top3?.data||s?.top3||{},z=s?.zirve5?.data||s?.zirve5||{},acc=s?.account?.data||{},la=s?.status?.data?.leaderAuto||{};
+  wcBuild();
+  // R2544.145: when one snapshot cannot read the core (status / İlk 3 / ZİRVE-5), keep the last good card instead of empty boxes and
+  // "marj boş!" (10.11 video: the card flashed blank sizes while the core was busy)
+  if(s?.status?.ok!==true||s?.top3?.ok===false||s?.zirve5?.ok===false){if(WC.good){wcMsg('PC bu yenilemede cevap vermedi; kart son bilinen değerleri gösteriyor.',true);return;}}
+  else{WC.good=true;const m=document.getElementById('wcMsg');if(m&&m.textContent.startsWith('PC bu yenilemede'))wcMsg('');}const t=s?.top3?.data||s?.top3||{},z=s?.zirve5?.data||s?.zirve5||{},acc=s?.account?.data||{},la=s?.status?.data?.leaderAuto||{};
   const live=t.tradingMode==='LIVE'||z.tradingMode==='LIVE';WC.live=live;
   const card=document.getElementById('walletCard');if(card)card.classList.toggle('live',live);
   const mode=document.getElementById('wcMode');if(mode){mode.textContent=live?'CANLI • GERÇEK PARA':'TEST • SANAL HESAP';mode.className='wc-mode '+(live?'live':'test');}
