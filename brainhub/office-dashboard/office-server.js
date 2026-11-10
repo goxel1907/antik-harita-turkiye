@@ -111,6 +111,7 @@ const CONTROL_BODY = {
     const out = {};
     for (const k of ['marginQuote', 'burstMarginQuote']) if (typeof b[k] === 'number' && Number.isFinite(b[k]) && b[k] >= 5 && b[k] <= 100000) out[k] = b[k];
     for (const k of ['leverage', 'burstMaxLeverage']) if (Number.isInteger(b[k]) && b[k] >= 1 && b[k] <= 20) out[k] = b[k];
+    out.source = 'OFFICE'; // R2544.146: the core takes sizes only from a named source (the phone's 60 s copy has none)
     return out;
   },
   '/api/control/close': b => ({ id: /^[A-Za-z0-9:_-]{4,80}$/.test(String(b.id || '')) ? String(b.id) : '', ...(typeof b.confirm === 'string' ? { confirm: b.confirm.toUpperCase() } : {}) }),

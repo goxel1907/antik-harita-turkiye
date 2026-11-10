@@ -1911,6 +1911,10 @@ const server=http.createServer(async(req,res)=>{
       // 60 s config sync that repeats the same state is not. In LIVE, switching OTO ON needs confirm 'LIVE' (a stale phone
       // preference must never start the JEV lane with real money while only İlk 3 is live). OFF is always accepted.
       const {confirm:otoConfirm,source:otoSource,...otoBody}=body||{};
+      // R2544.146 (10.11 phone screens): the APK repeats its stored margin / leverage / max positions every 60 s WITHOUT a source
+      // (V95132 syncLeaderAutoSizing), which silently overwrote a size the user typed in Office ("marj = kullanıcının yazdığı rakam").
+      // Sizes are taken only from a request that names its source (Office Kaydet: OFFICE, the phone's own dialog: APK).
+      if(!otoSource)for(const k of ['marginQuote','leverage','maxOpenPositions','burstMarginQuote','burstMaxLeverage','burstFreeMarginFraction'])delete otoBody[k];
       const otoWasOn=live.leaderAutoStatus()?.enabled===true;
       if(live.laneStatus().mode==='LIVE'&&otoBody.enabled===true&&!otoWasOn&&String(otoConfirm||'').toUpperCase()!=='LIVE')return send(res,409,{ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']});
       const out=live.configureLeaderAuto(otoBody);

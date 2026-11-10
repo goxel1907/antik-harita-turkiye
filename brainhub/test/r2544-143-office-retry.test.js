@@ -39,3 +39,10 @@ test('R2544.145 positions read: exit evidence picked once (was 126 543 rows x 46
   const src=fs.readFileSync(path.join(__dirname,'..','office-performance.js'),'utf8');assert.match(src,/const evidence=records\.filter\(x=>x\.kind==='CLOSE_EXIT_EVIDENCE'\);/);assert.match(src,/exitCorrectionFor\(row,evidence\)/);
   const h=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');assert.match(h,/kart son bilinen değerleri gösteriyor/);
 });
+
+test('R2544.146 the phone 60 s sizing copy (no source) never overwrites a size typed in Office; Office Kaydet names its source',()=>{
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8'),os2=fs.readFileSync(path.join(__dirname,'..','office-dashboard','office-server.js'),'utf8');
+  const i=sv.indexOf("u.pathname==='/live/leader-auto'){\n      let body;"),j=sv.indexOf('const out=live.configureLeaderAuto(otoBody);',i);assert.ok(i>0&&j>i);
+  assert.match(sv.slice(i,j),/if\(!otoSource\)for\(const k of \['marginQuote','leverage','maxOpenPositions','burstMarginQuote','burstMaxLeverage','burstFreeMarginFraction'\]\)delete otoBody\[k\];/);
+  const k=os2.indexOf("'/api/control/sizing': b =>"),l=os2.indexOf("'/api/control/close': b =>",k);assert.match(os2.slice(k,l),/out\.source = 'OFFICE';/);
+});
