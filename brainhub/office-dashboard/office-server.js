@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.124-R2544.142-JEV-Brain';
+const OFFICE_VERSION = '2.5.125-R2544.143-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -166,12 +166,24 @@ function readSmallBody(req, limit) {
 async function brainPost(p, body) {
   if (!Object.values(CONTROL_ROUTES).includes(p)) return { ok: false, status: 400, error: 'BRAIN_PATH_NOT_ALLOWED' };
   const headers = { 'content-type': 'application/json', ...(TOKEN ? { authorization: 'Bearer ' + TOKEN } : {}) };
-  try {
-    const r = await fetch(BRAIN_URL + p, { method: 'POST', headers, body, signal: AbortSignal.timeout(20000) });
-    let data = null; try { data = await r.json(); } catch { data = null; }
-    return { ok: r.ok, status: r.status, data };
-  } catch (e) { return { ok: false, status: 502, error: clip(e?.cause?.code || e?.message || e, 160) }; }
+  // R2544.143 (10.11 16:58: Office "Kapat" -> "PHAROS kapatılmadı: ECONNRESET"; the core was up, the request never reached it): a pooled
+  // keep-alive connection the core had just closed was reused. Requests that are safe to send twice (close: a second call answers
+  // "already" / "not found"; lanes / sizing / strategy settings: absolute values) are retried ONCE on such a socket error. Mode, run,
+  // arm and system requests are never retried.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const r = await fetch(BRAIN_URL + p, { method: 'POST', headers, body, signal: AbortSignal.timeout(20000) });
+      let data = null; try { data = await r.json(); } catch { data = null; }
+      return { ok: r.ok, status: r.status, data, ...(attempt > 1 ? { retried: true } : {}) };
+    } catch (e) {
+      const code = String(e?.cause?.code || e?.code || '');
+      if (attempt === 1 && RETRY_SAFE_POSTS.has(p) && SOCKET_RESET_CODES.has(code)) { await new Promise(r => setTimeout(r, 250)); continue; }
+      return { ok: false, status: 502, error: clip(code || e?.message || e, 160) };
+    }
+  }
 }
+const RETRY_SAFE_POSTS = new Set(['/live/position/close', '/live/lanes', '/live/leader-auto', '/live/top3', '/live/zirve5']);
+const SOCKET_RESET_CODES = new Set(['ECONNRESET', 'UND_ERR_SOCKET', 'EPIPE', 'UND_ERR_CLOSED']);
 function brainGet(p, query = '') {
   if (!ALLOWED_BRAIN_PATHS.has(p)) throw new Error('BRAIN_PATH_NOT_ALLOWED');
   const headers = TOKEN ? { authorization: 'Bearer ' + TOKEN } : {};

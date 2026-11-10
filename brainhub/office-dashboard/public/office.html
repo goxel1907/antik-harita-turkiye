@@ -1084,7 +1084,7 @@ async function wcPost(path,body){
   const r=await fetch(path+location.search,{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-jev-office-control':'1'},body:JSON.stringify(body)});
   let d=null;try{d=await r.json();}catch{}return {ok:r.ok&&d?.ok!==false,d,status:r.status};
 }
-const wcWhy=x=>(typeof reasonsTr==='function'&&reasonsTr(x.d?.reasons))||x.d?.error||('HTTP '+x.status);
+const wcWhy=x=>(typeof reasonsTr==='function'&&reasonsTr(x.d?.reasons))||(/ECONNRESET|UND_ERR_SOCKET|EPIPE|UND_ERR_CLOSED/.test(String(x.d?.error||''))?'PC çekirdeğiyle bağlantı bir anlık koptu, hiçbir şey yapılmadı; tekrar bas':x.d?.error)||('HTTP '+x.status);
 async function wcSave(r){
   if(WC.busy)return;const mEl=document.getElementById(r.m),lEl=document.getElementById(r.l);
   const m=Number(String(mEl?.value??'').trim().replace(',','.')),l=Number(String(lEl?.value??'').trim());
