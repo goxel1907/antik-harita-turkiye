@@ -1098,6 +1098,7 @@ async function wcSave(r){
     if(x.ok){delete mEl.dataset.dirty;delete lEl.dataset.dirty;wcMsg(`✓ ${r.name}: marj ${m} $, kaldıraç ${l}x kaydedildi${r.k==='top3'||r.k==='z5'?' (kaldıraç tabanı; kurul güvene göre en çok 20x seçebilir)':''}.`);}
     else wcMsg(`${r.name} kaydedilmedi: ${wcWhy(x)}`,true);}
   catch(e){wcMsg('Office sunucusuna ulaşılamadı: '+(e?.message||e),true);}finally{WC.busy=false;}
+  try{await tick();}catch{} // R2544.144: show the saved size at once (the 'şu an' line kept the old value until the next refresh)
 }
 // R2544.142 (kullanıcı 10.11: "kartta hangi işlemi aktif etmek istiyorsam o aktif çalışmalı: İlk 3 tek, İlk 3 + ZİRVE-5, herhangi biri
 // veya hepsi; 5 dk scalp, 15 dk ana işlem, vur-kaç, İlk 3 Avcısı, ZİRVE-5"). Five switches. 5 dk / 15 dk / vur-kaç are the normal

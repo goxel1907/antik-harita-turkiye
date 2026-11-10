@@ -23,3 +23,9 @@ test('R2544.143 the card says a reset changed nothing and asks for another press
   const h=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   assert.match(h,/bağlantı bir anlık koptu, hiçbir şey yapılmadı; tekrar bas/);
 });
+
+test('R2544.144 a saved margin / leverage shows at once (the card refreshes right after Kaydet)',()=>{
+  const h=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
+  const i=h.indexOf('async function wcSave(r){'),j=h.indexOf('\n}',i);assert.ok(i>0&&j>i);
+  assert.match(h.slice(i,j+2),/finally\{WC\.busy=false;\}\n  try\{await tick\(\);\}catch\{\}/);
+});
