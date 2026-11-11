@@ -105,3 +105,30 @@ test('R2544.149 a KEŞİF tick: every candidate coin is read, AKIS fires on the 
   const K=require('../kesif');const kr=K.karne([{model:'IZ:AKIS',done:true,R:1.5,side:'LONG',closedAt:1,at:0}]);assert.equal(kr.rows[0].model,'IZ:AKIS');
   assert.equal(K.brief({},[],K.brainCall({},[]),kr).desk.rows[0].trader,'trace rule AKIS');
 });
+
+test('R2544.149 SANAL ORTAM hand-over: the sandbox state at data/kesif-sanal.json is merged once (results marked SANAL, open forecasts and labels kept, matrix added), the file is renamed, never deleted', async()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'r149s-'));fs.mkdirSync(path.join(root,'config'));fs.mkdirSync(path.join(root,'data'));
+  fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:false}));fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify({enabled:false}));
+  writeTradingMode(root,{mode:'TEST',changedAt:'2026-11-12T08:00:00.000Z',testStartedAt:null,testAutoRun:false});
+  const seed={sanal:{startedAt:'2026-11-12T02:00:00.000Z'},closed:[{id:'a:IZ:AKIS',model:'IZ:AKIS',symbol:'XUSDT',side:'LONG',at:NOW-9*H,closedAt:NOW-3*H,done:true,outcome:'TARGET',R:1.9},
+      {id:'b:IZ:AKIS',model:'IZ:AKIS',symbol:'YUSDT',side:'SHORT',at:NOW-8*H,closedAt:NOW-2*H,done:true,outcome:'STOP',R:-1.1},{id:'c:BEYIN',model:'BEYIN',symbol:'XUSDT',side:'NONE',at:NOW-9*H,done:true,outcome:'NONE',R:null}],
+    open:[{id:'d:IZ:DUVAR',model:'IZ:DUVAR',symbol:'ZUSDT',side:'LONG',at:NOW-H,entryAt:NOW-H+M5,stopPct:2,targetPct:4,horizonH:6,done:false},{id:'e:_ETIKET',model:'_ETIKET',symbol:'ZUSDT',side:'LONG',at:NOW-H,entryAt:NOW-H+M5,stopPct:2,targetPct:2,horizonH:6,done:false,feats:['iz:akis:ALIS']}],
+    matrix:{_total:{n:4,UP:2,DOWN:1,FLAT:1},f:{'iz:akis:ALIS':{n:4,UP:2,DOWN:1,FLAT:1,hUP:5,hDOWN:2}}}};
+  fs.writeFileSync(path.join(root,'data','kesif-sanal.json'),JSON.stringify(seed));
+  const fetchImpl=async(url,o={})=>{if((o.method||'GET')!=='GET')throw new Error('GET only');return ok(new URL(url).pathname==='/fapi/v1/time'?{serverTime:NOW}:[]);};
+  const committee={poll:async()=>({ok:false,votes:[],asked:0}),decide:async()=>({ok:false}),status:()=>({members:[],team:[]})};const events=[];
+  const c=require('../live-controller').createLiveController({root,clock:()=>NOW,store:{journal:(k,s,p)=>events.push({k,s,p}),recordLearning:()=>{}},scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),
+    credentials:{apiKey:'fake-test-key-r149s',apiSecret:'fake-test-secret-r149s'},fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',deskJudges:{committee},market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol(){}}}});
+  const out=await c._testKesifTick();
+  assert.deepEqual({closed:out.seed.closed,scored:out.seed.scored,open:out.seed.open,labels:out.seed.labels},{closed:3,scored:2,open:1,labels:5});
+  const s=c._testKesifState();assert.ok(s.closed.filter(r=>r.src==='SANAL').length===3);assert.ok(s.open.some(r=>r.id==='d:IZ:DUVAR'&&r.src==='SANAL'));assert.ok(s.open.some(r=>r.model==='_ETIKET'&&r.feats.includes('iz:akis:ALIS')));
+  assert.equal(s.matrix._total.n,4);assert.equal(s.matrix.f['iz:akis:ALIS'].hUP,5);
+  const row=c.kesifStatus().karne.rows.find(r=>r.model==='IZ:AKIS');assert.equal(row.n,2);assert.equal(c.kesifStatus().seed.scored,2);
+  const files=fs.readdirSync(path.join(root,'data'));assert.ok(!files.includes('kesif-sanal.json'));assert.ok(files.some(f=>/^kesif-sanal\.imported-\d+\.json$/.test(f)),'renamed, not deleted');
+  assert.equal(events.filter(e=>e.k==='KESIF_SEED_IMPORT').length,1);
+  // the same file again: nothing is counted twice
+  fs.writeFileSync(path.join(root,'data','kesif-sanal.json'),JSON.stringify(seed));await c._testKesifTick();
+  assert.equal(c._testKesifState().closed.length,3);assert.equal(c._testKesifState().open.filter(r=>r.id==='d:IZ:DUVAR').length,1);assert.equal(c._testKesifState().matrix._total.n,4,'the matrix is not added twice');assert.equal(c.kesifStatus().seed.scored,2);
+  // a broken file is set aside, the core goes on
+  fs.writeFileSync(path.join(root,'data','kesif-sanal.json'),'{bozuk');await c._testKesifTick();assert.ok(fs.readdirSync(path.join(root,'data')).some(f=>/^kesif-sanal\.invalid-/.test(f)));
+});

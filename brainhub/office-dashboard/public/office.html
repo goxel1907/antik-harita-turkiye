@@ -1696,7 +1696,8 @@ function renderKesif(s){
   const izh=iz?`<div class="sub">🐾 İZ ASKERLERİ • bot ve piyasa yapıcı izleri <span style="color:#6f789c;font-weight:600">${izl?esc(rxT(new Date(izl.at).toISOString()))+' • '+izl.read+'/'+izl.coins+' coin okundu':'henüz tarama yok'} • ${iz.open} açık tahmin • eşikler önceden sabit, karnede modellerle aynı kural</span></div>
     <div class="kn">${(iz.detectors||[]).map(d=>`<b>${esc(d.name)}</b>: ${esc(d.tr)}`).join(' • ')}</div>`
     +(izl&&(izl.fired||[]).length?`<div class="fc">${izl.fired.map(f=>`<span class="${f.side==='LONG'?'L':'S'}" title="${esc(f.why||'')}">${esc(f.d)} ${esc(String(f.s).replace(/USDT$/,''))} ${f.side} stop %${f.stop}</span>`).join('')}</div>`:'<div class="kn">Son taramada ateşlenen iz yok.</div>'):'';
-  el.innerHTML=head+rnd+izh+brain+book;
+  const sd=k.seed?`<div class="kn">🧪 Sanal ortamdan devralınan tecrübe (${esc(rxT(new Date(k.seed.at).toISOString()))}): ${k.seed.scored} puanlanmış sonuç, ${k.seed.open} açık tahmin, ${k.seed.labels} beyin etiketi. Sanal ortam aynı kodu canlı veriyle ileriye doğru çalıştırdı (geçmiş mum yok, emir yok).</div>`:'';
+  el.innerHTML=head+sd+rnd+izh+brain+book;
 }
 async function ksToggle(){const k=last?.kesif;if(!k)return;const b=document.getElementById('ksBtn');if(b)b.disabled=true;
   try{const x=await wcPost('/api/control/kesif',{enabled:!k.enabled});if(!x.ok)alert('KEŞİF: yapılmadı — '+wcWhy(x));else{k.enabled=!k.enabled;renderKesif(last);}}

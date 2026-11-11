@@ -6973,11 +6973,34 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // and Requesty (200 a day) stay with the desk that manages real positions. providers:'ALL' lets everybody forecast.
   const KESIF_WIDE=/^(OVH|KILO):|^ROUTER:(nvidia|nim|kc|cf|cloudflare[a-z-]*|glm|zai)\//i;
   let kesifBusy=false,kesifLastError=null;
+  // R2544.149 SANAL ORTAM (kullanıcı 12.11: "sanal ortam oluştur, askerler tecrübe ile deploydan sonra hazır olsun"): before the deploy a
+  // sandbox runs this same KEŞİF / İZ code FORWARD on live public data (no past candles, no orders, no keys). After the deploy its state is
+  // placed at data/kesif-sanal.json; the core merges it once: scored results (marked src SANAL), the still open forecasts and labels (the
+  // core keeps following them on the real candles), and the brain's matrix. The file is then renamed (never deleted).
+  const KESIF_SEED=path.join(String(root),'data','kesif-sanal.json');
+  function kesifImportSeed(){
+    if(!fs.existsSync(KESIF_SEED))return null;const s=kesifInit(),now=clock();let x;
+    try{x=JSON.parse(fs.readFileSync(KESIF_SEED,'utf8').replace(/^\uFEFF/,''));}catch{x=null;}
+    const moved=KESIF_SEED.replace(/\.json$/,(x?'.imported-':'.invalid-')+now+'.json');
+    if(!x||typeof x!=='object'){try{fs.renameSync(KESIF_SEED,moved);}catch{}try{store.journal('KESIF_SEED_INVALID',null,{file:path.basename(moved)});}catch{}return {ok:false,reason:'SEED_JSON_INVALID'};}
+    const ids=new Set([...s.open,...s.closed].map(r=>r&&r.id)),mark=r=>({...r,src:'SANAL'});
+    const cl=(Array.isArray(x.closed)?x.closed:[]).filter(r=>r&&r.id&&r.model&&!ids.has(r.id)).map(mark);
+    const op=(Array.isArray(x.open)?x.open:[]).filter(r=>r&&r.id&&r.model&&!r.done&&!ids.has(r.id)).map(mark);
+    s.closed=[...cl,...s.closed].sort((a,b)=>(finite(a.closedAt)??finite(a.at)??0)-(finite(b.closedAt)??finite(b.at)??0)).slice(-KESIF_KEEP);
+    const again=!!(s.seed&&x.sanal?.startedAt&&s.seed.from===x.sanal.startedAt); // the same sandbox twice: its matrix is already in
+    s.open.push(...op);if(!again)s.matrix=KESIF.matrixMerge(s.matrix||{},x.matrix);s.karne=KESIF.karne(s.closed,{now});
+    if(again){saveKesif();try{fs.renameSync(KESIF_SEED,moved);}catch{}try{store.journal('KESIF_SEED_REPEAT',null,{from:s.seed.from,closed:cl.length,open:op.length});}catch{}return {ok:true,repeat:true,closed:cl.length,open:op.length};}
+    s.seed={at:now,from:x.sanal?.startedAt||null,closed:cl.length,scored:cl.filter(r=>Number.isFinite(r.R)).length,open:op.filter(r=>r.model!=='_ETIKET').length,labels:(finite(x.matrix?._total?.n)||0)+op.filter(r=>r.model==='_ETIKET').length};
+    saveKesif();try{fs.renameSync(KESIF_SEED,moved);}catch{}
+    try{store.journal('KESIF_SEED_IMPORT',null,{...s.seed,file:path.basename(moved)});}catch{}
+    return {ok:true,...s.seed};
+  }
   const kesifSlim=r=>({id:r.id,model:r.model,symbol:r.symbol,side:r.side,at:r.at,closedAt:r.closedAt??null,done:true,outcome:r.outcome,R:r.R??null,stopPct:r.stopPct??null,targetPct:r.targetPct??null,horizonH:r.horizonH??null,conf:r.conf??null,mfeR:r.mfeR??null,maeR:r.maeR??null,why:String(r.why||'').slice(0,160)});
   async function kesifTick(){
     const cfg=kesifCfg();if(!cfg.enabled||kesifBusy)return null;kesifBusy=true;
     try{
       const s=kesifInit(),now=clock();let changed=false;const out={resolved:0,round:null};
+      {const sd=kesifImportSeed();if(sd)out.seed=sd;} // R2544.149 the sandbox's experience, once
       // 1) outcomes: once per closed 5m candle, one klines call per coin with open forecasts
       if(s.open.some(r=>!r.done)&&Math.floor(now/KESIF_M5)!==Math.floor((finite(s.lastResolveAt)||0)/KESIF_M5)){
         s.lastResolveAt=now;const bySym=new Map();for(const r of s.open)if(!r.done){if(!bySym.has(r.symbol))bySym.set(r.symbol,[]);bySym.get(r.symbol).push(r);}
@@ -7061,7 +7084,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       counts:{open:s.open.filter(r=>r.model!=='_ETIKET').length,labelsOpen:s.open.filter(r=>r.model==='_ETIKET').length,closed:s.closed.length,scored:s.closed.filter(r=>Number.isFinite(r.R)).length,none:s.closed.filter(r=>r.outcome==='NONE').length,rounds:s.rounds.length},
       karne:s.karne||KESIF.karne(s.closed,{now}),matrix:KESIF.matrixView(s.matrix),open:s.open.filter(r=>r.model!=='_ETIKET').slice(-60).map(r=>({model:r.model,symbol:r.symbol,side:r.side,at:r.at,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,conf:r.conf,why:r.why})),
       recent:s.closed.filter(r=>Number.isFinite(r.R)).slice(-40).reverse(),rounds:s.rounds.slice(0,8),lastError:kesifLastError,
-      iz:{version:IZ.IZ_VERSION,detectors:IZ.DETECTORS,last:s.izLast||null,open:s.open.filter(r=>String(r.model).startsWith('IZ:')).length}};}
+      iz:{version:IZ.IZ_VERSION,detectors:IZ.DETECTORS,last:s.izLast||null,open:s.open.filter(r=>String(r.model).startsWith('IZ:')).length},seed:s.seed||null};}
   function configureKesif(patch={}){const s=kesifInit(),x=s.settings;
     if(typeof patch.enabled==='boolean')x.enabled=patch.enabled;
     if(finite(patch.cadenceMin)!==null)x.cadenceMin=Math.max(5,Math.min(120,finite(patch.cadenceMin)));

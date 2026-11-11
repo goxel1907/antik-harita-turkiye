@@ -197,6 +197,14 @@ function brief(m, feats, call, k) {
       labelRule:`up first / down first by ${'±'}band % within ${LABEL_H} h; band = 1.5 x 1h ATR`, formationsOnThisScreen:(feats || []).length, strongest:call.used },
     desk:{ rows, note:'forward record of this desk only (no backtest); a small n proves nothing' } };
 }
+// R2544.149 the sandbox's matrix (built LIVE from its own forward rounds) joins the core's: every count adds up
+function matrixMerge(a, b) {
+  const m = a && typeof a === 'object' ? a : {}; if (!b || typeof b !== 'object') return m;
+  const t = m._total || (m._total = { n:0, UP:0, DOWN:0, FLAT:0 }), bt = b._total || {}; for (const k of ['n', 'UP', 'DOWN', 'FLAT']) t[k] = (t[k] || 0) + (Number(bt[k]) || 0);
+  if (!m.f) m.f = {};
+  for (const [k, x] of Object.entries(b.f || {})) { const y = m.f[k] || (m.f[k] = { n:0, UP:0, DOWN:0, FLAT:0, hUP:0, hDOWN:0 }); for (const q of ['n', 'UP', 'DOWN', 'FLAT', 'hUP', 'hDOWN']) y[q] = (y[q] || 0) + (Number(x?.[q]) || 0); }
+  return m;
+}
 function matrixView(m, { minN = 3, top = 30 } = {}) {
   const rows = Object.entries(m?.f || {}).filter(([, x]) => x.n >= minN).map(([f, x]) => ({ f, n:x.n, upPct:Math.round(x.UP / x.n * 100), downPct:Math.round(x.DOWN / x.n * 100), flatPct:Math.round(x.FLAT / x.n * 100),
     hUp:x.UP ? round(x.hUP / x.UP, 1) : null, hDown:x.DOWN ? round(x.hDOWN / x.DOWN, 1) : null, ready:x.n >= MATRIX_MIN_N })).sort((a, b) => (b.ready - a.ready) || (Math.abs(b.upPct - b.downPct) - Math.abs(a.upPct - a.downPct)) || (b.n - a.n));
@@ -208,4 +216,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
   return c[0] || null;
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
-  formations, band, labelOf, matrixAdd, brainCall, brainForecast, brief, matrixView };
+  formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView };
