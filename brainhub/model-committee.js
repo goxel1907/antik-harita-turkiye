@@ -204,10 +204,12 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   }
   // R2544.131: tmo = this call's time limit; soft = a quick vote's time-out does not make the member sick (slow but good members keep their desk seat)
   // R2544.141: a member may carry its own time (a thinking model: m.timeoutMs); the quick vote passes its own short limit
-  async function ask(m, system, prompt, validate, parse, tmo = Math.max(timeoutMs, Number(m?.timeoutMs) || 0), soft = false) {
+  async function ask(m, system, prompt, validate, parse, tmo = Math.max(timeoutMs, Number(m?.timeoutMs) || 0), soft = false, noHealth = false) {
     const t0 = clock(); let r;
     try { r = await withTimeout(m.call({ system, prompt, validate, role:'TRADER' }), tmo); } catch (e) { r = { ok:false, reason:String(e?.message || e).slice(0, 160) }; }
     const p = r?.ok ? parse(r.text) : null, ok = !!p?.ok;
+    // R2544.148: a KEŞİF forecast never touches the desk's health record (neither a bad answer nor a quota answer benches a desk member)
+    if (noHealth) return { member:m.id, model:r?.model || null, ok, vote:ok ? p : null, ms:clock() - t0, error:ok ? null : String(r?.reason || p?.reason || 'FAILED').slice(0, 160), img:r?.img === true, compact:r?.compact === true, imgError:r?.imgError || null };
     if (soft && !ok && /TIMEOUT/i.test(String(r?.reason || ''))) return { member:m.id, model:r?.model || null, ok:false, vote:null, ms:clock() - t0, error:'QUICK_TIMEOUT' };
     mark(m.id, ok, { latencyMs:clock() - t0, model:r?.model || health[m.id]?.model || null, error:ok ? null : String(r?.reason || p?.reason || 'FAILED').slice(0, 200) });
     return { member:m.id, model:r?.model || null, ok, vote:ok ? p : null, ms:clock() - t0, error:ok ? null : String(r?.reason || p?.reason || 'FAILED').slice(0, 160),
@@ -224,6 +226,15 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     const team = pickFast(n); if (!team.length) return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] };
     const r1 = await Promise.all(team.map(m => ask(m, system, prompt, validate, parse, callTimeoutMs, true))); save();
     return { ok:r1.some(x => x.ok), votes:r1, rounds:1, voters:r1.filter(x => x.ok).length, version:COMMITTEE_VERSION };
+  }
+  // R2544.148 KEŞİF: every healthy member that passes `filter` answers the same question on its own (no seats, no debate, no majority);
+  // the caller keeps each answer. A benched member (benched for its EXIT calls) still forecasts: that is a different skill and it is
+  // measured separately. Daily-pool members keep their pace. A time-out here is slowness, never sickness (soft).
+  async function poll({ system, prompt, validate, parse, size:n = 99, filter = null, callTimeoutMs = null }) {
+    const team = healthy().filter(m => paceOk(m) && (typeof filter !== 'function' || filter(m.id) === true)).slice(0, Math.max(1, Number(n) || 99));
+    if (!team.length) return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] };
+    const r1 = await Promise.all(team.map(m => ask(m, system, prompt, validate, parse, Number(callTimeoutMs) > 0 ? Number(callTimeoutMs) : Math.max(timeoutMs, Number(m?.timeoutMs) || 0), true, true)));
+    return { ok:r1.some(x => x.ok), votes:r1, rounds:1, voters:r1.filter(x => x.ok).length, asked:team.length, version:COMMITTEE_VERSION };
   }
   async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '', size:teamSize = null }) {
     const team = pick(Number(teamSize) > 0 ? Number(teamSize) : size); if (!team.length) { save(); return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] }; }
@@ -268,6 +279,6 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   // R2544.103: compare by id - the members function builds new objects on every call, so includes(m) was always false and Office showed
   // every model as sick since R2544.92 (the committee itself picked healthy members correctly)
   function status() { const ok = new Set(healthy().map(m => m.id)); return { version:COMMITTEE_VERSION, members:membersNow().map(m => ({ id:m.id, family:family(m.id), ...(health[m.id] || {}), healthy:ok.has(m.id) })), team:pick().map(m => m.id), lastProbeAt, karne:{ models:Object.keys(karne).length, benched:Object.entries(karne).filter(([, v]) => v?.bench).map(([k]) => k) } }; }
-  return { probe, healthy, pick, decide, quick, status, assignSeats, setRank };
+  return { probe, healthy, pick, decide, quick, poll, status, assignSeats, setRank };
 }
 module.exports = { nextPacificMidnight, DAILY_POOL, COMMITTEE_VERSION, family, provider, PROBE_SYSTEM, validProbe, createCommittee, PROVIDER_LIMITS, limitOf, quotaOf, memberKey, scorecard, board, pickRouterExtras, ROUTER_NOT_TEXT, GONE_RE, isGone, unusableWhy, PROVIDER_CAP };

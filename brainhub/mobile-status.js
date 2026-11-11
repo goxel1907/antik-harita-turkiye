@@ -78,6 +78,13 @@ function mobileStatus(status={}){
   const fu=status.top3?.funnel;
   if(fu)out.funnel={n:fu.signals,opened:fu.opened,blocked:fu.ruleBlocked,skip:fu.committeeSkip,none:fu.noResult,reasons:fu.reasons||{},
     rows:(fu.rows||[]).slice(0,6).map(r=>({at:r.at,l:r.lane,s:String(r.symbol||'').replace(/USDT$/,''),side:r.side,f:r.fate,why:r.reason||null}))};
-  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';out.mobileFeatures='R2544.129';return out;
+  // R2544.148 KEŞİF for the phone: the switch, the brain's matrix progress, the last round's forecasts and the top of the karne
+  const ks=status.kesif;
+  if(ks&&ks.ok!==false){const mx=ks.matrix||{total:{n:0}},lr=(ks.rounds||[])[0],nm=m=>m==='BEYIN'?'BEYİN':m==='ORTAK'?'ORTAK':String(m||'').replace(/:free$/,'').split('/').pop().slice(0,24);
+    out.kesif={on:ks.enabled===true,min:ks.cadenceMin,at:ks.lastRoundAt||null,err:ks.lastError||null,mx:{n:mx.total?.n||0,need:mx.minRounds||20,up:mx.total?.UP||0,dn:mx.total?.DOWN||0,fl:mx.total?.FLAT||0,f:mx.formations||0},
+      last:lr?{s:String(lr.symbol||'').replace(/USDT$/,''),why:lr.why||null,a:lr.answered,q:lr.asked,b:lr.brain?{ready:lr.brain.ready===true,p:lr.brain.pUp??null}:null,
+        f:(lr.forecasts||[]).slice(0,12).map(x=>({m:nm(x.m),d:x.d,s:x.s,g:x.g,h:x.h}))}:null,
+      karne:(ks.karne?.rows||[]).slice(0,8).map(r=>({m:nm(r.model),n:r.n,hit:r.hitPct,R:r.avgR,x:r.exBestAvgR,st:r.state}))};}
+  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';out.mobileFeatures='R2544.148';return out;
 }
 module.exports={mobileStatus};

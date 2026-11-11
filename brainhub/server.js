@@ -1604,14 +1604,17 @@ function routerVisionMap(){const now=Date.now();if(routerVisionCache.map&&now-ro
 // R2544.120 (03.11: Cloudflare is 'cf/@cf/...' in 9Router, not in the catalog file): 9Router's own model list says vision per connected model -> asked first
 function committeeSeesCharts(m){const live=(typeof committeeRouterIds!=='undefined'&&committeeRouterIds?.vision)||null;if(live&&typeof live[m]==='boolean')return live[m];const map=routerVisionMap(),k=String(m).replace(/^([^/]+)\/@(?:cf|hf)\/[^/]+\//,'$1/');if(map&&map.has(m))return map.get(m)===true;if(map&&map.has(k))return map.get(k)===true;return COMMITTEE_VISION.test(m);} // R2544.119: '@cf/publisher/' ids map to the catalog's short name
 function committeeChartContent(prompt){
-  try{const pk=JSON.parse(prompt);const desk=pk?.task!=='ENTRY'&&!!pk?.position&&!!pk?.market?.candles;if(pk?.task!=='ENTRY'&&!desk)return null;
+  try{const pk=JSON.parse(prompt);const desk=pk?.task!=='ENTRY'&&!!pk?.position&&!!pk?.market?.candles,scout=pk?.task==='FORECAST'; // R2544.148 KEŞİF
+    if(pk?.task!=='ENTRY'&&!desk&&!scout)return null;
     const specs=desk?DESKLIB.chartSpecs(pk):TB.chartSpecs(pk);if(!specs.length)return null;
+    if(scout)for(const c of specs)for(const l of c.lines)if(l.name==='ENTRY 100')l.name='NOW 100';
     const parts=[{type:'text',text:prompt+'\n\nCHARTS: the same closed candles of the screen as images (prices scaled, entry = 100; ENTRY / STOP / TARGET lines - the stop is always on the picture, a target more than two candle ranges away is left off; LAST = the last closed candle; dashed purple = day / week / month and 24h levels; yellow / purple curves = EMA20 / EMA50; bars at the bottom = volume). Read them like a trader at the screen; the numbers in the text stay exact.'}];
     for(const c of specs){const lo=Math.min(...c.candles.map(x=>x.low)),hi=Math.max(...c.candles.map(x=>x.high)),span=hi-lo,pl=desk?{stop:pk.position.currentStop,target:pk.position.target}:(pk.plan||{}),mid=desk?Number(pk.position.entry):100;
       // the stop always on the picture; the target too unless it is more than 2 candle-spans away (then the text says it is off the picture)
       const inc=[pl.stop,Math.abs(Number(pl.target)-mid)<=2*span?pl.target:null].filter(Number.isFinite);
       const png=market.renderChartPng({candles:c.candles},'annotated',{includePrices:inc,lastLabel:'LAST',htfLevels:c.lines.map(l=>({price:l.price,name:l.name,tf:c.tf,col:l.col,prio:l.prio}))});
       parts.push({type:'text',text:'CHART '+c.tf},{type:'image_url',image_url:{url:'data:image/png;base64,'+png.toString('base64')}});}
+    if(scout)parts[0].text=prompt+'\n\nCHARTS: the same closed candles of the screen as images (prices scaled, NOW = 100 is the white line; LAST = the last closed candle; dashed purple = day / week / month and 24h levels; yellow / purple curves = EMA20 / EMA50; bars at the bottom = volume). No plan is drawn: the forecast is yours. The numbers in the text stay exact.';
     if(desk)parts[0].text=prompt+'\n\nCHARTS: the position\'s own closed candles (real prices) with ENTRY / STOP NOW / FIRST STOP / TARGET / +2R HALF lines (the stop is always on the picture; a target more than two candle ranges away is left off); LAST = the last closed candle; dashed purple = levels; yellow / purple curves = EMA20 / EMA50; bars = volume. The numbers in the text stay exact.';
     return parts;}catch{return null;}
 }
@@ -1785,13 +1788,21 @@ const server=http.createServer(async(req,res)=>{
       // R2544.57: the APK also gets the lanes (in tradingMode.run) and a compact İlk 3 summary
       // R2544.78: the phone also gets the balance (15 s cache: the phone's polling adds at most one account read per 15 s)
       if(u.searchParams.get('compact')==='1'){let account=null;try{account=await live.accountSummary({maxAgeMs:15000});}catch(e){account={ok:false,reasons:[String(e?.message||e)]};}
-        return send(res,200,require('./mobile-status').mobileStatus({...report,top3:live.top3Status(),zirve5:live.z5Status(),account}));}
+        return send(res,200,require('./mobile-status').mobileStatus({...report,top3:live.top3Status(),zirve5:live.z5Status(),kesif:live.kesifStatus(),account}));}
       return send(res,200,report);
     }
     // CLAUDE_V113_POSITION_LEDGER: açık pozisyonlar (Binance) + kapanan işlemler (sonuç, R, çıkış, giriş nedeni). Salt-okunur.
     // R2544.56 İlk 3 Avcısı: status (GET) and the three Office switches (POST; liveEnabled:true needs confirm 'LIVE').
     if(req.method==='GET'&&u.pathname==='/live/top3'){
       return send(res,200,live.top3Status());
+    }
+    // R2544.148 KEŞİF: the models' own forecasts and their forward karne (GÖLGE; the switch only starts / stops the forecast rounds)
+    if(req.method==='GET'&&u.pathname==='/live/kesif'){
+      return send(res,200,live.kesifStatus());
+    }
+    if(req.method==='POST'&&u.pathname==='/live/kesif'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      return send(res,200,live.configureKesif({enabled:body?.enabled,cadenceMin:body?.cadenceMin,providers:body?.providers,source:body?.source}));
     }
     if(req.method==='POST'&&u.pathname==='/live/top3'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
@@ -2629,7 +2640,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.147';
+const RUNTIME_RELEASE='R2544.148';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

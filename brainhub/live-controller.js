@@ -40,6 +40,7 @@ const top3Lib=require('./top3-hunter'); // R2544.56 İlk 3 Avcısı (top-3 gaine
 const PA=require('./pa-core');
 const IND=require('./ind-info'); // R2544.79 indikatör bilgisi (yalnız bilgi)
 const TB=require('./trader-brain'); // R2544.87 kurulun giriş ekranı (gölge)
+const KESIF=require('./kesif'); // R2544.148 modellerin kendi tahmini + ileriye dönük karne (gölge)
 const MC=require('./model-committee'); // R2544.94 model karnesi + kalan limit
 const DESK=require('./position-desk'); // R2544.84 pozisyon masası (gölge trader kararı)
 const AUTOPSY=require('./trade-autopsy'); // R2544.80 işlem otopsisi (neden kaybetti / nasıl kazandı) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
@@ -6635,6 +6636,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{await lessonIndBackfillTick();}catch{}
       try{await lessonAutopsyTick();}catch{} // R2544.80
       if(!deskBusy)positionDeskTick().catch(()=>{}); // R2544.84 gölge pozisyon masası (taramayı bekletmez)
+      kesifTick().catch(()=>{}); // R2544.148 KEŞİF (gölge; taramayı bekletmez)
       const cfg=top3Lib.readTop3Config(root);
       if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
       if(testModeNow()){
@@ -6958,6 +6960,90 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // girişten ÖNCE kapanmış 5 dk/15 dk/1 sa/4 sa/1 gün mumlarıyla (koltuklar: 1g/4sa, 1sa/15dk, 5dk+akış, risk) "girilmeli miydi"
   // kararı verir. GÖLGE: girişi durdurmaz/açmaz; lota, derse ve günlüğe yazılır -> TAKE/SKIP sonuçları ileriye dönük ölçülür.
   let entryCommitteeBusy=0;
+  // R2544.148 KEŞİF (kullanıcı 11.11: "modellerin bir sonraki hamleyi bilmesi", "sadece lider yok", "geçmiş verilere bakma, geleceğe
+  // bakacağız"): every cadenceMin the models are shown ONE coin (the day's strongest / weakest / busiest in turn) with no plan and each
+  // writes its own forecast (kesif.js). The forecasts are followed on the real closed 5m candles and scored; the karne per model is kept
+  // in data/kesif-state.json and shown in Office. GÖLGE: nothing here opens, blocks or changes a trade or an order.
+  const KESIF_FILE=path.join(String(root),'data','kesif-state.json'),KESIF_KEEP=5000,KESIF_M5=300000;
+  let kesifState=(()=>{try{const x=JSON.parse(fs.readFileSync(KESIF_FILE,'utf8'));if(x&&typeof x==='object'&&!Array.isArray(x))return x;}catch{}return {};})();
+  const kesifInit=()=>{const s=kesifState;if(!s.settings||typeof s.settings!=='object')s.settings={};for(const k of ['open','closed','rounds'])if(!Array.isArray(s[k]))s[k]=[];if(!s.surveyed||typeof s.surveyed!=='object')s.surveyed={};return s;};
+  const kesifCfg=()=>{const x=kesifInit().settings;return {enabled:x.enabled!==false,cadenceMin:Math.max(5,Math.min(120,finite(x.cadenceMin)??15)),providers:x.providers==='ALL'?'ALL':'WIDE'};};
+  const saveKesif=()=>{try{fs.mkdirSync(path.dirname(KESIF_FILE),{recursive:true});const tmp=KESIF_FILE+'.tmp';fs.writeFileSync(tmp,JSON.stringify(kesifState),'utf8');fs.renameSync(tmp,KESIF_FILE);}catch{}};
+  // by default only the members with a wide free allowance forecast: the daily pools (Gemini), the shared OpenRouter account (50 a day)
+  // and Requesty (200 a day) stay with the desk that manages real positions. providers:'ALL' lets everybody forecast.
+  const KESIF_WIDE=/^(OVH|KILO):|^ROUTER:(nvidia|nim|kc|cf|cloudflare[a-z-]*|glm|zai)\//i;
+  let kesifBusy=false,kesifLastError=null;
+  const kesifSlim=r=>({id:r.id,model:r.model,symbol:r.symbol,side:r.side,at:r.at,closedAt:r.closedAt??null,done:true,outcome:r.outcome,R:r.R??null,stopPct:r.stopPct??null,targetPct:r.targetPct??null,horizonH:r.horizonH??null,conf:r.conf??null,mfeR:r.mfeR??null,maeR:r.maeR??null,why:String(r.why||'').slice(0,160)});
+  async function kesifTick(){
+    const cfg=kesifCfg();if(!cfg.enabled||kesifBusy)return null;kesifBusy=true;
+    try{
+      const s=kesifInit(),now=clock();let changed=false;const out={resolved:0,round:null};
+      // 1) outcomes: once per closed 5m candle, one klines call per coin with open forecasts
+      if(s.open.some(r=>!r.done)&&Math.floor(now/KESIF_M5)!==Math.floor((finite(s.lastResolveAt)||0)/KESIF_M5)){
+        s.lastResolveAt=now;const bySym=new Map();for(const r of s.open)if(!r.done){if(!bySym.has(r.symbol))bySym.set(r.symbol,[]);bySym.get(r.symbol).push(r);}
+        for(const [sym,list] of bySym){const from=Math.min(...list.map(r=>r.entryAt));if(now<from+KESIF_M5)continue;
+          let k=[];try{k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:'5m',startTime:String(from),limit:'400'}});}catch{continue;}
+          for(const r of list){const o=KESIF.resolve(r,k,now);if(!o)continue;Object.assign(r,o);out.resolved++;changed=true;
+            try{store.journal('KESIF_OUTCOME',sym,{id:r.id,model:r.model,side:r.side,outcome:r.outcome,R:r.R??null,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,mfeR:r.mfeR??null,maeR:r.maeR??null});}catch{}}}
+      }
+      const done=s.open.filter(r=>r.done);
+      if(done.length){s.open=s.open.filter(r=>!r.done);
+        for(const l of done.filter(r=>r.model==='_ETIKET')){const lb=KESIF.labelOf(l);if(lb){s.matrix=KESIF.matrixAdd(s.matrix||{},l.feats||[],lb,(finite(l.closedAt)-finite(l.entryAt))/3600000);
+          try{store.journal('KESIF_MATRIX',l.symbol,{round:l.round,label:lb,hours:Number(((finite(l.closedAt)-finite(l.entryAt))/3600000).toFixed(2)),formations:(l.feats||[]).length});}catch{}}}
+        s.closed=[...s.closed,...done.filter(r=>r.model!=='_ETIKET').map(kesifSlim)].slice(-KESIF_KEEP);s.karne=KESIF.karne(s.closed,{now});changed=true;}
+      // 2) a new round: never while the desk or the entry committee is at work (real positions come first)
+      const cm=deskJudges?.committee;
+      if(now-(finite(s.lastRoundAt)||0)>=cfg.cadenceMin*60000&&!deskBusy&&entryCommitteeBusy===0&&cm&&typeof cm.poll==='function'){
+        s.lastRoundAt=now;changed=true;
+        let tick=[];try{tick=await transport._fetchJson('GET','/fapi/v1/ticker/24hr');}catch{}
+        for(const k of Object.keys(s.surveyed))if(now-s.surveyed[k]>24*3600000)delete s.surveyed[k];
+        const coin=KESIF.nextCoin(KESIF.candidates(tick,{now}),s.surveyed,{now});
+        if(coin){
+          s.surveyed[coin.symbol]=now;
+          const end=now-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
+          const k={m5:await get(coin.symbol,'5m',TB.FETCH.m5,end),m15:await get(coin.symbol,'15m',TB.FETCH.m15,end),h1:await get(coin.symbol,'1h',TB.FETCH.h1,end),h4:await get(coin.symbol,'4h',TB.FETCH.h4,end),d1:await get(coin.symbol,'1d',TB.FETCH.d1,end),
+            btc1h:await get('BTCUSDT','1h',40,Math.floor(now/3600000)*3600000-1)};
+          const ctx={change24hPct:coin.change24hPct,why:coin.why};
+          try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex',{params:{symbol:coin.symbol}});const fr=finite(pi?.lastFundingRate),mk=finite(pi?.markPrice),ix=finite(pi?.indexPrice);if(fr!==null)ctx.fund=fr;if(mk&&ix)ctx.premium=Number((mk/ix-1).toFixed(5));}catch{}
+          const packet=KESIF.packet({k,t:now,context:ctx});
+          if(packet){
+            // R2544.148 BEYNİN MATRİSİ: formations on the screen, the brain's own call, and what the models are told before they forecast
+            const feats=KESIF.formations(packet),bd=KESIF.band(packet),call=KESIF.brainCall(s.matrix,feats);
+            Object.assign(packet,KESIF.brief(s.matrix,feats,call,s.karne));
+            const r=await cm.poll({system:KESIF.SYSTEM,prompt:JSON.stringify(packet),validate:KESIF.valid,parse:KESIF.parse,filter:cfg.providers==='ALL'?null:id=>KESIF_WIDE.test(String(id))});
+            const at=clock(),rid='k'+at.toString(36),votes=(r?.votes||[]),okv=votes.filter(v=>v?.ok&&v.vote);
+            const recs=okv.map(v=>KESIF.open({model:MC.memberKey(v.member),symbol:coin.symbol,forecast:v.vote,at,round:rid,img:v.img===true})).filter(Boolean);
+            const cons=KESIF.consensus(okv.map(v=>v.vote));if(cons){const c=KESIF.open({model:'ORTAK',symbol:coin.symbol,forecast:cons,at,round:rid});if(c)recs.push(c);}
+            {const bf=KESIF.open({model:'BEYIN',symbol:coin.symbol,forecast:KESIF.brainForecast(call,bd),at,round:rid});if(bf)recs.push(bf);}
+            // the neutral label the matrix learns from (not a forecast, never in the karne): up first / down first by the band within LABEL_H
+            const lab=KESIF.open({model:'_ETIKET',symbol:coin.symbol,forecast:{ok:true,direction:'LONG',stopPct:bd,targetPct:bd,horizonH:KESIF.LABEL_H,confidence:null},at,round:rid});
+            if(lab){lab.feats=feats;s.open.push(lab);}
+            s.open.push(...recs);
+            const row={id:rid,at,symbol:coin.symbol,why:coin.why,change24hPct:coin.change24hPct,asked:r?.asked??votes.length,answered:okv.length,band:bd,formations:feats.length,
+              brain:{ready:call.ready,rounds:call.rounds,pUp:call.pUp,used:call.used.slice(0,4)},errors:votes.filter(v=>!v?.ok).map(v=>({m:MC.memberKey(v.member),e:String(v.error||'').slice(0,60)})).slice(0,12),
+              forecasts:recs.map(x=>({m:x.model,d:x.side,s:x.stopPct??null,g:x.targetPct??null,h:x.horizonH??null,c:x.conf??null,why:x.why}))};
+            s.rounds=[row,...s.rounds].slice(0,60);out.round={symbol:coin.symbol,answered:okv.length,asked:row.asked};
+            try{store.journal('KESIF_FORECAST',coin.symbol,row);}catch{}
+          }
+        }
+      }
+      if(changed)saveKesif();
+      kesifLastError=null;return out;
+    }catch(e){kesifLastError=String(e?.message||e).slice(0,160);return null;}
+    finally{kesifBusy=false;}
+  }
+  function kesifStatus(){const s=kesifInit(),cfg=kesifCfg(),now=clock();
+    return {ok:true,version:KESIF.KESIF_VERSION,shadow:true,enabled:cfg.enabled,cadenceMin:cfg.cadenceMin,providers:cfg.providers,wired:typeof deskJudges?.committee?.poll==='function',
+      lastRoundAt:finite(s.lastRoundAt)?new Date(s.lastRoundAt).toISOString():null,nextRoundAt:cfg.enabled?new Date((finite(s.lastRoundAt)||now)+cfg.cadenceMin*60000).toISOString():null,
+      counts:{open:s.open.filter(r=>r.model!=='_ETIKET').length,labelsOpen:s.open.filter(r=>r.model==='_ETIKET').length,closed:s.closed.length,scored:s.closed.filter(r=>Number.isFinite(r.R)).length,none:s.closed.filter(r=>r.outcome==='NONE').length,rounds:s.rounds.length},
+      karne:s.karne||KESIF.karne(s.closed,{now}),matrix:KESIF.matrixView(s.matrix),open:s.open.filter(r=>r.model!=='_ETIKET').slice(-60).map(r=>({model:r.model,symbol:r.symbol,side:r.side,at:r.at,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,conf:r.conf,why:r.why})),
+      recent:s.closed.filter(r=>Number.isFinite(r.R)).slice(-40).reverse(),rounds:s.rounds.slice(0,8),lastError:kesifLastError};}
+  function configureKesif(patch={}){const s=kesifInit(),x=s.settings;
+    if(typeof patch.enabled==='boolean')x.enabled=patch.enabled;
+    if(finite(patch.cadenceMin)!==null)x.cadenceMin=Math.max(5,Math.min(120,finite(patch.cadenceMin)));
+    if(patch.providers==='ALL'||patch.providers==='WIDE')x.providers=patch.providers;
+    saveKesif();try{store.journal('KESIF_SETTINGS',null,{...kesifCfg(),source:String(patch.source||'').slice(0,40)});}catch{}
+    return {ok:true,...kesifCfg()};}
   async function entryCommitteeShadow(lot){
     // R2544.118: the entry screen is stored as numbers for the brain even when the committee cannot vote
     if(!lot||(lot.entryFeatures?.committee&&lot.entryFeatures?.screenFacts)||entryCommitteeBusy>=3)return null;
@@ -7469,7 +7555,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
+  return { kesifStatus, configureKesif, userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
+    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState,
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };

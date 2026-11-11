@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.129-R2544.147-JEV-Brain';
+const OFFICE_VERSION = '2.5.130-R2544.148-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -36,7 +36,8 @@ const ALLOWED_BRAIN_PATHS = new Set([
   '/scanner/last', '/jev/knowledge', '/learning/case-memory', // R2544.19 read-only provenance/case memory
   '/live/top3', // R2544.56 İlk 3 Avcısı status
   '/live/zirve5', // R2544.64 ZİRVE-5 SHORT status
-  '/live/movers' // R2544.65 kaçan hareket denetimi
+  '/live/movers', // R2544.65 kaçan hareket denetimi
+  '/live/kesif' // R2544.148 KEŞİF: modellerin kendi tahmini + karne
 ]);
 
 const cache = new Map();
@@ -91,10 +92,12 @@ async function getJson(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
-const CONTROL_ROUTES = { '/api/control/close': '/live/position/close', '/api/control/sizing': '/live/leader-auto', '/api/control/system': '/system/shutdown', '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes', '/api/control/zirve5': '/live/zirve5' };
+const CONTROL_ROUTES = { '/api/control/close': '/live/position/close', '/api/control/sizing': '/live/leader-auto', '/api/control/system': '/system/shutdown', '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes', '/api/control/zirve5': '/live/zirve5', '/api/control/kesif': '/live/kesif' };
 // Only these fields ever reach the core; anything else in the Office request is dropped (OTO sizing, burst switch etc.
 // stay with the user's existing config).
 const CONTROL_BODY = {
+  // R2544.148 KEŞİF (gölge): only the on / off switch, the cadence and the provider set
+  '/api/control/kesif': b => ({ ...(typeof b.enabled === 'boolean' ? { enabled: b.enabled } : {}), ...(Number.isFinite(Number(b.cadenceMin)) && b.cadenceMin != null ? { cadenceMin: Number(b.cadenceMin) } : {}), ...(b.providers === 'ALL' || b.providers === 'WIDE' ? { providers: b.providers } : {}), source: 'OFFICE' }),
   '/api/control/mode': b => {
     const out = { mode: String(b.mode || '').toUpperCase(), confirm: String(b.confirm || '').toUpperCase() };
     const bal = Number(b.testBalance);
@@ -615,6 +618,7 @@ async function buildSnapshot() {
   const burst = await cached('burst', 1000, () => brainGet('/live/burst'));
   const top3 = await cached('top3', 5000, () => brainGet('/live/top3'));
   const zirve5 = await cached('zirve5', 5000, () => brainGet('/live/zirve5'));
+  const kesif = await cached('kesif', 15000, () => brainGet('/live/kesif')); // R2544.148
   const movers = await cached('movers', 15000, () => brainGet('/live/movers'));
   // R2544.66 referans projeler ve test sonuçları (Office klasöründeki kayıt; sonuçlar raporlardan, elle güncellenir)
   const research = await cached('research', 60000, async () => { try { return JSON.parse(fs.readFileSync(path.join(HERE, 'research-registry.json'), 'utf8')); } catch { return null; } });
@@ -656,6 +660,7 @@ async function buildSnapshot() {
     burst: burst?.ok === true ? scrub(burst.data) : null,
     top3: top3?.ok === true ? scrub(top3.data) : null,
     zirve5: zirve5?.ok === true ? scrub(zirve5.data) : null,
+    kesif: kesif?.ok === true ? scrub(kesif.data) : null, // R2544.148 KEŞİF
     movers: movers?.ok === true ? scrub(movers.data) : null,
     research,
     plans: journalSummary.plans.slice(0, 40),
@@ -719,7 +724,7 @@ const server = http.createServer(async (req, res) => {
       try { parsed = raw ? JSON.parse(raw) : {}; } catch { return send(res, 400, { ok: false, error: 'invalid json' }); }
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
       const r = await brainPost(CONTROL_ROUTES[u.pathname], JSON.stringify(CONTROL_BODY[u.pathname](parsed)));
-      for (const k of ['status', 'account', 'positions', 'burst', 'top3', 'zirve5']) cache.delete(k); // the next snapshot shows the new state
+      for (const k of ['status', 'account', 'positions', 'burst', 'top3', 'zirve5']) cache.delete(k); cache.delete('kesif'); // R2544.148 // the next snapshot shows the new state
       return send(res, r.status || 502, scrub(r.data || { ok: false, error: r.error || 'core unavailable' }));
     }
     if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'read-only' });

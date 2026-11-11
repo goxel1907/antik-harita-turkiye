@@ -164,6 +164,6 @@ test('R2544.115 the chart never hides the stop: includePrices widens the price r
   const sp=DESK.chartSpecs(pk);assert.deepEqual(sp.map(s=>s.tf),['5m','15m','1h']);
   assert.deepEqual(sp[0].lines.map(l=>l.name),['ENTRY','STOP NOW','FIRST STOP','TARGET 4R','+2R HALF']);assert.equal(sp[0].candles[5].close,row(5)[4]);
   const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
-  assert.match(sv,/const desk=pk\?\.task!=='ENTRY'&&!!pk\?\.position&&!!pk\?\.market\?\.candles;/);assert.match(sv,/const specs=desk\?DESKLIB\.chartSpecs\(pk\):TB\.chartSpecs\(pk\);/);
+  assert.match(sv,/const desk=pk\?\.task!=='ENTRY'&&!!pk\?\.position&&!!pk\?\.market\?\.candles(;|,scout=)/);assert.match(sv,/const specs=desk\?DESKLIB\.chartSpecs\(pk\):TB\.chartSpecs\(pk\);/);
   assert.match(sv,/includePrices:inc,lastLabel:'LAST'/);
 });

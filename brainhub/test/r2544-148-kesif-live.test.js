@@ -1,0 +1,100 @@
+'use strict';
+// R2544.148 KEŞİF end to end: a round asks every model for its own forecast, the forecasts are followed on real 5m candles and scored,
+// and NOTHING is ever sent to the exchange (shadow).
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {writeTradingMode}=require('../binance-live-transport');
+const M5=300000,H=3600000;
+const FAKE={apiKey:'fake-test-key-r148',apiSecret:'fake-test-secret-r148'}; // made-up, never real
+const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
+function fixture({answers,poll=true}={}){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'r148-'));fs.mkdirSync(path.join(root,'config'));
+  fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
+  fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
+  fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:false}));
+  fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify({enabled:false}));
+  writeTradingMode(root,{mode:'TEST',changedAt:'2026-11-11T08:00:00.000Z',testStartedAt:null,testAutoRun:true});
+  const T0=Math.floor(Date.UTC(2026,10,11,12,0)/M5)*M5;
+  const state={now:T0+20000,calls:[],asked:[],future:[]}; // future = 5m candles after the round (set by the test)
+  const hist=(ms,n,end)=>Array.from({length:n},(_,i)=>{const t=Math.floor(end/ms)*ms-(n-i)*ms,o=100*(1+i*0.0005),c=o*1.0004;return [t,String(o),String(c*1.001),String(o*0.999),String(c),'1000',t+ms-1,'100000',10,'500','50000','0'];});
+  const fetchImpl=async(url,o={})=>{const u=new URL(url),p=u.pathname,m=o.method||'GET';state.calls.push({m,p,q:Object.fromEntries(u.searchParams)});
+    if(p==='/fapi/v1/time')return ok({serverTime:state.now});
+    if(p==='/fapi/v1/exchangeInfo')return ok({symbols:[]});
+    if(p==='/fapi/v1/ticker/24hr')return ok([{symbol:'UPUSDT',priceChangePercent:'42',quoteVolume:'90000000',closeTime:state.now},{symbol:'DOWNUSDT',priceChangePercent:'-25',quoteVolume:'50000000',closeTime:state.now},{symbol:'THINUSDT',priceChangePercent:'80',quoteVolume:'1000',closeTime:state.now}]);
+    if(p==='/fapi/v1/premiumIndex')return ok({symbol:u.searchParams.get('symbol'),lastFundingRate:'0.0003',markPrice:'104.1',indexPrice:'104'});
+    if(p==='/fapi/v1/klines'){const i=u.searchParams.get('interval'),st=u.searchParams.get('startTime');
+      if(st)return ok(state.future.filter(r=>r[0]>=Number(st)));
+      const ms={'5m':M5,'15m':3*M5,'1h':H,'4h':4*H,'1d':24*H}[i];return ok(hist(ms,80,Number(u.searchParams.get('endTime'))));}
+    return ok({});
+  };
+  const events=[];
+  const committee=poll?{poll:async a=>{state.asked.push(a);const votes=answers.map(([member,text])=>{const v=a.parse(text);return {member,ok:v.ok,vote:v.ok?v:null,error:v.ok?null:v.reason,img:/vision/.test(member)};});
+    return {ok:votes.some(v=>v.ok),votes,asked:votes.length};},decide:async()=>({ok:false,reason:'NOT_USED'}),status:()=>({members:[],team:[]})}:{decide:async()=>({ok:false}),status:()=>({members:[],team:[]})};
+  const controller=require('../live-controller').createLiveController({root,clock:()=>state.now,store:{journal:(k,s,p)=>events.push({k,s,p}),recordLearning:()=>{}},
+    scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),credentials:FAKE,fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',deskJudges:{committee},
+    market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol(){}}}});
+  return {root,state,events,controller,T0,kinds:k=>events.filter(e=>e.k===k)};
+}
+const ANS=[
+  ['KILO:vision/a','{"direction":"LONG","stopPct":2,"targetPct":4,"horizonH":2,"confidence":80,"reasonTr":"süpürme sonrası yukarı","wrongIfTr":"dip kırılırsa"}'],
+  ['OVH:model-b','{"direction":"LONG","stopPct":3,"targetPct":3,"horizonH":1,"confidence":55,"reasonTr":"trend yukarı"}'],
+  ['ROUTER:nvidia/model-c','{"direction":"SHORT","stopPct":2,"targetPct":6,"horizonH":4,"confidence":60,"reasonTr":"tepe yorgun"}'],
+  ['ROUTER:nvidia/model-d','{"direction":"LONG","stopPct":2.5,"targetPct":5,"horizonH":3,"confidence":40,"reasonTr":"hacim alıcıda"}'],
+  ['KILO:model-e','{"direction":"NONE","confidence":30,"reasonTr":"okunur hamle yok"}'],
+  ['OVH:model-f','bozuk cevap']];
+
+test('R2544.148 a round: one coin, no plan in the packet, every model its own forecast, the crowd as ORTAK; nothing reaches the exchange', async()=>{
+  const f=fixture({answers:ANS});
+  const out=await f.controller._testKesifTick();
+  assert.deepEqual(out.round,{symbol:'UPUSDT',answered:5,asked:6});
+  const a=f.state.asked[0],pk=JSON.parse(a.prompt);
+  assert.equal(pk.task,'FORECAST');assert.equal(pk.plan,undefined);assert.ok(!/UPUSDT/.test(a.prompt),'the coin name is hidden');assert.match(a.system,/Nobody hands you a setup/);
+  assert.equal(a.filter('ROUTER:gemini/gemini-3.5-flash-lite'),false,'daily-pool members stay with the desk by default');assert.equal(a.filter('FREE:openrouter'),false);assert.equal(a.filter('OVH:x'),true);assert.equal(a.filter('ROUTER:nvidia/y'),true);assert.equal(a.filter('ROUTER:groq/llama-x'),false,'Groq: 8K tokens, the screen would 413');assert.equal(a.filter('ROUTER:cerebras/x'),false,'not free');
+  const s=f.controller._testKesifState();
+  assert.deepEqual(s.open.filter(r=>r.model!=='_ETIKET').map(r=>[r.model,r.side]).sort(),[['BEYIN','NONE'],['ORTAK','LONG'],['model-b','LONG'],['model-e','NONE'],['nvidia/model-c','SHORT'],['nvidia/model-d','LONG'],['vision/a','LONG']].sort());
+  // the brain: silent while its matrix learns; the neutral label (up / down first by the band in 6 h) carries the formations of the screen
+  assert.match(s.open.find(r=>r.model==='BEYIN').why,/matris öğreniyor \(0\/20/);
+  const lab=s.open.find(r=>r.model==='_ETIKET');assert.ok(lab&&lab.feats.length>5&&lab.horizonH===6&&lab.stopPct===lab.targetPct);
+  assert.equal(pk.brain.labelledRounds,0);assert.equal(pk.brain.ready,false);assert.ok(Array.isArray(pk.desk.rows));
+  assert.deepEqual(s.open.find(r=>r.model==='ORTAK').stopPct,2.5,'3 of 5 answers LONG = 60% -> the median stop of those three');
+  assert.equal(s.open.find(r=>r.model==='vision/a').img,true);assert.ok(s.open.filter(r=>r.side!=='NONE').every(r=>r.entryAt===f.T0+M5&&r.symbol==='UPUSDT'));
+  assert.equal(f.kinds('KESIF_FORECAST').length,1);assert.equal(f.kinds('KESIF_FORECAST')[0].p.errors[0].m,'model-f');
+  assert.ok(fs.existsSync(path.join(f.root,'data','kesif-state.json')));
+  // the NONE answer is on the book at once (never scored, never punished)
+  const st0=f.controller.kesifStatus();assert.equal(st0.shadow,true);assert.equal(st0.counts.open,7);assert.equal(st0.counts.labelsOpen,1);assert.equal(st0.matrix.total.n||0,0);
+  assert.ok(!f.state.calls.some(c=>c.m!=='GET'),'only public GET requests');
+  // the next tick inside the cadence asks nobody again
+  f.state.now+=60000;await f.controller._testKesifTick();assert.equal(f.state.asked.length,1);
+});
+
+test('R2544.148 outcomes: the real candles decide (target first, stop first, horizon); the karne is rebuilt; a later round takes the next coin', async()=>{
+  const f=fixture({answers:ANS});await f.controller._testKesifTick();
+  const E=f.T0+M5,c=(i,o,h,l,cl)=>[E+i*M5,String(o),String(h),String(l),String(cl),'1000',E+(i+1)*M5-1,'100000',10,'500','50000','0'];
+  // entry 100: rises to 104.2 on the 3rd candle (the 2% / 4% LONG wins +2R, the SHORT with a 2% stop loses), never touches 97
+  f.state.future=[c(0,100,100.4,99.8,100.3),c(1,100.3,101.6,100.2,101.5),c(2,101.5,104.2,101.4,104)];
+  f.state.now=E+3*M5+5000;const out=await f.controller._testKesifTick();
+  assert.ok(out.resolved>=3);
+  const s=f.controller._testKesifState(),by=m=>s.closed.find(r=>r.model===m);
+  assert.deepEqual([by('vision/a').outcome,by('vision/a').R],['TARGET',+(2-0.14/2).toFixed(3)]);
+  assert.deepEqual([by('nvidia/model-c').outcome,by('nvidia/model-c').R],['STOP',+(-1-0.14/2).toFixed(3)]);
+  assert.deepEqual([by('model-b').outcome,by('model-b').R],['TARGET',+(1-0.14/3).toFixed(3)]);
+  assert.deepEqual([by('model-e').outcome,by('model-e').R],['NONE',null],'NONE is on the book as an abstention, never scored');
+  assert.deepEqual(s.open.filter(r=>!r.done&&r.symbol==='UPUSDT').map(r=>r.model),['nvidia/model-d'],'the 2,5% / 5% forecast is still running');
+  assert.deepEqual([by('ORTAK').outcome,by('ORTAK').R],['TARGET',+(4/2.5-0.14/2.5).toFixed(3)],'the crowd (median 2,5% stop / 4% target) is scored like a member');
+  assert.ok(f.kinds('KESIF_OUTCOME').length>=3);
+  // the label of round 1 (band = 1,5 x 1h ATR) resolved UP on the +4% move -> the matrix has its first round and the formations of that screen
+  const mx=f.controller.kesifStatus().matrix;assert.equal(mx.total.n,1);assert.equal(mx.total.UP,1);assert.ok(mx.formations>5);assert.equal(f.kinds('KESIF_MATRIX')[0].p.label,'UP');
+  assert.ok(!f.controller.kesifStatus().karne.rows.some(r=>r.model==='_ETIKET'));
+  const k=f.controller.kesifStatus().karne;assert.equal(k.rows.find(r=>r.model==='vision/a').n,1);assert.equal(k.rows.find(r=>r.model==='vision/a').state,'YENI','one result proves nothing');assert.deepEqual(k.leaders,[]);
+  // the same tick was past the 15-minute cadence: the next round looked at the other coin (the first one rests for an hour)
+  assert.equal(f.state.asked.length,2);assert.equal(f.kinds('KESIF_FORECAST')[1].s,'DOWNUSDT');
+  assert.ok(!f.state.calls.some(c=>c.m!=='GET'),'still no order of any kind');
+});
+
+test('R2544.148 the switch: off = no round and no call; settings survive; the committee without poll (old wiring) is simply not asked', async()=>{
+  const f=fixture({answers:ANS});
+  assert.deepEqual(f.controller.configureKesif({enabled:false,cadenceMin:3,providers:'ALL',source:'OFFICE'}),{ok:true,enabled:false,cadenceMin:5,providers:'ALL'});
+  assert.equal(await f.controller._testKesifTick(),null);assert.equal(f.state.asked.length,0);
+  f.controller.configureKesif({enabled:true});await f.controller._testKesifTick();assert.equal(f.state.asked.length,1);assert.equal(f.state.asked[0].filter,null,'providers ALL: everybody forecasts');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.root,'data','kesif-state.json'),'utf8')).settings.providers,'ALL');
+  const g=fixture({answers:ANS,poll:false});const o=await g.controller._testKesifTick();assert.equal(o.round,null);assert.equal(g.controller.kesifStatus().wired,false);
+});
