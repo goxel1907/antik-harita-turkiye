@@ -6,7 +6,8 @@
 #     (cekirdegin kendi setAutoRun alani, atomik yazim), sonra baslatma kapatilir - lotlar yine acik kalir.
 #  2) JEV-DEPLOY.ps1 AYNEN calistirilir (baslatma kapali sart; TEST'te acik SANAL lot serbest, CANLI'da acik pozisyon yasak).
 #  3) Deploy basariliysa TEST yeniden baslatilir (POST /live/run START_TEST).
-# CANLI modda (R2544.147): baslatma kapali ve acik gercek pozisyon 0 ise JEV-DEPLOY'u calistirir; CANLI'yi durdurmaz / baslatmaz.
+# CANLI modda (R2544.147): acik gercek pozisyon varken ASLA kurmaz. CANLI calisiyorsa kullanicidan yazili onay (CANLI) ister; onayla
+# CANLI'yi durdurur, kurar ve ayni hatlarla yeniden baslatir. Onay yoksa hicbir sey degismez.
 # Sag tik > Yonetici olarak calistir (JEV-TEST-DEPLOY.cmd).
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -38,16 +39,51 @@ try {
   # baslatmaz (son basis kullanicida) ve acik GERCEK pozisyon varken kurmaz (R2544.29). Kurulumdan sonra CANLI kapali kalir.
   if ($st.tradingMode -and $st.tradingMode.mode -eq 'LIVE') {
     Write-Host "CANLI modu. surum=$($st.runtimeRelease) baslatma=$($st.armed)"
-    if ($st.armed -eq $true) { throw 'CANLI CALISIYOR. Bu betik CANLI''yi kendisi durdurmaz. Acik pozisyon yokken Office''te "Durdur"a basin, sonra bu betigi yeniden calistirin; kurulum bitince "Kurulla CANLI''ya gec"e basin.' }
     $posL = Open-Positions $RT
     if ($null -eq $posL) { throw 'Acik pozisyon durumu okunamadi; guvenlik icin kurulum yapilmadi.' }
     if ($posL.Count -gt 0) { throw "CANLI'da ACIK GERCEK POZISYON VAR: $($posL -join ', '). Pozisyon kapaninca bu betigi yeniden calistirin (stop / hedef emirleri Binance'te duruyor)." }
+    $wasArmed = ($st.armed -eq $true)
+    if ($wasArmed) {
+      # kullanici 11.11: "canlida kalacagiz ... ben deploy ederim". CANLI'yi durdurup yeniden baslatmak yalniz kullanicinin BURADA yazdigi onayla.
+      Write-Host ''
+      Write-Host 'CANLI CALISIYOR, acik pozisyon yok.'
+      Write-Host 'Kurulum icin CANLI kisa sure DURDURULUR (yeni giris yok), yeni surum kurulur, sonra CANLI AYNI HATLARLA YENIDEN BASLATILIR (gercek para).'
+      $ans = (Read-Host 'Onayliyorsaniz CANLI yazin (baska bir sey yazarsaniz hicbir sey yapilmaz)').Trim().ToUpperInvariant()
+      if ($ans -ne 'CANLI') { throw 'Onay verilmedi; hicbir sey degismedi (CANLI calismaya devam ediyor).' }
+      Write-Host '== CANLI yeni girisleri durduruluyor (Durdur)'
+      $r = Core-Post '/live/run' @{ action = 'STOP' }
+      if ($r.ok -ne $true) { throw "CANLI durdurulamadi: $(@($r.reasons) -join ','). Hicbir sey kurulmadi." }
+      Start-Sleep -Seconds 3
+      $st = Core-Get '/live/status'
+      if ($st.armed -eq $true) { throw 'CANLI baslatmasi kapanmadi; kurulum yapilmadi.' }
+      $posL = Open-Positions $RT
+      if ($null -eq $posL -or $posL.Count -gt 0) { throw "Durdurma sirasinda acik pozisyon olustu ($($posL -join ', ')); kurulum yapilmadi. CANLI DURDURULDU: Office'ten 'Kurulla CANLI'ya gec'e basin." }
+    }
     Write-Host '== CANLI mod, baslatma kapali, acik pozisyon 0: JEV-DEPLOY calistiriliyor'
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'JEV-DEPLOY.ps1')
-    if ($LASTEXITCODE -ne 0) { throw "JEV-DEPLOY basarisiz (exit $LASTEXITCODE). CANLI baslatilmadi." }
+    if ($LASTEXITCODE -ne 0) { throw "JEV-DEPLOY basarisiz (exit $LASTEXITCODE). CANLI DURDURULMUS durumda: Office'ten 'Kurulla CANLI'ya gec'e basin." }
+    if ($wasArmed) {
+      Write-Host '== CANLI yeniden baslatiliyor (onayinizla; ayni hatlar)'
+      $r = $null; $why = ''
+      for ($i = 1; $i -le 6; $i++) {
+        if ($i -eq 1) { Start-Sleep -Seconds 5 } else { Start-Sleep -Seconds 20 }
+        try { $r = Core-Post '/live/run' @{ action = 'GO_LIVE'; confirm = 'LIVE' } } catch { $r = $null; $why = $_.Exception.Message }
+        if ($r -and $r.ok -eq $true) { break }
+        if ($r) { $why = (@($r.reasons) -join ',') }
+        Write-Host "CANLI baslatma denemesi $i/6 olmadi ($why); tekrar denenecek"
+      }
+      $st = Core-Get '/live/status'
+      if (-not $r -or $r.ok -ne $true -or $st.armed -ne $true) {
+        Write-Host "JEV_TEST_DEPLOY_OK surum=$($st.runtimeRelease) mod=$($st.tradingMode.mode) baslatma=$($st.armed)"
+        Write-Host "UYARI: yeni surum KURULDU ama CANLI YENIDEN BASLATILAMADI ($why). Office ya da telefondan 'Kurulla CANLI'ya gec'e basin."
+        return
+      }
+      Write-Host "JEV_TEST_DEPLOY_OK surum=$($st.runtimeRelease) mod=$($st.tradingMode.mode) baslatma=$($st.armed) CANLI_YENIDEN_BASLADI"
+      return
+    }
     $st = Core-Get '/live/status'
     Write-Host "JEV_TEST_DEPLOY_OK surum=$($st.runtimeRelease) mod=$($st.tradingMode.mode) baslatma=$($st.armed) OTO=$($st.leaderAuto.enabled)"
-    Write-Host 'CANLI BASLATILMADI (son basis sizde): Office ya da telefondan "Kurulla CANLI''ya gec"e basin.'
+    Write-Host 'CANLI BASLATILMADI (kurulumdan once de kapaliydi): Office ya da telefondan "Kurulla CANLI''ya gec"e basin.'
     return
   }
   if (-not $st.tradingMode -or $st.tradingMode.mode -ne 'TEST') { throw 'Calisma modu okunamadi (TEST / CANLI degil); kurulum yapilmadi.' }

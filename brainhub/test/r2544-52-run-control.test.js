@@ -161,9 +161,11 @@ test('R52 Office panel: OTO aç = CANLI behind a second press, Stop is one press
 
 test('R52 TEST deploy wrapper: TEST mode only, stops safely, runs JEV-DEPLOY unchanged, restarts TEST',()=>{
   const ps=fs.readFileSync(path.join(__dirname,'..','jev-brain','JEV-TEST-DEPLOY.ps1'),'utf8');
-  assert.match(ps,/tradingMode\.mode -ne 'TEST'\) \{ throw/,'never touches LIVE');
+  assert.match(ps,/tradingMode\.mode -ne 'TEST'\) \{ throw/,'an unknown mode is refused (LIVE has its own confirmed branch, R2544.147)');
   // R2544.71: the TEST deploy pauses NEW entries only (open virtual lots stay open); STOP is no longer used there
-  assert.match(ps,/'\/live\/run' @\{ action = 'PAUSE_TEST' \}/);assert.doesNotMatch(ps,/action = 'STOP'/);assert.match(ps,/Open-Positions \$RT/);
+  // R2544.147: the LIVE branch (typed confirmation -> STOP -> deploy -> GO_LIVE) comes first; the TEST part below it never uses STOP
+  const testPart=ps.slice(ps.indexOf("if (-not $st.tradingMode -or $st.tradingMode.mode -ne 'TEST')"));
+  assert.match(testPart,/'\/live\/run' @\{ action = 'PAUSE_TEST' \}/);assert.doesNotMatch(testPart,/action = 'STOP'/);assert.match(ps,/Open-Positions \$RT/);
   assert.match(ps,/-File \(Join-Path \$PSScriptRoot 'JEV-DEPLOY\.ps1'\)/);assert.match(ps,/if \(\$LASTEXITCODE -ne 0\) \{ throw/);
   assert.match(ps,/'\/live\/run' @\{ action = 'START_TEST' \}/);
   assert.doesNotMatch(ps,/[^\x00-\x7F]/,'ASCII like the other scripts');

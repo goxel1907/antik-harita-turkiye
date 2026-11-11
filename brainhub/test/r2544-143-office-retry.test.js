@@ -85,6 +85,13 @@ test('R2544.147 the phone OTO-off is the normal lane only while İlk 3 / ZİRVE-
   assert.match(f,/if\(body\.reason==='ANDROID_AUTO_OFF'\)\{const ls=live\.laneStatus\(\);/);assert.match(f,/live\.selectLanes\(\{normal:false,source:'APK_OTO_OFF'\}\)/);
   assert.ok(f.indexOf('ANDROID_AUTO_OFF')<f.lastIndexOf('live.disarm('),'checked before the full disarm');
   const a=d.indexOf("if ($st.tradingMode -and $st.tradingMode.mode -eq 'LIVE') {"),b=d.indexOf("if (-not $st.tradingMode -or $st.tradingMode.mode -ne 'TEST')");assert.ok(a>0&&b>a);const L=d.slice(a,b);
-  assert.match(L,/if \(\$st\.armed -eq \$true\) \{ throw 'CANLI CALISIYOR/);assert.match(L,/ACIK GERCEK POZISYON VAR/);assert.match(L,/JEV-DEPLOY\.ps1/);
-  assert.ok(!/live\/arm|GO_LIVE|live\/disarm|action = 'STOP'/.test(L),'the script never arms, starts or stops LIVE');
+  assert.match(L,/ACIK GERCEK POZISYON VAR/);assert.match(L,/JEV-DEPLOY\.ps1/);
+  const iPos=L.indexOf('ACIK GERCEK POZISYON VAR'),iAsk=L.indexOf("Read-Host 'Onayliyorsaniz CANLI yazin"),iStop=L.indexOf("action = 'STOP'"),iGo=L.indexOf("action = 'GO_LIVE'");
+  assert.ok(iPos>0&&iAsk>iPos&&iStop>iAsk&&iGo>iStop,'open position refused first; LIVE is stopped and started again only after the typed confirmation');
+  assert.match(L,/if \(\$ans -ne 'CANLI'\) \{ throw 'Onay verilmedi; hicbir sey degismedi/);
+  assert.ok(!/live\/arm|live\/disarm/.test(L),'no raw arm / disarm: the same run control as the Office buttons');
+});
+test('R2544.147 a risk-reducing order on an open lot does not wait for an arm lost without the user (restart / expiry); the user close never waits',()=>{
+  const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+  assert.match(lc,/if\(!armedNow\(\)&&!\(o\.by==='USER'\|\|\['STARTUP_FAIL_CLOSED','ARM_EXPIRED'\]\.includes\(String\(lastDisarmReason\|\|''\)\)\)\)\{a\.exitWaiting='DESK_WAITING_ARM';return null;\}/);
 });

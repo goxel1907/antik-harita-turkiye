@@ -410,3 +410,15 @@ test('R2544.146 the phone gives the PC a new Binance key: format checked, tested
   const kf=fs.readFileSync(path.join(f.root,'config','binance-api-key.dpapi'),'utf8');assert.ok(kf.length>40&&!kf.includes('TESTKEY'),'DPAPI cipher text, not the key');
   const ev=f.kinds('BINANCE_CREDENTIALS_UPDATED');assert.equal(ev.length,1);assert.equal(ev[0].p.keyTail,'WXYZ');assert.ok(!JSON.stringify(ev).includes(s),'the journal never holds the secret');
 });
+
+test('R2544.147 the user Kapat works while the run is stopped (no arm): the reduce-only close is carried out, not left to expire',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({z5:{enabled:true,committeeMode:true},deskJudges:{committee:cm(TAKE)}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=f.lot(),R=a.stopPrice-a.entryPrice;
+  await f.beat(a.entryPrice-0.3*R);assert.ok(f.lot());
+  f.controller.disarm('USER_STOP');assert.equal(f.controller.status().armed,false,'the run is stopped');
+  const r=await f.controller.userCloseLot({id:a.id});assert.equal(r.ok,true);
+  if(!r.closed){await f.beat();}
+  assert.equal(f.lot(),null,'closed without an arm');assert.equal(await pos(f.paper),0);
+  assert.equal(f.kinds('TOP3_CLOSED').at(-1).p.exitReason,'TOP3_USER_CLOSE');
+});

@@ -7080,7 +7080,12 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const J=(k,p)=>{try{store.journal(k,a.symbol,{id:a.id,lane:a.lane||'ILK3',action:o.action,...p});}catch{}
       if(rec){const kind=k.replace('POSITION_DESK_',''),ok=['EXIT','PARTIAL','STOP'].includes(kind);rec.done={ok,kind,at:clock(),price:finite(p?.price)??finite(p?.stopPrice)??null,reason:ok?null:String(p?.reason||kind).slice(0,80)};try{saveTop3State();}catch{}}};
     if(clock()-o.at>10*60000){a.deskOrder=null;J('POSITION_DESK_ORDER_EXPIRED',{});return null;}
-    if(!armedNow()){a.exitWaiting='DESK_WAITING_ARM';return null;}
+    // R2544.147 (11.11: the PC restarted at 03:49 with a LIVE lot open; the core came up disarmed and two desk EXITs (07:57 -0,93R, 08:27)
+    // waited 10 min for the arm and expired - the lot then hit its stop. The user's own Kapat would have waited the same way).
+    // Sabit kural 5: risk-reducing orders are carried out at once. An order on an OPEN lot only reduces it (market reduce-only /
+    // a stop moved toward profit), so it runs without the arm when (a) the user sent it, or (b) the arm was lost without the user's
+    // will (start-up fail-closed, expiry). After the user's own stop (Durdur / disarm) the desk still waits, as before.
+    if(!armedNow()&&!(o.by==='USER'||['STARTUP_FAIL_CLOSED','ARM_EXPIRED'].includes(String(lastDisarmReason||'')))){a.exitWaiting='DESK_WAITING_ARM';return null;}
     a.deskOrder=null;const L=a.side==='LONG',held=Math.min(Math.abs(amt),a.quantity);
     if(o.action==='EXIT'){
       const r=await top3CloseMarket(a,held);if(!r.ok){J('POSITION_DESK_EXIT_FAILED',{reason:r.reason});return null;}
