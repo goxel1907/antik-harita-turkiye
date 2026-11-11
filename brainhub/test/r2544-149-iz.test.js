@@ -91,7 +91,7 @@ test('R2544.149 a KEŞİF tick: every candidate coin is read, AKIS fires on the 
     credentials:{apiKey:'fake-test-key-r149',apiSecret:'fake-test-secret-r149'},fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',deskJudges:{committee},
     market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol(){}},liquidationHistory:{clusters:()=>({available:true,coverageFromMs:5*H,longLiquidatedQuote:1000,shortLiquidatedQuote:900})}}});
   const out=await c._testKesifTick();
-  assert.deepEqual(out.iz,{coins:2,read:2,fired:1});
+  assert.deepEqual(out.iz,{coins:2,read:2,fired:1,labels:2});
   const s=c._testKesifState(),iz=s.open.filter(r=>r.model.startsWith('IZ:'));
   assert.deepEqual(iz.map(r=>[r.model,r.symbol,r.side]),[['IZ:AKIS','UPUSDT','LONG']]);assert.equal(iz[0].entryAt,Math.ceil(NOW/M5)*M5,'entry = the next 5m open (written before the outcome)');
   assert.equal(events.filter(e=>e.k==='IZ_FIRE').length,1);
@@ -131,4 +131,27 @@ test('R2544.149 SANAL ORTAM hand-over: the sandbox state at data/kesif-sanal.jso
   assert.equal(c._testKesifState().closed.length,3);assert.equal(c._testKesifState().open.filter(r=>r.id==='d:IZ:DUVAR').length,1);assert.equal(c._testKesifState().matrix._total.n,4,'the matrix is not added twice');assert.equal(c.kesifStatus().seed.scored,2);
   // a broken file is set aside, the core goes on
   fs.writeFileSync(path.join(root,'data','kesif-sanal.json'),'{bozuk');await c._testKesifTick();assert.ok(fs.readdirSync(path.join(root,'data')).some(f=>/^kesif-sanal\.invalid-/.test(f)));
+});
+
+test('R2544.149 the brain\'s learning proof: its probability (written before) against the base rate; "öğreniyor" only with 30 labels and skill in both halves', ()=>{
+  const K=require('../kesif');
+  assert.equal(K.learningCheck([]).state,'KANIT_YOK');
+  const rows=(f)=>Array.from({length:40},(_,i)=>{const y=i%3===0?0:1;return {at:i,y,b:0.5,p:f(i,y)};});
+  const good=K.learningCheck(rows((i,y)=>y?0.7:0.3));assert.equal(good.state,'OGRENIYOR');assert.ok(good.all.skillPct>0&&good.first.skillPct>0&&good.second.skillPct>0);assert.equal(good.all.leanHitPct,100);
+  const blind=K.learningCheck(rows(()=>0.5));assert.equal(blind.state,'OGRENMIYOR','a brain that only repeats 50/50 is not learning');
+  const late=K.learningCheck(rows((i,y)=>i<20?(y?0.3:0.7):(y?0.7:0.3)));assert.equal(late.state,'OGRENMIYOR','wrong in the old half: not proven yet');assert.ok(late.second.skillPct>0);
+  assert.equal(K.learningCheck(rows((i,y)=>y?0.7:0.3).slice(0,29)).state,'KANIT_YOK');
+});
+
+test('R2544.149 BAKİYE ZAMANI: 40 forward results, average, without the best, lower bound and both halves above zero; 1R in $ from margin x leverage x stop', ()=>{
+  const K=require('../kesif');const rec=(m,i,R,stop=2)=>({model:m,done:true,R,stopPct:stop,closedAt:i,at:i,side:'LONG'});
+  const lucky=[...Array.from({length:39},(_,i)=>rec('IZ:SUPURME',i,-0.2)),rec('IZ:SUPURME',40,12)];
+  const steady=Array.from({length:40},(_,i)=>rec('IZ:AKIS',i,i%2?1.2:-0.8,i%5?2:4));
+  const short=Array.from({length:39},(_,i)=>rec('BEYIN',i,i%2?1.2:-0.8));
+  const r=K.readiness([...lucky,...steady,...short,rec('_ETIKET',1,1)],{marginQuote:30,leverage:10});
+  assert.equal(r.state,'HAZIR');assert.deepEqual(r.ready.map(x=>x.model),['IZ:AKIS']);
+  const a=r.ready[0];assert.equal(a.oneR.medianUsd,6,'30 $ x 10 x 2 %');assert.equal(a.oneR.widestUsd,12);assert.equal(a.worstLosingStreak,1);
+  const l=r.near.find(x=>x.model==='IZ:SUPURME');assert.equal(l.checks.exBest,false,'one lucky +12R does not make it ready');
+  assert.equal(r.near.find(x=>x.model==='BEYIN').checks.n,false);
+  assert.equal(K.readiness([]).state,'DEGIL');assert.match(K.readiness(short).tr,/henüz değil/);
 });

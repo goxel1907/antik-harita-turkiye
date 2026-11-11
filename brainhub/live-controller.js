@@ -6988,7 +6988,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const op=(Array.isArray(x.open)?x.open:[]).filter(r=>r&&r.id&&r.model&&!r.done&&!ids.has(r.id)).map(mark);
     s.closed=[...cl,...s.closed].sort((a,b)=>(finite(a.closedAt)??finite(a.at)??0)-(finite(b.closedAt)??finite(b.at)??0)).slice(-KESIF_KEEP);
     const again=!!(s.seed&&x.sanal?.startedAt&&s.seed.from===x.sanal.startedAt); // the same sandbox twice: its matrix is already in
-    s.open.push(...op);if(!again)s.matrix=KESIF.matrixMerge(s.matrix||{},x.matrix);s.karne=KESIF.karne(s.closed,{now});
+    s.open.push(...op);if(!again){s.matrix=KESIF.matrixMerge(s.matrix||{},x.matrix);if(Array.isArray(x.brainCheck))s.brainCheck=[...(Array.isArray(s.brainCheck)?s.brainCheck:[]),...x.brainCheck].sort((a,b)=>(a.at||0)-(b.at||0)).slice(-3000);}s.karne=KESIF.karne(s.closed,{now});
     if(again){saveKesif();try{fs.renameSync(KESIF_SEED,moved);}catch{}try{store.journal('KESIF_SEED_REPEAT',null,{from:s.seed.from,closed:cl.length,open:op.length});}catch{}return {ok:true,repeat:true,closed:cl.length,open:op.length};}
     s.seed={at:now,from:x.sanal?.startedAt||null,closed:cl.length,scored:cl.filter(r=>Number.isFinite(r.R)).length,open:op.filter(r=>r.model!=='_ETIKET').length,labels:(finite(x.matrix?._total?.n)||0)+op.filter(r=>r.model==='_ETIKET').length};
     saveKesif();try{fs.renameSync(KESIF_SEED,moved);}catch{}
@@ -7011,29 +7011,45 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       const done=s.open.filter(r=>r.done);
       if(done.length){s.open=s.open.filter(r=>!r.done);
-        for(const l of done.filter(r=>r.model==='_ETIKET')){const lb=KESIF.labelOf(l);if(lb){s.matrix=KESIF.matrixAdd(s.matrix||{},l.feats||[],lb,(finite(l.closedAt)-finite(l.entryAt))/3600000);
+        for(const l of done.filter(r=>r.model==='_ETIKET')){const lb=KESIF.labelOf(l);
+          if((lb==='UP'||lb==='DOWN')&&Number.isFinite(l.brainP)&&Number.isFinite(l.baseP)){if(!Array.isArray(s.brainCheck))s.brainCheck=[];s.brainCheck.push({at:finite(l.closedAt)||now,p:l.brainP,b:l.baseP,y:lb==='UP'?1:0,ready:l.brainReady===true});s.brainCheck=s.brainCheck.slice(-3000);}
+          if(lb){s.matrix=KESIF.matrixAdd(s.matrix||{},l.feats||[],lb,(finite(l.closedAt)-finite(l.entryAt))/3600000);
           try{store.journal('KESIF_MATRIX',l.symbol,{round:l.round,label:lb,hours:Number(((finite(l.closedAt)-finite(l.entryAt))/3600000).toFixed(2)),formations:(l.feats||[]).length});}catch{}}}
-        s.closed=[...s.closed,...done.filter(r=>r.model!=='_ETIKET').map(kesifSlim)].slice(-KESIF_KEEP);s.karne=KESIF.karne(s.closed,{now});changed=true;}
+        s.closed=[...s.closed,...done.filter(r=>r.model!=='_ETIKET').map(kesifSlim)].slice(-KESIF_KEEP);s.karne=KESIF.karne(s.closed,{now});changed=true;
+        const rd=kesifReadiness(now);if(rd.state!==s.readyState){s.readyState=rd.state;try{store.journal(rd.state==='HAZIR'?'BAKIYE_ZAMANI':'BAKIYE_ZAMANI_DEGIL',null,{tr:rd.tr,ready:rd.ready.map(r=>({model:r.model,n:r.n,avgR:r.avgR,lowerR:r.lowerR,oneR:r.oneR,worstLosingStreak:r.worstLosingStreak}))});}catch{}}}
       // R2544.149 İZ: the footprints of bots and market makers on every candidate coin (public data only). Every trace rule ("iz askeri")
       // that fires writes its own forecast; it is scored on the same candles and karne as the models. One open forecast per rule and coin.
       let tick=null;const tickers=async()=>{if(tick===null){try{const x=await transport._fetchJson('GET','/fapi/v1/ticker/24hr');tick=Array.isArray(x)?x:[];}catch{tick=[];}}return tick;};
       const izCache=new Map();
       const izRead=async sym=>{
         const g=async(p,params)=>{try{return await transport._fetchJson('GET',p,{params});}catch{return null;}};
-        const [m5,m15,h1,oi,whale,crowd,taker,depth,pi]=await Promise.all([g('/fapi/v1/klines',{symbol:sym,interval:'5m',limit:'61'}),g('/fapi/v1/klines',{symbol:sym,interval:'15m',limit:'40'}),g('/fapi/v1/klines',{symbol:sym,interval:'1h',limit:'30'}),
+        const kl=(i,n)=>g('/fapi/v1/klines',{symbol:sym,interval:i,endTime:String(now-1),limit:String(n)});
+        const [m5,m15,h1,h4,d1,oi,whale,crowd,taker,depth,pi]=await Promise.all([kl('5m',TB.FETCH.m5),kl('15m',TB.FETCH.m15),kl('1h',TB.FETCH.h1),kl('4h',TB.FETCH.h4),kl('1d',TB.FETCH.d1),
           g('/futures/data/openInterestHist',{symbol:sym,period:'5m',limit:'49'}),g('/futures/data/topLongShortPositionRatio',{symbol:sym,period:'5m',limit:'13'}),g('/futures/data/globalLongShortAccountRatio',{symbol:sym,period:'5m',limit:'13'}),
           g('/futures/data/takerlongshortRatio',{symbol:sym,period:'5m',limit:'12'}),g('/fapi/v1/depth',{symbol:sym,limit:'500'}),g('/fapi/v1/premiumIndex',{symbol:sym})]);
         let liq=null;try{const lh=market?.liquidationHistory;if(lh&&typeof lh.clusters==='function'){const c=lh.clusters(sym,null,{sinceMs:3600000});if(c&&finite(c.coverageFromMs)>=3600000)liq={longQ:finite(c.longLiquidatedQuote)??0,shortQ:finite(c.shortLiquidatedQuote)??0};}}catch{}
         let r=null;try{r=IZ.read({m5,m15,h1,oi,whale,crowd,taker,depth,fundingRate:finite(pi?.lastFundingRate),liq,now});}catch{r=null;}
-        if(r)izCache.set(sym,r);return r;};
+        if(r){izCache.set(sym,r);izRaw.set(sym,{k:{m5,m15,h1,h4,d1},fund:finite(pi?.lastFundingRate),premium:finite(pi?.markPrice)&&finite(pi?.indexPrice)?Number((finite(pi.markPrice)/finite(pi.indexPrice)-1).toFixed(5)):null});}return r;};
+      const izRaw=new Map();let btc1h=null;const btc=async()=>{if(btc1h===null){try{const x=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:'BTCUSDT',interval:'1h',endTime:String(Math.floor(now/3600000)*3600000-1),limit:'40'}});btc1h=Array.isArray(x)?x:[];}catch{btc1h=[];}}return btc1h;};
+      // R2544.149 the brain learns from EVERY scanned coin (at most once an hour per coin), its probability written before the outcome
+      const labelCoin=async(c,r,fired)=>{const raw=izRaw.get(c.symbol);if(!raw)return null;if(!s.labelled||typeof s.labelled!=='object')s.labelled={};
+        if(now-(finite(s.labelled[c.symbol])||0)<3600000||s.open.some(x=>!x.done&&x.model==='_ETIKET'&&x.symbol===c.symbol))return null;
+        const pk=KESIF.packet({k:{...raw.k,btc1h:await btc()},t:now,context:{change24hPct:c.change24hPct,why:c.why,fund:raw.fund,premium:raw.premium}});if(!pk)return null;
+        const feats=[...KESIF.formations(pk),...IZ.feats(r,fired)].sort(),bd=KESIF.band(pk),call=KESIF.brainCall(s.matrix,feats),t=s.matrix?._total||{UP:0,DOWN:0},at=clock(),rid='l'+now.toString(36)+'-'+c.symbol;
+        const lab=KESIF.open({model:'_ETIKET',symbol:c.symbol,forecast:{ok:true,direction:'LONG',stopPct:bd,targetPct:bd,horizonH:KESIF.LABEL_H,confidence:null},at,round:rid});if(!lab)return null;
+        Object.assign(lab,{feats,brainP:call.pUp,baseP:Number(((t.UP+1)/(t.UP+t.DOWN+2)).toFixed(4)),brainReady:call.ready});s.open.push(lab);s.labelled[c.symbol]=now;
+        if(call.ready&&!s.open.some(x=>!x.done&&x.model==='BEYIN'&&x.symbol===c.symbol)){const f=KESIF.brainForecast(call,bd);if(f.direction!=='NONE'){const b=KESIF.open({model:'BEYIN',symbol:c.symbol,forecast:f,at,round:rid});if(b)s.open.push(b);}}
+        return lab;};
       const kesifWired=typeof deskJudges?.committee?.poll==='function'; // old wiring (no poll): KEŞİF and İZ stay off together, as in R2544.148
       if(kesifWired&&now-(finite(s.lastIzAt)||0)>=cfg.cadenceMin*60000){
         s.lastIzAt=now;changed=true;const list=KESIF.candidates(await tickers(),{now}).slice(0,12),fired=[];
-        for(let i=0;i<list.length;i+=3)await Promise.all(list.slice(i,i+3).map(async c=>{const r=await izRead(c.symbol);
-          for(const f of IZ.fire(r)){const model='IZ:'+f.name;if(s.open.some(x=>!x.done&&x.model===model&&x.symbol===c.symbol))continue;
+        let labels=0;
+        for(let i=0;i<list.length;i+=3)await Promise.all(list.slice(i,i+3).map(async c=>{const r=await izRead(c.symbol);const fr=IZ.fire(r);
+          try{if(r&&await labelCoin(c,r,fr))labels++;}catch{}
+          for(const f of fr){const model='IZ:'+f.name;if(s.open.some(x=>!x.done&&x.model===model&&x.symbol===c.symbol))continue;
             const rec=KESIF.open({model,symbol:c.symbol,forecast:f.forecast,at:clock(),round:'i'+now.toString(36)+'-'+c.symbol});
             if(rec){s.open.push(rec);fired.push({d:f.name,s:c.symbol,side:rec.side,stop:rec.stopPct,why:rec.why});}}}));
-        s.izLast={at:now,coins:list.length,read:izCache.size,fired};out.iz={coins:list.length,read:izCache.size,fired:fired.length};
+        s.izLast={at:now,coins:list.length,read:izCache.size,fired,labels};out.iz={coins:list.length,read:izCache.size,fired:fired.length,labels};
         if(fired.length)try{store.journal('IZ_FIRE',null,{v:IZ.IZ_VERSION,coins:list.length,fired});}catch{}
       }
       // 2) a new round: never while the desk or the entry committee is at work (real positions come first)
@@ -7060,10 +7076,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
             const at=clock(),rid='k'+at.toString(36),votes=(r?.votes||[]),okv=votes.filter(v=>v?.ok&&v.vote);
             const recs=okv.map(v=>KESIF.open({model:MC.memberKey(v.member),symbol:coin.symbol,forecast:v.vote,at,round:rid,img:v.img===true})).filter(Boolean);
             const cons=KESIF.consensus(okv.map(v=>v.vote));if(cons){const c=KESIF.open({model:'ORTAK',symbol:coin.symbol,forecast:cons,at,round:rid});if(c)recs.push(c);}
-            {const bf=KESIF.open({model:'BEYIN',symbol:coin.symbol,forecast:KESIF.brainForecast(call,bd),at,round:rid});if(bf)recs.push(bf);}
+            if(!s.open.some(x=>!x.done&&x.model==='BEYIN'&&x.symbol===coin.symbol)){const bf=KESIF.open({model:'BEYIN',symbol:coin.symbol,forecast:KESIF.brainForecast(call,bd),at,round:rid});if(bf)recs.push(bf);}
             // the neutral label the matrix learns from (not a forecast, never in the karne): up first / down first by the band within LABEL_H
             const lab=KESIF.open({model:'_ETIKET',symbol:coin.symbol,forecast:{ok:true,direction:'LONG',stopPct:bd,targetPct:bd,horizonH:KESIF.LABEL_H,confidence:null},at,round:rid});
-            if(lab){lab.feats=feats;s.open.push(lab);}
+            const tt=s.matrix?._total||{UP:0,DOWN:0};
+            if(lab&&!s.open.some(x=>!x.done&&x.model==='_ETIKET'&&x.symbol===coin.symbol)){Object.assign(lab,{feats,brainP:call.pUp,baseP:Number(((tt.UP+1)/(tt.UP+tt.DOWN+2)).toFixed(4)),brainReady:call.ready});s.open.push(lab);if(!s.labelled||typeof s.labelled!=='object')s.labelled={};s.labelled[coin.symbol]=now;}
             s.open.push(...recs);
             const row={id:rid,at,symbol:coin.symbol,why:coin.why,change24hPct:coin.change24hPct,asked:r?.asked??votes.length,answered:okv.length,band:bd,formations:feats.length,
               brain:{ready:call.ready,rounds:call.rounds,pUp:call.pUp,used:call.used.slice(0,4)},errors:votes.filter(v=>!v?.ok).map(v=>({m:MC.memberKey(v.member),e:String(v.error||'').slice(0,60)})).slice(0,12),
@@ -7078,13 +7095,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }catch(e){kesifLastError=String(e?.message||e).slice(0,160);return null;}
     finally{kesifBusy=false;}
   }
+  function kesifReadiness(now=clock()){let c={};try{c=top3Lib.readTop3Config(root)||{};}catch{}return KESIF.readiness(kesifInit().closed,{marginQuote:finite(c.marginQuote)??30,leverage:Math.max(10,finite(c.leverage)??10),now});}
   function kesifStatus(){const s=kesifInit(),cfg=kesifCfg(),now=clock();
     return {ok:true,version:KESIF.KESIF_VERSION,shadow:true,enabled:cfg.enabled,cadenceMin:cfg.cadenceMin,providers:cfg.providers,wired:typeof deskJudges?.committee?.poll==='function',
       lastRoundAt:finite(s.lastRoundAt)?new Date(s.lastRoundAt).toISOString():null,nextRoundAt:cfg.enabled?new Date((finite(s.lastRoundAt)||now)+cfg.cadenceMin*60000).toISOString():null,
       counts:{open:s.open.filter(r=>r.model!=='_ETIKET').length,labelsOpen:s.open.filter(r=>r.model==='_ETIKET').length,closed:s.closed.length,scored:s.closed.filter(r=>Number.isFinite(r.R)).length,none:s.closed.filter(r=>r.outcome==='NONE').length,rounds:s.rounds.length},
       karne:s.karne||KESIF.karne(s.closed,{now}),matrix:KESIF.matrixView(s.matrix),open:s.open.filter(r=>r.model!=='_ETIKET').slice(-60).map(r=>({model:r.model,symbol:r.symbol,side:r.side,at:r.at,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,conf:r.conf,why:r.why})),
       recent:s.closed.filter(r=>Number.isFinite(r.R)).slice(-40).reverse(),rounds:s.rounds.slice(0,8),lastError:kesifLastError,
-      iz:{version:IZ.IZ_VERSION,detectors:IZ.DETECTORS,last:s.izLast||null,open:s.open.filter(r=>String(r.model).startsWith('IZ:')).length},seed:s.seed||null};}
+      iz:{version:IZ.IZ_VERSION,detectors:IZ.DETECTORS,last:s.izLast||null,open:s.open.filter(r=>String(r.model).startsWith('IZ:')).length},seed:s.seed||null,
+      learning:KESIF.learningCheck(s.brainCheck),readiness:kesifReadiness(now)};}
   function configureKesif(patch={}){const s=kesifInit(),x=s.settings;
     if(typeof patch.enabled==='boolean')x.enabled=patch.enabled;
     if(finite(patch.cadenceMin)!==null)x.cadenceMin=Math.max(5,Math.min(120,finite(patch.cadenceMin)));

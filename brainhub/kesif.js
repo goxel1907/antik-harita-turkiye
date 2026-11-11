@@ -205,6 +205,49 @@ function matrixMerge(a, b) {
   for (const [k, x] of Object.entries(b.f || {})) { const y = m.f[k] || (m.f[k] = { n:0, UP:0, DOWN:0, FLAT:0, hUP:0, hDOWN:0 }); for (const q of ['n', 'UP', 'DOWN', 'FLAT', 'hUP', 'hDOWN']) y[q] = (y[q] || 0) + (Number(x?.[q]) || 0); }
   return m;
 }
+// R2544.149 BEYİN GERÇEKTEN ÖĞRENİYOR MU? (kullanıcı 12.11: "beynin de kesin öğrendiğine emin ol"). Every label carries the brain's
+// probability written BEFORE the outcome (brainP) and the base rate of that moment (baseP = what a brain that knows nothing would say).
+// When the label resolves up first / down first, both are scored (Brier: lower = better). Skill = 1 - Brier(brain) / Brier(base).
+// ÖN-KAYIT: "öğreniyor" only with >= LEARN_MIN resolved labels AND skill > 0 in BOTH halves (old half, new half); otherwise it is said plainly.
+const LEARN_MIN = 30;
+function learningCheck(rows) {
+  const xs = (Array.isArray(rows) ? rows : []).filter(r => r && Number.isFinite(r.p) && Number.isFinite(r.b) && (r.y === 0 || r.y === 1)).sort((a, b) => (a.at || 0) - (b.at || 0));
+  const score = a => { if (!a.length) return null; const bb = a.reduce((s, r) => s + (r.p - r.y) ** 2, 0) / a.length, bs = a.reduce((s, r) => s + (r.b - r.y) ** 2, 0) / a.length;
+    const lean = a.filter(r => Math.abs(r.p - 0.5) >= BRAIN_EDGE); return { n:a.length, brierBrain:round(bb, 4), brierBase:round(bs, 4), skillPct:bs > 0 ? round((1 - bb / bs) * 100, 1) : null,
+      leanN:lean.length, leanHitPct:lean.length ? Math.round(lean.filter(r => (r.p > 0.5 ? 1 : 0) === r.y).length / lean.length * 100) : null }; };
+  const all = score(xs), h = Math.floor(xs.length / 2), first = score(xs.slice(0, h)), second = score(xs.slice(h));
+  const state = xs.length < LEARN_MIN ? 'KANIT_YOK' : (all.skillPct > 0 && first?.skillPct > 0 && second?.skillPct > 0) ? 'OGRENIYOR' : 'OGRENMIYOR';
+  const tr = state === 'KANIT_YOK' ? `kanıt yok: ${xs.length}/${LEARN_MIN} sonuçlanmış etiket` : state === 'OGRENIYOR' ? `öğreniyor: taban orandan %${all.skillPct} iyi, iki yarıda da artı` : `öğrendiği kanıtlanmadı: taban orana göre %${all.skillPct} (eski yarı %${first?.skillPct}, yeni yarı %${second?.skillPct})`;
+  return { version:KESIF_VERSION, min:LEARN_MIN, state, tr, all, first, second };
+}
+// R2544.149 BAKİYE ZAMANI (kullanıcı 12.11: "askerler ve kurul bana ne zaman bakiye eklemem gerektiğini söylemeli"). ÖN-KAYIT, the user's
+// own numbers: a member (model, brain, trace rule, the crowd) is READY with >= READY_N scored forward results, average > 0, average without
+// its best result > 0, lower bound of the mean > 0 and BOTH halves (older / newer results) > 0. 1R in $ = margin x leverage x its stop.
+// This is a measurement, not advice; the decision stays with the user. Even when READY the real trades are still opened by the lane rules
+// until the user approves the separate authority step.
+const READY_N = 40;
+function readiness(records, { marginQuote = 30, leverage = 10, now = Date.now() } = {}) {
+  const by = new Map();
+  for (const r of Array.isArray(records) ? records : []) { if (!r || !r.model || String(r.model).startsWith('_') || !r.done || !Number.isFinite(r.R)) continue;
+    const m = by.get(r.model) || []; m.push(r); by.set(r.model, m); }
+  const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+  const rows = [...by.entries()].map(([model, list]) => {
+    const xs = list.sort((a, b) => (a.closedAt || a.at || 0) - (b.closedAt || b.at || 0)), R = xs.map(x => x.R), n = R.length, a = avg(R);
+    const sd = n > 1 ? Math.sqrt(R.reduce((s, x) => s + (x - a) ** 2, 0) / (n - 1)) : null, lb = n > 1 ? a - sd / Math.sqrt(n) : null, best = n ? Math.max(...R) : null;
+    const ex = n > 1 ? (R.reduce((s, x) => s + x, 0) - best) / (n - 1) : null, h = Math.floor(n / 2), h1 = avg(R.slice(0, h)), h2 = avg(R.slice(h));
+    let streak = 0, worst = 0; for (const x of R) { streak = x < 0 ? streak + 1 : 0; worst = Math.max(worst, streak); }
+    const stops = xs.map(x => finite(x.stopPct)).filter(Number.isFinite), usd = p => p === null ? null : round(marginQuote * leverage * p / 100, 2);
+    const checks = { n:n >= READY_N, avg:a > 0, exBest:ex > 0, lower:lb > 0, halves:n >= 2 && h1 > 0 && h2 > 0 };
+    const ready = Object.values(checks).every(Boolean);
+    return { model, n, need:READY_N, avgR:round(a), exBestAvgR:round(ex), lowerR:round(lb), olderHalfR:round(h1), newerHalfR:round(h2), worstLosingStreak:worst, checks, ready,
+      oneR:{ medianUsd:usd(med(stops)), widestUsd:usd(stops.length ? Math.max(...stops) : null), narrowestUsd:usd(stops.length ? Math.min(...stops) : null) }, sumUsdAtMedianR:a !== null && med(stops) !== null ? round(a * n * marginQuote * leverage * med(stops) / 100, 2) : null }; });
+  const ready = rows.filter(r => r.ready).sort((p, q) => q.lowerR - p.lowerR);
+  const near = rows.filter(r => !r.ready).sort((p, q) => (Object.values(q.checks).filter(Boolean).length - Object.values(p.checks).filter(Boolean).length) || (q.n - p.n)).slice(0, 4);
+  const state = ready.length ? 'HAZIR' : 'DEGIL';
+  const tr = ready.length ? `kriter geçti: ${ready.map(r => r.model).join(', ')}. Karar senin; gerçek işlemde söz vermek ayrı, onaylı adım.`
+    : `henüz değil: kimse ${READY_N} sonuç + ortalama, en iyi hariç, alt sınır ve iki yarıda artı şartını geçmedi${near[0] ? ` (en yakın ${near[0].model}: ${near[0].n}/${READY_N})` : ''}`;
+  return { version:KESIF_VERSION, at:now, need:READY_N, state, tr, marginQuote, leverage, ready, near };
+}
 function matrixView(m, { minN = 3, top = 30 } = {}) {
   const rows = Object.entries(m?.f || {}).filter(([, x]) => x.n >= minN).map(([f, x]) => ({ f, n:x.n, upPct:Math.round(x.UP / x.n * 100), downPct:Math.round(x.DOWN / x.n * 100), flatPct:Math.round(x.FLAT / x.n * 100),
     hUp:x.UP ? round(x.hUP / x.UP, 1) : null, hDown:x.DOWN ? round(x.hDOWN / x.DOWN, 1) : null, ready:x.n >= MATRIX_MIN_N })).sort((a, b) => (b.ready - a.ready) || (Math.abs(b.upPct - b.downPct) - Math.abs(a.upPct - a.downPct)) || (b.n - a.n));
@@ -216,4 +259,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
   return c[0] || null;
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
-  formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView };
+  formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N };

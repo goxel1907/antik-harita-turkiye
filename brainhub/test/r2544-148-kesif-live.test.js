@@ -56,11 +56,13 @@ test('R2544.148 a round: one coin, no plan in the packet, every model its own fo
   const lab=s.open.find(r=>r.model==='_ETIKET');assert.ok(lab&&lab.feats.length>5&&lab.horizonH===6&&lab.stopPct===lab.targetPct);
   assert.equal(pk.brain.labelledRounds,0);assert.equal(pk.brain.ready,false);assert.ok(Array.isArray(pk.desk.rows));
   assert.deepEqual(s.open.find(r=>r.model==='ORTAK').stopPct,2.5,'3 of 5 answers LONG = 60% -> the median stop of those three');
-  assert.equal(s.open.find(r=>r.model==='vision/a').img,true);assert.ok(s.open.filter(r=>r.side!=='NONE').every(r=>r.entryAt===f.T0+M5&&r.symbol==='UPUSDT'));
+  assert.equal(s.open.find(r=>r.model==='vision/a').img,true);assert.ok(s.open.filter(r=>r.side!=='NONE'&&r.model!=='_ETIKET').every(r=>r.entryAt===f.T0+M5&&r.symbol==='UPUSDT'));
+  // R2544.149: the brain learns from every scanned coin (one label per coin and hour), each with its probability written before the outcome
+  assert.deepEqual(s.open.filter(r=>r.model==='_ETIKET').map(r=>r.symbol).sort(),['DOWNUSDT','UPUSDT']);assert.ok(s.open.filter(r=>r.model==='_ETIKET').every(r=>Number.isFinite(r.brainP)&&Number.isFinite(r.baseP)));
   assert.equal(f.kinds('KESIF_FORECAST').length,1);assert.equal(f.kinds('KESIF_FORECAST')[0].p.errors[0].m,'model-f');
   assert.ok(fs.existsSync(path.join(f.root,'data','kesif-state.json')));
   // the NONE answer is on the book at once (never scored, never punished)
-  const st0=f.controller.kesifStatus();assert.equal(st0.shadow,true);assert.equal(st0.counts.open,7);assert.equal(st0.counts.labelsOpen,1);assert.equal(st0.matrix.total.n||0,0);
+  const st0=f.controller.kesifStatus();assert.equal(st0.shadow,true);assert.equal(st0.counts.open,7);assert.equal(st0.counts.labelsOpen,2);assert.equal(st0.matrix.total.n||0,0);
   assert.ok(!f.state.calls.some(c=>c.m!=='GET'),'only public GET requests');
   // the next tick inside the cadence asks nobody again
   f.state.now+=60000;await f.controller._testKesifTick();assert.equal(f.state.asked.length,1);
@@ -82,7 +84,8 @@ test('R2544.148 outcomes: the real candles decide (target first, stop first, hor
   assert.deepEqual([by('ORTAK').outcome,by('ORTAK').R],['TARGET',+(4/2.5-0.14/2.5).toFixed(3)],'the crowd (median 2,5% stop / 4% target) is scored like a member');
   assert.ok(f.kinds('KESIF_OUTCOME').length>=3);
   // the label of round 1 (band = 1,5 x 1h ATR) resolved UP on the +4% move -> the matrix has its first round and the formations of that screen
-  const mx=f.controller.kesifStatus().matrix;assert.equal(mx.total.n,1);assert.equal(mx.total.UP,1);assert.ok(mx.formations>5);assert.equal(f.kinds('KESIF_MATRIX')[0].p.label,'UP');
+  const mx=f.controller.kesifStatus().matrix;assert.equal(mx.total.n,2,'both scanned coins were labelled (R2544.149)');assert.equal(mx.total.UP,2);
+  assert.equal(f.controller.kesifStatus().learning.all.n,2);assert.equal(f.controller.kesifStatus().learning.state,'KANIT_YOK','two labels prove nothing');assert.ok(mx.formations>5);assert.equal(f.kinds('KESIF_MATRIX')[0].p.label,'UP');
   assert.ok(!f.controller.kesifStatus().karne.rows.some(r=>r.model==='_ETIKET'));
   const k=f.controller.kesifStatus().karne;assert.equal(k.rows.find(r=>r.model==='vision/a').n,1);assert.equal(k.rows.find(r=>r.model==='vision/a').state,'YENI','one result proves nothing');assert.deepEqual(k.leaders,[]);
   // the same tick was past the 15-minute cadence: the next round looked at the other coin (the first one rests for an hour)
