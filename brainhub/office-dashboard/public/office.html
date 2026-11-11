@@ -1674,7 +1674,7 @@ function renderReactor(s){
 // hem beyin"): modellerin KENDİ tahmini (kimse kurulum vermez), beynin canlıdan kendi kurduğu matris ve ileriye dönük karne. GÖLGE.
 const KS_ST={SOZ_SAHIBI:'söz sahibi',ADAY:'aday',KANITSIZ:'kanıtsız',YENI:'yeni'};
 const ksR=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':`<span class="${Number(v)>0?'pos':Number(v)<0?'neg':''}">${Number(v)>0?'+':''}${Number(v).toFixed(2)}R</span>`;
-const ksName=m=>m==='BEYIN'?'🧠 BEYİN (matris)':m==='ORTAK'?'👥 ORTAK (modellerin çoğunluğu)':String(m||'').replace(/:free$/,'').split('/').pop();
+const ksName=m=>m==='BEYIN'?'🧠 BEYİN (matris)':m==='ORTAK'?'👥 ORTAK (modellerin çoğunluğu)':String(m||'').startsWith('IZ:')?'🐾 İZ '+String(m).slice(3):String(m||'').replace(/:free$/,'').split('/').pop();
 function renderKesif(s){
   const el=document.getElementById('ksCard');if(!el)return;const k=s?.kesif;
   if(!k){el.innerHTML='<div class="kh">🔭 KEŞİF • MODELLERİN KENDİ TAHMİNİ</div><div class="kn">PC sürümü bu bilgiyi vermiyor (R2544.148 öncesi).</div>';return;}
@@ -1692,7 +1692,11 @@ function renderKesif(s){
       <div class="kn">Söz sahibi = en az ${kr.minWord} sonuç ve alt sınırı sıfırın üstünde. Aday = en az ${kr.minSay} sonuç, en iyi işlemi hariç de artıda. Gerçek işlemlerde söz vermek senin onayınla olur.</div>`:'<div class="kn">Henüz sonuçlanan tahmin yok.</div>');
   const rnd=last?`<div class="sub">📍 SON TUR: ${esc(String(last.symbol).replace(/USDT$/,''))} <span style="color:#6f789c;font-weight:600">${esc(last.why||'')} • 24 sa %${Number(last.change24hPct??0).toFixed(1).replace('.',',')} • ${last.answered}/${last.asked} model cevap verdi • bant %${last.band??'—'}</span></div>
     <div class="fc">${(last.forecasts||[]).map(f=>`<span class="${f.d==='LONG'?'L':f.d==='SHORT'?'S':'N'}" title="${esc(f.why||'')}">${esc(ksName(f.m))}: ${f.d==='NONE'?'hamle yok':`${f.d} stop %${f.s} hedef %${f.g} ${f.h} sa`}</span>`).join('')}</div>`:'';
-  el.innerHTML=head+rnd+brain+book;
+  const iz=k.iz,izl=iz?.last;
+  const izh=iz?`<div class="sub">🐾 İZ ASKERLERİ • bot ve piyasa yapıcı izleri <span style="color:#6f789c;font-weight:600">${izl?esc(rxT(new Date(izl.at).toISOString()))+' • '+izl.read+'/'+izl.coins+' coin okundu':'henüz tarama yok'} • ${iz.open} açık tahmin • eşikler önceden sabit, karnede modellerle aynı kural</span></div>
+    <div class="kn">${(iz.detectors||[]).map(d=>`<b>${esc(d.name)}</b>: ${esc(d.tr)}`).join(' • ')}</div>`
+    +(izl&&(izl.fired||[]).length?`<div class="fc">${izl.fired.map(f=>`<span class="${f.side==='LONG'?'L':'S'}" title="${esc(f.why||'')}">${esc(f.d)} ${esc(String(f.s).replace(/USDT$/,''))} ${f.side} stop %${f.stop}</span>`).join('')}</div>`:'<div class="kn">Son taramada ateşlenen iz yok.</div>'):'';
+  el.innerHTML=head+rnd+izh+brain+book;
 }
 async function ksToggle(){const k=last?.kesif;if(!k)return;const b=document.getElementById('ksBtn');if(b)b.disabled=true;
   try{const x=await wcPost('/api/control/kesif',{enabled:!k.enabled});if(!x.ok)alert('KEŞİF: yapılmadı — '+wcWhy(x));else{k.enabled=!k.enabled;renderKesif(last);}}

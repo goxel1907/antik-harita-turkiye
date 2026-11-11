@@ -41,6 +41,7 @@ const PA=require('./pa-core');
 const IND=require('./ind-info'); // R2544.79 indikatör bilgisi (yalnız bilgi)
 const TB=require('./trader-brain'); // R2544.87 kurulun giriş ekranı (gölge)
 const KESIF=require('./kesif'); // R2544.148 modellerin kendi tahmini + ileriye dönük karne (gölge)
+const IZ=require('./iz'); // R2544.149 piyasa yapıcı / bot izleri: iz askerleri karnede yarışır (gölge)
 const MC=require('./model-committee'); // R2544.94 model karnesi + kalan limit
 const DESK=require('./position-desk'); // R2544.84 pozisyon masası (gölge trader kararı)
 const AUTOPSY=require('./trade-autopsy'); // R2544.80 işlem otopsisi (neden kaybetti / nasıl kazandı) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
@@ -6636,7 +6637,6 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{await lessonIndBackfillTick();}catch{}
       try{await lessonAutopsyTick();}catch{} // R2544.80
       if(!deskBusy)positionDeskTick().catch(()=>{}); // R2544.84 gölge pozisyon masası (taramayı bekletmez)
-      kesifTick().catch(()=>{}); // R2544.148 KEŞİF (gölge; taramayı bekletmez)
       const cfg=top3Lib.readTop3Config(root);
       if(cfg.enabled!==true){top3State.lastGate='TOP3_DISABLED';return {ok:true,skipped:true,reason:'TOP3_DISABLED',managed};}
       if(testModeNow()){
@@ -6691,7 +6691,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       top3State.recentSignals=[...scan.signals.map(({sig,f,...v})=>({...v,candle:scan.candle})),...(top3State.recentSignals||[])].slice(0,30);
       saveTop3State();
       return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed,v2};
-    }finally{top3Busy=false;}
+    }finally{top3Busy=false;kesifTick().catch(()=>{});} // R2544.149 KEŞİF + İZ after the lane scan (the real lanes first; never waits for it)
   }
   // ===== R2544.68 ZİRVE-5 LONG + SHORT, FiboBuLL videosundaki kural (own name, own Office switches per side, own results/learning;
   // LIVE only with the user's liveEnabled + 'LIVE'). Every closed 15m candle (+8 s): market-wide top 5 by 24 h range (volume >= 20M)
@@ -6991,11 +6991,33 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         for(const l of done.filter(r=>r.model==='_ETIKET')){const lb=KESIF.labelOf(l);if(lb){s.matrix=KESIF.matrixAdd(s.matrix||{},l.feats||[],lb,(finite(l.closedAt)-finite(l.entryAt))/3600000);
           try{store.journal('KESIF_MATRIX',l.symbol,{round:l.round,label:lb,hours:Number(((finite(l.closedAt)-finite(l.entryAt))/3600000).toFixed(2)),formations:(l.feats||[]).length});}catch{}}}
         s.closed=[...s.closed,...done.filter(r=>r.model!=='_ETIKET').map(kesifSlim)].slice(-KESIF_KEEP);s.karne=KESIF.karne(s.closed,{now});changed=true;}
+      // R2544.149 İZ: the footprints of bots and market makers on every candidate coin (public data only). Every trace rule ("iz askeri")
+      // that fires writes its own forecast; it is scored on the same candles and karne as the models. One open forecast per rule and coin.
+      let tick=null;const tickers=async()=>{if(tick===null){try{const x=await transport._fetchJson('GET','/fapi/v1/ticker/24hr');tick=Array.isArray(x)?x:[];}catch{tick=[];}}return tick;};
+      const izCache=new Map();
+      const izRead=async sym=>{
+        const g=async(p,params)=>{try{return await transport._fetchJson('GET',p,{params});}catch{return null;}};
+        const [m5,m15,h1,oi,whale,crowd,taker,depth,pi]=await Promise.all([g('/fapi/v1/klines',{symbol:sym,interval:'5m',limit:'61'}),g('/fapi/v1/klines',{symbol:sym,interval:'15m',limit:'40'}),g('/fapi/v1/klines',{symbol:sym,interval:'1h',limit:'30'}),
+          g('/futures/data/openInterestHist',{symbol:sym,period:'5m',limit:'49'}),g('/futures/data/topLongShortPositionRatio',{symbol:sym,period:'5m',limit:'13'}),g('/futures/data/globalLongShortAccountRatio',{symbol:sym,period:'5m',limit:'13'}),
+          g('/futures/data/takerlongshortRatio',{symbol:sym,period:'5m',limit:'12'}),g('/fapi/v1/depth',{symbol:sym,limit:'500'}),g('/fapi/v1/premiumIndex',{symbol:sym})]);
+        let liq=null;try{const lh=market?.liquidationHistory;if(lh&&typeof lh.clusters==='function'){const c=lh.clusters(sym,null,{sinceMs:3600000});if(c&&finite(c.coverageFromMs)>=3600000)liq={longQ:finite(c.longLiquidatedQuote)??0,shortQ:finite(c.shortLiquidatedQuote)??0};}}catch{}
+        let r=null;try{r=IZ.read({m5,m15,h1,oi,whale,crowd,taker,depth,fundingRate:finite(pi?.lastFundingRate),liq,now});}catch{r=null;}
+        if(r)izCache.set(sym,r);return r;};
+      const kesifWired=typeof deskJudges?.committee?.poll==='function'; // old wiring (no poll): KEŞİF and İZ stay off together, as in R2544.148
+      if(kesifWired&&now-(finite(s.lastIzAt)||0)>=cfg.cadenceMin*60000){
+        s.lastIzAt=now;changed=true;const list=KESIF.candidates(await tickers(),{now}).slice(0,12),fired=[];
+        for(let i=0;i<list.length;i+=3)await Promise.all(list.slice(i,i+3).map(async c=>{const r=await izRead(c.symbol);
+          for(const f of IZ.fire(r)){const model='IZ:'+f.name;if(s.open.some(x=>!x.done&&x.model===model&&x.symbol===c.symbol))continue;
+            const rec=KESIF.open({model,symbol:c.symbol,forecast:f.forecast,at:clock(),round:'i'+now.toString(36)+'-'+c.symbol});
+            if(rec){s.open.push(rec);fired.push({d:f.name,s:c.symbol,side:rec.side,stop:rec.stopPct,why:rec.why});}}}));
+        s.izLast={at:now,coins:list.length,read:izCache.size,fired};out.iz={coins:list.length,read:izCache.size,fired:fired.length};
+        if(fired.length)try{store.journal('IZ_FIRE',null,{v:IZ.IZ_VERSION,coins:list.length,fired});}catch{}
+      }
       // 2) a new round: never while the desk or the entry committee is at work (real positions come first)
       const cm=deskJudges?.committee;
       if(now-(finite(s.lastRoundAt)||0)>=cfg.cadenceMin*60000&&!deskBusy&&entryCommitteeBusy===0&&cm&&typeof cm.poll==='function'){
         s.lastRoundAt=now;changed=true;
-        let tick=[];try{tick=await transport._fetchJson('GET','/fapi/v1/ticker/24hr');}catch{}
+        const tick=await tickers();
         for(const k of Object.keys(s.surveyed))if(now-s.surveyed[k]>24*3600000)delete s.surveyed[k];
         const coin=KESIF.nextCoin(KESIF.candidates(tick,{now}),s.surveyed,{now});
         if(coin){
@@ -7008,7 +7030,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           const packet=KESIF.packet({k,t:now,context:ctx});
           if(packet){
             // R2544.148 BEYNİN MATRİSİ: formations on the screen, the brain's own call, and what the models are told before they forecast
-            const feats=KESIF.formations(packet),bd=KESIF.band(packet),call=KESIF.brainCall(s.matrix,feats);
+            const izr=izCache.get(coin.symbol)||await izRead(coin.symbol),izf=IZ.fire(izr);if(izr)packet.traces=IZ.view(izr,izf);
+            const feats=[...KESIF.formations(packet),...IZ.feats(izr,izf)].sort(),bd=KESIF.band(packet),call=KESIF.brainCall(s.matrix,feats);
             Object.assign(packet,KESIF.brief(s.matrix,feats,call,s.karne));
             const r=await cm.poll({system:KESIF.SYSTEM,prompt:JSON.stringify(packet),validate:KESIF.valid,parse:KESIF.parse,filter:cfg.providers==='ALL'?null:id=>KESIF_WIDE.test(String(id))});
             const at=clock(),rid='k'+at.toString(36),votes=(r?.votes||[]),okv=votes.filter(v=>v?.ok&&v.vote);
@@ -7037,7 +7060,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       lastRoundAt:finite(s.lastRoundAt)?new Date(s.lastRoundAt).toISOString():null,nextRoundAt:cfg.enabled?new Date((finite(s.lastRoundAt)||now)+cfg.cadenceMin*60000).toISOString():null,
       counts:{open:s.open.filter(r=>r.model!=='_ETIKET').length,labelsOpen:s.open.filter(r=>r.model==='_ETIKET').length,closed:s.closed.length,scored:s.closed.filter(r=>Number.isFinite(r.R)).length,none:s.closed.filter(r=>r.outcome==='NONE').length,rounds:s.rounds.length},
       karne:s.karne||KESIF.karne(s.closed,{now}),matrix:KESIF.matrixView(s.matrix),open:s.open.filter(r=>r.model!=='_ETIKET').slice(-60).map(r=>({model:r.model,symbol:r.symbol,side:r.side,at:r.at,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,conf:r.conf,why:r.why})),
-      recent:s.closed.filter(r=>Number.isFinite(r.R)).slice(-40).reverse(),rounds:s.rounds.slice(0,8),lastError:kesifLastError};}
+      recent:s.closed.filter(r=>Number.isFinite(r.R)).slice(-40).reverse(),rounds:s.rounds.slice(0,8),lastError:kesifLastError,
+      iz:{version:IZ.IZ_VERSION,detectors:IZ.DETECTORS,last:s.izLast||null,open:s.open.filter(r=>String(r.model).startsWith('IZ:')).length}};}
   function configureKesif(patch={}){const s=kesifInit(),x=s.settings;
     if(typeof patch.enabled==='boolean')x.enabled=patch.enabled;
     if(finite(patch.cadenceMin)!==null)x.cadenceMin=Math.max(5,Math.min(120,finite(patch.cadenceMin)));

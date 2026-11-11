@@ -16,7 +16,7 @@ test('R2544.129 phone payload: P&L from the ledger (top-ups apart), the brain re
   assert.deepEqual(o.brain.score,{src:'back',n:73,hit:62,neg:63,pos:0.06,negR:-0.37});
   assert.deepEqual(o.funnel.rows[0],{at:'t',l:'TOP3',s:'JCT',side:'SHORT',f:'RULE_BLOCKED',why:'TOP3_SLOTS_FULL'});
   assert.deepEqual(o.top3.active[0].r,{R:0.46,best:0.57});assert.deepEqual(o.top3.active[0].cm.desk.f,{guard:true,min:61,R:-0.216});
-  assert.equal(o.mobileContract,'R2544.78_PC_STATUS','old phones keep working');assert.equal(o.mobileFeatures,'R2544.148');
+  assert.equal(o.mobileContract,'R2544.78_PC_STATUS','old phones keep working');assert.equal(o.mobileFeatures,'R2544.149');
 });
 test('R2544.129 a full lane is written down (funnel and phone say "lot sınırı dolu", not "sonuç yok")',()=>{
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');

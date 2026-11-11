@@ -84,7 +84,8 @@ function mobileStatus(status={}){
     out.kesif={on:ks.enabled===true,min:ks.cadenceMin,at:ks.lastRoundAt||null,err:ks.lastError||null,mx:{n:mx.total?.n||0,need:mx.minRounds||20,up:mx.total?.UP||0,dn:mx.total?.DOWN||0,fl:mx.total?.FLAT||0,f:mx.formations||0},
       last:lr?{s:String(lr.symbol||'').replace(/USDT$/,''),why:lr.why||null,a:lr.answered,q:lr.asked,b:lr.brain?{ready:lr.brain.ready===true,p:lr.brain.pUp??null}:null,
         f:(lr.forecasts||[]).slice(0,12).map(x=>({m:nm(x.m),d:x.d,s:x.s,g:x.g,h:x.h}))}:null,
-      karne:(ks.karne?.rows||[]).slice(0,8).map(r=>({m:nm(r.model),n:r.n,hit:r.hitPct,R:r.avgR,x:r.exBestAvgR,st:r.state}))};}
-  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';out.mobileFeatures='R2544.148';return out;
+      karne:(ks.karne?.rows||[]).slice(0,12).map(r=>({m:nm(r.model),n:r.n,hit:r.hitPct,R:r.avgR,x:r.exBestAvgR,st:r.state})),
+      iz:ks.iz?{at:ks.iz.last?.at||null,c:ks.iz.last?.coins??0,o:ks.iz.open??0,f:(ks.iz.last?.fired||[]).slice(0,8).map(x=>({d:x.d,s:String(x.s||'').replace(/USDT$/,''),side:x.side,st:x.stop}))}:null};}
+  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';out.mobileFeatures='R2544.149';return out;
 }
 module.exports={mobileStatus};
