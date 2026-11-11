@@ -93,7 +93,7 @@ methods = r'''    // V95149_R2544_148_KESIF: the models' own forecasts, the brai
         int n = mx == null ? 0 : mx.optInt("n", 0), need = mx == null ? 20 : Math.max(1, mx.optInt("need", 20));
         android.widget.LinearLayout.LayoutParams gap = new android.widget.LinearLayout.LayoutParams(-1, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         gap.setMargins(0, dp(8), 0, 0);
-        card.addView(text("🧠 BEYNİN MATRİSİ: " + n + "/" + need + " tur" + (n >= need ? " • hazır, kendi tahminini yapıyor" : " • öğreniyor")
+        card.addView(text("🧠 BEYNİN MATRİSİ: " + n + "/" + need + " etiket" + (n >= need ? " • hazır, kendi tahminini yapıyor" : " • öğreniyor")
             + (mx == null ? "" : "\nyukarı önce " + mx.optInt("up", 0) + " • aşağı önce " + mx.optInt("dn", 0) + " • yatay " + mx.optInt("fl", 0) + " • " + mx.optInt("f", 0) + " farklı oluşum"),
             12.5f, android.graphics.Color.WHITE, true), gap);
         android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -134,6 +134,15 @@ methods = r'''    // V95149_R2544_148_KESIF: the models' own forecasts, the brai
               .append(" • ").append(v95149St(r.optString("st", "")));
         }
         card.addView(text(kb.toString(), 12f, android.graphics.Color.rgb(253, 224, 71), false), gap);
+        // R2544.149: the balance gate (pre-registered: 40 forward results, average, without the best, lower bound, both halves) and the brain's learning proof
+        org.json.JSONObject bk = k.optJSONObject("bk");
+        if (bk != null) {
+            boolean ready = "HAZIR".equals(bk.optString("st", ""));
+            card.addView(text((ready ? "💰 BAKİYE ZAMANI: KRİTER GEÇTİ" : "💰 BAKİYE ZAMANI: HENÜZ DEĞİL") + "\n" + bk.optString("t", "") + "\nölçümdür, tavsiye değildir; karar senin",
+                12.5f, ready ? android.graphics.Color.rgb(52, 211, 153) : android.graphics.Color.rgb(251, 191, 36), true), gap);
+        }
+        org.json.JSONObject og = k.optJSONObject("ogr");
+        if (og != null) card.addView(text("🔬 Beyin gerçekten öğreniyor mu? " + og.optString("t", ""), 11.5f, android.graphics.Color.rgb(196, 181, 253), false), gap);
         String err = k.optString("err", "");
         if (!err.isEmpty() && !"null".equals(err)) card.addView(text("⚠ " + err, 11f, android.graphics.Color.rgb(248, 113, 113), false));
     }
