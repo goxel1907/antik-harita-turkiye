@@ -2,7 +2,7 @@
 // R2544.136 ÜCRETSİZ KOLTUK HAVUZU (kullanıcı 09.11: "zayıflamada yerine geçecek, aratmayacak modeller"; onay: "hepsini kur")
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),path=require('path');
 const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8'),MC=require('../model-committee');
-const fnSrc=name=>{const i=sv.indexOf(name),j=sv.indexOf('\n',sv.indexOf('}}',sv.indexOf('return text?',i)));return sv.slice(i,j);};
+const fnSrc=name=>{const i=sv.indexOf(name),j=sv.indexOf('const directMembers=()=>',i);return sv.slice(i,j).trimEnd();}; // R2544.147: the function ends right before directMembers
 test('R2544.136 keyless seat: an OpenAI-compatible answer is read; an HTTP error, an empty answer and a network error are a failed vote (never a throw)',async()=>{
   const directAsk=eval('('+fnSrc('async function directAsk').replace(/^async function directAsk/,'async function')+')');
   const d={base:'https://x.test/v1',model:'m1',maxTokens:100};let seen=null;

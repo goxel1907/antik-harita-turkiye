@@ -6,8 +6,8 @@ test('R2544.139 keyless reasoning seats answer within the desk time: gpt-oss rea
   // R2544.141: the thinking is back ON (thinking-off seats voted an action 41 of 48 times); the seats get time and tokens instead
   const block=sv.slice(sv.indexOf('const DIRECT_FREE=['),sv.indexOf('async function directAsk'));
   assert.ok(!/reasoning_effort:'low'|reasoning:\{enabled:false\}/.test(block));
-  const i=sv.indexOf('async function directAsk'),j=sv.indexOf('\n',sv.indexOf('}}',sv.indexOf('return text?',i)));
-  const directAsk=eval('('+sv.slice(i,j).replace(/^async function directAsk/,'async function')+')');let body=null;
+  const i=sv.indexOf('async function directAsk'),j=sv.indexOf('const directMembers=()=>',i); // R2544.147
+  const directAsk=eval('('+sv.slice(i,j).trimEnd().replace(/^async function directAsk/,'async function')+')');let body=null;
   await directAsk({base:'https://x.test/v1',model:'m',maxTokens:9,extra:{reasoning:{enabled:false}}},{system:'S',prompt:'FULL SCREEN'},async(u,o)=>{body=JSON.parse(o.body);return {ok:true,status:200,text:async()=>JSON.stringify({choices:[{message:{content:'{}'}}]})};});
   assert.deepEqual(body.reasoning,{enabled:false});assert.equal(body.model,'m');assert.equal(body.messages[1].content,'FULL SCREEN','the prompt is sent whole');
 });

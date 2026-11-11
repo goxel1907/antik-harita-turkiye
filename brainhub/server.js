@@ -1681,17 +1681,25 @@ const DIRECT_FREE=[
   {id:'OVH:Qwen3.5-397B-A17B',base:OVH,model:'Qwen3.5-397B-A17B',maxTokens:8000,timeoutMs:THINK_MS},
   {id:'OVH:Qwen3.6-27B',base:OVH,model:'Qwen3.6-27B',maxTokens:8000,timeoutMs:THINK_MS},
   {id:'OVH:Meta-Llama-3_3-70B-Instruct',base:OVH,model:'Meta-Llama-3_3-70B-Instruct',maxTokens:1500},
-  {id:'KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',base:KILO,model:'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',maxTokens:8000,timeoutMs:THINK_MS},
+  {id:'KILO:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',base:KILO,model:'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',maxTokens:8000,timeoutMs:THINK_MS,vision:true},
   {id:'KILO:nvidia/nemotron-3-ultra-550b-a55b:free',base:KILO,model:'nvidia/nemotron-3-ultra-550b-a55b:free',maxTokens:8000,timeoutMs:THINK_MS},
-  {id:'KILO:nvidia/nemotron-3.5-super-vl:free',base:KILO,model:'nvidia/nemotron-3.5-super-vl:free',maxTokens:8000,timeoutMs:THINK_MS},
-  {id:'KILO:dots-studio/dots-3-note-preview:free',base:KILO,model:'dots-studio/dots-3-note-preview:free',maxTokens:8000,timeoutMs:THINK_MS}];
+  {id:'KILO:nvidia/nemotron-3.5-super-vl:free',base:KILO,model:'nvidia/nemotron-3.5-super-vl:free',maxTokens:8000,timeoutMs:THINK_MS,vision:true},
+  {id:'KILO:dots-studio/dots-3-note-preview:free',base:KILO,model:'dots-studio/dots-3-note-preview:free',maxTokens:8000,timeoutMs:THINK_MS,vision:true}];
+// R2544.148 (kullanıcı 11.11: "botun verileri grafikleri doğru olarak kurula ilet"; denetim: Kilo'nun resim okuyan üç koltuğu - nano-omni,
+// super-vl, dots-3-note - 10.11'de 0/49 toplantıda grafik aldı, çünkü bu yol yalnız yazı gönderiyordu): a keyless seat marked vision gets the
+// same charts as the 9Router / OpenRouter image seats (5m / 15m / 1h, entry / stop / target lines). An image error retries text-only once
+// (a timeout or rate limit does not). Verified 11.11: all three read a test image through the Kilo gateway.
 async function directAsk(d,{system,prompt}={},fetchImpl=fetch){
-  try{const r=await fetchImpl(d.base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout((d.timeoutMs||100000)+10000),
-      body:JSON.stringify({...(d.extra||{}),model:d.model,max_tokens:d.maxTokens,temperature:0.2,messages:[{role:'system',content:String(system||'')},{role:'user',content:String(prompt||'')}]})});
-    const t=await r.text();if(!r.ok)return {ok:false,reason:('HTTP '+r.status+' '+t).slice(0,160),model:d.model};
+  const user=String(prompt||'');let parts=null;if(d.vision){try{parts=committeeChartContent(user);}catch{parts=null;}}
+  const once=async content=>{const r=await fetchImpl(d.base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout((d.timeoutMs||100000)+10000),
+      body:JSON.stringify({...(d.extra||{}),model:d.model,max_tokens:d.maxTokens,temperature:0.2,messages:[{role:'system',content:String(system||'')},{role:'user',content}]})});
+    const t=await r.text();if(!r.ok)throw new Error(('HTTP '+r.status+' '+t).slice(0,160));
     let j=null;try{j=JSON.parse(t);}catch{}const text=String(j?.choices?.[0]?.message?.content||'').trim();
-    return text?{ok:true,text,model:d.model,img:false,compact:false}:{ok:false,reason:'EMPTY_ANSWER '+String(j?.choices?.[0]?.finish_reason||''),model:d.model};
-  }catch(e){return {ok:false,reason:String(e?.message||e).slice(0,160),model:d.model};}}
+    if(!text)throw new Error('EMPTY_ANSWER '+String(j?.choices?.[0]?.finish_reason||''));return text;};
+  try{const text=await once(parts||user);return {ok:true,text,model:d.model,img:!!parts,compact:false};}
+  catch(e){const msg=String(e?.message||e);
+    if(parts&&!/timeout|aborted|429|RATE|QUOTA/i.test(msg)){try{const text=await once(user);return {ok:true,text,model:d.model,img:false,imgError:msg.slice(0,120),compact:false};}catch(e2){return {ok:false,reason:String(e2?.message||e2).slice(0,160),model:d.model,imgError:msg.slice(0,120)};}}
+    return {ok:false,reason:msg.slice(0,160),model:d.model};}}
 const directMembers=()=>DIRECT_FREE.map(d=>({id:d.id,call:a=>directAsk(d,a),...(d.timeoutMs?{timeoutMs:d.timeoutMs}:{})}));
 async function refreshCommitteeRouterIds(){try{const out=await discoverOpenAIModels({baseUrl:String(cfg.baseUrl||'').replace(/\/+$/,''),key:KEY,timeoutMs:5000});if(out.ok)committeeRouterIds={at:Date.now(),ids:uniqueRegistryModels(out.models).map(x=>typeof x==='string'?x:x?.id).filter(Boolean),vision:out.vision||{}};}catch{}return committeeRouterIds;}
 setTimeout(()=>refreshCommitteeRouterIds().catch(()=>{}),5000).unref?.();
@@ -1890,6 +1898,13 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&u.pathname==='/live/disarm'){
       let body={};try{body=JSON.parse((await readBody(req))||'{}');}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      // R2544.147 (11.11 02:08: saving the phone's OTO dialog with its box unchecked sent disarm ANDROID_AUTO_OFF -> LIVE stopped and its
+      // auto-renew ended while İlk 3 / ZİRVE-5 were live; after the 03:49 PC restart LIVE never came back): the phone's OTO switch is the
+      // NORMAL lane (R2544.57). While another lane is selected it only switches the normal lane off; the run keeps going.
+      // The phone's emergency stop (ANDROID_EMERGENCY_STOP) and every other disarm still stop everything.
+      if(body.reason==='ANDROID_AUTO_OFF'){const ls=live.laneStatus();
+        if(ls?.top3?.selected===true||ls?.zirve5?.selected===true){const o=live.selectLanes({normal:false,source:'APK_OTO_OFF'});
+          return send(res,200,{ok:o.ok!==false,armed:live.status().armed===true,laneOnly:true,normal:false,reasons:o.ok===false?o.reasons:[]});}}
       return send(res,200,live.disarm(typeof body.reason==='string'?body.reason:'USER_DISARM'));
     }
     if(req.method==='POST'&&u.pathname==='/live/execute'){
@@ -2614,7 +2629,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.146';
+const RUNTIME_RELEASE='R2544.147';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

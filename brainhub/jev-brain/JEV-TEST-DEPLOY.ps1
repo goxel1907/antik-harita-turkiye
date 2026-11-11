@@ -6,7 +6,8 @@
 #     (cekirdegin kendi setAutoRun alani, atomik yazim), sonra baslatma kapatilir - lotlar yine acik kalir.
 #  2) JEV-DEPLOY.ps1 AYNEN calistirilir (baslatma kapali sart; TEST'te acik SANAL lot serbest, CANLI'da acik pozisyon yasak).
 #  3) Deploy basariliysa TEST yeniden baslatilir (POST /live/run START_TEST).
-# CANLI modda hicbir sey yapmaz. Sag tik > Yonetici olarak calistir (JEV-TEST-DEPLOY.cmd).
+# CANLI modda (R2544.147): baslatma kapali ve acik gercek pozisyon 0 ise JEV-DEPLOY'u calistirir; CANLI'yi durdurmaz / baslatmaz.
+# Sag tik > Yonetici olarak calistir (JEV-TEST-DEPLOY.cmd).
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $CORE = 'http://127.0.0.1:8787'
@@ -33,7 +34,23 @@ function Core-Post([string]$p, $body) {
 try {
   Assert-Admin
   $st = Core-Get '/live/status'
-  if (-not $st.tradingMode -or $st.tradingMode.mode -ne 'TEST') { throw 'Bu betik yalniz TEST modunda calisir. CANLI moddaysaniz Office: OTO kapat (ya da Durdur), sonra JEV-DEPLOY.cmd.' }
+  # R2544.147 (kullanici 11.11: "canlida kalacagiz, JEV-TEST-DEPLOY.cmd'ye yukle"): CANLI modda da kurar. CANLI'yi KENDISI durdurmaz /
+  # baslatmaz (son basis kullanicida) ve acik GERCEK pozisyon varken kurmaz (R2544.29). Kurulumdan sonra CANLI kapali kalir.
+  if ($st.tradingMode -and $st.tradingMode.mode -eq 'LIVE') {
+    Write-Host "CANLI modu. surum=$($st.runtimeRelease) baslatma=$($st.armed)"
+    if ($st.armed -eq $true) { throw 'CANLI CALISIYOR. Bu betik CANLI''yi kendisi durdurmaz. Acik pozisyon yokken Office''te "Durdur"a basin, sonra bu betigi yeniden calistirin; kurulum bitince "Kurulla CANLI''ya gec"e basin.' }
+    $posL = Open-Positions $RT
+    if ($null -eq $posL) { throw 'Acik pozisyon durumu okunamadi; guvenlik icin kurulum yapilmadi.' }
+    if ($posL.Count -gt 0) { throw "CANLI'da ACIK GERCEK POZISYON VAR: $($posL -join ', '). Pozisyon kapaninca bu betigi yeniden calistirin (stop / hedef emirleri Binance'te duruyor)." }
+    Write-Host '== CANLI mod, baslatma kapali, acik pozisyon 0: JEV-DEPLOY calistiriliyor'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'JEV-DEPLOY.ps1')
+    if ($LASTEXITCODE -ne 0) { throw "JEV-DEPLOY basarisiz (exit $LASTEXITCODE). CANLI baslatilmadi." }
+    $st = Core-Get '/live/status'
+    Write-Host "JEV_TEST_DEPLOY_OK surum=$($st.runtimeRelease) mod=$($st.tradingMode.mode) baslatma=$($st.armed) OTO=$($st.leaderAuto.enabled)"
+    Write-Host 'CANLI BASLATILMADI (son basis sizde): Office ya da telefondan "Kurulla CANLI''ya gec"e basin.'
+    return
+  }
+  if (-not $st.tradingMode -or $st.tradingMode.mode -ne 'TEST') { throw 'Calisma modu okunamadi (TEST / CANLI degil); kurulum yapilmadi.' }
   $hasRun = [bool]($st.tradingMode.PSObject.Properties['run'] -and $st.tradingMode.run)
   Write-Host "TEST modu. surum=$($st.runtimeRelease) baslatma=$($st.armed) OTO=$($st.leaderAuto.enabled)"
   Write-Host '== TEST yeni girisleri durduruluyor (R2544.71: acik sanal lotlar KAPATILMAZ, beyne yazilir)'

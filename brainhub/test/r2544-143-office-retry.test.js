@@ -69,3 +69,22 @@ test('R2544.147 the screens tell TEST from LIVE: funnel rows carry their mode; t
   const T=require('../top3-hunter');const L=[{mode:'TEST',rMultiple:1,openedAt:1,closedAt:2,rule:'X'},{mode:'LIVE',rMultiple:-1,openedAt:3,closedAt:4,rule:'X'}];
   assert.ok(T.brainScore(L,{mode:'ALL'}));
 });
+
+test('R2544.147 a keyless vision seat (Kilo nano-omni / super-vl / dots) gets the charts; an image error retries text-only',async()=>{
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+  for(const m of ['nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free','nvidia/nemotron-3.5-super-vl:free','dots-studio/dots-3-note-preview:free'])
+    assert.ok(sv.includes(`base:KILO,model:'${m}',maxTokens:8000,timeoutMs:THINK_MS,vision:true}`),m);
+  const i=sv.indexOf('async function directAsk('),j=sv.indexOf('const directMembers=()=>');const f=sv.slice(i,j);
+  assert.match(f,/if\(d\.vision\)\{try\{parts=committeeChartContent\(user\);\}catch\{parts=null;\}\}/);
+  assert.match(f,/return \{ok:true,text,model:d\.model,img:!!parts,compact:false\};/);
+  assert.match(f,/if\(parts&&!\/timeout\|aborted\|429\|RATE\|QUOTA\/i\.test\(msg\)\)\{try\{const text=await once\(user\);return \{ok:true,text,model:d\.model,img:false,imgError:/,'text-only retry keeps the vote');
+});
+test('R2544.147 the phone OTO-off is the normal lane only while İlk 3 / ZİRVE-5 run; JEV-TEST-DEPLOY installs in LIVE without touching the arm',()=>{
+  const sv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8'),d=fs.readFileSync(path.join(__dirname,'..','jev-brain','JEV-TEST-DEPLOY.ps1'),'utf8');
+  const i=sv.indexOf("u.pathname==='/live/disarm'"),j=sv.indexOf("u.pathname==='/live/execute'",i);const f=sv.slice(i,j);
+  assert.match(f,/if\(body\.reason==='ANDROID_AUTO_OFF'\)\{const ls=live\.laneStatus\(\);/);assert.match(f,/live\.selectLanes\(\{normal:false,source:'APK_OTO_OFF'\}\)/);
+  assert.ok(f.indexOf('ANDROID_AUTO_OFF')<f.lastIndexOf('live.disarm('),'checked before the full disarm');
+  const a=d.indexOf("if ($st.tradingMode -and $st.tradingMode.mode -eq 'LIVE') {"),b=d.indexOf("if (-not $st.tradingMode -or $st.tradingMode.mode -ne 'TEST')");assert.ok(a>0&&b>a);const L=d.slice(a,b);
+  assert.match(L,/if \(\$st\.armed -eq \$true\) \{ throw 'CANLI CALISIYOR/);assert.match(L,/ACIK GERCEK POZISYON VAR/);assert.match(L,/JEV-DEPLOY\.ps1/);
+  assert.ok(!/live\/arm|GO_LIVE|live\/disarm|action = 'STOP'/.test(L),'the script never arms, starts or stops LIVE');
+});
