@@ -1,6 +1,6 @@
 workflows:
   futures-15m-alarm-apk:
-    name: Futures 15m Alarm PRO APK v9.5.139-r2544.147-sade + ALT SERITLER GIZLI + v9.5.138-r2544.147-pozkart + CANLI POZISYON KARTI + v9.5.137-r2544.147-oto + OTO BASLIK PC DURUMU + v9.5.136-r2544.147-etiket + DOGRU ETIKETLER + OTO KUTUSU PC DURUMU + v9.5.135-r2544.146-anahtar + API PC'YE + KAPAT + TEST ETIKETI + v9.5.134-r2544.142-hatlar + 5DK/15DK/VUR-KAC ANAHTARLARI + v9.5.133-r2544.135-kaldirac + DURDUR TEST=CANLI + KALDIRAC 10-20x + v9.5.132-r2544.129-jevkurul + KAR/ZARAR + BEYIN + JEV+KURUL CANLI + v9.5.129-r2544.89-kurul + MODEL KURULU + KURULLA CANLI + MARJ/KALDIRAC + BAKIYE + CANLI OTOMATIK YENILEME + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
+    name: Futures 15m Alarm PRO APK v9.5.140-r2544.147-kaydet + KAYDET CANLIYI DURDURMAZ + v9.5.139-r2544.147-sade + ALT SERITLER GIZLI + v9.5.138-r2544.147-pozkart + CANLI POZISYON KARTI + v9.5.137-r2544.147-oto + OTO BASLIK PC DURUMU + v9.5.136-r2544.147-etiket + DOGRU ETIKETLER + OTO KUTUSU PC DURUMU + v9.5.135-r2544.146-anahtar + API PC'YE + KAPAT + TEST ETIKETI + v9.5.134-r2544.142-hatlar + 5DK/15DK/VUR-KAC ANAHTARLARI + v9.5.133-r2544.135-kaldirac + DURDUR TEST=CANLI + KALDIRAC 10-20x + v9.5.132-r2544.129-jevkurul + KAR/ZARAR + BEYIN + JEV+KURUL CANLI + v9.5.129-r2544.89-kurul + MODEL KURULU + KURULLA CANLI + MARJ/KALDIRAC + BAKIYE + CANLI OTOMATIK YENILEME + ZIRVE-5 + KAR KORUMA + CANLI STOP MALIYETI + PC SISTEM KAPAT + ILK 3 v2 + PC LANES
     max_build_duration: 45
     instance_type: mac_mini_m2
     triggering:
@@ -722,6 +722,14 @@ workflows:
           grep -q 'private void v95147HideBars(android.view.View v)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q "versionName '9.5.139-r2544.147-sade'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           echo V95147_R2544_147_SERIT_GIZLE_OK
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95148_r2544_147_kaydet_durdurmaz.py"
+          grep -q V95148_R2544_147_KAYDET /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          if grep -q 'if(!v95113AutoOn&&v95113Hub)v95113StopAndVerify("ANDROID_AUTO_OFF",null);' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java; then
+            echo 'R2544_147_OTO_SAVE_STILL_STOPS_LIVE'
+            exit 1
+          fi
+          grep -q "versionName '9.5.140-r2544.147-kaydet'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          echo V95148_R2544_147_KAYDET_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
