@@ -181,6 +181,36 @@ function counterfactual(desk, k5raw) {
   if (ruleR === null || deskR === null) return { ok:false, reason:'SIM_FAILED' };
   return { ok:true, version:DESK_VERSION, ruleR, deskR, deltaR:Number((deskR - ruleR).toFixed(3)), acted:ds.length, reviews:(desk.decisions || []).length };
 }
+// R2544.164 AKILLI MASA (kullanıcı 12.11: "her bakışta kota tüketir diyorsun, buna bir akıllı algoritma gerek"): Goxel watches every ~30 s for free;
+// the models (quota) are asked when something CHANGED. Events are looked at at once (>= 2 min apart): the first look (2 min after the entry),
+// a big Goxel screen newly against, two more screens against, Goxel one screen away from leaving, the price crossing a 0.5R step. Without an
+// event: every 10 min while the trade is moving, every 30 min while it is calm, and a routine look is skipped when Goxel's picture did not change.
+// A daily budget of looks: past half of it the routine gaps double, past 80 % they triple; events always pass (hard stop at 2x the budget).
+const SMART = { eventGapMs:2 * 60000, activeMin:10, calmMin:30, stepR:0.5, budget:80, hardX:2 };
+const bucketOf = R => Number.isFinite(R) ? Math.floor(R / SMART.stepR) : null;
+function smartDue({ openedAt, now, markR, desk = null, gx = null, cfg = {}, looksToday = 0 } = {}) {
+  const first = (Number(cfg.firstAfterMin) || 2) * 60000;
+  if (!Number.isFinite(openedAt) || now - openedAt < first) return { due:false, why:'WAIT_FIRST' };
+  if (looksToday >= SMART.budget * SMART.hardX) return { due:false, why:'BUDGET_HARD_STOP' };
+  if (!desk || !desk.lastAt) return { due:true, why:'FIRST_LOOK', event:true };
+  const since = now - desk.lastAt, last = desk.lastGx || null;
+  if (since >= SMART.eventGapMs) {
+    if (gx && last) {
+      if ((gx.big || 0) > (last.big || 0)) return { due:true, why:'GOXEL_BIG_SCREEN', event:true };
+      if ((gx.against || 0) - (last.against || 0) >= 2) return { due:true, why:'GOXEL_TWO_MORE_AGAINST', event:true };
+    }
+    if (gx && Number.isFinite(gx.against) && Number.isFinite(gx.need) && gx.against >= gx.need - 1 && (gx.big || 0) >= (gx.needBig || 1) && !(last && last.nearExit)) return { due:true, why:'GOXEL_NEAR_EXIT', event:true };
+    const b = bucketOf(markR), lb = Number.isFinite(desk.lastR) ? bucketOf(desk.lastR) : null;
+    if (b !== null && lb !== null && b !== lb) return { due:true, why:'R_STEP_' + (b > lb ? 'UP' : 'DOWN'), event:true };
+  }
+  const calm = (!gx || (gx.against || 0) <= 1) && Number.isFinite(markR) && Number.isFinite(desk.lastR) && Math.abs(markR - desk.lastR) < 0.3;
+  const used = looksToday / SMART.budget, x = used >= 0.8 ? 3 : used >= 0.5 ? 2 : 1;
+  const gap = (calm ? SMART.calmMin : Math.max(Number(cfg.cadenceMin) || SMART.activeMin, SMART.activeMin)) * 60000 * x;
+  if (since < gap) return { due:false, why:calm ? 'CALM' : 'ACTIVE' };
+  if (gx && last && gx.against === last.against && gx.big === last.big && bucketOf(markR) === bucketOf(desk.lastR)) return { due:false, why:'NOTHING_CHANGED' };
+  return { due:true, why:calm ? 'ROUTINE_CALM' : 'ROUTINE_ACTIVE', event:false };
+}
+const gxSnap = (gx, R) => gx ? { against:gx.against ?? null, big:gx.big ?? null, nearExit:Number.isFinite(gx.against) && Number.isFinite(gx.need) && gx.against >= gx.need - 1 && (gx.big || 0) >= (gx.needBig || 1), R:Number.isFinite(R) ? R : null } : null;
 function planOf(lot) {
   const r = riskOf(lot); if (!r) return null;
   return { side:lot.side, entry:finite(lot.entryPrice), stop:finite(lot.initialStopPrice) ?? finite(lot.stopPrice), tp:finite(lot.tpPrice), partAtR:finite(lot.part?.atR) ?? 0, partShare:finite(lot.part?.share) ?? 0.5,
@@ -266,4 +296,4 @@ function microOf(sn, R = () => null) {
       note:'observed Binance force-order prints only; not a full liquidation heatmap' } };
 }
 module.exports = { microOf, jsonObjects, wordOf, chartSpecs, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
-  SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary };
+  SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary, SMART, smartDue, gxSnap };

@@ -13,7 +13,7 @@ test('R2544.117 the desk acts only outside the noise: open >= 30 min AND (<= -0.
 });
 test('R2544.163 the desk follows the trade from the start: first look 2 min, then every 10 min or a 0.5R move (looked at within 2 min)',()=>{
   const c=DESK.readConfig('C:/__none__');assert.equal(c.cadenceMin,10);assert.equal(c.firstAfterMin,2);assert.equal(c.moveTriggerR,0.5);
-  assert.match(lc,/Math\.abs\(markR-d\.lastR\)>=cfg\.moveTriggerR&&now-d\.lastAt>=2\*60000;/);
+  assert.equal(DESK.SMART.eventGapMs,2*60000,'R2544.164: an event is looked at within 2 min');assert.match(lc,/const r=DESK\.smartDue\(\{openedAt:a\.openedAt,now,markR,desk:a\.desk\|\|null,gx,cfg,looksToday:deskLooksToday\(now\)\}\)/);
 });
 test('R2544.117 entry learning vote 5 seats; a re-entry on the same coin is a warning; one price retry',()=>{
   assert.match(lc,/const ENTRY_TEAM=99;/);

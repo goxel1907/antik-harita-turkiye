@@ -6874,12 +6874,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // GÖLGE: karar lota ve günlüğe yazılır, Office'te görünür; EMİR GÖNDERİLMEZ. Kapanınca aynı 5 dk yolda masa ile kural karşılaştırılır.
   let deskBusy=false;
   function deskStats(){const day=new Date(clock()).toISOString().slice(0,10);const d=top3State.deskStats;if(!d||d.day!==day)top3State.deskStats={day,free:0,router:0,jev:0,failed:0,lastError:null,lastAt:null};return top3State.deskStats;}
+  // R2544.164 AKILLI MASA: the models are asked when something changed (Goxel's picture, a 0.5R step) or by a calm / active routine; daily budget
+  const deskLooks={day:null,n:0};
+  const deskLooksToday=now=>{const d=new Date(now).toISOString().slice(0,10);if(deskLooks.day!==d){deskLooks.day=d;deskLooks.n=0;}return deskLooks.n;};
   function deskDue(a,cfg,now,markR){
     if(!a||!finite(a.openedAt)||a.closing)return false;
-    const d=a.desk;if(now-a.openedAt<cfg.firstAfterMin*60000)return false;
-    if(!d?.lastAt)return true;
-    if(now-d.lastAt>=cfg.cadenceMin*60000)return true;
-    return markR!==null&&finite(d.lastR)!==null&&Math.abs(markR-d.lastR)>=cfg.moveTriggerR&&now-d.lastAt>=2*60000; // R2544.163 a big move is looked at within 2 min
+    const gx=a.goxel&&a.goxel.watching!==undefined?{against:a.goxel.against??0,big:a.goxel.big??0,need:a.goxel.need??3,needBig:a.goxel.needBig??1}:null;
+    const r=DESK.smartDue({openedAt:a.openedAt,now,markR,desk:a.desk||null,gx,cfg,looksToday:deskLooksToday(now)});a.deskDueWhy=r.why;
+    return r.due===true;
   }
   async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});const r=DESK.rows(k).filter(x=>x.t<=clock());r.raw=Array.isArray(k)?k:[];return r;}catch{const r=[];r.raw=[];return r;}}
   const deskJudge=(packet,mode,cfg)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats()});
@@ -6930,7 +6932,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const both=auth&&jevKurul(laneCfgOf(a)),order=both?['JEV','COMMITTEE']:['COMMITTEE'];
       const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:deskJudges,stats:deskStats()}):deskJudge(packet,mode,cfg)),st=deskStats();st.lastAt=new Date(now).toISOString();
       const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
-      desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);
+      desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);deskLooksToday(now);deskLooks.n++;desk.lastWhy=a.deskDueWhy||null; // R2544.164
+      desk.lastGx=DESK.gxSnap(a.goxel&&{against:a.goxel.against,big:a.goxel.big,need:a.goxel.need??3,needBig:a.goxel.needBig??1},desk.lastR);
       if(!res.ok){st.failed++;st.lastError=res.tried.join(', ').slice(0,200);desk.lastError={at:now,tried:res.tried};saveTop3State();
         try{store.journal('POSITION_DESK_UNAVAILABLE',a.symbol,{lane,mode,tried:res.tried});}catch{}return {ok:false,tried:res.tried};}
       const d=DESK.validate(res.d,packet.stopChoices);
@@ -7092,7 +7095,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const hc=gxHtf.get(a.symbol);let htf=hc&&now-hc.at<15*60000?hc.k:null;if(!htf){htf={h1:await kl('1h',TB.FETCH.h1),h4:await kl('4h',TB.FETCH.h4),d1:await kl('1d',TB.FETCH.d1)};gxHtf.set(a.symbol,{at:now,k:htf});}
         pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});gxPk.set(a.symbol,{at:now,pk});}catch{pk=null;}
       const v=KESIF.goxelLook(rec,k,sc,now,{live:true}),pv=v&&pk?KESIF.goxelPro(rec,v,pk):null;if(!pv)continue;
-      a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,needBig:pv.needBig,close:pv.close,why:pv.why,watching:true,screens:pv.screens.map(x=>({k:x.key,a:x.against}))};
+      a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,needBig:pv.needBig,need:pv.need,close:pv.close,why:pv.why,watching:true,screens:pv.screens.map(x=>({k:x.key,a:x.against}))};
       // R2544.160: the drawing in Office follows a REAL lot first -> its screens, candles and the big screens travel with it
       seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',real:true,model:a.kesif?.model||a.rule||null,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,close:pv.close,why:pv.why,
         screens:pv.screens.slice(0,5),raw:pv.raw||null,pro:{screens:pv.screens.slice(5),against:pv.against,big:pv.big,needBig:pv.needBig,need:pv.need,support:pv.support,atLevel:pv.atLevel,close:pv.close},
@@ -7791,7 +7794,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
   return { kesifStatus, configureKesif, userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
-    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(), _testUserCloseTick:n=>userCloseTick(n), _testGoxelLive:()=>goxelLiveTick(),
+    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(), _testUserCloseTick:n=>userCloseTick(n), _testGoxelLive:()=>goxelLiveTick(), _testDeskLooks:()=>deskLooks,
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
