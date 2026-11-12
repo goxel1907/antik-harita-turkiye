@@ -143,6 +143,9 @@ methods = r'''    // V95149_R2544_148_KESIF: the models' own forecasts, the brai
         }
         org.json.JSONObject og = k.optJSONObject("ogr");
         if (og != null) card.addView(text("🔬 Beyin gerçekten öğreniyor mu? " + og.optString("t", ""), 11.5f, android.graphics.Color.rgb(196, 181, 253), false), gap);
+        org.json.JSONObject og2 = k.optJSONObject("ogr2");
+        if (og2 != null) card.addView(text("🧠 BEYİN-2 (öğrenen): " + og2.optString("t", ""), 11.5f, android.graphics.Color.rgb(167, 243, 208), false), gap);
+        if (k.has("suru") && !k.isNull("suru")) card.addView(text("🐑 aynı yöne giden model payı (son turlar): %" + Math.round(k.optDouble("suru", 0) * 100), 11f, android.graphics.Color.rgb(148, 163, 184), false));
         String err = k.optString("err", "");
         if (!err.isEmpty() && !"null".equals(err)) card.addView(text("⚠ " + err, 11f, android.graphics.Color.rgb(248, 113, 113), false));
     }
