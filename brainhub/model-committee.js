@@ -65,7 +65,7 @@ const isGone = (rec, now = Date.now()) => { const why = rec && rec.lastOk === fa
 // R2544.103: Groq free = ~8K tokens per minute per model (prompt + max_tokens); two Groq members asked in the same minute overflow it
 // R2544.112: Google AI Studio quota is per MODEL (each Gemini model its own daily pool) -> up to 5 Gemini seats; a cap may now be above perProvider
 // R2544.115: every image-reading model the user connected joins (Gemini: each model its own daily quota); GitHub = Copilot premium requests -> 2
-const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, 'cloudflare-workers-ai':4, cf:4, nvidia:4, requesty:2 }; // R2544.120: cf = Cloudflare in 9Router // R2544.119: Mistral and Cohere are paid (user 03.11) -> no seat; Z.ai Flash 3, Requesty 200/day -> 2
+const PROVIDER_CAP = { ollama:1, groq:1, gemini:8, github:2, 'cloudflare-ai':4, 'cloudflare-workers-ai':4, cf:4, nvidia:6, requesty:2 }; // R2544.156 NVIDIA 6: the thinking models get their own time; free, ~40 req/min // R2544.120: cf = Cloudflare in 9Router // R2544.119: Mistral and Cohere are paid (user 03.11) -> no seat; Z.ai Flash 3, Requesty 200/day -> 2
 function pickRouterExtras(ids, { have = new Set(), strong = /./, perProvider = 3, max = 12, candidates = [], gone = () => false, caps = PROVIDER_CAP } = {}) {
   const per = new Map(), out = [], cand = new Set(candidates), seen = new Set();
   for (const m of [...(Array.isArray(candidates) ? candidates : []), ...(Array.isArray(ids) ? ids : [])]) {
@@ -126,11 +126,12 @@ const validProbe = t => { try { return JSON.parse(String(t || '').match(/\{[\s\S
 // members: [{ id, call:async({system,prompt,validate,role})=>({ok,text,model}) }]  (id = 'ROUTER:kr/claude-sonnet-4.5' or 'FREE:openrouter')
 // R2544.130 (kullanıcı 09.11 "önerilerini yap"; 09.11 ölçüm: kurul düşünme ortanca 111 sn, en çok 303 sn): debateSkipShare - when at least
 // that share of 3+ first-round voters already agree, the debate round is skipped (consensus STRONG_MAJORITY)
-function createCommittee({ members: membersIn = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000, prefer = null, debateSkipShare = null } = {}) {
+function createCommittee({ members: membersIn = [], healthFile = null, clock = () => Date.now(), size = 3, probeEveryMs = 60 * 60000, timeoutMs = 120000, prefer = null, debateSkipShare = null, forgive = null } = {}) {
   // R2544.92: members may be a function (re-discovered: models added to 9Router / OpenRouter join without a code change)
   let health = {}; try { if (healthFile) health = JSON.parse(fs.readFileSync(healthFile, 'utf8')).health || {}; } catch {}
   // R2544.96: the members function is told which models are gone (from THIS committee's own health)
-  const ctx = { gone:id => isGone(health[id], clock()) };
+  // R2544.156: `forgive(id, rec)` = an old verdict that no longer holds (the seat got the time it needed) - the seat gets its chance again
+  const ctx = { gone:id => !(typeof forgive === 'function' && health[id] && forgive(id, health[id])) && isGone(health[id], clock()) };
   const membersNow = () => { try { const m = typeof membersIn === 'function' ? membersIn(ctx) : membersIn; return Array.isArray(m) ? m : []; } catch { return []; } };
   let probing = false, lastProbeAt = 0;
   const save = () => { if (!healthFile) return; try { fs.mkdirSync(path.dirname(healthFile), { recursive:true }); fs.writeFileSync(healthFile + '.tmp', JSON.stringify({ version:COMMITTEE_VERSION, at:new Date(clock()).toISOString(), health }, null, 1)); fs.renameSync(healthFile + '.tmp', healthFile); } catch {} };

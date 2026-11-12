@@ -11,7 +11,7 @@ test('R2544.141 thinking seats think: no reasoning switch-off, 8000 tokens and 1
   assert.ok(!/Qwen3\.8-27B|lightning/.test(block),'out of tokens while thinking: left out');
   assert.match(sv,/call:a=>directAsk\(d,a\),\.\.\.\(d\.timeoutMs\?\{timeoutMs:d\.timeoutMs\}:\{\}\)/);
   assert.match(sv,/AbortSignal\.timeout\(\(d\.timeoutMs\|\|100000\)\+10000\)/);
-  assert.match(sv,/\.\.\.\(\/\^nvidia\\\/\/\.test\(m\)\?\{timeoutMs:115000\}:\{\}\)/,'the 9Router NVIDIA thinkers get the time too');
+  assert.match(sv,/\.\.\.\(\/\^nvidia\\\/\/\.test\(m\)\?\{timeoutMs:THINK_MS\}:\{\}\)/,'the 9Router NVIDIA thinkers get the time too (R2544.156: the full THINK_MS)');
 });
 test('R2544.141 a member with its own time is waited for; a fast member keeps the desk limit; the quick (leverage) vote keeps its short limit',async()=>{
   const real=global.setTimeout,waits=[];

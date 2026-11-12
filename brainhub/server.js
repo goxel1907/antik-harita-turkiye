@@ -1584,7 +1584,10 @@ function traderRouterMembers(){
 async function routerAsk(m,{system,prompt,validate}={}){
   let user=String(prompt||''),compact=false,img=false,imgError=null;
   if(/^groq\//.test(m)){const c=TB.compactPacket(user);if(c){user=c;compact=true;}}
-  const ask=(content,small)=>callModel(m,[{role:'system',content:String(system||'')},{role:'user',content}],110000,{maxTokens:small||/^groq\//.test(m)?1500:4096,validate});
+  // R2544.156 (kullanıcı 12.11: NVIDIA deepseek-v4.1-flash / minimax-m3.1-flash / glm-5.3-flash 'çoğunlukla süre aşımı' - bunu da yap): the NVIDIA
+  // models think before they answer; at 110 s / 4096 tokens they were cut (health: 'aborted due to timeout' at 110 s, 8 of 8 for deepseek) ->
+  // the same time and tokens as the other thinking seats (THINK_MS, 8000). kimi-k2.6 is back on NVIDIA's public list (12.11) -> a candidate again
+  const nv=/^nvidia\//.test(m),ask=(content,small)=>callModel(m,[{role:'system',content:String(system||'')},{role:'user',content}],nv?THINK_MS-5000:110000,{maxTokens:small||/^groq\//.test(m)?1500:nv?8000:4096,validate});
   let content=user;if(committeeSeesCharts(m)){const im=committeeChartContent(user);if(im){content=im;img=true;}}
   try{const out=await ask(content,compact);return {ok:true,text:out.text,model:m,img,compact};}
   catch(e){const msg=String(e?.message||e);
@@ -1653,7 +1656,7 @@ const ROUTER_NOT_COMMITTEE=/code|embed|tts|image-gen|imagen|veo|lyria|audio|whis
 // R2544.120: the NVIDIA member that works (Nemotron 3.5 Super VL, 33 ok 03.11) is the first NVIDIA candidate.
 const ROUTER_CANDIDATES=['gemini/gemini-3.6-flash','gemini/gemini-3.5-flash-lite','gemini/gemini-3.5-flash','gemini/gemini-2.5-flash','gemini/gemma-4-31b-it',
   'gemini/gemini-3.1-flash-lite','gemini/gemini-2.5-flash-lite',
-  'nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/minimaxai/minimax-m3.1-flash','nvidia/mistralai/mistral-large-4-1t-a52b','nvidia/z-ai/glm-5.3-flash','nvidia/nvidia/nemotron-3-ultra-550b-a55b','nvidia/stepfun-ai/step-5-preview',
+  'nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/deepseek-ai/deepseek-v4.1-flash','nvidia/minimaxai/minimax-m3.1-flash','nvidia/z-ai/glm-5.3-flash','nvidia/moonshotai/kimi-k2.6','nvidia/nvidia/nemotron-3-ultra-550b-a55b','nvidia/mistralai/mistral-large-4-1t-a52b','nvidia/stepfun-ai/step-5-preview',
   'groq/qwen/qwen3.8-27b','groq/openai/gpt-oss-120b','ollama/gpt-oss:120b',
   'github/claude-sonnet-4.6','github/gpt-5.4','github/grok-4.5',
   'requesty/google/gemma-4-31b-it','requesty/meta/muse-glimmer-30b','requesty/nvidia/nemotron-3-ultra-550b-a55b',
@@ -1719,7 +1722,7 @@ function committeeMembers(freeWorker,poolId,ctx,{noAiStudio=false}={}){
   const fixed=traderRouterMembers().filter(m=>!COMMITTEE_DROP.test(m.id)),have=new Set(fixed.map(m=>m.id.slice('ROUTER:'.length)));
   // R2544.115: every connected model that reads an image (catalog) is a candidate first; only free providers (a paid provider never joins by itself)
   const connected=(committeeRouterIds.ids||[]).filter(m=>ROUTER_FREE_PROVIDERS.test(m)&&freeModelOk(m)&&nvidiaLiveOk(m)),visionFirst=connected.filter(m=>committeeSeesCharts(m)&&!ROUTER_NOT_COMMITTEE.test(m));
-  const extra=pickRouterExtras(connected,{have,strong:ROUTER_STRONG,perProvider:3,max:28,candidates:[...visionFirst,...ROUTER_CANDIDATES].filter(freeModelOk).filter(nvidiaLiveOk),gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m),...(/^nvidia\//.test(m)?{timeoutMs:115000}:{})})); // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
+  const extra=pickRouterExtras(connected,{have,strong:ROUTER_STRONG,perProvider:3,max:28,candidates:[...visionFirst,...ROUTER_CANDIDATES].filter(freeModelOk).filter(nvidiaLiveOk),gone:ctx?.gone}).map(m=>({id:'ROUTER:'+m,call:routerCall(m),...(/^nvidia\//.test(m)?{timeoutMs:THINK_MS}:{})})); // R2544.156 NVIDIA = thinking seat // R2544.95 en çok 3/sağlayıcı; R2544.96 güncel adaylar önce, kalkmış model yer tutmaz
   const catalog=new Set((typeof freeWorker?.status==='function'?freeWorker.status().models:[])||[]);
   // R2544.104 (kullanıcı 02.11: "çalışmayan modeller çalışanlar ile değişebilsin; OpenRouter'da yüzlerce model var"): the preferred list first, then the
   // large free models in TODAY's OpenRouter catalog; a gone / slow / always-failing one is skipped and the next takes its seat; at most OR_MAX
@@ -1738,8 +1741,11 @@ const examFreeWorker=createOpenRouterFreeWorker({apiKey:OPENROUTER_API_KEY,autoD
   dailyLimit:250,minuteLimit:10,statePath:path.join(ROOT,'data','openrouter-free-exam-health.json')}); // R2544.92: the exam never eats the live quota
 const memberSeesCharts=w=>id=>{const s=String(id||'');if(s.startsWith('ROUTER:'))return committeeSeesCharts(s.slice(7));if(s.startsWith('OR:'))return ((typeof w?.status==='function'?w.status().visionModels:[])||[]).includes(s.slice(3));return false;};
 const DESK_ALL=99; // R2544.137: every healthy member sits (no seat target); the vote rule stays majority + debate (2/3 strong majority = no debate)
-const deskCommittee=createCommittee({size:DESK_ALL,timeoutMs:60000,debateSkipShare:2/3,prefer:memberSeesCharts(deskFreeWorker),members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json')}); // R2544.115 image models first; entry team 9 (live-controller)
-const examCommittee=createCommittee({size:5,prefer:memberSeesCharts(examFreeWorker),members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx,{noAiStudio:true}),healthFile:path.join(ROOT,'data','model-committee-exam.json')});
+// R2544.156: the NVIDIA seats benched before this core started were judged with 110 s / 4096 tokens (or a 404 of a model that is back on NVIDIA's
+// public list) -> one new chance after a start; failing again benches them by the usual rules
+const BOOT_AT=Date.now(),nvidiaForgive=(id,rec)=>/^ROUTER:nvidia\//.test(id)&&(Number(rec?.at)||0)<BOOT_AT&&nvidiaLiveOk(id.slice('ROUTER:'.length));
+const deskCommittee=createCommittee({size:DESK_ALL,timeoutMs:60000,debateSkipShare:2/3,prefer:memberSeesCharts(deskFreeWorker),members:ctx=>committeeMembers(deskFreeWorker,'FREE:openrouter',ctx),healthFile:path.join(ROOT,'data','model-committee-desk.json'),forgive:nvidiaForgive}); // R2544.115 image models first; entry team 9 (live-controller)
+const examCommittee=createCommittee({size:5,prefer:memberSeesCharts(examFreeWorker),members:ctx=>committeeMembers(examFreeWorker,'FREE:openrouter',ctx,{noAiStudio:true}),healthFile:path.join(ROOT,'data','model-committee-exam.json'),forgive:nvidiaForgive});
 const traderExam=createTraderExam({dir:process.env.BRAINHUB_EXAM_DIR||path.join(ROOT,'..','Claud-Work','sinav','r2544-115'),committee:examCommittee,dailyCap:100,keyFile:process.env.BRAINHUB_EXAM_KEY||path.join(ROOT,'..','Claud-Work','gelistirme','harness','indikator','sinav_key.json')}); // R2544.92: 3 üye, günde en çok 100 soru (Kiro aylık kotasını sınav bitirmişti)
 setTimeout(()=>{deskCommittee.probe({force:true}).catch(()=>{});examCommittee.probe({force:true}).catch(()=>{});},20000).unref?.();
 setInterval(()=>{deskCommittee.probe().catch(()=>{});examCommittee.probe().catch(()=>{});},5*60000).unref?.();
@@ -2640,7 +2646,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.155';
+const RUNTIME_RELEASE='R2544.156';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

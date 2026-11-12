@@ -15,7 +15,7 @@ test('R2544.112 Gemini her model ayrı günlük kota: 5 koltuğa kadar; GitHub M
   assert.equal(MC.PROVIDER_CAP.gemini,8); // R2544.115 every Gemini image model
   const out=MC.pickRouterExtras([],{strong:/./,perProvider:3,max:28,candidates:CAND}); // R2544.115: all 7 Gemini candidates, NVIDIA up to 4
   assert.equal(out.filter(m=>m.startsWith('gemini/')).length,7);
-  assert.equal(out.filter(m=>m.startsWith('nvidia/')).length,4,'NVIDIA 4 (R2544.115)');assert.equal(out.filter(m=>m.startsWith('github/')).length,2,'GitHub = Copilot plan: 2');
+  assert.equal(out.filter(m=>m.startsWith('nvidia/')).length,6,'NVIDIA 6 (R2544.156; 4 since R2544.115)');assert.equal(out.filter(m=>m.startsWith('github/')).length,2,'GitHub = Copilot plan: 2');
   assert.ok(CAND.includes('github/claude-sonnet-4.6')&&CAND.includes('cf/@cf/moonshotai/kimi-k2.6'));
   assert.ok(out.length<=28);
 });
