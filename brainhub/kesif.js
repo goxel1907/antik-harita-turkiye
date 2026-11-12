@@ -226,6 +226,27 @@ function sozPlan(price, sig) {
   const L = sig.side === 'LONG';
   return { ok:true, stopPct:s, stopPrice:L ? p * (1 - s) : p * (1 + s), tpPrice:L ? p * (1 + g) : p * (1 - g), targetR:g / s, maxHoldMs:finite(sig.horizonH) * HOUR };
 }
+// R2544.161 İNSAN ÖĞRETMEN (kullanıcı 12.11: "benim manuel kapattıklarımı da öğrensin, gerçek insan tepkisini de anlamış olur"): every lot the
+// user closed by hand (Binance or Office) is kept with the plan it had; once the plan's own time is over, the same 5m candles say what the plan
+// would have done ("plana bırakılsaydı"). Goxel's last look before the close (what his 9 screens said) is kept too. The book compares the user,
+// the plan and Goxel on the SAME trades; at >= minN trades it says where the user exits and Goxel does not. Goxel's rules change only after this
+// measurement and the user's approval.
+function humanTeacher(lessons, minN = 8) {
+  const all = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.userClose), done = all.filter(l => l.userClose.cf && Number.isFinite(l.userClose.cf.planR) && Number.isFinite(l.userClose.cf.userR));
+  const n = done.length, avg = a => a.length ? round(a.reduce((p, q) => p + q, 0) / a.length) : null;
+  const seen = done.filter(l => l.userClose.goxel && l.userClose.goxel.watching), keys = {};
+  for (const l of seen) for (const x of l.userClose.goxel.screens || []) { const k = keys[x.k] || (keys[x.k] = { n:0, against:0 }); k.n++; if (x.a === true) k.against++; }
+  const book = { n, pending:all.length - n, minN, userR:avg(done.map(l => l.userClose.cf.userR)), planR:avg(done.map(l => l.userClose.cf.planR)),
+    deltaR:avg(done.map(l => l.userClose.cf.userR - l.userClose.cf.planR)), better:done.filter(l => l.userClose.cf.userR - l.userClose.cf.planR > 0.05).length,
+    worse:done.filter(l => l.userClose.cf.userR - l.userClose.cf.planR < -0.05).length, goxelSeen:seen.length, goxelAgreed:seen.filter(l => l.userClose.goxel.close === true).length,
+    againstAtExit:avg(seen.map(l => finite(l.userClose.goxel.against)).filter(Number.isFinite)), screens:Object.entries(keys).map(([k, v]) => ({ k, n:v.n, pct:Math.round(v.against / v.n * 100) })).sort((a, b) => b.pct - a.pct),
+    recent:all.slice(-8).reverse().map(l => ({ symbol:l.symbol, side:l.side, lane:l.lane || null, rule:l.rule || null, at:l.closedAt, by:l.userClose.by, userR:finite(l.rMultiple), planR:l.userClose.cf ? l.userClose.cf.planR : null,
+      goxel:l.userClose.goxel ? { curR:l.userClose.goxel.curR, against:l.userClose.goxel.against ?? null, close:l.userClose.goxel.close === true } : null, approx:l.userClose.approx === true })) };
+  book.ready = n >= minN;
+  book.tr = !n ? (all.length ? `${all.length} elle kapanış, plan süresi dolunca "plana bırakılsaydı" sonucu yazılacak` : 'henüz elle kapanış yok')
+    : `${n} elle kapanış: siz ort. ${book.userR}R, plana bırakılsaydı ${book.planR}R (fark ${book.deltaR > 0 ? '+' : ''}${book.deltaR}R; ${book.better} kez siz iyi, ${book.worse} kez plan iyi)` + (book.ready ? '' : ` • Goxel'e ders için en az ${minN} kapanış`);
+  return book;
+}
 function goxelBook(records, since = 0) {
   const l = (Array.isArray(records) ? records : []).filter(r => asker(r) && r.gx && r.gx.closed && Number.isFinite(r.gx.R) && Number.isFinite(r.R) && (r.at || 0) >= since).sort((a, b) => (a.at || 0) - (b.at || 0));
   if (!l.length) return { n:0, rows:[], took:0 };
@@ -497,4 +518,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, liveSignal, sozPlan };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, liveSignal, sozPlan, humanTeacher };

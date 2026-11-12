@@ -6600,12 +6600,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       if(c.lane==='ZIRVE5'){
         // R2544.64: ZİRVE-5 learns in its own memory (never mixed into İlk 3's lessons)
         const z=z5State(),lesson={...top3Lib.buildLesson(c,record,path),...(c.desk?{desk:{decisions:c.desk.decisions||[],plan:c.desk.plan||DESK.planOf(c)}}:{}),lane:'ZIRVE5',setup:/^ZIRVE5_FIBO_(LONG|SHORT)$/.test(String(c.rule))?c.rule:z5Lib.SETUP_SHORT,side:c.side,zone:c.z5zone||null,rank:finite(c.entryFeatures?.rank)};
+        humanCloseMark(lesson,c,record); // R2544.161
         if(!z.lessons.some(l=>l.id===lesson.id)){z.lessons.push(lesson);if(z.lessons.length>500)z.lessons=z.lessons.slice(-500);}
         try{store.journal('ZIRVE5_LESSON',c.symbol,lesson);}catch{}
         try{store.recordLearning?.('ZIRVE5_LESSON',c.symbol,{...lesson,outcomePct:lesson.resultPct!==null?lesson.resultPct*100:null,authority:'ZIRVE5_LANE_MEMORY'});}catch{}
       }
       else if(booked||!top3State.lessons.some(l=>l.id===c.id)){
         const lesson=top3Lib.buildLesson(c,record,path);if(c.desk)lesson.desk={decisions:c.desk.decisions||[],plan:c.desk.plan||DESK.planOf(c)}; // R2544.84
+        humanCloseMark(lesson,c,record); // R2544.161
         if(!top3State.lessons.some(l=>l.id===lesson.id)){top3State.lessons.push(lesson);if(top3State.lessons.length>500)top3State.lessons=top3State.lessons.slice(-500);}
         try{store.journal('TOP3_LESSON',c.symbol,lesson);}catch{}
         try{store.recordLearning?.('TOP3_LESSON',c.symbol,{...lesson,setup:'TOP3_'+(c.rule||''),outcomePct:lesson.resultPct!==null?lesson.resultPct*100:null,authority:'TOP3_LANE_MEMORY'});}catch{}
@@ -7037,6 +7039,24 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   // GOXEL PRO on the real lots: after each closed 5m candle every open lot is read from its real fill; "take the money" = a desk EXIT
   // (reduce-only, carried out at once like the desk's own; the stop / target orders are cancelled after the close)
+  // R2544.161 İNSAN ÖĞRETMEN: a lot the user closed (Binance = *_EXTERNAL_CLOSE, Office = *_USER_CLOSE) keeps its plan and Goxel's last look
+  function humanCloseMark(lesson,c,record){const x=String(record?.exitType||lesson?.exitType||'');if(!/_(EXTERNAL|USER)_CLOSE$/.test(x)||!lesson)return;
+    lesson.userClose={by:/_USER_CLOSE$/.test(x)?'OFFICE':'BINANCE',plan:DESK.planOf(c),goxel:c?.goxel||null,at:clock()};}
+  function lessonPlan(l){const e=finite(l?.entryPrice),s=finite(l?.stopPct),g=finite(l?.targetPct),L=l?.side==='LONG';if(!(e>0)||!(s>0)||!(g>0))return null;
+    return {side:l.side,entry:e,stop:L?e*(1-s):e*(1+s),tp:L?e*(1+g):e*(1-g),partAtR:0,partShare:0.5,beFee:0.0012,openedAt:finite(l.openedAt),deadline:finite(l.openedAt)+24*3600000};}
+  // once the plan's own time is over: the same 5m candles say what the plan would have done (at most 2 lessons a tick; lessons of the last 3 days)
+  async function userCloseTick(now){let did=0;
+    const pool=[...(top3State.lessons||[]),...(z5State().lessons||[])].filter(l=>l&&finite(l.closedAt)>=now-3*86400000);
+    for(const l of pool){if(!l.userClose&&/_(EXTERNAL|USER)_CLOSE$/.test(String(l.exitType||''))){const p=lessonPlan(l);if(p){l.userClose={by:/_USER_CLOSE$/.test(l.exitType)?'OFFICE':'BINANCE',plan:p,goxel:null,approx:true,at:now};did=-1;}}}
+    for(const l of pool){if(did>=2)break;const u=l.userClose;if(!u||u.cf||!u.plan)continue;const end=finite(u.plan.deadline)||finite(l.closedAt)+24*3600000;if(now<end+10*60000)continue;
+      try{const st=Math.floor(finite(u.plan.openedAt)/KESIF_M5)*KESIF_M5,k=[];let t=st;
+        while(t<end&&k.length<1500){const z=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:l.symbol,interval:'5m',startTime:String(t),endTime:String(end),limit:'1000'}});if(!Array.isArray(z)||!z.length)break;k.push(...z);t=Number(z[z.length-1][0])+KESIF_M5;if(z.length<1000)break;}
+        const cf=DESK.counterfactual({plan:u.plan,decisions:[]},k);
+        if(cf?.ok){u.cf={planR:cf.ruleR,userR:finite(l.rMultiple),deltaR:Number((finite(l.rMultiple)-cf.ruleR).toFixed(3)),at:now};did=Math.max(did,0)+1;
+          try{store.journal('HUMAN_CLOSE_COUNTERFACTUAL',l.symbol,{id:l.id,rule:l.rule,lane:l.lane||null,by:u.by,userR:u.cf.userR,planR:u.cf.planR,deltaR:u.cf.deltaR,goxel:u.goxel?{against:u.goxel.against,close:u.goxel.close}:null,approx:u.approx===true});}catch{}}
+        else u.cfTries=(u.cfTries||0)+1;}catch{u.cfTries=(u.cfTries||0)+1;}
+      if((u.cfTries||0)>=5)u.cf={failed:true,at:now};}
+    if(did)saveTop3State();return did;}
   async function goxelLive(now,s){
     const seen=[];let ordered=0;
     for(const a of Object.values(top3State.active||{})){
@@ -7053,7 +7073,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const hc=gxHtf.get(a.symbol);let htf=hc&&now-hc.at<15*60000?hc.k:null;if(!htf){htf={h1:await kl('1h',TB.FETCH.h1),h4:await kl('4h',TB.FETCH.h4),d1:await kl('1d',TB.FETCH.d1)};gxHtf.set(a.symbol,{at:now,k:htf});}
         pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});}catch{pk=null;}
       const v=KESIF.goxelLook(rec,k,sc,now),pv=v&&pk?KESIF.goxelPro(rec,v,pk):null;if(!pv)continue;
-      a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,needBig:pv.needBig,close:pv.close,why:pv.why,watching:true};
+      a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,needBig:pv.needBig,close:pv.close,why:pv.why,watching:true,screens:pv.screens.map(x=>({k:x.key,a:x.against}))};
       // R2544.160: the drawing in Office follows a REAL lot first -> its screens, candles and the big screens travel with it
       seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',real:true,model:a.kesif?.model||a.rule||null,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,close:pv.close,why:pv.why,
         screens:pv.screens.slice(0,5),raw:pv.raw||null,pro:{screens:pv.screens.slice(5),against:pv.against,big:pv.big,needBig:pv.needBig,need:pv.need,support:pv.support,atLevel:pv.atLevel,close:pv.close},
@@ -7206,7 +7226,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         for(const r of fresh){r.sozTried=true;changed=true;const sig=KESIF.liveSignal(r,kr);if(!sig)continue;
           try{const n=await sozEnter(sig,s);out.soz=[...(out.soz||[]),n];}catch(e){sozNote(s,{...sig,opened:false,reason:String(e?.message||e).slice(0,80)});}}}
       if(readSozConfig().goxelExit&&sozWired()&&Math.floor(now/KESIF_M5)!==Math.floor((finite(s.lastGoxelLiveAt)||0)/KESIF_M5)){s.lastGoxelLiveAt=now;changed=true;
-        try{out.goxelLive=await goxelLive(now,s);s.goxelLiveError=null;}catch(e){s.goxelLiveError=String(e?.message||e).slice(0,120);}}
+        try{out.goxelLive=await goxelLive(now,s);s.goxelLiveError=null;}catch(e){s.goxelLiveError=String(e?.message||e).slice(0,120);}
+        try{out.userClose=await userCloseTick(now);}catch{}} // R2544.161
       if(changed)saveKesif();
       kesifLastError=null;return out;
     }catch(e){kesifLastError=String(e?.message||e).slice(0,160);return null;}
@@ -7226,6 +7247,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       soz:(()=>{const c=readSozConfig();return {...c,name:KESIF.SOZ.name,holders:[...KESIF.wordHolders(s.karne||KESIF.karne(s.closed,{now}))],minWord:KESIF.MIN_WORD,
         active:Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').map(a=>({id:a.id,symbol:a.symbol,side:a.side,mode:a.mode,model:a.kesif?.model||null,entryPrice:a.entryPrice,stopPct:a.stopPct,leverage:a.leverage,openedAt:a.openedAt,goxel:a.goxel||null})),
         recent:(s.sozRecent||[]).slice(0,10),goxelLive:s.goxelLiveLast||null,goxelLiveError:s.goxelLiveError||null};})(),
+      human:(()=>{try{return KESIF.humanTeacher([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.161
       sight:(()=>{const g=k=>{const l=s.closed.filter(r=>r.sight===k&&Number.isFinite(r.R));return {n:l.length,avgR:l.length?Number((l.reduce((a,r)=>a+r.R,0)/l.length).toFixed(3)):null,hitPct:l.length?Math.round(l.filter(r=>r.R>0).length/l.length*100):null};};return {KOR:g('KOR'),GOREN:g('GOREN')};})(),
       readiness:kesifReadiness(now)};}
   function configureKesif(patch={}){const s=kesifInit(),x=s.settings;
@@ -7749,7 +7771,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
   return { kesifStatus, configureKesif, userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
-    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(),
+    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(), _testUserCloseTick:n=>userCloseTick(n),
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };
