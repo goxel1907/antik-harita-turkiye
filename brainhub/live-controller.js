@@ -7005,13 +7005,17 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // A word holder's fresh forecast opens a real lot through the İlk 3 order path (stop / target on the exchange, the desk, the lessons);
   // the lane follows İlk 3's decision owner (Kurul / JEV + Kurul), so both CANLI buttons carry it. GOXEL PRO decides the exits of EVERY open lot.
   const SOZ_FILE=()=>path.join(root,'config','kesif-soz.json');
-  function readSozConfig(){let raw={};try{raw=JSON.parse(fs.readFileSync(SOZ_FILE(),'utf8'))||{};}catch{}
-    return {enabled:raw.enabled!==false,goxelExit:raw.goxelExit!==false,marginQuote:finite(raw.marginQuote)>=5?finite(raw.marginQuote):30,
-      leverage:Math.max(10,Math.min(20,finite(raw.leverage)??10)),maxActive:Math.max(1,Math.min(2,finite(raw.maxActive)??2))};}
-  function writeSozConfig(p={}){const c=readSozConfig();for(const k of ['enabled','goxelExit'])if(typeof p[k]==='boolean')c[k]=p[k];
-    if(finite(p.marginQuote)>=5)c.marginQuote=finite(p.marginQuote);if(finite(p.leverage)!==null)c.leverage=Math.max(10,Math.min(20,finite(p.leverage)));
-    try{fs.mkdirSync(path.dirname(SOZ_FILE()),{recursive:true});fs.writeFileSync(SOZ_FILE()+'.tmp',JSON.stringify(c,null,1));fs.renameSync(SOZ_FILE()+'.tmp',SOZ_FILE());}catch{}
-    try{store.journal('KESIF_SOZ_SETTINGS',null,c);}catch{}return c;}
+  // R2544.159 (kullanıcı 12.11: "uygulamadan marj ne yazarsam onu uygulayacak, 10x min kaldıraç"; sabit kural 1): the lane's margin and leverage are
+  // the ones the user wrote for İlk 3 in the app / Office, unless this lane's own file sets its own; 10x floor, 20x top; 2 lots (sabit kural 4).
+  function readSozRaw(){try{return JSON.parse(fs.readFileSync(SOZ_FILE(),'utf8'))||{};}catch{return {};}}
+  function readSozConfig(){const raw=readSozRaw();let t3={};try{t3=top3Lib.readTop3Config(root)||{};}catch{}
+    const own=finite(raw.marginQuote)>=5,app=finite(t3.marginQuote)>=5;
+    return {enabled:raw.enabled!==false,goxelExit:raw.goxelExit!==false,marginQuote:own?finite(raw.marginQuote):app?finite(t3.marginQuote):30,marginFrom:own?'KESIF':app?'ILK3':'VARSAYILAN',
+      leverage:Math.max(10,Math.min(20,finite(raw.leverage)??finite(t3.leverage)??10)),maxActive:Math.max(1,Math.min(2,finite(raw.maxActive)??2))};}
+  function writeSozConfig(p={}){const raw=readSozRaw();for(const k of ['enabled','goxelExit'])if(typeof p[k]==='boolean')raw[k]=p[k];
+    if(finite(p.marginQuote)>=5)raw.marginQuote=finite(p.marginQuote);if(finite(p.leverage)!==null)raw.leverage=Math.max(10,Math.min(20,finite(p.leverage)));
+    try{fs.mkdirSync(path.dirname(SOZ_FILE()),{recursive:true});fs.writeFileSync(SOZ_FILE()+'.tmp',JSON.stringify(raw,null,1));fs.renameSync(SOZ_FILE()+'.tmp',SOZ_FILE());}catch{}
+    const c=readSozConfig();try{store.journal('KESIF_SOZ_SETTINGS',null,c);}catch{}return c;}
   // the lane lives where KEŞİF lives: the committee's poll wired and KEŞİF on (the old wiring keeps KEŞİF, İZ and KEŞİF-SÖZ off together)
   function sozWired(){return typeof deskJudges?.committee?.poll==='function'&&kesifCfg().enabled===true;}
   function sozGate(c){if(c.enabled!==true)return {ok:false,reason:'KESIF_SOZ_DISABLED'};if(!sozWired())return {ok:false,reason:'KESIF_NOT_WIRED'};if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};return {ok:true,mode:testModeNow()?'TEST':'LIVE'};}

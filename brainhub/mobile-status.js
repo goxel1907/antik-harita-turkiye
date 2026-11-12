@@ -89,6 +89,6 @@ function mobileStatus(status={}){
       ogr:ks.learning?{st:ks.learning.state,t:ks.learning.tr,n:ks.learning.all?.n||0}:null,
       ogr2:ks.learning2?{st:ks.learning2.state,t:ks.learning2.tr,n:ks.learning2.all?.n||0}:null,suru:ks.herd?.avg??null,soz:ks.soz?{e:ks.soz.enabled===true,g:ks.soz.goxelExit===true,h:(ks.soz.holders||[]).length,a:(ks.soz.active||[]).length,r:(ks.soz.recent||[])[0]?{s:ks.soz.recent[0].symbol,d:ks.soz.recent[0].side,o:ks.soz.recent[0].opened===true,w:ks.soz.recent[0].reason||null}:null}:null,
       iz:ks.iz?{at:ks.iz.last?.at||null,c:ks.iz.last?.coins??0,o:ks.iz.open??0,f:(ks.iz.last?.fired||[]).slice(0,8).map(x=>({d:x.d,s:String(x.s||'').replace(/USDT$/,''),side:x.side,st:x.stop}))}:null};}
-  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';out.mobileFeatures='R2544.158';return out;
+  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';out.mobileFeatures='R2544.159';return out;
 }
 module.exports={mobileStatus};

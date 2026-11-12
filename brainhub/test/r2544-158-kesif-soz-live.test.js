@@ -96,3 +96,14 @@ test('R2544.158 the switch: off = no trade (the reason is written), both CANLI b
   assert.match(lc,/sozLive=sozC\.enabled===true&&sozWired\(\)/);assert.match(lc,/!normalLive&&!t3Live&&!z5Live&&!sozLive/);
   assert.match(lc,/const t3=top3Lib\.readTop3Config\(root\),cfg=\{\.\.\.t3,marginQuote:scfg\.marginQuote,leverage:scfg\.leverage\}/,'the lane follows İlk 3\'s decision owner (Kurul / JEV + Kurul)');
 });
+
+test('R2544.159 the lane uses the margin and leverage the user wrote for İlk 3 (app / Office); 10x floor; its own file wins; a toggle does not freeze them',async()=>{
+  const f=fixture();fs.writeFileSync(path.join(f.root,'config','top3-hunter.json'),JSON.stringify({enabled:false,committeeMode:true,marginQuote:25,leverage:12}));
+  let c=f.controller.kesifStatus().soz;assert.deepEqual([c.marginQuote,c.marginFrom,c.leverage,c.maxActive],[25,'ILK3',12,2]);
+  f.controller.configureKesif({soz:{goxelExit:false},source:'TEST'});
+  fs.writeFileSync(path.join(f.root,'config','top3-hunter.json'),JSON.stringify({enabled:false,committeeMode:true,marginQuote:40,leverage:5}));
+  c=f.controller.kesifStatus().soz;assert.deepEqual([c.marginQuote,c.leverage,c.goxelExit],[40,10,false],'follows the app after a toggle; leverage never under 10x');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.root,'config','kesif-soz.json'),'utf8')).marginQuote,undefined,'the toggle did not write a margin');
+  fs.writeFileSync(path.join(f.root,'config','kesif-soz.json'),JSON.stringify({marginQuote:15}));
+  assert.deepEqual([f.controller.kesifStatus().soz.marginQuote,f.controller.kesifStatus().soz.marginFrom],[15,'KESIF']);
+});
