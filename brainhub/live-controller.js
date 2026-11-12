@@ -7027,13 +7027,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!g.ok)return sozNote(s,{...res,opened:false,reason:g.reason});
     if(Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').length>=scfg.maxActive)return sozNote(s,{...res,opened:false,reason:'KESIF_SLOTS_FULL'});
     if(burstCurrentPosition(sig.symbol)||activeBurstFor(sig.symbol)||activeTop3For(sig.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sig.symbol))return sozNote(s,{...res,opened:false,reason:'KESIF_SYMBOL_BUSY'});
-    const t3=top3Lib.readTop3Config(root),cfg={...t3,marginQuote:scfg.marginQuote,leverage:scfg.leverage};
-    let lc={want:scfg.leverage,by:'AYAR'};
-    if(t3.committeeMode===true){try{const px=await paperPrice(sig.symbol),price=finite(sig.side==='LONG'?px?.ask:px?.bid),pl=price>0?KESIF.sozPlan(price,sig):null;
+    const t3=top3Lib.readTop3Config(root),cfg={...t3,marginQuote:scfg.marginQuote,leverage:sig.weak?10:scfg.leverage};
+    let lc={want:sig.weak?10:scfg.leverage,by:sig.weak?'ZAYIF_KANIT_10X':'AYAR'},ge=null;
+    // R2544.162: a weak holder's trade (best candidate, nobody holds the word) gets Goxel PRO's look first and stays at 10x
+    if(sig.weak){try{ge=KESIF.goxelEntry(sig.side,...Object.values(await gxScreens(sig.symbol,clock())));}catch(e){ge={ok:true,checked:false,reason:String(e?.message||e).slice(0,60)};}
+      if(!ge.ok){try{store.journal('KESIF_SOZ_GOXEL_RED',sig.symbol,{...res,goxel:ge});}catch{}return sozNote(s,{...res,weak:true,opened:false,reason:'GOXEL_GIRIS_RED',why:ge.why});}}
+    if(t3.committeeMode===true&&!sig.weak){try{const px=await paperPrice(sig.symbol),price=finite(sig.side==='LONG'?px?.ask:px?.bid),pl=price>0?KESIF.sozPlan(price,sig):null;
       if(pl?.ok){const lv=await quickLeverage({symbol:sig.symbol,side:sig.side,rule:'KESIF_SOZ',entry:price,stop:pl.stopPrice,target:pl.tpPrice,context:{why:sig.why,member:sig.model}});lc=leverageChoice(null,lv,cfg);}}catch{}}
     const opened=await top3Open({ok:true,side:sig.side,rule:'KESIF_SOZ',soz:sig,maxHoldMs:sig.horizonH*TOP3_HOUR,advisory:true},sig.symbol,cfg,null,
-      {signalKind:'FRESH',entryFeatures:{kesif:{model:sig.model,forecastId:sig.forecastId,round:sig.round,record:sig.record,why:sig.why}},leverageWant:lc.want,leverageBy:lc.by});
-    const n=sozNote(s,{...res,opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,leverage:opened.active?.leverage??null,id:opened.active?.id??null});
+      {signalKind:'FRESH',entryFeatures:{kesif:{model:sig.model,weak:sig.weak===true,forecastId:sig.forecastId,round:sig.round,record:sig.record,why:sig.why},...(ge?{goxelEntry:ge}:{})},leverageWant:lc.want,leverageBy:lc.by});
+    const n=sozNote(s,{...res,weak:sig.weak===true,opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,leverage:opened.active?.leverage??null,id:opened.active?.id??null});
     if(opened.ok)entryCommitteeShadow(opened.active).catch(()=>{});else try{store.journal('KESIF_SOZ_BLOCKED',sig.symbol,{...res,result:opened});}catch{}
     return n;
   }
@@ -7057,6 +7060,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         else u.cfTries=(u.cfTries||0)+1;}catch{u.cfTries=(u.cfTries||0)+1;}
       if((u.cfTries||0)>=5)u.cf={failed:true,at:now};}
     if(did)saveTop3State();return did;}
+  // the screens Goxel reads for one coin now (takers, book, open interest + the 5m..1d chart reading)
+  async function gxScreens(sym,now){const g=async(p,params)=>{try{return await transport._fetchJson('GET',p,{params});}catch{return null;}};
+    const [tk,oi,dp,px]=await Promise.all([g('/futures/data/takerlongshortRatio',{symbol:sym,period:'5m',limit:'2'}),g('/futures/data/openInterestHist',{symbol:sym,period:'5m',limit:'4'}),g('/fapi/v1/depth',{symbol:sym,limit:'500'}),g('/fapi/v1/premiumIndex',{symbol:sym})]);
+    const mark=finite(px?.markPrice),oiv=Array.isArray(oi)?oi.map(x=>finite(x?.sumOpenInterestValue)).filter(x=>x>0):[];
+    const sc={taker:Array.isArray(tk)&&tk.length?finite(tk[tk.length-1]?.buySellRatio):null,imb1:mark?IZ.book(dp,mark)?.imb1??null:null,oiChgPct:oiv.length>=4?Number(((oiv[oiv.length-1]/oiv[0]-1)*100).toFixed(2)):null};
+    let pk=null;try{const end=now-1,kl=async(i,n)=>{const z=await g('/fapi/v1/klines',{symbol:sym,interval:i,endTime:String(end),limit:String(n)});return Array.isArray(z)?z:[];};
+      const hc=gxHtf.get(sym);let htf=hc&&now-hc.at<15*60000?hc.k:null;if(!htf){htf={h1:await kl('1h',TB.FETCH.h1),h4:await kl('4h',TB.FETCH.h4),d1:await kl('1d',TB.FETCH.d1)};gxHtf.set(sym,{at:now,k:htf});}
+      pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});}catch{pk=null;}
+    return {sc,pk};}
   async function goxelLive(now,s){
     const seen=[];let ordered=0;
     for(const a of Object.values(top3State.active||{})){
@@ -7244,7 +7256,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       learning:KESIF.learningCheck(s.brainCheck),learning2:KESIF.learningCheck(s.brainCheck,'p2'),human:KESIF.humanBook(s.closed),goxel:{since:finite(s.goxelSince)||null,proSince:finite(s.goxelProSince)||null,rules:KESIF.GOXEL,proRules:KESIF.GOXEL_PRO,book:KESIF.goxelBook(s.closed,finite(s.goxelSince)||0),last:s.goxelLast||null},brain2:{n:(s.matrix?._total?.UP||0)+(s.matrix?._total?.DOWN||0),minN:KESIF.B2.minLabels,top:KESIF.brain2Top(s.matrix,10)},
       herd:(()=>{const h=s.rounds.slice(0,20).map(r=>r.herd).filter(Number.isFinite);return h.length?{avg:Number((h.reduce((a,b)=>a+b,0)/h.length).toFixed(2)),n:h.length}:null;})(),
       roles:KESIF.ROLES.map(r=>({key:r.key,tr:r.tr})),
-      soz:(()=>{const c=readSozConfig();return {...c,name:KESIF.SOZ.name,holders:[...KESIF.wordHolders(s.karne||KESIF.karne(s.closed,{now}))],minWord:KESIF.MIN_WORD,
+      soz:(()=>{const c=readSozConfig(),kr=s.karne||KESIF.karne(s.closed,{now});return {...c,name:KESIF.SOZ.name,holders:[...KESIF.wordHolders(kr)],weakHolder:KESIF.bestCandidate(kr),minWord:KESIF.MIN_WORD,
         active:Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').map(a=>({id:a.id,symbol:a.symbol,side:a.side,mode:a.mode,model:a.kesif?.model||null,entryPrice:a.entryPrice,stopPct:a.stopPct,leverage:a.leverage,openedAt:a.openedAt,goxel:a.goxel||null})),
         recent:(s.sozRecent||[]).slice(0,10),goxelLive:s.goxelLiveLast||null,goxelLiveError:s.goxelLiveError||null};})(),
       human:(()=>{try{return KESIF.humanTeacher([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.161

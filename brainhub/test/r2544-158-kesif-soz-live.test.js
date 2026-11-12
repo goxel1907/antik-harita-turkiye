@@ -94,7 +94,7 @@ test('R2544.158 the switch: off = no trade (the reason is written), both CANLI b
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.root,'config','kesif-soz.json'),'utf8')).enabled,true);
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.match(lc,/sozLive=sozC\.enabled===true&&sozWired\(\)/);assert.match(lc,/!normalLive&&!t3Live&&!z5Live&&!sozLive/);
-  assert.match(lc,/const t3=top3Lib\.readTop3Config\(root\),cfg=\{\.\.\.t3,marginQuote:scfg\.marginQuote,leverage:scfg\.leverage\}/,'the lane follows İlk 3\'s decision owner (Kurul / JEV + Kurul)');
+  assert.match(lc,/const t3=top3Lib\.readTop3Config\(root\),cfg=\{\.\.\.t3,marginQuote:scfg\.marginQuote,leverage:sig\.weak\?10:scfg\.leverage\}/,'the lane follows İlk 3\'s decision owner (Kurul / JEV + Kurul)');
 });
 
 test('R2544.159 the lane uses the margin and leverage the user wrote for İlk 3 (app / Office); 10x floor; its own file wins; a toggle does not freeze them',async()=>{
@@ -106,4 +106,24 @@ test('R2544.159 the lane uses the margin and leverage the user wrote for İlk 3 
   assert.equal(JSON.parse(fs.readFileSync(path.join(f.root,'config','kesif-soz.json'),'utf8')).marginQuote,undefined,'the toggle did not write a margin');
   fs.writeFileSync(path.join(f.root,'config','kesif-soz.json'),JSON.stringify({marginQuote:15}));
   assert.deepEqual([f.controller.kesifStatus().soz.marginQuote,f.controller.kesifStatus().soz.marginFrom],[15,'KESIF']);
+});
+
+// R2544.162: nobody holds the word -> the best candidate trades, WEAK: Goxel PRO's look first, leverage 10x
+function seedCandidate(s,model,now){for(let i=0;i<22;i++){const w=i<11;s.closed.push({id:'c'+i+':'+model,model,symbol:'XUSDT',side:'LONG',at:now-(40-i)*H,closedAt:now-(39-i)*H,done:true,outcome:w?'TARGET':'STOP',R:w?1.43:-1.07,stopPct:2,targetPct:3,horizonH:6});}s.karne=K.karne(s.closed,{now});}
+test('R2544.162 no word holder: the best candidate trades weak (Goxel looks first, 10x); a lower candidate does not',async()=>{
+  const f=fixture({});fs.writeFileSync(path.join(f.root,'config','top3-hunter.json'),JSON.stringify({enabled:false,committeeMode:true,marginQuote:30,leverage:15}));
+  await f.controller.testSupervisorTick();
+  f.controller.kesifStatus();const s=f.controller._testKesifState();seedCandidate(s,'m/best',f.state.now);
+  for(let i=0;i<20;i++)s.closed.push({id:'d'+i,model:'m/low',symbol:'XUSDT',side:'LONG',at:f.state.now-(30-i)*H,closedAt:f.state.now-(29-i)*H,done:true,outcome:i%2?'TARGET':'STOP',R:i%2?1.2:-1.07,stopPct:2,targetPct:3,horizonH:6});
+  s.karne=K.karne(s.closed,{now:f.state.now});
+  assert.deepEqual(s.karne.leaders,[],'nobody holds the word');assert.equal(K.bestCandidate(s.karne),'m/best');
+  s.lastRoundAt=f.state.now;s.lastIzAt=f.state.now;
+  const fc=m=>K.open({model:m,symbol:'KSUSDT',forecast:{ok:true,direction:'LONG',stopPct:2,targetPct:4,horizonH:6,confidence:60},at:f.state.now,round:'rz'});
+  s.open.push(fc('m/best'),fc('m/low'));
+  const out=await f.controller._testKesifTick();
+  assert.equal(out.soz.length,1,JSON.stringify(s.sozRecent));assert.equal(out.soz[0].weak,true);
+  assert.equal(out.soz[0].opened,true,JSON.stringify(out.soz[0]));assert.equal(out.soz[0].leverage,10,'weak = 10x even when İlk 3 is set to 15x');
+  const lot=Object.values(f.controller._testTop3State().active).find(x=>x.lane==='KESIF');
+  assert.equal(lot.entryFeatures.kesif.weak,true);assert.equal(lot.entryFeatures.goxelEntry.checked,true,'Goxel looked at the screens: '+JSON.stringify(lot.entryFeatures.goxelEntry));
+  assert.equal(f.controller.kesifStatus().soz.weakHolder,'m/best');
 });

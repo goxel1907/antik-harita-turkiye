@@ -208,15 +208,26 @@ function goxelPro(rec, base, pk) {
 // own forecasts stay in the shadow; NONE never trades. The plan is the member's own: stop / target in % from the real fill, held until its horizon.
 const SOZ = { lane:'KESIF', name:'KEŞİF-SÖZ', maxActive:2 };
 function wordHolders(k) { return new Set((k?.rows || []).filter(r => r.state === 'SOZ_SAHIBI').map(r => r.model)); }
+// R2544.162 (kullanıcı 12.11: "2. seçenek mantıklı ancak kanıtı zayıf olanlar goxel ve modeller tarafından daha detaylı ele alınsın"): when NOBODY
+// holds the word, the best candidate takes it - at least MIN_WORD outcomes, mean and mean without the best > 0, the highest lower bound. Its
+// trades are WEAK: Goxel PRO looks at the 9 screens before the entry (no entry when he would already take the money / leave now), leverage stays
+// at the 10x floor (the committee does not raise it), the desk (models) and Goxel manage it like every lot.
+const sozable = r => r && !String(r.model || '').startsWith('PUSU:') && !String(r.model || '').startsWith('_') && r.model !== 'BEYIN' && r.model !== 'BEYIN2';
+function bestCandidate(k) {
+  if ((k?.rows || []).some(r => r.state === 'SOZ_SAHIBI' && sozable(r))) return null;
+  const c = (k?.rows || []).filter(r => sozable(r) && r.state === 'ADAY' && r.n >= MIN_WORD && r.avgR > 0 && r.exBestAvgR > 0).sort((a, b) => (b.lowerR ?? -9) - (a.lowerR ?? -9) || (b.avgR ?? -9) - (a.avgR ?? -9));
+  return c[0] ? c[0].model : null;
+}
 function liveSignal(rec, k) {
   if (!rec || rec.done || !['LONG', 'SHORT'].includes(rec.side)) return null;
   const m = String(rec.model || '');
   if (!m || m.startsWith('PUSU:') || m.startsWith('_') || m === 'BEYIN' || m === 'BEYIN2') return null;
-  if (!wordHolders(k).has(m)) return null;
+  const weak = !wordHolders(k).has(m);
+  if (weak && bestCandidate(k) !== m) return null;
   const s = finite(rec.stopPct), g = finite(rec.targetPct), h = finite(rec.horizonH);
   if (!(s >= STOP_MIN && s <= STOP_MAX) || !(g >= s) || !(h > 0)) return null;
   const row = (k.rows || []).find(r => r.model === m) || {};
-  return { model:m, symbol:rec.symbol, side:rec.side, stopPct:s, targetPct:g, horizonH:h, forecastId:rec.id, round:rec.round || null, why:rec.why || '',
+  return { model:m, weak, symbol:rec.symbol, side:rec.side, stopPct:s, targetPct:g, horizonH:h, forecastId:rec.id, round:rec.round || null, why:rec.why || '',
     record:{ n:row.n ?? null, avgR:row.avgR ?? null, lowerR:row.lowerR ?? null } };
 }
 // the member's plan at a price (the live price before the order, the real fill after it)
@@ -246,6 +257,20 @@ function humanTeacher(lessons, minN = 8) {
   book.tr = !n ? (all.length ? `${all.length} elle kapanış, plan süresi dolunca "plana bırakılsaydı" sonucu yazılacak` : 'henüz elle kapanış yok')
     : `${n} elle kapanış: siz ort. ${book.userR}R, plana bırakılsaydı ${book.planR}R (fark ${book.deltaR > 0 ? '+' : ''}${book.deltaR}R; ${book.better} kez siz iyi, ${book.worse} kez plan iyi)` + (book.ready ? '' : ` • Goxel'e ders için en az ${minN} kapanış`);
   return book;
+}
+// Goxel PRO's look BEFORE a weak entry: the same 9 screens in the direction of the trade (takers, book, and the big screens: a fresh break
+// against it, a level within reach in its way, a confirmed counter pattern, the range edge it runs into). If PRO would already take the money /
+// leave now (one big reason - two when 1h and 4h carry the trade and no level is near - and three screens against), the weak trade is not opened.
+function goxelEntry(side, sc, pk) {
+  const L = side === 'LONG', t = Number.isFinite(sc?.taker) ? sc.taker : null, b = Number.isFinite(sc?.imb1) ? sc.imb1 : null;
+  const base = { netR:1, curR:0, peakR:0, screens:[{ key:'GRAFIK', tr:'grafik', against:null, txt:'giriş öncesi' }, { key:'KAR', tr:'kâr', against:null, txt:'giriş öncesi' },
+    { key:'AKIS', tr:'alıcı / satıcı', against:t === null ? null : L ? t < GOXEL.takerLong : t > GOXEL.takerShort, txt:t === null ? 'veri yok' : `alıcı/satıcı ${round(t, 2)}` },
+    { key:'DEFTER', tr:'emir defteri', against:b === null ? null : L ? b <= -GOXEL.bookImb : b >= GOXEL.bookImb, txt:b === null ? 'veri yok' : `%1 içinde denge ${b > 0 ? '+' : ''}${round(b, 2)}` },
+    { key:'TUREV', tr:'türev (OI)', against:null, txt:'giriş öncesi' }] };
+  const pv = pk ? goxelPro({ side }, base, pk) : null;
+  if (!pv) return { ok:true, checked:false, reason:'GOXEL_SCREENS_UNAVAILABLE' };
+  return { ok:!pv.close, checked:true, against:pv.against, big:pv.big, needBig:pv.needBig, support:pv.support, atLevel:pv.atLevel,
+    why:pv.close ? pv.screens.filter(x => x.against).map(x => x.txt).join(' • ') : null, screens:pv.screens.map(x => ({ k:x.key, a:x.against, t:x.txt })) };
 }
 function goxelBook(records, since = 0) {
   const l = (Array.isArray(records) ? records : []).filter(r => asker(r) && r.gx && r.gx.closed && Number.isFinite(r.gx.R) && Number.isFinite(r.R) && (r.at || 0) >= since).sort((a, b) => (a.at || 0) - (b.at || 0));
@@ -518,4 +543,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, liveSignal, sozPlan, humanTeacher };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, bestCandidate, liveSignal, sozPlan, humanTeacher, goxelEntry };
