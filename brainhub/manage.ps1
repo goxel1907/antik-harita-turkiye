@@ -530,6 +530,55 @@ function Backup-Brain([string]$BrainRoot) {
     return $target
 }
 
+# R2544.157 (kullanici 12.11: "bundan sonrakiler son 10 yedekten sonrasi D'ye gitsin ama sistem vs bozulmasin, logs klasoru de oyle"):
+# after a successful update the newest 10 deploy backups stay in BrainHubBackups; older ones, and logs entries older than 30 days (the newest 20
+# test-deploy logs always stay), are MOVED - never deleted - to D:\JEV-Brain-Arsiv. robocopy /MOVE copies, checks and only then removes the
+# source (Move-Item cannot move a folder to another drive). Every error is a warning: the archive step never fails or rolls back an update.
+# To restore an archived backup: move it back into BrainHubBackups first (Restore only accepts that folder).
+function Archive-Old([string]$BrainRoot, [int]$Keep = 10, [int]$LogDays = 30, [string]$ArchiveRoot = 'D:\JEV-Brain-Arsiv') {
+    try {
+        $parent = Split-Path -Parent $BrainRoot
+        $drive = Split-Path -Qualifier $ArchiveRoot
+        if (-not (Test-Path -LiteralPath ($drive + '\'))) { Write-Warning "ARSIV_DISKI_YOK $ArchiveRoot - tasima atlandi"; return }
+        $moveDir = {
+            param($src, $dst)
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
+            & robocopy $src $dst /E /MOVE /COPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+            $rc = $LASTEXITCODE; $global:LASTEXITCODE = 0  # robocopy 1 = files moved (success); JEV-DEPLOY reads the exit code
+            if ($rc -ge 8) { Write-Warning "ARSIV_TASIMA_HATASI robocopy=$rc $src"; return $false }
+            if ((Test-Path -LiteralPath $src) -and -not (Get-ChildItem -LiteralPath $src -Recurse -Force -File -ErrorAction SilentlyContinue | Select-Object -First 1)) { Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue }
+            return $true
+        }
+        $bk = Join-Path $parent 'BrainHubBackups'; $nb = 0
+        if (Test-Path -LiteralPath $bk) {
+            $old = @(Get-ChildItem -LiteralPath $bk -Directory | Where-Object { $_.Name -match '^\d{8}-\d{6}$' } | Sort-Object Name | Select-Object -SkipLast $Keep)
+            foreach ($d in $old) {
+                $to = Join-Path (Join-Path $ArchiveRoot 'BrainHubBackups') $d.Name
+                if (Test-Path -LiteralPath $to) { $to = $to + '-' + (Get-Date -Format 'HHmmss') }
+                try { if (& $moveDir $d.FullName $to) { $nb++ } } catch { Write-Warning "ARSIV_TASIMA_HATASI $($d.Name): $($_.Exception.Message)" }
+            }
+        }
+        $logs = Join-Path $parent 'logs'; $nl = 0
+        if (Test-Path -LiteralPath $logs) {
+            $cut = (Get-Date).AddDays(-$LogDays)
+            $keepDeploy = @(Get-ChildItem -LiteralPath $logs -File -Filter 'test-deploy-*.log' | Sort-Object LastWriteTime -Descending | Select-Object -First 20 | ForEach-Object { $_.FullName })
+            foreach ($it in @(Get-ChildItem -LiteralPath $logs -Force)) {
+                if ($keepDeploy -contains $it.FullName) { continue }
+                $newest = if ($it.PSIsContainer) { (Get-ChildItem -LiteralPath $it.FullName -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object LastWriteTime -Maximum).Maximum } else { $it.LastWriteTime }
+                if (-not $newest) { $newest = $it.LastWriteTime }
+                if ($newest -ge $cut) { continue }
+                $to = Join-Path (Join-Path $ArchiveRoot 'logs') $it.Name
+                if (Test-Path -LiteralPath $to) { $to = $to + '-' + (Get-Date -Format 'HHmmss') }
+                try {
+                    if ($it.PSIsContainer) { if (& $moveDir $it.FullName $to) { $nl++ } }
+                    else { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null; Move-Item -LiteralPath $it.FullName -Destination $to; $nl++ }
+                } catch { Write-Warning "ARSIV_TASIMA_HATASI $($it.Name): $($_.Exception.Message)" }
+            }
+        }
+        Write-Host "ARSIV_OK yedek=$nb log=$nl hedef=$ArchiveRoot (C'de son $Keep yedek kalir; silinen yok)"
+    } catch { Write-Warning "ARSIV_ATLANDI: $($_.Exception.Message)" } finally { $global:LASTEXITCODE = 0 }
+}
+
 function Migrate-JevBudgetPolicy([string]$BrainRoot) {
     $jevPath = Join-Path $BrainRoot 'config\jev.json'
     if (-not (Test-Path -LiteralPath $jevPath)) { return }
@@ -1051,3 +1100,6 @@ try {
     if ($wasRunning) { Start-Brain $rootFull $node $key -AcceptLegacy }
     throw
 }
+# R2544.157: the update succeeded (a failure threw above) -> keep the newest 10 backups here, move older ones and old logs to the archive disk
+Archive-Old $rootFull
+exit 0
