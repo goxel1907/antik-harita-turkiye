@@ -54,7 +54,7 @@ test('R2544.148 a round: one coin, no plan in the packet, every model its own fo
   // the brain: silent while its matrix learns; the neutral label (up / down first by the band in 6 h) carries the formations of the screen
   assert.match(s.open.find(r=>r.model==='BEYIN').why,/matris öğreniyor \(0\/20/);
   const lab=s.open.find(r=>r.model==='_ETIKET');assert.ok(lab&&lab.feats.length>5&&lab.horizonH===6&&lab.stopPct===lab.targetPct);
-  {const ps=JSON.parse(f.state.asked[0].perMember.find(x=>JSON.parse(x).brain));assert.equal(ps.brain.labelledRounds,0);assert.equal(ps.brain.ready,false);assert.ok(Array.isArray(ps.desk.rows));} // a seeing seat (R2544.151: blind seats get no brain summary)
+  {const ps=JSON.parse(f.state.asked[0].perMember.find(x=>JSON.parse(x).brain));assert.match(ps.brain.method,/selective average/,'R2544.152: the learning brain briefs the models');assert.equal(ps.brain.labelledRounds,0);assert.equal(ps.brain.ready,false);assert.ok(Array.isArray(ps.desk.rows));} // a seeing seat (R2544.151: blind seats get no brain summary)
   assert.deepEqual(s.open.find(r=>r.model==='ORTAK').stopPct,2.5,'3 of 5 answers LONG = 60% -> the median stop of those three');
   assert.equal(s.open.find(r=>r.model==='vision/a').img,true);assert.ok(s.open.filter(r=>r.side!=='NONE'&&r.model!=='_ETIKET').every(r=>r.entryAt===f.T0+M5&&r.symbol==='UPUSDT'));
   // R2544.149: the brain learns from every scanned coin (one label per coin and hour), each with its probability written before the outcome

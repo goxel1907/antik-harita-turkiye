@@ -59,3 +59,13 @@ test('R2544.150 the committee poll gives every member its own prompt', async()=>
   const r=await c.poll({system:'s',prompt:id=>JSON.stringify({me:id}),validate:K.valid,parse:K.parse});
   assert.equal(r.voters,2);assert.deepEqual(seen,{'A:1':'{"me":"A:1"}','B:2':'{"me":"B:2"}'});
 });
+
+test('R2544.152 the models get the learning brain\'s view: only footprints with evidence, the first brain is retired from the briefing', ()=>{
+  let m={};let seed=5;const rnd=()=>{seed=(seed*1103515245+12345)%2147483648;return seed/2147483648;};
+  for(let i=0;i<120;i++){const up=rnd()<0.5,feats=[...Array.from({length:30},(_,j)=>'noise'+j+':'+(rnd()<0.5?'A':'B')),up?'iz:defter:ALIS':'iz:defter:SATIS'];const y=rnd()<0.85?up:!up;m=K.matrixAdd(m,feats,y?'UP':'DOWN',2);}
+  const feats=['iz:defter:ALIS','noise1:A','noise2:B'],call=K.brainCall(m,feats),v=K.brain2View(m,feats);
+  assert.ok(v.ready&&v.p>0.6);assert.deepEqual(v.used.map(u=>u.f),['iz:defter:ALIS'],'only the footprint with evidence');
+  const b=K.brief(m,feats,call,{rows:[]},v).brain;assert.equal(b.upFirstProbability,v.p);assert.match(b.method,/selective average/);assert.match(b.firstBrain,/retired/);assert.deepEqual(b.strongest.map(x=>x.f),['iz:defter:ALIS']);
+  assert.equal(K.brief(m,feats,call,{rows:[]}).brain.upFirstProbability,call.pUp,'without the view the old briefing stays (old callers)');
+  const none=K.brain2View(m,['noise1:A','noise3:B']);assert.equal(none.used.length,0);
+});

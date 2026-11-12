@@ -195,10 +195,15 @@ function brainForecast(call, b) {
   return { ok:true, direction:'NONE', confidence:Math.round(Math.max(p, 1 - p) * 100), reasonTr:`matris kararsız (yukarı %${Math.round(p * 100)})${top ? ': ' + top : ''}`.slice(0, 400), wrongIfTr:'' };
 }
 // what the models are told before they forecast: the brain's matrix on THIS screen and who has been right so far (they learn from both)
-function brief(m, feats, call, k) {
+function brief(m, feats, call, k, alt = null) {
   const rows = (k?.rows || []).filter(r => r.n >= 1).slice(0, 6).map(r => ({ trader:r.model === 'ORTAK' ? 'crowd of models' : r.model === 'BEYIN' ? 'brain matrix' : r.model === 'BEYIN2' ? 'learning brain' : String(r.model).startsWith('PUSU:') ? 'ambush twin (the exact opposite) of ' + (String(r.model).startsWith('PUSU:IZ:') ? 'trace rule ' + String(r.model).slice(8) : String(r.model) === 'PUSU:ORTAK' ? 'the crowd' : 'a model') : String(r.model).startsWith('IZ:') ? 'trace rule ' + String(r.model).slice(3) : 'a model', n:r.n, hitPct:r.hitPct, avgR:r.avgR, state:r.state }));
-  return { brain:{ labelledRounds:call.rounds, ready:call.ready, upFirstProbability:call.ready ? call.pUp : null, baseRate:call.rounds ? { upFirstPct:call.baseUpPct, downFirstPct:call.baseDownPct } : null,
-      labelRule:`up first / down first by ${'±'}band % within ${LABEL_H} h; band = 1.5 x 1h ATR`, formationsOnThisScreen:(feats || []).length, strongest:call.used },
+  // R2544.152: when the learning brain's view is given (alt), the models get IT - the first brain failed its forward test (12.11: -17,8 % vs
+  // the base rate, newer half -32,5 %) and its summed, overconfident view was pulling the desk to one side
+  const b = alt ? { labelledRounds:call.rounds, ready:alt.ready, upFirstProbability:alt.ready ? alt.p : null, method:'selective average: only footprints with evidence (n>=8, |z|>=2.5) vote; none here = no evidence, decide from the chart',
+      strongest:alt.used, firstBrain:'retired from the briefing: failed its forward learning test' }
+    : { labelledRounds:call.rounds, ready:call.ready, upFirstProbability:call.ready ? call.pUp : null, strongest:call.used };
+  return { brain:{ ...b, baseRate:call.rounds ? { upFirstPct:call.baseUpPct, downFirstPct:call.baseDownPct } : null,
+      labelRule:`up first / down first by ${'±'}band % within ${LABEL_H} h; band = 1.5 x 1h ATR`, formationsOnThisScreen:(feats || []).length },
     desk:{ rows, note:'forward record of this desk only (no backtest); a small n proves nothing' } };
 }
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -257,6 +262,8 @@ function brain2Used(m, feats) {
   return { b0, used };
 }
 function brain2P(m, feats) { const { b0, used } = brain2Used(m, feats); const sw = used.reduce((a, u) => a + u.w, 0); let lo = b0 + (sw ? used.reduce((a, u) => a + u.w * u.d, 0) / sw : 0); lo = Math.max(-3, Math.min(3, lo)); return 1 / (1 + Math.exp(-lo)); }
+function brain2View(m, feats) { const t = m?._total || {}, n = (t.UP || 0) + (t.DOWN || 0), { used } = brain2Used(m, feats);
+  return { p:round(brain2P(m, feats), 3), ready:n >= B2.minLabels, n, used:used.sort((a, b) => Math.abs(b.z) - Math.abs(a.z)).slice(0, 8).map(u => ({ f:u.f, n:u.n, upPct:u.upPct, downPct:100 - u.upPct, z:u.z })) }; }
 function brain2Top(m, n = 10) {
   const { used } = brain2Used(m, Object.keys(m?.f || {})); return used.sort((a, b) => Math.abs(b.z) - Math.abs(a.z)).slice(0, n).map(u => ({ f:u.f, n:u.n, upPct:u.upPct, z:u.z, side:u.d > 0 ? 'UP' : 'DOWN' }));
 }
@@ -337,4 +344,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2Forecast, voteFeats };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats };

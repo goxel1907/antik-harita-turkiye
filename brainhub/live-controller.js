@@ -7073,7 +7073,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
             // R2544.148 BEYNİN MATRİSİ: formations on the screen, the brain's own call, and what the models are told before they forecast
             const izr=izCache.get(coin.symbol)||await izRead(coin.symbol),izf=IZ.fire(izr);if(izr)packet.traces=IZ.view(izr,izf);
             const feats=[...KESIF.formations(packet),...IZ.feats(izr,izf)].sort(),bd=KESIF.band(packet),call=KESIF.brainCall(s.matrix,feats);
-            Object.assign(packet,KESIF.brief(s.matrix,feats,call,s.karne));
+            Object.assign(packet,KESIF.brief(s.matrix,feats,call,s.karne,KESIF.brain2View(s.matrix,feats))); // R2544.152 the models get the learning brain's view
             const roundNo=(finite(s.roundNo)||0)+1;s.roundNo=roundNo;const roles={},sight={};let seat=0;
             // R2544.151 SÜRÜ KIRICI: roles in turn (no lens twice before all 7), blind seats read only the screen and the traces
             const promptFor=id=>{const key=MC.memberKey(id),role=KESIF.seatRole(roundNo,seat++),blind=KESIF.BLIND_ROLES.includes(role.key);roles[key]=role.key;sight[key]=blind?'KOR':'GOREN';
