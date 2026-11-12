@@ -201,6 +201,30 @@ function goxelPro(rec, base, pk) {
   const close = base.netR >= GOXEL.minNetR && big >= needBig && against >= GOXEL_PRO.needTotal;
   return { ...base, screens, against, big, needBig, need:GOXEL_PRO.needTotal, support, atLevel, close, R:close ? base.netR : null, why:close ? screens.filter(x => x.against).map(x => x.txt).join(' • ') : null };
 }
+// R2544.158 KEŞİF-SÖZ (kullanıcı 12.11: "bağla ... zarar eden sistemle niye geçiyoruz; eklenen herşey bağlı olsun"): a forecast written by a
+// member that holds the WORD in the forward karne at that moment (SOZ_SAHIBI: >= MIN_WORD outcomes, lower bound and mean without the best > 0)
+// becomes a real trade on its own lane (own name, own TEST / LIVE switch, 2 lots), the same in TEST and LIVE. Twins, labels and the brains'
+// own forecasts stay in the shadow; NONE never trades. The plan is the member's own: stop / target in % from the real fill, held until its horizon.
+const SOZ = { lane:'KESIF', name:'KEŞİF-SÖZ', maxActive:2 };
+function wordHolders(k) { return new Set((k?.rows || []).filter(r => r.state === 'SOZ_SAHIBI').map(r => r.model)); }
+function liveSignal(rec, k) {
+  if (!rec || rec.done || !['LONG', 'SHORT'].includes(rec.side)) return null;
+  const m = String(rec.model || '');
+  if (!m || m.startsWith('PUSU:') || m.startsWith('_') || m === 'BEYIN' || m === 'BEYIN2') return null;
+  if (!wordHolders(k).has(m)) return null;
+  const s = finite(rec.stopPct), g = finite(rec.targetPct), h = finite(rec.horizonH);
+  if (!(s >= STOP_MIN && s <= STOP_MAX) || !(g >= s) || !(h > 0)) return null;
+  const row = (k.rows || []).find(r => r.model === m) || {};
+  return { model:m, symbol:rec.symbol, side:rec.side, stopPct:s, targetPct:g, horizonH:h, forecastId:rec.id, round:rec.round || null, why:rec.why || '',
+    record:{ n:row.n ?? null, avgR:row.avgR ?? null, lowerR:row.lowerR ?? null } };
+}
+// the member's plan at a price (the live price before the order, the real fill after it)
+function sozPlan(price, sig) {
+  const p = finite(price), s = finite(sig?.stopPct) / 100, g = finite(sig?.targetPct) / 100;
+  if (!(p > 0) || !(s > 0) || !(g >= s)) return { ok:false, reason:'KESIF_PLAN_INVALID' };
+  const L = sig.side === 'LONG';
+  return { ok:true, stopPct:s, stopPrice:L ? p * (1 - s) : p * (1 + s), tpPrice:L ? p * (1 + g) : p * (1 - g), targetR:g / s, maxHoldMs:finite(sig.horizonH) * HOUR };
+}
 function goxelBook(records, since = 0) {
   const l = (Array.isArray(records) ? records : []).filter(r => asker(r) && r.gx && r.gx.closed && Number.isFinite(r.gx.R) && Number.isFinite(r.R) && (r.at || 0) >= since).sort((a, b) => (a.at || 0) - (b.at || 0));
   if (!l.length) return { n:0, rows:[], took:0 };
@@ -472,4 +496,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, liveSignal, sozPlan };
