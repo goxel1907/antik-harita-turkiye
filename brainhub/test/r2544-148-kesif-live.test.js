@@ -114,3 +114,26 @@ test('R2544.148 the switch: off = no round and no call; settings survive; the co
   assert.equal(JSON.parse(fs.readFileSync(path.join(f.root,'data','kesif-state.json'),'utf8')).settings.providers,'ALL');
   const g=fixture({answers:ANS,poll:false});const o=await g.controller._testKesifTick();assert.equal(o.round,null);assert.equal(g.controller.kesifStatus().wired,false);
 });
+
+test('R2544.154 GOXEL in the core: after each closed 5m candle he reads the screens of the forecasts that pay and takes the money; the plan keeps running', async()=>{
+  const f=fixture({answers:ANS});await f.controller._testKesifTick();
+  const E=f.T0+M5,c=(i,o,h,l,cl)=>[E+i*M5,String(o),String(h),String(l),String(cl),'1000',E+(i+1)*M5-1,'100000',10,'500','50000','0'];
+  // entry 100: up to 101.6 (+0,8R for the 2 % stop), the last candle makes the top and closes at 100.9: rejection wick + melting profit
+  f.state.future=[c(0,100,100.4,99.8,100.3),c(1,100.3,101.6,100.2,101.5),c(2,101.5,101.6,100.85,100.9)];
+  f.state.now=E+3*M5+5000;await f.controller._testKesifTick();
+  const s=f.controller._testKesifState(),by=m=>s.open.find(r=>r.model===m);
+  assert.equal(by('vision/a').done,false,'the plan is still running');
+  assert.deepEqual([by('vision/a').gx.by,by('vision/a').gx.R],['GOXEL',+(0.45-0.14/2).toFixed(3)]);
+  assert.match(by('vision/a').gx.why,/iğne/);assert.match(by('vision/a').gx.why,/kâr eriyor/);
+  assert.equal(by('nvidia/model-c').gx,undefined,'the losing SHORT is not his to manage');
+  assert.ok(!s.open.some(r=>r.model.startsWith('PUSU:')&&r.gx),'twins are not watched');
+  assert.ok(f.kinds('GOXEL_EXIT').length>=1);
+  assert.ok(f.state.calls.some(c=>c.p==='/futures/data/takerlongshortRatio')&&f.state.calls.some(c=>c.p==='/fapi/v1/depth'),'he looked at the takers and the book');
+  assert.ok(!f.state.calls.some(c=>c.m!=='GET'),'only public GET requests');
+  const st=f.controller.kesifStatus().goxel;assert.ok(st.since<=f.T0+20000);assert.ok(st.last.watch.length>=1&&st.last.watch[0].screens.length===5&&st.last.watch[0].spark.length>=3);
+  // then the price runs to the target: the plan wins +2R, Goxel kept his +0,38R -> the book shows he cut a winner
+  f.state.future.push(c(3,100.9,104.2,100.8,104));f.state.now=E+4*M5+5000;await f.controller._testKesifTick();
+  const b=f.controller.kesifStatus().goxel.book,cl=f.controller._testKesifState().closed.find(r=>r.model==='vision/a');
+  assert.deepEqual([cl.outcome,cl.gx.by,cl.gx.R],['TARGET','GOXEL',+(0.45-0.14/2).toFixed(3)]);
+  assert.ok(b.n>=1&&b.took>=1&&b.cutWinner>=1);assert.deepEqual(b.rows.map(r=>r.key),['PLAN','GOXEL']);
+});

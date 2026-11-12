@@ -112,16 +112,57 @@ function humanRun(k, L, e, s, g, end) {
 }
 // one row per exit over the closed directional forecasts that carry the human exits (twins and labels left out): is the human exit better
 // than the plan on the SAME forecasts? mean, median, mean without the best, both halves, paired difference and its t
-function humanBook(records) {
-  const l = (Array.isArray(records) ? records : []).filter(r => r && r.hx && Number.isFinite(r.R) && !String(r.model || '').startsWith('PUSU:') && !String(r.model || '').startsWith('_')).sort((a, b) => (a.at || 0) - (b.at || 0));
-  const n = l.length; if (!n) return { n:0, rows:[] };
-  const avg = a => a.length ? a.reduce((p, q) => p + q, 0) / a.length : null;
+function compareRows(l, defs) {
+  const n = l.length, avg = a => a.length ? a.reduce((p, q) => p + q, 0) / a.length : null;
   const row = (key, tr, f) => { const v = l.map(f), h = Math.floor(n / 2), sorted = [...v].sort((a, b) => a - b), best = sorted[n - 1];
     const d = l.map((r, i) => v[i] - r.R), md = avg(d), sd = n > 1 ? Math.sqrt(d.reduce((p, q) => p + (q - md) ** 2, 0) / (n - 1)) : 0;
     return { key, tr, avgR:round(avg(v)), medianR:round(med(v)), exBestR:n > 1 ? round((v.reduce((p, q) => p + q, 0) - best) / (n - 1)) : null,
       olderHalfR:h ? round(avg(v.slice(0, h))) : null, newerHalfR:round(avg(v.slice(h))), hitPct:Math.round(v.filter(x => x > 0).length / n * 100),
       sumR:round(v.reduce((p, q) => p + q, 0), 1), vsPlanR:round(md), t:sd > 0 ? round(md / (sd / Math.sqrt(n)), 2) : null }; };
-  return { n, rows:[row('PLAN', 'plan (bugünkü stop/hedef)', r => r.R), ...HUMAN_EXITS.map(x => row(x.key, x.tr, r => r.hx[x.key]))] };
+  return defs.map(d => row(d.key, d.tr, d.f));
+}
+const asker = r => r && !String(r.model || '').startsWith('PUSU:') && !String(r.model || '').startsWith('_');
+function humanBook(records) {
+  const l = (Array.isArray(records) ? records : []).filter(r => asker(r) && r.hx && Number.isFinite(r.R)).sort((a, b) => (a.at || 0) - (b.at || 0));
+  if (!l.length) return { n:0, rows:[] };
+  return { n:l.length, rows:compareRows(l, [{ key:'PLAN', tr:'plan (bugünkü stop/hedef)', f:r => r.R }, ...HUMAN_EXITS.map(x => ({ key:x.key, tr:x.tr, f:r => r.hx[x.key] }))]) };
+}
+// R2544.154 GOXEL (kullanıcı 12.11: "bu insan düşüncesi değil yine makine ... ekranların başında işlemini izleyen bir pro trader gibi: grafik bir
+// ekranda, veriler bir ekranda, alıcı satıcılar bir ekranda"). Goxel watches every open forecast after each closed 5m candle and reads five
+// screens: the chart (structure broken / rejection wick at the top), the profit (melting from its peak), the takers (buyers or sellers
+// stepping back), the order book (the other side stacked within 1 %), the derivatives (price on our side but open interest leaving).
+// He only acts while the trade pays after commission: two screens against him -> he closes at the candle close, like a trader taking his money.
+// Shadow only, nothing is traded; the plan keeps running so both are scored on the same forecast.
+const GOXEL = { minNetR:0.2, needAgainst:2, takerLong:0.9, takerShort:1.1, bookImb:0.3, oiDropPct:1, giveBack:0.4, wick:0.6 };
+function goxelLook(rec, candles, screens, now) {
+  if (!rec || rec.done || rec.side === 'NONE' || !(rec.stopPct > 0)) return null;
+  const k = TB.rows(candles).filter(x => x.t >= rec.entryAt && x.t + M5 <= now).sort((a, b) => a.t - b.t);
+  if (k.length < 2 || k[0].t !== rec.entryAt || now >= rec.entryAt + rec.horizonH * HOUR) return null;
+  const L = rec.side === 'LONG', e = k[0].o, s = rec.stopPct / 100, fav = p => (L ? p - e : e - p) / e / s, last = k[k.length - 1], prev = k[k.length - 2];
+  const curR = fav(last.c), peakR = Math.max(...k.map(x => fav(L ? x.h : x.l))), netR = curR - COST_PCT / rec.stopPct;
+  const sc = screens || {}, out = [];
+  { const top = L ? last.h >= Math.max(...k.map(x => x.h)) : last.l <= Math.min(...k.map(x => x.l)), rng = last.h - last.l;
+    const broke = L ? last.c < prev.l : last.c > prev.h, wick = top && rng > 0 && (L ? (last.h - last.c) : (last.c - last.l)) / rng >= GOXEL.wick;
+    out.push({ key:'GRAFIK', tr:'grafik', against:broke || wick, txt:broke ? (L ? 'önceki mumun dibi kırıldı' : 'önceki mumun tepesi kırıldı') : wick ? (L ? 'tepede iğne, satıcı vurdu' : 'dipte iğne, alıcı vurdu') : 'yapı bozulmadı' }); }
+  { const melt = peakR >= 0.5 && curR <= peakR * (1 - GOXEL.giveBack);
+    out.push({ key:'KAR', tr:'kâr', against:melt, txt:`tepe ${round(peakR, 2)}R → şimdi ${round(curR, 2)}R${melt ? ', kâr eriyor' : ''}` }); }
+  { const t = Number.isFinite(sc.taker) ? sc.taker : null, a = t === null ? null : L ? t < GOXEL.takerLong : t > GOXEL.takerShort;
+    out.push({ key:'AKIS', tr:'alıcı / satıcı', against:a, txt:t === null ? 'veri yok' : `alıcı/satıcı ${round(t, 2)}${a ? (L ? ', alıcılar çekildi' : ', satıcılar çekildi') : ''}` }); }
+  { const b = Number.isFinite(sc.imb1) ? sc.imb1 : null, a = b === null ? null : L ? b <= -GOXEL.bookImb : b >= GOXEL.bookImb;
+    out.push({ key:'DEFTER', tr:'emir defteri', against:a, txt:b === null ? 'veri yok' : `%1 içinde denge ${b > 0 ? '+' : ''}${round(b, 2)}${a ? (L ? ', satış duvarı' : ', alış duvarı') : ''}` }); }
+  { const o = Number.isFinite(sc.oiChgPct) ? sc.oiChgPct : null, a = o === null ? null : curR > 0 && o <= -GOXEL.oiDropPct;
+    out.push({ key:'TUREV', tr:'türev (OI)', against:a, txt:o === null ? 'veri yok' : `açık pozisyon 15 dk ${o > 0 ? '+' : ''}${round(o, 2)}%${a ? ', hareket yoruldu' : ''}` }); }
+  const against = out.filter(x => x.against === true).length, close = netR >= GOXEL.minNetR && against >= GOXEL.needAgainst;
+  return { at:now, curR:round(curR, 2), peakR:round(peakR, 2), netR:round(netR, 3), against, screens:out, close, raw:{ taker:Number.isFinite(sc.taker) ? sc.taker : null, imb1:Number.isFinite(sc.imb1) ? sc.imb1 : null, oi:Number.isFinite(sc.oiChgPct) ? sc.oiChgPct : null }, R:close ? round(netR) : null,
+    why:close ? out.filter(x => x.against).map(x => x.txt).join(' • ') : null };
+}
+function goxelBook(records, since = 0) {
+  const l = (Array.isArray(records) ? records : []).filter(r => asker(r) && r.gx && r.gx.closed && Number.isFinite(r.gx.R) && Number.isFinite(r.R) && (r.at || 0) >= since).sort((a, b) => (a.at || 0) - (b.at || 0));
+  if (!l.length) return { n:0, rows:[], took:0 };
+  const took = l.filter(r => r.gx.by === 'GOXEL');
+  return { n:l.length, took:took.length, saved:took.filter(r => r.R < 0).length, cutWinner:took.filter(r => r.R > r.gx.R).length,
+    rows:compareRows(l, [{ key:'PLAN', tr:'plan (bugünkü stop/hedef)', f:r => r.R }, { key:'GOXEL', tr:'Goxel (5 ekranı izleyen trader)', f:r => r.gx.R }]),
+    recent:took.slice(-8).reverse().map(r => ({ model:r.model, symbol:r.symbol, side:r.side, at:r.gx.at, R:r.gx.R, planR:r.R, why:r.gx.why })) };
 }
 // follows the real closed 5m candles. Same candle touches both -> the stop counts. Returns null while the outcome is not known yet.
 function resolve(rec, candles, now) {
@@ -381,4 +422,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook };

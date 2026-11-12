@@ -6995,19 +6995,36 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{store.journal('KESIF_SEED_IMPORT',null,{...s.seed,file:path.basename(moved)});}catch{}
     return {ok:true,...s.seed};
   }
-  const kesifSlim=r=>({id:r.id,model:r.model,symbol:r.symbol,side:r.side,at:r.at,closedAt:r.closedAt??null,done:true,outcome:r.outcome,R:r.R??null,role:r.role??null,sight:r.sight??null,mirrorOf:r.mirrorOf??null,round:r.round??null,stopPct:r.stopPct??null,targetPct:r.targetPct??null,horizonH:r.horizonH??null,conf:r.conf??null,mfeR:r.mfeR??null,maeR:r.maeR??null,hx:r.hx??null,why:String(r.why||'').slice(0,160)});
+  const kesifSlim=r=>({id:r.id,model:r.model,symbol:r.symbol,side:r.side,at:r.at,closedAt:r.closedAt??null,done:true,outcome:r.outcome,R:r.R??null,role:r.role??null,sight:r.sight??null,mirrorOf:r.mirrorOf??null,round:r.round??null,stopPct:r.stopPct??null,targetPct:r.targetPct??null,horizonH:r.horizonH??null,conf:r.conf??null,mfeR:r.mfeR??null,maeR:r.maeR??null,hx:r.hx??null,gx:r.gx??null,why:String(r.why||'').slice(0,160)});
   async function kesifTick(){
     const cfg=kesifCfg();if(!cfg.enabled||kesifBusy)return null;kesifBusy=true;
     try{
       const s=kesifInit(),now=clock();let changed=false;const out={resolved:0,round:null};
       {const sd=kesifImportSeed();if(sd)out.seed=sd;} // R2544.149 the sandbox's experience, once
+      if(!finite(s.goxelSince)){s.goxelSince=now;changed=true;} // R2544.154 Goxel watches the forecasts opened from now on
       // 1) outcomes: once per closed 5m candle, one klines call per coin with open forecasts
       if(s.open.some(r=>!r.done)&&Math.floor(now/KESIF_M5)!==Math.floor((finite(s.lastResolveAt)||0)/KESIF_M5)){
-        s.lastResolveAt=now;const bySym=new Map();for(const r of s.open)if(!r.done){if(!bySym.has(r.symbol))bySym.set(r.symbol,[]);bySym.get(r.symbol).push(r);}
+        s.lastResolveAt=now;const gxSeen=[],gxOn=r=>r.side!=='NONE'&&!String(r.model||'').startsWith('PUSU:')&&!String(r.model||'').startsWith('_')&&finite(r.entryAt)>=s.goxelSince;
+        const bySym=new Map();for(const r of s.open)if(!r.done){if(!bySym.has(r.symbol))bySym.set(r.symbol,[]);bySym.get(r.symbol).push(r);}
         for(const [sym,list] of bySym){const from=Math.min(...list.map(r=>r.entryAt));if(now<from+KESIF_M5)continue;
           let k=[];try{k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:'5m',startTime:String(from),limit:'400'}});}catch{continue;}
           for(const r of list){const o=KESIF.resolve(r,k,now);if(!o)continue;Object.assign(r,o);out.resolved++;changed=true;
-            try{store.journal('KESIF_OUTCOME',sym,{id:r.id,model:r.model,side:r.side,outcome:r.outcome,R:r.R??null,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,mfeR:r.mfeR??null,maeR:r.maeR??null});}catch{}}}
+            if(gxOn(r)&&!r.gx?.closed)r.gx={closed:true,R:r.R??null,by:'PLAN',at:finite(r.closedAt)||now}; // Goxel did not see a reason to leave: the plan's result is his
+            try{store.journal('KESIF_OUTCOME',sym,{id:r.id,model:r.model,side:r.side,outcome:r.outcome,R:r.R??null,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,mfeR:r.mfeR??null,maeR:r.maeR??null});}catch{}}
+          // R2544.154 GOXEL watches the forecasts still open: the screens are read only for a coin where one of them pays after commission
+          const watch=list.filter(r=>!r.done&&gxOn(r)&&!r.gx?.closed).map(r=>({r,v:KESIF.goxelLook(r,k,null,now)})).filter(x=>x.v);
+          if(watch.some(x=>x.v.netR>=KESIF.GOXEL.minNetR)){
+            const g=async(p,params)=>{try{return await transport._fetchJson('GET',p,{params});}catch{return null;}};
+            const [tk,oi,dp]=await Promise.all([g('/futures/data/takerlongshortRatio',{symbol:sym,period:'5m',limit:'2'}),g('/futures/data/openInterestHist',{symbol:sym,period:'5m',limit:'4'}),g('/fapi/v1/depth',{symbol:sym,limit:'500'})]);
+            const lastC=TB.rows(k).filter(x=>x.t+KESIF_M5<=now).slice(-1)[0]?.c;
+            const tkr=Array.isArray(tk)&&tk.length?finite(tk[tk.length-1]?.buySellRatio):null,oiv=Array.isArray(oi)?oi.map(x=>finite(x?.sumOpenInterestValue)).filter(x=>x>0):[];
+            const sc={taker:tkr,imb1:lastC?IZ.book(dp,lastC)?.imb1??null:null,oiChgPct:oiv.length>=4?Number(((oiv[oiv.length-1]/oiv[0]-1)*100).toFixed(2)):null};
+            for(const x of watch){if(x.v.netR<KESIF.GOXEL.minNetR){gxSeen.push({...x.v,model:x.r.model,symbol:sym,side:x.r.side});continue;}
+              const v=KESIF.goxelLook(x.r,k,sc,now);if(!v)continue;gxSeen.push({...v,model:x.r.model,symbol:sym,side:x.r.side,spark:TB.rows(k).filter(c=>c.t>=x.r.entryAt-6*KESIF_M5&&c.t+KESIF_M5<=now).slice(-36).map(c=>[c.o,c.h,c.l,c.c]),entry:TB.rows(k).find(c=>c.t===x.r.entryAt)?.o??null});
+              if(v.close){x.r.gx={closed:true,R:v.R,by:'GOXEL',at:now,why:v.why,curR:v.curR,peakR:v.peakR};changed=true;
+                try{store.journal('GOXEL_EXIT',sym,{id:x.r.id,model:x.r.model,side:x.r.side,R:v.R,curR:v.curR,peakR:v.peakR,why:v.why});}catch{}}}
+          } else for(const x of watch)gxSeen.push({...x.v,model:x.r.model,symbol:sym,side:x.r.side});}
+        s.goxelLast={at:now,watch:gxSeen.sort((a,b)=>(b.netR??-9)-(a.netR??-9)).slice(0,8)};
       }
       const done=s.open.filter(r=>r.done);
       if(done.length){s.open=s.open.filter(r=>!r.done);
@@ -7115,7 +7132,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       karne:s.karne||KESIF.karne(s.closed,{now}),matrix:KESIF.matrixView(s.matrix),open:s.open.filter(r=>r.model!=='_ETIKET').slice(-60).map(r=>({model:r.model,symbol:r.symbol,side:r.side,at:r.at,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,conf:r.conf,why:r.why})),
       recent:s.closed.filter(r=>Number.isFinite(r.R)).slice(-40).reverse(),rounds:s.rounds.slice(0,8),lastError:kesifLastError,
       iz:{version:IZ.IZ_VERSION,detectors:IZ.DETECTORS,last:s.izLast||null,open:s.open.filter(r=>String(r.model).startsWith('IZ:')).length},seed:s.seed||null,
-      learning:KESIF.learningCheck(s.brainCheck),learning2:KESIF.learningCheck(s.brainCheck,'p2'),human:KESIF.humanBook(s.closed),brain2:{n:(s.matrix?._total?.UP||0)+(s.matrix?._total?.DOWN||0),minN:KESIF.B2.minLabels,top:KESIF.brain2Top(s.matrix,10)},
+      learning:KESIF.learningCheck(s.brainCheck),learning2:KESIF.learningCheck(s.brainCheck,'p2'),human:KESIF.humanBook(s.closed),goxel:{since:finite(s.goxelSince)||null,rules:KESIF.GOXEL,book:KESIF.goxelBook(s.closed,finite(s.goxelSince)||0),last:s.goxelLast||null},brain2:{n:(s.matrix?._total?.UP||0)+(s.matrix?._total?.DOWN||0),minN:KESIF.B2.minLabels,top:KESIF.brain2Top(s.matrix,10)},
       herd:(()=>{const h=s.rounds.slice(0,20).map(r=>r.herd).filter(Number.isFinite);return h.length?{avg:Number((h.reduce((a,b)=>a+b,0)/h.length).toFixed(2)),n:h.length}:null;})(),
       roles:KESIF.ROLES.map(r=>({key:r.key,tr:r.tr})),
       sight:(()=>{const g=k=>{const l=s.closed.filter(r=>r.sight===k&&Number.isFinite(r.R));return {n:l.length,avgR:l.length?Number((l.reduce((a,r)=>a+r.R,0)/l.length).toFixed(3)):null,hitPct:l.length?Math.round(l.filter(r=>r.R>0).length/l.length*100):null};};return {KOR:g('KOR'),GOREN:g('GOREN')};})(),
