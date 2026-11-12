@@ -157,13 +157,20 @@ function releaseSlot(){
   state.active=Math.max(0,state.active-1);
   const next=state.waiters.shift(); if(next)next();
 }
-async function takeSlot(maxWaitMs){
+// R2544.160 (12.11 17:36 CANLI: 29 requests queued behind the KEŞİF / İZ / Goxel public reads, Office's account read timed out "okunamadı"):
+// the queue was first-come first-served, so an order (entry, stop, close) could wait behind public scans and time out after 5 s.
+// Now an order (LIVE_WRITE) waits only behind other orders, an account / position read (LIVE_READ, RECOVERY_PROBE) only behind orders and
+// other reads; public reads keep their place at the back. Weights and limits unchanged.
+const RANK={LIVE_WRITE:0,LIVE_READ:1,RECOVERY_PROBE:1,PUBLIC:2};
+async function takeSlot(maxWaitMs,kind='PUBLIC'){
   const maxConcurrent=clampInt(process.env.BINANCE_REST_MAX_CONCURRENT,1,8,DEFAULT_MAX_CONCURRENT);
   if(state.active<maxConcurrent){state.active++;return;}
   let timer=null,done=false;
   await new Promise((resolve,reject)=>{
     const wake=()=>{if(done)return;done=true;if(timer)clearTimeout(timer);state.active++;resolve();};
-    state.waiters.push(wake);
+    wake.rank=RANK[kind]??2;
+    const at=state.waiters.findIndex(w=>(w.rank??2)>wake.rank);
+    if(at<0)state.waiters.push(wake);else state.waiters.splice(at,0,wake);
     timer=setTimeout(()=>{if(done)return;done=true;const i=state.waiters.indexOf(wake);if(i>=0)state.waiters.splice(i,1);reject(new BinanceRateLimitError('BINANCE_REST_QUEUE_TIMEOUT'));},maxWaitMs);
     timer.unref?.();
   });
@@ -183,7 +190,7 @@ async function acquire({path='',kind='PUBLIC',weight=null,maxWaitMs=5000,nowFn=D
   if(kind==='PUBLIC' && state.usedWeight1m!==null && now-state.usedWeightAt<65000 && state.usedWeight1m>=publicSoft){state.locallyBlocked++;throw new BinanceRateLimitError('BINANCE_REMOTE_WEIGHT_GUARD',{estimatedWeight:state.usedWeight1m,weight:w,reason:'X_MBX_USED_WEIGHT_1M'});}
   if(kind==='LIVE_READ' && state.usedWeight1m!==null && now-state.usedWeightAt<65000 && state.usedWeight1m>=liveSoft){state.locallyBlocked++;throw new BinanceRateLimitError('BINANCE_REMOTE_WEIGHT_GUARD',{estimatedWeight:state.usedWeight1m,weight:w,reason:'X_MBX_USED_WEIGHT_1M'});}
 
-  await takeSlot(maxWaitMs);
+  await takeSlot(maxWaitMs,kind);
   try{
     const after=nowFn();
     if(state.cooldownUntil>after)throw new BinanceRateLimitError('BINANCE_RATE_LIMIT_COOLDOWN',{cooldownUntil:state.cooldownUntil,reason:state.cooldownReason});
