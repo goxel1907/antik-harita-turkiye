@@ -6995,7 +6995,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{store.journal('KESIF_SEED_IMPORT',null,{...s.seed,file:path.basename(moved)});}catch{}
     return {ok:true,...s.seed};
   }
-  const kesifSlim=r=>({id:r.id,model:r.model,symbol:r.symbol,side:r.side,at:r.at,closedAt:r.closedAt??null,done:true,outcome:r.outcome,R:r.R??null,role:r.role??null,sight:r.sight??null,mirrorOf:r.mirrorOf??null,round:r.round??null,stopPct:r.stopPct??null,targetPct:r.targetPct??null,horizonH:r.horizonH??null,conf:r.conf??null,mfeR:r.mfeR??null,maeR:r.maeR??null,why:String(r.why||'').slice(0,160)});
+  const kesifSlim=r=>({id:r.id,model:r.model,symbol:r.symbol,side:r.side,at:r.at,closedAt:r.closedAt??null,done:true,outcome:r.outcome,R:r.R??null,role:r.role??null,sight:r.sight??null,mirrorOf:r.mirrorOf??null,round:r.round??null,stopPct:r.stopPct??null,targetPct:r.targetPct??null,horizonH:r.horizonH??null,conf:r.conf??null,mfeR:r.mfeR??null,maeR:r.maeR??null,hx:r.hx??null,why:String(r.why||'').slice(0,160)});
   async function kesifTick(){
     const cfg=kesifCfg();if(!cfg.enabled||kesifBusy)return null;kesifBusy=true;
     try{
@@ -7115,7 +7115,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       karne:s.karne||KESIF.karne(s.closed,{now}),matrix:KESIF.matrixView(s.matrix),open:s.open.filter(r=>r.model!=='_ETIKET').slice(-60).map(r=>({model:r.model,symbol:r.symbol,side:r.side,at:r.at,stopPct:r.stopPct,targetPct:r.targetPct,horizonH:r.horizonH,conf:r.conf,why:r.why})),
       recent:s.closed.filter(r=>Number.isFinite(r.R)).slice(-40).reverse(),rounds:s.rounds.slice(0,8),lastError:kesifLastError,
       iz:{version:IZ.IZ_VERSION,detectors:IZ.DETECTORS,last:s.izLast||null,open:s.open.filter(r=>String(r.model).startsWith('IZ:')).length},seed:s.seed||null,
-      learning:KESIF.learningCheck(s.brainCheck),learning2:KESIF.learningCheck(s.brainCheck,'p2'),brain2:{n:(s.matrix?._total?.UP||0)+(s.matrix?._total?.DOWN||0),minN:KESIF.B2.minLabels,top:KESIF.brain2Top(s.matrix,10)},
+      learning:KESIF.learningCheck(s.brainCheck),learning2:KESIF.learningCheck(s.brainCheck,'p2'),human:KESIF.humanBook(s.closed),brain2:{n:(s.matrix?._total?.UP||0)+(s.matrix?._total?.DOWN||0),minN:KESIF.B2.minLabels,top:KESIF.brain2Top(s.matrix,10)},
       herd:(()=>{const h=s.rounds.slice(0,20).map(r=>r.herd).filter(Number.isFinite);return h.length?{avg:Number((h.reduce((a,b)=>a+b,0)/h.length).toFixed(2)),n:h.length}:null;})(),
       roles:KESIF.ROLES.map(r=>({key:r.key,tr:r.tr})),
       sight:(()=>{const g=k=>{const l=s.closed.filter(r=>r.sight===k&&Number.isFinite(r.R));return {n:l.length,avgR:l.length?Number((l.reduce((a,r)=>a+r.R,0)/l.length).toFixed(3)):null,hitPct:l.length?Math.round(l.filter(r=>r.R>0).length/l.length*100):null};};return {KOR:g('KOR'),GOREN:g('GOREN')};})(),

@@ -87,6 +87,42 @@ function consensus(forecasts) {
     return { ok:true, direction:d, stopPct:round(med(g.map(f => f.stopPct)), 2), targetPct:round(med(g.map(f => f.targetPct)), 2), horizonH:round(med(g.map(f => f.horizonH)), 1), confidence:Math.round(g.length / ok.length * 100), reasonTr:`${g.length}/${ok.length} model ${d}`, wrongIfTr:'' }; }
   return null;
 }
+// R2544.153 INSAN CIKISI (kullanici 12.11: "bir trader insan gibi gormuyor ... karda iken terse donmeden kapatsa"): the same forecast on
+// the same 5m candles, three human exits scored next to the plan. Shadow only, nothing is traded. Conservative path: a level reached inside a
+// candle moves the stop only from the NEXT candle; a candle that touches a stop and a profit level counts the stop.
+const HUMAN = { arm:0.5, keep:0.5 };
+const HUMAN_EXITS = [
+  { key:'AL05', tr:'+0,5R görünce kârı al' },
+  { key:'BASABAS', tr:'+0,5R görünce stopu girişe çek' },
+  { key:'YARIM', tr:'+0,5R sonrası tepe kârın yarısını kilitle' } ];
+function humanRun(k, L, e, s, g, end) {
+  const out = {}, tg = g / s;
+  for (const x of HUMAN_EXITS) { let peak = 0, R = null, last = null;
+    for (const c of k) { if (c.t >= end) break; last = c;
+      const fav = (L ? c.h - e : e - c.l) / e / s, worst = (L ? c.l - e : e - c.h) / e / s, armed = peak >= HUMAN.arm;
+      if (x.key === 'BASABAS' && armed && worst <= 0) { R = 0; break; }
+      if (x.key === 'YARIM' && armed && worst <= peak * HUMAN.keep) { R = peak * HUMAN.keep; break; }
+      if (worst <= -1) { R = -1; break; }
+      if (x.key === 'AL05' && fav >= HUMAN.arm) { R = Math.min(HUMAN.arm, tg); break; }
+      if (fav >= tg) { R = tg; break; }
+      peak = Math.max(peak, fav); }
+    if (R === null && last) R = (L ? last.c - e : e - last.c) / e / s;
+    out[x.key] = R; }
+  return out;
+}
+// one row per exit over the closed directional forecasts that carry the human exits (twins and labels left out): is the human exit better
+// than the plan on the SAME forecasts? mean, median, mean without the best, both halves, paired difference and its t
+function humanBook(records) {
+  const l = (Array.isArray(records) ? records : []).filter(r => r && r.hx && Number.isFinite(r.R) && !String(r.model || '').startsWith('PUSU:') && !String(r.model || '').startsWith('_')).sort((a, b) => (a.at || 0) - (b.at || 0));
+  const n = l.length; if (!n) return { n:0, rows:[] };
+  const avg = a => a.length ? a.reduce((p, q) => p + q, 0) / a.length : null;
+  const row = (key, tr, f) => { const v = l.map(f), h = Math.floor(n / 2), sorted = [...v].sort((a, b) => a - b), best = sorted[n - 1];
+    const d = l.map((r, i) => v[i] - r.R), md = avg(d), sd = n > 1 ? Math.sqrt(d.reduce((p, q) => p + (q - md) ** 2, 0) / (n - 1)) : 0;
+    return { key, tr, avgR:round(avg(v)), medianR:round(med(v)), exBestR:n > 1 ? round((v.reduce((p, q) => p + q, 0) - best) / (n - 1)) : null,
+      olderHalfR:h ? round(avg(v.slice(0, h))) : null, newerHalfR:round(avg(v.slice(h))), hitPct:Math.round(v.filter(x => x > 0).length / n * 100),
+      sumR:round(v.reduce((p, q) => p + q, 0), 1), vsPlanR:round(md), t:sd > 0 ? round(md / (sd / Math.sqrt(n)), 2) : null }; };
+  return { n, rows:[row('PLAN', 'plan (bugünkü stop/hedef)', r => r.R), ...HUMAN_EXITS.map(x => row(x.key, x.tr, r => r.hx[x.key]))] };
+}
 // follows the real closed 5m candles. Same candle touches both -> the stop counts. Returns null while the outcome is not known yet.
 function resolve(rec, candles, now) {
   if (!rec || rec.done || rec.side === 'NONE') return null;
@@ -94,13 +130,14 @@ function resolve(rec, candles, now) {
   if (k[0].t !== rec.entryAt) { if (now - rec.entryAt > 3 * HOUR && k[0].t - rec.entryAt > HOUR) return { done:true, outcome:'NO_DATA', R:null, closedAt:now }; if (k[0].t > rec.entryAt + M5) return null; }
   const L = rec.side === 'LONG', e = k[0].o, s = rec.stopPct / 100, g = rec.targetPct / 100, stop = L ? e * (1 - s) : e * (1 + s), tgt = L ? e * (1 + g) : e * (1 - g), end = rec.entryAt + rec.horizonH * HOUR, cost = COST_PCT / rec.stopPct;
   let mfe = 0, mae = 0, last = null;
+  const hx = () => { const h = humanRun(k, L, e, s, g, end), o = {}; for (const x of HUMAN_EXITS) o[x.key] = round(h[x.key] - cost); return o; };
   for (const c of k) { if (c.t >= end) break; last = c;
     const fav = L ? (c.h - e) / e : (e - c.l) / e, adv = L ? (e - c.l) / e : (c.h - e) / e; mfe = Math.max(mfe, fav / s); mae = Math.max(mae, adv / s);
-    if (L ? c.l <= stop : c.h >= stop) return { done:true, outcome:'STOP', entry:e, exit:stop, R:round(-1 - cost), mfeR:round(mfe, 2), maeR:round(Math.min(mae, 1), 2), closedAt:c.t + M5 };
-    if (L ? c.h >= tgt : c.l <= tgt) return { done:true, outcome:'TARGET', entry:e, exit:tgt, R:round(g / s - cost), mfeR:round(g / s, 2), maeR:round(mae, 2), closedAt:c.t + M5 }; }
+    if (L ? c.l <= stop : c.h >= stop) return { done:true, outcome:'STOP', entry:e, exit:stop, R:round(-1 - cost), mfeR:round(mfe, 2), maeR:round(Math.min(mae, 1), 2), closedAt:c.t + M5, hx:hx() };
+    if (L ? c.h >= tgt : c.l <= tgt) return { done:true, outcome:'TARGET', entry:e, exit:tgt, R:round(g / s - cost), mfeR:round(g / s, 2), maeR:round(mae, 2), closedAt:c.t + M5, hx:hx() }; }
   if (now < end || !last) return null;
   const r = (L ? last.c - e : e - last.c) / e / s;
-  return { done:true, outcome:'HORIZON', entry:e, exit:last.c, R:round(r - cost), mfeR:round(mfe, 2), maeR:round(mae, 2), closedAt:end };
+  return { done:true, outcome:'HORIZON', entry:e, exit:last.c, R:round(r - cost), mfeR:round(mfe, 2), maeR:round(mae, 2), closedAt:end, hx:hx() };
 }
 // THE LEADER'S BOOK: one row per model from the forecasts whose outcome is known. Order: proven first (lower bound of the mean),
 // then by average. Nobody is a candidate before MIN_SAY outcomes; nobody has the word before MIN_WORD and a lower bound above zero.
@@ -344,4 +381,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook };
