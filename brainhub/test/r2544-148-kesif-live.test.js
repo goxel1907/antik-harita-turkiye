@@ -54,7 +54,7 @@ test('R2544.148 a round: one coin, no plan in the packet, every model its own fo
   // the brain: silent while its matrix learns; the neutral label (up / down first by the band in 6 h) carries the formations of the screen
   assert.match(s.open.find(r=>r.model==='BEYIN').why,/matris öğreniyor \(0\/20/);
   const lab=s.open.find(r=>r.model==='_ETIKET');assert.ok(lab&&lab.feats.length>5&&lab.horizonH===6&&lab.stopPct===lab.targetPct);
-  assert.equal(pk.brain.labelledRounds,0);assert.equal(pk.brain.ready,false);assert.ok(Array.isArray(pk.desk.rows));
+  {const ps=JSON.parse(f.state.asked[0].perMember.find(x=>JSON.parse(x).brain));assert.equal(ps.brain.labelledRounds,0);assert.equal(ps.brain.ready,false);assert.ok(Array.isArray(ps.desk.rows));} // a seeing seat (R2544.151: blind seats get no brain summary)
   assert.deepEqual(s.open.find(r=>r.model==='ORTAK').stopPct,2.5,'3 of 5 answers LONG = 60% -> the median stop of those three');
   assert.equal(s.open.find(r=>r.model==='vision/a').img,true);assert.ok(s.open.filter(r=>r.side!=='NONE'&&r.model!=='_ETIKET').every(r=>r.entryAt===f.T0+M5&&r.symbol==='UPUSDT'));
   // R2544.149: the brain learns from every scanned coin (one label per coin and hour), each with its probability written before the outcome
@@ -66,6 +66,11 @@ test('R2544.148 a round: one coin, no plan in the packet, every model its own fo
   assert.deepEqual(s.open.filter(r=>r.model.startsWith('PUSU:')).map(r=>[r.model,r.side]).sort(),[['PUSU:ORTAK','SHORT'],['PUSU:model-b','SHORT'],['PUSU:nvidia/model-c','LONG'],['PUSU:nvidia/model-d','SHORT'],['PUSU:vision/a','SHORT']]);
   assert.ok(f.state.asked[0].perMember.every(x=>{const j=JSON.parse(x);return j.yourRole&&j.yourRecord;}),'every model got its own role and record');
   assert.ok(new Set(f.state.asked[0].perMember.map(x=>JSON.parse(x).yourRole.name)).size>=2,'not one lens for everybody');
+  // R2544.151 SÜRÜ KIRICI: 6 seats -> 6 different lenses; the blind seats do not see the desk brain or the others' record
+  {const pm=f.state.asked[0].perMember.map(x=>JSON.parse(x));assert.equal(new Set(pm.map(j=>j.yourRole.name)).size,pm.length,'no lens twice in a round of <= 7 seats');
+   const blind=pm.filter(j=>['PUSU','AVUKAT','LIKIDITE'].includes(j.yourRole.name)),seeing=pm.filter(j=>!['PUSU','AVUKAT','LIKIDITE'].includes(j.yourRole.name));
+   assert.ok(blind.length>=2&&seeing.length>=2);assert.ok(blind.every(j=>j.brain===undefined&&j.desk===undefined&&j.yourRole.seat&&j.timeframes&&j.traces!==null),'blind: screen and traces only');assert.ok(seeing.every(j=>j.brain&&j.desk));
+   assert.ok(s.open.filter(r=>r.sight).every(r=>r.sight==='KOR'?['PUSU','AVUKAT','LIKIDITE'].includes(r.role):!['PUSU','AVUKAT','LIKIDITE'].includes(r.role)),'every forecast carries its seat');}
   assert.ok(Number.isFinite(f.kinds('KESIF_FORECAST')[0].p.herd));assert.ok(f.kinds('KESIF_FORECAST')[0].p.forecasts.some(x=>x.r),'the role of every forecast is on the book');
   assert.ok(s.open.find(r=>r.model==='_ETIKET'&&r.symbol==='UPUSDT').feats.some(x=>x.startsWith('oy:')),'who voted what is in the brain\'s label');assert.equal(st0.counts.labelsOpen,2);assert.equal(st0.matrix.total.n||0,0);
   assert.ok(!f.state.calls.some(c=>c.m!=='GET'),'only public GET requests');

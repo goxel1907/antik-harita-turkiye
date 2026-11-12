@@ -207,7 +207,7 @@ function brief(m, feats, call, k) {
 // 1) ROLES: every model reads each round through a different lens (rotating), so the desk is not one opinion nine times.
 const ROLES = [
   { key:'TREND', tr:'trendci', en:'TREND FOLLOWER: trade only with the higher timeframes (1h, 4h, 1d); when they disagree, NONE.' },
-  { key:'PUSU', tr:'pusucu', en:'AMBUSH / CONTRARIAN: assume the obvious move on this screen is the bait. Where is the crowd leaning, where are its stops, what happens when the trap springs? Take that side when the trap is readable.' },
+  { key:'PUSU', tr:'pusucu', en:'AMBUSH / CONTRARIAN: your DEFAULT is the side OPPOSITE to the obvious trade on this screen - the obvious move is the bait. Go with the obvious side only when you can show in trapTr why no trap is set here.' },
   { key:'LIKIDITE', tr:'likidite avcısı', en:'LIQUIDITY HUNTER: map the resting liquidity (equal highs / lows, day / week levels, liquidations). Price is drawn to the nearest large pool first: forecast that draw.' },
   { key:'TUREV', tr:'türev okuyucu', en:'DERIVATIVES READER: open interest, funding, big accounts vs crowd, taker flow. Who is trapped and must close, and in which direction does that push price?' },
   { key:'YAPI', tr:'yapı okuyucu', en:'STRUCTURE READER: BOS / CHoCH, order blocks, fair value gaps, premium / discount on 15m-1h. Forecast the next structural leg.' },
@@ -216,6 +216,12 @@ const ROLES = [
 ];
 const hash = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 function roleFor(member, roundNo) { return ROLES[(hash(member) + (Number(roundNo) || 0)) % ROLES.length]; }
+// R2544.151 SÜRÜ KIRICI (kullanıcı 12.11: "sürüyü kur"; ilk 150 turunda 5/5 SHORT, aynı yön %100): seats get the roles in turn, so no lens is
+// used twice before all 7 are used; the BLIND seats (ambush, devil's advocate, liquidity hunter) do NOT see the desk's brain summary or the
+// record of the others - the shared brain summary was what pulled everybody to one side - they read only the screen and the traces.
+const BLIND_ROLES = ['PUSU', 'AVUKAT', 'LIKIDITE'];
+function seatRole(roundNo, seat) { return ROLES[((Number(roundNo) || 0) + (Number(seat) || 0)) % ROLES.length]; }
+function blindPacket(pk) { const { brain, desk, ...rest } = pk || {}; return rest; }
 // 2) PUSU (ambush twin): every directional forecast gets its exact opposite (same stop, target, hours, entry). A trader who keeps being the
 //    bait turns into a leader through its twin; the karne and the balance gate treat a twin like any member.
 function mirror(rec) {
@@ -331,4 +337,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2Forecast, voteFeats };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2Forecast, voteFeats };

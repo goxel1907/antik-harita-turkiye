@@ -18,7 +18,9 @@ test('R2544.150 roles: every model reads the round through a lens; the lens rota
   const ids=['OVH:a','OVH:b','KILO:c','ROUTER:nvidia/d','ROUTER:cf/e','OVH:f','OVH:g'];
   const r1=ids.map(i=>K.roleFor(i,1).key),r2=ids.map(i=>K.roleFor(i,2).key);
   assert.ok(new Set(r1).size>=3,'not one opinion seven times');assert.ok(r1.every((x,i)=>x!==r2[i]),'the lens changes every round');
-  assert.equal(K.ROLES.length,7);assert.ok(K.ROLES.some(r=>r.key==='PUSU'&&/bait/.test(r.en)));
+  assert.equal(K.ROLES.length,7);assert.ok(K.ROLES.some(r=>r.key==='PUSU'&&/bait/.test(r.en)&&/DEFAULT is the side OPPOSITE/.test(r.en)));
+  for(const rn of [1,2,3,9]){const seats=Array.from({length:7},(_,i)=>K.seatRole(rn,i).key);assert.equal(new Set(seats).size,7,'7 seats = 7 lenses, round '+rn);}
+  assert.deepEqual(K.BLIND_ROLES,['PUSU','AVUKAT','LIKIDITE']);assert.deepEqual(Object.keys(K.blindPacket({a:1,brain:{x:1},desk:{y:1},traces:{z:1}})).sort(),['a','traces']);
   assert.match(K.SYSTEM,/obviousTr/);assert.match(K.SYSTEM,/trapTr/);assert.match(K.SYSTEM,/Do not copy the crowd/);assert.match(K.SYSTEM,/ambush twin/);
   const p=K.parse('{"direction":"SHORT","stopPct":2,"targetPct":4,"horizonH":3,"obviousTr":"herkes long","trapTr":"long stoplari dipte"}');assert.equal(p.trapTr,'long stoplari dipte');assert.equal(p.obviousTr,'herkes long');
   assert.equal(K.herd([{direction:'LONG'},{direction:'LONG'},{direction:'LONG'},{direction:'SHORT'},{direction:'NONE'}]),0.75);assert.equal(K.herd([{direction:'LONG'}]),null);
