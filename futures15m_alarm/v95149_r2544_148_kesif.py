@@ -146,6 +146,13 @@ methods = r'''    // V95149_R2544_148_KESIF: the models' own forecasts, the brai
         org.json.JSONObject og2 = k.optJSONObject("ogr2");
         if (og2 != null) card.addView(text("🧠 BEYİN-2 (öğrenen): " + og2.optString("t", ""), 11.5f, android.graphics.Color.rgb(167, 243, 208), false), gap);
         if (k.has("suru") && !k.isNull("suru")) card.addView(text("🐑 aynı yöne giden model payı (son turlar): %" + Math.round(k.optDouble("suru", 0) * 100), 11f, android.graphics.Color.rgb(148, 163, 184), false));
+        org.json.JSONObject sz = k.optJSONObject("soz");
+        if (sz != null) {
+            String szl = "🎯 KEŞİF-SÖZ gerçek işlem: " + (sz.optBoolean("e", false) ? "AÇIK" : "KAPALI") + " • söz sahibi " + sz.optInt("h", 0) + " • açık lot " + sz.optInt("a", 0) + "/2 • Goxel çıkış kararı: " + (sz.optBoolean("g", false) ? "AÇIK" : "KAPALI");
+            org.json.JSONObject szr = sz.optJSONObject("r");
+            if (szr != null) szl += "\nson: " + szr.optString("s", "").replace("USDT", "") + " " + szr.optString("d", "") + " " + (szr.optBoolean("o", false) ? "AÇILDI" : "açılmadı (" + szr.optString("w", "") + ")");
+            card.addView(text(szl, 11.5f, sz.optBoolean("e", false) ? android.graphics.Color.rgb(52, 211, 153) : android.graphics.Color.rgb(251, 191, 36), false), gap);
+        }
         String err = k.optString("err", "");
         if (!err.isEmpty() && !"null".equals(err)) card.addView(text("⚠ " + err, 11f, android.graphics.Color.rgb(248, 113, 113), false));
     }
@@ -154,8 +161,8 @@ methods = r'''    // V95149_R2544_148_KESIF: the models' own forecasts, the brai
 '''
 main = replace(main, '    private void v95142SubLane(final String key, final String label) {\n', methods)
 
-build = replace(build, 'versionCode 26111101', 'versionCode 26111201')
-build = replace(build, "versionName '9.5.140-r2544.147-kaydet'", "versionName '9.5.141-r2544.148-kesif'")
+build = replace(build, 'versionCode 26111101', 'versionCode 26111202')
+build = replace(build, "versionName '9.5.140-r2544.147-kaydet'", "versionName '9.5.142-r2544.158-soz'")
 
 MAIN.write_text(main, encoding='utf-8')
 CLIENT.write_text(client, encoding='utf-8')

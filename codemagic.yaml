@@ -734,8 +734,9 @@ workflows:
           grep -q 'private void v95149InstallKesifCard()' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'optJSONObject("bk")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'optJSONObject("ogr2")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q 'optJSONObject("soz")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'r2544_148_kesif' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
-          grep -q "versionName '9.5.141-r2544.148-kesif'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q "versionName '9.5.142-r2544.158-soz'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           if grep -q 'post(c, "/live/execute", intent, true)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
             echo 'R2544_148_KESIF_ANDROID_ORDER_INITIATION_FORBIDDEN'
             exit 1
