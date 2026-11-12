@@ -7062,24 +7062,31 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // GOXEL PRO on the real lots: after each closed 5m candle every open lot is read from its real fill; "take the money" = a desk EXIT
   // (reduce-only, carried out at once like the desk's own; the stop / target orders are cancelled after the close)
   // R2544.161 İNSAN ÖĞRETMEN: a lot the user closed (Binance = *_EXTERNAL_CLOSE, Office = *_USER_CLOSE) keeps its plan and Goxel's last look
-  function humanCloseMark(lesson,c,record){const x=String(record?.exitType||lesson?.exitType||'');if(!/_(EXTERNAL|USER)_CLOSE$/.test(x)||!lesson)return;
-    lesson.userClose={by:/_USER_CLOSE$/.test(x)?'OFFICE':'BINANCE',plan:DESK.planOf(c),goxel:c?.goxel||null,at:clock()};}
+  // R2544.166 (kullanıcı 12.11: "öğrenmiş mi bu işlemi beyin, modeller ve goxel" -> "yap"): EVERY closed lesson keeps Goxel's last look; a lot the
+  // desk or Goxel closed keeps its plan too, so "plana bırakılsaydı" is measured for every early exit (the hand closes did it since R2544.161)
+  const gxCompact=g=>g?{at:g.at??null,curR:g.curR??null,peakR:g.peakR??null,against:g.against??null,big:g.big??null,close:g.close===true,watching:g.watching===true,screens:Array.isArray(g.screens)?g.screens:null}:null;
+  function humanCloseMark(lesson,c,record){const x=String(record?.exitType||lesson?.exitType||'');if(!lesson)return;
+    lesson.goxel=gxCompact(c?.goxel);
+    if(/_(EXTERNAL|USER)_CLOSE$/.test(x)){lesson.userClose={by:/_USER_CLOSE$/.test(x)?'OFFICE':'BINANCE',plan:DESK.planOf(c),goxel:c?.goxel||null,at:clock()};return;}
+    if(/_DESK_EXIT$/.test(x)){const last=[...(c?.desk?.decisions||[])].reverse().find(d=>d&&d.action==='EXIT');lesson.exitCheck={by:last?.judge==='GOXEL'?'GOXEL':'MASA',plan:DESK.planOf(c),goxel:c?.goxel||null,at:clock()};}}
   function lessonPlan(l){const e=finite(l?.entryPrice),s=finite(l?.stopPct),g=finite(l?.targetPct),L=l?.side==='LONG';if(!(e>0)||!(s>0)||!(g>0))return null;
     return {side:l.side,entry:e,stop:L?e*(1-s):e*(1+s),tp:L?e*(1+g):e*(1-g),partAtR:0,partShare:0.5,beFee:0.0012,openedAt:finite(l.openedAt),deadline:finite(l.openedAt)+24*3600000};}
   // once the plan's own time is over: the same 5m candles say what the plan would have done (at most 2 lessons a tick; lessons of the last 3 days)
   async function userCloseTick(now){let did=0;
     const pool=[...(top3State.lessons||[]),...(z5State().lessons||[])].filter(l=>l&&finite(l.closedAt)>=now-3*86400000);
     for(const l of pool){if(!l.userClose&&/_(EXTERNAL|USER)_CLOSE$/.test(String(l.exitType||''))){const p=lessonPlan(l);if(p){l.userClose={by:/_USER_CLOSE$/.test(l.exitType)?'OFFICE':'BINANCE',plan:p,goxel:null,approx:true,at:now};did=-1;}}}
+    // R2544.166: desk / Goxel exits closed before this version get their record too (who from the lesson's own desk decisions)
+    for(const l of pool){if(!l.exitCheck&&!l.userClose&&/_DESK_EXIT$/.test(String(l.exitType||''))){const p=lessonPlan(l),last=[...(l.desk?.decisions||[])].reverse().find(d=>d&&d.action==='EXIT');if(p){l.exitCheck={by:last?.judge==='GOXEL'?'GOXEL':'MASA',plan:p,goxel:null,approx:true,at:now};did=did||-1;}}}
     // R2544.165: a "hand close" Binance itself made (liquidation / ADL) is not the user's - checked once against Binance's force orders (LIVE)
     for(const l of pool){const u=l.userClose;if(!u||u.forceChecked||l.mode!=='LIVE')continue;u.forceChecked=true;did=did||-1;
       try{const creds=currentCredentials();if(!credentialsReady(creds))continue;const fo=await transport._fetchJson('GET','/fapi/v1/forceOrders',{params:{symbol:l.symbol,startTime:String(Math.max(0,finite(l.openedAt)-60000)),endTime:String(finite(l.closedAt)+60000),limit:'10'},credentials:creds,signed:true});
         if(Array.isArray(fo)&&fo.length){u.liquidated=true;l.liquidated=/ADL/i.test(String(fo[fo.length-1]?.autoCloseType||''))?'ADL':'LIQUIDATION';try{store.journal('HUMAN_CLOSE_WAS_LIQUIDATION',l.symbol,{id:l.id,kind:l.liquidated});}catch{}}}catch{u.forceChecked=false;}}
-    for(const l of pool){if(did>=2)break;const u=l.userClose;if(!u||u.cf||!u.plan||u.liquidated)continue;const end=finite(u.plan.deadline)||finite(l.closedAt)+24*3600000;if(now<end+10*60000)continue;
+    for(const l of pool){if(did>=2)break;const u=l.userClose||l.exitCheck;if(!u||u.cf||!u.plan||u.liquidated)continue;const end=finite(u.plan.deadline)||finite(l.closedAt)+24*3600000;if(now<end+10*60000)continue;
       try{const st=Math.floor(finite(u.plan.openedAt)/KESIF_M5)*KESIF_M5,k=[];let t=st;
         while(t<end&&k.length<1500){const z=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:l.symbol,interval:'5m',startTime:String(t),endTime:String(end),limit:'1000'}});if(!Array.isArray(z)||!z.length)break;k.push(...z);t=Number(z[z.length-1][0])+KESIF_M5;if(z.length<1000)break;}
         const cf=DESK.counterfactual({plan:u.plan,decisions:[]},k);
         if(cf?.ok){u.cf={planR:cf.ruleR,userR:finite(l.rMultiple),deltaR:Number((finite(l.rMultiple)-cf.ruleR).toFixed(3)),at:now};did=Math.max(did,0)+1;
-          try{store.journal('HUMAN_CLOSE_COUNTERFACTUAL',l.symbol,{id:l.id,rule:l.rule,lane:l.lane||null,by:u.by,userR:u.cf.userR,planR:u.cf.planR,deltaR:u.cf.deltaR,goxel:u.goxel?{against:u.goxel.against,close:u.goxel.close}:null,approx:u.approx===true});}catch{}}
+          try{store.journal(l.userClose?'HUMAN_CLOSE_COUNTERFACTUAL':'EXIT_COUNTERFACTUAL',l.symbol,{id:l.id,rule:l.rule,lane:l.lane||null,by:u.by,userR:u.cf.userR,planR:u.cf.planR,deltaR:u.cf.deltaR,goxel:u.goxel?{against:u.goxel.against,close:u.goxel.close}:null,approx:u.approx===true});}catch{}}
         else u.cfTries=(u.cfTries||0)+1;}catch{u.cfTries=(u.cfTries||0)+1;}
       if((u.cfTries||0)>=5)u.cf={failed:true,at:now};}
     if(did)saveTop3State();return did;}
@@ -7282,6 +7289,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         active:Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').map(a=>({id:a.id,symbol:a.symbol,side:a.side,mode:a.mode,model:a.kesif?.model||null,entryPrice:a.entryPrice,stopPct:a.stopPct,leverage:a.leverage,openedAt:a.openedAt,goxel:a.goxel||null})),
         recent:(s.sozRecent||[]).slice(0,10),goxelLive:s.goxelLiveLast||null,goxelLiveError:s.goxelLiveError||null};})(),
       human:(()=>{try{return KESIF.humanTeacher([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.161
+      closers:(()=>{try{return KESIF.closerBook([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.166
       sight:(()=>{const g=k=>{const l=s.closed.filter(r=>r.sight===k&&Number.isFinite(r.R));return {n:l.length,avgR:l.length?Number((l.reduce((a,r)=>a+r.R,0)/l.length).toFixed(3)):null,hitPct:l.length?Math.round(l.filter(r=>r.R>0).length/l.length*100):null};};return {KOR:g('KOR'),GOREN:g('GOREN')};})(),
       readiness:kesifReadiness(now)};}
   function configureKesif(patch={}){const s=kesifInit(),x=s.settings;

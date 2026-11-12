@@ -25,7 +25,7 @@ test('R2544.161 the plan counterfactual of a hand close is the desk\'s own simul
 
 test('R2544.161 wiring: both lesson books mark hand closes, the plan is kept, the tick computes after the plan\'s time, Office shows it', () => {
   assert.strictEqual((lc.match(/humanCloseMark\(lesson,c,record\); \/\/ R2544\.161/g) || []).length, 2, 'İlk 3 / KEŞİF-SÖZ and ZİRVE-5 lessons');
-  assert.match(lc, /if\(!\/_\(EXTERNAL\|USER\)_CLOSE\$\/\.test\(x\)\|\|!lesson\)return;/);
+  assert.match(lc, /if\(\/_\(EXTERNAL\|USER\)_CLOSE\$\/\.test\(x\)\)\{lesson\.userClose=/, 'R2544.166: hand closes marked, other exits keep Goxel and their own record');
   assert.match(lc, /lesson\.userClose=\{by:\/_USER_CLOSE\$\/\.test\(x\)\?'OFFICE':'BINANCE',plan:DESK\.planOf\(c\),goxel:c\?\.goxel\|\|null/);
   assert.match(lc, /if\(now<end\+10\*60000\)continue;/, 'only after the plan\'s own time');
   assert.match(lc, /DESK\.counterfactual\(\{plan:u\.plan,decisions:\[\]\},k\)/);

@@ -275,6 +275,18 @@ function goxelEntry(side, sc, pk) {
   return { ok:!pv.close, checked:true, against:pv.against, big:pv.big, needBig:pv.needBig, support:pv.support, atLevel:pv.atLevel,
     why:pv.close ? pv.screens.filter(x => x.against).map(x => x.txt).join(' • ') : null, screens:pv.screens.map(x => ({ k:x.key, a:x.against, t:x.txt })) };
 }
+// R2544.166 who closed the real lots and how that compares with the plan on the same trades; Goxel's last look at each close
+function closerBook(lessons) {
+  const by = l => l.userClose ? (l.userClose.liquidated ? 'TASFIYE' : 'SIZ') : l.exitCheck ? l.exitCheck.by : /_LIQUIDATED$|_ADL$/.test(String(l.exitType || '')) ? 'TASFIYE' : 'PLAN';
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l && Number.isFinite(l.rMultiple) && (l.goxel || l.userClose || l.exitCheck));
+  const g = {};
+  for (const l of xs) { const k = by(l), r = g[k] || (g[k] = { by:k, n:0, sumR:0, cfN:0, cfR:0, cfPlan:0, gxN:0, gxClose:0 }); r.n++; r.sumR += l.rMultiple;
+    const cf = (l.userClose || l.exitCheck || {}).cf; if (cf && Number.isFinite(cf.planR)) { r.cfN++; r.cfR += l.rMultiple; r.cfPlan += cf.planR; }
+    if (l.goxel && l.goxel.watching) { r.gxN++; if (l.goxel.close) r.gxClose++; } }
+  const rows = Object.values(g).map(r => ({ by:r.by, n:r.n, avgR:round(r.sumR / r.n), cfN:r.cfN, avgPlanR:r.cfN ? round(r.cfPlan / r.cfN) : null, deltaR:r.cfN ? round((r.cfR - r.cfPlan) / r.cfN) : null, goxelSeen:r.gxN, goxelSaidExit:r.gxClose }))
+    .sort((a, b) => b.n - a.n);
+  return { n:xs.length, rows, minN:8 };
+}
 function goxelBook(records, since = 0) {
   const l = (Array.isArray(records) ? records : []).filter(r => asker(r) && r.gx && r.gx.closed && Number.isFinite(r.gx.R) && Number.isFinite(r.R) && (r.at || 0) >= since).sort((a, b) => (a.at || 0) - (b.at || 0));
   if (!l.length) return { n:0, rows:[], took:0 };
@@ -546,4 +558,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, bestCandidate, liveSignal, sozPlan, humanTeacher, goxelEntry };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, bestCandidate, liveSignal, sozPlan, humanTeacher, goxelEntry, closerBook };
