@@ -3455,8 +3455,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const normalLive=lanes.normal===true&&(lanes.scalp5m||lanes.trade15m||lanes.burst);
     // R2544.67.2 (self-audit): İlk 3 counts only with a sub-strategy on; ZİRVE-5 is a lane of its own (alone it may go LIVE)
     const t3Live=t3.enabled===true&&(t3.rulesVersion!==2||t3.early?.enabled===true||t3.top?.enabled===true),z5=z5Lib.readConfig(root),z5Live=z5.enabled===true&&(z5.longEnabled===true||z5.shortEnabled===true);
-    if(!normalLive&&!t3Live&&!z5Live)return {ok:false,reasons:['LANES_NONE_SELECTED']};
-    const need=Math.max(normalLive?finite(la.config.marginQuote):0,t3Live?(t3.marginQuote??20):0,z5Live?(z5.marginQuote??20):0);
+    const sozC=readSozConfig(),sozLive=sozC.enabled===true&&sozWired(); // R2544.158 KEŞİF-SÖZ is a lane of its own (both CANLI buttons carry it)
+    if(!normalLive&&!t3Live&&!z5Live&&!sozLive)return {ok:false,reasons:['LANES_NONE_SELECTED']};
+    const need=Math.max(normalLive?finite(la.config.marginQuote):0,t3Live?(t3.marginQuote??20):0,z5Live?(z5.marginQuote??20):0,sozLive?sozC.marginQuote:0);
     let acc,rows;
     try{
       acc=await transport._fetchJsonReal('GET','/fapi/v3/account',{credentials:creds,signed:true});
@@ -5965,7 +5966,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const TOP3_HOUR=top3Lib.HOUR;
   const TOP3_WHY={LONG_6OF6:'LONG 6/6 (hacim patlaması + ilk 7)',SHORT_TOP_FADE:'SHORT tepe sonrası (ilk 3 + tepeden ≥%15 aşağı)',
     LONG_EARLY_RETEST:'erken LONG (5 dk kırılım + geri test, hedef üst likidasyon bölgesi)',SHORT_TOP_BREAK:'tepe SHORT (5 dk yeni tepe + yapı kırılımı)'};
-  function top3Why(a){if(a?.lane==='ZIRVE5')return a?.z5zone?.confirmAt?`ZİRVE-5 ${a.side}: ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk ${a.side==='LONG'?'tepe':'dip'} kırılımı alanında hacimli ${a.side==='LONG'?'boğa':'ayı'} mumu (hacim ${finite(a?.z5zone?.confirm?.volMult)??'—'}x), stop alan ${a.side==='LONG'?'altı':'üstü'}, hedef likidite ${finite(a?.targetR)??'—'}R, ${finite(a?.leverage)??'—'}x`:`ZİRVE-5 SHORT (eski kural R2544.64): ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk dip kırılımı bölgesinin dengesinde SHORT, stop bölge üstü, hedef ${finite(a?.targetR)??2}R, ${finite(a?.leverage)??'—'}x`;
+  function top3Why(a){if(a?.lane==='KESIF')return `KEŞİF-SÖZ ${a.side}: ${String(a.kesif?.model||'').replace(/:free$/,'').split('/').pop()} söz sahibi (gölge karne ${a.kesif?.record?.n??'—'} sonuç, ort ${a.kesif?.record?.avgR??'—'}R) • stop %${(finite(a.stopPct)*100).toFixed(2)} • Goxel çıkışı izler`;
+    if(a?.lane==='ZIRVE5')return a?.z5zone?.confirmAt?`ZİRVE-5 ${a.side}: ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk ${a.side==='LONG'?'tepe':'dip'} kırılımı alanında hacimli ${a.side==='LONG'?'boğa':'ayı'} mumu (hacim ${finite(a?.z5zone?.confirm?.volMult)??'—'}x), stop alan ${a.side==='LONG'?'altı':'üstü'}, hedef likidite ${finite(a?.targetR)??'—'}R, ${finite(a?.leverage)??'—'}x`:`ZİRVE-5 SHORT (eski kural R2544.64): ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk dip kırılımı bölgesinin dengesinde SHORT, stop bölge üstü, hedef ${finite(a?.targetR)??2}R, ${finite(a?.leverage)??'—'}x`;
     return `İlk 3 avcısı ${TOP3_WHY[a?.rule]||a?.rule||'—'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
   function top3Gate(cfg){
     if(cfg.enabled!==true)return {ok:false,reason:'TOP3_DISABLED'};
@@ -6068,7 +6070,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // R2544.56 (user 13.10: "testte sınır koyma"): TEST entered every signal. R2544.126 (kullanıcı 04.11, canlıya geçiş: "TEST'e de 2 sınırı"):
       // TEST = CANLI - the slot limit and the 24 h same-signal block hold in both modes, so a TEST result is what LIVE would have done.
       const liveLimits=true;
-      if(liveLimits&&Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit
+      if(liveLimits&&Object.values(top3State.active).filter(a=>!['ZIRVE5','KESIF'].includes(a?.lane)).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';continue;} // R2544.67.2: ZİRVE-5 lots have their own limit
       const key=x.symbol+':'+x.side;if(liveLimits&&clock()-(finite(top3State.lastEntry?.[key])||0)<24*TOP3_HOUR){res.reason='TOP3_SAME_SIGNAL_24H';continue;}
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       let jev=null;
@@ -6163,7 +6165,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     for(const x of out.signals){
       const res={symbol:x.symbol,side:x.side,rule:x.rule};out.entries.push(res);
       // R2544.129 (04.11: EVAA / VVV / JCT showed "sonuç yok"): a full lane is written down, so the funnel and the phone say "lot sınırı dolu"
-      if(Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:{ok:false,reason:'TOP3_SLOTS_FULL',open:Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').map(a=>a.symbol),max:cfg.maxActive}});}catch{}continue;} // R2544.67.2: ZİRVE-5 lots have their own limit; R2544.126: TEST = CANLI
+      if(Object.values(top3State.active).filter(a=>!['ZIRVE5','KESIF'].includes(a?.lane)).length>=cfg.maxActive){res.reason='TOP3_SLOTS_FULL';try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,result:{ok:false,reason:'TOP3_SLOTS_FULL',open:Object.values(top3State.active).filter(a=>a?.lane!=='ZIRVE5').map(a=>a.symbol),max:cfg.maxActive}});}catch{}continue;} // R2544.67.2: ZİRVE-5 lots have their own limit; R2544.126: TEST = CANLI
       const cd=top3Cooldown(x.symbol,x.side,cfg); // R2544.117: a re-entry on the same coin is a warning, not a silent drop (03.11 TA 06:05 "sonuç yok")
       if(burstCurrentPosition(x.symbol)||activeBurstFor(x.symbol)||activeTop3For(x.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===x.symbol)){res.reason='TOP3_SYMBOL_BUSY';continue;}
       if(prem===null){try{const pi=await transport._fetchJson('GET','/fapi/v1/premiumIndex');prem=new Map((Array.isArray(pi)?pi:[]).map(r=>[r.symbol,r]));}catch{prem=new Map();}}
@@ -6259,7 +6261,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // v2: structural stop / zone target from the 5m trigger (plan rejects a stop outside its band or a long right under a zone)
     // R2544.64 ZİRVE-5: the plan comes from the armed 15m zone (stop above the zone, targetR x stop)
     const adv={advisory:sig.advisory===true};
-    const pre=sig.z5?z5Lib.plan(price,sig.zone,sig.z5cfg,adv):sig.v2?(side==='LONG'?top3Lib.earlyLongPlan(price,sig.v2,sig.levels,cfg,adv):top3Lib.topShortPlan(price,sig.v2,sig.levels,cfg,adv)):top3Lib.entryLevels(sig,price);
+    const pre=sig.soz?KESIF.sozPlan(price,sig.soz):sig.z5?z5Lib.plan(price,sig.zone,sig.z5cfg,adv):sig.v2?(side==='LONG'?top3Lib.earlyLongPlan(price,sig.v2,sig.levels,cfg,adv):top3Lib.topShortPlan(price,sig.v2,sig.levels,cfg,adv)):top3Lib.entryLevels(sig,price);
     if(!pre.ok)return {ok:false,reason:pre.reason,stopPct:pre.stopPct??null};
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'TOP3_LEVERAGE_BRACKET_UNAVAILABLE'};}
@@ -6271,7 +6273,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // (stop before liquidation) or maxLeverage (default 20). A wide stop keeps margin and 10x (a bigger dollar loss at the stop).
     // kullanıcı 03.11: "10x kaldıracın altına asla düşmeyecek" -> floor 10x; a wide stop cuts the SIZE, never the leverage. At 10x a stop
     // wider than ~9.5 % would sit behind the liquidation (the stop could never fire) and an exchange max under 10x cannot be used -> no trade.
-    const eqRisk=!!(sig.v2||sig.z5),refStop=eqRisk?refStopPct(sig,cfg):null,maxLev=Math.max(10,finite(cfg.maxLeverage)??20),LEV_FLOOR=10;
+    const eqRisk=!!(sig.v2||sig.z5||sig.soz),refStop=eqRisk?refStopPct(sig,cfg):null,maxLev=Math.max(10,finite(cfg.maxLeverage)??20),LEV_FLOOR=10;
     if(eqRisk&&(exchangeMax<LEV_FLOOR||safeMax<LEV_FLOOR))return {ok:false,reason:exchangeMax<LEV_FLOOR?'TOP3_EXCHANGE_MAX_UNDER_10X':'TOP3_STOP_BEYOND_LIQUIDATION_AT_10X',stopPct:Number(pre.stopPct.toFixed(5)),exchangeMax,safeMax};
     // R2544.131: the committee / JEV choose (ctx.leverageWant, 10..20); no answer -> the lane setting. The stop formula no longer picks the leverage.
     const wantLev=finite(ctx.leverageWant)??finite(cfg.leverage)??LEV_FLOOR;
@@ -6289,7 +6291,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // TEST and LIVE alike (the balance check above reads the TEST wallet / Binance). Only the automatic margin keeps the
     // risk-budget size (riskPct of equity lost at the stop).
     let notional=margin*leverage,riskQuote=null;
-    if((sig.v2||sig.z5)&&cfg.marginQuote!==null)riskQuote=Number((notional*pre.stopPct).toFixed(4));
+    if((sig.v2||sig.z5||sig.soz)&&cfg.marginQuote!==null)riskQuote=Number((notional*pre.stopPct).toFixed(4));
     else if(sig.v2||sig.z5){
       const eq=finite(acct?.equity)??finite(acct?.walletBalance);
       const n=top3Lib.riskSizedNotional({equity:eq,riskPct:cfg.riskPct,stopPct:pre.stopPct,marginCap:margin,leverage});
@@ -6299,11 +6301,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const quantity=burstFloor(notional/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||(f.maxQty&&quantity>f.maxQty))return {ok:false,reason:'TOP3_QUANTITY_INVALID'};
     if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'TOP3_MIN_NOTIONAL_NOT_MET'};
     const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;
-    if(!(sig.z5?z5Gate(z5Lib.readConfig(root)).ok:top3Gate(top3Lib.readTop3Config(root)).ok))return {ok:false,reason:sig.z5?'ZIRVE5_ENTRY_PERMISSION_REVOKED':'TOP3_ENTRY_PERMISSION_REVOKED'};
+    if(!(sig.soz?sozGate(readSozConfig()).ok:sig.z5?z5Gate(z5Lib.readConfig(root)).ok:top3Gate(top3Lib.readTop3Config(root)).ok))return {ok:false,reason:sig.soz?'KESIF_ENTRY_PERMISSION_REVOKED':sig.z5?'ZIRVE5_ENTRY_PERMISSION_REVOKED':'TOP3_ENTRY_PERMISSION_REVOKED'};
     if(burstCurrentPosition(symbol))return {ok:false,reason:'TOP3_SYMBOL_BUSY'};
     const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(leverage)}});
     if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==leverage)return {ok:false,reason:'TOP3_LEVERAGE_REJECTED'};
-    const id=(sig.z5?'z5':'t3')+crypto.randomBytes(7).toString('hex'),startedAt=clock();
+    const id=(sig.z5?'z5':sig.soz?'ks':'t3')+crypto.randomBytes(7).toString('hex'),startedAt=clock();
     let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide:hedge?side:'BOTH',type:'MARKET',quantity:String(quantity),newClientOrderId:('T3E'+id).slice(0,36),newOrderRespType:'RESULT'}});}
     catch(e){return {ok:false,reason:String(e?.message||'TOP3_ENTRY_FAILED').slice(0,120),exchangeError:e?.body||null};}
     const executed=finite(entry?.executedQty);if(!(executed>0))return {ok:false,reason:'TOP3_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
@@ -6314,7 +6316,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let stopRaw,tpRaw;
     // R2544.68 ZİRVE-5 both sides: the zone stop stays; the target (liquidity, at least 1R) is re-measured from the real fill
     let z5Target=null;
-    if(sig.z5){stopRaw=pre.stopPrice;const s=side==='LONG'?1-stopRaw/entryPrice:stopRaw/entryPrice-1;z5Target=s>0?z5Lib.target(entryPrice,stopRaw,finite(sig.zone.liquidity),side==='LONG'):{tpPrice:pre.tpPrice,targetR:pre.targetR};tpRaw=z5Target.tpPrice;}
+    if(sig.soz){const p2=KESIF.sozPlan(entryPrice,sig.soz);stopRaw=p2.stopPrice;tpRaw=p2.tpPrice;}
+    else if(sig.z5){stopRaw=pre.stopPrice;const s=side==='LONG'?1-stopRaw/entryPrice:stopRaw/entryPrice-1;z5Target=s>0?z5Lib.target(entryPrice,stopRaw,finite(sig.zone.liquidity),side==='LONG'):{tpPrice:pre.tpPrice,targetR:pre.targetR};tpRaw=z5Target.tpPrice;}
     else if(sig.v2){
       // the structural stop stays where the 5m structure is; R targets are re-measured from the real fill
       stopRaw=pre.stopPrice;
@@ -6342,10 +6345,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0,
       ...(sig.v2?{rulesVersion:2,tickSize:f.tickSize,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{}),
       ...(sig.z5?{lane:'ZIRVE5',strategy:z5Lib.setupFor(side),tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(z5Target?.targetR),level:finite(sig.zone.equilibrium),top:finite(sig.zone.top),
-        z5zone:{side,top:sig.zone.top,bottom:sig.zone.bottom,equilibrium:sig.zone.equilibrium,liquidity:finite(sig.zone.liquidity),zoneAt:sig.zone.zoneAt,confirmAt:sig.zone.confirmAt??null,confirm:sig.zone.confirm||null}}:{})};
+        z5zone:{side,top:sig.zone.top,bottom:sig.zone.bottom,equilibrium:sig.zone.equilibrium,liquidity:finite(sig.zone.liquidity),zoneAt:sig.zone.zoneAt,confirmAt:sig.zone.confirmAt??null,confirm:sig.zone.confirm||null}}:{}),
+      ...(sig.soz?{lane:'KESIF',strategy:KESIF.SOZ.name,kesif:{model:sig.soz.model,forecastId:sig.soz.forecastId||null,round:sig.soz.round||null,record:sig.soz.record||null},tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(KESIF.sozPlan(entryPrice,sig.soz).targetR)}:{})};
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
-    try{store.journal(sig.z5?'ZIRVE5_ENTRY':'TOP3_ENTRY',symbol,{...a,version:sig.z5?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
+    try{store.journal(sig.z5?'ZIRVE5_ENTRY':sig.soz?'KESIF_SOZ_ENTRY':'TOP3_ENTRY',symbol,{...a,version:sig.z5?z5Lib.ZIRVE5_VERSION:sig.soz?KESIF.KESIF_VERSION:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
     if(top3RecordOpened(a,'ENTRY'))saveTop3State();
     return {ok:true,orderPlaced:true,active:a};
   }
@@ -6559,7 +6563,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // R2544.64: a ZİRVE-5 lot is booked under its own name (lane ZIRVE5, setup ZIRVE5_FIBO_SHORT, 15m) so TEST shows which
     // strategy made or lost money and learns per strategy
     const z5=c.lane==='ZIRVE5',lane=z5?'ZIRVE5':'TOP3_HUNTER',xt=z5?exitType.replace(/^TOP3_/,'ZIRVE5_'):exitType;
-    const setup=z5?(/^ZIRVE5_FIBO_(LONG|SHORT)$/.test(String(c.rule))?c.rule:z5Lib.SETUP_SHORT):'TOP3_'+(c.rule||'RULE'),tf=z5?'15m':c.rulesVersion===2||TOP3_V2_SETUPS.has(setup)?'5m':'1h';
+    const setup=z5?(/^ZIRVE5_FIBO_(LONG|SHORT)$/.test(String(c.rule))?c.rule:z5Lib.SETUP_SHORT):'TOP3_'+(c.rule||'RULE'),tf=z5?'15m':c.rulesVersion===2||c.lane==='KESIF'||TOP3_V2_SETUPS.has(setup)?'5m':'1h';
     const ver=z5?z5Lib.ZIRVE5_VERSION:top3Lib.TOP3_VERSION;
     return {side:c.side,setup,originTF:tf,ownerTF:tf,tradeLane:lane,entryPrice:entry,stopPrice:stop,...(c.beMoved?{finalStopPrice:finite(c.stopPrice)}:{}),takeProfit1:finite(c.tpPrice),quantity:qty,notional,riskQuote,
       initialQuantity:qty,remainingQuantityAtClose:0,riskBasis:'TOP3_ENTRY_STOP',partial:c.part?(c.part.skipped?{skipped:c.part.skipped}:{atR:c.part.atR,share:c.part.share,qty:c.part.qty,price:c.part.price,taken:c.part.done===true,filledAt:c.part.filledAt??null,restToBreakEven:c.part.beDone===true,onExchange:c.part.onExchange===true}):null,stopDistancePct:entry&&stop?Number((Math.abs(entry-stop)/entry*100).toFixed(4)):null,
@@ -6767,7 +6771,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(indBackfillBusy)return null;
     // R2544.83: lots that are open now and lack info (ind failed at the signal close) - once each, with the real entry and stop
     // and the 5m candles / BTC of the entry moment. Info only: orders, stop and target are not touched.
-    const openLots=Object.values(top3State.active||{}).filter(a=>a&&a.lane!=='ZIRVE5'&&top3Lib.CAT_BUCKETS[a.rule]&&!a.entryFeatures?.ind?.ok&&!a.info83Tried&&finite(a.openedAt)>0);
+    const openLots=Object.values(top3State.active||{}).filter(a=>a&&!['ZIRVE5','KESIF'].includes(a.lane)&&top3Lib.CAT_BUCKETS[a.rule]&&!a.entryFeatures?.ind?.ok&&!a.info83Tried&&finite(a.openedAt)>0);
     if(openLots.length){indBackfillBusy=true;try{
       const a=openLots[0];a.info83Tried=true;const M=top3Lib.M5,end=Math.floor((finite(a.openedAt)-8000)/M)*M-1;
       let tail=[],btc=[];try{tail=(await k5Window(a.symbol,end-6*M+1,end)).slice(-6);btc=(await k5Window('BTCUSDT',end-12*M+1,end)).slice(-12);}catch{}
@@ -6996,6 +7000,65 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {ok:true,...s.seed};
   }
   const gxHtf=new Map(); // R2544.155 Goxel PRO: 1h / 4h / 1d candles per coin, at most every 15 min
+  // R2544.158 KEŞİF-SÖZ (kullanıcı 12.11: "bağla; Kurulla CANLI'ya geç de, JEV + Kurul ile CANLI'ya geç de bağlı olsun; eklenen her şey bağlı
+  // olsun"; "goxel çıkışlara karar verecek"): own name, own switch (config/kesif-soz.json; no file = ON), own 2 lots, TEST = CANLI.
+  // A word holder's fresh forecast opens a real lot through the İlk 3 order path (stop / target on the exchange, the desk, the lessons);
+  // the lane follows İlk 3's decision owner (Kurul / JEV + Kurul), so both CANLI buttons carry it. GOXEL PRO decides the exits of EVERY open lot.
+  const SOZ_FILE=()=>path.join(root,'config','kesif-soz.json');
+  function readSozConfig(){let raw={};try{raw=JSON.parse(fs.readFileSync(SOZ_FILE(),'utf8'))||{};}catch{}
+    return {enabled:raw.enabled!==false,goxelExit:raw.goxelExit!==false,marginQuote:finite(raw.marginQuote)>=5?finite(raw.marginQuote):30,
+      leverage:Math.max(10,Math.min(20,finite(raw.leverage)??10)),maxActive:Math.max(1,Math.min(2,finite(raw.maxActive)??2))};}
+  function writeSozConfig(p={}){const c=readSozConfig();for(const k of ['enabled','goxelExit'])if(typeof p[k]==='boolean')c[k]=p[k];
+    if(finite(p.marginQuote)>=5)c.marginQuote=finite(p.marginQuote);if(finite(p.leverage)!==null)c.leverage=Math.max(10,Math.min(20,finite(p.leverage)));
+    try{fs.mkdirSync(path.dirname(SOZ_FILE()),{recursive:true});fs.writeFileSync(SOZ_FILE()+'.tmp',JSON.stringify(c,null,1));fs.renameSync(SOZ_FILE()+'.tmp',SOZ_FILE());}catch{}
+    try{store.journal('KESIF_SOZ_SETTINGS',null,c);}catch{}return c;}
+  // the lane lives where KEŞİF lives: the committee's poll wired and KEŞİF on (the old wiring keeps KEŞİF, İZ and KEŞİF-SÖZ off together)
+  function sozWired(){return typeof deskJudges?.committee?.poll==='function'&&kesifCfg().enabled===true;}
+  function sozGate(c){if(c.enabled!==true)return {ok:false,reason:'KESIF_SOZ_DISABLED'};if(!sozWired())return {ok:false,reason:'KESIF_NOT_WIRED'};if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};return {ok:true,mode:testModeNow()?'TEST':'LIVE'};}
+  function sozNote(s,n){s.sozRecent=[{...n,at:finite(n.at)||clock()},...(s.sozRecent||[])].slice(0,20);return n;}
+  async function sozEnter(sig,s){
+    const scfg=readSozConfig(),g=sozGate(scfg),res={symbol:sig.symbol,side:sig.side,model:sig.model,stopPct:sig.stopPct,targetPct:sig.targetPct,horizonH:sig.horizonH,at:clock()};
+    if(!g.ok)return sozNote(s,{...res,opened:false,reason:g.reason});
+    if(Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').length>=scfg.maxActive)return sozNote(s,{...res,opened:false,reason:'KESIF_SLOTS_FULL'});
+    if(burstCurrentPosition(sig.symbol)||activeBurstFor(sig.symbol)||activeTop3For(sig.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sig.symbol))return sozNote(s,{...res,opened:false,reason:'KESIF_SYMBOL_BUSY'});
+    const t3=top3Lib.readTop3Config(root),cfg={...t3,marginQuote:scfg.marginQuote,leverage:scfg.leverage};
+    let lc={want:scfg.leverage,by:'AYAR'};
+    if(t3.committeeMode===true){try{const px=await paperPrice(sig.symbol),price=finite(sig.side==='LONG'?px?.ask:px?.bid),pl=price>0?KESIF.sozPlan(price,sig):null;
+      if(pl?.ok){const lv=await quickLeverage({symbol:sig.symbol,side:sig.side,rule:'KESIF_SOZ',entry:price,stop:pl.stopPrice,target:pl.tpPrice,context:{why:sig.why,member:sig.model}});lc=leverageChoice(null,lv,cfg);}}catch{}}
+    const opened=await top3Open({ok:true,side:sig.side,rule:'KESIF_SOZ',soz:sig,maxHoldMs:sig.horizonH*TOP3_HOUR,advisory:true},sig.symbol,cfg,null,
+      {signalKind:'FRESH',entryFeatures:{kesif:{model:sig.model,forecastId:sig.forecastId,round:sig.round,record:sig.record,why:sig.why}},leverageWant:lc.want,leverageBy:lc.by});
+    const n=sozNote(s,{...res,opened:opened.ok===true,reason:opened.ok?null:opened.reason||null,leverage:opened.active?.leverage??null,id:opened.active?.id??null});
+    if(opened.ok)entryCommitteeShadow(opened.active).catch(()=>{});else try{store.journal('KESIF_SOZ_BLOCKED',sig.symbol,{...res,result:opened});}catch{}
+    return n;
+  }
+  // GOXEL PRO on the real lots: after each closed 5m candle every open lot is read from its real fill; "take the money" = a desk EXIT
+  // (reduce-only, carried out at once like the desk's own; the stop / target orders are cancelled after the close)
+  async function goxelLive(now,s){
+    const seen=[];let ordered=0;
+    for(const a of Object.values(top3State.active||{})){
+      if(!a||a.deskOrder||!(finite(a.entryPrice)>0)||!(finite(a.stopPct)>0)||!['LONG','SHORT'].includes(a.side))continue;
+      const entryAt=Math.floor(finite(a.openedAt)/KESIF_M5)*KESIF_M5,rec={side:a.side,stopPct:finite(a.stopPct)*100,entryAt,horizonH:999,entryPrice:finite(a.entryPrice),done:false};
+      const g=async(p,params)=>{try{return await transport._fetchJson('GET',p,{params});}catch{return null;}};
+      const k=await g('/fapi/v1/klines',{symbol:a.symbol,interval:'5m',startTime:String(entryAt),limit:'400'});if(!Array.isArray(k))continue;
+      const v0=KESIF.goxelLook(rec,k,null,now);if(!v0)continue;
+      if(v0.netR<KESIF.GOXEL.minNetR){a.goxel={at:now,curR:v0.curR,peakR:v0.peakR,netR:v0.netR,watching:false};seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',curR:v0.curR,netR:v0.netR,close:false});continue;}
+      const [tk,oi,dp]=await Promise.all([g('/futures/data/takerlongshortRatio',{symbol:a.symbol,period:'5m',limit:'2'}),g('/futures/data/openInterestHist',{symbol:a.symbol,period:'5m',limit:'4'}),g('/fapi/v1/depth',{symbol:a.symbol,limit:'500'})]);
+      const lastC=TB.rows(k).filter(x=>x.t+KESIF_M5<=now).slice(-1)[0]?.c,oiv=Array.isArray(oi)?oi.map(x=>finite(x?.sumOpenInterestValue)).filter(x=>x>0):[];
+      const sc={taker:Array.isArray(tk)&&tk.length?finite(tk[tk.length-1]?.buySellRatio):null,imb1:lastC?IZ.book(dp,lastC)?.imb1??null:null,oiChgPct:oiv.length>=4?Number(((oiv[oiv.length-1]/oiv[0]-1)*100).toFixed(2)):null};
+      let pk=null;try{const end=now-1,kl=async(i,n)=>{const z=await g('/fapi/v1/klines',{symbol:a.symbol,interval:i,endTime:String(end),limit:String(n)});return Array.isArray(z)?z:[];};
+        const hc=gxHtf.get(a.symbol);let htf=hc&&now-hc.at<15*60000?hc.k:null;if(!htf){htf={h1:await kl('1h',TB.FETCH.h1),h4:await kl('4h',TB.FETCH.h4),d1:await kl('1d',TB.FETCH.d1)};gxHtf.set(a.symbol,{at:now,k:htf});}
+        pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});}catch{pk=null;}
+      const v=KESIF.goxelLook(rec,k,sc,now),pv=v&&pk?KESIF.goxelPro(rec,v,pk):null;if(!pv)continue;
+      a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,needBig:pv.needBig,close:pv.close,why:pv.why,watching:true};
+      seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',curR:pv.curR,netR:pv.netR,against:pv.against,big:pv.big,close:pv.close,why:pv.why});
+      if(pv.close){a.deskOrder={action:'EXIT',stopPrice:null,at:now,by:'GOXEL'};ordered++;
+        const d=a.desk||(a.desk={decisions:[]});(d.decisions||(d.decisions=[])).push({at:now,mark:lastC??null,R:pv.curR,action:'EXIT',judge:'GOXEL',model:'Goxel PRO',reasonTr:String(pv.why||'').slice(0,240),shadow:false,authority:true});
+        try{store.journal('GOXEL_LIVE_EXIT',a.symbol,{id:a.id,lane:a.lane||'ILK3',mode:a.mode||null,side:a.side,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,why:pv.why});}catch{}}
+    }
+    s.goxelLiveLast={at:now,lots:seen.slice(0,8),ordered};
+    if(ordered){saveTop3State();kickDeskOrders();}else if(seen.length)saveTop3State();
+    return ordered;
+  }
   const kesifSlim=r=>({id:r.id,model:r.model,symbol:r.symbol,side:r.side,at:r.at,closedAt:r.closedAt??null,done:true,outcome:r.outcome,R:r.R??null,role:r.role??null,sight:r.sight??null,mirrorOf:r.mirrorOf??null,round:r.round??null,stopPct:r.stopPct??null,targetPct:r.targetPct??null,horizonH:r.horizonH??null,conf:r.conf??null,mfeR:r.mfeR??null,maeR:r.maeR??null,hx:r.hx??null,gx:r.gx??null,gp:r.gp??null,why:String(r.why||'').slice(0,160)});
   async function kesifTick(){
     const cfg=kesifCfg();if(!cfg.enabled||kesifBusy)return null;kesifBusy=true;
@@ -7130,6 +7193,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           }
         }
       }
+      // R2544.158 KEŞİF-SÖZ: a word holder's fresh forecast becomes a real trade at once; GOXEL PRO decides the exits of every open lot
+      {const fresh=s.open.filter(r=>!r.done&&!r.sozTried&&finite(r.at)>=now-10*60000&&['LONG','SHORT'].includes(r.side));
+        const kr=s.karne||KESIF.karne(s.closed,{now});
+        for(const r of fresh){r.sozTried=true;changed=true;const sig=KESIF.liveSignal(r,kr);if(!sig)continue;
+          try{const n=await sozEnter(sig,s);out.soz=[...(out.soz||[]),n];}catch(e){sozNote(s,{...sig,opened:false,reason:String(e?.message||e).slice(0,80)});}}}
+      if(readSozConfig().goxelExit&&sozWired()&&Math.floor(now/KESIF_M5)!==Math.floor((finite(s.lastGoxelLiveAt)||0)/KESIF_M5)){s.lastGoxelLiveAt=now;changed=true;
+        try{out.goxelLive=await goxelLive(now,s);s.goxelLiveError=null;}catch(e){s.goxelLiveError=String(e?.message||e).slice(0,120);}}
       if(changed)saveKesif();
       kesifLastError=null;return out;
     }catch(e){kesifLastError=String(e?.message||e).slice(0,160);return null;}
@@ -7146,12 +7216,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       learning:KESIF.learningCheck(s.brainCheck),learning2:KESIF.learningCheck(s.brainCheck,'p2'),human:KESIF.humanBook(s.closed),goxel:{since:finite(s.goxelSince)||null,proSince:finite(s.goxelProSince)||null,rules:KESIF.GOXEL,proRules:KESIF.GOXEL_PRO,book:KESIF.goxelBook(s.closed,finite(s.goxelSince)||0),last:s.goxelLast||null},brain2:{n:(s.matrix?._total?.UP||0)+(s.matrix?._total?.DOWN||0),minN:KESIF.B2.minLabels,top:KESIF.brain2Top(s.matrix,10)},
       herd:(()=>{const h=s.rounds.slice(0,20).map(r=>r.herd).filter(Number.isFinite);return h.length?{avg:Number((h.reduce((a,b)=>a+b,0)/h.length).toFixed(2)),n:h.length}:null;})(),
       roles:KESIF.ROLES.map(r=>({key:r.key,tr:r.tr})),
+      soz:(()=>{const c=readSozConfig();return {...c,name:KESIF.SOZ.name,holders:[...KESIF.wordHolders(s.karne||KESIF.karne(s.closed,{now}))],minWord:KESIF.MIN_WORD,
+        active:Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').map(a=>({id:a.id,symbol:a.symbol,side:a.side,mode:a.mode,model:a.kesif?.model||null,entryPrice:a.entryPrice,stopPct:a.stopPct,leverage:a.leverage,openedAt:a.openedAt,goxel:a.goxel||null})),
+        recent:(s.sozRecent||[]).slice(0,10),goxelLive:s.goxelLiveLast||null,goxelLiveError:s.goxelLiveError||null};})(),
       sight:(()=>{const g=k=>{const l=s.closed.filter(r=>r.sight===k&&Number.isFinite(r.R));return {n:l.length,avgR:l.length?Number((l.reduce((a,r)=>a+r.R,0)/l.length).toFixed(3)):null,hitPct:l.length?Math.round(l.filter(r=>r.R>0).length/l.length*100):null};};return {KOR:g('KOR'),GOREN:g('GOREN')};})(),
       readiness:kesifReadiness(now)};}
   function configureKesif(patch={}){const s=kesifInit(),x=s.settings;
     if(typeof patch.enabled==='boolean')x.enabled=patch.enabled;
     if(finite(patch.cadenceMin)!==null)x.cadenceMin=Math.max(5,Math.min(120,finite(patch.cadenceMin)));
     if(patch.providers==='ALL'||patch.providers==='WIDE')x.providers=patch.providers;
+    if(patch.soz&&typeof patch.soz==='object')writeSozConfig(patch.soz); // R2544.158 KEŞİF-SÖZ / Goxel çıkış switches
     saveKesif();try{store.journal('KESIF_SETTINGS',null,{...kesifCfg(),source:String(patch.source||'').slice(0,40)});}catch{}
     return {ok:true,...kesifCfg()};}
   async function entryCommitteeShadow(lot){
@@ -7581,7 +7655,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
       lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
-      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,deskInfo:deskView(a),entryCommittee:entryCommitteeView(a),indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      active:Object.values(top3State.active||{}).filter(a=>!['ZIRVE5','KESIF'].includes(a?.lane)).map(a=>{const p=open.get(a.symbol);return {...a,deskInfo:deskView(a),entryCommittee:entryCommitteeView(a),indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
@@ -7666,7 +7740,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
   return { kesifStatus, configureKesif, userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
-    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState,
+    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(),
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };

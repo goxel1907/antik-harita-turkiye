@@ -138,7 +138,8 @@ function goxelLook(rec, candles, screens, now) {
   if (!rec || rec.done || rec.side === 'NONE' || !(rec.stopPct > 0)) return null;
   const k = TB.rows(candles).filter(x => x.t >= rec.entryAt && x.t + M5 <= now).sort((a, b) => a.t - b.t);
   if (k.length < 2 || k[0].t !== rec.entryAt || now >= rec.entryAt + rec.horizonH * HOUR) return null;
-  const L = rec.side === 'LONG', e = k[0].o, s = rec.stopPct / 100, fav = p => (L ? p - e : e - p) / e / s, last = k[k.length - 1], prev = k[k.length - 2];
+  // R2544.158: a real lot is read from its real fill (rec.entryPrice); a forecast from the open of its entry candle
+  const L = rec.side === 'LONG', e = finite(rec.entryPrice) > 0 ? finite(rec.entryPrice) : k[0].o, s = rec.stopPct / 100, fav = p => (L ? p - e : e - p) / e / s, last = k[k.length - 1], prev = k[k.length - 2];
   const curR = fav(last.c), peakR = Math.max(...k.map(x => fav(L ? x.h : x.l))), netR = curR - COST_PCT / rec.stopPct;
   const sc = screens || {}, out = [];
   { const top = L ? last.h >= Math.max(...k.map(x => x.h)) : last.l <= Math.min(...k.map(x => x.l)), rng = last.h - last.l;

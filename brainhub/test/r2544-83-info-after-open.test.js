@@ -19,7 +19,7 @@ test('R2544.83 info after open: computed from the REAL entry and first stop, onl
 });
 test('R2544.83 backfill: open lots once (entry-time candles and BTC), then lessons whose info FAILED get one more pass',()=>{
   const b=fnBody('lessonIndBackfillTick');
-  assert.match(b,/a\.lane!=='ZIRVE5'&&top3Lib\.CAT_BUCKETS\[a\.rule\]&&!a\.entryFeatures\?\.ind\?\.ok&&!a\.info83Tried/,'only v2 rules (the ones with info tables)');
+  assert.match(b,/!\['ZIRVE5','KESIF'\]\.includes\(a\.lane\)&&top3Lib\.CAT_BUCKETS\[a\.rule\]&&!a\.entryFeatures\?\.ind\?\.ok&&!a\.info83Tried/,'only v2 rules (the ones with info tables)');
   assert.match(b,/a\.info83Tried=true/,'each open lot only once');
   assert.match(b,/k5Window\(a\.symbol,end-6\*M\+1,end\)/);assert.match(b,/k5Window\('BTCUSDT',end-12\*M\+1,end\)/);
   assert.match(b,/if\(st\.done&&st\.v!=='R2544\.83'\)\{st\.done=false;st\.v='R2544\.83';\}/);

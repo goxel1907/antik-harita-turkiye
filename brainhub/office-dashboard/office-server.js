@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.139-R2544.157-JEV-Brain';
+const OFFICE_VERSION = '2.5.140-R2544.158-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -97,7 +97,7 @@ const CONTROL_ROUTES = { '/api/control/close': '/live/position/close', '/api/con
 // stay with the user's existing config).
 const CONTROL_BODY = {
   // R2544.148 KEŞİF (gölge): only the on / off switch, the cadence and the provider set
-  '/api/control/kesif': b => ({ ...(typeof b.enabled === 'boolean' ? { enabled: b.enabled } : {}), ...(Number.isFinite(Number(b.cadenceMin)) && b.cadenceMin != null ? { cadenceMin: Number(b.cadenceMin) } : {}), ...(b.providers === 'ALL' || b.providers === 'WIDE' ? { providers: b.providers } : {}), source: 'OFFICE' }),
+  '/api/control/kesif': b => ({ ...(typeof b.enabled === 'boolean' ? { enabled: b.enabled } : {}), ...(Number.isFinite(Number(b.cadenceMin)) && b.cadenceMin != null ? { cadenceMin: Number(b.cadenceMin) } : {}), ...(b.providers === 'ALL' || b.providers === 'WIDE' ? { providers: b.providers } : {}), ...(b.soz && typeof b.soz === 'object' ? { soz: { ...(typeof b.soz.enabled === 'boolean' ? { enabled: b.soz.enabled } : {}), ...(typeof b.soz.goxelExit === 'boolean' ? { goxelExit: b.soz.goxelExit } : {}) } } : {}), source: 'OFFICE' }),
   '/api/control/mode': b => {
     const out = { mode: String(b.mode || '').toUpperCase(), confirm: String(b.confirm || '').toUpperCase() };
     const bal = Number(b.testBalance);
