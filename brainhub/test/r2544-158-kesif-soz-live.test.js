@@ -9,6 +9,7 @@ const FAKE={apiKey:'fake-test-key-r158',apiSecret:'fake-test-secret-r158'}; // m
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
 function fixture({soz=null}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r158-'));fs.mkdirSync(path.join(root,'config'));
+  fs.mkdirSync(path.join(root,'data'),{recursive:true});fs.writeFileSync(path.join(root,'data','top3-ranks.json'),JSON.stringify({hours:{[String(Date.UTC(2026,10,12,0))]:{KSUSDT:1}}})); // R2544.167: KSUSDT is İlk 3 #1
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
   fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:false,committeeMode:true}));

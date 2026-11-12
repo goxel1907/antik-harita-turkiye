@@ -71,6 +71,7 @@ const {writeTradingMode}=require('../binance-live-transport');
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
 test('R2544.149 a KEŞİF tick: every candidate coin is read, AKIS fires on the coin with new long money, the models see the traces, the brain gets iz formations; only GET', async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r149-'));fs.mkdirSync(path.join(root,'config'));
+  fs.mkdirSync(path.join(root,'data'),{recursive:true});fs.writeFileSync(path.join(root,'data','top3-ranks.json'),JSON.stringify({hours:{[String(Date.UTC(2026,10,12,0))]:{UPUSDT:1,DOWNUSDT:2}}})); // R2544.167: KEŞİF reads only İlk 3 + ZİRVE-5
   fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:false}));fs.writeFileSync(path.join(root,'config','zirve5.json'),JSON.stringify({enabled:false}));
   writeTradingMode(root,{mode:'TEST',changedAt:'2026-11-12T08:00:00.000Z',testStartedAt:null,testAutoRun:false});
   const st={now:NOW,calls:[],asked:[]};

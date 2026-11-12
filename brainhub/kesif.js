@@ -340,9 +340,13 @@ function karne(records, { now = Date.now() } = {}) {
 }
 // which coin does the desk look at next? Not one idea: the list mixes the day's strongest, weakest and busiest coins; the one looked at
 // longest ago goes first. tickers = /fapi/v1/ticker/24hr rows.
-function candidates(tickers, { minQuote = 20e6, now = Date.now() } = {}) {
-  const t = (Array.isArray(tickers) ? tickers : []).map(x => ({ symbol:String(x.symbol || ''), ch:finite(x.priceChangePercent), q:finite(x.quoteVolume), close:finite(x.closeTime) }))
-    .filter(x => /^[A-Z0-9]+USDT$/.test(x.symbol) && x.ch !== null && x.q >= minQuote && (x.close === null || now - x.close < 15 * 60000));
+// R2544.167 (kullanıcı 13.11: "btc ve başka sıralamalarda olan coinlere işlem açıyor ... tarayacağı coin sayısı belli ilk 3 ve ilk 5"):
+// with `only` (Map symbol -> why) KEŞİF reads ONLY those coins - the İlk 3 and ZİRVE-5 lists; no volume list, no BTC, no stock tokens
+function candidates(tickers, { minQuote = 20e6, now = Date.now(), only = null } = {}) {
+  const all = (Array.isArray(tickers) ? tickers : []).map(x => ({ symbol:String(x.symbol || ''), ch:finite(x.priceChangePercent), q:finite(x.quoteVolume), close:finite(x.closeTime) }))
+    .filter(x => /^[A-Z0-9]+USDT$/.test(x.symbol) && x.ch !== null && (x.close === null || now - x.close < 15 * 60000));
+  if (only instanceof Map) return all.filter(x => only.has(x.symbol)).map(x => ({ symbol:x.symbol, change24hPct:x.ch, why:only.get(x.symbol) }));
+  const t = all.filter(x => x.q >= minQuote);
   const pick = (arr, n, why) => arr.slice(0, n).map(x => ({ symbol:x.symbol, change24hPct:x.ch, why }));
   const up = [...t].sort((a, b) => b.ch - a.ch), down = [...t].sort((a, b) => a.ch - b.ch), busy = [...t].sort((a, b) => b.q - a.q);
   const out = [], seen = new Set();
