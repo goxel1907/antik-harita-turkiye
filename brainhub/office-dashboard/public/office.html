@@ -1238,7 +1238,7 @@ function renderWallet(s){
     if(mEl&&!mEl.dataset.dirty&&document.activeElement!==mEl)mEl.value=wcNum(m)??'';if(lEl&&!lEl.dataset.dirty&&document.activeElement!==lEl)lEl.value=wcNum(l)??'';
     if(now){const auto=wcNum(m)===null,hi=wcNum(l)>20;now.textContent=`şu an: ${auto?'riske göre (marj boş!)':wcUsd(m)} × ${wcNum(l)??'—'}x${live?' • CANLI':' • TEST'}${hi?' • ⚠ 20x kuralının üstünde':''}`;now.className='wc-sz-now'+(auto||hi?' warn':'');}}
   // açık pozisyonlar (İlk 3 + ZİRVE-5), dolar cinsinden
-  const seen=new Set(),lots=[...(t.active||[]).map(a=>({...a,_lane:'İlk 3'})),...(z.active||[]).map(a=>({...a,_lane:'ZİRVE-5'}))].filter(a=>a&&a.id&&!seen.has(a.id)&&seen.add(a.id));
+  const seen=new Set(),lots=[...(t.active||[]).map(a=>({...a,_lane:a.lane==='KESIF'?'KEŞİF-SÖZ':'İlk 3'})),...(z.active||[]).map(a=>({...a,_lane:'ZİRVE-5'}))].filter(a=>a&&a.id&&!seen.has(a.id)&&seen.add(a.id));
   for(const id of Object.keys(WC.closing))if(!seen.has(id)||Date.now()-WC.closing[id]>90000)delete WC.closing[id];
   const pos=document.getElementById('wcPos');if(!pos)return;
   if(!lots.length){pos.innerHTML=`<div class="wc-empty">Açık pozisyon yok.${wcNum(acc.openPositions)>0?` Binance’te bu kartın dışında ${esc(acc.openPositions)} pozisyon görünüyor (normal sistem / elle açılan).`:''}</div>`;return;}
@@ -1757,7 +1757,8 @@ function gxCandles(f,x,y,w,h){const k=(f&&f.spark)||[];if(k.length<2)return `<te
 function gxBars(x,y,share,l1,l2){const w=128,a=Math.max(0,Math.min(1,share));return `<rect x="${x}" y="${y}" width="${w}" height="9" rx="2" fill="#f43f5e" opacity=".85"/><rect x="${x}" y="${y}" width="${(w*a).toFixed(1)}" height="9" rx="2" fill="#34d399"/>`
   +`<text x="${x}" y="${y+21}" class="gx-mid">${l1}</text><text x="${x+w}" y="${y+21}" class="gx-mid" text-anchor="end">${l2}</text>`;}
 function renderGoxel(k){const el=document.getElementById('gxCard');if(!el)return;const g=k&&k.goxel;if(!g){el.innerHTML='';return;}
-  const w=(g.last&&g.last.watch)||[],f=w.find(x=>x.spark&&x.spark.length)||w[0]||null,sc=key=>f&&f.screens?f.screens.find(x=>x.key===key)||null:null;
+  const real=((k.soz&&k.soz.goxelLive&&k.soz.goxelLive.lots)||[]).filter(x=>x&&x.real&&x.screens&&x.pro);
+  const w=(g.last&&g.last.watch)||[],f=real[0]||w.find(x=>x.spark&&x.spark.length)||w[0]||null,sc=key=>f&&f.screens?f.screens.find(x=>x.key===key)||null:null;
   const b=g.book||{n:0,rows:[]},P=(b.rows||[]).find(r=>r.key==='PLAN'),G=(b.rows||[]).find(r=>r.key==='GOXEL');
   const tk=sc('AKIS'),bk=sc('DEFTER'),oi=sc('TUREV');
   const rw=(f&&f.raw)||{},num=v=>v===null||v===undefined?NaN:Number(v),tkv=num(rw.taker),bkv=num(rw.imb1),oiv=num(rw.oi);
@@ -1775,7 +1776,7 @@ function renderGoxel(k){const el=document.getElementById('gxCard');if(!el)return
   const kar={key:'KARNE',against:b.n&&G&&P?(G.avgR<P.avgR):null,txt:''};
   const allRec=[...((b.pro&&b.pro.recent)||[]),...(b.recent||[]).map(x=>({...x,who:'GOXEL'}))].sort((p,q)=>Number(q.at)-Number(p.at));
   const r0=allRec[0],fresh=r0&&Date.now()-Number(r0.at)<20*60000;
-  const say=fresh?[`Kârı aldım ${gxR(r0.R)}${r0.who==='PRO'?' (PRO)':''}`,`${String(r0.symbol).replace(/USDT$/,'')} ${r0.side}`]:f?[`İzliyorum: ${String(f.symbol).replace(/USDT$/,'')} ${f.side}`,f.pro?`aleyhte ${f.pro.against}/9 • büyük ${f.pro.big}/${f.pro.needBig}`:`aleyhte ${f.against}/5 ekran`]:['Kârda pozisyon yok','ekranları izliyorum'];
+  const say=fresh?[`Kârı aldım ${gxR(r0.R)}${r0.who==='PRO'?' (PRO)':''}`,`${String(r0.symbol).replace(/USDT$/,'')} ${r0.side}`]:f?[`İzliyorum: ${String(f.symbol).replace(/USDT$/,'')} ${f.side}${f.real?' (GERÇEK)':''}`,f.pro?`aleyhte ${f.pro.against}/9 • büyük ${f.pro.big}/${f.pro.needBig}`:`aleyhte ${f.against}/5 ekran`]:['Kârda pozisyon yok','ekranları izliyorum'];
   const ps=key=>f&&f.pro?f.pro.screens.find(x=>x.key===key)||null:null;
   const top=`${gxSmall(0,10,6,'TREND 15dk·1sa·4sa',ps('TREND'))}${gxSmall(1,121,6,'SEVİYE fibo·likidite',ps('SEVIYE'))}${gxSmall(2,232,6,'FORMASYON',ps('FORMASYON'))}${gxSmall(3,343,6,'TESTERE / RANGE',ps('TESTERE'))}`;
   const svg=`<svg viewBox="0 0 460 392" role="img" aria-label="Goxel dokuz ekranın başında işlemi izliyor"><defs>

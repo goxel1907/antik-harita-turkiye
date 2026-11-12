@@ -61,7 +61,7 @@ test('R2544.158 a word holder\'s fresh forecast opens a real lot on its own lane
   assert.equal(st.active.length,1);const a=st.active[0];
   assert.equal(a.model,'m/word');assert.equal(a.side,'LONG');assert.ok(String(a.id).startsWith('ks'));assert.ok(a.leverage>=10&&a.leverage<=20);
   assert.ok(Math.abs(a.stopPct-0.02)<0.0005,'the member\'s own 2 % stop from the fill: '+a.stopPct);
-  assert.equal(lots.length,0,'the İlk 3 list does not show (or count) the KEŞİF-SÖZ lot');
+  assert.deepEqual(lots.map(x=>x.lane),['KESIF'],'R2544.160: the lot is on the status list (Office shows it) with its own lane; the İlk 3 slot count leaves it out');
   assert.equal(f.kinds('KESIF_SOZ_ENTRY').length,1);assert.equal(f.kinds('KESIF_SOZ_ENTRY')[0].p.lane,'KESIF');
   assert.ok(st.holders.includes('m/word')&&!st.holders.includes('m/candidate'));
   assert.equal(s.sozRecent.length,1,'the candidate never reached the order path');

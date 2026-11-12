@@ -7054,7 +7054,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});}catch{pk=null;}
       const v=KESIF.goxelLook(rec,k,sc,now),pv=v&&pk?KESIF.goxelPro(rec,v,pk):null;if(!pv)continue;
       a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,needBig:pv.needBig,close:pv.close,why:pv.why,watching:true};
-      seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',curR:pv.curR,netR:pv.netR,against:pv.against,big:pv.big,close:pv.close,why:pv.why});
+      // R2544.160: the drawing in Office follows a REAL lot first -> its screens, candles and the big screens travel with it
+      seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',real:true,model:a.kesif?.model||a.rule||null,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,close:pv.close,why:pv.why,
+        screens:pv.screens.slice(0,5),raw:pv.raw||null,pro:{screens:pv.screens.slice(5),against:pv.against,big:pv.big,needBig:pv.needBig,need:pv.need,support:pv.support,atLevel:pv.atLevel,close:pv.close},
+        spark:TB.rows(k).filter(c=>c.t>=entryAt-6*KESIF_M5&&c.t+KESIF_M5<=now).slice(-36).map(c=>[c.o,c.h,c.l,c.c]),entry:finite(a.entryPrice)});
       if(pv.close){a.deskOrder={action:'EXIT',stopPrice:null,at:now,by:'GOXEL'};ordered++;
         const d=a.desk||(a.desk={decisions:[]});(d.decisions||(d.decisions=[])).push({at:now,mark:lastC??null,R:pv.curR,action:'EXIT',judge:'GOXEL',model:'Goxel PRO',reasonTr:String(pv.why||'').slice(0,240),shadow:false,authority:true});
         try{store.journal('GOXEL_LIVE_EXIT',a.symbol,{id:a.id,lane:a.lane||'ILK3',mode:a.mode||null,side:a.side,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,why:pv.why});}catch{}}
@@ -7659,7 +7662,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       rules:{rulesVersion:cfg.rulesVersion,riskPct:cfg.riskPct,leverage:cfg.leverage,maxActive:cfg.maxActive,marginQuote:cfg.marginQuote,long:cfg.long,short:cfg.short,early:cfg.early,top:cfg.top},
       lastScan5:top3State.lastScan5||null,nextScan5At:new Date(Math.floor(now/top3Lib.M5)*top3Lib.M5+top3Lib.M5+8000).toISOString(),
       gate:gate.ok?'OPEN':gate.reason,running:gate.ok===true,jevAvailable:typeof top3Judge==='function',
-      active:Object.values(top3State.active||{}).filter(a=>!['ZIRVE5','KESIF'].includes(a?.lane)).map(a=>{const p=open.get(a.symbol);return {...a,deskInfo:deskView(a),entryCommittee:entryCommitteeView(a),indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
+      // R2544.160 (12.11 17:41 CANLI: the first KEŞİF-SÖZ lot NVDA SHORT was missing from Office - 'kartın dışında 1 pozisyon'): the status list
+      // shows the KEŞİF-SÖZ lots too (with their lane); the İlk 3 slot counts still leave them out
+      active:Object.values(top3State.active||{}).filter(a=>a?.lane!=='ZIRVE5').map(a=>{const p=open.get(a.symbol);return {...a,deskInfo:deskView(a),entryCommittee:entryCommitteeView(a),indInfo:a.entryFeatures?.ind?.ok?{text:IND.infoText(a.entryFeatures.ind)}:null,experienceInfo:a.entryFeatures?.experience?{verdict:a.entryFeatures.experience.verdict,text:a.entryFeatures.experience.text+(a.entryFeatures.similar?.text?' • '+a.entryFeatures.similar.text:'')}:null,markPrice:finite(p?.markPrice)??finite(a.lastMark),unrealizedPnl:finite(p?.unrealizedPnl),remainingMin:Math.max(0,Math.round((a.deadline-now)/60000)),why:top3Why(a)};}),
       lastScan:top3State.lastScan||null,recentSignals:(top3State.recentSignals||[]).slice(0,12),recentCloses:closes.slice(0,12).map(p=>({symbol:p.symbol,side:p.side,setup:p.setup,exitType:p.exitType,netPnl:finite(p.netPnl),rMultiple:finite(p.rMultiple),closedAt:p.closedAt,tradingMode:p.tradingMode||'LIVE'})),
       results:{test:sum(measured.filter(p=>p.tradingMode==='TEST')),live:sum(measured.filter(p=>p.tradingMode!=='TEST'))},
       testWindow:top3WindowView(now),
