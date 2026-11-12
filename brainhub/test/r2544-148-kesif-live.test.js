@@ -130,10 +130,14 @@ test('R2544.154 GOXEL in the core: after each closed 5m candle he reads the scre
   assert.ok(f.kinds('GOXEL_EXIT').length>=1);
   assert.ok(f.state.calls.some(c=>c.p==='/futures/data/takerlongshortRatio')&&f.state.calls.some(c=>c.p==='/fapi/v1/depth'),'he looked at the takers and the book');
   assert.ok(!f.state.calls.some(c=>c.m!=='GET'),'only public GET requests');
-  const st=f.controller.kesifStatus().goxel;assert.ok(st.since<=f.T0+20000);assert.ok(st.last.watch.length>=1&&st.last.watch[0].screens.length===5&&st.last.watch[0].spark.length>=3);
+  const st=f.controller.kesifStatus().goxel;assert.ok(st.since<=f.T0+20000);assert.ok(st.proSince<=f.T0+20000);
+  // R2544.155 GOXEL PRO read the big timeframes of the coin too (1h / 4h / 1d candles) and shows his four extra screens
+  assert.ok(f.state.calls.some(c=>c.p==='/fapi/v1/klines'&&c.q.interval==='4h'&&c.q.endTime),'he looked at the 4h chart');
+  assert.ok(st.last.watch.some(w=>w.pro&&w.pro.screens.length===4&&w.pro.screens.map(x=>x.key).join()==='TREND,SEVIYE,FORMASYON,TESTERE'));assert.ok(st.last.watch.length>=1&&st.last.watch[0].screens.length===5&&st.last.watch[0].spark.length>=3);
   // then the price runs to the target: the plan wins +2R, Goxel kept his +0,38R -> the book shows he cut a winner
   f.state.future.push(c(3,100.9,104.2,100.8,104));f.state.now=E+4*M5+5000;await f.controller._testKesifTick();
   const b=f.controller.kesifStatus().goxel.book,cl=f.controller._testKesifState().closed.find(r=>r.model==='vision/a');
   assert.deepEqual([cl.outcome,cl.gx.by,cl.gx.R],['TARGET','GOXEL',+(0.45-0.14/2).toFixed(3)]);
   assert.ok(b.n>=1&&b.took>=1&&b.cutWinner>=1);assert.deepEqual(b.rows.map(r=>r.key),['PLAN','GOXEL']);
+  assert.ok(['PRO','PLAN'].includes(cl.gp.by)&&Number.isFinite(cl.gp.R),'PRO has his own result on the same forecast');assert.deepEqual(b.pro.rows.map(r=>r.key),['PLAN','GOXEL','PRO']);
 });

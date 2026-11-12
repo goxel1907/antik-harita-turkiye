@@ -156,11 +156,61 @@ function goxelLook(rec, candles, screens, now) {
   return { at:now, curR:round(curR, 2), peakR:round(peakR, 2), netR:round(netR, 3), against, screens:out, close, raw:{ taker:Number.isFinite(sc.taker) ? sc.taker : null, imb1:Number.isFinite(sc.imb1) ? sc.imb1 : null, oi:Number.isFinite(sc.oiChgPct) ? sc.oiChgPct : null }, R:close ? round(netR) : null,
     why:close ? out.filter(x => x.against).map(x => x.txt).join(' • ') : null };
 }
+// R2544.155 GOXEL PRO (kullanıcı 12.11: "sadece 5 dk zaman dilimini okuyor, 15m 1h 4h yok; pro trader günlük işlemleri, fibo, likit, grafik
+// formasyonları, trend çizgileri, testere, range ... ona göre belirler"). The same desk, four more screens read from the code-computed chart
+// reading of 15m / 1h / 4h / 1d (the screen the models get): TREND (a fresh break or change of character against him on 15m / 1h), SEVIYE (price
+// within reach of a level a pro sells into / buys from: day / week / month and 24 h highs and lows, 1h / 4h liquidity pools and equal highs / lows,
+// Fibonacci 0.618 and 1.272, active trend lines, open FVG edges, volume profile POC and value area), FORMASYON (a confirmed counter pattern on
+// 15m / 1h), TESTERE (15m / 1h in a range and price at its edge, inside it). The 5m screens alone never move him: he needs a reason on the
+// big screens (one; two when 1h and 4h carry him and no level is near) and three screens against in all. Thresholds fixed before any outcome.
+const GOXEL_PRO = { levelMinPct:0.25, levelAtrX:0.25, freshBars:2, rangeEdge:80, needBig:1, needBigWithTrend:2, needTotal:3 };
+const GX_LEVEL_TR = { prevDayHigh:'önceki gün tepesi', prevDayLow:'önceki gün dibi', prevWeekHigh:'önceki hafta tepesi', prevWeekLow:'önceki hafta dibi', prevMonthHigh:'önceki ay tepesi', prevMonthLow:'önceki ay dibi', high24h:'24 sa tepe', low24h:'24 sa dip' };
+function gxLevels(pk) {
+  const out = [], add = (price, name) => { const p = finite(price); if (p !== null && p > 0) out.push({ price:p, name }); };
+  for (const l of pk?.levels || []) add(l.price, GX_LEVEL_TR[l.name] || l.name);
+  for (const tf of ['h1', 'h4', 'd1']) { const r = pk?.timeframes?.[tf]?.chartReading; if (!r) continue; const T = tf === 'h1' ? '1 sa' : tf === 'h4' ? '4 sa' : '1 gün';
+    if (tf !== 'd1') { add(r.liquidity?.buySide20?.price, T + ' üst likidite'); add(r.liquidity?.sellSide20?.price, T + ' alt likidite'); add(r.liquidity?.equalHigh?.price, T + ' eşit tepeler'); add(r.liquidity?.equalLow?.price, T + ' eşit dipler');
+      add(r.fib?.levels?.['0.618']?.price, T + ' fibo 0.618'); add(r.fib?.ext1272?.price, T + ' fibo 1.272'); add(r.volumeProfile?.poc?.price, T + ' hacim POC');
+      add(r.volumeProfile?.valueArea?.high?.price, T + ' değer alanı tepesi'); add(r.volumeProfile?.valueArea?.low?.price, T + ' değer alanı dibi'); }
+    if (r.trendLines?.risingSupport?.active) add(r.trendLines.risingSupport.price, T + ' yükselen trend çizgisi');
+    if (r.trendLines?.fallingResistance?.active) add(r.trendLines.fallingResistance.price, T + ' düşen trend çizgisi');
+    for (const g of r.openFvg || []) { add(g.low, T + ' FVG kenarı'); add(g.high, T + ' FVG kenarı'); } }
+  return out;
+}
+function goxelPro(rec, base, pk) {
+  if (!rec || !base || !pk || !pk.timeframes) return null;
+  const L = rec.side === 'LONG', opp = L ? 'BEAR' : 'BULL', oppSide = L ? 'SHORT' : 'LONG', my = L ? 'UP' : 'DOWN', tf = pk.timeframes, out = [];
+  const rd = n => tf[n]?.chartReading || null, TN = { m15:'15 dk', h1:'1 sa', h4:'4 sa' };
+  // TREND: a fresh break / change of character against him on 15m or 1h; the big trend (1h + 4h) on his side = patience
+  { const ev = ['m15', 'h1'].map(n => ({ n, e:(rd(n)?.events || []).find(e => e.side === opp && (e.kind === 'CHOCH' || e.kind === 'BOS') && e.barsAgo <= GOXEL_PRO.freshBars) })).find(x => x.e);
+    const big = ['h1', 'h4'].map(n => rd(n)?.trend || tf[n]?.structure?.trend || null);
+    out.push({ key:'TREND', tr:'trend 15dk/1sa/4sa', against:ev ? true : false, support:big.every(t => t === my), txt:ev ? `${TN[ev.n]} ${ev.e.kind === 'CHOCH' ? 'karakter değişti' : 'kırılım'} aleyhe` : `1sa ${big[0] || '—'} • 4sa ${big[1] || '—'}` }); }
+  // SEVIYE: the nearest level in his direction within reach (price now = 100 on the screen)
+  { const atr = finite(tf.m5?.structure?.atrPct) || 0, reach = Math.max(GOXEL_PRO.levelMinPct, GOXEL_PRO.levelAtrX * atr);
+    const lv = gxLevels(pk).map(l => ({ ...l, d:L ? l.price - 100 : 100 - l.price })).filter(l => l.d > 0).sort((a, b) => a.d - b.d)[0] || null;
+    const hit = !!lv && lv.d <= reach;
+    out.push({ key:'SEVIYE', tr:'seviye (fibo / likidite / gün)', against:lv ? hit : null, txt:lv ? `${hit ? (L ? 'dirence geldi' : 'desteğe geldi') + ': ' : 'en yakın: '}${lv.name} %${round(lv.d, 2)}` : 'yakında seviye yok' }); }
+  // FORMASYON: a confirmed counter pattern on 15m or 1h
+  { const p = ['m15', 'h1'].map(n => ({ n, p:(rd(n)?.patterns || []).find(x => x.side === oppSide && x.status === 'CONFIRMED') })).find(x => x.p);
+    out.push({ key:'FORMASYON', tr:'formasyon 15dk/1sa', against:p ? true : (rd('m15') || rd('h1') ? false : null), txt:p ? `${TN[p.n]} ${String(p.p.type).replace(/_/g, ' ').toLowerCase()}` : 'karşı formasyon yok' }); }
+  // TESTERE: 15m or 1h ranging and price at the edge he is running into
+  { const e = ['m15', 'h1'].map(n => ({ n, s:tf[n]?.structure, r:rd(n) })).find(x => (x.s?.trend === 'RANGE' || x.r?.trend === 'MIXED') && Number.isFinite(x.r?.dealingRange?.positionPct) && x.r.dealingRange.positionPct >= 0 && x.r.dealingRange.positionPct <= 100 && (L ? x.r.dealingRange.positionPct >= GOXEL_PRO.rangeEdge : x.r.dealingRange.positionPct <= 100 - GOXEL_PRO.rangeEdge));
+    out.push({ key:'TESTERE', tr:'testere / range', against:e ? true : (tf.m15 || tf.h1 ? false : null), txt:e ? `${TN[e.n]} range ${L ? 'tepesi' : 'dibi'} (%${Math.round(e.r.dealingRange.positionPct)})` : 'range kenarında değil' }); }
+  const screens = [...(base.screens || []), ...out], against = screens.filter(x => x.against === true).length, big = out.filter(x => x.against === true).length;
+  const atLevel = out[1].against === true, support = out[0].support === true, needBig = support && !atLevel ? GOXEL_PRO.needBigWithTrend : GOXEL_PRO.needBig;
+  const close = base.netR >= GOXEL.minNetR && big >= needBig && against >= GOXEL_PRO.needTotal;
+  return { ...base, screens, against, big, needBig, need:GOXEL_PRO.needTotal, support, atLevel, close, R:close ? base.netR : null, why:close ? screens.filter(x => x.against).map(x => x.txt).join(' • ') : null };
+}
 function goxelBook(records, since = 0) {
   const l = (Array.isArray(records) ? records : []).filter(r => asker(r) && r.gx && r.gx.closed && Number.isFinite(r.gx.R) && Number.isFinite(r.R) && (r.at || 0) >= since).sort((a, b) => (a.at || 0) - (b.at || 0));
   if (!l.length) return { n:0, rows:[], took:0 };
   const took = l.filter(r => r.gx.by === 'GOXEL');
-  return { n:l.length, took:took.length, saved:took.filter(r => r.R < 0).length, cutWinner:took.filter(r => r.R > r.gx.R).length,
+  // R2544.155: GOXEL PRO on the forecasts both of them watched
+  const lp = l.filter(r => r.gp && r.gp.closed && Number.isFinite(r.gp.R)), tp = lp.filter(r => r.gp.by === 'PRO');
+  const pro = lp.length ? { n:lp.length, took:tp.length, saved:tp.filter(r => r.R < 0).length, cutWinner:tp.filter(r => r.R > r.gp.R).length,
+    rows:compareRows(lp, [{ key:'PLAN', tr:'plan (bugünkü stop/hedef)', f:r => r.R }, { key:'GOXEL', tr:'Goxel (5 ekran, 5 dk)', f:r => r.gx.R }, { key:'PRO', tr:'Goxel PRO (9 ekran, 5dk-1gün)', f:r => r.gp.R }]),
+    recent:tp.slice(-8).reverse().map(r => ({ model:r.model, symbol:r.symbol, side:r.side, at:r.gp.at, R:r.gp.R, planR:r.R, why:r.gp.why, who:'PRO' })) } : null;
+  return { pro, n:l.length, took:took.length, saved:took.filter(r => r.R < 0).length, cutWinner:took.filter(r => r.R > r.gx.R).length,
     rows:compareRows(l, [{ key:'PLAN', tr:'plan (bugünkü stop/hedef)', f:r => r.R }, { key:'GOXEL', tr:'Goxel (5 ekranı izleyen trader)', f:r => r.gx.R }]),
     recent:took.slice(-8).reverse().map(r => ({ model:r.model, symbol:r.symbol, side:r.side, at:r.gx.at, R:r.gx.R, planR:r.R, why:r.gx.why })) };
 }
@@ -422,4 +472,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro };

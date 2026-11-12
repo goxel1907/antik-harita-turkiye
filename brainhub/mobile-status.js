@@ -89,6 +89,6 @@ function mobileStatus(status={}){
       ogr:ks.learning?{st:ks.learning.state,t:ks.learning.tr,n:ks.learning.all?.n||0}:null,
       ogr2:ks.learning2?{st:ks.learning2.state,t:ks.learning2.tr,n:ks.learning2.all?.n||0}:null,suru:ks.herd?.avg??null,
       iz:ks.iz?{at:ks.iz.last?.at||null,c:ks.iz.last?.coins??0,o:ks.iz.open??0,f:(ks.iz.last?.fired||[]).slice(0,8).map(x=>({d:x.d,s:String(x.s||'').replace(/USDT$/,''),side:x.side,st:x.stop}))}:null};}
-  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';out.mobileFeatures='R2544.154';return out;
+  out.compact=true;out.mobileContract='R2544.78_PC_STATUS';out.mobileFeatures='R2544.155';return out;
 }
 module.exports={mobileStatus};
