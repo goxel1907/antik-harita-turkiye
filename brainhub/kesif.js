@@ -134,16 +134,19 @@ function humanBook(records) {
 // He only acts while the trade pays after commission: two screens against him -> he closes at the candle close, like a trader taking his money.
 // Shadow only, nothing is traded; the plan keeps running so both are scored on the same forecast.
 const GOXEL = { minNetR:0.2, needAgainst:2, takerLong:0.9, takerShort:1.1, bookImb:0.3, oiDropPct:1, giveBack:0.4, wick:0.6 };
-function goxelLook(rec, candles, screens, now) {
+// R2544.163 (kullanıcı 12.11: "giriş anından itibaren bir trader işlemi takip eder; 2 mum demedim; açık işlemde beklemek olmaz"): a REAL lot is
+// read live (opts.live): the forming 5m candle counts (its price now), from the very first minute; a forecast keeps the closed candles
+function goxelLook(rec, candles, screens, now, opts = {}) {
   if (!rec || rec.done || rec.side === 'NONE' || !(rec.stopPct > 0)) return null;
-  const k = TB.rows(candles).filter(x => x.t >= rec.entryAt && x.t + M5 <= now).sort((a, b) => a.t - b.t);
-  if (k.length < 2 || k[0].t !== rec.entryAt || now >= rec.entryAt + rec.horizonH * HOUR) return null;
+  const live = opts && opts.live === true;
+  const k = TB.rows(candles).filter(x => x.t >= rec.entryAt && (live ? x.t <= now : x.t + M5 <= now)).sort((a, b) => a.t - b.t);
+  if (k.length < (live ? 1 : 2) || k[0].t !== rec.entryAt || now >= rec.entryAt + rec.horizonH * HOUR) return null;
   // R2544.158: a real lot is read from its real fill (rec.entryPrice); a forecast from the open of its entry candle
-  const L = rec.side === 'LONG', e = finite(rec.entryPrice) > 0 ? finite(rec.entryPrice) : k[0].o, s = rec.stopPct / 100, fav = p => (L ? p - e : e - p) / e / s, last = k[k.length - 1], prev = k[k.length - 2];
+  const L = rec.side === 'LONG', e = finite(rec.entryPrice) > 0 ? finite(rec.entryPrice) : k[0].o, s = rec.stopPct / 100, fav = p => (L ? p - e : e - p) / e / s, last = k[k.length - 1], prev = k.length >= 2 ? k[k.length - 2] : null;
   const curR = fav(last.c), peakR = Math.max(...k.map(x => fav(L ? x.h : x.l))), netR = curR - COST_PCT / rec.stopPct;
   const sc = screens || {}, out = [];
   { const top = L ? last.h >= Math.max(...k.map(x => x.h)) : last.l <= Math.min(...k.map(x => x.l)), rng = last.h - last.l;
-    const broke = L ? last.c < prev.l : last.c > prev.h, wick = top && rng > 0 && (L ? (last.h - last.c) : (last.c - last.l)) / rng >= GOXEL.wick;
+    const broke = prev ? (L ? last.c < prev.l : last.c > prev.h) : false, wick = top && rng > 0 && (L ? (last.h - last.c) : (last.c - last.l)) / rng >= GOXEL.wick;
     out.push({ key:'GRAFIK', tr:'grafik', against:broke || wick, txt:broke ? (L ? 'önceki mumun dibi kırıldı' : 'önceki mumun tepesi kırıldı') : wick ? (L ? 'tepede iğne, satıcı vurdu' : 'dipte iğne, alıcı vurdu') : 'yapı bozulmadı' }); }
   { const melt = peakR >= 0.5 && curR <= peakR * (1 - GOXEL.giveBack);
     out.push({ key:'KAR', tr:'kâr', against:melt, txt:`tepe ${round(peakR, 2)}R → şimdi ${round(curR, 2)}R${melt ? ', kâr eriyor' : ''}` }); }

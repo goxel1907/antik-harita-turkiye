@@ -6697,7 +6697,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       top3State.recentSignals=[...scan.signals.map(({sig,f,...v})=>({...v,candle:scan.candle})),...(top3State.recentSignals||[])].slice(0,30);
       saveTop3State();
       return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed,v2};
-    }finally{top3Busy=false;kesifTick().catch(()=>{});} // R2544.149 KEŞİF + İZ after the lane scan (the real lanes first; never waits for it)
+    }finally{top3Busy=false;goxelLiveTick().catch(()=>{});kesifTick().catch(()=>{});} // R2544.163 Goxel first, in his own loop // R2544.149 KEŞİF + İZ after the lane scan (the real lanes first; never waits for it)
   }
   // ===== R2544.68 ZİRVE-5 LONG + SHORT, FiboBuLL videosundaki kural (own name, own Office switches per side, own results/learning;
   // LIVE only with the user's liveEnabled + 'LIVE'). Every closed 15m candle (+8 s): market-wide top 5 by 24 h range (volume >= 20M)
@@ -6879,7 +6879,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const d=a.desk;if(now-a.openedAt<cfg.firstAfterMin*60000)return false;
     if(!d?.lastAt)return true;
     if(now-d.lastAt>=cfg.cadenceMin*60000)return true;
-    return markR!==null&&finite(d.lastR)!==null&&Math.abs(markR-d.lastR)>=cfg.moveTriggerR&&now-d.lastAt>=5*60000;
+    return markR!==null&&finite(d.lastR)!==null&&Math.abs(markR-d.lastR)>=cfg.moveTriggerR&&now-d.lastAt>=2*60000; // R2544.163 a big move is looked at within 2 min
   }
   async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});const r=DESK.rows(k).filter(x=>x.t<=clock());r.raw=Array.isArray(k)?k:[];return r;}catch{const r=[];r.raw=[];return r;}}
   const deskJudge=(packet,mode,cfg)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats()});
@@ -6940,7 +6940,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // gerçek -0,75R / plana bırakılsa +0,36R): the desk's reducing order runs only when the trade has left its noise - open >= 30 min AND
       // (now <= -0.6R: the idea is failing before the stop, or best >= +1R: there is profit to protect). Otherwise it is recorded, not executed.
       const mfe=finite(packet?.position?.mfeR),openMin=(now-a.openedAt)/60000,beyondNoise=openMin>=DESK_GUARD.minOpenMin&&((finite(rec.R)??0)<=DESK_GUARD.failR||(mfe??-9)>=DESK_GUARD.protectR);
-      if(auth&&rec.action!=='HOLD'&&!beyondNoise){rec.guard={code:'NOISE_GUARD',openMin:Math.round(openMin),R:rec.R,mfeR:mfe};}
+      if(DESK_GUARD.enabled===true&&auth&&rec.action!=='HOLD'&&!beyondNoise){rec.guard={code:'NOISE_GUARD',openMin:Math.round(openMin),R:rec.R,mfeR:mfe};}
       if(auth){rec.shadow=false;rec.authority=true;if(rec.action!=='HOLD'&&!rec.downgraded&&(rec.judge==='COMMITTEE'||(both&&rec.judge==='JEV'))&&!rec.guard)a.deskOrder={action:rec.action,stopPrice:rec.stopPrice,at:now,by:rec.judge};}
       desk.decisions.push(rec);if(desk.decisions.length>120)desk.decisions=desk.decisions.slice(-120);desk.last=rec;desk.lastError=null;
       saveTop3State();
@@ -7002,6 +7002,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return {ok:true,...s.seed};
   }
   const gxHtf=new Map(); // R2544.155 Goxel PRO: 1h / 4h / 1d candles per coin, at most every 15 min
+  const gxPk=new Map(); // R2544.163 the chart reading of a coin Goxel watches live, at most every 60 s
+  let gxLiveBusy=false;
+  // R2544.163: Goxel on the real lots in his OWN loop (every ~30 s, from the entry, never behind a KEŞİF round or a committee poll)
+  async function goxelLiveTick(){if(gxLiveBusy)return null;const now=clock();let s;try{s=kesifInit();}catch{return null;}
+    if(!readSozConfig().goxelExit||!sozWired()||!Object.keys(top3State.active||{}).length)return null;if(now-(finite(s.lastGoxelLiveAt)||0)<25000)return null;
+    gxLiveBusy=true;s.lastGoxelLiveAt=now;try{const r=await goxelLive(now,s);s.goxelLiveError=null;if(r)saveKesif();return r;}
+    catch(e){s.goxelLiveError=String(e?.message||e).slice(0,120);return null;}finally{gxLiveBusy=false;}}
   // R2544.158 KEŞİF-SÖZ (kullanıcı 12.11: "bağla; Kurulla CANLI'ya geç de, JEV + Kurul ile CANLI'ya geç de bağlı olsun; eklenen her şey bağlı
   // olsun"; "goxel çıkışlara karar verecek"): own name, own switch (config/kesif-soz.json; no file = ON), own 2 lots, TEST = CANLI.
   // A word holder's fresh forecast opens a real lot through the İlk 3 order path (stop / target on the exchange, the desk, the lessons);
@@ -7076,15 +7083,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const entryAt=Math.floor(finite(a.openedAt)/KESIF_M5)*KESIF_M5,rec={side:a.side,stopPct:finite(a.stopPct)*100,entryAt,horizonH:999,entryPrice:finite(a.entryPrice),done:false};
       const g=async(p,params)=>{try{return await transport._fetchJson('GET',p,{params});}catch{return null;}};
       const k=await g('/fapi/v1/klines',{symbol:a.symbol,interval:'5m',startTime:String(entryAt),limit:'400'});if(!Array.isArray(k))continue;
-      const v0=KESIF.goxelLook(rec,k,null,now);if(!v0)continue;
+      const v0=KESIF.goxelLook(rec,k,null,now,{live:true});if(!v0)continue;
       if(v0.netR<KESIF.GOXEL.minNetR){a.goxel={at:now,curR:v0.curR,peakR:v0.peakR,netR:v0.netR,watching:false};seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',curR:v0.curR,netR:v0.netR,close:false});continue;}
       const [tk,oi,dp]=await Promise.all([g('/futures/data/takerlongshortRatio',{symbol:a.symbol,period:'5m',limit:'2'}),g('/futures/data/openInterestHist',{symbol:a.symbol,period:'5m',limit:'4'}),g('/fapi/v1/depth',{symbol:a.symbol,limit:'500'})]);
       const lastC=TB.rows(k).filter(x=>x.t+KESIF_M5<=now).slice(-1)[0]?.c,oiv=Array.isArray(oi)?oi.map(x=>finite(x?.sumOpenInterestValue)).filter(x=>x>0):[];
       const sc={taker:Array.isArray(tk)&&tk.length?finite(tk[tk.length-1]?.buySellRatio):null,imb1:lastC?IZ.book(dp,lastC)?.imb1??null:null,oiChgPct:oiv.length>=4?Number(((oiv[oiv.length-1]/oiv[0]-1)*100).toFixed(2)):null};
-      let pk=null;try{const end=now-1,kl=async(i,n)=>{const z=await g('/fapi/v1/klines',{symbol:a.symbol,interval:i,endTime:String(end),limit:String(n)});return Array.isArray(z)?z:[];};
+      let pk=null;const pc=gxPk.get(a.symbol);if(pc&&now-pc.at<60000)pk=pc.pk;else try{const end=now-1,kl=async(i,n)=>{const z=await g('/fapi/v1/klines',{symbol:a.symbol,interval:i,endTime:String(end),limit:String(n)});return Array.isArray(z)?z:[];};
         const hc=gxHtf.get(a.symbol);let htf=hc&&now-hc.at<15*60000?hc.k:null;if(!htf){htf={h1:await kl('1h',TB.FETCH.h1),h4:await kl('4h',TB.FETCH.h4),d1:await kl('1d',TB.FETCH.d1)};gxHtf.set(a.symbol,{at:now,k:htf});}
-        pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});}catch{pk=null;}
-      const v=KESIF.goxelLook(rec,k,sc,now),pv=v&&pk?KESIF.goxelPro(rec,v,pk):null;if(!pv)continue;
+        pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});gxPk.set(a.symbol,{at:now,pk});}catch{pk=null;}
+      const v=KESIF.goxelLook(rec,k,sc,now,{live:true}),pv=v&&pk?KESIF.goxelPro(rec,v,pk):null;if(!pv)continue;
       a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,needBig:pv.needBig,close:pv.close,why:pv.why,watching:true,screens:pv.screens.map(x=>({k:x.key,a:x.against}))};
       // R2544.160: the drawing in Office follows a REAL lot first -> its screens, candles and the big screens travel with it
       seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',real:true,model:a.kesif?.model||a.rule||null,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,close:pv.close,why:pv.why,
@@ -7237,9 +7244,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const kr=s.karne||KESIF.karne(s.closed,{now});
         for(const r of fresh){r.sozTried=true;changed=true;const sig=KESIF.liveSignal(r,kr);if(!sig)continue;
           try{const n=await sozEnter(sig,s);out.soz=[...(out.soz||[]),n];}catch(e){sozNote(s,{...sig,opened:false,reason:String(e?.message||e).slice(0,80)});}}}
-      if(readSozConfig().goxelExit&&sozWired()&&Math.floor(now/KESIF_M5)!==Math.floor((finite(s.lastGoxelLiveAt)||0)/KESIF_M5)){s.lastGoxelLiveAt=now;changed=true;
-        try{out.goxelLive=await goxelLive(now,s);s.goxelLiveError=null;}catch(e){s.goxelLiveError=String(e?.message||e).slice(0,120);}
-        try{out.userClose=await userCloseTick(now);}catch{}} // R2544.161
+      // R2544.163: Goxel's live exits run in goxelLiveTick (every ~30 s); the hand-close book once per 5m candle here
+      if(sozWired()&&Math.floor(now/KESIF_M5)!==Math.floor((finite(s.lastUserCloseAt)||0)/KESIF_M5)){s.lastUserCloseAt=now;changed=true;try{out.userClose=await userCloseTick(now);}catch{}} // R2544.161
       if(changed)saveKesif();
       kesifLastError=null;return out;
     }catch(e){kesifLastError=String(e?.message||e).slice(0,160);return null;}
@@ -7358,7 +7364,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return {veto,record:{at:clock(),decision:skipAgreed&&ownOddsOk?'TAKE_BY_OWN_ODDS':agreed?r.final:'RULE',committeeDecision:r.final,ownOdds:{pAvg,breakEven},agreed,consensus:r.consensus,voters:r.voters||null,rounds:r.rounds,plan:{entry,stop,target,targetR:packet.plan?.targetR??null},screenTally:packet.screen?.timeframeTally||null,votes:slim(r.round2||r.votes),round1:slim(r.votes),authority:true,ms:clock()-t0,version:TB.TB_VERSION}};
     }catch(e){return {veto:false,record:{at:clock(),error:String(e?.message||e).slice(0,120),fallback:'RULE',authority:true}};}
   }
-  const DESK_GUARD={minOpenMin:30,failR:-0.6,protectR:1}; // R2544.117 masa gürültü koruması
+  // R2544.117 masa gürültü koruması -> R2544.163 KAPALI (kullanıcı 12.11: "çık, tut, gir emirler anlık uygulanmalı, açık işlemde beklemek olmaz";
+  // sabit kural 5: risk azaltan emirler anında). 12.11 PLAY: kurul -0,31R'de ÇIK dedi, koruma tuttu, -0,72R'de kapandı. Yalnız _testDeskGuard açar.
+  const DESK_GUARD={enabled:false,minOpenMin:30,failR:-0.6,protectR:1};
   // R2544.127: a lane is JEV + KURUL when both switches are on; the lane's own config
   function jevKurul(c){return c?.jevMode===true&&c?.committeeMode===true;}
   function laneCfgOf(a){try{return a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root);}catch{return null;}}
@@ -7783,7 +7791,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
   return { kesifStatus, configureKesif, userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
-    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(), _testUserCloseTick:n=>userCloseTick(n),
+    _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(), _testUserCloseTick:n=>userCloseTick(n), _testGoxelLive:()=>goxelLiveTick(),
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).
     _testHelpers:{classifyExit,recoverInitialEntry} };

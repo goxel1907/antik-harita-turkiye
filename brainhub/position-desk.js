@@ -17,7 +17,8 @@ const ACTION_TR = { HOLD:'TUT', TAKE_PARTIAL:'KISMİ KÂR AL', TIGHTEN_STOP:'STO
 const REASON_TR = { STRUCTURE_INTACT:'yapı sağlam', MOMENTUM_FADING:'ivme zayıflıyor', STRUCTURE_BROKEN_AGAINST:'yapı aleyhe kırıldı', TARGET_ZONE_NEAR:'hedef bölgesine yakın',
   OPPOSITE_FLOW_STRONG:'karşı akış güçlü', VOLUME_CLIMAX:'hacim doruğu', TIME_DECAY:'süre doluyor', NO_EDGE:'belirgin avantaj yok' };
 // R2544.86: 9Router (Kiro'daki ücretsiz Claude Sonnet/Haiku, DeepSeek, GLM) önce, OpenRouter ücretsiz sonra; CANLI'da JEV en önde
-const DEFAULT_CONFIG = { enabled:true, cadenceMin:30, firstAfterMin:30, moveTriggerR:0.8, // R2544.117: 15/5/0.5 -> 30/30/0.8 (kota; gürültüde inceleme yok)
+// R2544.163 (kullanıcı 12.11: "giriş anından itibaren bir trader işlemi takip eder"): first look 2 min after the entry, then every 10 min or a 0.5R move
+const DEFAULT_CONFIG = { enabled:true, cadenceMin:10, firstAfterMin:2, moveTriggerR:0.5, // R2544.117: 15/5/0.5 -> 30/30/0.8 (kota; gürültüde inceleme yok)
   freeDailyCap:300, routerDailyCap:300, testJudges:['COMMITTEE', 'FREE'], liveJudges:['JEV', 'COMMITTEE', 'FREE'], authority:false };
 const finite = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const configFile = root => path.join(root, 'config', 'position-desk.json');
@@ -27,7 +28,7 @@ function readConfig(root) {
   const num = (v, lo, hi, d) => { const n = finite(v); return n !== null && n >= lo && n <= hi ? n : d; };
   const judges = (v, d) => Array.isArray(v) ? v.filter(x => ['FREE', 'JEV', 'ROUTER', 'COMMITTEE'].includes(x)) : d;
   // authority stays false in this build: the desk is shadow-only until it is measured
-  return { enabled:c.enabled !== false, cadenceMin:num(c.cadenceMin, 5, 120, 30), firstAfterMin:num(c.firstAfterMin, 1, 60, 30), moveTriggerR:num(c.moveTriggerR, 0.2, 3, 0.8),
+  return { enabled:c.enabled !== false, cadenceMin:num(c.cadenceMin, 5, 120, 10), firstAfterMin:num(c.firstAfterMin, 1, 60, 2), moveTriggerR:num(c.moveTriggerR, 0.2, 3, 0.5),
     freeDailyCap:num(c.freeDailyCap, 0, 2000, 300), routerDailyCap:num(c.routerDailyCap, 0, 2000, 300), testJudges:judges(c.testJudges, DEFAULT_CONFIG.testJudges), liveJudges:judges(c.liveJudges, DEFAULT_CONFIG.liveJudges), authority:false };
 }
 const rows = k => (Array.isArray(k) ? k : []).map(r => ({ t:Number(r[0]), o:+r[1], h:+r[2], l:+r[3], c:+r[4], v:+r[5], tb:r.length > 9 ? +r[9] : null })).filter(r => Number.isFinite(r.t) && r.c > 0);

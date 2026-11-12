@@ -6,13 +6,14 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const DESK=require('../position-desk');
 const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
 test('R2544.117 the desk acts only outside the noise: open >= 30 min AND (<= -0.6R or best >= +1R); otherwise recorded, not executed',()=>{
-  assert.match(lc,/const DESK_GUARD=\{minOpenMin:30,failR:-0\.6,protectR:1\};/);
+  assert.match(lc,/const DESK_GUARD=\{enabled:false,minOpenMin:30,failR:-0\.6,protectR:1\};/,'R2544.163: the guard is OFF (sabit kural 5)');
   assert.match(lc,/beyondNoise=openMin>=DESK_GUARD\.minOpenMin&&\(\(finite\(rec\.R\)\?\?0\)<=DESK_GUARD\.failR\|\|\(mfe\?\?-9\)>=DESK_GUARD\.protectR\)/);
-  assert.match(lc,/if\(auth&&rec\.action!=='HOLD'&&!beyondNoise\)\{rec\.guard=\{code:'NOISE_GUARD'/);
+  assert.match(lc,/if\(DESK_GUARD\.enabled===true&&auth&&rec\.action!=='HOLD'&&!beyondNoise\)\{rec\.guard=\{code:'NOISE_GUARD'/);
   assert.match(DESK.decisionText({action:'EXIT',reason:'X',guard:{code:'NOISE_GUARD',openMin:7,R:-0.28}}),/GÜRÜLTÜ KORUMASI: uygulanmadı \(7 dk, -0\.28R/);
 });
-test('R2544.117 the desk looks less often (quota): first look 30 min, then every 30 min or a 0.8R move',()=>{
-  const c=DESK.readConfig('C:/__none__');assert.equal(c.cadenceMin,30);assert.equal(c.firstAfterMin,30);assert.equal(c.moveTriggerR,0.8);
+test('R2544.163 the desk follows the trade from the start: first look 2 min, then every 10 min or a 0.5R move (looked at within 2 min)',()=>{
+  const c=DESK.readConfig('C:/__none__');assert.equal(c.cadenceMin,10);assert.equal(c.firstAfterMin,2);assert.equal(c.moveTriggerR,0.5);
+  assert.match(lc,/Math\.abs\(markR-d\.lastR\)>=cfg\.moveTriggerR&&now-d\.lastAt>=2\*60000;/);
 });
 test('R2544.117 entry learning vote 5 seats; a re-entry on the same coin is a warning; one price retry',()=>{
   assert.match(lc,/const ENTRY_TEAM=99;/);

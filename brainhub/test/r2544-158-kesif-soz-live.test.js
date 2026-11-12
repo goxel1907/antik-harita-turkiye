@@ -67,10 +67,12 @@ test('R2544.158 a word holder\'s fresh forecast opens a real lot on its own lane
   assert.equal(s.sozRecent.length,1,'the candidate never reached the order path');
   // the same tick does not open it twice
   const again=await f.controller._testKesifTick();assert.ok(!again.soz);
-  // Goxel reads the open lot from its real fill after the next closed 5m candle
+  // Goxel reads the open lot from its real fill - R2544.163: from the FIRST minute, on the forming candle (no closed candle needed)
   const eAt=Math.floor(a.openedAt/M5)*M5,e=a.entryPrice,c=(i,o,h,l,cl)=>[eAt+i*M5,String(o),String(h),String(l),String(cl),'1000',eAt+(i+1)*M5-1,'1000',10,'500','500','0'];
+  f.state.k5.KSUSDT=[c(0,e,e*1.002,e*0.999,e*1.001)];f.state.now=a.openedAt+60000;await f.controller._testGoxelLive();
+  assert.ok(Object.values(f.controller._testTop3State().active).find(x=>x.lane==='KESIF').goxel,'Goxel looked one minute after the entry, on the forming candle');
   f.state.k5.KSUSDT=[c(0,e,e*1.004,e*0.999,e*1.003),c(1,e*1.003,e*1.0165,e*1.002,e*1.016),c(2,e*1.016,e*1.0166,e*1.008,e*1.0084)];
-  f.state.now=eAt+3*M5+5000;await f.controller._testKesifTick();
+  f.state.now=eAt+3*M5+5000;await f.controller._testGoxelLive(); // R2544.163 Goxel's own loop
   const g=f.controller.kesifStatus().soz.active[0].goxel;
   assert.ok(g&&g.watching===true&&g.against>=2,'Goxel read the lot: '+JSON.stringify(g));
   assert.ok(f.controller.kesifStatus().soz.goxelLive.lots.some(x=>x.lane==='KESIF'));

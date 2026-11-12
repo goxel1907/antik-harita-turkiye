@@ -187,8 +187,8 @@ test('R2544.98 desk with authority, real tick: 3 of 5 want less risk after the d
   await f.beat(a.entryPrice-0.8*R);f.state.now+=31*60000;                // in profit (SHORT), first desk look after 30 min (R2544.117)
   let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));} // the scan's own desk look may still be running (deskBusy)
   assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.action,'TIGHTEN_STOP');
-  // R2544.117 noise guard: +0.8R and never +1R -> the desk's order is recorded, not executed
-  assert.equal(f.lot().desk.last.guard.code,'NOISE_GUARD');assert.ok(!f.lot().deskOrder,'not executed');
+  // R2544.163: the noise guard is OFF (sabit kural 5: risk-reducing orders at once) - the desk's order is not held back
+  assert.ok(!f.lot().desk.last.guard,'no noise guard on the decision');
   f.controller._testDeskGuard({protectR:-99});f.state.now+=31*60000;r=null;  // guard opened (the fixture's 5m path gives no mfe): the order runs
   for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}
   assert.ok(r&&r.ok,JSON.stringify(r));assert.equal(r.action,'TIGHTEN_STOP');f.controller._testDeskGuard({protectR:1});
@@ -196,7 +196,7 @@ test('R2544.98 desk with authority, real tick: 3 of 5 want less risk after the d
   assert.equal(pk.tradeTimeframe.trigger,'15m');assert.ok(pk.position.givebackR!==undefined&&pk.noiseR);
   const rec=f.lot().desk.last;assert.equal(rec.shadow,false);assert.equal(rec.authority,true);assert.equal(rec.committee.consensus,'REDUCE_MAJORITY');
   // R2544.130: the order ran right after the decision (no queue until the next tick)
-  assert.ok(!f.lot().deskOrder,'not queued: already done');assert.equal(rec.done?.ok,true,'done right away: '+JSON.stringify(rec.done));assert.equal(f.kinds('POSITION_DESK_STOP').length,1);
+  assert.ok(!f.lot().deskOrder,'not queued: already done');assert.equal(rec.done?.ok,true,'done right away: '+JSON.stringify(rec.done));assert.equal(f.kinds('POSITION_DESK_STOP').length,2,'R2544.163: the first look (no noise guard) and the second both moved the stop');
   await f.beat();const b=f.lot();assert.ok(b.stopPrice<a.stopPrice&&b.stopPrice<=a.entryPrice*1.0012+0.011,'stop moved to break-even on the exchange: '+b.stopPrice);
   const st=f.paper.state.algos.filter(x=>x.algoStatus==='NEW').find(x=>String(x.algoId)===String(b.stopAlgoId));assert.ok(st&&Math.abs(Number(st.triggerPrice)-b.stopPrice)<1e-9);
 });
