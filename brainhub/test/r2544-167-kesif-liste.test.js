@@ -17,9 +17,19 @@ test('R2544.167 with the İlk 3 + ZİRVE-5 list only those coins are read (even 
 });
 
 test('R2544.167 wiring: both KEŞİF reads use the list; a word-holder forecast on a coin outside it never becomes a real trade', () => {
-  assert.strictEqual((lc.match(/KESIF\.candidates\((await tickers\(\)|tick),\{now,only:kesifUniverse\(\)\}\)/g) || []).length, 2);
-  assert.ok(!/KESIF\.candidates\((await tickers\(\)|tick),\{now\}\)/.test(lc), 'no KEŞİF read without the list');
+  assert.strictEqual((lc.match(/KESIF\.candidates\((tk0|tick),\{now,only:kesifUniverse\(\1\)\}\)/g) || []).length, 2, 'the list of THIS moment');
+  assert.ok(!/KESIF\.candidates\((tk0|tick|await tickers\(\)),\{now\}\)/.test(lc), 'no KEŞİF read without the list');
   assert.match(lc, /if\(n>=1&&n<=3\)out\.set\(sym,'İlk 3 \(#'\+n\+'\)'\)/);
+  assert.match(lc, /let m=rows\.length>=50\?top3Lib\.ranksFromTickers\(rows\):null;/, 'İlk 3 = the ranking of this moment');
+  assert.match(lc, /uni=fresh\.length\?kesifUniverse\(await tickers\(\)\):new Map\(\);/, 'the entry check uses this moment too');
   assert.match(lc, /z5State\(\)\.lastScan\?\.top\|\|\[\]\)\.slice\(0,5\)/);
   assert.match(lc, /if\(!uni\.has\(sig\.symbol\)\)\{sozNote\(s,\{[^}]*reason:'KESIF_SOZ_LISTE_DISI'\}\);continue;\}/);
+});
+
+test('R2544.167 the İlk 3 of this moment: the ranking moves -> the target coin moves (same ranking as the hourly book)', () => {
+  const top3Lib = require('../top3-hunter');
+  const rows = ch => Array.from({ length:60 }, (_, i) => ({ symbol:'C' + i + 'USDT', priceChangePercent:String(ch(i)) }));
+  const top = r => Object.entries(top3Lib.ranksFromTickers(r)).filter(([, n]) => n <= 3).map(([s]) => s).sort();
+  assert.deepStrictEqual(top(rows(i => 60 - i)), ['C0USDT', 'C1USDT', 'C2USDT']);
+  assert.deepStrictEqual(top(rows(i => i === 40 ? 99 : 60 - i)), ['C0USDT', 'C1USDT', 'C40USDT'], 'a new climber enters, #3 leaves');
 });

@@ -7040,9 +7040,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   // the lane lives where KEŞİF lives: the committee's poll wired and KEŞİF on (the old wiring keeps KEŞİF, İZ and KEŞİF-SÖZ off together)
   function sozWired(){return typeof deskJudges?.committee?.poll==='function'&&kesifCfg().enabled===true;}
   function sozGate(c){if(c.enabled!==true)return {ok:false,reason:'KESIF_SOZ_DISABLED'};if(!sozWired())return {ok:false,reason:'KESIF_NOT_WIRED'};if(!armedNow())return {ok:false,reason:'LIVE_NOT_ARMED'};return {ok:true,mode:testModeNow()?'TEST':'LIVE'};}
-  // R2544.167: the coins KEŞİF may read, forecast and trade = İlk 3 (latest hourly 24h-change ranking, #1-#3) + ZİRVE-5 (its latest top 5)
-  function kesifUniverse(){const out=new Map();
-    try{const ks=Object.keys(top3Ranks.hours||{}).map(Number).filter(Number.isFinite);const m=ks.length?top3Ranks.hours[Math.max(...ks)]||{}:{};
+  // R2544.167: the coins KEŞİF may read, forecast and trade = İlk 3 (#1-#3 of the 24h-change ranking) + ZİRVE-5 (its latest top 5).
+  // Kullanıcı 13.11: "sıralama değiştikçe hedef coin de değişecek" -> İlk 3 from the 24h tickers of THIS moment (same ranking as the hourly
+  // book, ranksFromTickers; a ticker older than 15 min = not trading), the hourly book only when the tickers are missing; ZİRVE-5 every 15 min
+  function kesifUniverse(tick){const out=new Map();
+    try{const now=clock(),rows=(Array.isArray(tick)?tick:[]).filter(x=>{const c=finite(x?.closeTime);return c===null||now-c<15*60000;});
+      let m=rows.length>=50?top3Lib.ranksFromTickers(rows):null;
+      if(!m){const ks=Object.keys(top3Ranks.hours||{}).map(Number).filter(Number.isFinite);m=ks.length?top3Ranks.hours[Math.max(...ks)]||{}:{};}
       for(const [sym,r] of Object.entries(m)){const n=Number(r);if(n>=1&&n<=3)out.set(sym,'İlk 3 (#'+n+')');}}catch{}
     try{for(const x of (z5State().lastScan?.top||[]).slice(0,5))if(x&&x.symbol&&!out.has(x.symbol))out.set(String(x.symbol),'ZİRVE-5 (#'+(finite(x.rank)??'—')+')');}catch{}
     return out;}
@@ -7210,7 +7214,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         return lab;};
       const kesifWired=typeof deskJudges?.committee?.poll==='function'; // old wiring (no poll): KEŞİF and İZ stay off together, as in R2544.148
       if(kesifWired&&now-(finite(s.lastIzAt)||0)>=cfg.cadenceMin*60000){
-        s.lastIzAt=now;changed=true;const list=KESIF.candidates(await tickers(),{now,only:kesifUniverse()}).slice(0,12),fired=[];
+        s.lastIzAt=now;changed=true;const tk0=await tickers(),list=KESIF.candidates(tk0,{now,only:kesifUniverse(tk0)}).slice(0,12),fired=[];
         let labels=0;
         for(let i=0;i<list.length;i+=3)await Promise.all(list.slice(i,i+3).map(async c=>{const r=await izRead(c.symbol);const fr=IZ.fire(r);
           try{if(r&&await labelCoin(c,r,fr))labels++;}catch{}
@@ -7226,7 +7230,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         s.lastRoundAt=now;changed=true;
         const tick=await tickers();
         for(const k of Object.keys(s.surveyed))if(now-s.surveyed[k]>24*3600000)delete s.surveyed[k];
-        const coin=KESIF.nextCoin(KESIF.candidates(tick,{now,only:kesifUniverse()}),s.surveyed,{now});
+        const coin=KESIF.nextCoin(KESIF.candidates(tick,{now,only:kesifUniverse(tick)}),s.surveyed,{now});
         if(coin){
           s.surveyed[coin.symbol]=now;
           const end=now-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
@@ -7270,7 +7274,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       }
       // R2544.158 KEŞİF-SÖZ: a word holder's fresh forecast becomes a real trade at once; GOXEL PRO decides the exits of every open lot
       {const fresh=s.open.filter(r=>!r.done&&!r.sozTried&&finite(r.at)>=now-10*60000&&['LONG','SHORT'].includes(r.side));
-        const kr=s.karne||KESIF.karne(s.closed,{now}),uni=fresh.length?kesifUniverse():new Map();
+        const kr=s.karne||KESIF.karne(s.closed,{now}),uni=fresh.length?kesifUniverse(await tickers()):new Map();
         for(const r of fresh){r.sozTried=true;changed=true;const sig=KESIF.liveSignal(r,kr);if(!sig)continue;
           if(!uni.has(sig.symbol)){sozNote(s,{symbol:sig.symbol,side:sig.side,model:sig.model,at:clock(),opened:false,reason:'KESIF_SOZ_LISTE_DISI'});continue;} // R2544.167
           try{const n=await sozEnter(sig,s);out.soz=[...(out.soz||[]),n];}catch(e){sozNote(s,{...sig,opened:false,reason:String(e?.message||e).slice(0,80)});}}}
