@@ -246,7 +246,7 @@ function sozPlan(price, sig) {
 // the plan and Goxel on the SAME trades; at >= minN trades it says where the user exits and Goxel does not. Goxel's rules change only after this
 // measurement and the user's approval.
 function humanTeacher(lessons, minN = 8) {
-  const all = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.userClose), done = all.filter(l => l.userClose.cf && Number.isFinite(l.userClose.cf.planR) && Number.isFinite(l.userClose.cf.userR));
+  const all = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.userClose && !l.userClose.liquidated), done = all.filter(l => l.userClose.cf && Number.isFinite(l.userClose.cf.planR) && Number.isFinite(l.userClose.cf.userR));
   const n = done.length, avg = a => a.length ? round(a.reduce((p, q) => p + q, 0) / a.length) : null;
   const seen = done.filter(l => l.userClose.goxel && l.userClose.goxel.watching), keys = {};
   for (const l of seen) for (const x of l.userClose.goxel.screens || []) { const k = keys[x.k] || (keys[x.k] = { n:0, against:0 }); k.n++; if (x.a === true) k.against++; }

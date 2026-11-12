@@ -6266,7 +6266,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'TOP3_LEVERAGE_BRACKET_UNAVAILABLE'};}
     if(!(exchangeMax>=1))return {ok:false,reason:'TOP3_EXCHANGE_MAX_LEVERAGE_INVALID'};
-    const safeMax=Math.max(1,Math.floor(1/(pre.stopPct+0.005)));
+    // R2544.165 (12.11 PLAY SHORT Isolated 10x: stop +7,03 % but Binance LIQUIDATED it at +5 % - the coin's maintenance margin rate is ~5 %,
+    // the old check 1/(stop+0,5 %) ignored it; Binance booked -21,45 $ with the liquidation fee; sabit kural 2: "tasfiye her zaman stoptan sonra"):
+    // the liquidation distance of an isolated position is ~ 1/leverage - maintenance rate -> the stop must come before it, with 0,5 % room. The
+    // rate is the one Binance gives for the largest size this lot can reach (margin x the top leverage). Too far a stop at 10x -> no trade.
+    const mmrOf=n=>{const br=brackets.find(x=>n>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||n<=finite(x.notionalCap)))||brackets.at(-1);return Math.max(0,finite(br?.maintMarginRatio)??0.005);};
+    const mmr=mmrOf(margin*Math.max(10,finite(cfg.maxLeverage)??20));
+    const safeMax=Math.max(1,Math.floor(1/(pre.stopPct+mmr+0.005)));
     // R2544.116 (kullanıcı 03.11: "düşük R olsa bile kaldıracı artırıp girsin"; "10x kaldıracın altına asla düşmeyecek"; "marj da küçülmeyecek,
     // canlıda ve testte ne belirlendi ise o olacak"): the margin is exactly the one set; leverage is at least 10x and rises for a stop
     // tighter than the lane's middle stop (cfg.leverage x middle stop / stop), never above the exchange bracket, the liquidation-safe max
@@ -6274,7 +6280,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     // kullanıcı 03.11: "10x kaldıracın altına asla düşmeyecek" -> floor 10x; a wide stop cuts the SIZE, never the leverage. At 10x a stop
     // wider than ~9.5 % would sit behind the liquidation (the stop could never fire) and an exchange max under 10x cannot be used -> no trade.
     const eqRisk=!!(sig.v2||sig.z5||sig.soz),refStop=eqRisk?refStopPct(sig,cfg):null,maxLev=Math.max(10,finite(cfg.maxLeverage)??20),LEV_FLOOR=10;
-    if(eqRisk&&(exchangeMax<LEV_FLOOR||safeMax<LEV_FLOOR))return {ok:false,reason:exchangeMax<LEV_FLOOR?'TOP3_EXCHANGE_MAX_UNDER_10X':'TOP3_STOP_BEYOND_LIQUIDATION_AT_10X',stopPct:Number(pre.stopPct.toFixed(5)),exchangeMax,safeMax};
+    if(eqRisk&&(exchangeMax<LEV_FLOOR||safeMax<LEV_FLOOR))return {ok:false,reason:exchangeMax<LEV_FLOOR?'TOP3_EXCHANGE_MAX_UNDER_10X':'TOP3_STOP_BEYOND_LIQUIDATION_AT_10X',stopPct:Number(pre.stopPct.toFixed(5)),exchangeMax,safeMax,maintRate:mmr};
     // R2544.131: the committee / JEV choose (ctx.leverageWant, 10..20); no answer -> the lane setting. The stop formula no longer picks the leverage.
     const wantLev=finite(ctx.leverageWant)??finite(cfg.leverage)??LEV_FLOOR;
     let leverage=eqRisk?Math.max(LEV_FLOOR,Math.min(wantLev,exchangeMax,safeMax,maxLev))
@@ -6490,6 +6496,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         }catch{}
         // R2544.57 (14.10 deploy STOP booked open lots as "stop"): neither own order filled -> the exit fill decides.
         // Closed by the core (STOP / TEST reset / switch) = SYSTEM_CLOSE; at or through the stop = stop; otherwise outside.
+        // R2544.165: Binance's own liquidation / auto-deleveraging order closed it (12.11 PLAY was booked as 'external close' = the user's)
+        if(exitReason==='TOP3_EXCHANGE_EXIT'&&a.mode==='LIVE'){try{const fo=await transport._fetchJson('GET','/fapi/v1/forceOrders',{params:{symbol:a.symbol,startTime:String(Math.max(0,(finite(a.startedAt)||finite(a.openedAt)||clock())-60000)),endTime:String(clock()),limit:'10'},credentials:creds,signed:true});
+          if(Array.isArray(fo)&&fo.length){const x=fo[fo.length-1];exitReason=/ADL/i.test(String(x?.autoCloseType||''))?'TOP3_ADL':'TOP3_LIQUIDATED';exitPrice=finite(x?.avgPrice)||finite(x?.price)||null;closedAt=finite(x?.updateTime)||finite(x?.time)||null;}}catch{}}
         if(exitReason==='TOP3_EXCHANGE_EXIT'){
           const fill=await top3ExitFill(a,creds);
           if(fill){exitPrice=fill.price;closedAt=fill.time;}
@@ -6559,7 +6568,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const notional=entry!==null&&qty!==null?Math.abs(entry*qty):null,riskQuote=entry!==null&&stop!==null&&qty!==null?Math.abs(entry-stop)*qty:null;
     const netPnl=inc?inc.net:null;
     const exitType={TOP3_STOP:'TOP3_STOP',TOP3_TAKE_PROFIT:'TOP3_TAKE_PROFIT',TOP3_TAKE_PROFIT_SOFT:'TOP3_TAKE_PROFIT',TOP3_TIME_EXIT:'TOP3_TIME_EXIT',TOP3_DESK_EXIT:'TOP3_DESK_EXIT',TOP3_USER_CLOSE:'TOP3_USER_CLOSE',TOP3_EXCHANGE_EXIT:'TOP3_STOP_OR_EXTERNAL',
-      TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE',TOP3_BE_STOP:'TOP3_BE_STOP'}[c.exitReason]||'TOP3_OTHER_EXIT';
+      TOP3_SYSTEM_CLOSE:'TOP3_SYSTEM_CLOSE',TOP3_EXTERNAL_CLOSE:'TOP3_EXTERNAL_CLOSE',TOP3_BE_STOP:'TOP3_BE_STOP',TOP3_LIQUIDATED:'TOP3_LIQUIDATED',TOP3_ADL:'TOP3_ADL'}[c.exitReason]||'TOP3_OTHER_EXIT';
     // R2544.64: a ZİRVE-5 lot is booked under its own name (lane ZIRVE5, setup ZIRVE5_FIBO_SHORT, 15m) so TEST shows which
     // strategy made or lost money and learns per strategy
     const z5=c.lane==='ZIRVE5',lane=z5?'ZIRVE5':'TOP3_HUNTER',xt=z5?exitType.replace(/^TOP3_/,'ZIRVE5_'):exitType;
@@ -7061,7 +7070,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   async function userCloseTick(now){let did=0;
     const pool=[...(top3State.lessons||[]),...(z5State().lessons||[])].filter(l=>l&&finite(l.closedAt)>=now-3*86400000);
     for(const l of pool){if(!l.userClose&&/_(EXTERNAL|USER)_CLOSE$/.test(String(l.exitType||''))){const p=lessonPlan(l);if(p){l.userClose={by:/_USER_CLOSE$/.test(l.exitType)?'OFFICE':'BINANCE',plan:p,goxel:null,approx:true,at:now};did=-1;}}}
-    for(const l of pool){if(did>=2)break;const u=l.userClose;if(!u||u.cf||!u.plan)continue;const end=finite(u.plan.deadline)||finite(l.closedAt)+24*3600000;if(now<end+10*60000)continue;
+    // R2544.165: a "hand close" Binance itself made (liquidation / ADL) is not the user's - checked once against Binance's force orders (LIVE)
+    for(const l of pool){const u=l.userClose;if(!u||u.forceChecked||l.mode!=='LIVE')continue;u.forceChecked=true;did=did||-1;
+      try{const creds=currentCredentials();if(!credentialsReady(creds))continue;const fo=await transport._fetchJson('GET','/fapi/v1/forceOrders',{params:{symbol:l.symbol,startTime:String(Math.max(0,finite(l.openedAt)-60000)),endTime:String(finite(l.closedAt)+60000),limit:'10'},credentials:creds,signed:true});
+        if(Array.isArray(fo)&&fo.length){u.liquidated=true;l.liquidated=/ADL/i.test(String(fo[fo.length-1]?.autoCloseType||''))?'ADL':'LIQUIDATION';try{store.journal('HUMAN_CLOSE_WAS_LIQUIDATION',l.symbol,{id:l.id,kind:l.liquidated});}catch{}}}catch{u.forceChecked=false;}}
+    for(const l of pool){if(did>=2)break;const u=l.userClose;if(!u||u.cf||!u.plan||u.liquidated)continue;const end=finite(u.plan.deadline)||finite(l.closedAt)+24*3600000;if(now<end+10*60000)continue;
       try{const st=Math.floor(finite(u.plan.openedAt)/KESIF_M5)*KESIF_M5,k=[];let t=st;
         while(t<end&&k.length<1500){const z=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:l.symbol,interval:'5m',startTime:String(t),endTime:String(end),limit:'1000'}});if(!Array.isArray(z)||!z.length)break;k.push(...z);t=Number(z[z.length-1][0])+KESIF_M5;if(z.length<1000)break;}
         const cf=DESK.counterfactual({plan:u.plan,decisions:[]},k);

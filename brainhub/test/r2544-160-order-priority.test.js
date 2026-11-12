@@ -1,6 +1,7 @@
 'use strict';
 // R2544.160: an order never waits behind public scans in the Binance queue; reads of the account come right after orders
 const test = require('node:test'), assert = require('node:assert');
+process.env.BINANCE_REST_MIN_GAP_MS = '0'; // the order under test, not the pacing (a timer race made it flaky under load)
 const RL = require('../binance-rate-limit');
 
 test('R2544.160 queue order: LIVE_WRITE first, then LIVE_READ, then PUBLIC (each kind first-come first-served)', async () => {
