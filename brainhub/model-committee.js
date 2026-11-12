@@ -233,7 +233,9 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   async function poll({ system, prompt, validate, parse, size:n = 99, filter = null, callTimeoutMs = null }) {
     const team = healthy().filter(m => paceOk(m) && (typeof filter !== 'function' || filter(m.id) === true)).slice(0, Math.max(1, Number(n) || 99));
     if (!team.length) return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] };
-    const r1 = await Promise.all(team.map(m => ask(m, system, prompt, validate, parse, Number(callTimeoutMs) > 0 ? Number(callTimeoutMs) : Math.max(timeoutMs, Number(m?.timeoutMs) || 0), true, true)));
+    // R2544.150: prompt may be a function of the member id (KEŞİF: every model its own role and its own record -> no herd)
+    const promptOf = m => { if (typeof prompt !== 'function') return prompt; try { return String(prompt(m.id)); } catch { return ''; } };
+    const r1 = await Promise.all(team.map(m => ask(m, system, promptOf(m), validate, parse, Number(callTimeoutMs) > 0 ? Number(callTimeoutMs) : Math.max(timeoutMs, Number(m?.timeoutMs) || 0), true, true)));
     return { ok:r1.some(x => x.ok), votes:r1, rounds:1, voters:r1.filter(x => x.ok).length, asked:team.length, version:COMMITTEE_VERSION };
   }
   async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '', size:teamSize = null }) {

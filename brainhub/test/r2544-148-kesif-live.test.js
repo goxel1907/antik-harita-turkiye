@@ -27,7 +27,7 @@ function fixture({answers,poll=true}={}){
     return ok({});
   };
   const events=[];
-  const committee=poll?{poll:async a=>{state.asked.push(a);const votes=answers.map(([member,text])=>{const v=a.parse(text);return {member,ok:v.ok,vote:v.ok?v:null,error:v.ok?null:v.reason,img:/vision/.test(member)};});
+  const committee=poll?{poll:async a=>{const per=answers.map(([member])=>typeof a.prompt==='function'?a.prompt(member):a.prompt);state.asked.push({...a,prompt:per[0],perMember:per});const votes=answers.map(([member,text])=>{const v=a.parse(text);return {member,ok:v.ok,vote:v.ok?v:null,error:v.ok?null:v.reason,img:/vision/.test(member)};});
     return {ok:votes.some(v=>v.ok),votes,asked:votes.length};},decide:async()=>({ok:false,reason:'NOT_USED'}),status:()=>({members:[],team:[]})}:{decide:async()=>({ok:false}),status:()=>({members:[],team:[]})};
   const controller=require('../live-controller').createLiveController({root,clock:()=>state.now,store:{journal:(k,s,p)=>events.push({k,s,p}),recordLearning:()=>{}},
     scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),credentials:FAKE,fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',deskJudges:{committee},
@@ -50,7 +50,7 @@ test('R2544.148 a round: one coin, no plan in the packet, every model its own fo
   assert.equal(pk.task,'FORECAST');assert.equal(pk.plan,undefined);assert.ok(!/UPUSDT/.test(a.prompt),'the coin name is hidden');assert.match(a.system,/Nobody hands you a setup/);
   assert.equal(a.filter('ROUTER:gemini/gemini-3.5-flash-lite'),false,'daily-pool members stay with the desk by default');assert.equal(a.filter('FREE:openrouter'),false);assert.equal(a.filter('OVH:x'),true);assert.equal(a.filter('ROUTER:nvidia/y'),true);assert.equal(a.filter('ROUTER:groq/llama-x'),false,'Groq: 8K tokens, the screen would 413');assert.equal(a.filter('ROUTER:cerebras/x'),false,'not free');
   const s=f.controller._testKesifState();
-  assert.deepEqual(s.open.filter(r=>r.model!=='_ETIKET').map(r=>[r.model,r.side]).sort(),[['BEYIN','NONE'],['ORTAK','LONG'],['model-b','LONG'],['model-e','NONE'],['nvidia/model-c','SHORT'],['nvidia/model-d','LONG'],['vision/a','LONG']].sort());
+  assert.deepEqual(s.open.filter(r=>r.model!=='_ETIKET').filter(r=>!r.model.startsWith('PUSU:')&&r.model!=='BEYIN2').map(r=>[r.model,r.side]).sort(),[['BEYIN','NONE'],['ORTAK','LONG'],['model-b','LONG'],['model-e','NONE'],['nvidia/model-c','SHORT'],['nvidia/model-d','LONG'],['vision/a','LONG']].sort());
   // the brain: silent while its matrix learns; the neutral label (up / down first by the band in 6 h) carries the formations of the screen
   assert.match(s.open.find(r=>r.model==='BEYIN').why,/matris öğreniyor \(0\/20/);
   const lab=s.open.find(r=>r.model==='_ETIKET');assert.ok(lab&&lab.feats.length>5&&lab.horizonH===6&&lab.stopPct===lab.targetPct);
@@ -62,7 +62,12 @@ test('R2544.148 a round: one coin, no plan in the packet, every model its own fo
   assert.equal(f.kinds('KESIF_FORECAST').length,1);assert.equal(f.kinds('KESIF_FORECAST')[0].p.errors[0].m,'model-f');
   assert.ok(fs.existsSync(path.join(f.root,'data','kesif-state.json')));
   // the NONE answer is on the book at once (never scored, never punished)
-  const st0=f.controller.kesifStatus();assert.equal(st0.shadow,true);assert.equal(st0.counts.open,7);assert.equal(st0.counts.labelsOpen,2);assert.equal(st0.matrix.total.n||0,0);
+  const st0=f.controller.kesifStatus();assert.equal(st0.shadow,true);assert.equal(st0.counts.open,13,'7 + 5 ambush twins of the directional forecasts + BEYIN-2 (R2544.150)');
+  assert.deepEqual(s.open.filter(r=>r.model.startsWith('PUSU:')).map(r=>[r.model,r.side]).sort(),[['PUSU:ORTAK','SHORT'],['PUSU:model-b','SHORT'],['PUSU:nvidia/model-c','LONG'],['PUSU:nvidia/model-d','SHORT'],['PUSU:vision/a','SHORT']]);
+  assert.ok(f.state.asked[0].perMember.every(x=>{const j=JSON.parse(x);return j.yourRole&&j.yourRecord;}),'every model got its own role and record');
+  assert.ok(new Set(f.state.asked[0].perMember.map(x=>JSON.parse(x).yourRole.name)).size>=2,'not one lens for everybody');
+  assert.ok(Number.isFinite(f.kinds('KESIF_FORECAST')[0].p.herd));assert.ok(f.kinds('KESIF_FORECAST')[0].p.forecasts.some(x=>x.r),'the role of every forecast is on the book');
+  assert.ok(s.open.find(r=>r.model==='_ETIKET'&&r.symbol==='UPUSDT').feats.some(x=>x.startsWith('oy:')),'who voted what is in the brain\'s label');assert.equal(st0.counts.labelsOpen,2);assert.equal(st0.matrix.total.n||0,0);
   assert.ok(!f.state.calls.some(c=>c.m!=='GET'),'only public GET requests');
   // the next tick inside the cadence asks nobody again
   f.state.now+=60000;await f.controller._testKesifTick();assert.equal(f.state.asked.length,1);
@@ -80,7 +85,10 @@ test('R2544.148 outcomes: the real candles decide (target first, stop first, hor
   assert.deepEqual([by('nvidia/model-c').outcome,by('nvidia/model-c').R],['STOP',+(-1-0.14/2).toFixed(3)]);
   assert.deepEqual([by('model-b').outcome,by('model-b').R],['TARGET',+(1-0.14/3).toFixed(3)]);
   assert.deepEqual([by('model-e').outcome,by('model-e').R],['NONE',null],'NONE is on the book as an abstention, never scored');
-  assert.deepEqual(s.open.filter(r=>!r.done&&r.symbol==='UPUSDT').map(r=>r.model),['nvidia/model-d'],'the 2,5% / 5% forecast is still running');
+  assert.deepEqual(s.open.filter(r=>!r.done&&r.symbol==='UPUSDT'&&!r.model.startsWith('PUSU:')).map(r=>r.model),['nvidia/model-d'],'the 2,5% / 5% forecast is still running');
+  // R2544.150 PUSU: the exact opposite of every forecast is scored too - the LONG that won makes its twin SHORT lose, the SHORT that lost makes its twin LONG still run
+  assert.deepEqual([by('PUSU:vision/a').side,by('PUSU:vision/a').outcome],['SHORT','STOP']);
+  assert.ok(s.open.some(r=>!r.done&&r.model==='PUSU:nvidia/model-c'&&r.side==='LONG'),'the twin of the losing SHORT is a LONG, still running');
   assert.deepEqual([by('ORTAK').outcome,by('ORTAK').R],['TARGET',+(4/2.5-0.14/2.5).toFixed(3)],'the crowd (median 2,5% stop / 4% target) is scored like a member');
   assert.ok(f.kinds('KESIF_OUTCOME').length>=3);
   // the label of round 1 (band = 1,5 x 1h ATR) resolved UP on the +4% move -> the matrix has its first round and the formations of that screen

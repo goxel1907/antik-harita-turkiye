@@ -86,7 +86,7 @@ test('R2544.149 a KEŞİF tick: every candidate coin is read, AKIS fires on the 
     if(p==='/fapi/v1/depth')return ok(neutral().depth);
     return ok({});};
   const events=[];
-  const committee={poll:async a=>{st.asked.push(a);return {ok:true,asked:1,votes:[{member:'OVH:m1',ok:true,vote:a.parse('{"direction":"LONG","stopPct":2,"targetPct":4,"horizonH":3}')}]};},decide:async()=>({ok:false}),status:()=>({members:[],team:[]})};
+  const committee={poll:async a=>{st.asked.push({...a,prompt:typeof a.prompt==='function'?a.prompt('OVH:m1'):a.prompt});return {ok:true,asked:1,votes:[{member:'OVH:m1',ok:true,vote:a.parse('{"direction":"LONG","stopPct":2,"targetPct":4,"horizonH":3}')}]};},decide:async()=>({ok:false}),status:()=>({members:[],team:[]})};
   const c=require('../live-controller').createLiveController({root,clock:()=>st.now,store:{journal:(k,s,p)=>events.push({k,s,p}),recordLearning:()=>{}},scanner:{scan:async()=>({})},pipeline:{},committee:async()=>({}),
     credentials:{apiKey:'fake-test-key-r149',apiSecret:'fake-test-secret-r149'},fetchImpl,paperAutoTick:false,defaultTradingMode:'TEST',deskJudges:{committee},
     market:{marketStream:{snapshot:()=>({available:false}),ensureSymbol(){}},liquidationHistory:{clusters:()=>({available:true,coverageFromMs:5*H,longLiquidatedQuote:1000,shortLiquidatedQuote:900})}}});

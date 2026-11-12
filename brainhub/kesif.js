@@ -46,11 +46,14 @@ const SYSTEM = 'You are a senior discretionary crypto-futures trader on a profes
   'Think like the trader who is NOT the liquidity: where are the stops resting, who is trapped right now, which side is crowded, where would a market maker push price next to fill orders, what does the larger trend allow - and where exactly is that idea wrong. ' +
   '`traces` (when present) are the public footprints of bots and market makers on this coin: open interest change, big accounts vs the crowd (long/short), aggressive taker flow, order-book imbalance and walls, observed liquidations, a 15m stop hunt, and which trace rules fire now - heuristics, not identities; walls can be fake. ' +
   '`brain` is the desk\'s own probability matrix, built LIVE from its earlier rounds only (no backtest): for the formations on this screen, how often price went up first or down first and in how many hours; `desk` is who has been right so far. Use both as evidence - they can be thin, and you may disagree with them when the chart says so. ' +
+  'BEFORE you commit, name the obvious trade on this screen (obviousTr) and the ambush (trapTr): how a market maker or the bots would trap the traders who take that obvious trade, where their stops are and what happens when the trap springs. If the trap is the more likely path, take the trap side - attacking head-on is not the only way to win. ' +
+  'You also get `yourRole`: read the screen through that lens first. You get `yourRecord`: how YOUR earlier forecasts did and how the exact opposite of them (your ambush twin) did - if your twin is beating you, you have been the bait; change how you read. ' +
+  'Do not copy the crowd: every trader is scored alone and a correct minority view is worth the most. ' +
   'Then commit. direction = LONG or SHORT, or NONE when there is honestly no readable move (NONE is respected; a forced guess is what the score punishes). ' +
   'stopPct = the distance in % from the price now at which your idea is wrong (' + STOP_MIN + ' to ' + STOP_MAX + '); targetPct = the distance in % price should travel in your direction BEFORE touching that stop (at least stopPct); horizonH = by when, in hours (' + HORIZON_MIN + ' to ' + HORIZON_MAX + '). ' +
   'Your forecast is written down now and scored automatically against what price really does: target first = +targetPct/stopPct R, stop first = -1R, neither by the horizon = the open result, each minus the trading cost. ' +
   'The traders with the best forward record get the final word on the desk\'s real trades, so do not answer by habit. ' +
-  'Answer ONLY with JSON: {"direction":"LONG|SHORT|NONE","stopPct":number,"targetPct":number,"horizonH":number,"confidence":0-100,"reasonTr":"Türkçe 1-2 cümle: ne görüyorsun, sonraki hamle ne","wrongIfTr":"Türkçe kısa: fikir nerede bozulur"}';
+  'Answer ONLY with JSON: {"direction":"LONG|SHORT|NONE","stopPct":number,"targetPct":number,"horizonH":number,"confidence":0-100,"obviousTr":"Türkçe kısa: ekrandaki bariz işlem","trapTr":"Türkçe kısa: o bariz işleme kurulan pusu / tuzak","reasonTr":"Türkçe 1-2 cümle: ne görüyorsun, sonraki hamle ne","wrongIfTr":"Türkçe kısa: fikir nerede bozulur"}';
 const DIR_SYN = { BUY:'LONG', UP:'LONG', BULL:'LONG', BULLISH:'LONG', AL:'LONG', SELL:'SHORT', DOWN:'SHORT', BEAR:'SHORT', BEARISH:'SHORT', SAT:'SHORT',
   WAIT:'NONE', FLAT:'NONE', NEUTRAL:'NONE', NO_TRADE:'NONE', SKIP:'NONE', HOLD:'NONE', YOK:'NONE', BEKLE:'NONE' };
 function parse(text) {
@@ -58,11 +61,12 @@ function parse(text) {
     const dir = o => { const w = PD.wordOf(o.direction); return ['LONG', 'SHORT', 'NONE'].includes(w) ? w : DIR_SYN[w] || null; };
     const j = [...all].reverse().find(o => dir(o)); if (!j) return { ok:false, reason:'KESIF_DIRECTION_INVALID' };
     const d = dir(j), conf = Math.max(0, Math.min(100, finite(j.confidence) ?? 50)), reasonTr = String(j.reasonTr || '').slice(0, 400), wrongIfTr = String(j.wrongIfTr || '').slice(0, 200);
-    if (d === 'NONE') return { ok:true, direction:'NONE', confidence:conf, reasonTr, wrongIfTr };
+    const obviousTr = String(j.obviousTr || '').slice(0, 200), trapTr = String(j.trapTr || '').slice(0, 240);
+    if (d === 'NONE') return { ok:true, direction:'NONE', confidence:conf, reasonTr, wrongIfTr, obviousTr, trapTr };
     const s0 = finite(j.stopPct), g0 = finite(j.targetPct), h0 = finite(j.horizonH);
     if (!(s0 > 0) || !(g0 > 0)) return { ok:false, reason:'KESIF_NUMBERS_INVALID' };   // a direction without a stop and a target is not a forecast
     const stopPct = Math.max(STOP_MIN, Math.min(STOP_MAX, s0)), targetPct = Math.max(stopPct, Math.min(60, g0)), horizonH = Math.max(HORIZON_MIN, Math.min(HORIZON_MAX, h0 ?? 6));
-    return { ok:true, direction:d, stopPct:round(stopPct, 2), targetPct:round(targetPct, 2), horizonH:round(horizonH, 1), confidence:conf, reasonTr, wrongIfTr, adjusted:stopPct !== s0 || targetPct !== g0 || horizonH !== (h0 ?? 6) };
+    return { ok:true, direction:d, stopPct:round(stopPct, 2), targetPct:round(targetPct, 2), horizonH:round(horizonH, 1), confidence:conf, reasonTr, wrongIfTr, obviousTr, trapTr, adjusted:stopPct !== s0 || targetPct !== g0 || horizonH !== (h0 ?? 6) };
   } catch { return { ok:false, reason:'KESIF_JSON_INVALID' }; }
 }
 const valid = text => parse(text).ok;
@@ -71,7 +75,7 @@ const valid = text => parse(text).ok;
 function open({ model, symbol, forecast, at, round:roundId = null, img = false } = {}) {
   if (!model || !symbol || !forecast?.ok || !Number.isFinite(at)) return null;
   const base = { id:`${roundId || at}:${model}`, round:roundId || null, model:String(model), symbol:String(symbol), at, side:forecast.direction, conf:forecast.confidence ?? null,
-    why:String(forecast.reasonTr || '').slice(0, 240), wrongIf:String(forecast.wrongIfTr || '').slice(0, 160), ...(img ? { img:true } : {}) };
+    why:String(forecast.reasonTr || '').slice(0, 240), wrongIf:String(forecast.wrongIfTr || '').slice(0, 160), ...(img ? { img:true } : {}), ...(forecast.trapTr ? { trap:String(forecast.trapTr).slice(0, 200) } : {}) };
   if (forecast.direction === 'NONE') return { ...base, done:true, outcome:'NONE', R:null, closedAt:at };
   return { ...base, stopPct:forecast.stopPct, targetPct:forecast.targetPct, horizonH:forecast.horizonH, entryAt:Math.ceil(at / M5) * M5, done:false };
 }
@@ -192,10 +196,77 @@ function brainForecast(call, b) {
 }
 // what the models are told before they forecast: the brain's matrix on THIS screen and who has been right so far (they learn from both)
 function brief(m, feats, call, k) {
-  const rows = (k?.rows || []).filter(r => r.n >= 1).slice(0, 6).map(r => ({ trader:r.model === 'ORTAK' ? 'crowd of models' : r.model === 'BEYIN' ? 'brain matrix' : String(r.model).startsWith('IZ:') ? 'trace rule ' + String(r.model).slice(3) : 'a model', n:r.n, hitPct:r.hitPct, avgR:r.avgR, state:r.state }));
+  const rows = (k?.rows || []).filter(r => r.n >= 1).slice(0, 6).map(r => ({ trader:r.model === 'ORTAK' ? 'crowd of models' : r.model === 'BEYIN' ? 'brain matrix' : r.model === 'BEYIN2' ? 'learning brain' : String(r.model).startsWith('PUSU:') ? 'ambush twin (the exact opposite) of ' + (String(r.model).startsWith('PUSU:IZ:') ? 'trace rule ' + String(r.model).slice(8) : String(r.model) === 'PUSU:ORTAK' ? 'the crowd' : 'a model') : String(r.model).startsWith('IZ:') ? 'trace rule ' + String(r.model).slice(3) : 'a model', n:r.n, hitPct:r.hitPct, avgR:r.avgR, state:r.state }));
   return { brain:{ labelledRounds:call.rounds, ready:call.ready, upFirstProbability:call.ready ? call.pUp : null, baseRate:call.rounds ? { upFirstPct:call.baseUpPct, downFirstPct:call.baseDownPct } : null,
       labelRule:`up first / down first by ${'±'}band % within ${LABEL_H} h; band = 1.5 x 1h ATR`, formationsOnThisScreen:(feats || []).length, strongest:call.used },
     desk:{ rows, note:'forward record of this desk only (no backtest); a small n proves nothing' } };
+}
+// ---------------------------------------------------------------------------------------------------------------------------------
+// R2544.150 (kullanıcı 12.11: "tam tersi durumu niye düşünmüyor, düşmana direk saldırmak yerine pusuya da düşürülebilir"; "modeller aynı
+// yönü seçiyor, saçmalık, çıkarım yapması lazım"; "beyin öğrenecek").
+// 1) ROLES: every model reads each round through a different lens (rotating), so the desk is not one opinion nine times.
+const ROLES = [
+  { key:'TREND', tr:'trendci', en:'TREND FOLLOWER: trade only with the higher timeframes (1h, 4h, 1d); when they disagree, NONE.' },
+  { key:'PUSU', tr:'pusucu', en:'AMBUSH / CONTRARIAN: assume the obvious move on this screen is the bait. Where is the crowd leaning, where are its stops, what happens when the trap springs? Take that side when the trap is readable.' },
+  { key:'LIKIDITE', tr:'likidite avcısı', en:'LIQUIDITY HUNTER: map the resting liquidity (equal highs / lows, day / week levels, liquidations). Price is drawn to the nearest large pool first: forecast that draw.' },
+  { key:'TUREV', tr:'türev okuyucu', en:'DERIVATIVES READER: open interest, funding, big accounts vs crowd, taker flow. Who is trapped and must close, and in which direction does that push price?' },
+  { key:'YAPI', tr:'yapı okuyucu', en:'STRUCTURE READER: BOS / CHoCH, order blocks, fair value gaps, premium / discount on 15m-1h. Forecast the next structural leg.' },
+  { key:'AKIS', tr:'akış okuyucu', en:'FLOW READER: volume against its median, taker buy share and order-book imbalance on 5m-15m. Who is in control right now, and is the control real or absorbed?' },
+  { key:'AVUKAT', tr:'şeytanın avukatı', en:'DEVIL\'S ADVOCATE: build the strongest case AGAINST the move most traders would take here, then forecast what you really believe.' }
+];
+const hash = s => { let h = 2166136261; for (const c of String(s)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+function roleFor(member, roundNo) { return ROLES[(hash(member) + (Number(roundNo) || 0)) % ROLES.length]; }
+// 2) PUSU (ambush twin): every directional forecast gets its exact opposite (same stop, target, hours, entry). A trader who keeps being the
+//    bait turns into a leader through its twin; the karne and the balance gate treat a twin like any member.
+function mirror(rec) {
+  if (!rec || rec.done || (rec.side !== 'LONG' && rec.side !== 'SHORT')) return null; const m = String(rec.model || '');
+  if (!m || m.startsWith('_') || m.startsWith('PUSU:')) return null;
+  const { feats, brainP, brainP2, baseP, brainReady, trap, ...base } = rec;
+  return { ...base, id:rec.id + ':PUSU', model:'PUSU:' + m, side:rec.side === 'LONG' ? 'SHORT' : 'LONG', conf:null, mirrorOf:m, why:`pusu: ${m.split('/').pop()} ${rec.side} dedi, tersi`.slice(0, 240), wrongIf:'' };
+}
+// 3) SÜRÜ: how much of the desk went the same way (directional answers only)
+function herd(forecasts) {
+  const d = (forecasts || []).filter(f => f && (f.direction === 'LONG' || f.direction === 'SHORT')); if (d.length < 2) return null;
+  const L = d.filter(f => f.direction === 'LONG').length; return round(Math.max(L, d.length - L) / d.length, 2);
+}
+// what a model is told about itself before it forecasts: its own record and its twin's
+function selfRecord(k, key) {
+  const rows = k?.rows || [], me = rows.find(r => r.model === key), tw = rows.find(r => r.model === 'PUSU:' + key);
+  if (!me && !tw) return { n:0, note:'no scored forecast yet' };
+  const out = { n:me?.n || 0, hitPct:me?.hitPct ?? null, avgR:me?.avgR ?? null, long:me?.long || null, short:me?.short || null, ambushTwin:tw ? { n:tw.n, avgR:tw.avgR, hitPct:tw.hitPct } : null };
+  if (tw && me && tw.n >= 5 && (tw.avgR ?? -9) > (me.avgR ?? -9)) out.lesson = `your exact opposite did better (${tw.avgR}R vs ${me.avgR}R over ${tw.n}): you have been the bait - look for the trap before you commit`;
+  return out;
+}
+// 4) BEYİN-2, the learning brain (selective average). It learns from the same live matrix (every resolved label adds its counts, the votes of
+//    the models, their roles and the crowd included) but combines it differently: only footprints with enough evidence vote (UP+DOWN >= 8
+//    and |z| >= 2,5 against the base rate) and their log-odds deviations are AVERAGED (n-weighted, shrunk), not summed. The first brain sums
+//    ~90 correlated formations and became overconfident (skill -8 % on 26 labels, 12.11). Chosen before the outcome on synthetic streams with a
+//    known answer (12.11): strong signal +34..53 % skill at 200 labels, noise -2 % (Adagrad logistic: noise -12..-60 %, rejected).
+const B2 = { minN:8, zMin:2.5, shrink:20, minLabels:20, edge:0.10 };
+function brain2Used(m, feats) {
+  const t = m?._total || { UP:0, DOWN:0 }, U = t.UP || 0, Dn = t.DOWN || 0, b0 = Math.log((U + 1) / (Dn + 1)), base = (U + 1) / (U + Dn + 2), used = [];
+  for (const k of feats || []) { const x = m?.f?.[k]; if (!x) continue; const n = (x.UP || 0) + (x.DOWN || 0); if (n < B2.minN) continue;
+    const pf = ((x.UP || 0) + 1) / (n + 2), z = (pf - base) / Math.sqrt(base * (1 - base) / n); if (Math.abs(z) < B2.zMin) continue;
+    used.push({ f:k, n, upPct:Math.round((x.UP || 0) / n * 100), z:round(z, 2), d:Math.log(((x.UP || 0) + 1) / ((x.DOWN || 0) + 1)) - b0, w:n / (n + B2.shrink) }); }
+  return { b0, used };
+}
+function brain2P(m, feats) { const { b0, used } = brain2Used(m, feats); const sw = used.reduce((a, u) => a + u.w, 0); let lo = b0 + (sw ? used.reduce((a, u) => a + u.w * u.d, 0) / sw : 0); lo = Math.max(-3, Math.min(3, lo)); return 1 / (1 + Math.exp(-lo)); }
+function brain2Top(m, n = 10) {
+  const { used } = brain2Used(m, Object.keys(m?.f || {})); return used.sort((a, b) => Math.abs(b.z) - Math.abs(a.z)).slice(0, n).map(u => ({ f:u.f, n:u.n, upPct:u.upPct, z:u.z, side:u.d > 0 ? 'UP' : 'DOWN' }));
+}
+function brain2Forecast(m, p, b) {
+  const t = m?._total || {}, n = (t.UP || 0) + (t.DOWN || 0);
+  if (n < B2.minLabels) return { ok:true, direction:'NONE', confidence:0, reasonTr:`öğrenen beyin ısınıyor (${n}/${B2.minLabels} yönlü etiket)`, wrongIfTr:'' };
+  if (Math.abs(p - 0.5) < B2.edge) return { ok:true, direction:'NONE', confidence:Math.round(Math.max(p, 1 - p) * 100), reasonTr:`öğrenen beyin kararsız (yukarı %${Math.round(p * 100)})`, wrongIfTr:'' };
+  const d = p > 0.5 ? 'LONG' : 'SHORT';
+  return { ok:true, direction:d, stopPct:b, targetPct:b, horizonH:LABEL_H, confidence:Math.round(Math.max(p, 1 - p) * 100), reasonTr:`öğrenen beyin ${d === 'LONG' ? 'yukarı' : 'aşağı'} %${Math.round(Math.max(p, 1 - p) * 100)} (${n} etiketten)`.slice(0, 400), wrongIfTr:`fiyat %${b} ters giderse` };
+}
+// who voted what -> features for the learning brain (it learns whom to trust, in which role, and when the crowd is the bait)
+function voteFeats(votes, roles, consensusDir, herdShare) {
+  const out = new Set();
+  for (const v of votes || []) { if (!v?.key || !v.direction) continue; out.add(`oy:${v.key}:${v.direction}`.slice(0, 70)); const r = roles?.[v.key]; if (r) out.add(`rol:${r}:${v.direction}`); }
+  out.add(`oy:ortak:${consensusDir || 'YOK'}`); if (Number.isFinite(herdShare)) out.add(`oy:suru:${herdShare >= 0.85 ? 'YUKSEK' : herdShare >= 0.65 ? 'ORTA' : 'DUSUK'}`);
+  return [...out];
 }
 // R2544.149 the sandbox's matrix (built LIVE from its own forward rounds) joins the core's: every count adds up
 function matrixMerge(a, b) {
@@ -210,15 +281,15 @@ function matrixMerge(a, b) {
 // When the label resolves up first / down first, both are scored (Brier: lower = better). Skill = 1 - Brier(brain) / Brier(base).
 // ÖN-KAYIT: "öğreniyor" only with >= LEARN_MIN resolved labels AND skill > 0 in BOTH halves (old half, new half); otherwise it is said plainly.
 const LEARN_MIN = 30;
-function learningCheck(rows) {
-  const xs = (Array.isArray(rows) ? rows : []).filter(r => r && Number.isFinite(r.p) && Number.isFinite(r.b) && (r.y === 0 || r.y === 1)).sort((a, b) => (a.at || 0) - (b.at || 0));
+function learningCheck(rows, key = 'p') {
+  const xs = (Array.isArray(rows) ? rows : []).filter(r => r && Number.isFinite(r[key]) && Number.isFinite(r.b) && (r.y === 0 || r.y === 1)).map(r => ({ ...r, p:r[key] })).sort((a, b) => (a.at || 0) - (b.at || 0));
   const score = a => { if (!a.length) return null; const bb = a.reduce((s, r) => s + (r.p - r.y) ** 2, 0) / a.length, bs = a.reduce((s, r) => s + (r.b - r.y) ** 2, 0) / a.length;
     const lean = a.filter(r => Math.abs(r.p - 0.5) >= BRAIN_EDGE); return { n:a.length, brierBrain:round(bb, 4), brierBase:round(bs, 4), skillPct:bs > 0 ? round((1 - bb / bs) * 100, 1) : null,
       leanN:lean.length, leanHitPct:lean.length ? Math.round(lean.filter(r => (r.p > 0.5 ? 1 : 0) === r.y).length / lean.length * 100) : null }; };
   const all = score(xs), h = Math.floor(xs.length / 2), first = score(xs.slice(0, h)), second = score(xs.slice(h));
   const state = xs.length < LEARN_MIN ? 'KANIT_YOK' : (all.skillPct > 0 && first?.skillPct > 0 && second?.skillPct > 0) ? 'OGRENIYOR' : 'OGRENMIYOR';
   const tr = state === 'KANIT_YOK' ? `kanıt yok: ${xs.length}/${LEARN_MIN} sonuçlanmış etiket` : state === 'OGRENIYOR' ? `öğreniyor: taban orandan %${all.skillPct} iyi, iki yarıda da artı` : `öğrendiği kanıtlanmadı: taban orana göre %${all.skillPct} (eski yarı %${first?.skillPct}, yeni yarı %${second?.skillPct})`;
-  return { version:KESIF_VERSION, min:LEARN_MIN, state, tr, all, first, second };
+  return { version:KESIF_VERSION, which:key === 'p2' ? 'BEYIN2' : 'BEYIN', min:LEARN_MIN, state, tr, all, first, second };
 }
 // R2544.149 BAKİYE ZAMANI (kullanıcı 12.11: "askerler ve kurul bana ne zaman bakiye eklemem gerektiğini söylemeli"). ÖN-KAYIT, the user's
 // own numbers: a member (model, brain, trace rule, the crowd) is READY with >= READY_N scored forward results, average > 0, average without
@@ -259,4 +330,5 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
   return c[0] || null;
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
-  formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N };
+  formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
+  ROLES, roleFor, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2Forecast, voteFeats };
