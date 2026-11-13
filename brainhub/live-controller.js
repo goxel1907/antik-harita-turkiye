@@ -7299,7 +7299,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       soz:(()=>{const c=readSozConfig(),kr=s.karne||KESIF.karne(s.closed,{now});return {...c,name:KESIF.SOZ.name,holders:[...KESIF.wordHolders(kr)],weakHolder:KESIF.bestCandidate(kr),minWord:KESIF.MIN_WORD,
         active:Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').map(a=>({id:a.id,symbol:a.symbol,side:a.side,mode:a.mode,model:a.kesif?.model||null,entryPrice:a.entryPrice,stopPct:a.stopPct,leverage:a.leverage,openedAt:a.openedAt,goxel:a.goxel||null})),
         recent:(s.sozRecent||[]).slice(0,10),goxelLive:s.goxelLiveLast||null,goxelLiveError:s.goxelLiveError||null};})(),
-      human:(()=>{try{return KESIF.humanTeacher([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.161
+      // R2544.168: was a second 'human' key that silently replaced the robot-rule book (R2544.153); at 8 hand closes the Office card crashed
+      teacher:(()=>{try{return KESIF.humanTeacher([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.161
       closers:(()=>{try{return KESIF.closerBook([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.166
       sight:(()=>{const g=k=>{const l=s.closed.filter(r=>r.sight===k&&Number.isFinite(r.R));return {n:l.length,avgR:l.length?Number((l.reduce((a,r)=>a+r.R,0)/l.length).toFixed(3)):null,hitPct:l.length?Math.round(l.filter(r=>r.R>0).length/l.length*100):null};};return {KOR:g('KOR'),GOREN:g('GOREN')};})(),
       readiness:kesifReadiness(now)};}

@@ -30,7 +30,7 @@ test('R2544.161 wiring: both lesson books mark hand closes, the plan is kept, th
   assert.match(lc, /if\(now<end\+10\*60000\)continue;/, 'only after the plan\'s own time');
   assert.match(lc, /DESK\.counterfactual\(\{plan:u\.plan,decisions:\[\]\},k\)/);
   assert.match(lc, /screens:pv\.screens\.map\(x=>\(\{k:x\.key,a:x\.against\}\)\)/, 'Goxel\'s screens stay on the lot');
-  assert.match(lc, /human:\(\(\)=>\{try\{return KESIF\.humanTeacher\(/);
+  assert.match(lc, /teacher:\(\(\)=>\{try\{return KESIF\.humanTeacher\(/); // R2544.168 renamed (was a duplicate 'human' key)
   const h = fs.readFileSync(path.join(__dirname, '..', 'office-dashboard', 'public', 'office.html'), 'utf8');
   assert.match(h, /Sizden öğrenilen \(elle kapattıklarınız\)/);
 });
