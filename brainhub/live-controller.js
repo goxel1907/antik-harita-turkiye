@@ -7161,6 +7161,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const hc=gxHtf.get(sym);let htf=hc&&now-hc.at<15*60000?hc.k:null;if(!htf){htf={h1:await kl('1h',TB.FETCH.h1),h4:await kl('4h',TB.FETCH.h4),d1:await kl('1d',TB.FETCH.d1)};gxHtf.set(sym,{at:now,k:htf});}
       pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});}catch{pk=null;}
     return {sc,pk};}
+  // R2544.175 (Codex bulgusu, BULLA 13.11 16:55 bakışı 15.11'de "şimdi" görünüyordu; görünen = gerçek): only lots still open are live; the rest is history
+  function goxelLiveView(g){if(!g||typeof g!=='object')return null;const open=new Set(Object.keys(top3State.active||{}));const lots=Array.isArray(g.lots)?g.lots:[];
+    const live=lots.filter(x=>x&&x.id&&open.has(x.id)),gone=lots.filter(x=>x&&!(x.id&&open.has(x.id)));
+    return {at:g.at??null,ageSec:finite(g.at)?Math.max(0,Math.round((clock()-g.at)/1000)):null,ordered:g.ordered??0,lots:live,
+      ...(gone.length?{closedLook:{at:g.at??null,lots:gone.map(x=>({id:x.id||null,symbol:x.symbol,side:x.side,curR:x.curR??null,close:x.close===true}))}}:{})};}
   async function goxelLive(now,s){
     const seen=[];let ordered=0;
     for(const a of Object.values(top3State.active||{})){
@@ -7350,7 +7355,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       roles:KESIF.ROLES.map(r=>({key:r.key,tr:r.tr})),
       soz:(()=>{const c=readSozConfig(),kr=s.karne||KESIF.karne(s.closed,{now});return {...c,name:KESIF.SOZ.name,holders:[...KESIF.wordHolders(kr)],weakHolder:KESIF.bestCandidate(kr),minWord:KESIF.MIN_WORD,
         active:Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').map(a=>({id:a.id,symbol:a.symbol,side:a.side,mode:a.mode,model:a.kesif?.model||null,entryPrice:a.entryPrice,stopPct:a.stopPct,leverage:a.leverage,openedAt:a.openedAt,goxel:a.goxel||null})),
-        recent:(s.sozRecent||[]).slice(0,10),goxelLive:s.goxelLiveLast||null,goxelLiveError:s.goxelLiveError||null};})(),
+        recent:(s.sozRecent||[]).slice(0,10),goxelLive:goxelLiveView(s.goxelLiveLast),goxelLiveError:s.goxelLiveError||null};})(),
       // R2544.168: was a second 'human' key that silently replaced the robot-rule book (R2544.153); at 8 hand closes the Office card crashed
       teacher:(()=>{try{return KESIF.humanTeacher([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.161
       closers:(()=>{try{return KESIF.closerBook([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.166
