@@ -905,6 +905,39 @@ function compactPass2DecisionContractResidual(c){
 function minimalEssentialEnvelope(body){
   const s=body?.state||{};return {model:body?.model,state:{coreMarketPacket:s.coreMarketPacket||null,record:s.record||null,pass1Handoff:s.pass1Handoff||null,decisionContract:s.decisionContract||null},questions:body?.questions||null};
 }
+// Bound archived lane context only; never project the current signal or market packet.
+function compactLaneExperience(experience){
+  if(!experience||typeof experience!=='object'||Array.isArray(experience))return experience;
+  if(experience.requestProjection?.policy==='LANE_HISTORY_DIGEST_V1')return experience;
+  const recent=Array.isArray(experience.recent)?experience.recent:[];
+  const keep=new Set([0,
+    recent.findIndex(x=>Number(x?.rMultiple)>0),
+    recent.findIndex(x=>Number(x?.rMultiple)<0)]);
+  const pick=(x,keys)=>x&&typeof x==='object'
+    ?Object.fromEntries(keys.filter(k=>x[k]!==undefined).map(k=>[k,x[k]])):x;
+  const projected=recent.filter((_,i)=>keep.has(i)).map(lot=>{
+    const {committee,leverageVote,brain,similar,...features}=lot.features||{};
+    if(committee!==undefined)features.committee=pick(committee,
+      ['at','decision','consensus','rounds','shadow','authority','error']);
+    if(leverageVote!==undefined)features.leverageVote=pick(leverageVote,['by','want']);
+    if(brain!==undefined)features.brain=pick(brain,['version','k','n','wins','losses','avgR','lean']);
+    if(similar!==undefined)features.similar=pick(similar,['n','wins','losses','avgR','mixed','thin']);
+    return {...lot,features};
+  });
+  const digest={...experience,recent:projected,
+    requestProjection:{policy:'LANE_HISTORY_DIGEST_V1',
+      recentAvailable:recent.length,recentKept:projected.length,
+      selection:'LAST_RECORDED_PLUS_WINNER_AND_LOSER',
+      historyFeatureSummaries:['committee','leverageVote','brain','similar'],
+      measuredLearningUnchanged:true,softContextOnly:true}};
+  const packed=encodeMarketPacket(digest);
+  if(!packed.encoded)return digest;
+  packed.packet.wire.interpretation+=' This dictionary is local to state.laneExperience. '+
+    'Decode its nested rows with state.laneExperience.wire.fields, independently of '+
+    'state.coreMarketPacket.wire.fields. Read learning, similar and recent after expansion.';
+  return packed.packet;
+}
+
 function prepareDecisionRequest(input,opts={}){
   const pass=decisionPass(input);
   const hardCap=Number.isFinite(Number(opts?.maxBytes))&&Number(opts.maxBytes)>0?Math.min(Number(opts.maxBytes),MAX_DECISION_REQUEST_BYTES):MAX_DECISION_REQUEST_BYTES;
@@ -934,6 +967,11 @@ function prepareDecisionRequest(input,opts={}){
     }
   }
   serialized=refresh();
+  // Bound this lane's archived decision context before trimming current market data.
+  if(byteSize(body)>targetCap&&state.laneExperience&&typeof state.laneExperience==='object'){
+    state.laneExperience=compactLaneExperience(state.laneExperience);
+    trimStepsApplied.push('LANE_EXPERIENCE_HISTORY_DIGEST');serialized=refresh();
+  }
   // Semantic optional-context projection. No blind string prefix slicing.
   if(byteSize(body)>targetCap){
     const cortex=state.professionalTraderCortex;if(cortex&&typeof cortex.reference==='string'){cortex.reference=compactCortexReference(cortex.reference,pass===1?3600:4200);cortex.referenceProjected=true;}
