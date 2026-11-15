@@ -7294,6 +7294,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         s.izLast={at:now,coins:list.length,read:izCache.size,fired,labels};out.iz={coins:list.length,read:izCache.size,fired:fired.length,labels};
         if(fired.length)try{store.journal('IZ_FIRE',null,{v:IZ.IZ_VERSION,coins:list.length,fired});}catch{}
       }
+      // R2544.177 (16.11 gece: KAVA İZ tahmini 00:32:39 -> emir 00:35:02, TAC 01:18:38 -> 01:20:56; sabit kural 3 "gecikme yok"): the word holder's
+      // fresh forecast becomes a trade RIGHT AFTER İZ fired - it no longer waits for the committee round below (up to ~2,5 min). Same pass, same rules.
+      async function sozPass(){const fresh=s.open.filter(r=>!r.done&&!r.sozTried&&finite(r.at)>=now-10*60000&&['LONG','SHORT'].includes(r.side));
+        if(!fresh.length)return;
+        const kr=s.karne||KESIF.karne(s.closed,{now}),uni=kesifUniverse(await tickers());
+        for(const r of fresh){r.sozTried=true;changed=true;const sig=KESIF.liveSignal(r,kr);if(!sig)continue;
+          if(!uni.has(sig.symbol)){sozNote(s,{symbol:sig.symbol,side:sig.side,model:sig.model,at:clock(),opened:false,reason:'KESIF_SOZ_LISTE_DISI'});continue;} // R2544.167
+          try{const n=await sozEnter(sig,s);out.soz=[...(out.soz||[]),n];}catch(e){sozNote(s,{...sig,opened:false,reason:String(e?.message||e).slice(0,80)});}}}
+      await sozPass();
       // 2) a new round: never while the desk or the entry committee is at work (real positions come first)
       const cm=deskJudges?.committee;
       if(now-(finite(s.lastRoundAt)||0)>=cfg.cadenceMin*60000&&!deskBusy&&entryCommitteeBusy===0&&cm&&typeof cm.poll==='function'){
@@ -7343,11 +7352,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         }
       }
       // R2544.158 KEŞİF-SÖZ: a word holder's fresh forecast becomes a real trade at once; GOXEL PRO decides the exits of every open lot
-      {const fresh=s.open.filter(r=>!r.done&&!r.sozTried&&finite(r.at)>=now-10*60000&&['LONG','SHORT'].includes(r.side));
-        const kr=s.karne||KESIF.karne(s.closed,{now}),uni=fresh.length?kesifUniverse(await tickers()):new Map();
-        for(const r of fresh){r.sozTried=true;changed=true;const sig=KESIF.liveSignal(r,kr);if(!sig)continue;
-          if(!uni.has(sig.symbol)){sozNote(s,{symbol:sig.symbol,side:sig.side,model:sig.model,at:clock(),opened:false,reason:'KESIF_SOZ_LISTE_DISI'});continue;} // R2544.167
-          try{const n=await sozEnter(sig,s);out.soz=[...(out.soz||[]),n];}catch(e){sozNote(s,{...sig,opened:false,reason:String(e?.message||e).slice(0,80)});}}}
+      await sozPass(); // R2544.177: forecasts of the committee round (above) - the İZ forecasts were already taken right after İZ
       // R2544.163: Goxel's live exits run in goxelLiveTick (every ~30 s); the hand-close book once per 5m candle here
       if(sozWired()&&Math.floor(now/KESIF_M5)!==Math.floor((finite(s.lastUserCloseAt)||0)/KESIF_M5)){s.lastUserCloseAt=now;changed=true;try{out.userClose=await userCloseTick(now);}catch{}} // R2544.161
       if(changed)saveKesif();

@@ -21,7 +21,7 @@ test('R2544.167 wiring: both KEŞİF reads use the list; a word-holder forecast 
   assert.ok(!/KESIF\.candidates\((tk0|tick|await tickers\(\)),\{now\}\)/.test(lc), 'no KEŞİF read without the list');
   assert.match(lc, /if\(n>=1&&n<=3\)out\.set\(sym,'İlk 3 \(#'\+n\+'\)'\)/);
   assert.match(lc, /let m=rows\.length>=50\?top3Lib\.ranksFromTickers\(rows\):null;/, 'İlk 3 = the ranking of this moment');
-  assert.match(lc, /uni=fresh\.length\?kesifUniverse\(await tickers\(\)\):new Map\(\);/, 'the entry check uses this moment too');
+  assert.match(lc, /if\(!fresh\.length\)return;\s*const kr=s\.karne\|\|KESIF\.karne\(s\.closed,\{now\}\),uni=kesifUniverse\(await tickers\(\)\);/, 'the entry check uses this moment too');
   assert.match(lc, /z5State\(\)\.lastScan\?\.top\|\|\[\]\)\.slice\(0,5\)/);
   assert.match(lc, /if\(!uni\.has\(sig\.symbol\)\)\{sozNote\(s,\{[^}]*reason:'KESIF_SOZ_LISTE_DISI'\}\);continue;\}/);
 });
