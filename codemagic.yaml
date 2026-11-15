@@ -740,7 +740,7 @@ workflows:
           grep -q 'optJSONObject("ogr2")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'optJSONObject("soz")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'r2544_148_kesif' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java
-          grep -q "versionName '9.5.143-r2544.171-marj'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          grep -q "versionName '9.5.144-r2544.172-kesif'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
           if grep -q 'post(c, "/live/execute", intent, true)' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/BrainHubClient.java; then
             echo 'R2544_148_KESIF_ANDROID_ORDER_INITIATION_FORBIDDEN'
             exit 1
