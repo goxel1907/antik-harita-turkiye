@@ -453,7 +453,7 @@ class BinanceLiveTransport {
   async _fetchJson(method, endpoint, opts = {}) {
     if(typeof opts.validateSizing==='function'){
       let check;try{check=opts.validateSizing();}catch{check={ok:false};}
-      if(check?.ok!==true)throw new TransportError('SIZING_CHANGED_DURING_PREPARATION',{endpoint,requestSent:false});
+      if(check?.ok!==true)throw new TransportError(Array.isArray(check?.reasons)&&check.reasons.includes('KESIF_ENTRY_PERMISSION_REVOKED')?'KESIF_ENTRY_PERMISSION_REVOKED':'SIZING_CHANGED_DURING_PREPARATION',{endpoint,requestSent:false});
     }
 
     if (this.paper && this.paper.active()) {
@@ -505,7 +505,7 @@ class BinanceLiveTransport {
         // The permit may have awaited. Validate at the actual dispatch boundary.
         if(typeof validateSizing==='function'){
           let check;try{check=validateSizing();}catch{check={ok:false};}
-          if(check?.ok!==true)throw new TransportError('SIZING_CHANGED_DURING_PREPARATION',{endpoint:path,requestSent:false});
+          if(check?.ok!==true)throw new TransportError(Array.isArray(check?.reasons)&&check.reasons.includes('KESIF_ENTRY_PERMISSION_REVOKED')?'KESIF_ENTRY_PERMISSION_REVOKED':'SIZING_CHANGED_DURING_PREPARATION',{endpoint:path,requestSent:false});
         }
         response = await this.fetchImpl(url, {
           method,

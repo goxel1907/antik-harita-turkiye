@@ -594,6 +594,7 @@ body.cc-compact .cc-extra{display:none !important}
       <button id="btnLaneBurst" disabled title="Normal sistemin vur-kaç hattı (canlıda ayrıca izin gerekir)">Vur-kaç: —</button>
       <button id="btnLaneTop3" disabled title="İlk 3 Avcısı: kural (JEV modu açıksa kural + JEV)">İlk 3 Avcısı: —</button>
       <button id="btnLaneZirve5" disabled title="ZİRVE-5: piyasa geneli ilk 5 volatil coin, 15 dk FiboBuLL alanlarında hacimli mum onayıyla LONG ve SHORT (JEV modu açıksa kural + JEV)">ZİRVE-5: —</button>
+      <button id="btnLaneKesif" disabled title="KEŞİF-SÖZ: yalnız yeni işlem giriş izni; gölge öğrenimi ve açık pozisyon yönetimini değiştirmez">KEŞİF-SÖZ: PC durumu bekleniyor</button>
       <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button><button class="live" id="btnCmLive" disabled title="R2544.89: İlk 3 ve ZİRVE-5 kararını kurula verir, sonra CANLI’ya geç onayını açar">Kurulla CANLI’ya geç</button><button class="live" id="btnJkLive" disabled title="R2544.127: İlk 3 ve ZİRVE-5 JEV + Kurul + bot olur (bot açar, önce JEV sonra kurul yönetir), sonra CANLI’ya geç onayını açar">JEV + Kurul ile CANLI’ya geç</button>
       <button id="btnGoTest" disabled style="display:none">CANLI’yı kapat — TEST’e dön</button>
       <button class="go" id="btnStartTest" disabled style="display:none">TEST’i başlat</button>
@@ -1165,7 +1166,7 @@ async function wcSave(r){
 // veya hepsi; 5 dk scalp, 15 dk ana işlem, vur-kaç, İlk 3 Avcısı, ZİRVE-5"). Five switches. 5 dk / 15 dk / vur-kaç are the normal
 // system's sub-lanes: turning one ON also turns the normal system on (if it was off, ONLY the chosen sub-lane runs); turning the last
 // one OFF turns the normal system off. ON in LIVE: second press + 'LIVE'. OFF is immediate; open lots keep their own stop / target.
-const WC_LANES=[{k:'scalp5m',name:'5 dk scalp',sub:true},{k:'trade15m',name:'15 dk ana işlem',sub:true},{k:'burst',name:'Vur-kaç',sub:true},{k:'top3',name:'İlk 3 Avcısı'},{k:'zirve5',name:'ZİRVE-5'}];
+const WC_LANES=[{k:'scalp5m',name:'5 dk scalp',sub:true},{k:'trade15m',name:'15 dk ana işlem',sub:true},{k:'burst',name:'Vur-kaç',sub:true},{k:'top3',name:'İlk 3 Avcısı'},{k:'zirve5',name:'ZİRVE-5'},{k:'kesif',name:'KEŞİF-SÖZ'}];
 function wcLaneState(ln){const n=ln?.normal||{},sub=n.sub||{},nOn=n.selected===true,o={};
   for(const L of WC_LANES)o[L.k]=L.sub?(nOn&&sub[L.k]?.selected===true):ln?.[L.k]?.selected===true;return o;}
 function wcLaneBody(ln,k){
@@ -1181,17 +1182,18 @@ function renderWcLanes(s){
   const ln=s?.status?.data?.tradingMode?.run?.lanes;
   if(!ln){box.innerHTML='<span class="wl-t">HATLAR</span><span class="wc-lnote">Hat bilgisi henüz gelmedi.</span>';return;}
   const st=wcLaneState(ln),la=s?.status?.data?.leaderAuto||{},sub=ln.normal?.sub||{};
-  const act={scalp5m:sub.scalp5m?.active,trade15m:sub.trade15m?.active,burst:sub.burst?.active,top3:ln.top3?.active,zirve5:ln.zirve5?.active};
+  const act={scalp5m:sub.scalp5m?.active,trade15m:sub.trade15m?.active,burst:sub.burst?.active,top3:ln.top3?.active,zirve5:ln.zirve5?.active,kesif:ln.kesif?.active};
   const note=k=>k==='burst'&&st.burst&&WC.live&&sub.burst?.liveAllowed!==true?'canlı izni yok: kapatıp aç':k==='burst'&&st.burst&&wcNum(la.burstMaxLeverage)>20?`⚠ ${wcNum(la.burstMaxLeverage)}x`:'';
   const on=WC_LANES.filter(L=>st[L.k]),running=WC_LANES.filter(L=>st[L.k]&&act[L.k]);
-  box.innerHTML='<span class="wl-t">HATLAR</span>'+WC_LANES.map(L=>{const id='wcLn_'+L.k,n=note(L.k);
-    return `<button type="button" class="wc-ln${st[L.k]?' on':''}${typeof pendingPress!=='undefined'&&pendingPress[id]?' arm2':''}" id="${id}" data-lane="${L.k}" aria-pressed="${st[L.k]?'true':'false'}"${WC.busy?' disabled':''} title="${esc(L.name)}: ${st[L.k]?'AÇIK — basınca kapanır':'KAPALI — basınca açılır'}"><i></i>${esc(L.name)}${n?` <small>${esc(n)}</small>`:''}</button>`;}).join('')
+  box.innerHTML='<span class="wl-t">HATLAR</span>'+WC_LANES.map(L=>{const id='wcLn_'+L.k,n=note(L.k),unknown=L.k==='kesif'&&typeof ln.kesif?.selected!=='boolean';
+    return `<button type="button" class="wc-ln${st[L.k]?' on':''}${typeof pendingPress!=='undefined'&&pendingPress[id]?' arm2':''}" id="${id}" data-lane="${L.k}" aria-pressed="${st[L.k]?'true':'false'}"${WC.busy||unknown?' disabled':''} title="${esc(L.name)}: ${st[L.k]?'AÇIK — basınca kapanır':'KAPALI — basınca açılır'}"><i></i>${esc(L.name)} <small>${unknown?'PC seçimi doğrulanamadı':st[L.k]?'✓ SEÇİLİ':'SEÇİLİ DEĞİL'}</small>${n?` <small>${esc(n)}</small>`:''}</button>`;}).join('')
     +`<span class="wc-lnote">${on.length?`Açık: <b>${on.map(L=>esc(L.name)).join(' + ')}</b>`:'<span class="bad">Hiçbir hat açık değil: işlem açılmaz.</span>'}`
     +`${ln.running?(running.length?` • şu an çalışan: <b>${running.map(L=>esc(L.name)).join(', ')}</b>`:''):' • sistem durdurulmuş: açık hatlar “TEST’i başlat” / “CANLI’ya geç” ile çalışır'}`
     +`${wcNum(la.burstMaxLeverage)>20?` • <span class="bad">Vur-kaç kaldıraç tavanı ${wcNum(la.burstMaxLeverage)}x, kuralın (en çok 20x) üstünde: aşağıda 20 ya da altını yazıp Kaydet</span>`:''}</span>`;
 }
 async function wcLane(k){
   if(WC.busy)return;const ln=last?.status?.data?.tradingMode?.run?.lanes;if(!ln){wcMsg('Hat bilgisi yok; birkaç saniye sonra tekrar dene.',true);return;}
+  if(k==='kesif'&&typeof ln.kesif?.selected!=='boolean'){wcMsg('KEŞİF-SÖZ PC hat bilgisi bekleniyor; seçim değiştirilmedi.',true);return;}
   const L=WC_LANES.find(x=>x.k===k);if(!L)return;const {on,body}=wcLaneBody(ln,k),id='wcLn_'+k;
   if(on&&WC.live){if(!secondPress(id,`CANLI — GERÇEK PARA: ${L.name} AÇ`)){wcMsg(`CANLI: ${L.name} gerçek para ile işlem açar. Onay için 6 sn içinde aynı düğmeye bir kez daha bas.`);if(last)renderWcLanes(last);return;}body.confirm='LIVE';}
   WC.busy=true;wcMsg('Gönderiliyor…');
@@ -1446,14 +1448,17 @@ function renderPos(s){
 // altta "şimdi". TEST'te ve CANLI'da aynı kart, aynı ölçü (veri o anki moddan gelir). Yalnız gösterim.
 const CC={eq:null};
 const ccG=o=>o&&o.data?o.data:o;
-const ccOwner=sw=>!sw?'—':sw.committeeMode===true?'KURUL':sw.jevMode===true?'JEV':'KURAL';
+const ccOwner=sw=>!sw?'—':sw.owner==='MODEL'?'MODEL':sw.committeeMode===true?'KURUL':sw.jevMode===true?'JEV':'KURAL'; // KEŞİF-SÖZ: giriş söz sahibi modelden
 const ccR=v=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':(Number(v)>=0?'+':'')+Number(v).toFixed(2)+'R';
 const ccCol=v=>v>0?'#2bd67b':v<0?'#ff4d6d':'#c9cfe6';
 function ccModel(s){
   const st=ccG(s?.status)||{},t=ccG(s?.top3)||{},z=ccG(s?.zirve5)||{},acc=ccG(s?.account)||{},tm=st.tradingMode||{},paper=tm.paper||null;
   const mode=(tm.mode||t.tradingMode||'TEST')==='LIVE'?'LIVE':'TEST',run=tm.run||{},armed=st.armed===true||/ARMED|RUNNING/.test(String(run.state||''));
   const pd=t.positionDesk||z.positionDesk||{},rows=pd.cmBoard?.rows||[],cc=t.cc||null;
-  const lanes=[{name:'İlk 3',sw:t.switches||null,running:t.running===true,gate:t.gate||null},{name:'ZİRVE-5',sw:z.switches||null,running:z.running===true,gate:z.gate||null}];
+  const kl=st.tradingMode?.run?.lanes?.kesif,ks=ccG(s?.kesif)?.soz;
+  const lanes=[{name:'İlk 3',sw:t.switches||null,running:t.running===true,gate:t.gate||null},{name:'ZİRVE-5',sw:z.switches||null,running:z.running===true,gate:z.gate||null},
+    {name:'KEŞİF-SÖZ',sw:typeof kl?.selected==='boolean'?{enabled:kl.selected,liveEnabled:kl.selected&&mode==='LIVE',owner:'MODEL'}:ks?{enabled:ks.enabled,owner:'MODEL'}:null,running:kl?.active===true,
+      gate:kl?.gate||'PC hat bilgisi bekleniyor',note:'giriş: söz sahibi model (JEV giriş çağrısı yok) • yönetim: masa'+(kl?.managedBy==='DESK'?'':' + Goxel')}];
   const jevOn=lanes.some(l=>l.sw?.jevMode===true),bud=ccG(s?.jevBudget)||null;
   const bal=mode==='LIVE'?{equity:acc.equity??null,net:null,src:'Binance'}:{equity:paper?.equity??acc.equity??null,net:paper?.net??null,src:'sanal hesap'};
   const open=[...(t.active||[]),...(z.active||[])].length;
@@ -1503,7 +1508,7 @@ function renderCC(s){
   const md=$('ccMode');if(md){md.className='cc-mode '+(m.mode==='LIVE'?'live':'test');md.textContent=m.mode==='LIVE'?'● CANLI • GERÇEK PARA':'● TEST • sanal hesap';}
   const top=$('ccTop');if(top){top.querySelectorAll('.cc-pill').forEach(x=>x.remove());const clk=$('ccClock');const add=h=>{const sp=document.createElement('span');sp.innerHTML=h;top.insertBefore(sp.firstChild,clk);};
     add(`<span class="cc-pill ${m.armed?'on':'off'}"><i></i>${m.armed?'ÇALIŞIYOR':'DURDU'}</span>`);
-    for(const l of m.lanes)add(`<span class="cc-pill ${l.sw?.enabled?(l.running?'on':''):'off'}" title="${esc(l.name)}: ${l.sw?.enabled?'açık':'kapalı'}${l.sw?.liveEnabled?' • CANLI seçili':''} • kapı ${esc(l.gate||'—')}"><i></i>${esc(l.name)} <span class="own ${ccOwner(l.sw)}">${ccOwner(l.sw)}</span>${l.sw?.liveEnabled?' <b>CANLI✓</b>':''}</span>`);
+    for(const l of m.lanes)add(`<span class="cc-pill ${l.sw?.enabled?(l.running?'on':''):'off'}" title="${esc(l.name)}: ${l.sw?.enabled?'açık':'kapalı'}${l.sw?.liveEnabled?' • CANLI seçili':''} • kapı ${esc(l.gate||'—')}${l.note?' • '+esc(l.note):''}"><i></i>${esc(l.name)} <span class="own ${ccOwner(l.sw)}">${ccOwner(l.sw)}</span>${l.sw?.liveEnabled?' <b>CANLI✓</b>':''}</span>`);
     add(`<span class="cc-pill ${m.jevOn?'on':''}"><i></i>JEV ${m.jevOn?'<b>AÇIK</b>'+(m.bud?` • ${esc(String(m.bud.remainingUsd??'—'))}$ kaldı`:''):'kapalı'}</span>`);
     add(`<span class="cc-pill ${m.healthy>=2?'on':'off'}"><i></i>Kurul <b>${m.healthy}/${m.total}</b></span>`);
     add(`<span class="cc-pill"><i style="background:#2ec5ff"></i>${esc(m.bal.src)} <b>${m.bal.equity!==null&&m.bal.equity!==undefined?Number(m.bal.equity).toFixed(2)+' $':'—'}</b>${m.bal.net!==null&&m.bal.net!==undefined?` <span style="color:${ccCol(m.bal.net)}">${m.bal.net>=0?'+':''}${Number(m.bal.net).toFixed(2)}$</span>`:''}</span>`);
@@ -2004,10 +2009,11 @@ function setEdge(a,b,mode){
   const show = mode==='active';
   for(const k of ['pkt','pkt2']){ const p=document.getElementById(`${k}-${a}-${b}`); if(p) p.style.display = show?'':'none'; }
 }
-function setGate(id, open, label){
+function setGate(id, open, label, active=true){
   const g = document.getElementById(id); if(!g) return;
-  g.setAttribute('class','o-gate'+(open?' open':''));
-  g.querySelector('text').textContent = open ? '✓' : '✕';
+  g.setAttribute('class','o-gate'+(active?(open?' open':''):' idle'));
+  g.setAttribute('opacity',active?'1':'0.4');
+  g.querySelector('text').textContent = active?(open ? '✓' : '✕'):'—';
   if(label) g.querySelector('.o-gl').textContent = label;
 }
 function setBubble(id, text){
@@ -2140,9 +2146,10 @@ function renderBlockers(s){
   $('#blockers').innerHTML = b.length ? b.map(x=>`<div class="blk ${x.level}"><div class="ic">${ic[x.level]||'!'}</div><div><b>${esc(x.title)}</b><span>${esc(x.detail)}</span></div></div>`).join('')
     : `<div class="blk ok"><div class="ic">✓</div><div><b>Belirgin engel görülmedi</b><span>Hat açık; uygun fırsat bekleniyor.</span></div></div>`;
   const f = s.derived?.funnel||[];
+  const normalActive=s.derived?.normalEntryActive!==false;
   let chokeMarked=false;
-  $('#pipe').innerHTML = f.map((x,i)=>{
-    const zero = x.value===0; let cls = zero?'zero':''; if(zero&&!chokeMarked&&i>0&&(f[i-1].value||0)>0){ cls+=' choke'; chokeMarked=true; }
+  $('#pipe').innerHTML = (normalActive?'':'<div class="muted">Normal giriş hattı kapalı; bu sayaçlar diğer hatların akışı değildir.</div>')+f.map((x,i)=>{
+    const zero = normalActive && x.value===0; let cls = zero?'zero':''; if(zero&&!chokeMarked&&i>0&&(f[i-1].value||0)>0){ cls+=' choke'; chokeMarked=true; }
     return `<div class="pstep ${cls}"><span>${esc(x.label)}</span><span class="n">${x.value==null?'—':x.value}</span></div>`;
   }).join('');
 }
@@ -2515,6 +2522,7 @@ function renderSources(s){
 function shortSym(x){ return String(x||'').replace(/USDT$/,''); }
 function renderOffice(s, vinfo){
   const st=s.status?.data||{}; const la=st.leaderAuto||{}; const h={...(la.health||{}),...(s.derived?.decisionHealth||{})}; const d=s.derived?.desks||{};
+  const normalActive=s.derived?.normalEntryActive??(la.enabled===true&&st.armed===true&&st.tradingMode?.run?.lanes?.normal?.selected!==false);
   const visBusy = !['IDLE','DONE','ERROR'].includes(vinfo.phase);
   setDesk('scanner', (h.scanRuns||0)>0?'busy':'', d.scanner?.text);
   setDesk('vision', vinfo.phase==='ERROR'?'blocked':(visBusy?'busy':''), (trUi(s.visionProgress?.data?.stage || 'IDLE')));
@@ -2524,6 +2532,7 @@ function renderOffice(s, vinfo){
   const jevCalled=+h.jevCalled||0, jevShadow=+h.jevShadowCalled||0; setDesk('jev', jevCalled?((+h.jevVetoed||0)>=jevCalled?'blocked':'ok'):(jevShadow?'busy':''), d.jev?.text);
   const lr = s.lastRisk; setDesk('risk', lr?'warn':'ok', lr?`${lr.symbol}: ZORUNLU • ${trUi(lr.reasons[0])}`:'JEV sonrası yalnız zorunlu güvenlik');
   setDesk('exec', st.armed?((+h.ordersPlaced||0)>0?'ok':''):'blocked', st.armed?`LIVE açık • ${(s.derived?.execution?.lastBlock||la.activeBlocker)?'son engel: '+[].concat((s.derived?.execution?.lastBlock||la.activeBlocker).reasons||(s.derived?.execution?.lastBlock||la.activeBlocker).reason||[]).map(trUi).join(', '):'kayıtlı zorunlu engel yok'}`:'LIVE KAPALI');
+  if(!normalActive)setDesk('jev','','Normal giriş hattı kapalı • diğer hatlar ayrı');
   try{renderCommittee(s);}catch(e){console.warn('committee',e);} // R2544.86
   try{renderReactor(s);}catch(e){console.warn('reactor',e);} // R2544.102
   try{renderCC(s);}catch(e){console.warn('cc',e);} // R2544.104
@@ -2547,15 +2556,15 @@ function renderOffice(s, vinfo){
   setEdge('vision','brain', ['CORE','NARRATIVE','SEMANTIC'].includes(vinfo.phase)?'active':'');
   setEdge('workers','brain', workerActive?'active':'');
   setEdge('orfree','workers', orf.last?.called?'active':'');
-  setEdge('brain','jev', pass1>0?'active':'blocked');
-  setEdge('jev','risk', approved>0?'active':'blocked');
-  setEdge('risk','exec', intentBuilt>0?'active':'blocked');
-  setEdge('exec','positions', orders>0?'active':'blocked');
+  setEdge('brain','jev', normalActive?(pass1>0?'active':'blocked'):'');
+  setEdge('jev','risk', normalActive?(approved>0?'active':'blocked'):'');
+  setEdge('risk','exec', normalActive?(intentBuilt>0?'active':'blocked'):'');
+  setEdge('exec','positions', normalActive?(orders>0?'active':'blocked'):'');
   setEdge('positions','brain', st.positionManager?.lastReview?.symbol?'active':'');
-  setGate('gQual', pass1>0, `JEV PASS-1 ${pass1} • kanıt ${h.sovereignEvidenceRequests??0}`);
-  setGate('gJev', approved>0, `JEV MARKET_NOW onayı ${approved}`);
-  setGate('gIntent', intentBuilt>0, `Niyet ${intentBuilt} • güvenlik ${safety}`);
-  setGate('gLive', st.armed===true && orders>0, st.armed?`Emir ${orders}`:'LIVE KAPALI');
+  setGate('gQual', pass1>0, `JEV PASS-1 ${pass1} • kanıt ${h.sovereignEvidenceRequests??0}`, normalActive);
+  setGate('gJev', approved>0, `JEV MARKET_NOW onayı ${approved}`, normalActive);
+  setGate('gIntent', intentBuilt>0, `Niyet ${intentBuilt} • güvenlik ${safety}`, normalActive);
+  setGate('gLive', st.armed===true && orders>0, st.armed?`Emir ${orders}`:'LIVE KAPALI', normalActive);
   // Yürüyen trader'lar: aktif rotada veri taşır; tıkalı rotada kapıda bekler.
   const lwr=la.planWorkers?.lastReview;
   const top=(la.diagnostics?.candidates||[]).find(c=>c.eligible!==false);
@@ -2578,11 +2587,11 @@ function renderOffice(s, vinfo){
   };
   for(const [a,b,g] of ROUTES){
     const k=`${a}-${b}`; const [on,label]=W[k]||[false,''];
-    setWalker(`wk-${k}`, on, label);
+    setWalker(`wk-${k}`, on&&(!g||normalActive), label);
     if(g){
       // Kapıda bekleyen: yalnız bir önceki aşamada iş varsa (tıkanma noktası) göster.
       const upstream = k==='brain-jev' ? (+h.deepAnalyses||0)>0 : k==='jev-risk' ? pass1>0 : k==='risk-exec' ? approved>0 : safety>0 || (k==='exec-positions'&&!st.armed&&approved>0);
-      setWalker(`wt-${k}`, !on && upstream, WAIT[k]);
+      setWalker(`wt-${k}`, normalActive && !on && upstream, WAIT[k]);
     }
   }
   // Beyin çevresindeki trader'lar: takip edilen setupları beyne taşır
@@ -3010,15 +3019,18 @@ function renderMode(s){
      lb('btnLaneTop3','İlk 3 Avcısı',lanes.top3?.selected,lanes.top3?.selected?(parts?(parts.length?' • '+parts.join('+'):' • alt strateji yok'):'')+DEC_TR(lanes.top3.decisions):'');}
     // R2544.64 ZİRVE-5 (LONG + SHORT): own switch; in LIVE it trades only after its own LIVE confirmation
     lb('btnLaneZirve5','ZİRVE-5',lanes.zirve5?.selected,lanes.zirve5?.selected?DEC_TR(lanes.zirve5.decisions)+(mode==='LIVE'&&!lanes.zirve5.liveAllowed?' • canlıda kapalı':''):'');
+    lb('btnLaneKesif','KEŞİF-SÖZ',lanes.kesif?.selected,lanes.kesif?.selected?(lanes.kesif?.active?' • giriş hattı açık':' • bekliyor: '+(lanes.kesif?.gate||'PC koşulları')):'');
+    if(!lanes.kesif){const b=$('#btnLaneKesif');if(b){b.textContent='KEŞİF-SÖZ: PC seçimi doğrulanamadı';b.disabled=true;}}
     info+=`<br>Hatlar: Normal sistem (yalnız JEV karar verir) <b>${lanes.normal?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.normal?.active?' • çalışıyor':''} • İlk 3 Avcısı <b>${lanes.top3?.selected?'SEÇİLİ':'kapalı'}</b>${lanes.top3?.active?' • çalışıyor':''}${mode==='LIVE'&&lanes.top3?.selected&&!lanes.top3?.liveAllowed?' • (canlıda değil)':''}`;
-  } else for(const id of ['btnLaneNormal','btnLaneScalp','btnLane15m','btnLaneBurst','btnLaneTop3','btnLaneZirve5']){const b=$('#'+id);if(b)b.style.display='none';}
+    info+=` • ZİRVE-5 <b>${lanes.zirve5?.selected?'SEÇİLİ':'kapalı'}</b> • KEŞİF-SÖZ <b>${lanes.kesif?lanes.kesif.selected?'SEÇİLİ':'kapalı':'doğrulanamadı'}</b> (yalnız yeni giriş; gölge öğrenim ayrı)`;
+  } else for(const id of ['btnLaneNormal','btnLaneScalp','btnLane15m','btnLaneBurst','btnLaneTop3','btnLaneZirve5','btnLaneKesif']){const b=$('#'+id);if(b)b.style.display='none';}
   let warn='';
   if(run){
     info+=`<br>Durum: <b>${RUN_TR[state]||state}</b>${run.switch?.waiting?.length&&busy?' — bekleniyor: '+esc(reasonsTr(run.switch.waiting)):''} • son 60 dk: tarama <b>${scans}</b> • JEV analizi ${analyses} • JEV yön kararı ${dirs} / BEKLE ${waits} • emir ${orders}`
       +(lanes&&!lanes.normal?.selected?' • Normal sistem kapalı: tarama sürer, JEV çağrılmaz, emir açılmaz':'');
     if(run.switch?.state==='FAILED') warn=`Son geçiş yapılamadı: ${reasonsTr([run.switch.reason])}${detailTr(run.switch.detail)}`;
     else if(run.lastError) warn=`Başlatılamadı: ${reasonsTr(run.lastError.reasons)} (1 dk sonra yeniden denenir)`;
-    else if(armed&&lanes&&!lanes.normal?.selected&&!lanes.top3?.selected) warn='Hiçbir hat seçili değil: işlem açılmaz (Normal sistem veya İlk 3 Avcısı’nı açın).';
+    else if(armed&&lanes&&!lanes.normal?.selected&&!lanes.top3?.selected&&!lanes.zirve5?.selected&&!lanes.kesif?.selected) warn='Hiçbir hat seçili değil: işlem açılmaz (Normal sistem veya İlk 3 Avcısı’nı açın).';
     else if(state==='HALF_ON'&&oto&&!armed) warn='Başlatma kapalı: JEV analiz yapar (kredi harcar) ama işlem açılmaz.';
     // R2544.57 (14.10 "DÜZELT TARAMA YOK"): a running system scans whatever lanes are selected (normal lane off = scan only)
     else if((state==='TEST_RUNNING'||state==='LIVE_RUNNING')&&runMs!==null&&runMs>SILENT_RUN_MS&&scans===0) warn=`ÇALIŞIYOR görünüyor ama ${Math.round(runMs/60000)} dk’dır tek tarama yok — sistem işlemiyor.`;
@@ -3081,7 +3093,7 @@ function secondPress(id,what){
 onClick('#btnGoLive',()=>{
   const ln=last?.status?.data?.tradingMode?.run?.lanes;
   // R2544.67.2 (self-audit): ZİRVE-5 is a lane of its own; İlk 3 names its sub-strategies
-  if(ln&&!ln.normal?.selected&&!ln.top3?.selected&&!ln.zirve5?.selected){ modeMsg('Önce en az bir hat seçin: Normal sistem (JEV), İlk 3 Avcısı veya ZİRVE-5.',true); return; }
+  if(ln&&!ln.normal?.selected&&!ln.top3?.selected&&!ln.zirve5?.selected&&!ln.kesif?.selected){ modeMsg('Önce en az bir hat seçin: Normal sistem (JEV), İlk 3 Avcısı, ZİRVE-5 veya KEŞİF-SÖZ.',true); return; }
   const t3s=ln?.top3?.sub?[ln.top3.sub.early?.selected?'ERKEN LONG':null,ln.top3.sub.top?.selected?'TEPE SHORT':null].filter(Boolean).join('+')||'alt strateji yok':'';
   const which=ln?`Normal sistem (JEV) ${ln.normal?.selected?'AÇIK':'KAPALI'} • İlk 3 Avcısı ${ln.top3?.selected?'AÇIK'+(t3s?' ('+t3s+')':''):'KAPALI'} • ZİRVE-5 ${ln.zirve5?.selected?'AÇIK ('+([last?.zirve5?.switches?.longEnabled?'LONG':null,last?.zirve5?.switches?.shortEnabled?'SHORT':null].filter(Boolean).join(' + ')||'yön kapalı')+')':'KAPALI'}`:'seçili hatlar';
   if(!secondPress('btnGoLive',`CANLI’YA GEÇ (${which}): sanal pozisyonlar kapatılır, Binance bakiyenizle GERÇEK PARA işlem açılır`)) return;
@@ -3521,6 +3533,7 @@ function laneToggle(key,id,label){
 onClick('#btnLaneNormal',()=>laneToggle('normal','btnLaneNormal','Normal sistem (JEV)'));
 onClick('#btnLaneTop3',()=>laneToggle('top3','btnLaneTop3','İlk 3 Avcısı'));
 onClick('#btnLaneZirve5',()=>laneToggle('zirve5','btnLaneZirve5','ZİRVE-5'));
+onClick('#btnLaneKesif',()=>wcLane('kesif'));
 onClick('#btnLaneScalp',()=>laneToggle('scalp5m','btnLaneScalp','5 dk scalp hattı'));
 onClick('#btnLane15m',()=>laneToggle('trade15m','btnLane15m','15 dk ana işlem hattı'));
 onClick('#btnLaneBurst',()=>laneToggle('burst','btnLaneBurst','Vur-kaç hattı'));

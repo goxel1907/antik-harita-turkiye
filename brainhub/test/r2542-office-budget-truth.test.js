@@ -31,7 +31,7 @@ for(const pass1 of [0,3])test(`Office budget refusal suppresses misleading pipel
   assert.equal(d.desks.scanner.busy,true);
 });
 test('Office current reset budget wins over historical budget refusals',()=>{
-  const s=snapshot(); s.jevBudget.data={...s.jevBudget.data,budgetCallBlocked:false,canReserveNextCall:true,remainingUsd:5};
+  const s=snapshot(); s.status.data.armed=true; s.jevBudget.data={...s.jevBudget.data,budgetCallBlocked:false,canReserveNextCall:true,remainingUsd:5};
   s.status.data.jev={budget:{budgetCallBlocked:true,canReserveNextCall:false}};
   const d=derive(s); assert.equal(d.budgetBlocked,false);
   assert.equal(d.blockers.some(x=>x.code==='JEV_DAILY_BUDGET_EXHAUSTED'),false);

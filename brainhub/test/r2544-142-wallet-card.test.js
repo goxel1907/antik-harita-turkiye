@@ -7,7 +7,7 @@ test('R2544.142 the wallet card sits at the top (before the command center) and 
   assert.match(h,/try\{renderWallet\(s\);\}catch\(e\)\{console\.warn\('wallet',e\);\}/);
   for(const k of ['Cüzdan','Özsermaye','Kullanılabilir','Açık kâr / zarar'])assert.ok(h.includes(`'${k}'`),k);
 });
-test('R2544.171 explicit versioned collateral saves independently from LIVE entry permission',()=>{
+test('R2544.172 explicit versioned collateral saves independently from LIVE entry permission',()=>{
   for(const n of ['Normal sistem (JEV)','Vur-kaç','İlk 3 Avcısı','ZİRVE-5','KEŞİF-SÖZ'])assert.ok(h.includes("name:'"+n+"'"),n);
   assert.match(h,/Number.isFinite\(m\)&&m>0/);
   assert.match(os,/'\/api\/control\/sizing': '\/live\/sizing'/);

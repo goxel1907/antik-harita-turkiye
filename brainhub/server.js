@@ -1846,7 +1846,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&u.pathname==='/live/lanes'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
-      const out=live.selectLanes({normal:body?.normal,top3:body?.top3,zirve5:body?.zirve5,scalp5m:body?.scalp5m,trade15m:body?.trade15m,burst:body?.burst,confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
+      const out=live.selectLanes({normal:body?.normal,top3:body?.top3,zirve5:body?.zirve5,kesif:body?.kesif,scalp5m:body?.scalp5m,trade15m:body?.trade15m,burst:body?.burst,confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
       return send(res,out.ok?200:400,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/burst'){
@@ -1929,7 +1929,7 @@ const server=http.createServer(async(req,res)=>{
       // NORMAL lane (R2544.57). While another lane is selected it only switches the normal lane off; the run keeps going.
       // The phone's emergency stop (ANDROID_EMERGENCY_STOP) and every other disarm still stop everything.
       if(body.reason==='ANDROID_AUTO_OFF'){const ls=live.laneStatus();
-        if(ls?.top3?.selected===true||ls?.zirve5?.selected===true){const o=live.selectLanes({normal:false,source:'APK_OTO_OFF'});
+        if(ls?.top3?.selected===true||ls?.zirve5?.selected===true||ls?.kesif?.selected===true){const o=live.selectLanes({normal:false,source:'APK_OTO_OFF'});
           return send(res,200,{ok:o.ok!==false,armed:live.status().armed===true,laneOnly:true,normal:false,reasons:o.ok===false?o.reasons:[]});}}
       return send(res,200,live.disarm(typeof body.reason==='string'?body.reason:'USER_DISARM'));
     }
@@ -2657,7 +2657,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.171';
+const RUNTIME_RELEASE='R2544.172';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);

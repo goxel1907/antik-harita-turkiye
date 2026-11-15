@@ -3111,6 +3111,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{const current=userSizingStatus()[lane];return current.revision===revision?{ok:true}:{ok:false,reasons:['SIZING_CHANGED_DURING_PREPARATION'],current};}
     catch{return {ok:false,reasons:['SIZING_STORE_UNREADABLE']};}
   }
+  function top3EntryDispatchGuard(sig,lane,revision){
+    if(sig?.soz&&!sozGate(readSozConfig()).ok)return {ok:false,reasons:['KESIF_ENTRY_PERMISSION_REVOKED']};
+    return sizingUnchanged(lane,revision);
+  }
   function normalSizingGuard(settings,expectedRevision){
     const current=userSizingStatus().normal;
     if(expectedRevision!==undefined&&current.revision!==expectedRevision)return {ok:false,reasons:['SIZING_CHANGED_DURING_PREPARATION'],current};
@@ -5856,7 +5860,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(!credentialsReady(creds)||!policy.ok||!la.ok)return {ok:false,reason:'BURST_CONFIG_OR_CREDENTIALS_UNAVAILABLE'};
     await testTopUp(la.config.burstMarginQuote,'BURST');
     const acct=await accountSummary({maxAgeMs:3000});if(!acct?.ok||!(finite(acct.availableBalance)>0))return {...userSizing.balanceRequirement(la.config.burstMarginQuote,finite(acct.availableBalance)),ok:false,reason:'BURST_ACCOUNT_UNAVAILABLE'};
-    // R2544.171: fixed user collateral is independent of account balance and the normal lane.
+    // R2544.172: fixed user collateral is independent of account balance and the normal lane.
     const margin=la.config.burstMarginQuote,check=userSizing.balanceRequirement(margin,finite(acct.availableBalance));
     if(!check.ok)return {ok:false,...check,reason:'BURST_MARGIN_ABOVE_FREE_BALANCE'};
     const rule={ok:true,marginQuote:margin,rule:'USER_BURST_MARGIN'},burstMargin=margin,freeFraction=null;
@@ -6356,7 +6360,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(leverage)}});
     if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==leverage)return {ok:false,reason:'TOP3_LEVERAGE_REJECTED'};
     const id=(sig.z5?'z5':sig.soz?'ks':'t3')+crypto.randomBytes(7).toString('hex'),startedAt=clock();
-    let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,validateSizing:()=>sizingUnchanged(sizeLane,sizeAtStart.revision),params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide:hedge?side:'BOTH',type:'MARKET',quantity:String(quantity),newClientOrderId:('T3E'+id).slice(0,36),newOrderRespType:'RESULT'}});}
+    let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,validateSizing:()=>top3EntryDispatchGuard(sig,sizeLane,sizeAtStart.revision),params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide:hedge?side:'BOTH',type:'MARKET',quantity:String(quantity),newClientOrderId:('T3E'+id).slice(0,36),newOrderRespType:'RESULT'}});}
     catch(e){return {ok:false,reason:String(e?.message||'TOP3_ENTRY_FAILED').slice(0,120),exchangeError:e?.body||null};}
     const executed=finite(entry?.executedQty);if(!(executed>0))return {ok:false,reason:'TOP3_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
     let entryPrice=finite(entry?.avgPrice)>0?finite(entry.avgPrice):null;
@@ -7819,13 +7823,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           burst:{selected:l.burst,active:armed&&oto&&l.burst&&burstAllowedNow(),liveAllowed:readLeaderAutoConfig().config?.burstLiveEnabled===true}}},
       top3:{selected:t.enabled,liveAllowed:t.liveEnabled,active:armed&&t.enabled&&(m.mode==='TEST'||t.liveEnabled),decisions:jevKurul(t)?'RULE_PLUS_JEV_COMMITTEE':t.committeeMode===true?'RULE_PLUS_COMMITTEE':t.jevMode?'RULE_PLUS_JEV':'RULE',
         sub:{early:{name:top3Lib.TOP3_SUBS.early.name,selected:t.early.enabled===true,jev:top3Lib.subJev(t,'LONG')},top:{name:top3Lib.TOP3_SUBS.top.name,selected:t.top.enabled===true,jev:top3Lib.subJev(t,'SHORT')}}},
+      kesif:(()=>{const c=readSozConfig(),g=sozGate(c);return {name:'KEŞİF-SÖZ',selected:c.enabled,liveAllowed:c.enabled,active:g.ok===true,
+        gate:g.ok?'OPEN':g.reason,newEntriesOnly:true,shadowEnabled:kesifCfg().enabled===true,
+        // Claude M6 P2-1 (görünen = gerçek): a KEŞİF-SÖZ entry is the word holder MODEL's forecast (no JEV entry call); the open lot is managed
+        // by the position desk (JEV / committee as set) and, when allowed, Goxel. Never borrow the İlk 3 entry label.
+        decisions:'MODEL_SOZ_ENTRY_DESK_MANAGED',entryBy:'MODEL',managedBy:c.goxelExit===false?'DESK':'DESK_GOXEL',
+        sizing:{marginQuote:c.marginQuote,leverage:c.leverage,revision:c.sizingRevision}};})(),
       zirve5:(()=>{const c=z5Lib.readConfig(root);return {selected:c.enabled,liveAllowed:c.liveEnabled,active:armed&&c.enabled&&(m.mode==='TEST'||c.liveEnabled),decisions:jevKurul(c)?'RULE_PLUS_JEV_COMMITTEE':c.committeeMode===true?'RULE_PLUS_COMMITTEE':c.jevMode?'RULE_PLUS_JEV':'RULE',name:'ZİRVE-5'};})()};
   }
   // R2544.57 lane switches (Office / APK / API). Turning a lane ON in LIVE needs confirm 'LIVE'; OFF is immediate (open lots
   // keep their own exits). The normal lane's OTO follows only while the run is on (never analysis while stopped).
   function selectLanes(patch={}){
     const live=readTradingMode(root,defaultTradingMode).mode==='LIVE',running=armedNow(),p={};
-    for(const k of ['normal','top3','zirve5',...SUB_LANES])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
+    for(const k of ['normal','top3','zirve5','kesif',...SUB_LANES])if(typeof patch?.[k]==='boolean')p[k]=patch[k];
     if(!Object.keys(p).length)return {ok:false,reasons:['LANE_SWITCH_MISSING']};
     if(live&&Object.values(p).some(v=>v===true)&&patch?.confirm!=='LIVE')return {ok:false,reasons:['EXPLICIT_LIVE_CONFIRMATION_REQUIRED']};
     {const sp={};for(const k of SUB_LANES)if(k in p)sp[k]=p[k];if(Object.keys(sp).length)writeLanes(sp);}
@@ -7840,6 +7850,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }
     // R2544.64 ZİRVE-5 SHORT: its own switch (TEST-only lane; in LIVE the choice is kept but the gate stays closed)
     if('zirve5' in p){const z=configureZ5({enabled:p.zirve5,...(live?{liveEnabled:p.zirve5,confirm:'LIVE'}:{}),source:String(patch?.source||'LANES').slice(0,40)});if(z.ok===false)return z;}
+    // Only the entry permission changes: no shadow settings, margin or open-lot management.
+    if('kesif' in p){const c=writeSozConfig({enabled:p.kesif});if(c.enabled!==p.kesif)return {ok:false,reasons:['KESIF_SOZ_WRITE_FAILED']};}
     runJournal('LANES_SELECTED',{...p,mode:live?'LIVE':'TEST',running,source:String(patch?.source||'OFFICE').slice(0,40)});
     return {ok:true,lanes:laneStatus()};
   }

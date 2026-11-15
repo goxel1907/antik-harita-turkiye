@@ -49,8 +49,8 @@ test('office panel: closed-trade list shows the day, not only the clock', () => 
 });
 
 test('office panel: approve -> intent -> safety is explicit and Ollama readiness is not a false alarm', () => {
-  assert.ok(OFFICE.includes("setGate('gJev', approved>0, `JEV MARKET_NOW onayı ${approved}`);"));
-  assert.ok(OFFICE.includes("setGate('gIntent', intentBuilt>0, `Niyet ${intentBuilt} • güvenlik ${safety}`);"));
+  assert.ok(OFFICE.includes("setGate('gJev', approved>0, `JEV MARKET_NOW onayı ${approved}`, normalActive);"));
+  assert.ok(OFFICE.includes("setGate('gIntent', intentBuilt>0, `Niyet ${intentBuilt} • güvenlik ${safety}`, normalActive);"));
   assert.match(OFFICE, /hazır • model bellekte değil \(ilk istekte yüklenir\)/);
   assert.doesNotMatch(OFFICE, /s\.ollama\?\.ok\?'model yüklü değil'/);
 });
