@@ -27,3 +27,10 @@ test('R2544.174 wiring: the desk uses early + a 60 s debate round', () => {
   assert.match(pd, /const DESK_FAST=\{early:true,round2Ms:60000\};/);
   assert.match(pd, /roles:DESK_ROLES, early:DESK_FAST\.early, round2Ms:DESK_FAST\.round2Ms \}/);
 });
+
+test('R2544.174 (Codex review) an early-majority decision is explained as such, never as "çoğunluk yok -> TUT"; a not-awaited seat is not an error', () => {
+  assert.match(pd, /r\.consensus === 'EARLY_MAJORITY' \? `erken çoğunluk \(/);
+  assert.match(pd, /a:v\.vote\?\.action \|\| \(v\.pending \? 'BEKLENMEDI' : 'ERR'\)/);
+  const i = pd.indexOf("r.consensus === 'EARLY_MAJORITY'"), j = pd.indexOf("'çoğunluk yok → TUT: '");
+  assert.ok(i > 0 && j > i, 'the early-majority text is checked before the no-majority fallback');
+});
