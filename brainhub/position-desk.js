@@ -186,6 +186,8 @@ function counterfactual(desk, k5raw) {
 // a big Goxel screen newly against, two more screens against, Goxel one screen away from leaving, the price crossing a 0.5R step. Without an
 // event: every 10 min while the trade is moving, every 30 min while it is calm, and a routine look is skipped when Goxel's picture did not change.
 // A daily budget of looks: past half of it the routine gaps double, past 80 % they triple; events always pass (hard stop at 2x the budget).
+// R2544.174 the desk decides fast: a majority of ALL seats ends the vote; the debate round gets 60 s (an open trade cannot wait - sabit kural 10)
+const DESK_FAST={early:true,round2Ms:60000};
 const SMART = { eventGapMs:2 * 60000, activeMin:10, calmMin:30, stepR:0.5, budget:80, hardX:2 };
 const bucketOf = R => Number.isFinite(R) ? Math.floor(R / SMART.stepR) : null;
 function smartDue({ openedAt, now, markR, desk = null, gx = null, cfg = {}, looksToday = 0 } = {}) {
@@ -238,7 +240,7 @@ async function judge({ packet, mode, cfg, judges, stats }) {
     if (j === 'COMMITTEE') { // R2544.86: free models decide together (round 1 independent, round 2 debate, majority; no majority -> HOLD)
       if (!judges?.committee || typeof judges.committee.decide !== 'function') { tried.push('COMMITTEE_NOT_WIRED'); continue; }
       const q = freePrompt(packet); let r;
-      try { r = await judges.committee.decide({ system:q.system, prompt:q.prompt, validate:validFree, parse:parseFree, field:'action', fallback:'HOLD', roles:DESK_ROLES }); } catch { r = { ok:false, reason:'COMMITTEE_EXCEPTION' }; }
+      try { r = await judges.committee.decide({ system:q.system, prompt:q.prompt, validate:validFree, parse:parseFree, field:'action', fallback:'HOLD', roles:DESK_ROLES, early:DESK_FAST.early, round2Ms:DESK_FAST.round2Ms }); } catch { r = { ok:false, reason:'COMMITTEE_EXCEPTION' }; }
       st.committee = (st.committee || 0) + 1;
       if (r?.ok) {
         // R2544.98 "mütabık": no single majority, but MORE THAN HALF of the final voters want to reduce risk -> the mildest reducing action they voted

@@ -239,11 +239,25 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     const r1 = await Promise.all(team.map(m => ask(m, system, promptOf(m), validate, parse, Number(callTimeoutMs) > 0 ? Number(callTimeoutMs) : Math.max(timeoutMs, Number(m?.timeoutMs) || 0), true, true)));
     return { ok:r1.some(x => x.ok), votes:r1, rounds:1, voters:r1.filter(x => x.ok).length, asked:team.length, version:COMMITTEE_VERSION };
   }
-  async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '', size:teamSize = null }) {
+  // R2544.174 (13.11 gece: masa ÇIK kararı 3,5-4 dk sürdü - PLAY 06:37->06:41, JCT 06:55->06:59 - birinci tur EN YAVAŞ modeli, ikinci tur yine en
+  // yavaşı bekliyordu; kullanıcı "modeller hızlı yanıt versin", 16.11 "codexle beraber düzelt"): `early` = as soon as MORE THAN HALF OF THE WHOLE
+  // TEAM gave the same answer, the decision is taken - the late answers cannot change a majority of all seats; they still finish in the background
+  // (health, karne). `round2Ms` = the debate round has its own short limit. Defaults keep the old behaviour (entry committee unchanged).
+  async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '', size:teamSize = null, early = false, round2Ms = null }) {
     const team = pick(Number(teamSize) > 0 ? Number(teamSize) : size); if (!team.length) { save(); return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] }; }
     // R2544.91: seats go to the preferred model family first (Claude = price action even when Gemini is missing), then by order
     const seatMap = assignSeats(team, roles), seatOf = i => seatMap[i] || null, sysOf = i => seatOf(i) ? system + '\n\nYOUR SEAT AT THE DESK: ' + seatOf(i).text : system;
-    const r1 = await Promise.all(team.map((m, i) => ask(m, sysOf(i), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(i)?.key || null }))));
+    const p1 = team.map((m, i) => ask(m, sysOf(i), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(i)?.key || null })));
+    const need = Math.floor(team.length / 2) + 1, t1 = clock();
+    const r1 = !early || team.length < 3 ? await Promise.all(p1) : await new Promise(res => { const out = new Array(p1.length).fill(null), c = {}; let done = 0, fired = false;
+      p1.forEach((p, i) => p.then(x => { out[i] = x; done++; if (fired) return;
+        const k = x.ok ? x.vote[field] : null; if (k !== null && k !== undefined) c[k] = (c[k] || 0) + 1;
+        if ((k !== null && k !== undefined && c[k] >= need) || done === p1.length) { fired = true;
+          res(out.map((y, j) => y || { member:team[j].id, model:null, ok:false, vote:null, ms:clock() - t1, error:'EARLY_MAJORITY_NOT_WAITED', pending:true, seat:seatOf(j)?.key || null })); } }));
+    });
+    if (early && r1.some(x => x.pending)) { const v = r1.filter(x => x.ok), c = {}; for (const x of v) c[x.vote[field]] = (c[x.vote[field]] || 0) + 1;
+      const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; save();
+      return { ok:true, final:top[0], consensus:'EARLY_MAJORITY', votes:r1, round2:null, rounds:1, voters:v.length, team:team.length, need, ms:clock() - t1, replaced:[], version:COMMITTEE_VERSION }; }
     // R2544.120 RESERVE SEATS (03.11 09:06 + 09:36: the MEGA desk asked 5, 4 answered an error -> one voter, no decision twice): when fewer than
     // 3 answered, every empty seat is given ONCE to a healthy member that was not asked (the failed ones are already marked sick by ask)
     const replaced = [], want = Math.min(3, team.length);
@@ -265,7 +279,7 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     const views = v1.map((x, i) => `Trader ${String.fromCharCode(65 + i)}${x.seat ? ' (' + x.seat + ')' : ''}: ${x.vote[field]} — ${reasonOf(x.vote)}`).join('\n');
     const r2 = await Promise.all(v1.map(x => { const i = team.findIndex(m => m.id === x.member);
       const sys2 = sysOf(i) + '\n\nOther traders on the desk looked at the SAME screen from their own seats and disagree:\n' + views + '\nWeigh their arguments against the chart, then give your FINAL answer in the same JSON format.';
-      return ask(team[i], sys2, prompt, validate, parse).then(y => ({ ...y, seat:x.seat })); })), v2 = r2.filter(x => x.ok);
+      return (Number(round2Ms) > 0 ? ask(team[i], sys2, prompt, validate, parse, Number(round2Ms)) : ask(team[i], sys2, prompt, validate, parse)).then(y => ({ ...y, seat:x.seat })); })), v2 = r2.filter(x => x.ok);
     const fin = v2.length >= 2 ? majority(v2) : null;
     save();
     return { ok:true, final:fin ?? fallback, consensus:fin ? 'MAJORITY_AFTER_DEBATE' : 'NO_MAJORITY_DEFAULT', votes:r1, round2:r2, rounds:2, voters:v2.length, replaced, version:COMMITTEE_VERSION };
