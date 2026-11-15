@@ -6310,6 +6310,16 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const adv={advisory:sig.advisory===true};
     const pre=sig.soz?KESIF.sozPlan(price,sig.soz):sig.z5?z5Lib.plan(price,sig.zone,sig.z5cfg,adv):sig.v2?(side==='LONG'?top3Lib.earlyLongPlan(price,sig.v2,sig.levels,cfg,adv):top3Lib.topShortPlan(price,sig.v2,sig.levels,cfg,adv)):top3Lib.entryLevels(sig,price);
     if(!pre.ok)return {ok:false,reason:pre.reason,stopPct:pre.stopPct??null};
+    // R2544.176 EKRAN KAPISI (kullanıcı 16.11): the 5-timeframe entry screen is read BEFORE the order (at most 8 s); lehte - aleyhte <= -2 -> no trade,
+    // the plan is kept for the forward measurement. Unreadable screen -> sabit kural 3 (no waiting): the trade goes on, recorded as unread.
+    if(screenGateOn()){const gRule=sig.z5?(side==='LONG'?'ZIRVE5_FIBO_LONG':'ZIRVE5_FIBO_SHORT'):sig.soz?'KESIF_SOZ':(sig.rule||'TOP3'),gLane=sig.soz?'KESIF':sig.z5?'ZIRVE5':'ILK3';
+      const sf=await entryScreenFacts({symbol,side,rule:gRule,entry:price,stop:finite(pre.stopPrice),target:finite(pre.tpPrice)}).catch(()=>null),g=top3Lib.screenGate(sf);
+      ctx={...ctx,screenGate:{known:g.known,balance:g.balance}};
+      if(g.block){const c={id:'sg'+crypto.randomBytes(5).toString('hex'),symbol,side,rule:gRule,lane:gLane,mode:testModeNow()?'TEST':'LIVE',at:clock(),entry:price,stop:finite(pre.stopPrice),target:finite(pre.tpPrice),
+          horizonMs:finite(sig.maxHoldMs)||top3Lib.SCREEN_GATE.horizonMs,balance:g.balance,leanFor:g.leanFor,leanAgainst:g.leanAgainst,trend:sf?.trend||null,pos24:sf?.pos24??null,result:null};
+        const list=Array.isArray(top3State.screenGate)?top3State.screenGate:(top3State.screenGate=[]);list.push(c);if(list.length>top3Lib.SCREEN_GATE.keep)list.splice(0,list.length-top3Lib.SCREEN_GATE.keep);saveTop3State();
+        try{store.journal('ENTRY_SCREEN_GATE',symbol,c);}catch{}
+        return {ok:false,reason:'ENTRY_SCREEN_AGAINST',screenBalance:g.balance,leanFor:g.leanFor,leanAgainst:g.leanAgainst};}}
     let exchangeMax=null,brackets=[];
     try{const b=await transport._fetchJson('GET','/fapi/v1/leverageBracket',{params:{symbol},credentials:creds,signed:true});const row=Array.isArray(b)?b.find(x=>String(x?.symbol||'').toUpperCase()===symbol):b;brackets=Array.isArray(row?.brackets)?row.brackets:[];exchangeMax=Math.max(0,...brackets.map(x=>Number(x?.initialLeverage)||0));}catch{return {ok:false,reason:'TOP3_LEVERAGE_BRACKET_UNAVAILABLE'};}
     if(!(exchangeMax>=1))return {ok:false,reason:'TOP3_EXCHANGE_MAX_LEVERAGE_INVALID'};
@@ -6756,7 +6766,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       top3State.recentSignals=[...scan.signals.map(({sig,f,...v})=>({...v,candle:scan.candle})),...(top3State.recentSignals||[])].slice(0,30);
       saveTop3State();
       return {ok:true,scanned:true,signals:scan.signals.length,entries:scan.entries.filter(x=>x.opened).length,managed,v2};
-    }finally{top3Busy=false;goxelLiveTick().catch(()=>{});kesifTick().catch(()=>{});} // R2544.163 Goxel first, in his own loop // R2544.149 KEŞİF + İZ after the lane scan (the real lanes first; never waits for it)
+    }finally{top3Busy=false;goxelLiveTick().catch(()=>{});screenGateLoop();kesifTick().catch(()=>{});} // R2544.163 Goxel first, in his own loop // R2544.149 KEŞİF + İZ after the lane scan (the real lanes first; never waits for it)
   }
   // ===== R2544.68 ZİRVE-5 LONG + SHORT, FiboBuLL videosundaki kural (own name, own Office switches per side, own results/learning;
   // LIVE only with the user's liveEnabled + 'LIVE'). Every closed 15m candle (+8 s): market-wide top 5 by 24 h range (volume >= 20M)
@@ -7166,6 +7176,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const live=lots.filter(x=>x&&x.id&&open.has(x.id)),gone=lots.filter(x=>x&&!(x.id&&open.has(x.id)));
     return {at:g.at??null,ageSec:finite(g.at)?Math.max(0,Math.round((clock()-g.at)/1000)):null,ordered:g.ordered??0,lots:live,
       ...(gone.length?{closedLook:{at:g.at??null,lots:gone.map(x=>({id:x.id||null,symbol:x.symbol,side:x.side,curR:x.curR??null,close:x.close===true}))}}:{})};}
+  // R2544.176: its own small loop (once a minute, never two at once), outside Goxel's loop
+  let screenGateBusy=false,screenGateAt=0;
+  function screenGateLoop(){if(screenGateBusy||clock()-screenGateAt<60000)return;screenGateBusy=true;screenGateAt=clock();screenGateTick().catch(()=>0).finally(()=>{screenGateBusy=false;});}
   async function goxelLive(now,s){
     const seen=[];let ordered=0;
     for(const a of Object.values(top3State.active||{})){
@@ -7368,6 +7381,23 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(patch.soz&&typeof patch.soz==='object')writeSozConfig(patch.soz); // R2544.158 KEŞİF-SÖZ / Goxel çıkış switches
     saveKesif();try{store.journal('KESIF_SETTINGS',null,{...kesifCfg(),source:String(patch.source||'').slice(0,40)});}catch{}
     return {ok:true,...kesifCfg()};}
+  // R2544.176: the entry screen before the order (same TB.entryPacket / screenFacts as the committee photo), at most SCREEN_GATE.timeoutMs
+  function screenGateOn(){try{const c=JSON.parse(fs.readFileSync(path.join(String(root),'config','screen-gate.json'),'utf8'));return c?.enabled!==false;}catch{return true;}}
+  async function entryScreenFacts({symbol,side,rule,entry,stop,target}){
+    if(!(entry>0&&stop>0&&target>0))return null;
+    const t=clock(),end=t-1,get=async(sym,i,lim,e)=>{try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:i,endTime:String(e),limit:String(lim)}});return Array.isArray(k)?k:[];}catch{return [];}};
+    const work=(async()=>{const [m5,m15,h1,h4,d1,btc1h]=await Promise.all([get(symbol,'5m',TB.FETCH.m5,end),get(symbol,'15m',TB.FETCH.m15,end),get(symbol,'1h',TB.FETCH.h1,end),get(symbol,'4h',TB.FETCH.h4,end),get(symbol,'1d',TB.FETCH.d1,end),get('BTCUSDT','1h',40,Math.floor(t/3600000)*3600000-1)]);
+      return TB.screenFacts(TB.entryPacket({k:{m5,m15,h1,h4,d1,btc1h},plan:{side,rule,entry,stop,target},t,trigger:null,management:null,flags:[],experience:null,context:{}}));})();
+    let timer=null;return Promise.race([work.finally(()=>clearTimeout(timer)),new Promise(res=>{timer=setTimeout(()=>res(null),top3Lib.SCREEN_GATE.timeoutMs);})]);
+  }
+  // R2544.176: the blocked plans are measured forward on their own 5m candles (max 2 per call)
+  async function screenGateTick(){
+    const list=Array.isArray(top3State.screenGate)?top3State.screenGate:[];let did=0;
+    for(const c of list){if(did>=2)break;if(c.result||clock()<c.at+10*60000)continue;did++;
+      try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:c.symbol,interval:'5m',startTime:String(c.at),limit:'300'}});
+        const r=top3Lib.screenGateOutcome(c,Array.isArray(k)?k:[],{now:clock()});if(r){c.result=r;saveTop3State();try{store.journal('ENTRY_SCREEN_GATE_OUTCOME',c.symbol,{id:c.id,...r});}catch{}}}catch{}}
+    return did;
+  }
   async function entryCommitteeShadow(lot){
     // R2544.118: the entry screen is stored as numbers for the brain even when the committee cannot vote
     if(!lot||(lot.entryFeatures?.committee&&lot.entryFeatures?.screenFacts)||entryCommitteeBusy>=3)return null;
@@ -7794,7 +7824,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const cc=(()=>{try{return top3Lib.commandSummary([...(top3State.lessons||[]),...(z5State().lessons||[])],{mode,now});}catch{return null;}})();
     let funnel=null;try{funnel=signalFunnel();}catch{}
     const pnl=pnlView(mode,now);
-    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),cc,funnel,pnl,
+    return {ok:true,version:top3Lib.TOP3_VERSION,tradingMode:mode,positionDesk:deskStatus(),screenGate:(()=>{try{return top3Lib.screenGateBook(top3State.screenGate);}catch{return null;}})(),cc,funnel,pnl, // R2544.176
       switches:{enabled:cfg.enabled,jevMode:cfg.jevMode,committeeMode:cfg.committeeMode===true,liveEnabled:cfg.liveEnabled,partialEnabled:cfg.partial?.enabled===true,topSweep:cfg.top?.requireSweep!==false},partial:{...(cfg.partial||{})},
       subs:Object.values(top3Lib.TOP3_SUBS).map(sb=>{const R=cfg[sb.key],xs=measured.filter(p=>p.setup===sb.setup).map(top3TfView);
         const sumR=ys=>{const rr=ys.map(p=>finite(p.rMultiple)).filter(v=>v!==null);return {...sum(ys),avgR:rr.length?Number((rr.reduce((a,b)=>a+b,0)/rr.length).toFixed(3)):null};};

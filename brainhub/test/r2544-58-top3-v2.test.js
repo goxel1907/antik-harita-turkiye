@@ -105,6 +105,7 @@ const FAKE={apiKey:'fake-test-key-r58',apiSecret:'fake-test-secret-r58'}; // mad
 const ok=body=>({ok:true,status:200,async text(){return JSON.stringify(body);}});
 function fixture({top3={},fund='-0.0001',strictStore=false,extraRanks={}}={}){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r58-run-'));fs.mkdirSync(path.join(root,'config'));
+  fs.writeFileSync(path.join(root,'config','screen-gate.json'),JSON.stringify({enabled:false})); // R2544.176: this test is not about the screen gate
   fs.writeFileSync(path.join(root,'config','live-policy.json'),JSON.stringify({armMinutes:1440,expectedLeverage:5,maxEntryDeviationPct:1,limits:{maxRiskPctPerTrade:1,maxNotionalPctPerTrade:20,maxDailyLossPct:100,maxOpenPositions:3,maxFamilyExposurePct:40},apiPermissions:{configured:true,futuresEnabled:true,withdrawalsEnabled:false,ipRestricted:true}}));
   fs.writeFileSync(path.join(root,'config','leader-auto.json'),JSON.stringify({enabled:false,marginQuote:32,leverage:10,maxOpenPositions:1,allowLong:true,allowShort:true}));
   fs.writeFileSync(path.join(root,'config','top3-hunter.json'),JSON.stringify({enabled:true,...top3}));

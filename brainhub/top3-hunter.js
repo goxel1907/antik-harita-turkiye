@@ -954,5 +954,32 @@ function kesifModelBook(lessons, model, { before = Infinity } = {}) {
   return { version:'R2544.173-KESIF-MODEL', model:model || null, n, wins, avgR:avgR === null ? null : Number(avgR.toFixed(3)), usd, usdKnown:u.usdKnown,
     test:{ n:tst.length, avgR:tAvg === null ? null : Number(tAvg.toFixed(3)) }, verdict, text, caseIds:xs.map(l => l.id || null) };
 }
-module.exports = { kesifScreenVector, kesifScreenCases, kesifModelBook, committeeKarne, playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+// R2544.176 EKRAN KAPISI (kullanıcı 16.11 kararı "Aleyhte ekranda girmesin"; kanıt: 11.11 sonrası 47 CANLI işlemin 18'i aleyhte ekranla açıldı,
+// n18 ort -0,31R, en iyi hariç -0,34R, net -41,62 $, iki yarı -0,10 / -0,52; 16.11 KITE ve TAC: her zaman dilimi yukarıyken tepede SHORT, ikisi stop).
+// lehte - aleyhte <= -2 -> no entry, on every lane (İlk 3, ZİRVE-5, KEŞİF-SÖZ; TEST = CANLI). The blocked plan is kept and measured forward.
+const SCREEN_GATE = { balance:-2, timeoutMs:8000, horizonMs:24 * 3600000, keep:300 };
+function screenGate(sf, { balance = SCREEN_GATE.balance } = {}) {
+  if (!sf || finite(sf.leanFor) === null || finite(sf.leanAgainst) === null) return { block:false, known:false, balance:null };
+  const b = sf.leanFor - sf.leanAgainst; return { block:b <= balance, known:true, balance:b, leanFor:sf.leanFor, leanAgainst:sf.leanAgainst };
+}
+// the blocked plan on the 5m candles that followed: stop first / target first (the same candle touching both = stop), else the close at the horizon
+function screenGateOutcome(c, k5, { now = Date.now() } = {}) {
+  const e = finite(c?.entry), st = finite(c?.stop), tp = finite(c?.target), L = c?.side === 'LONG'; if (!(e > 0 && st > 0 && tp > 0)) return null;
+  const risk = Math.abs(e - st); if (!(risk > 0)) return null;
+  const end = (finite(c.at) || 0) + (finite(c.horizonMs) || SCREEN_GATE.horizonMs);
+  for (const r of (Array.isArray(k5) ? k5 : [])) { const t = finite(r[0]), hi = finite(r[2]), lo = finite(r[3]); if (t === null || t + 300000 <= c.at || t > end) continue;
+    const hitStop = L ? lo <= st : hi >= st, hitTp = L ? hi >= tp : lo <= tp;
+    if (hitStop) return { outcome:'STOP', R:-1, at:t }; if (hitTp) return { outcome:'TARGET', R:Number((Math.abs(tp - e) / risk).toFixed(3)), at:t }; }
+  if (now < end) return null;
+  const last = [...(Array.isArray(k5) ? k5 : [])].reverse().find(r => finite(r[0]) !== null && finite(r[0]) <= end); if (!last) return null;
+  const cl = finite(last[4]); return { outcome:'TIME', R:Number((((L ? cl - e : e - cl)) / risk).toFixed(3)), at:finite(last[0]) };
+}
+function screenGateBook(list) {
+  const xs = (Array.isArray(list) ? list : []), done = xs.filter(x => x && x.result && finite(x.result.R) !== null);
+  const R = done.map(x => x.result.R), sum = R.reduce((a, v) => a + v, 0);
+  return { version:'R2544.176-SCREEN-GATE', blocked:xs.length, resolved:done.length, wins:R.filter(v => v > 0).length, sumR:Number(sum.toFixed(2)), avgR:R.length ? Number((sum / R.length).toFixed(3)) : null,
+    text:!xs.length ? 'ekran kapısı: henüz engellenen giriş yok' : `ekran kapısı: ${xs.length} giriş açılmadı • gölge sonuç ${done.length} çözüldü` + (R.length ? `, ${R.filter(v => v > 0).length} kazanırdı, ort ${(sum / R.length).toFixed(2).replace('.', ',')}R (toplam ${sum.toFixed(2).replace('.', ',')}R; eksi = kapı korudu)` : ''),
+    last:xs.slice(-8).reverse().map(x => ({ symbol:x.symbol, side:x.side, lane:x.lane, at:x.at, balance:x.balance, result:x.result || null })) };
+}
+module.exports = { SCREEN_GATE, screenGate, screenGateOutcome, screenGateBook, kesifScreenVector, kesifScreenCases, kesifModelBook, committeeKarne, playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

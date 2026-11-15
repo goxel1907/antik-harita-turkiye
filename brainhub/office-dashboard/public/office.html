@@ -1470,7 +1470,8 @@ function ccModel(s){
   let why=null;
   if(!armed)why='Sistem durdu (başlatılmadı)';else if(open)why=null;else{const g=[t.gate,z.gate].filter(x=>x&&x!=='OPEN');why=g.length?('Kapı kapalı: '+g.join(', ')):'Kurala uyan sinyal bekleniyor';}
   const nm=(t.lastScan5?.nearMisses||[]).slice(0,2).map(x=>`${String(x.symbol||'').replace(/USDT$/,'')} ${x.side||''}: ${x.reason||''}`);
-  return {mode,armed,lanes,jevOn,bud,bal,open,cc,strat,models,committee:pd.cmBoard?.committee||null,desk:pd.comparison||null,deskCounts:cc?.desk||null,why,nm,healthy:rows.filter(r=>r.healthy).length,total:rows.length};
+  const sg=t.screenGate&&t.screenGate.text||null; // R2544.176
+  return {sg,mode,armed,lanes,jevOn,bud,bal,open,cc,strat,models,committee:pd.cmBoard?.committee||null,desk:pd.comparison||null,deskCounts:cc?.desk||null,why,nm,healthy:rows.filter(r=>r.healthy).length,total:rows.length};
 }
 function ccEq(cv,curve){
   if(!cv)return;const W=cv.clientWidth||300,H=cv.clientHeight||120,dpr=Math.min(2,window.devicePixelRatio||1);cv.width=W*dpr;cv.height=H*dpr;const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);
@@ -1541,7 +1542,7 @@ function renderCC(s){
   {const jevLive=m.jevOn||((ccG(s?.status)||{}).leaderAuto?.enabled===true);for(const id of ['burstCard','legacyJevA','legacyJevB']){const e=$(id);if(e)e.classList.toggle('cc-extra',!jevLive);}}
   try{plRender((ccG(s?.top3)||{}).pnl||null);}catch(e){console.warn('pl',e);} // R2544.124
   const nw=$('ccNow');if(nw){const btn=`<button class="cc-toggle" id="ccToggle">${document.body.classList.contains('cc-compact')?'⚙️ Ayrıntılı panelleri göster':'⚙️ Ayrıntılı panelleri gizle'}</button>`;
-    nw.innerHTML=`<span class="why">⏱ ŞİMDİ: ${m.open?`<b>${m.open} açık pozisyon</b> masada izleniyor`:esc(m.why||'—')}</span>${m.nm.map(x=>`<span class="why" style="color:#aeb6d6">son bekleyen: ${esc(x)}</span>`).join('')}${btn}`;
+    nw.innerHTML=`<span class="why">⏱ ŞİMDİ: ${m.open?`<b>${m.open} açık pozisyon</b> masada izleniyor`:esc(m.why||'—')}</span>${m.nm.map(x=>`<span class="why" style="color:#aeb6d6">son bekleyen: ${esc(x)}</span>`).join('')}${m.sg?`<span class="why" style="color:#fbbf24" title="R2544.176: zaman dilimleri girişin aleyhindeyken (lehte − aleyhte ≤ −2) hiçbir hat işlem açmaz; açılmayan plan gölgede ölçülür">🛡 ${esc(m.sg)}</span>`:''}${btn}`;
     $('ccToggle').onclick=()=>{const on=!document.body.classList.contains('cc-compact');document.body.classList.toggle('cc-compact',on);try{localStorage.setItem('ccCompact',on?'1':'0');}catch{}renderCC(s);};}
 }
 // compact mode: only the header, mode bar, command center and the two strategy control cards stay; the rest is one click away
@@ -1755,7 +1756,7 @@ function renderKesif(s){
   const szh=sz?`<div class="sub" style="color:${sz.enabled?'#34d399':'#fbbf24'}">🎯 KEŞİF-SÖZ (gerçek işlem): ${sz.enabled?'AÇIK':'KAPALI'}${szb('enabled',sz.enabled)} • 🧑 Goxel çıkış kararı: ${sz.goxelExit?'AÇIK':'KAPALI'}${szb('goxelExit',sz.goxelExit)}</div>`
     +`<div class="kn">Söz sahibinin (en az ${sz.minWord} ileriye dönük sonuç, alt sınır ve en iyi hariç ortalama artıda) yeni tahmini hemen gerçek işlem açar: marj ${sz.marginQuote} $${sz.marginFrom==='ILK3'?' (uygulamadaki İlk 3 marjı)':''} × ${sz.leverage}x (en az 10x; kurul 10-20x seçer), en çok ${sz.maxActive} lot, kendi stop ve hedefi Binance'te, süresi dolunca kapanır. "Kurulla CANLI'ya geç" ve "JEV + Kurul ile CANLI'ya geç" ile birlikte çalışır; TEST = CANLI. Goxel PRO açık lotların hepsinin (KEŞİF-SÖZ, İlk 3, ZİRVE-5) çıkışına karar verir. Söz sahipleri: ${(sz.holders||[]).length?sz.holders.map(m=>esc(ksName(m))).join(', '):(sz.weakHolder?`yok → <b>en iyi aday söz aldı: ${esc(ksName(sz.weakHolder))}</b> (zayıf kanıt: girişten önce Goxel PRO 9 ekrana bakar, "çık" diyecek durumdaysa girmez; kaldıraç 10x sabit)`:'henüz yok')}.</div>`
     +((sz.active||[]).length?`<div class="kn">Açık KEŞİF-SÖZ lotları: ${sz.active.map(a=>`<b>${esc(String(a.symbol).replace(/USDT$/,''))} ${esc(a.side)}</b> ${esc(ksName(a.model))} ${esc(a.mode)} ${a.leverage}x${a.goxel?` • Goxel: şimdi ${ksR(a.goxel.curR)}${a.goxel.close?' → ÇIK':''}`:''}`).join(' • ')}</div>`:'')
-    +((sz.recent||[]).length?`<div class="kn">Son kararlar: ${sz.recent.slice(0,5).map(n=>`${esc(rxT(new Date(n.at).toISOString()))} ${esc(String(n.symbol).replace(/USDT$/,''))} ${esc(n.side)} ${esc(ksName(n.model))}: ${n.weak?'<i>(zayıf)</i> ':''}${n.opened?'<b style="color:#34d399">AÇILDI</b>':'açılmadı ('+esc(n.reason==='GOXEL_GIRIS_RED'?'Goxel giriş reddi: '+(n.why||''):n.reason||'')+')'}`).join(' • ')}</div>`:''):'';
+    +((sz.recent||[]).length?`<div class="kn">Son kararlar: ${sz.recent.slice(0,5).map(n=>`${esc(rxT(new Date(n.at).toISOString()))} ${esc(String(n.symbol).replace(/USDT$/,''))} ${esc(n.side)} ${esc(ksName(n.model))}: ${n.weak?'<i>(zayıf)</i> ':''}${n.opened?'<b style="color:#34d399">AÇILDI</b>':'açılmadı ('+esc(n.reason==='GOXEL_GIRIS_RED'?'Goxel giriş reddi: '+(n.why||''):n.reason==='ENTRY_SCREEN_AGAINST'?'ekran aleyhte (zaman dilimleri ters)':n.reason||'')+')'}`).join(' • ')}</div>`:''):'';
   el.innerHTML=head+szh+bk+sd+rnd+izh+brain+lch+lch2+hum+book;
 }
 // R2544.154 GOXEL: the trader at his five screens (drawn as a person), what he watches now and his book against the plan
