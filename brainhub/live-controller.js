@@ -7379,7 +7379,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       {const sf=TB.screenFacts(packet);if(sf){const ef=(lot.entryFeatures||(lot.entryFeatures={}));ef.screenFacts=sf;
         // R2544.173: a KEŞİF-SÖZ lot gets the brain's view the moment its entry screen exists (earlier REAL KEŞİF-SÖZ trades on the same screen +
         // the word holder's REAL record) -> position-desk entryInfo -> desk and JEV management read it. Information only: no veto, no order.
-        if(lot.lane==='KESIF'){try{const pool=top3State.lessons||[];ef.similar=similarKeep(top3Lib.kesifScreenCases(pool,lot.side,sf));ef.experience=top3Lib.kesifModelBook(pool,ef.kesif&&ef.kesif.model);}catch{}}
+        // Codex M5: only trades CLOSED BEFORE this lot opened (P1); the cases keep their lesson id + times so "which lesson reached which decision" is provable
+        if(lot.lane==='KESIF'){try{const pool=top3State.lessons||[],mode=lot.mode==='TEST'?'TEST':'LIVE',sc=top3Lib.kesifScreenCases(pool,lot.side,sf,{before:t,mode});
+          ef.similar={...similarKeep(sc),version:sc.version,mode,cases:sc.cases.map(c=>({id:c.id,symbol:c.symbol,R:c.R,exit:c.exit,at:c.at,closedAt:c.closedAt}))};ef.experience=top3Lib.kesifModelBook(pool,ef.kesif&&ef.kesif.model,{before:t});}catch{}}
         saveTop3State();}}
       if(lot.entryFeatures?.committee||!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return null;
       const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES,size:ENTRY_TEAM});
