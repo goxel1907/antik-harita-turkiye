@@ -35,7 +35,7 @@ test('R2544.118 the brain asks about the entry screen; a lesson comes from the r
 });
 test('R2544.118 wiring: the entry photo is stored right after the entry even without a committee vote; the exit photo at the autopsy',()=>{
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
-  assert.match(lc,/\{const sf=TB\.screenFacts\(packet\);if\(sf\)\{\(lot\.entryFeatures\|\|\(lot\.entryFeatures=\{\}\)\)\.screenFacts=sf;saveTop3State\(\);\}\}/);
+  assert.match(lc,/\{const sf=TB\.screenFacts\(packet\);if\(sf\)\{const ef=\(lot\.entryFeatures\|\|\(lot\.entryFeatures=\{\}\)\);ef\.screenFacts=sf;[\s\S]{0,700}?saveTop3State\(\);\}\}/); // R2544.173: still stored at once; a KEŞİF lot also gets its similar screens
   assert.match(lc,/if\(lot\.entryFeatures\?\.committee\|\|!deskJudges\?\.committee\|\|typeof deskJudges\.committee\.decide!=='function'\)return null;/);
   assert.match(lc,/if\(!l\.exitFacts\)try\{const kx=await k5Window\(l\.symbol,l\.closedAt-14\*TOP3_HOUR/);
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');

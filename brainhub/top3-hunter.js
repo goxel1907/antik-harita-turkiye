@@ -903,5 +903,48 @@ function committeeKarne(lessons, { minExits = 8 } = {}) {
   }
   return { version:'R2544.134-KARNE', minExits, models, votes:Object.values(M).reduce((a, v) => a + v.length, 0) };
 }
-module.exports = { committeeKarne, playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+// R2544.173 (Claude + Codex, kullanıcı 16.11 "codexle beraber düzelt"; motto: öğrenilen bilgi sonraki karara ulaşsın). KEŞİF-SÖZ lots had NO brain /
+// experience: 22 real trades, their lessons reached no later decision (brainCase / experienceFor filter by rule; KEŞİF lots carry no ind / entryCtx /
+// levelName, so entryVector is empty). KEŞİF lots DO carry the entry screen (screenFacts, written ~2,5 min after the fill): that screen is compared
+// with earlier REAL KEŞİF-SÖZ trades, and the word holder model's own REAL record is attached. Information for the desk / JEV management only
+// (position-desk entryInfo.experience / .similar): nothing here opens, blocks or closes a trade.
+function kesifScreenVector(side, sf) {
+  if (!sf || typeof sf !== 'object') return null;
+  const b3 = (v, a, b, n) => (v === null ? null : v < a ? n[0] : v <= b ? n[1] : n[2]);
+  const dir = t => { const u = String(t || '').toUpperCase(); if (!u) return null; if (u === 'UP') return side === 'LONG' ? 'LEHTE' : 'ALEYHTE'; if (u === 'DOWN') return side === 'LONG' ? 'ALEYHTE' : 'LEHTE'; return 'YATAY'; };
+  const bal = finite(sf.leanFor) !== null && finite(sf.leanAgainst) !== null ? sf.leanFor - sf.leanAgainst : null;
+  return { side:side || null, denge:b3(bal, -1, 1, ['ALEYHTE', 'KARISIK', 'LEHTE']), stopAtr5:b3(finite(sf.stopAtr5), 1, 2, ['GURULTU', 'NORMAL', 'GENIS']),
+    engel:b3(finite(sf.firstObstacleR), 0.5, 1.5, ['YAKIN', 'ORTA', 'UZAK']), h4:dir(sf.trend && sf.trend.h4), h1:dir(sf.trend && sf.trend.h1),
+    yer24:b3(finite(sf.pos24), 33, 66, ['DIP', 'ORTA', 'TEPE']), tuzak:typeof sf.liqTrap === 'boolean' ? sf.liqTrap : null, kovalama:typeof sf.chaseHigh === 'boolean' ? sf.chaseHigh : null };
+}
+const kesifExitOf = l => l.userClose ? (l.userClose.liquidated ? 'tasfiye' : 'elle') : l.exitCheck ? (l.exitCheck.by === 'GOXEL' ? 'Goxel' : 'masa') : /STOP/.test(String(l.exitType)) ? 'stop' : /TAKE_PROFIT|TARGET/.test(String(l.exitType)) ? 'hedef' : 'diğer';
+const kesifR2 = v => String(Number(v).toFixed(2)).replace('.', ',');
+function kesifScreenCases(lessons, side, sf, { k = 5, minSim = 0.6, perSymbol = 2, before = Infinity } = {}) {
+  const me = kesifScreenVector(side, sf), keys = me ? Object.keys(me).filter(q => me[q] !== null) : [];
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.rule === 'KESIF_SOZ' && finite(l.rMultiple) !== null && l.features && l.features.screenFacts && (finite(l.closedAt) || 0) < before);
+  const scored = [];
+  if (keys.length >= 4) for (const l of xs) { const v = kesifScreenVector(l.side, l.features.screenFacts); if (!v) continue; const both = keys.filter(q => v[q] !== null); if (both.length < 4) continue;
+    const sim = both.filter(q => v[q] === me[q]).length / both.length; if (sim >= minSim) scored.push({ l, sim }); }
+  scored.sort((a, b) => b.sim - a.sim || (b.l.closedAt || 0) - (a.l.closedAt || 0));
+  const per = {}, pick = [];
+  for (const sc of scored) { if ((per[sc.l.symbol] || 0) >= perSymbol) continue; per[sc.l.symbol] = (per[sc.l.symbol] || 0) + 1; pick.push(sc); if (pick.length >= k) break; }
+  const n = pick.length, wins = pick.filter(q => q.l.rMultiple > 0.3).length, losses = pick.filter(q => q.l.rMultiple < -0.3).length;
+  const avgR = n ? pick.reduce((a, q) => a + q.l.rMultiple, 0) / n : null, usd = pick.reduce((a, q) => a + (finite(q.l.netPnl) || 0), 0);
+  const mixed = wins >= 2 && losses >= 2, thin = n < 5;
+  const text = !n ? 'KEŞİF-SÖZ: bu giriş ekranına benzeyen gerçek işlem yok' :
+    `KEŞİF-SÖZ benzer ekran, ${n} gerçek işlem: ${wins} kazanç / ${losses} kayıp, ort ${kesifR2(avgR)}R, ${kesifR2(usd)}$ • ` +
+    pick.slice(0, 3).map(q => `${String(q.l.symbol).replace(/USDT$/, '')} ${kesifR2(q.l.rMultiple)}R ${kesifExitOf(q.l)}`).join(', ') + (mixed ? ' • SONUÇLAR KARIŞIK' : '') + (thin ? ' • az örnek: anekdot' : '');
+  return { version:'R2544.173-KESIF-SCREEN', n, wins, losses, avgR:avgR === null ? null : Number(avgR.toFixed(3)), usd:Number(usd.toFixed(2)), mixed, thin, features:me, text,
+    cases:pick.map(q => ({ symbol:q.l.symbol, R:Number(q.l.rMultiple.toFixed(2)), sim:Number(q.sim.toFixed(2)), exit:kesifExitOf(q.l), causes:[], at:q.l.openedAt || null, closedAt:q.l.closedAt || null })) };
+}
+function kesifModelBook(lessons, model, { before = Infinity } = {}) {
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.rule === 'KESIF_SOZ' && finite(l.rMultiple) !== null && l.features && l.features.kesif && model && l.features.kesif.model === model && (finite(l.closedAt) || 0) < before);
+  const n = xs.length, wins = xs.filter(l => l.rMultiple > 0).length, avgR = n ? xs.reduce((a, l) => a + l.rMultiple, 0) / n : null, usd = xs.reduce((a, l) => a + (finite(l.netPnl) || 0), 0);
+  const name = String(model || '').split('/').pop().replace(/:free$/, '');
+  const verdict = !n ? 'YOK' : n < 8 ? 'AZ_ORNEK' : avgR > 0 ? 'ARTIDA' : 'EKSIDE';
+  const text = !model ? 'söz sahibi model bilinmiyor' : !n ? `${name}: henüz gerçek KEŞİF-SÖZ işlemi yok` :
+    `${name} gerçek işlemleri: ${n} işlem, ${wins} kazanç, ort ${kesifR2(avgR)}R, toplam ${kesifR2(usd)}$` + (n < 8 ? ' (8 işlemden az: kanıt değil)' : '');
+  return { version:'R2544.173-KESIF-MODEL', model:model || null, n, wins, avgR:avgR === null ? null : Number(avgR.toFixed(3)), usd:Number(usd.toFixed(2)), verdict, text };
+}
+module.exports = { kesifScreenVector, kesifScreenCases, kesifModelBook, committeeKarne, playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

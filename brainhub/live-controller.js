@@ -7376,7 +7376,11 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const f0=lot.entryFeatures||{},z5=lot.lane==='ZIRVE5';let mg=null;try{mg=committeeManagement(z5?z5Lib.readConfig(root):top3Lib.readTop3Config(root),lot.side,z5);}catch{}
       const packet=TB.entryPacket({k,plan:{side:lot.side,rule,entry:e,stop:st,target:tp},t,trigger:f0.trig||null,management:mg,flags:f0.ruleFlags||[],experience:f0.brain||f0.similar||null,
         context:{rank:f0.rank??null,rankName:z5?'volatility rank (top 5)':'24h gainer rank',fund:f0.fund??null,premium:f0.premium??null}});
-      {const sf=TB.screenFacts(packet);if(sf){(lot.entryFeatures||(lot.entryFeatures={})).screenFacts=sf;saveTop3State();}}
+      {const sf=TB.screenFacts(packet);if(sf){const ef=(lot.entryFeatures||(lot.entryFeatures={}));ef.screenFacts=sf;
+        // R2544.173: a KEŞİF-SÖZ lot gets the brain's view the moment its entry screen exists (earlier REAL KEŞİF-SÖZ trades on the same screen +
+        // the word holder's REAL record) -> position-desk entryInfo -> desk and JEV management read it. Information only: no veto, no order.
+        if(lot.lane==='KESIF'){try{const pool=top3State.lessons||[];ef.similar=similarKeep(top3Lib.kesifScreenCases(pool,lot.side,sf));ef.experience=top3Lib.kesifModelBook(pool,ef.kesif&&ef.kesif.model);}catch{}}
+        saveTop3State();}}
       if(lot.entryFeatures?.committee||!deskJudges?.committee||typeof deskJudges.committee.decide!=='function')return null;
       const r=await deskJudges.committee.decide({system:TB.ENTRY_SYSTEM,prompt:JSON.stringify(packet),validate:TB.validEntry,parse:TB.parseEntry,field:'decision',fallback:'SKIP',roles:TB.ENTRY_ROLES,size:ENTRY_TEAM});
       const slim=a=>(a||[]).map(v=>({m:String(v.member).replace(/^ROUTER:|^FREE:|^OR:/,''),s:v.seat||null,d:v.vote?.decision||'ERR',p:finite(v.vote?.pTarget),why:String(v.vote?.reasonTr||v.error||'').slice(0,220),...(v.img?{img:true}:{}),...(v.compact?{cmp:true}:{}),...(v.imgError?{imgErr:String(v.imgError).slice(0,80)}:{})}));
