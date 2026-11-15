@@ -732,7 +732,9 @@ workflows:
           echo V95148_R2544_147_KAYDET_OK
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95149_r2544_148_kesif.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/v95150_r2544_171_user_margin.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95151_r2544_172_kesif_lane.py"
           python3 "$CM_BUILD_DIR/futures15m_alarm/test_user_margin.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/test_kesif_lane.py"
           grep -q 'private void v95149InstallKesifCard()' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'optJSONObject("bk")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
           grep -q 'optJSONObject("ogr2")' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
