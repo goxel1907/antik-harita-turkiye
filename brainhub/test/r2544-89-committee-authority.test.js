@@ -300,11 +300,14 @@ test('R2544.130 LIVE sizing on (simulated) Binance: 100 $ balance, lane margin 3
   assert.ok(lev&&Number(lev.params.leverage)>=10,'leverage sent to Binance >= 10x: '+JSON.stringify(lev));assert.ok(ord,'a market entry order went to Binance');
   const a=f.lot(),notional=Number(ord.params.quantity)*a.entryPrice,L=Number(lev.params.leverage);
   if(process.env.SHOW_LIVE_SIZE)console.log('CANLI_OLCU marj',a.marginQuote,'kaldirac',L,'pozisyon',notional.toFixed(2),'kilitlenen marj',(notional/L).toFixed(2),'stop%',(a.stopPct*100).toFixed(2),'stopta kayip',(notional*a.stopPct).toFixed(2));
-  assert.equal(a.marginQuote,30,'the lane margin, not resized');assert.equal(a.leverage,L);
+  assert.equal(a.requestedMarginQuote,30);assert.equal(a.filledMarginQuote,notional/L);assert.equal(a.marginQuote,30,'the lane margin, not resized');assert.equal(a.leverage,L);
   assert.ok(Math.abs(notional/L-30)<=30*0.03+0.01*a.entryPrice/L,'locked margin = notional / leverage ≈ 30 $: '+(notional/L).toFixed(2)+' (lot step rounding)');
   const r=(await f.binance.handle('GET','/fapi/v3/positionRisk',{params:{symbol:'Z5USDT'}}))[0];assert.ok(Math.abs(Number(r.positionAmt))>0,'the position is on (simulated) Binance');
   require('../binance-rate-limit').resetForTests();
-  const g=await live({marginQuote:99,leverage:10});
+  const g=await live({marginQuote:30,leverage:10});
+  const saved=g.controller.configureUserSizing({lane:'zirve5',marginQuote:99,expectedRevision:g.controller.userSizingStatus().zirve5.revision,source:'OFFICE'});
+  assert.equal(saved.ok,true,'preference saves even when the next entry is unaffordable');
+  assert.equal(saved.marginQuote,99);
   assert.equal((await g.controller.z5Tick()).entries,0,'99 $ > 95 % of the 100 $ free balance: refused, never resized');
   assert.ok(!g.state.orders.some(o=>o.mode==='LIVE'&&o.p==='/fapi/v1/order'),'no order sent');
 });

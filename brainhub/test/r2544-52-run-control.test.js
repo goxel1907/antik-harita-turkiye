@@ -74,7 +74,7 @@ test('R52 STOP turns autorun, OTO and arm off, KEEPS the virtual lots (R2544.133
 test('R52 OTO aç is refused when the Binance balance is below the OTO margin; TEST keeps running',async()=>{
   const f=fixture();await f.controller.testSupervisorTick();f.state.realAvail=10;f.state.realWallet=10;
   const r=await f.controller.runControl({action:'GO_LIVE'});
-  assert.equal(r.ok,false);assert.deepEqual(r.reasons,['BINANCE_BALANCE_TOO_LOW']);assert.equal(r.detail.required,32);assert.equal(r.detail.available,10);
+  assert.equal(r.ok,false);assert.deepEqual(r.reasons,['BINANCE_BALANCE_TOO_LOW']);assert.equal(r.detail.required,32/0.95);assert.equal(r.detail.available,10);
   assert.equal(readTradingMode(f.root).mode,'TEST');assert.equal(f.controller.status().armed,true);assert.equal(f.oto(),true);
   f.state.realAvail=250;f.state.realPositions=[{symbol:'XUSDT',positionAmt:'5',entryPrice:'1',markPrice:'1'}];
   assert.deepEqual((await f.controller.runControl({action:'GO_LIVE'})).reasons,['REAL_POSITION_OPEN'],'a manual real lot blocks the switch');

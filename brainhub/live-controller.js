@@ -1,4 +1,5 @@
 'use strict';
+const userSizing=require('./user-sizing');
 const { enrichCloses } = require('./office-performance');
 
 const fs = require('node:fs');
@@ -3088,7 +3089,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     } catch {
       return { ok:false, config:{ enabled:false, marginQuote:null, leverage:null, maxOpenPositions:null, burstMarginQuote:null, burstFreeMarginFraction:0.50, burstMaxLeverage:25, allowLong:false, allowShort:false, intervalSec:30 }, reasons:['LEADER_AUTO_CONFIG_INVALID'] };
     }
-    return normalizeLeaderAuto(raw, readPolicy(root));
+    const n=userSizing.readSizing(root,'normal',{marginQuote:raw.marginQuote,leverage:raw.leverage});
+    const b=userSizing.readSizing(root,'burst',{marginQuote:raw.burstMarginQuote??raw.marginQuote,leverage:raw.burstMaxLeverage??25});
+    return normalizeLeaderAuto({...raw,marginQuote:n.marginQuote,leverage:n.leverage,burstMarginQuote:b.marginQuote,burstMaxLeverage:b.leverage}, readPolicy(root));
   }
 
   function writeLeaderAutoConfig(config) {
@@ -3098,6 +3101,32 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     fs.renameSync(tmp, leaderAutoFile);
   }
 
+  function userSizingStatus(){
+    const la=readLeaderAutoConfig().config||{},t=top3Lib.readTop3Config(root),z=z5Lib.readConfig(root),k=readSozConfig();
+    const fallback={normal:{marginQuote:la.marginQuote,leverage:la.leverage},burst:{marginQuote:la.burstMarginQuote,leverage:la.burstMaxLeverage},
+      top3:{marginQuote:t.marginQuote,leverage:t.leverage},zirve5:{marginQuote:z.marginQuote,leverage:z.leverage??t.leverage},kesif:{marginQuote:k.marginQuote,leverage:k.leverage}};
+    return Object.fromEntries(userSizing.LANES.map(l=>[l,userSizing.readSizing(root,l,fallback[l])]));
+  }
+  function sizingUnchanged(lane,revision){
+    try{const current=userSizingStatus()[lane];return current.revision===revision?{ok:true}:{ok:false,reasons:['SIZING_CHANGED_DURING_PREPARATION'],current};}
+    catch{return {ok:false,reasons:['SIZING_STORE_UNREADABLE']};}
+  }
+  function normalSizingGuard(settings,expectedRevision){
+    const current=userSizingStatus().normal;
+    if(expectedRevision!==undefined&&current.revision!==expectedRevision)return {ok:false,reasons:['SIZING_CHANGED_DURING_PREPARATION'],current};
+    if(!current.revision.startsWith('0-')&&(!settings.dynamic||settings.marginQuote!==current.marginQuote))
+      return {ok:false,reasons:['SIZING_MARGIN_MISMATCH'],current};
+    return {ok:true,revision:current.revision};
+  }
+  function configureUserSizing(body={}){
+    const before=userSizingStatus(),lane=body.lane;
+    if(!before[lane])return {ok:false,reasons:['SIZING_LANE_INVALID']};
+    const allowed=['lane','marginQuote','leverage','expectedRevision','source'];
+    if(Object.keys(body).some(k=>!allowed.includes(k)))return {ok:false,reasons:['SIZING_ONLY']};
+    const result=userSizing.writeSizing(root,body,before[lane],before);
+    if(result.ok){try{store.journal('USER_SIZING_ACCEPTED',null,{...result,source:body.source,mode:testModeNow()?'TEST':'LIVE'});}catch{}}
+    return result;
+  }
   function configureLeaderAuto(body = {}) {
     const policy = readPolicy(root);
     if (!policy.ok) return { ok:false, reasons:policy.reasons || ['LIVE_POLICY_REQUIRED'] };
@@ -3447,24 +3476,27 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const creds=currentCredentials();
     if(!credentialsReady(creds))return {ok:false,reasons:['BINANCE_CREDENTIALS_REQUIRED']};
     const la=readLeaderAutoConfig();
-    if(!la.ok||finite(la.config?.marginQuote)===null)return {ok:false,reasons:la.reasons?.length?la.reasons:['LEADER_AUTO_CONFIG_INVALID']};
+
     // R2544.57: the selected lanes decide what goes live and how much free balance is needed (the larger lane margin).
     const lanes=readLanes(),t3=top3Lib.readTop3Config(root);
     // R2544.60: the normal system counts only with at least one of its sub-lanes chosen (burst alone stays TEST-only)
     // R2544.142 (kullanıcı 10.11: "hangi işlemi aktif etmek istiyorsam o aktif çalışmalı"): a selected vur-kaç is a lane like the others
     const normalLive=lanes.normal===true&&(lanes.scalp5m||lanes.trade15m||lanes.burst);
+    if(normalLive&&(!la.ok||finite(la.config?.marginQuote)===null))return {ok:false,reasons:la.reasons?.length?la.reasons:['LEADER_AUTO_CONFIG_INVALID']};
     // R2544.67.2 (self-audit): İlk 3 counts only with a sub-strategy on; ZİRVE-5 is a lane of its own (alone it may go LIVE)
     const t3Live=t3.enabled===true&&(t3.rulesVersion!==2||t3.early?.enabled===true||t3.top?.enabled===true),z5=z5Lib.readConfig(root),z5Live=z5.enabled===true&&(z5.longEnabled===true||z5.shortEnabled===true);
     const sozC=readSozConfig(),sozLive=sozC.enabled===true&&sozWired(); // R2544.158 KEŞİF-SÖZ is a lane of its own (both CANLI buttons carry it)
     if(!normalLive&&!t3Live&&!z5Live&&!sozLive)return {ok:false,reasons:['LANES_NONE_SELECTED']};
-    const need=Math.max(normalLive?finite(la.config.marginQuote):0,t3Live?(t3.marginQuote??20):0,z5Live?(z5.marginQuote??20):0,sozLive?sozC.marginQuote:0);
+    const sizes=userSizingStatus(),selected=[...(normalLive?[sizes.normal]:[]),...(normalLive&&lanes.burst?[sizes.burst]:[]),...(t3Live?[sizes.top3]:[]),...(z5Live?[sizes.zirve5]:[]),...(sozLive?[sizes.kesif]:[])];
+    // Automatic lanes have no fixed margin; the entry still computes their actual size.
+    const need=Math.max(0,...selected.filter(x=>finite(x.marginQuote)>0).map(x=>userSizing.balanceRequirement(x.marginQuote,0).requiredAvailable));
     let acc,rows;
     try{
       acc=await transport._fetchJsonReal('GET','/fapi/v3/account',{credentials:creds,signed:true});
       rows=await transport._fetchJsonReal('GET','/fapi/v3/positionRisk',{credentials:creds,signed:true});
     }catch(e){return {ok:false,reasons:['BINANCE_ACCOUNT_UNREADABLE'],detail:{error:String(e?.message||e).slice(0,120)}};}
     const available=finite(acc?.availableBalance),wallet=finite(acc?.totalWalletBalance);
-    if(available===null||available<need)return {ok:false,reasons:['BINANCE_BALANCE_TOO_LOW'],detail:{available,wallet,required:need}};
+    if(available===null||available<=0||available<need)return {ok:false,reasons:['BINANCE_BALANCE_TOO_LOW'],detail:{available,wallet,required:need}};
     if(Array.isArray(rows)&&rows.some(x=>Math.abs(finite(x?.positionAmt)||0)>0))return {ok:false,reasons:['REAL_POSITION_OPEN'],detail:{symbols:rows.filter(x=>Math.abs(finite(x?.positionAmt)||0)>0).map(x=>x.symbol)}};
     return {ok:true,available,wallet,required:need,lanes:{normal:lanes.normal===true,top3:t3Live,zirve5:z5Live}};
   }
@@ -4684,6 +4716,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LEADER_AUTO_BLOCKED', reasons:settings.reasons?.length ? settings.reasons : ['LEADER_AUTO_DYNAMIC_SETTINGS_REQUIRED'] };
     }
 
+    const normalSize=analysisOnly?null:normalSizingGuard(settings);
+    if(normalSize&&!normalSize.ok)return {ok:false,orderPlaced:false,execution:'LEADER_AUTO_BLOCKED',reasons:normalSize.reasons};
     const allowLong = body?.allowLong === true;
     const allowShort = body?.allowShort === true;
     if (!allowLong && !allowShort) {
@@ -5297,7 +5331,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         finalAuthority:true,
         softWarnings:intent.finalAuthoritySoftWarnings
       }
-    }, generation, { claudeRunnerMode:runnerModeAtEntry, claudeRunnerShare:runnerCfgAtEntry.runnerShare });
+    }, generation, { normalSizingRevision:normalSize?.revision, claudeRunnerMode:runnerModeAtEntry, claudeRunnerShare:runnerCfgAtEntry.runnerShare });
     } finally { executionBusy = false; }
     leaderHealthEvent('EXECUTION_STAGE',{
       stage:result?.orderPlaced===true?'ORDER_PLACED':'EXECUTION_RESULT',
@@ -5450,6 +5484,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
     const settings = requestedExecutionSettings(body, policy);
     if (!settings.ok) return { ok:false, orderPlaced:false, liveAllowed:false, execution:'LIVE_BLOCKED', reasons:settings.reasons };
+    const normalSize=normalSizingGuard(settings,internal.normalSizingRevision);
+    if(!normalSize.ok)return {ok:false,orderPlaced:false,liveAllowed:false,execution:'LIVE_BLOCKED',reasons:normalSize.reasons};
 
     let accountRisk;
     if(settings?.dynamic===true)await testTopUp(settings.marginQuote,'NORMAL'); // panel margin = fixed; PC default sizing follows the account
@@ -5671,15 +5707,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       };
     }
 
+    const currentSize=sizingUnchanged('normal',normalSize.revision);
+    if(!currentSize.ok){releaseClaim();return {ok:false,orderPlaced:false,execution:'LIVE_BLOCKED',reasons:currentSize.reasons};}
     const reservation={symbol:String(order.symbol).toUpperCase(),clientOrderId:order.clientOrderId,state:'SUBMITTING',at:clock()};
     pendingOrders.push(reservation); savePending();
     let result;
     try { result = await transport.submit({
       grantId:grant.grant.grantId,
+      validateSizing:()=>sizingUnchanged('normal',normalSize.revision),
       order,
       credentials:creds,
       livePolicy:{
         expectedLeverage:settings.leverage,
+        requestedMarginQuote:settings.marginQuote,
         maxEntryDeviationPct:policy.maxEntryDeviationPct,
         // CLAUDE_V111_TRAILING_RUNNER: yalnız Leader AUTO girişlerinde; mobil manuel emir TP3'lü kalır.
         // İç argüman: HTTP gövdesinden gelemez (inceleme bulgusu #9).
@@ -5811,14 +5851,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     }finally{burstArmBusy=false;}
   }
   async function burstLeverageAndSizing(symbol,side,mode,price,stopPct,flat,currentPosition=null){
+    const sizeAtStart=userSizingStatus().burst;
     const creds=currentCredentials(),policy=readPolicy(root),la=readLeaderAutoConfig();
     if(!credentialsReady(creds)||!policy.ok||!la.ok)return {ok:false,reason:'BURST_CONFIG_OR_CREDENTIALS_UNAVAILABLE'};
-    if(flat)await testTopUp((finite(la.config?.marginQuote)||0)*0.5,'BURST'); // flat = half the panel margin (fixed); in position = half of free margin (follows the account)
-    const acct=await accountSummary({maxAgeMs:3000});if(!acct?.ok||!(finite(acct.availableBalance)>0))return {ok:false,reason:'BURST_ACCOUNT_UNAVAILABLE'};
-    // R43 (user rule 05.10.2026): burstMarginRule — flat: half of the panel margin; in position: half of free margin.
-    const rule=burstMarginRule({flat,panelMarginQuote:la.config.marginQuote,availableBalance:acct.availableBalance});
-    if(!rule.ok)return {ok:false,reason:rule.reason};
-    const margin=rule.marginQuote,burstMargin=flat?margin:null,freeFraction=0.50;
+    await testTopUp(la.config.burstMarginQuote,'BURST');
+    const acct=await accountSummary({maxAgeMs:3000});if(!acct?.ok||!(finite(acct.availableBalance)>0))return {...userSizing.balanceRequirement(la.config.burstMarginQuote,finite(acct.availableBalance)),ok:false,reason:'BURST_ACCOUNT_UNAVAILABLE'};
+    // R2544.171: fixed user collateral is independent of account balance and the normal lane.
+    const margin=la.config.burstMarginQuote,check=userSizing.balanceRequirement(margin,finite(acct.availableBalance));
+    if(!check.ok)return {ok:false,...check,reason:'BURST_MARGIN_ABOVE_FREE_BALANCE'};
+    const rule={ok:true,marginQuote:margin,rule:'USER_BURST_MARGIN'},burstMargin=margin,freeFraction=null;
     // R2544.46 (user rule 05.10.2026): burst leverage never above 25x (fees scale with notional); a lower user cap wins.
     const userCap=Math.max(1,Math.min(BURST_LEVERAGE_CEILING,Math.floor(finite(la.config.burstMaxLeverage)??BURST_LEVERAGE_CEILING)));
     let exchangeMax=null,brackets=[];
@@ -5840,7 +5881,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // Reconcile with notional bracket at chosen size.
       for(let i=0;i<2;i++){const notional=margin*leverage;const br=brackets.find(x=>notional>=(finite(x?.notionalFloor)||0)&&(finite(x?.notionalCap)===null||notional<=finite(x.notionalCap)))||brackets.at(-1);const cap=Number(br?.initialLeverage)||exchangeMax;leverage=Math.max(1,Math.min(leverage,cap,safeMax,userCap));}
     }
-    return {ok:true,marginQuote:Number(margin.toFixed(8)),leverage,exchangeMaxLeverage:exchangeMax,userBurstMaxLeverage:userCap,safeMaxLeverage:safeMax,availableBalance:acct.availableBalance,freeMarginFraction:freeFraction,burstMarginQuote:burstMargin,marginRule:rule.rule,changeLeverage,sameSymbolCore};
+    return {ok:true,marginQuote:margin,leverage,exchangeMaxLeverage:exchangeMax,userBurstMaxLeverage:userCap,safeMaxLeverage:safeMax,availableBalance:acct.availableBalance,freeMarginFraction:freeFraction,burstMarginQuote:burstMargin,marginRule:rule.rule,sizingRevision:sizeAtStart.revision,changeLeverage,sameSymbolCore};
   }
   async function burstReduceExact(active,reason){
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
@@ -5879,7 +5920,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(sz.changeLeverage!==false){const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(sz.leverage)}});if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==sz.leverage)return {ok:false,reason:'BURST_LEVERAGE_REJECTED'};}
     const burstId='burst_'+crypto.randomBytes(8).toString('hex'),clientId=('BE'+burstId.replace('_','')).slice(0,36);
     if(!armedNow()||readLeaderAutoConfig().config?.enabled!==true)return {ok:false,reason:'BURST_ENTRY_PERMISSION_REVOKED'};
-    let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide,type:'MARKET',quantity:String(quantity),newClientOrderId:clientId,newOrderRespType:'RESULT'}});}catch(e){return {ok:false,reason:String(e?.message||'BURST_ENTRY_FAILED'),exchangeError:e?.body||null};}
+    let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,validateSizing:()=>sizingUnchanged('burst',sz.sizingRevision),params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide,type:'MARKET',quantity:String(quantity),newClientOrderId:clientId,newOrderRespType:'RESULT'}});}catch(e){return {ok:false,reason:String(e?.message||'BURST_ENTRY_FAILED'),exchangeError:e?.body||null};}
     // R2544.47: an ACK avgPrice of 0 is "not reported", never a 0 entry price (progressR/stop math would break).
     const executed=finite(entry?.executedQty),ackPriced=finite(entry?.avgPrice)>0;let entryPrice=finite(entry?.avgPrice)>0?finite(entry.avgPrice):price;if(!(executed>0))return {ok:false,reason:'BURST_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
     // Quantity-specific protective stop so a synthetic addon can never close the core position.
@@ -5890,8 +5931,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     let entryPriceSource=ackPriced?'ACK':'DECISION_PRICE';
     if(!ackPriced){try{const q=await transport._fetchJson('GET','/fapi/v1/order',{params:{symbol,origClientOrderId:clientId},credentials:creds,signed:true});if(finite(q?.avgPrice)>0){entryPrice=finite(q.avgPrice);entryPriceSource='ORDER_QUERY';}}catch{}}
     const started=burst.start({burstId,authorizationId:auth.authorizationId,symbol,side,quantity:executed,entryPrice,stopPrice,leverage:sz.leverage,marginQuote:sz.marginQuote,syntheticAddon:sameAddon,pauseExceptionUsed:false});
-    if(started.ok){started.active.stopAlgoId=stop.algoId;started.active.coreQtyBefore=finite(current?.quantity)||0;started.active.exchangeMaxLeverage=sz.exchangeMaxLeverage;started.active.triggerScore=ev.score;started.active.entryPriceSource=entryPriceSource;started.active.jevReason=auth.jevReason||null;started.active.entryClientOrderId=clientId;}
-    try{store.journal('BURST_ENTRY',symbol,{burstId,authorizationId:auth.authorizationId,side,entryModel:plan?'PULLBACK_RESUME':'IMPULSE_TIP',plan:plan||null,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,marginQuote:sz.marginQuote,leverage:sz.leverage,exchangeMaxLeverage:sz.exchangeMaxLeverage,safeMaxLeverage:sz.safeMaxLeverage,entryPrice,quantity:executed,stopPrice,profitAuthority:'JEV_NO_FIXED_TARGET',trigger:ev});store.recordLearning?.('BURST_OPENED',symbol,{burstId,side,entryPrice,quantity:executed,leverage:sz.leverage,triggerScore:ev.score,syntheticAddon:sameAddon});}catch{}
+    if(started.ok){started.active.requestedMarginQuote=sz.marginQuote;started.active.plannedMarginQuote=quantity*price/sz.leverage;started.active.filledMarginQuote=entryPriceSource==='DECISION_PRICE'?null:executed*entryPrice/sz.leverage;started.active.stopAlgoId=stop.algoId;started.active.coreQtyBefore=finite(current?.quantity)||0;started.active.exchangeMaxLeverage=sz.exchangeMaxLeverage;started.active.triggerScore=ev.score;started.active.entryPriceSource=entryPriceSource;started.active.jevReason=auth.jevReason||null;started.active.entryClientOrderId=clientId;}
+    try{store.journal('BURST_ENTRY',symbol,{burstId,authorizationId:auth.authorizationId,side,entryModel:plan?'PULLBACK_RESUME':'IMPULSE_TIP',plan:plan||null,syntheticAddon:sameAddon,coreQtyBefore:finite(current?.quantity)||0,marginQuote:sz.marginQuote,requestedMarginQuote:sz.marginQuote,plannedMarginQuote:quantity*price/sz.leverage,filledMarginQuote:entryPriceSource==='DECISION_PRICE'?null:executed*entryPrice/sz.leverage,leverage:sz.leverage,exchangeMaxLeverage:sz.exchangeMaxLeverage,safeMaxLeverage:sz.safeMaxLeverage,entryPrice,quantity:executed,stopPrice,profitAuthority:'JEV_NO_FIXED_TARGET',trigger:ev});store.recordLearning?.('BURST_OPENED',symbol,{burstId,side,entryPrice,quantity:executed,leverage:sz.leverage,triggerScore:ev.score,syntheticAddon:sameAddon});}catch{}
     return {ok:true,orderPlaced:true,active:started.active,sizing:sz};
   }
   async function burstScalpTick(){
@@ -6244,17 +6285,19 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function refStopPct(sig,cfg){try{if(sig.z5){const z=sig.z5cfg||{};return ((finite(z.minStopPct)??0.002)+(finite(z.maxStopPct)??0.08))/2;}
     const R=sig.side==='LONG'?cfg.early:cfg.top;return ((finite(R?.minStopPct)??0.012)+(finite(R?.maxStopPct)??0.045))/2;}catch{return null;}}
   async function top3Open(sig,symbol,cfg,jev,ctx={}){
+    const sizeLane=sig.soz?'kesif':sig.z5?'zirve5':'top3',sizeAtStart=userSizingStatus()[sizeLane];
+    cfg={...cfg,marginQuote:sizeAtStart.marginQuote,leverage:sizeAtStart.leverage??cfg.leverage};
     const creds=currentCredentials();if(!credentialsReady(creds))return {ok:false,reason:'BINANCE_CREDENTIALS_REQUIRED'};
     const side=sig.side,la=readLeaderAutoConfig();
     if(cfg.marginQuote!==null&&cfg.marginQuote!==undefined)await testTopUp(cfg.marginQuote,sig.z5?'ZIRVE5':'TOP3');
     const acct=await accountSummary({maxAgeMs:3000});const avail=finite(acct?.availableBalance);
-    if(!acct?.ok||!(avail>0))return {ok:false,reason:'TOP3_ACCOUNT_UNAVAILABLE'};
+    if(!acct?.ok||!(avail>0))return {ok:false,reason:'TOP3_ACCOUNT_UNAVAILABLE',...userSizing.balanceRequirement(cfg.marginQuote,avail),ok:false,reason:'TOP3_ACCOUNT_UNAVAILABLE',reasonDetail:'ACCOUNT_OR_BALANCE_UNAVAILABLE'};
     // Margin: the file's marginQuote when set; otherwise the panel margin capped at 25% of free balance (a -8% stop at
     // 10x costs ~80% of this margin). R2544.57: a margin the user set (Office) may use up to 95% of free balance; the
     // automatic one stays at 25%. Below 5 USDT no trade.
     const margin=cfg.marginQuote!==null?cfg.marginQuote:Math.min(finite(la.config?.marginQuote)??Infinity,avail*0.25);
-    if(!(margin>=5))return {ok:false,reason:'TOP3_MARGIN_TOO_SMALL',marginQuote:margin};
-    if(margin>avail*0.95)return {ok:false,reason:'TOP3_MARGIN_ABOVE_FREE_BALANCE',marginQuote:margin,availableBalance:avail};
+    if(!(margin>=5))return {ok:false,reason:'TOP3_MARGIN_TOO_SMALL',marginQuote:margin,requestedMarginQuote:margin,minimumMarginQuote:5};
+    if(margin>avail*0.95)return {ok:false,...userSizing.balanceRequirement(margin,avail),reason:'TOP3_MARGIN_ABOVE_FREE_BALANCE',marginQuote:margin};
     let px;try{px=await paperPrice(symbol);}catch{px=null;}
     if(!(finite(side==='LONG'?px?.ask:px?.bid)>0)){await new Promise(r=>setTimeout(r,1500));try{px=await paperPrice(symbol);}catch{px=null;}} // R2544.117: one retry (03.11 AGT 05:20)
     const price=finite(side==='LONG'?px?.ask:px?.bid);if(!(price>0))return {ok:false,reason:'TOP3_PRICE_UNAVAILABLE'};
@@ -6305,18 +6348,20 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       notional=n;riskQuote=Number((n*pre.stopPct).toFixed(4));
     }
     const quantity=burstFloor(notional/price,f.lotStep);if(!(quantity>0)||quantity<(f.minQty||0)||(f.maxQty&&quantity>f.maxQty))return {ok:false,reason:'TOP3_QUANTITY_INVALID'};
-    if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'TOP3_MIN_NOTIONAL_NOT_MET'};
+    if(f.minNotional&&quantity*price<f.minNotional)return {ok:false,reason:'TOP3_MIN_NOTIONAL_NOT_MET',requestedMarginQuote:margin,calculatedNotionalQuote:quantity*price,exchangeMinNotionalQuote:f.minNotional};
     const mode=await transport._fetchJson('GET','/fapi/v1/positionSide/dual',{credentials:creds,signed:true});const hedge=mode?.dualSidePosition===true;
     if(!(sig.soz?sozGate(readSozConfig()).ok:sig.z5?z5Gate(z5Lib.readConfig(root)).ok:top3Gate(top3Lib.readTop3Config(root)).ok))return {ok:false,reason:sig.soz?'KESIF_ENTRY_PERMISSION_REVOKED':sig.z5?'ZIRVE5_ENTRY_PERMISSION_REVOKED':'TOP3_ENTRY_PERMISSION_REVOKED'};
     if(burstCurrentPosition(symbol))return {ok:false,reason:'TOP3_SYMBOL_BUSY'};
+    if(userSizingStatus()[sizeLane].revision!==sizeAtStart.revision)return {ok:false,reason:'SIZING_CHANGED_DURING_PREPARATION',requestedMarginQuote:margin,current:userSizingStatus()[sizeLane]};
     const levAck=await transport._fetchJson('POST','/fapi/v1/leverage',{credentials:creds,signed:true,params:{symbol,leverage:String(leverage)}});
     if(finite(levAck?.leverage)!==null&&finite(levAck.leverage)!==leverage)return {ok:false,reason:'TOP3_LEVERAGE_REJECTED'};
     const id=(sig.z5?'z5':sig.soz?'ks':'t3')+crypto.randomBytes(7).toString('hex'),startedAt=clock();
-    let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide:hedge?side:'BOTH',type:'MARKET',quantity:String(quantity),newClientOrderId:('T3E'+id).slice(0,36),newOrderRespType:'RESULT'}});}
+    let entry;try{entry=await transport._fetchJson('POST','/fapi/v1/order',{credentials:creds,signed:true,validateSizing:()=>sizingUnchanged(sizeLane,sizeAtStart.revision),params:{symbol,side:side==='LONG'?'BUY':'SELL',positionSide:hedge?side:'BOTH',type:'MARKET',quantity:String(quantity),newClientOrderId:('T3E'+id).slice(0,36),newOrderRespType:'RESULT'}});}
     catch(e){return {ok:false,reason:String(e?.message||'TOP3_ENTRY_FAILED').slice(0,120),exchangeError:e?.body||null};}
     const executed=finite(entry?.executedQty);if(!(executed>0))return {ok:false,reason:'TOP3_FILL_UNCLEAR',manualReviewRequired:true,orderId:entry?.orderId??null};
     let entryPrice=finite(entry?.avgPrice)>0?finite(entry.avgPrice):null;
     if(entryPrice===null){try{const q=await transport._fetchJson('GET','/fapi/v1/order',{params:{symbol,origClientOrderId:('T3E'+id).slice(0,36)},credentials:creds,signed:true});if(finite(q?.avgPrice)>0)entryPrice=finite(q.avgPrice);}catch{}}
+    const actualFillPrice=entryPrice;
     if(entryPrice===null)entryPrice=price;
     // Levels at the real fill. SHORT keeps its structural stop, clamped into the 2%..8% band after slippage.
     let stopRaw,tpRaw;
@@ -6353,6 +6398,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       ...(sig.z5?{lane:'ZIRVE5',strategy:z5Lib.setupFor(side),tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(z5Target?.targetR),level:finite(sig.zone.equilibrium),top:finite(sig.zone.top),
         z5zone:{side,top:sig.zone.top,bottom:sig.zone.bottom,equilibrium:sig.zone.equilibrium,liquidity:finite(sig.zone.liquidity),zoneAt:sig.zone.zoneAt,confirmAt:sig.zone.confirmAt??null,confirm:sig.zone.confirm||null}}:{}),
       ...(sig.soz?{lane:'KESIF',strategy:KESIF.SOZ.name,kesif:{model:sig.soz.model,forecastId:sig.soz.forecastId||null,round:sig.soz.round||null,record:sig.soz.record||null},tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(KESIF.sozPlan(entryPrice,sig.soz).targetR)}:{})};
+    a.requestedMarginQuote=margin;a.plannedMarginQuote=quantity*price/leverage;a.filledMarginQuote=actualFillPrice===null?null:executed*actualFillPrice/leverage;
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
     try{store.journal(sig.z5?'ZIRVE5_ENTRY':sig.soz?'KESIF_SOZ_ENTRY':'TOP3_ENTRY',symbol,{...a,version:sig.z5?z5Lib.ZIRVE5_VERSION:sig.soz?KESIF.KESIF_VERSION:top3Lib.TOP3_VERSION,why:top3Why(a),tpError:tp.ok?null:tp.reason||null});}catch{}
@@ -7031,8 +7077,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function readSozRaw(){try{return JSON.parse(fs.readFileSync(SOZ_FILE(),'utf8'))||{};}catch{return {};}}
   function readSozConfig(){const raw=readSozRaw();let t3={};try{t3=top3Lib.readTop3Config(root)||{};}catch{}
     const own=finite(raw.marginQuote)>=5,app=finite(t3.marginQuote)>=5;
-    return {enabled:raw.enabled!==false,goxelExit:raw.goxelExit!==false,marginQuote:own?finite(raw.marginQuote):app?finite(t3.marginQuote):30,marginFrom:own?'KESIF':app?'ILK3':'VARSAYILAN',
-      leverage:Math.max(10,Math.min(20,finite(raw.leverage)??finite(t3.leverage)??10)),maxActive:Math.max(1,Math.min(2,finite(raw.maxActive)??2))};}
+    const legacy={marginQuote:own?finite(raw.marginQuote):app?finite(t3.marginQuote):30,leverage:Math.max(10,Math.min(20,finite(raw.leverage)??finite(t3.leverage)??10))};
+    const u=userSizing.readSizing(root,'kesif',legacy);
+    return {enabled:raw.enabled!==false,goxelExit:raw.goxelExit!==false,marginQuote:u.marginQuote,marginFrom:u.revision.startsWith('0-')?(own?'KESIF':app?'ILK3':'VARSAYILAN'):'KESIF',
+      sizingRevision:u.revision,leverage:u.leverage,maxActive:Math.max(1,Math.min(2,finite(raw.maxActive)??2))};}
   function writeSozConfig(p={}){const raw=readSozRaw();for(const k of ['enabled','goxelExit'])if(typeof p[k]==='boolean')raw[k]=p[k];
     if(finite(p.marginQuote)>=5)raw.marginQuote=finite(p.marginQuote);if(finite(p.leverage)!==null)raw.leverage=Math.max(10,Math.min(20,finite(p.leverage)));
     try{fs.mkdirSync(path.dirname(SOZ_FILE()),{recursive:true});fs.writeFileSync(SOZ_FILE()+'.tmp',JSON.stringify(raw,null,1));fs.renameSync(SOZ_FILE()+'.tmp',SOZ_FILE());}catch{}
@@ -7826,7 +7874,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
 
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
-  return { kesifStatus, configureKesif, userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
+  return { userSizingStatus, configureUserSizing, kesifStatus, configureKesif, userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
     _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(), _testUserCloseTick:n=>userCloseTick(n), _testGoxelLive:()=>goxelLiveTick(), _testDeskLooks:()=>deskLooks,
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).

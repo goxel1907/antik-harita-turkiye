@@ -54,7 +54,8 @@ function readConfig(root) {
   const rp = finite(raw.riskPct); if (rp !== null && rp > 0 && rp <= 0.05) c.riskPct = rp;
   const pr = finite(raw.partAtR); if (pr !== null && pr >= 0.5 && pr <= 5) c.partAtR = pr;      // R2544.73: Office-set level/share
   const ps = finite(raw.partShare); if (ps !== null && ps >= 0.1 && ps <= 0.9) c.partShare = ps;
-  return c;
+  const u=require('./user-sizing').readSizing(root,'zirve5',c);
+  return {...c,marginQuote:u.marginQuote,leverage:u.leverage,sizingRevision:u.revision};
 }
 function writeConfig(root, patch = {}) {
   const raw = readRaw(root);

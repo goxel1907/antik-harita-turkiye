@@ -69,7 +69,8 @@ function readTop3Config(root) {
       const n = finite(src[k]); if (n !== null && n >= 0) c[side][k] = n;
     }
   }
-  return c;
+  const u=require('./user-sizing').readSizing(root,'top3',c);
+  return {...c,marginQuote:u.marginQuote,leverage:u.leverage,sizingRevision:u.revision};
 }
 // R2544.57: İlk 3 margin (USDT, null = automatic) and leverage (1..20) from Office/API, validated; rules stay in the file.
 function writeTop3Settings(root, patch = {}) {

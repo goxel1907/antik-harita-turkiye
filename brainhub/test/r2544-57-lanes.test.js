@@ -75,7 +75,7 @@ test('R57 LIVE with İlk 3 only: balance checked against the İlk 3 margin, OTO 
   assert.equal(f.oto(),false,'normal lane not selected -> no JEV entries in LIVE');
   assert.equal(f.t3().liveEnabled,true,'İlk 3 goes live because it was selected');
   assert.equal(f.controller.top3Status().gate,'OPEN');
-  assert.ok(f.events.some(e=>e.k==='LIVE_STARTED'&&e.p.marginQuote===20),'required balance = İlk 3 automatic margin floor (20), not the 32 OTO margin');
+  assert.ok(f.events.some(e=>e.k==='LIVE_STARTED'&&e.p.marginQuote===0),'automatic margin has no invented fixed startup floor; entry computes it from the actual signal');
   assert.deepEqual(f.kinds('LIVE_LANES').map(e=>({normal:e.p.normal,top3:e.p.top3})),[{normal:false,top3:true}]);
   // back to TEST: no new real İlk 3 entry from that moment
   const b=await f.controller.runControl({action:'GO_TEST'});assert.equal(b.ok,true);
@@ -105,7 +105,7 @@ test('R57 LIVE needs at least one lane and enough balance for the selected lanes
   const g=fixture({lanes:{normal:true},top3:{enabled:true,marginQuote:60},realAvail:50});
   await g.controller.testSupervisorTick();
   const r=await g.controller.runControl({action:'GO_LIVE'});
-  assert.deepEqual(r.reasons,['BINANCE_BALANCE_TOO_LOW']);assert.equal(r.detail.required,60,'the larger lane margin (İlk 3 60 > OTO 32)');
+  assert.deepEqual(r.reasons,['BINANCE_BALANCE_TOO_LOW']);assert.equal(r.detail.required,60/0.95,'selected user margin plus existing 5% free-balance headroom');
   // LIVE, both lanes: switching a lane ON needs 'LIVE'; OFF is immediate
   const h=fixture({mode:'LIVE',lanes:{normal:true},top3:{enabled:false}});
   assert.equal((await h.controller.runControl({action:'GO_LIVE'})).ok,true);
@@ -211,4 +211,15 @@ test('R57 normal lane off: a running system still scans the market (no JEV, no o
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   assert.ok(html.includes("LEADER_AUTO_SCAN_ONLY:'yalnız tarama, 5 dakikada bir (Normal sistem kapalı)'"));
   assert.ok(html.includes("runMs>SILENT_RUN_MS&&scans===0) warn="),'the no-scan warning applies to every lane selection again');
+});
+
+test('R171 selected İlk3 uses its user margin even if the OFF normal lane has no margin',async()=>{
+ const f=fixture({lanes:{normal:false},top3:{enabled:true,marginQuote:15},realAvail:20});
+ const p=path.join(f.root,'config','leader-auto.json'),raw=JSON.parse(fs.readFileSync(p,'utf8'));delete raw.marginQuote;fs.writeFileSync(p,JSON.stringify(raw));
+ await f.controller.testSupervisorTick();
+ const r=await f.controller.runControl({action:'GO_LIVE'});assert.equal(r.ok,true,JSON.stringify(r));
+});
+test('R171 automatic lanes still require a positive real balance, without a fabricated fixed margin floor',async()=>{
+ const f=fixture({lanes:{normal:false},top3:{enabled:true},realAvail:0});await f.controller.testSupervisorTick();
+ const r=await f.controller.runControl({action:'GO_LIVE'});assert.equal(r.ok,false);assert.deepEqual(r.reasons,['BINANCE_BALANCE_TOO_LOW']);
 });

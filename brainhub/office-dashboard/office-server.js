@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.150-R2544.168-JEV-Brain';
+const OFFICE_VERSION = '2.5.150-R2544.171-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -92,7 +92,7 @@ async function getJson(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
-const CONTROL_ROUTES = { '/api/control/close': '/live/position/close', '/api/control/sizing': '/live/leader-auto', '/api/control/system': '/system/shutdown', '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes', '/api/control/zirve5': '/live/zirve5', '/api/control/kesif': '/live/kesif' };
+const CONTROL_ROUTES = { '/api/control/close': '/live/position/close', '/api/control/sizing': '/live/sizing', '/api/control/system': '/system/shutdown', '/api/control/mode': '/live/mode', '/api/control/arm': '/live/arm', '/api/control/disarm': '/live/disarm', '/api/control/oto': '/live/leader-auto', '/api/control/run': '/live/run', '/api/control/top3': '/live/top3', '/api/control/lanes': '/live/lanes', '/api/control/zirve5': '/live/zirve5', '/api/control/kesif': '/live/kesif' };
 // Only these fields ever reach the core; anything else in the Office request is dropped (OTO sizing, burst switch etc.
 // stay with the user's existing config).
 const CONTROL_BODY = {
@@ -110,13 +110,12 @@ const CONTROL_BODY = {
   '/api/control/oto': b => ({ enabled: b.enabled === true }),
   // R2544.142 (kullanıcı 10.11: bakiye / marj / kaldıraç kartı): the normal system's margin / leverage and the vur-kaç margin / leverage
   // cap have their OWN route; it never carries the OTO switch (a switch request still never changes sizing)
-  '/api/control/sizing': b => {
-    const out = {};
-    for (const k of ['marginQuote', 'burstMarginQuote']) if (typeof b[k] === 'number' && Number.isFinite(b[k]) && b[k] >= 5 && b[k] <= 100000) out[k] = b[k];
-    for (const k of ['leverage', 'burstMaxLeverage']) if (Number.isInteger(b[k]) && b[k] >= 1 && b[k] <= 20) out[k] = b[k];
-    out.source = 'OFFICE'; // R2544.146: the core takes sizes only from a named source (the phone's 60 s copy has none)
-    return out;
-  },
+  '/api/control/sizing': b => { const out = {
+    lane: ['normal','burst','top3','zirve5','kesif'].includes(b.lane)?b.lane:'INVALID',
+    marginQuote:b.marginQuote,
+    ...(Object.prototype.hasOwnProperty.call(b,'leverage')?{leverage:b.leverage}:{}),
+    expectedRevision:typeof b.expectedRevision==='string'?b.expectedRevision:null
+  }; out.source = 'OFFICE'; return out; },
   '/api/control/close': b => ({ id: /^[A-Za-z0-9:_-]{4,80}$/.test(String(b.id || '')) ? String(b.id) : '', ...(typeof b.confirm === 'string' ? { confirm: b.confirm.toUpperCase() } : {}) }),
   '/api/control/system': b => ({ confirm: String(b.confirm || '').toUpperCase(), source: 'OFFICE' }),
   '/api/control/run': b => {

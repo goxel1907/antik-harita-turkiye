@@ -451,6 +451,11 @@ class BinanceLiveTransport {
   attachPaper(paper) { this.paper = paper || null; return this; }
   testModeActive() { return Boolean(this.paper && this.paper.active()); }
   async _fetchJson(method, endpoint, opts = {}) {
+    if(typeof opts.validateSizing==='function'){
+      let check;try{check=opts.validateSizing();}catch{check={ok:false};}
+      if(check?.ok!==true)throw new TransportError('SIZING_CHANGED_DURING_PREPARATION',{endpoint,requestSent:false});
+    }
+
     if (this.paper && this.paper.active()) {
       if (this.paper.handles(method, endpoint)) return this.paper.handle(method, endpoint, opts);
       if (method !== 'GET' || (opts?.signed && !PAPER_REAL_SIGNED_READS.has(endpoint))) {
@@ -460,7 +465,7 @@ class BinanceLiveTransport {
     return this._fetchJsonReal(method, endpoint, opts);
   }
 
-  async _fetchJsonReal(method, path, { params = {}, credentials = null, signed = false, rateLimitKind = null } = {}) {
+  async _fetchJsonReal(method, path, { params = {}, credentials = null, signed = false, rateLimitKind = null, validateSizing = null } = {}) {
     const apiKey = text(credentials?.apiKey);
     const apiSecret = text(credentials?.apiSecret);
     if (signed && (!apiKey || !apiSecret)) throw new TransportError('BINANCE_CREDENTIALS_REQUIRED', { endpoint:path, requestSent:false });
@@ -497,6 +502,11 @@ class BinanceLiveTransport {
         const kind=rateLimitKind || (signed ? (method==='GET'?'LIVE_READ':'LIVE_WRITE') : 'PUBLIC');
         try{permit=await binanceRate.acquire({path:path+(query?`?${query}`:''),kind,maxWaitMs:Math.min(5000,Math.max(1000,this.timeoutMs-250))});}
         catch(e){throw new TransportError(e?.code||'BINANCE_RATE_LIMIT_GUARD',{endpoint:path,requestSent:false,body:{cooldownUntil:e?.cooldownUntil||null,reason:e?.reason||null}});}
+        // The permit may have awaited. Validate at the actual dispatch boundary.
+        if(typeof validateSizing==='function'){
+          let check;try{check=validateSizing();}catch{check={ok:false};}
+          if(check?.ok!==true)throw new TransportError('SIZING_CHANGED_DURING_PREPARATION',{endpoint:path,requestSent:false});
+        }
         response = await this.fetchImpl(url, {
           method,
           signal:controller.signal,
@@ -649,7 +659,7 @@ class BinanceLiveTransport {
     return [...new Set(reasons)];
   }
 
-  async submit({ grantId, order, credentials, livePolicy = {} } = {}) {
+  async submit({ grantId, order, credentials, livePolicy = {}, validateSizing = null } = {}) {
     const normalized = canonicalOrder(order);
     const authorization = this.registry.consume({ grantId, order:normalized, now:this.clock() });
     if (!authorization?.ok || authorization?.liveAllowed !== true) {
@@ -795,6 +805,7 @@ class BinanceLiveTransport {
       let entry;
       try {
         entry = await this._fetchJson('POST', '/fapi/v1/order', {
+          validateSizing,
           credentials,
           signed:true,
           params:{
@@ -808,6 +819,8 @@ class BinanceLiveTransport {
           }
         });
       } catch (e) {
+        if(e?.requestSent===false&&e?.message==='SIZING_CHANGED_DURING_PREPARATION')
+          return {ok:false,orderPlaced:false,orderState:'NOT_SENT',stopProtected:false,liveAllowed:false,execution:'LIVE_BLOCKED',manualReviewRequired:false,transport:{attempted:true,requestSent:false},reasons:['SIZING_CHANGED_DURING_PREPARATION']};
         return {
           ok:false,
           orderPlaced:null,
@@ -824,6 +837,11 @@ class BinanceLiveTransport {
       }
 
       const executedQty = finite(entry?.executedQty);
+      const avgFill=finite(entry?.avgPrice),quoteFill=finite(entry?.cumQuote);
+      const fillNotional=quoteFill>0?quoteFill:avgFill>0&&executedQty>0?avgFill*executedQty:null;
+      const entrySizing={requestedMarginQuote:finite(livePolicy.requestedMarginQuote),
+        plannedMarginQuote:normalized.quantity*livePrice/expectedLeverage,
+        filledMarginQuote:fillNotional===null?null:fillNotional/expectedLeverage};
       const entryOrderId = entry?.orderId ?? null;
       if (executedQty === null || executedQty <= 0 || entryOrderId === null) {
         return {
@@ -901,6 +919,7 @@ class BinanceLiveTransport {
           entryOrderId,
           entryStatus:text(entry?.status),
           executedQty,
+        ...entrySizing,
           stopError:stopError?.body || { msg:String(stopError?.message || 'STOP_INSTALL_FAILED').slice(0,240) },
           emergencyCloseAttempted:true,
           emergencyCloseSucceeded,
@@ -930,6 +949,7 @@ class BinanceLiveTransport {
           entryOrderId,
           entryStatus:text(entry?.status),
           executedQty,
+        ...entrySizing,
           stopAlgoId,
           manualReviewRequired:true,
           transport:{ attempted:true, requestSent:true },
@@ -989,6 +1009,7 @@ class BinanceLiveTransport {
           entryOrderId,
           entryStatus:text(entry?.status),
           executedQty,
+        ...entrySizing,
           stopAlgoId,
           stopStatus:text(stop?.algoStatus) || 'NEW',
           tpAlgoIds,
@@ -1016,6 +1037,7 @@ class BinanceLiveTransport {
         entryOrderId,
         entryStatus:text(entry?.status),
         executedQty,
+        ...entrySizing,
         stopAlgoId,
         stopStatus:text(stop?.algoStatus) || 'NEW',
         tpAlgoIds,

@@ -1790,7 +1790,7 @@ const server=http.createServer(async(req,res)=>{
       return send(res,out?.ok?200:409,out);
     }
     if(req.method==='GET'&&u.pathname==='/live/status'){
-      const report={...live.status(),jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',releaseVersion:'R2542-JEV-TRADER-OFFICE',enabled:true,decisionOwner:'JEV',primaryLanes:['5m','15m'],passLimit:2,workerMode:'JEV_DIRECTED_EVIDENCE_ONLY',experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS_PLUS_CASE_MEMORY',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.4.0',mode:'READ_ONLY_FULL_OVERLAY_PACKET_PARITY'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',reduceRisk:'BINDING_REDUCE_ONLY_WHEN_ADVERSE_AND_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',jevProfiles:'PARTIAL_BREAKEVEN_TRAIL_EXECUTABLE',externalPositions:'ADVISORY_ONLY'}},runtimeRelease:RUNTIME_RELEASE,runtimeBuiltBy:RUNTIME_BUILT_BY,binanceRateLimit:binanceRate.status(),featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV111Marker:claudeV111.marker,claudeV111Config:claudeV111.readConfig(),claudeRunner:live.runnerStatus(),claudeFastLane:live.fastLaneStatus(),v110FeatureVersion:v110.featureVersion,v110Marker:v110.marker,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,claudeV109Config:claudeV109.readConfig(),sizingAuthority:'USER_PANEL_EXACT',visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterFreeWorker:freeWorker.status(),knowledgeResearch:knowledgeResearch.status(),openRouterBilling:jev.billingSnapshot()};
+      const report={...live.status(),jevSovereign:{packageVersion:'9.5.114-R2.5.3.2-JEV-SOVEREIGN-5M15M',releaseVersion:'R2542-JEV-TRADER-OFFICE',enabled:true,decisionOwner:'JEV',primaryLanes:['5m','15m'],passLimit:2,workerMode:'JEV_DIRECTED_EVIDENCE_ONLY',experienceMemory:'LIFETIME_AGGREGATE_PLUS_RECENT24_PLUS_JEV_LESSONS_PLUS_CASE_MEMORY',traderCortex:{version:'R2.5.3.4',mode:'LIVE_REASONING_REFERENCE_READ_ONLY'},dynamicKnowledge:{version:'R2.5.3.6',mode:'JEV_VERIFIED_RESILIENT_FREE_RESEARCH_OSS_REFERENCE'},marketContext:{version:'R2.5.3.7',mode:'COMPLETE_CORE_5M15M_PLUS_CONTEXT',entryTiming:'JEV_EXPLICIT',learningTaxonomy:'SETUP_FAMILY_TIMING_EDGE'},liveMirror:{version:'R2.5.4.0',mode:'READ_ONLY_FULL_OVERLAY_PACKET_PARITY'},positionManagement:{exitNow:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',partial:'BINDING_REDUCE_ONLY_WHEN_LIVE_ARMED',reduceRisk:'BINDING_REDUCE_ONLY_WHEN_ADVERSE_AND_LIVE_ARMED',protectProfit:'RUNNER_MANAGED',jevProfiles:'PARTIAL_BREAKEVEN_TRAIL_EXECUTABLE',externalPositions:'ADVISORY_ONLY'}},runtimeRelease:RUNTIME_RELEASE,runtimeBuiltBy:RUNTIME_BUILT_BY,binanceRateLimit:binanceRate.status(),featureVersion:claudeV112.featureVersion,builtBy:claudeV112.builtBy,claudeV112Marker:claudeV112.marker,claudeV111Marker:claudeV111.marker,claudeV111Config:claudeV111.readConfig(),claudeRunner:live.runnerStatus(),claudeFastLane:live.fastLaneStatus(),v110FeatureVersion:v110.featureVersion,v110Marker:v110.marker,tradeLanePolicy:v110.tradeLanePolicy,visionProfile:v110.visionProfile,claudeMarker:claudeV109.marker,claudeV109Config:claudeV109.readConfig(),sizingAuthority:'USER_PANEL_EXACT',userSizing:live.userSizingStatus(),visionAvailability:visionAvailability(),visionProgress:{...localVisionProgress,queueDepth:localVisionQueueDepth,pipelineActive:decisionPipelineActive},jev:jev.localStatus(),openRouterFreeWorker:freeWorker.status(),knowledgeResearch:knowledgeResearch.status(),openRouterBilling:jev.billingSnapshot()};
       // R2544.57: the APK also gets the lanes (in tradingMode.run) and a compact İlk 3 summary
       // R2544.78: the phone also gets the balance (15 s cache: the phone's polling adds at most one account read per 15 s)
       if(u.searchParams.get('compact')==='1'){let account=null;try{account=await live.accountSummary({maxAgeMs:15000});}catch(e){account={ok:false,reasons:[String(e?.message||e)]};}
@@ -1810,8 +1810,15 @@ const server=http.createServer(async(req,res)=>{
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
       return send(res,200,live.configureKesif({enabled:body?.enabled,cadenceMin:body?.cadenceMin,providers:body?.providers,soz:body?.soz,source:body?.source}));
     }
+    if(req.method==='GET'&&u.pathname==='/live/sizing')return send(res,200,{ok:true,lanes:live.userSizingStatus()});
+    if(req.method==='POST'&&u.pathname==='/live/sizing'){
+      let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      const out=live.configureUserSizing(body);return send(res,out.ok?200:409,out);
+    }
     if(req.method==='POST'&&u.pathname==='/live/top3'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      if(['marginQuote','leverage'].some(k=>Object.prototype.hasOwnProperty.call(body,k)))return send(res,409,{ok:false,reasons:['SIZING_REFRESH_REQUIRED'],current:live.userSizingStatus().top3});
+
       const out=live.configureTop3({enabled:body?.enabled,jevMode:body?.jevMode,committeeMode:body?.committeeMode,liveEnabled:body?.liveEnabled,restartWindow:body?.restartWindow===true,
         earlyEnabled:body?.earlyEnabled,topEnabled:body?.topEnabled,partialEnabled:body?.partialEnabled,topSweep:body?.topSweep,...(Object.prototype.hasOwnProperty.call(body||{},'partAtR')?{partAtR:body.partAtR}:{}),...(Object.prototype.hasOwnProperty.call(body||{},'partShare')?{partShare:body.partShare}:{}),...(Object.prototype.hasOwnProperty.call(body||{},'earlyJev')?{earlyJev:body.earlyJev}:{}),...(Object.prototype.hasOwnProperty.call(body||{},'topJev')?{topJev:body.topJev}:{}),
         ...(Object.prototype.hasOwnProperty.call(body||{},'marginQuote')?{marginQuote:body.marginQuote}:{}),...(Object.prototype.hasOwnProperty.call(body||{},'leverage')?{leverage:body.leverage}:{}),confirm:body?.confirm,source:'API'});
@@ -1827,6 +1834,8 @@ const server=http.createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&u.pathname==='/live/zirve5'){
       let body;try{body=JSON.parse(await readBody(req));}catch{return send(res,400,{ok:false,error:'invalid json'});}
+      if(['marginQuote','leverage'].some(k=>Object.prototype.hasOwnProperty.call(body,k)))return send(res,409,{ok:false,reasons:['SIZING_REFRESH_REQUIRED'],current:live.userSizingStatus().zirve5});
+
       const own=k=>Object.prototype.hasOwnProperty.call(body||{},k)?{[k]:body[k]}:{};
       const out=live.configureZ5({enabled:body?.enabled,liveEnabled:body?.liveEnabled,jevMode:body?.jevMode,committeeMode:body?.committeeMode,longEnabled:body?.longEnabled,shortEnabled:body?.shortEnabled,partialEnabled:body?.partialEnabled,requireSweep:body?.requireSweep,...own('marginQuote'),...own('leverage'),...own('partAtR'),...own('partShare'),confirm:body?.confirm,source:typeof body?.source==='string'?body.source:'API'});
       return send(res,out.ok?200:400,out);
@@ -1950,6 +1959,8 @@ const server=http.createServer(async(req,res)=>{
       // 60 s config sync that repeats the same state is not. In LIVE, switching OTO ON needs confirm 'LIVE' (a stale phone
       // preference must never start the JEV lane with real money while only İlk 3 is live). OFF is always accepted.
       const {confirm:otoConfirm,source:otoSource,...otoBody}=body||{};
+      if(otoSource&&['marginQuote','leverage','burstMarginQuote','burstMaxLeverage'].some(k=>Object.prototype.hasOwnProperty.call(otoBody,k)))
+        return send(res,409,{ok:false,reasons:['SIZING_REFRESH_REQUIRED'],current:live.userSizingStatus()});
       // R2544.146 (10.11 phone screens): the APK repeats its stored margin / leverage / max positions every 60 s WITHOUT a source
       // (V95132 syncLeaderAutoSizing), which silently overwrote a size the user typed in Office ("marj = kullanıcının yazdığı rakam").
       // Sizes are taken only from a request that names its source (Office Kaydet: OFFICE, the phone's own dialog: APK).
@@ -2646,7 +2657,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.168';
+const RUNTIME_RELEASE='R2544.171';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
