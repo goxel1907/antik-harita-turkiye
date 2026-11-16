@@ -45,6 +45,7 @@ const KESIF=require('./kesif'); // R2544.148 modellerin kendi tahmini + ileriye 
 const IZ=require('./iz'); // R2544.149 piyasa yapıcı / bot izleri: iz askerleri karnede yarışır (gölge)
 const MC=require('./model-committee'); // R2544.94 model karnesi + kalan limit
 const DESK=require('./position-desk'); // R2544.84 pozisyon masası (gölge trader kararı)
+const decisionAdvisory=require('./decision-advisors');
 const AUTOPSY=require('./trade-autopsy'); // R2544.80 işlem otopsisi (neden kaybetti / nasıl kazandı) // R2544.70 price-action core (sweeps / liquidity / range), one source for all lanes
 const z5Lib=require('./zirve5'); // R2544.64 ZİRVE-5 SHORT (piyasa geneli ilk 5 volatil, 15 dk Fibo dip kırılımı)
 
@@ -2388,7 +2389,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         action,actionTr,reasonTr,requestedJevAction:requestedAction,
         partialContract:partialGate,partialDeferred:partialDeferred?partialDeferred.reason:null,riskReduceDeferred,
         jevSummaryTr:String(jevExit?.summaryTr||'').slice(0,360),
-        assessment,jev:{called:jevExit?.called===true,ok:jevExit?.ok===true,finalAuthority:jevExit?.finalAuthority===true,model:jevExit?.model||null,mode:jevExit?.mode||null,
+        assessment,jev:{called:jevExit?.called===true,ok:jevExit?.ok===true,finalAuthority:jevExit?.finalAuthority===true,model:jevExit?.model||null,mode:jevExit?.mode||null,decisionOwner:jevExit?.decisionOwner||'JEV',decisionRoute:jevExit?.decisionRoute||null,
           reason:jevExit?.reason||(!advisory?.unifiedContext?(advisory?.reason||'POSITION_CONTEXT_NOT_RETURNED'):null),
           evidenceRoutingReason:advisory?.evidence?.routingAvailable===false?advisory?.reason||null:null},
         brainOwned,
@@ -4850,6 +4851,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         scalpReady:advisory?.plan?.tradeLane?.scalpReady===true || advisory?.preJevPlan?.tradeLane?.scalpReady===true,
         main15Ready:advisory?.plan?.tradeLane?.main15Ready===true || advisory?.preJevPlan?.tradeLane?.main15Ready===true,
         jevSovereign:advisory?.jevSovereign===true,
+        decisionOwner:jevDecision?.decisionOwner||'JEV',decisionRoute:jevDecision?.decisionRoute||null,
         analysisSkipped:advisory?.analysisSkipped===true,
         materialChangeReason:advisory?.jevDecision?.materialChangeReason||advisory?.materialChangeReason||null,
         jevPass1Called:advisory?.jevPass1?.called===true,
@@ -5838,7 +5840,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         burstReviewAt.set(c.symbol,reviewRow);
         if(burstReviewAt.size>200){for(const [symbol,review] of burstReviewAt)if(clock()-review.at>=burstReviewCooldownMs(review))burstReviewAt.delete(symbol);}
         let j;try{j=await burstJudge({candidate:c,preMove:pm,stream,chartContext,position:pos,pause:lossStreakPause(),learning:store.learningContext?.({symbol:c.symbol})});}catch(e){j={ok:false,decision:'DO_NOT_ARM',reason:String(e?.message||e)}}
-        const reviewEvidence={decision:j?.decision||'DO_NOT_ARM',called:j?.called===true,ok:j?.ok===true,reason:j?.reason||'JEV_REASON_NOT_PROVIDED',dataGap:j?.dataGap||'NOT_REPORTED',side:j?.side||null,preMove:{state:pm.state,direction:pm.direction},streamAvailable:stream?.available===true,streamAgeMs:stream?.ageMs??null,l2Ready:stream?.localL2?.available===true,l2Confidence:stream?.localL2?.confidence??null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null,requestReadiness,responseReadiness:burstPreparationReadiness(candidateStream.snapshot(c.symbol,clock())),durationMs:clock()-requestedAt};
+        const reviewEvidence={decision:j?.decision||'DO_NOT_ARM',decisionOwner:j?.decisionOwner||'JEV',decisionRoute:j?.decisionRoute||null,called:j?.called===true,ok:j?.ok===true,reason:j?.reason||'JEV_REASON_NOT_PROVIDED',dataGap:j?.dataGap||'NOT_REPORTED',side:j?.side||null,preMove:{state:pm.state,direction:pm.direction},streamAvailable:stream?.available===true,streamAgeMs:stream?.ageMs??null,l2Ready:stream?.localL2?.available===true,l2Confidence:stream?.localL2?.confidence??null,chartAsOf:chartContext.asOf,chartAgeMs:chartContext.ageMs,requestSize:j?.requestSize||null,requestReadiness,responseReadiness:burstPreparationReadiness(candidateStream.snapshot(c.symbol,clock())),durationMs:clock()-requestedAt};
         try{store.journal('BURST_PREAUTH_REVIEW',c.symbol,reviewEvidence);store.recordLearning?.('BURST_PREAUTH_REVIEW',c.symbol,{...reviewEvidence,authority:'SOFT_CONTEXT_ONLY',measurement:'DECISION_TRACE_NOT_TRADE_OUTCOME'});}catch{}
         if(j?.ok&&['LONG','SHORT'].includes(j.side)){
           // Existing opposite position is never hedged by burst v1.
@@ -6011,8 +6013,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const TOP3_HOUR=top3Lib.HOUR;
   const TOP3_WHY={LONG_6OF6:'LONG 6/6 (hacim patlaması + ilk 7)',SHORT_TOP_FADE:'SHORT tepe sonrası (ilk 3 + tepeden ≥%15 aşağı)',
     LONG_EARLY_RETEST:'erken LONG (5 dk kırılım + geri test, hedef üst likidasyon bölgesi)',SHORT_TOP_BREAK:'tepe SHORT (5 dk yeni tepe + yapı kırılımı)'};
-  function top3Why(a){if(a?.lane==='KESIF'){const wk=(a.entryFeatures?.kesif?.weak??a.kesif?.weak)===true; // R2544.183 (16.11: ekranda zayıf aday da 'söz sahibi' yazıyordu — ekran=gerçek)
-    return `KEŞİF-SÖZ ${a.side}: ${String(a.kesif?.model||'').replace(/:free$/,'').split('/').pop()} ${wk?'ZAYIF aday (söz sahibi DEĞİL; R2544.179 sonrası gerçek işlem açmaz)':'söz sahibi'} (gölge karne ${a.kesif?.record?.n??'—'} sonuç, ort ${a.kesif?.record?.avgR??'—'}R) • stop %${(finite(a.stopPct)*100).toFixed(2)} • Goxel çıkışı izler`;}
+  function top3Why(a){if(a?.lane==='KESIF'){const weakValue=a.entryFeatures?.kesif?.weak??a.kesif?.weak;const wk=(a.entryFeatures?.kesif?.weak??a.kesif?.weak)===true; // R2544.183 (16.11: ekranda zayıf aday da 'söz sahibi' yazıyordu — ekran=gerçek)
+    return `KEŞİF-SÖZ ${a.side}: ${String(a.kesif?.model||'').replace(/:free$/,'').split('/').pop()} ${wk?'ZAYIF aday (söz sahibi DEĞİL; R2544.179 sonrası gerçek işlem açmaz)':weakValue===false?'söz sahibi':'uygunluğu bilinmiyor'} (gölge karne ${a.kesif?.record?.n??'—'} sonuç, ort ${a.kesif?.record?.avgR??'—'}R) • stop %${(finite(a.stopPct)*100).toFixed(2)} • Goxel çıkışı izler`;}
     if(a?.lane==='ZIRVE5')return a?.z5zone?.confirmAt?`ZİRVE-5 ${a.side}: ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk ${a.side==='LONG'?'tepe':'dip'} kırılımı alanında hacimli ${a.side==='LONG'?'boğa':'ayı'} mumu (hacim ${finite(a?.z5zone?.confirm?.volMult)??'—'}x), stop alan ${a.side==='LONG'?'altı':'üstü'}, hedef likidite ${finite(a?.targetR)??'—'}R, ${finite(a?.leverage)??'—'}x`:`ZİRVE-5 SHORT (eski kural R2544.64): ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk dip kırılımı bölgesinin dengesinde SHORT, stop bölge üstü, hedef ${finite(a?.targetR)??2}R, ${finite(a?.leverage)??'—'}x`;
     return `İlk 3 avcısı ${TOP3_WHY[a?.rule]||a?.rule||'—'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
   function top3Gate(cfg){
@@ -6412,7 +6414,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       ...(sig.v2?{rulesVersion:2,tickSize:f.tickSize,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{}),
       ...(sig.z5?{lane:'ZIRVE5',strategy:z5Lib.setupFor(side),tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(z5Target?.targetR),level:finite(sig.zone.equilibrium),top:finite(sig.zone.top),
         z5zone:{side,top:sig.zone.top,bottom:sig.zone.bottom,equilibrium:sig.zone.equilibrium,liquidity:finite(sig.zone.liquidity),zoneAt:sig.zone.zoneAt,confirmAt:sig.zone.confirmAt??null,confirm:sig.zone.confirm||null}}:{}),
-      ...(sig.soz?{lane:'KESIF',strategy:KESIF.SOZ.name,kesif:{model:sig.soz.model,weak:sig.soz.weak===true,forecastId:sig.soz.forecastId||null,round:sig.soz.round||null,record:sig.soz.record||null},tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(KESIF.sozPlan(entryPrice,sig.soz).targetR)}:{})};
+      ...(sig.soz?{lane:'KESIF',strategy:KESIF.SOZ.name,kesif:{model:sig.soz.model,weak:typeof sig.soz.weak==='boolean'?sig.soz.weak:null,forecastId:sig.soz.forecastId||null,round:sig.soz.round||null,record:sig.soz.record||null},tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(KESIF.sozPlan(entryPrice,sig.soz).targetR)}:{})};
     a.requestedMarginQuote=margin;a.plannedMarginQuote=quantity*price/leverage;a.filledMarginQuote=actualFillPrice===null?null:executed*actualFillPrice/leverage;
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
@@ -7181,6 +7183,25 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const hc=gxHtf.get(sym);let htf=hc&&now-hc.at<15*60000?hc.k:null;if(!htf){htf={h1:await kl('1h',TB.FETCH.h1),h4:await kl('4h',TB.FETCH.h4),d1:await kl('1d',TB.FETCH.d1)};gxHtf.set(sym,{at:now,k:htf});}
       pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});}catch{pk=null;}
     return {sc,pk};}
+  const advisorCache=new Map(),advisorPending=new Map();
+  async function decisionAdvisors({body}={}){
+    const req=decisionAdvisory.advisorRequest(body),sym=req.symbol,now=clock();
+    if(req.valid===false)return {authority:'EVIDENCE_ONLY',available:false,reason:req.reason};
+    if(!/^[A-Z0-9]{1,28}USDT$/.test(sym))return {authority:'EVIDENCE_ONLY',available:false,reason:'GOXEL_SYMBOL_INVALID'};
+    const openedAt=finite(req.position?.openedAt)??finite(req.lifecycle?.openedAt);
+    const key=JSON.stringify([sym,req.position?.side||null,req.position?.entryPrice||null,req.lifecycle?.initialStop||req.position?.stopPrice||null,openedAt]);
+    const cached=advisorCache.get(key);if(cached&&now-cached.at<30000)return {...cached,ageMs:now-cached.at};
+    if(advisorPending.has(key))return advisorPending.get(key);
+    if(advisorPending.size>=2)return {authority:'EVIDENCE_ONLY',available:false,reason:'GOXEL_ADVISOR_BUSY'};
+    const work=(async()=>{
+      const {sc,pk}=await gxScreens(sym,now);let candles=null;
+      if(req.position&&openedAt>0){try{candles=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol:sym,interval:'5m',startTime:String(Math.floor(openedAt/KESIF_M5)*KESIF_M5),limit:'1000'}});}catch{}}
+      const out=decisionAdvisory.evaluateGoxel({...req,sc,pk,candles,at:now,openedAt});
+      advisorCache.set(key,out);while(advisorCache.size>32)advisorCache.delete(advisorCache.keys().next().value);
+      return {...out,ageMs:Math.max(0,clock()-now)};
+    })();advisorPending.set(key,work);
+    try{return await work;}finally{advisorPending.delete(key);}
+  }
   // R2544.175 (Codex bulgusu, BULLA 13.11 16:55 bakışı 15.11'de "şimdi" görünüyordu; görünen = gerçek): only lots still open are live; the rest is history
   function goxelLiveView(g){if(!g||typeof g!=='object')return null;const open=new Set(Object.keys(top3State.active||{}));const lots=Array.isArray(g.lots)?g.lots:[];
     const live=lots.filter(x=>x&&x.id&&open.has(x.id)),gone=lots.filter(x=>x&&!(x.id&&open.has(x.id)));
@@ -7952,6 +7973,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   restoreCooldownsFromJournal();
   restoreBurstClosesFromJournal();
   return { userSizingStatus, configureUserSizing, kesifStatus, configureKesif, userCloseLot, realWalletSummary, updateCredentials, pnlRefresh, tradingModeStatus, setTradingMode, runControl, runStatus, testSupervisorTick, top3Tick, top3Status, top3ChartView, configureTop3, z5Tick, z5Status, configureZ5, moverAuditTick, moverAuditStatus, _testZ5State:()=>z5State(), _testTop3CloseRecord:(c,inc,path)=>top3CloseRecord(c,inc,path), laneStatus, selectLanes, rememberNormalLane, _testSubLaneGate:subLaneGate,    _testTopUp:testTopUp,_testOpenSnapshot:top3OpenSnapshot,_testArmState:()=>({...armState}),
+    decisionAdvisors,
     _testKesifTick:()=>kesifTick(), _testKesifState:()=>kesifState, _testTop3Settle:()=>top3Settle(), _testUserCloseTick:n=>userCloseTick(n), _testGoxelLive:()=>goxelLiveTick(), _testDeskLooks:()=>deskLooks,
     _testTop3State:()=>top3State, _testDeskTick:()=>positionDeskTick(), _testDeskGuard:o=>Object.assign(DESK_GUARD,o||{}), _testTop3Ranks:()=>top3Ranks, _testTop3Cooldown:(s,side)=>top3Cooldown(s,side,top3Lib.readTop3Config(root)), testModeActive:testModeNow, _testPaper:()=>paper, _testBurstLossPause:()=>{burstLossCache={at:0,value:null};return burstLossPause();}, _testBurstCloseRecord:burstCloseRecord, _testQueueBurstClose:queueBurstClose, _testBurstClosePending:()=>burstClosePending.map(x=>({...x})), _testRestoreBurstCloses:restoreBurstClosesFromJournal, _testLossStreakPause:lossStreakPause, _testNoteClosedForStreak:noteClosedForStreak, _testReentryBlock:reentryBlock, status, accountSummary, binanceRecoveryProbe, liveReadiness, arm, disarm, execute, executeLeader, configureLeaderAuto, leaderAutoStatus, leaderAutoTick, planWorkerTick, activePositionReviewTick, hasPendingUrgentReview, positionManagerStatus, runnerTick, runnerStatus:runnerSummary, guardStatus:guardSummary, _testRegisterRunner:registerRunner, scalpFastLaneTick, fastLaneStatus:fastLaneSummary, burstArmTick, burstScalpTick, burstStatus, positionLedgerTick, positionsStatus, backfillClosedOutcomes, positionRestStatus, _testState:()=>({leaderAnalysisState,runnerState,burst:burstStatus()}), readPolicy:() => publicPolicy(readPolicy(root)),
     // CLAUDE_R2543: saf yardımcılar testten doğrulanabilsin (davranış değiştirmez, salt okunur).

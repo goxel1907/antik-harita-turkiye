@@ -1347,6 +1347,7 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,jevSeen,risk
   return {
     releaseContract:'R2542_JEV_TRADER_OFFICE',
     contract:'R2.5.3.2_JEV_SOVEREIGN_5M_15M',
+    decisionOwner:final?.decisionOwner||'JEV',decisionRoute:final?.decisionRoute||null,
     candidate:{symbol:candidate?.symbol||null,attentionSource:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[]},
     plan:plan?{
       releaseContract:'R2542_JEV_TRADER_OFFICE',
@@ -1464,13 +1465,13 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
       ? 'Post-JEV code may block only hard execution/integrity safety; it must not re-vote strategy.'
       : 'JEV directional thesis exists but entry timing/location is not MARKET_NOW; no order is authorized.',
     contractVersion:'R2.5.3.7_JEV_CONTEXT_COMPLETE',
-    jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
+    jevSovereign:true,decisionOwner:final?.decisionOwner||'JEV',decisionRoute:final?.decisionRoute||null,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
   }:{
     valid:true,status:'WATCH',side:null,originTF:null,ownerTF:null,lane:null,setup:'JEV_R2537_WAIT',
     setupFamily:setupFamily||'NONE_WAIT',edgeBasis:final?.edgeBasis||'NO_EDGE',entryTiming:entryTiming||'WAIT_NEW_EVIDENCE',
     execPath:'WAIT',waitFor:entryTiming||'JEV will reconsider on a new radar event or materially changed evidence.',waitReason:final?.waitReason||null,
     why:'JEV FINAL chose WAIT.',riskNote:'No order is authorized.',contractVersion:'R2.5.3.7_JEV_CONTEXT_COMPLETE',
-    jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
+    jevSovereign:true,decisionOwner:final?.decisionOwner||'JEV',decisionRoute:final?.decisionRoute||null,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
   };
   const riskGate=preflightRiskGate({plan,unified});
   const dryRunExecutor=buildDryRunOrder({

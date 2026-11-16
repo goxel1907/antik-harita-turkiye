@@ -243,7 +243,8 @@ test('R56 Office: switch route forwards only the three switches; card, labels an
   assert.ok(server.includes("const RUNTIME_RELEASE='R2544.183'"));
   const lc=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
   assert.ok(lc.includes("'BRAINHUB_TOP3'")&&lc.includes("'BRAINHUB_ZIRVE5'"));assert.ok(lc.includes('!activeTop3For(p.symbol)'),'core position review skips top3 lots');
-  assert.ok(fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').includes('sovereignBurstExit,sovereignTop3Gate,'));
+  const judge=require('../jev-decision').createJevClient({root:path.join(__dirname,'fixtures','unconfigured')});
+  assert.equal(typeof judge.sovereignBurstExit,'function');assert.equal(typeof judge.sovereignTop3Gate,'function');
 });
 
 test('R56 live fix: the all-symbol 24 h ticker (~280 KB) passes the response cap; other public responses keep 256 KB',async()=>{

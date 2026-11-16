@@ -442,6 +442,7 @@ function derive(snap) {
   // Operational budget truth wins over historical failure counters (including after UTC rollover).
   const budget = snap.jevBudget?.ok === true ? snap.jevBudget.data : st.jev?.budget;
   const budgetBlocked = budget?.budgetCallBlocked === true || budget?.canReserveNextCall === false;
+  const backupWired = st.jev?.decisionFailover?.wired === true || snap.jevBudget?.data?.decisionFailover?.wired === true;
   const providerError = st.jev?.provider?.lastError || null;
   const providerAccessBlocked = [401,403].includes(Number(providerError?.httpStatus));
   const blockers = [];
@@ -458,13 +459,13 @@ function derive(snap) {
   if (st && snap.status?.ok) {
     if (la.enabled !== true) add('info', 'AUTO_DISABLED', 'Normal sistem / OTO kapalı', 'Normal giriş hattı kapalıdır; İlk 3, ZİRVE-5 ve KEŞİF-SÖZ kendi seçim ve kapılarıyla ayrı çalışır.');
     if (st.armed !== true) add('critical', 'LIVE_DISARMED', 'LIVE kapalı (analiz modu)', 'Plan QUALIFIED olsa bile emir gönderilmez. PC yeniden başlarsa LIVE otomatik kapanır.');
-    if (budgetBlocked) add('serious', 'JEV_DAILY_BUDGET_EXHAUSTED', 'JEV günlük çağrı bütçesi tükendi - UTC reset bekleniyor',
-      `Kalan ${Number(budget.remainingUsd).toFixed(6)} USD • çağrı rezervi ${Number(budget.reservePerCallUsd).toFixed(6)} USD • günlük sınır ${budget.dailyCapUsd} USD • sıfırlanma ${budget.nextResetAt || 'bilinmiyor'}. Tarama devam eder; yeni JEV ağ çağrısı yapılmaz.`);
+    if (budgetBlocked) add(backupWired?'warning':'serious', 'JEV_DAILY_BUDGET_EXHAUSTED', backupWired?'JEV bütçe sınırında • kurul yedeği bağlı':'JEV günlük çağrı bütçesi tükendi - UTC reset bekleniyor',
+      `Kalan ${Number(budget.remainingUsd).toFixed(6)} USD • çağrı rezervi ${Number(budget.reservePerCallUsd).toFixed(6)} USD • günlük sınır ${budget.dailyCapUsd} USD • sıfırlanma ${budget.nextResetAt || 'bilinmiyor'}. Tarama devam eder; yeni JEV ağ çağrısı yapılmaz.${backupWired?' Normal/Vur-kaç kararında kurul çoğunluğu gerekir; yedek bağlı olması tek başına giriş yetkisi değildir.':''}`);
     if (providerAccessBlocked) add(normalEntryActive?'critical':'warning','JEV_PROVIDER_ACCESS',`Son kayıt: JEV sağlayıcı erişimi reddedildi (HTTP ${providerError.httpStatus})`,
       `${normalEntryActive?'Normal giriş hattı açık.':'Normal giriş hattı kapalı; bu son hata kaydı diğer hatlara otomatik atanmaz.'} ${providerError.category || 'AUTH'}${providerError.code?' • '+providerError.code:''}${providerError.message?' • '+providerError.message:''}. Bu stratejik BEKLE veya yürütme engeli değildir; JEV PASS-1/PASS-2 ağ hattı yetkilendirilemediği için yeni karar oluşmaz.`);
     // R42: live 05.10 13:38-14:05 every JEV call failed with HTTP 402 (OpenRouter credits) but Office only showed JEV_HTTP_ERROR.
-    if (Number(providerError?.httpStatus) === 402) add('critical', 'JEV_PROVIDER_CREDITS', 'OpenRouter kredisi yetersiz (HTTP 402)',
-      `${providerError.message || 'Insufficient credits'}${providerError.at ? ' • ' + providerError.at : ''}. Kredi eklenene kadar JEV PASS-1/PASS-2/pozisyon kararları oluşmaz; bu stratejik BEKLE değildir.`);
+    if (Number(providerError?.httpStatus) === 402) add(backupWired?'warning':'critical', 'JEV_PROVIDER_CREDITS', backupWired?'JEV kredisi yok • kurul yedeği bağlı':'OpenRouter kredisi yetersiz (HTTP 402)',
+      `${providerError.message || 'Insufficient credits'}${providerError.at ? ' • ' + providerError.at : ''}. ${backupWired?'Normal/Vur-kaç için kurul yedeği karar verebilir; geçerli çoğunluk yoksa yeni giriş açılmaz.':'Kredi eklenene kadar JEV PASS-1/PASS-2/pozisyon kararları oluşmaz; bu stratejik BEKLE değildir.'}`);
     const fv = String(snap.health?.data?.featureVersion || st.featureVersion || '');
     const v109 = /9\.5\.(109-CLAUDE|11\d)/.test(fv); // CLAUDE_V112: 9.5.110+ (9.5.112-CLAUDE dahil)
     const cv = h.claudeV109 || {};
