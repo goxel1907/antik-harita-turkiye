@@ -746,6 +746,11 @@ workflows:
             exit 1
           fi
           echo V95149_R2544_148_KESIF_OK
+          python3 "$CM_BUILD_DIR/futures15m_alarm/v95152_r2544_185_bolumler.py"
+          python3 "$CM_BUILD_DIR/futures15m_alarm/test_bolumler.py"
+          grep -q 'private void v95152ApplySections()' /tmp/futures15m-build/Futures15mAlarm/app/src/main/java/com/futuresalarm/app/MainActivity.java
+          grep -q "versionName '9.5.145-r2544.185-bolumler'" /tmp/futures15m-build/Futures15mAlarm/app/build.gradle
+          echo V95152_R2544_185_BOLUMLER_OK
           echo 'CLAUDE_V113_PC_OK'
           echo 'V95113_CLAUDE_ANDROID_IDENTITY_OK'
           echo 'V95110_MULTILANE_BASE_OK'
