@@ -82,7 +82,11 @@ try {
         if ($null -ne $value) { $psi.EnvironmentVariables[$name]=$value }
     }
     $psi.EnvironmentVariables['TEMP']=$temp; $psi.EnvironmentVariables['TMP']=$temp
-    $psi.EnvironmentVariables['NODE_OPTIONS']='--require="'+(Join-Path $PSScriptRoot 'no-network.cjs')+'"'
+    # R2544.185 (found on real Windows): NODE_OPTIONS treats backslashes inside quotes as escapes, so 'C:\JEV-Brain\...'
+    # became 'C:JEV-Brain...' and the network guard failed to load. Forward slashes are valid Windows paths for Node.
+    $guard=(Join-Path $PSScriptRoot 'no-network.cjs') -replace '\\','/'
+    if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'no-network.cjs'))) { throw 'NETWORK_GUARD_MISSING' }
+    $psi.EnvironmentVariables['NODE_OPTIONS']='--require="'+$guard+'"'
     $psi.EnvironmentVariables['JEV_TEST_PROTECT_INSTALLED']='1'
     $process=New-Object Diagnostics.Process; $process.StartInfo=$psi
     [void]$process.Start()
