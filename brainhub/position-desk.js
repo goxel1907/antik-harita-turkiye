@@ -61,6 +61,37 @@ function compactK(k, n) { return k.slice(-n).map(x => [new Date(x.t).toISOString
 const TRADE_TF = { ILK3:{ trigger:'5m', structure:'15m', context:'1h', note:'Ilk 3: 5m breakout/retest of a day/week/month level (LONG) or a 5m break of the pre-top structure (SHORT); intraday trade, 24 h at most' },
   ZIRVE5:{ trigger:'15m', structure:'1h', context:'1h', note:'ZIRVE-5: 15m swing break and retest of the breakout zone; intraday trade, 24 h at most' } };
 function atrR(k, r) { if (!(r > 0) || k.length < 15) return null; const a = k.slice(-15); let s = 0; for (let i = 1; i < a.length; i++) s += Math.max(a[i].h - a[i].l, Math.abs(a[i].h - a[i - 1].c), Math.abs(a[i].l - a[i - 1].c)); return Number((s / 14 / r).toFixed(2)); }
+// R2544.180 (kullanici 16.11: "JEV'e giden her bilgi coinine gore benzersiz anlatimli olmali, tek duze olmamali ki JEV hep ayni duzeni
+// gormesin; JEV sinir kB'lari icinde"): deterministic, salience-ordered story of THIS screen. No randomness: the sentence ORDER follows what
+// is loudest on this coin right now (fresh break > trend map > funding ...), absent facts are left out, so two coins never read alike while
+// the same input always gives the same story. Capped at 1400 chars, far inside the 48 kB JEV request limit.
+function screenStory(p) {
+  try {
+    const pos = p.position || {}, mk = p.market || {}, lv = mk.levels || {}, ch = mk.chartReading || {}, L = p.side === 'LONG', my = L ? 'UP' : 'DOWN';
+    const e0 = finite(pos.entry), s0 = finite(pos.initialStop), r = e0 !== null && s0 !== null ? Math.abs(e0 - s0) : null;
+    const F = [], add = (w, t) => { if (t) F.push([w, t]); }, n2 = x => Number.isFinite(x) ? Number(x.toFixed(2)) : null;
+    add(100, `${p.symbol} ${p.side} (${p.rule}, ${p.lane}): open ${pos.minutesOpen} min, now ${pos.nowR}R, best ${pos.mfeR}R, worst ${pos.maeR}R${finite(pos.givebackR) !== null && pos.givebackR > 0.25 ? `; ${pos.givebackR}R of the best already given back` : ''}.`);
+    const tfs = ['m5', 'm15', 'h1', 'h4', 'd1'].filter(k => ch[k]);
+    const withT = tfs.filter(k => ch[k].trend === my), agT = tfs.filter(k => ch[k].trend && ch[k].trend !== my && ch[k].trend !== 'RANGE');
+    if (tfs.length) add(62 + agT.length * 7, `Trend map: ${withT.length ? withT.join('+') + ' with the trade' : 'no frame with the trade'}${agT.length ? ', ' + agT.join('+') + ' against' : ''}.`);
+    const evs = []; for (const k of tfs) for (const ev of ch[k].events || []) if (ev && ev.kind) evs.push({ k, ...ev });
+    evs.sort((a, b) => ((finite(a.barsAgo) ?? 99) - (finite(b.barsAgo) ?? 99)));
+    for (const ev of evs.slice(0, 3)) add(80 - Math.min(30, (finite(ev.barsAgo) ?? 10) * 3) + (ev.side === (L ? 'BEAR' : 'BULL') ? 6 : 0),
+      `${ev.k}: ${ev.kind} ${ev.side}${finite(ev.barsAgo) !== null ? ` ${ev.barsAgo} bars ago` : ''}${finite(ev.R) !== null ? ` (${ev.R}R away)` : ''}.`);
+    const pats = []; for (const k of tfs) for (const x of ch[k].patterns || []) if (x && x.status === 'CONFIRMED') pats.push({ k, ...x });
+    for (const x of pats.slice(0, 3)) add(x.side === (L ? 'SHORT' : 'LONG') ? 58 : 40, `${x.k}: confirmed ${String(x.type).toLowerCase().replace(/_/g, ' ')} (${x.side}).`);
+    const mark = finite(pos.mark);
+    if (r && mark !== null) { const hi = finite(lv.high24h), lo = finite(lv.low24h), up = hi !== null ? n2((hi - mark) / r) : null, dn = lo !== null ? n2((mark - lo) / r) : null;
+      if (up !== null && dn !== null) add(45 + (Math.min(Math.abs(up), Math.abs(dn)) < 1 ? 14 : 0), `24h range: high ${up}R above, low ${dn}R below the mark.`); }
+    const fu = mk.funding || {}; if (finite(fu.rate8hPct) !== null && Math.abs(fu.rate8hPct) >= 0.01) add(44 + Math.min(20, Math.abs(fu.rate8hPct) * 100), `Funding ${fu.rate8hPct}%/8h${finite(fu.premiumPct) !== null ? `, premium ${fu.premiumPct}%` : ''} (${fu.rate8hPct > 0 ? 'longs pay' : 'shorts pay'}).`);
+    const oi = finite(mk.openInterestChange1hPct); if (oi !== null && Math.abs(oi) >= 1) add(42 + Math.min(18, Math.abs(oi)), `Open interest ${oi > 0 ? '+' : ''}${oi}% in 1h.`);
+    const btc = finite(mk.btc1hPct); if (btc !== null && Math.abs(btc) >= 0.3) add(40 + Math.min(20, Math.abs(btc) * 10), `BTC ${btc > 0 ? '+' : ''}${btc}% in 1h.`);
+    const nz = finite(p.noiseR && p.noiseR.m5); if (nz !== null) add(34, `One 5m candle is about ${nz}R of noise here.`);
+    F.sort((a, b) => b[0] - a[0]);
+    const out = 'THIS SCREEN, loudest first: ' + F.map(x => x[1]).join(' ');
+    return out.length > 1400 ? out.slice(0, 1397) + '...' : out;
+  } catch { return null; }
+}
 function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = null, micro = null, funding = null, dataCheck = null }) {
   const L = lot.side === 'LONG', e = finite(lot.entryPrice), r = riskOf(lot), nowR = favR(lot, mark);
   const path5 = k5.filter(x => x.t + M5 > lot.openedAt);
@@ -69,7 +100,7 @@ function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = nul
   const lv = { high24h:day.length ? Math.max(...day.map(x => x.h)) : null, low24h:day.length ? Math.min(...day.map(x => x.l)) : null, brokenLevel:finite(lot.level), top:finite(lot.top), zone:lot.z5zone || null };
   const btc1h = btc5.length >= 12 ? Number(((btc5.at(-1).c / btc5.at(-12).o - 1) * 100).toFixed(2)) : null;
   const oiChg1h = oi.length >= 13 ? Number(((oi.at(-1) / oi.at(-13) - 1) * 100).toFixed(2)) : null;
-  return {
+  const pk = {
     contract:DESK_VERSION, lane, symbol:lot.symbol, side:lot.side, rule:lot.rule, mode:lot.mode, why:why || null, tradeTimeframe:TRADE_TF[lane] || TRADE_TF.ILK3,
     noiseR:{ m5:atrR(k5, r), m15:atrR(k15, r), h1:atrR(k1h, r) },
     position:{ entry:e, initialStop:finite(lot.initialStopPrice) ?? finite(lot.stopPrice), currentStop:finite(lot.stopPrice), target:finite(lot.tpPrice), targetR:r && finite(lot.tpPrice) ? Number(Math.abs(lot.tpPrice - e) / r).toFixed(2) * 1 : null,
@@ -87,6 +118,8 @@ function packet({ lot, mark, k5, k15, k1h, btc5, oi, why, now, lane, chart = nul
       'mechanical habits did not help on average over 6 months: always trailing the stop, or always exiting early; a fixed trailing stop on TOP SHORT was clearly worse (t -3.3)',
       'what is tested now is case-by-case judgment on this screen: holding through a broken trade and choking a healthy one both cost R'],
   };
+  pk.story = screenStory(pk); // R2544.180: this coin's own salience-ordered story, never the same template twice
+  return pk;
 }
 // R2544.98 (kullanıcı 28.10: "modellere masa giriş ve çıkışlarda mütabık ve tam yetkili olması lazım ... hassas talimat vermen lazım ki
 // şaşırmasınlar; veriler, grafik, kâr durumu asla göz ardı edilmemeli; işlem açılan zaman dilimi çok önemli; insan hissi: pro trader burada
@@ -297,5 +330,5 @@ function microOf(sn, R = () => null) {
       zones:(liq.zones || []).slice(0, 4).map(z => ({ side:z.side, price:z.price ?? null, R:zR(z.price), quote:z.quote ?? null })), cascade:liq.cascade || null,
       note:'observed Binance force-order prints only; not a full liquidation heatmap' } };
 }
-module.exports = { microOf, jsonObjects, wordOf, chartSpecs, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
+module.exports = { microOf, jsonObjects, wordOf, chartSpecs, screenStory, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
   SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary, SMART, smartDue, gxSnap };
