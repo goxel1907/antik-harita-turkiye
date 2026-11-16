@@ -261,11 +261,12 @@ function summary(lessons) {
 }
 // which trader looks: TEST -> testJudges (free), LIVE -> liveJudges (JEV, then free). Nothing available -> the rule keeps managing.
 async function judge({ packet, mode, cfg, judges, stats, advisors = null }) {
+  if(advisors)packet={...packet,advisors}; // both JEV and its backup see the same Goxel/entry evidence
   const order = mode === 'LIVE' ? cfg.liveJudges : cfg.testJudges, st = stats || {}, tried = [];
   for (const j of order) {
     if (j === 'JEV') {
       if (typeof judges?.jev !== 'function') { tried.push('JEV_NOT_WIRED'); continue; }
-      let r; try { r = await judges.jev({ packet:advisors ? { ...packet, advisors } : packet, choices:{ reasons:REASONS }, system:SYSTEM }); } catch { r = { ok:false, reason:'JEV_DESK_EXCEPTION' }; } // R2544.179: same instruction as the committee + advisors (JEV only)
+      let r; try { r = await judges.jev({ packet, choices:{ reasons:REASONS }, system:SYSTEM }); } catch { r = { ok:false, reason:'JEV_DESK_EXCEPTION' }; }
       if (r?.called) st.jev = (st.jev || 0) + 1;
       if (r?.ok && ACTIONS.includes(r.action)) return { ok:true, judge:'JEV', model:r.model || 'jev', d:{ ok:true, action:r.action, stopChoice:STOP_CHOICES.includes(r.stopChoice) ? r.stopChoice : 'KEEP', reason:REASONS.includes(r.reason) ? r.reason : 'NO_EDGE', confidence:finite(r.confidence), reasonTr:'JEV: ' + (REASON_TR[r.reason] || r.reason || ''), watchTr:'' }, costUsd:finite(r.costUsd), tried };
       tried.push('JEV:' + (r?.reason || 'FAILED')); continue;

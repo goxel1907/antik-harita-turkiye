@@ -1,0 +1,108 @@
+{
+  "baseCommit": "bfe728a09dc1c436869f7066baddd0c03dfb2323",
+  "runtimePatch": "CODEX_CREDIT_FAILOVER_20261116",
+  "status": "SOURCE_CANDIDATE_NOT_DEPLOYED",
+  "recordedAtTR": "2026-11-16T16:56:36.332349+03:00",
+  "testEnvironment": "Linux, Node v24.22.1, isolated temporary files, synthetic account/model fixtures, outbound socket/DNS/fetch guard",
+  "tests": {
+    "total": 1477,
+    "passed": 1476,
+    "failed": 0,
+    "skipped": 1,
+    "cancelled": 0,
+    "durationMs": 94159.033132,
+    "skipReason": "Existing Windows-only DPAPI credential test"
+  },
+  "summary": [
+    "ℹ tests 1477",
+    "ℹ suites 0",
+    "ℹ pass 1476",
+    "ℹ fail 0",
+    "ℹ cancelled 0",
+    "ℹ skipped 1",
+    "ℹ todo 0",
+    "ℹ duration_ms 94159.033132"
+  ],
+  "notVerified": [
+    "Windows installation/restart",
+    "Live Office visual acceptance",
+    "Real provider/quota failover",
+    "Real trade results or profitability",
+    "Android build/device acceptance",
+    "Portable Setup.exe and cross-account learning restoration"
+  ],
+  "files": [
+    {
+      "path": "brainhub/decision-advisors.js",
+      "sha256": "1e95b1c056406d1184a63540f1377dc9429051c37d0728d6080a6782f714fb48"
+    },
+    {
+      "path": "brainhub/decision-failover.js",
+      "sha256": "fb6b25932505dea5524588130643d551478df2f32e5a529bfc08bd3560cd4b78"
+    },
+    {
+      "path": "brainhub/delivery-tools/credit-failover/README.md",
+      "sha256": "534b95dc9fc10bc90981ee6f507f23ea58b653940d5752fa7eaa5b694103a8d2"
+    },
+    {
+      "path": "brainhub/delivery-tools/credit-failover/no-network.cjs",
+      "sha256": "ed335be64858168d59c5969e0e1675bae970b8d2bfbed2979e89b1aac8e3d858"
+    },
+    {
+      "path": "brainhub/jev-brain/JEV-DEPLOY.ps1",
+      "sha256": "770de642b41bf2e57ae830bfc8570cb00fcb6607c7e9b1629f779d0fb924b077"
+    },
+    {
+      "path": "brainhub/jev-decision.js",
+      "sha256": "ec71526baac3689fd5382ea297624140bcc5d0e125b5e6604acefb1fc57a4d58"
+    },
+    {
+      "path": "brainhub/live-controller.js",
+      "sha256": "2c197f0fff5f01c379a9596177d1c9a5ea950cf1035e1448cc5c7ad6b65fcee3"
+    },
+    {
+      "path": "brainhub/manage.ps1",
+      "sha256": "b171c84f65eae03a2212f2fdadaf0548dddec694c81cf788efc9064d1baf4479"
+    },
+    {
+      "path": "brainhub/model-committee.js",
+      "sha256": "1660c12b1e587dff1b722bd97db42691e174904f0b57edb8f9b56f7746089fe1"
+    },
+    {
+      "path": "brainhub/office-dashboard/office-server.js",
+      "sha256": "84a00f70dd9d81a7ab04c0266820aca3ae10777ec1a4de51d197ab6f78369401"
+    },
+    {
+      "path": "brainhub/office-dashboard/public/office.html",
+      "sha256": "49c45710bb90068f543970050e489a0e611e11eece94fffcae1cfcfd0ff55ed9"
+    },
+    {
+      "path": "brainhub/pipeline.js",
+      "sha256": "63b6d6c6c8c475a675a7ba52f346d111cf6b596e60ad1229c8ced4fd465043e1"
+    },
+    {
+      "path": "brainhub/position-desk.js",
+      "sha256": "555c5efa4d643e9f38f36bf640deae1d061111f5bf687bd623b05e5c3b63b81c"
+    },
+    {
+      "path": "brainhub/server.js",
+      "sha256": "38e81a18568a94fe345f1b6cce2ac93509e74c35689dbda72ad2dd186283a77d"
+    },
+    {
+      "path": "brainhub/test/decision-failover.test.js",
+      "sha256": "b61d9daeb8f698e672c0c62802ddeded49789951e897f886237253d869c8c016"
+    },
+    {
+      "path": "brainhub/test/r2544-183-soz-etiketi.test.js",
+      "sha256": "47c382a61642273ecfcefb2ca25e068e88b5d96dd783d156e0dda2adf8d8dfef"
+    },
+    {
+      "path": "brainhub/test/r2544-27a-deploy-smoke.test.js",
+      "sha256": "78b49a971b1e09138b3b4bd802251877e945a698dc845333ba0e2026a0b477a5"
+    },
+    {
+      "path": "brainhub/test/r2544-56-top3-hunter.test.js",
+      "sha256": "1268e5a1d146324fce0ce679a9f3441a67afa08a2f4e169e80fbfee184c3d3c3"
+    }
+  ]
+}

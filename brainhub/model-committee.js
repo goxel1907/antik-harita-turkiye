@@ -243,11 +243,12 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
   // yavaşı bekliyordu; kullanıcı "modeller hızlı yanıt versin", 16.11 "codexle beraber düzelt"): `early` = as soon as MORE THAN HALF OF THE WHOLE
   // TEAM gave the same answer, the decision is taken - the late answers cannot change a majority of all seats; they still finish in the background
   // (health, karne). `round2Ms` = the debate round has its own short limit. Defaults keep the old behaviour (entry committee unchanged).
-  async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '', size:teamSize = null, early = false, round2Ms = null }) {
+  async function decide({ system, prompt, validate, parse, field, fallback, roles = null, reasonOf = v => v?.reasonTr || '', size:teamSize = null, early = false, round2Ms = null, callTimeoutMs = null }) {
     const team = pick(Number(teamSize) > 0 ? Number(teamSize) : size); if (!team.length) { save(); return { ok:false, reason:'COMMITTEE_NO_HEALTHY_MEMBER', votes:[] }; }
     // R2544.91: seats go to the preferred model family first (Claude = price action even when Gemini is missing), then by order
     const seatMap = assignSeats(team, roles), seatOf = i => seatMap[i] || null, sysOf = i => seatOf(i) ? system + '\n\nYOUR SEAT AT THE DESK: ' + seatOf(i).text : system;
-    const p1 = team.map((m, i) => ask(m, sysOf(i), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(i)?.key || null })));
+    const askFirst=(m,i)=>Number(callTimeoutMs)>0?ask(m,sysOf(i),prompt,validate,parse,Number(callTimeoutMs),true):ask(m,sysOf(i),prompt,validate,parse);
+    const p1 = team.map((m, i) => askFirst(m,i).then(x => ({ ...x, seat:seatOf(i)?.key || null })));
     const need = Math.floor(team.length / 2) + 1, t1 = clock();
     const r1 = !early || team.length < 3 ? await Promise.all(p1) : await new Promise(res => { const out = new Array(p1.length).fill(null), c = {}; let done = 0, fired = false;
       p1.forEach((p, i) => p.then(x => { out[i] = x; done++; if (fired) return;
@@ -264,7 +265,7 @@ function createCommittee({ members: membersIn = [], healthFile = null, clock = (
     if (r1.filter(x => x.ok).length < want) {
       const asked = new Set(team.map(m => m.id)), empty = r1.map((x, i) => x.ok ? -1 : i).filter(i => i >= 0);
       const reserves = pick(team.length + empty.length).filter(m => !asked.has(m.id)).slice(0, empty.length);
-      const rb = await Promise.all(reserves.map((m, k) => ask(m, sysOf(empty[k]), prompt, validate, parse).then(x => ({ ...x, seat:seatOf(empty[k])?.key || null, reserveFor:r1[empty[k]].member }))));
+      const rb = await Promise.all(reserves.map((m, k) => askFirst(m,empty[k]).then(x => ({ ...x, seat:seatOf(empty[k])?.key || null, reserveFor:r1[empty[k]].member }))));
       reserves.forEach((m, k) => { const i = empty[k]; replaced.push({ member:r1[i].member, error:r1[i].error, seat:r1[i].seat, by:m.id }); team[i] = m; r1[i] = rb[k]; });
     }
     const v1 = r1.filter(x => x.ok);

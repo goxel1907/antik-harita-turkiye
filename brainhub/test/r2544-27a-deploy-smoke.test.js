@@ -17,7 +17,7 @@ test('R2544.27a deploy smoke does not require fresh Binance REST while guard is 
 });
 
 test('R2544.27c deploy preserves an active 418 quarantine across restart',()=>{
-  const deploy=fs.readFileSync(path.join(__dirname,'..','..','..','JEV-DEPLOY.ps1'),'utf8');
+  const deploy=fs.readFileSync(path.join(__dirname,'..','jev-brain','JEV-DEPLOY.ps1'),'utf8');
   assert.match(deploy,/BINANCE_418_STATE_PRESERVED/);
   assert.match(deploy,/binance-rate-limit-state\.json/);
   assert.match(deploy,/quarantined=\$true/);

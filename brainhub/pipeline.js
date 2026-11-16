@@ -1347,6 +1347,7 @@ function sovereignJournalPayload({candidate,plan,pass1,final,vision,jevSeen,risk
   return {
     releaseContract:'R2542_JEV_TRADER_OFFICE',
     contract:'R2.5.3.2_JEV_SOVEREIGN_5M_15M',
+    decisionOwner:final?.decisionOwner||'JEV',decisionRoute:final?.decisionRoute||null,
     candidate:{symbol:candidate?.symbol||null,attentionSource:candidate?.deepScanReason||null,targetSources:Array.isArray(candidate?.targetSources)?candidate.targetSources.slice(0,8):[]},
     plan:plan?{
       releaseContract:'R2542_JEV_TRADER_OFFICE',
@@ -1374,20 +1375,7 @@ function positionReviewFallback(result,unified,executionIntent){
     evidence:{requested:[],missing:['PASS1_ROUTING_UNAVAILABLE:'+String(result.reason||'UNKNOWN')],routingAvailable:false},
     execution:'ADVISORY_ONLY',orderPlaced:false};
 }
-// R2544.184 (kullanıcı 16.11: "Normal sistemi de JEV + kurul'a bağla; JEV'de kredi bittiğinde kurul karar versin" — İlk 3'teki R2544.127
-// kalıbının aynısı). Yalnız SAĞLAYICI kaynaklı JEV hatalarında devreye girer (kredi/anahtar/kota/ağ); veri kalitesi hataları fail-closed kalır.
-const JEV_PROVIDER_FAIL=/BUDGET_EXHAUSTED|AUTH_COOLDOWN|NOT_CONFIGURED|KEY_UNAVAILABLE|CREDIT|PAYMENT|INSUFFICIENT|HTTP_(401|402|403|408|429|5\d\d)|TIMEOUT|NETWORK|FETCH/i;
-function jevProviderDown(reason){return JEV_PROVIDER_FAIL.test(String(reason||''));}
-// Kurul oyunun sonucunu JEV FINAL ile aynı şekle çevirir: seçilen plan aynen yürür, profiller güvenli varsayılan (BALANCED/THIRDS/AFTER_TP1).
-function committeeFinalFromVote({planOptions,result,stage,jevReason}){
-  const id=result?.final,chosen=id&&id!=='WAIT'?(planOptions||[]).find(p=>p&&p.id===id)||null:null;
-  const votes=(result?.round2||result?.votes||[]).map(v=>({m:String(v.member||v.m||'?').slice(0,40),c:v.vote?.choice||v.c||(v.pending?'BEKLENMEDI':'ERR')}));
-  return {ok:true,committeeFallback:true,finalAuthority:'KURUL',stage:stage||null,jevReason:jevReason||null,consensus:result?.consensus||null,votes,
-    model:votes.map(v=>v.m).join('+')||'kurul',selectedPlan:chosen,setupFamily:chosen?'KURUL_YEDEK':'NONE_WAIT',
-    entryTiming:chosen?'MARKET_NOW':'WAIT_NEW_EVIDENCE',edgeBasis:'COMMITTEE_MAJORITY',waitReason:chosen?null:'KURUL_COGUNLUK_YOK',
-    targetProfile:'BALANCED',partialProfile:'THIRDS',breakevenRule:'AFTER_TP1',trailRule:'JEV_DYNAMIC',managementStyle:'KURUL_VARSAYILAN'};
-}
-async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=null,killSwitch=null,executionClaim=null,executionIntent=null,decisionPass1,decisionFinal,decisionFallback=null,knowledgeResearch=null}){
+async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=null,killSwitch=null,executionClaim=null,executionIntent=null,decisionPass1,decisionFinal,knowledgeResearch=null}){
   const selection=resolveAttentionCandidate(scan,executionIntent);
   const candidate=selection.candidate;
   if(!candidate)return {ok:true,candidateFound:false,reason:selection.reason||'NO_ATTENTION_CANDIDATE',execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
@@ -1406,22 +1394,16 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     try{store.journal('R2542_OFFICE_EVENT',candidate.symbol,{kind:'DEDUPE',releaseContract:'R2542_JEV_TRADER_OFFICE',reason:'UNCHANGED_EVIDENCE',tradeLaneName:previousEvidence.lane});}catch{}
     return positionReviewFallback({ok:true,candidateFound:true,analysisSkipped:true,reason:'UNCHANGED_EVIDENCE',materialChangeReason:'UNCHANGED_EVIDENCE',jevSovereign:true,execution:'ADVISORY_ONLY',orderPlaced:false},unified,executionIntent);
   }
-  let pass1=await decisionPass1({candidate,unified});
-  let fbFinal=null; // R2544.184: kurul yedeğinin FINAL'i (PASS-1 sağlayıcı hatasında JEV tamamen atlanır)
-  if(!pass1?.ok&&typeof decisionFallback==='function'&&executionIntent?.positionReviewOnly!==true&&jevProviderDown(pass1?.reason)){
-    const fbOpts=buildSovereignPlanOptions(unified);
-    const fb=await Promise.resolve(decisionFallback({candidate,unified,planOptions:fbOpts,stage:'PASS1',jevReason:pass1?.reason||null})).catch(()=>null);
-    if(fb?.ok&&fb.final){fbFinal=fb.final;pass1={ok:true,laneFocus:fbFinal.selectedPlan?.lane||'15M_TRADE',requestedEvidence:[],committeeFallback:true,jevReason:fb.final.jevReason||null};}
-  }
+  const pass1=await decisionPass1({candidate,unified});
   if(!pass1?.ok){
     return positionReviewFallback({ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:pass1?.reason||'JEV_SOVEREIGN_PASS1_UNAVAILABLE',jevPass1:pass1||null,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true},unified,executionIntent);
   }
-  const evidence=fbFinal?{mode:'KURUL_YEDEK',jevUnavailable:true}:await buildSovereignEvidence({candidate,unified,pass1,committee,visionAudit:executionIntent?.visionAudit===true});
+  const evidence=await buildSovereignEvidence({candidate,unified,pass1,committee,visionAudit:executionIntent?.visionAudit===true});
   let knowledgeResearchResult=null;
   // R2535: knowledge-gap detection runs for every sovereign decision. It is local/cheap when no gap exists.
   // If a real unfamiliar term is present, 9Router free + OpenRouter free research it, fetched sources are
   // grounded, and JEV must accept the note before it can enter the read-only dynamic knowledge reference.
-  if(!fbFinal&&typeof knowledgeResearch==='function'){
+  if(typeof knowledgeResearch==='function'){
     try{
       knowledgeResearchResult=await knowledgeResearch({
         candidate,unified,evidence,
@@ -1452,13 +1434,8 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     };
   }
   const planOptions=buildSovereignPlanOptions(unified);
-  let final=fbFinal||await decisionFinal({candidate,unified,evidence,planOptions,pass1});
-  if(!final?.ok&&typeof decisionFallback==='function'&&jevProviderDown(final?.reason)){
-    const fb=await Promise.resolve(decisionFallback({candidate,unified,planOptions,stage:'FINAL',jevReason:final?.reason||null})).catch(()=>null);
-    if(fb?.ok&&fb.final)final=fb.final;
-  }
-  if(final?.committeeFallback){try{store.journal('JEV_KURUL_YEDEK',candidate.symbol,{stage:final.stage,jevReason:final.jevReason,choice:final.selectedPlan?.id||'WAIT',consensus:final.consensus,votes:final.votes});}catch{}}
-  if(final?.ok&&!final.committeeFallback){sovereignEvidenceCache.set(candidate.symbol,{key:evidenceKey,at:Date.now(),wait:final.action==='WAIT',lane:pass1.laneFocus});if(sovereignEvidenceCache.size>600)sovereignEvidenceCache.delete(sovereignEvidenceCache.keys().next().value);}
+  const final=await decisionFinal({candidate,unified,evidence,planOptions,pass1});
+  if(final?.ok){sovereignEvidenceCache.set(candidate.symbol,{key:evidenceKey,at:Date.now(),wait:final.action==='WAIT',lane:pass1.laneFocus});if(sovereignEvidenceCache.size>600)sovereignEvidenceCache.delete(sovereignEvidenceCache.keys().next().value);}
   if(final)final.materialChangeReason=materialChangeReason;
   if(!final?.ok){
     return {ok:true,candidateFound:true,symbol:candidate.symbol,status:'REVIEW_REQUIRED',reason:final?.reason||'JEV_SOVEREIGN_FINAL_UNAVAILABLE',jevPass1:pass1,jevDecision:final||null,evidence,execution:'ADVISORY_ONLY',orderPlaced:false,jevSovereign:true};
@@ -1483,18 +1460,18 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
     partialProfile:chosen.partialProfile,partialFractions:chosen.partialFractions,
     breakevenRule:chosen.breakevenRule,trailRule:chosen.trailRule,
     waitFor:entryNow?'NONE':(entryTiming||'WAIT_NEW_EVIDENCE'),formingContext:'CONTEXT_ONLY',
-    why:(final?.committeeFallback?'KURUL YEDEĞİ (JEV cevapsız: '+(final.jevReason||'?')+'), oy: '+(final.consensus||'?')+' — ':'JEV ')+(setupFamily||'UNCLASSIFIED')+' selected '+chosen.id+'; timing='+(entryTiming||'UNSPECIFIED')+'; edge='+(final?.edgeBasis||'UNSPECIFIED')+'.',
+    why:'JEV '+(setupFamily||'UNCLASSIFIED')+' selected '+chosen.id+'; timing='+(entryTiming||'UNSPECIFIED')+'; edge='+(final?.edgeBasis||'UNSPECIFIED')+'.',
     riskNote:entryNow
       ? 'Post-JEV code may block only hard execution/integrity safety; it must not re-vote strategy.'
       : 'JEV directional thesis exists but entry timing/location is not MARKET_NOW; no order is authorized.',
     contractVersion:'R2.5.3.7_JEV_CONTEXT_COMPLETE',
-    jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
+    jevSovereign:true,decisionOwner:final?.decisionOwner||'JEV',decisionRoute:final?.decisionRoute||null,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
   }:{
     valid:true,status:'WATCH',side:null,originTF:null,ownerTF:null,lane:null,setup:'JEV_R2537_WAIT',
     setupFamily:setupFamily||'NONE_WAIT',edgeBasis:final?.edgeBasis||'NO_EDGE',entryTiming:entryTiming||'WAIT_NEW_EVIDENCE',
     execPath:'WAIT',waitFor:entryTiming||'JEV will reconsider on a new radar event or materially changed evidence.',waitReason:final?.waitReason||null,
-    why:final?.committeeFallback?'KURUL YEDEĞİ (JEV cevapsız): çoğunluk GİRME dedi, BEKLE.':'JEV FINAL chose WAIT.',riskNote:'No order is authorized.',contractVersion:'R2.5.3.7_JEV_CONTEXT_COMPLETE',
-    jevSovereign:true,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
+    why:'JEV FINAL chose WAIT.',riskNote:'No order is authorized.',contractVersion:'R2.5.3.7_JEV_CONTEXT_COMPLETE',
+    jevSovereign:true,decisionOwner:final?.decisionOwner||'JEV',decisionRoute:final?.decisionRoute||null,jevDecision:final,evidenceRequest:pass1.requestedEvidence||[],execution:'ADVISORY_ONLY'
   };
   const riskGate=preflightRiskGate({plan,unified});
   const dryRunExecutor=buildDryRunOrder({
@@ -1538,9 +1515,9 @@ async function runSovereignFlow({scan,committee,store,accountRisk=null,stopRisk=
 }
 
 
-async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null, decisionJudge = null, decisionPass1 = null, decisionFinal = null, decisionFallback = null, knowledgeResearch = null }) {
+async function run({ scan, committee, store, accountRisk = null, stopRisk = null, killSwitch = null, executionClaim = null, executionIntent = null, decisionJudge = null, decisionPass1 = null, decisionFinal = null, knowledgeResearch = null }) {
   if(typeof decisionPass1==='function'&&typeof decisionFinal==='function'){
-    return runSovereignFlow({scan,committee,store,accountRisk,stopRisk,killSwitch,executionClaim,executionIntent,decisionPass1,decisionFinal,decisionFallback,knowledgeResearch});
+    return runSovereignFlow({scan,committee,store,accountRisk,stopRisk,killSwitch,executionClaim,executionIntent,decisionPass1,decisionFinal,knowledgeResearch});
   }
   const selection = resolveExecutionCandidate(scan, executionIntent);
   const candidate = selection.candidate;
@@ -1944,4 +1921,4 @@ async function run({ scan, committee, store, accountRisk = null, stopRisk = null
   return out;
 }
 
-module.exports = { jevProviderDown, committeeFinalFromVote, FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, withTriggerSpec, tradeLanes, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, resolveAttentionCandidate, buildSovereignPlanOptions, buildSovereignEvidence, runSovereignFlow, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };
+module.exports = { FRAME_ORDER, formatSingleVisionPixelReply, buildUnifiedContext, compactUnifiedContext, compactOutcomeLearningContext, liquidationContext, buildVisionCharts, visionPixelProbePrompt, evaluateVisionPixelProbe, triggerCandidatesForPlan, resolveNumericTriggerPlan, withTriggerSpec, tradeLanes, combineRiskGate, enforceExecutionLineage, combineExecutionReadiness, resolveExecutionCandidate, resolveAttentionCandidate, buildSovereignPlanOptions, buildSovereignEvidence, runSovereignFlow, applyDecisionJudgeResult, blockingVisionVetoTFs, watchPlanNeedsSemanticResolution, reconcileVisionPlanSemantics, shouldAttemptVisionRepair, run, planFields, visionPlanContract, visionRepairLabels, visionRepairPrompt, mergeVisionRepairText, deterministicFallbackPlan };

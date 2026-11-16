@@ -2,6 +2,8 @@ const fs=require('fs');
 const jevEdge=require('./jev-edge'); // R2544.55: narrow +1R-before-stop questions + kept probabilities/confidence
 const path=require('path');
 const crypto=require('node:crypto');
+const {AsyncLocalStorage}=require('node:async_hooks');
+const failoverPolicy=require('./decision-failover');
 const {marketPacket,mirrorDigest,rankPatterns,formingDigest,volDigest,readoutDigest}=require('./jev-market-packet');
 const {encodeMarketPacket,expandMarketPacket}=require('./jev-wire-market');
 const {BURST_STRICTNESS,BURST_TTL_MS}=require('./burst-scalp');
@@ -1161,7 +1163,7 @@ function prepareDecisionRequest(input,opts={}){
   return {ok:bytes<=hardCap&&coreTruthProtected,body,serialized,diagnostics};
 }
 
-function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.fetch,clock=()=>Date.now()}={}){
+function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.fetch,clock=()=>Date.now(),committeeFallback=null,decisionAdvisors=null,advisoryTimeoutMs=2500}={}){
   if(!root)throw new Error('root required');
   if(typeof fetchImpl!=='function')throw new Error('fetch implementation required');
   const cfg=normalizeConfig(root);
@@ -1171,6 +1173,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   const managementConfigured=management.length>=20&&!/\s/.test(management);
   const usageFile=path.join(root,'data','jev-usage.json');
   let billingCache={at:0,value:null};
+  const invocation=new AsyncLocalStorage();
+  let creditBlockedUntil=0,lastDecisionRoute=null;
   // Provider access failures are operational state, not a trading verdict. Keep a tiny,
   // sanitized status so Office can distinguish an upstream 401/403 from a strategic WAIT.
   let providerState={lastError:null,lastOkAt:null,consecutiveAuthFailures:0,blockedUntil:0};
@@ -1263,7 +1267,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       lanes:{scalp:'5m',trade:'15m',longShortSymmetric:true},
       passLimit:2,
       traderCortex:(()=>{const t=traderCortexReference(root);return {loaded:t.loaded,version:t.version,mode:t.mode};})(),
-      paidFallbackEnabled:false,provider:providerStatus(),budget:budgetStatus()
+      paidFallbackEnabled:false,provider:providerStatus(),budget:budgetStatus(),
+      decisionFailover:{version:failoverPolicy.FAILOVER_VERSION,wired:typeof committeeFallback==='function',
+        creditRetryAt:creditBlockedUntil>clock()?new Date(creditBlockedUntil).toISOString():null,last:lastDecisionRoute}
     };
   }
   function billingSnapshot(){
@@ -1315,8 +1321,10 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       return {...localStatus(),reachable:false,reason:'OPENROUTER_KEY_CHECK_ERROR',detail:String(e?.message||e).slice(0,240)};
     }
   }
-  async function decisions(body,{reserve=true}={}){
+  async function primaryDecisions(body,{reserve=true}={}){
     if(!configured)return {ok:false,configured:false,required:false,reason:'OPENROUTER_NOT_CONFIGURED'};
+    if(creditBlockedUntil>clock())return {ok:false,configured:true,required:true,called:false,attempted:false,
+      reason:'JEV_CREDIT_COOLDOWN',httpStatus:402,budget:budgetStatus()};
     if(providerState.blockedUntil>clock())return {ok:false,configured:true,required:true,called:false,attempted:false,
       reason:'JEV_PROVIDER_AUTH_COOLDOWN',httpStatus:providerState.lastError?.httpStatus||null,
       provider:providerStatus(),budget:budgetStatus()};
@@ -1365,8 +1373,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         }
       }
       if(!r.ok){
-        if(reserve)settleBudget(reservation,cfg.reservePerCallUsd);
+        if(reserve)settleBudget(reservation,Number(r.status)===402?0:cfg.reservePerCallUsd);
         const pe=noteProviderError(r.status,r.data);
+        if(Number(r.status)===402)creditBlockedUntil=clock()+5*60000;
         try{fs.appendFileSync(path.join(root,'logs','jev-http-error.log'),JSON.stringify({
           at:new Date(clock()).toISOString(),reason:'JEV_HTTP_ERROR',httpStatus:r.status,providerCategory:pe.category,
           providerCode:pe.code,providerMessage:pe.message,consecutiveAuthFailures:providerState.consecutiveAuthFailures,
@@ -1374,6 +1383,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,provider:providerStatus(),requestSize,attempts,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus()};
       }
       noteProviderOk();
+      creditBlockedUntil=0;
       const cost=reserve?usageCost(r.data,cfg.reservePerCallUsd,body):0;
       try{fs.appendFileSync(path.join(root,'logs','jev-request-result.log'),JSON.stringify({
         at:new Date(clock()).toISOString(),pass:requestSize.pass,bytes:requestSize.bytes,
@@ -1386,6 +1396,53 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       return {ok:false,configured:true,required:true,reason:'JEV_REQUEST_ERROR',attempts,durationMs:clock()-started,detail:String(e?.message||e).slice(0,300),budget:budgetStatus()};
     }
   }
+
+  async function decisions(body,options={}){
+    // Add advisory evidence only. Neither Goxel nor a backup can mutate the
+    // original market packet, sizing, offered plans, or exchange permissions.
+    if(configured&&failoverPolicy.supported(body)&&typeof decisionAdvisors==='function'){
+      let advisors,timer;
+      try{advisors=await Promise.race([Promise.resolve().then(()=>decisionAdvisors({body})),new Promise(resolve=>{
+        timer=setTimeout(()=>resolve({authority:'EVIDENCE_ONLY',available:false,reason:'GOXEL_ADVISOR_PENDING'}),Math.max(1,Math.min(5000,Number(advisoryTimeoutMs)||2500)));
+      })]);}
+      catch{advisors={authority:'EVIDENCE_ONLY',available:false,reason:'GOXEL_ADVISOR_UNAVAILABLE'};}
+      finally{clearTimeout(timer);}
+      body={...body,state:{...body.state,advisors:advisors||{authority:'EVIDENCE_ONLY',available:false}}};
+    }
+    const result=await primaryDecisions(body,options);
+    if(result.ok){
+      lastDecisionRoute={owner:'JEV',at:new Date(clock()).toISOString()};
+      return result;
+    }
+    if(typeof committeeFallback!=='function'||!failoverPolicy.supported(body)||!failoverPolicy.creditFailure(result))return result;
+    // Use the exact bounded, truth-preserving question/market envelope.
+    const prepared=prepareDecisionRequest(body);
+    if(!prepared.ok)return {...result,failoverReason:'FAILOVER_CONTEXT_INVALID'};
+    let backup;
+    try{backup=await committeeFallback({body:prepared.body,failure:{ok:false,reason:result.reason,httpStatus:result.httpStatus}});}
+    catch{backup={ok:false,reason:'FAILOVER_EXCEPTION'};}
+    if(!backup?.ok||!failoverPolicy.validateAnswers(prepared.body,backup.data)||backup.route?.owner!=='COMMITTEE'){
+      return {...result,failoverReason:backup?.reason||'FAILOVER_INVALID_RESPONSE'};
+    }
+    const route={...backup.route,primaryCalled:result.called!==false,primaryReason:result.reason};
+    const ctx=invocation.getStore();if(ctx)ctx.route=route;
+    lastDecisionRoute=route;
+    const sentPacket=prepared.body?.state?.coreMarketPacket;
+    try{fs.appendFileSync(path.join(root,'logs','decision-failover.log'),JSON.stringify(route)+'\n','utf8');}catch{}
+    return {ok:true,configured:true,required:true,data:backup.data,called:true,
+      decisionOwner:'COMMITTEE',route,model:'COMMITTEE',costUsd:null,budget:budgetStatus(),
+      requestSize:prepared.diagnostics,jevSeen:sentPacket?mirrorDigest(sentPacket):null};
+  }
+
+  function routed(fn){return async function(...args){return invocation.run({},async()=>{
+    const result=await fn(...args),route=invocation.getStore().route;
+    if(!route)return result;
+    const out={...result,decisionOwner:'COMMITTEE',decisionRoute:route,model:'COMMITTEE',costUsd:null,
+      jevCalled:route.primaryCalled,committeeCalled:true};
+    if(out.finalAuthority==='JEV')out.finalAuthority='COMMITTEE';
+    if(typeof out.summaryTr==='string')out.summaryTr=out.summaryTr.replace(/JEV/g,'KURUL');
+    return out;
+  });};}
 
   async function sovereignPass1({candidate,unified}={}){
     if(!configured)return {ok:false,configured:false,required:cfg.enabled,called:false,pass:1,reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
@@ -2047,7 +2104,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       authority:{decisionOwner:'JEV',workers:'EVIDENCE_ONLY',postJevStrategicRevote:false},
       position:{
         symbol:String(position?.symbol||unified?.symbol||'').toUpperCase(),side,
-        entryPrice:entry,markPrice:mark,quantity:finiteNumber(position?.quantity),
+        entryPrice:entry,markPrice:mark,quantity:finiteNumber(position?.quantity),openedAt:finiteNumber(lifecycle?.activeAt??lifecycle?.openedAt),
         unrealizedPnl:finiteNumber(position?.unrealizedPnl),pnlPct
       },
       lifecycle:{
@@ -2255,6 +2312,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       (vetoReasons.length?' Beklenen koşul (mevcut plan): '+String(plan.waitFor||'Güncel kanıtlarla yeniden değerlendirme'):'');
     return {ok:true,configured:true,required:true,called:true,shadow:shadowWatch,veto:vetoReasons.length>0,vetoReasons,probabilities,timeframeConflicts,conflictingTFs,summaryTr,model:cfg.model,mode:cfg.mode,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
   }
-  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,sovereignPass1,sovereignFinal,sovereignLesson,sovereignKnowledgeReview,sovereignBurstArm,sovereignBurstExit,sovereignTop3Gate,sovereignPositionDesk,sovereignZirve5Gate,sovereignExit,budgetStatus};
+  return {config:cfg,localStatus,remoteStatus,billingStatus,billingSnapshot,probe,judge,judgeExit,
+    sovereignPass1:routed(sovereignPass1),sovereignFinal:routed(sovereignFinal),sovereignLesson,sovereignKnowledgeReview,
+    sovereignBurstArm:routed(sovereignBurstArm),sovereignBurstExit:routed(sovereignBurstExit),sovereignTop3Gate,
+    sovereignPositionDesk,sovereignZirve5Gate,sovereignExit:routed(sovereignExit),budgetStatus};
 }
 module.exports={prepareDecisionRequest,rankKnowledgeByPacket,compactPass1Questions,compactMemoryForPass1Routing,compactPass2Questions,compactPass2Record,compactMemoryForPass2Final,compactPass2QuestionsResidual,compactPass2RecordResidual,compactMemoryForPass2Residual,MAX_DECISION_REQUEST_BYTES,PASS1_TARGET_BYTES,PASS2_TARGET_BYTES,OTHER_TARGET_BYTES,protectedCoreTruth,compactChartNarrative,compactCortexReference,compactMemoryForDecision,CHECKS,EXIT_CHECKS,SOVEREIGN_EVIDENCE,decisionQuestions,exitDecisionQuestions,DEFAULTS,normalizeConfig,sanitizedKeyMetadata,noulProbability,choiceValue,compactDecisionRecord,compactSovereignEvidence,compactExperienceMemory,compactSignature,dynamicKnowledgeReference,sovereignFinalConsistency,createJevClient};

@@ -1,10 +1,14 @@
 'use strict';
-// R2544.183: the screen never again calls a WEAK candidate a word holder (16.11: 4 weak losses showed 'söz sahibi')
-const test = require('node:test'), assert = require('node:assert'), fs = require('fs'), path = require('path');
-const lc = fs.readFileSync(path.join(__dirname, '..', 'live-controller.js'), 'utf8');
-test('R2544.183 top3Why reads the weak flag and says ZAYIF aday, not söz sahibi', () => {
-  const i = lc.indexOf("function top3Why(a){"), seg = lc.slice(i, i + 900);
-  assert.match(seg, /weak\)\s*===\s*true|\.weak\)===true/);
-  assert.match(seg, /ZAYIF aday \(söz sahibi DEĞİL/);
-  assert.match(lc, /kesif:\{model:sig\.soz\.model,weak:sig\.soz\.weak===true,/, 'the lot itself carries weak');
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const source=fs.readFileSync(path.join(__dirname,'..','live-controller.js'),'utf8');
+const start=source.indexOf('function top3Why(a){'),end=source.indexOf('function top3Gate(',start);
+const why=vm.runInNewContext('('+source.slice(start,end).trim()+')',{finite:v=>Number.isFinite(v)?v:null});
+const lot=()=>({lane:'KESIF',side:'LONG',stopPct:.015,kesif:{model:'test/model',record:{n:100,avgR:.1}}});
+test('R183 actual formatter distinguishes weak, confirmed and unknown historical eligibility',()=>{
+  const weak=lot();weak.entryFeatures={kesif:{weak:true}};const before=JSON.stringify(weak);
+  assert.match(why(weak),/ZAYIF aday \(söz sahibi DEĞİL/);assert.equal(JSON.stringify(weak),before);
+  const holder=lot();holder.kesif.weak=false;assert.match(why(holder),/model söz sahibi/);
+  const unknown=lot();assert.match(why(unknown),/uygunluğu bilinmiyor/);assert.doesNotMatch(why(unknown),/model söz sahibi/);
+  const legacy=lot();legacy.kesif.weak=true;assert.match(why(legacy),/ZAYIF aday/);
+  const conflict=lot();conflict.kesif.weak=true;conflict.entryFeatures={kesif:{weak:false}};assert.match(why(conflict),/model söz sahibi/);
 });

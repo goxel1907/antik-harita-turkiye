@@ -1,0 +1,33 @@
+{
+  "recordedAtTR": "2026-11-16T17:36:15.765082+03:00",
+  "nativeWindowsAcceptance": "NOT_COMPLETED",
+  "installedPCAccess": "NOT_AVAILABLE",
+  "linuxNodeRegression": {
+    "tests": 1477,
+    "passed": 1476,
+    "failed": 0,
+    "skipped": 1,
+    "durationMs": 92720.572043,
+    "outboundNetworkBlocked": true,
+    "installedBotPortsBlocked": true
+  },
+  "powershellLinux": {
+    "version": "7.7.0",
+    "sourceSyntax": "PASS",
+    "actualDeployPositionReaderMocks": "PASS",
+    "isolatedGitCloneHelperFixture": "PASS",
+    "nonWindowsRejectedByWindowsAcceptance": "PASS"
+  },
+  "windowsRunnerAttempt": {
+    "commit": "9db931d484440a0a0d248c089a8d90a9ac2a6f89",
+    "runId": 43885566126,
+    "url": "https://github.com/goxel1907/antik-harita-turkiye/actions/runs/43885566126",
+    "conclusion": "failure",
+    "runnerId": 0,
+    "stepsExecuted": 0,
+    "testsExecuted": false,
+    "failureReasonDetail": "Not available from retrieved metadata"
+  },
+  "productionDeployed": false,
+  "productionReady": false
+}

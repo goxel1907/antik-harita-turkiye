@@ -92,6 +92,6 @@ test('R2535 controller binds BrainHub-owned JEV EXIT/PARTIAL without requiring L
 test('R2535 sovereign pipeline always performs cheap knowledge-gap detection before PASS-2',()=>{
   const src=fs.readFileSync(path.join(__dirname,'..','pipeline.js'),'utf8');
   assert.match(src,/knowledge-gap detection runs for every sovereign decision/);
-  assert.match(src,/if\(!fbFinal&&typeof knowledgeResearch==='function'\)/); // R2544.184: kurul yedeğinde bilgi araştırması atlanır (JEV yok)
+  assert.match(src,/if\(typeof knowledgeResearch==='function'\)/);
   assert.match(src,/requestedByJev:pass1\.knowledgeResearchRequested===true/);
 });
