@@ -168,6 +168,25 @@ function goxelLook(rec, candles, screens, now, opts = {}) {
 // 15m / 1h), TESTERE (15m / 1h in a range and price at its edge, inside it). The 5m screens alone never move him: he needs a reason on the
 // big screens (one; two when 1h and 4h carry him and no level is near) and three screens against in all. Thresholds fixed before any outcome.
 const GOXEL_PRO = { levelMinPct:0.25, levelAtrX:0.25, freshBars:2, rangeEdge:80, needBig:1, needBigWithTrend:2, needTotal:3 };
+// R2544.178 GOXEL ZARAR GÖLGESİ (kullanıcı 16.11 kararı "Goxel zararı da izlesin — önce gölgede ölç, yetki onayla"; 16.11 KITE ve TAC: JEV masada 8 / 7 kez
+// TUT, ikisi de tam stop; Goxel +0,2R altında hiç bakmıyordu). Eşikler ÖNCEDEN sabit, kâr tarafının aynısı: net <= -0,3R, en az 1 büyük ekran ve toplam
+// en az 3 ekran aleyhte -> "çıkardım" (GÖLGE: emir yok). Karşılaştırma kapanışta: Goxel'in ilk "çık" anındaki R ile gerçekleşen R.
+const GOXEL_LOSS = { maxNetR:-0.3, needBig:1, needTotal:3, minN:8 };
+function goxelLossLook(pv) {
+  if (!pv || !Number.isFinite(pv.netR)) return null;
+  const exit = pv.netR <= GOXEL_LOSS.maxNetR && pv.big >= GOXEL_LOSS.needBig && pv.against >= GOXEL_LOSS.needTotal;
+  return { exit, netR:pv.netR, curR:pv.curR, against:pv.against, big:pv.big, why:exit ? (pv.screens || []).filter(x => x.against === true).map(x => x.txt).join(' • ').slice(0, 240) : null };
+}
+function goxelLossBook(lessons) {
+  const xs = (Array.isArray(lessons) ? lessons : []).filter(l => l && l.goxelLoss && Number.isFinite(l.rMultiple));
+  const said = xs.filter(l => Number.isFinite(l.goxelLoss.firstR)), r = v => Number(v.toFixed(3));
+  const real = said.reduce((a, l) => a + l.rMultiple, 0), shadow = said.reduce((a, l) => a + l.goxelLoss.firstR, 0);
+  const better = said.filter(l => l.goxelLoss.firstR > l.rMultiple).length, worse = said.filter(l => l.goxelLoss.firstR < l.rMultiple).length;
+  const n = said.length, c = s => String(s.toFixed(2)).replace('.', ',');
+  return { version:'R2544.178-GOXEL-LOSS', rules:GOXEL_LOSS, watched:xs.length, said:n, realAvgR:n ? r(real / n) : null, shadowAvgR:n ? r(shadow / n) : null, deltaR:n ? r((shadow - real) / n) : null, better, worse,
+    text:!xs.length ? 'Goxel zarar gölgesi: henüz zarara düşüp izlenen kapanmış işlem yok' : !n ? `Goxel zarar gölgesi: ${xs.length} zarardaki işlemi izledi, hiçbirinde "çık" demedi` :
+      `Goxel zarar gölgesi: ${n} işlemde "çık" dedi • Goxel çıksaydı ort ${c(shadow / n)}R, gerçek ort ${c(real / n)}R (fark ${c((shadow - real) / n)}R; ${better} kez Goxel iyi, ${worse} kez gerçek iyi)` + (n < GOXEL_LOSS.minN ? ` • ${GOXEL_LOSS.minN} işlemden az: kanıt değil, yetki yok` : ' • yetki kullanıcı onayıyla') };
+}
 const GX_LEVEL_TR = { prevDayHigh:'önceki gün tepesi', prevDayLow:'önceki gün dibi', prevWeekHigh:'önceki hafta tepesi', prevWeekLow:'önceki hafta dibi', prevMonthHigh:'önceki ay tepesi', prevMonthLow:'önceki ay dibi', high24h:'24 sa tepe', low24h:'24 sa dip' };
 function gxLevels(pk) {
   const out = [], add = (price, name) => { const p = finite(price); if (p !== null && p > 0) out.push({ price:p, name }); };
@@ -562,4 +581,4 @@ function nextCoin(list, surveyed = {}, { now = Date.now(), restMs = 60 * 60000 }
 }
 module.exports = { KESIF_VERSION, STOP_MIN, STOP_MAX, HORIZON_MIN, HORIZON_MAX, COST_PCT, MIN_SAY, MIN_WORD, LABEL_H, MATRIX_MIN_N, BRAIN_MIN_ROUNDS, SYSTEM, packet, parse, valid, open, consensus, resolve, karne, candidates, nextCoin,
   formations, band, labelOf, matrixAdd, matrixMerge, brainCall, brainForecast, brief, matrixView, learningCheck, readiness, LEARN_MIN, READY_N,
-  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, bestCandidate, liveSignal, sozPlan, humanTeacher, goxelEntry, closerBook };
+  ROLES, roleFor, seatRole, BLIND_ROLES, blindPacket, mirror, herd, selfRecord, B2, brain2P, brain2Top, brain2Used, brain2View, brain2Forecast, voteFeats, HUMAN, HUMAN_EXITS, humanRun, humanBook, GOXEL, goxelLook, goxelBook, GOXEL_PRO, gxLevels, goxelPro, SOZ, wordHolders, bestCandidate, liveSignal, sozPlan, humanTeacher, goxelEntry, closerBook, GOXEL_LOSS, goxelLossLook, goxelLossBook };

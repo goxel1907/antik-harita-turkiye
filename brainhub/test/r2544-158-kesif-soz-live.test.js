@@ -131,3 +131,19 @@ test('R2544.162 no word holder: the best candidate trades weak (Goxel looks firs
   assert.equal(lot.entryFeatures.kesif.weak,true);assert.equal(lot.entryFeatures.goxelEntry.checked,true,'Goxel looked at the screens: '+JSON.stringify(lot.entryFeatures.goxelEntry));
   assert.equal(f.controller.kesifStatus().soz.weakHolder,'m/best');
 });
+
+// R2544.178 (uçtan uca): Goxel reads a LOSING real lot too, records it in the shadow, and never orders on the loss side
+test('R2544.178 a losing lot (net <= -0,3R) is read by Goxel in the shadow: goxelLoss kept, no desk order, no Goxel exit',async()=>{
+  const f=fixture();await f.controller.testSupervisorTick();
+  f.controller.kesifStatus();const s=f.controller._testKesifState();seedWord(s,'m/word',f.state.now);s.lastRoundAt=f.state.now;s.lastIzAt=f.state.now;
+  s.open.push(K.open({model:'m/word',symbol:'KSUSDT',forecast:{ok:true,direction:'LONG',stopPct:2,targetPct:4,horizonH:6,confidence:60},at:f.state.now,round:'rl'}));
+  const out=await f.controller._testKesifTick();assert.equal(out.soz[0].opened,true,JSON.stringify(out.soz));
+  const a=f.controller.kesifStatus().soz.active[0],eAt=Math.floor(a.openedAt/M5)*M5,e=a.entryPrice,c=(i,o,h,l,cl)=>[eAt+i*M5,String(o),String(h),String(l),String(cl),'1000',eAt+(i+1)*M5-1,'1000',10,'500','500','0'];
+  f.state.k5.KSUSDT=[c(0,e,e*1.001,e*0.994,e*0.995),c(1,e*0.995,e*0.996,e*0.988,e*0.989),c(2,e*0.989,e*0.99,e*0.987,e*0.988)];
+  f.state.now=eAt+3*M5+5000;await f.controller._testGoxelLive();
+  const lot=Object.values(f.controller._testTop3State().active).find(x=>x.lane==='KESIF');
+  assert.ok(lot.goxel&&lot.goxel.lossShadow===true&&lot.goxel.netR<=-0.3,'Goxel read the losing lot: '+JSON.stringify(lot.goxel));
+  assert.ok(lot.goxelLoss&&lot.goxelLoss.last&&lot.goxelLoss.last.netR<=-0.3,'the loss shadow is kept on the lot');
+  assert.equal(lot.deskOrder,undefined,'no desk order from the loss shadow');assert.equal(f.kinds('GOXEL_LIVE_EXIT').length,0);
+  assert.ok(f.controller.kesifStatus().soz.goxelLive.lots.some(x=>x.lossShadow===true),'Office sees the losing lot as watched (shadow)');
+});

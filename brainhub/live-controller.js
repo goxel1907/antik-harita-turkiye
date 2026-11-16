@@ -7139,6 +7139,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const gxCompact=g=>g?{at:g.at??null,curR:g.curR??null,peakR:g.peakR??null,against:g.against??null,big:g.big??null,close:g.close===true,watching:g.watching===true,screens:Array.isArray(g.screens)?g.screens:null}:null;
   function humanCloseMark(lesson,c,record){const x=String(record?.exitType||lesson?.exitType||'');if(!lesson)return;
     lesson.goxel=gxCompact(c?.goxel);
+    if(c?.goxelLoss)lesson.goxelLoss={n:c.goxelLoss.n||0,firstAt:c.goxelLoss.firstAt??null,firstR:c.goxelLoss.firstR??null,firstWhy:c.goxelLoss.firstWhy||null,last:c.goxelLoss.last||null}; // R2544.178
     if(/_(EXTERNAL|USER)_CLOSE$/.test(x)){lesson.userClose={by:/_USER_CLOSE$/.test(x)?'OFFICE':'BINANCE',plan:DESK.planOf(c),goxel:c?.goxel||null,at:clock()};return;}
     if(/_DESK_EXIT$/.test(x)){const last=[...(c?.desk?.decisions||[])].reverse().find(d=>d&&d.action==='EXIT');lesson.exitCheck={by:last?.judge==='GOXEL'?'GOXEL':'MASA',plan:DESK.planOf(c),goxel:c?.goxel||null,at:clock()};}}
   function lessonPlan(l){const e=finite(l?.entryPrice),s=finite(l?.stopPct),g=finite(l?.targetPct),L=l?.side==='LONG';if(!(e>0)||!(s>0)||!(g>0))return null;
@@ -7187,7 +7188,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const g=async(p,params)=>{try{return await transport._fetchJson('GET',p,{params});}catch{return null;}};
       const k=await g('/fapi/v1/klines',{symbol:a.symbol,interval:'5m',startTime:String(entryAt),limit:'400'});if(!Array.isArray(k))continue;
       const v0=KESIF.goxelLook(rec,k,null,now,{live:true});if(!v0)continue;
-      if(v0.netR<KESIF.GOXEL.minNetR){a.goxel={at:now,curR:v0.curR,peakR:v0.peakR,netR:v0.netR,watching:false};seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',curR:v0.curR,netR:v0.netR,close:false});continue;}
+      const lossSide=v0.netR<=KESIF.GOXEL_LOSS.maxNetR; // R2544.178: a losing lot is read too (shadow only)
+      if(v0.netR<KESIF.GOXEL.minNetR&&!lossSide){a.goxel={at:now,curR:v0.curR,peakR:v0.peakR,netR:v0.netR,watching:false};seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',curR:v0.curR,netR:v0.netR,close:false});continue;}
       const [tk,oi,dp]=await Promise.all([g('/futures/data/takerlongshortRatio',{symbol:a.symbol,period:'5m',limit:'2'}),g('/futures/data/openInterestHist',{symbol:a.symbol,period:'5m',limit:'4'}),g('/fapi/v1/depth',{symbol:a.symbol,limit:'500'})]);
       const lastC=TB.rows(k).filter(x=>x.t+KESIF_M5<=now).slice(-1)[0]?.c,oiv=Array.isArray(oi)?oi.map(x=>finite(x?.sumOpenInterestValue)).filter(x=>x>0):[];
       const sc={taker:Array.isArray(tk)&&tk.length?finite(tk[tk.length-1]?.buySellRatio):null,imb1:lastC?IZ.book(dp,lastC)?.imb1??null:null,oiChgPct:oiv.length>=4?Number(((oiv[oiv.length-1]/oiv[0]-1)*100).toFixed(2)):null};
@@ -7195,6 +7197,13 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const hc=gxHtf.get(a.symbol);let htf=hc&&now-hc.at<15*60000?hc.k:null;if(!htf){htf={h1:await kl('1h',TB.FETCH.h1),h4:await kl('4h',TB.FETCH.h4),d1:await kl('1d',TB.FETCH.d1)};gxHtf.set(a.symbol,{at:now,k:htf});}
         pk=KESIF.packet({k:{m5:await kl('5m',TB.FETCH.m5),m15:await kl('15m',TB.FETCH.m15),...htf},t:now});gxPk.set(a.symbol,{at:now,pk});}catch{pk=null;}
       const v=KESIF.goxelLook(rec,k,sc,now,{live:true}),pv=v&&pk?KESIF.goxelPro(rec,v,pk):null;if(!pv)continue;
+      if(lossSide){const gl=KESIF.goxelLossLook(pv),z=a.goxelLoss||(a.goxelLoss={n:0,firstAt:null,firstR:null,firstWhy:null});z.last={at:now,curR:pv.curR,netR:pv.netR,against:pv.against,big:pv.big,exit:gl?.exit===true};
+        if(gl?.exit){z.n++;if(z.firstAt===null){z.firstAt=now;z.firstR=pv.curR;z.firstWhy=gl.why;try{store.journal('GOXEL_LOSS_SHADOW',a.symbol,{id:a.id,lane:a.lane||'ILK3',mode:a.mode||null,side:a.side,curR:pv.curR,netR:pv.netR,against:pv.against,big:pv.big,why:gl.why});}catch{}}}
+        a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,close:false,watching:false,lossShadow:true,lossExit:gl?.exit===true,screens:pv.screens.map(x=>({k:x.key,a:x.against}))};
+        seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',real:true,lossShadow:true,model:a.kesif?.model||a.rule||null,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,close:false,lossExit:gl?.exit===true,why:gl?.why||null,
+          screens:pv.screens.slice(0,5),raw:pv.raw||null,pro:{screens:pv.screens.slice(5),against:pv.against,big:pv.big,needBig:KESIF.GOXEL_LOSS.needBig,need:KESIF.GOXEL_LOSS.needTotal,support:pv.support,atLevel:pv.atLevel,close:false},
+          spark:TB.rows(k).filter(c=>c.t>=entryAt-6*KESIF_M5&&c.t+KESIF_M5<=now).slice(-36).map(c=>[c.o,c.h,c.l,c.c]),entry:finite(a.entryPrice)});
+        continue;} // GÖLGE: no desk order, no close
       a.goxel={at:now,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,needBig:pv.needBig,need:pv.need,close:pv.close,why:pv.why,watching:true,screens:pv.screens.map(x=>({k:x.key,a:x.against}))};
       // R2544.160: the drawing in Office follows a REAL lot first -> its screens, candles and the big screens travel with it
       seen.push({id:a.id,symbol:a.symbol,side:a.side,lane:a.lane||'ILK3',real:true,model:a.kesif?.model||a.rule||null,curR:pv.curR,peakR:pv.peakR,netR:pv.netR,against:pv.against,big:pv.big,close:pv.close,why:pv.why,
@@ -7376,6 +7385,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         recent:(s.sozRecent||[]).slice(0,10),goxelLive:goxelLiveView(s.goxelLiveLast),goxelLiveError:s.goxelLiveError||null};})(),
       // R2544.168: was a second 'human' key that silently replaced the robot-rule book (R2544.153); at 8 hand closes the Office card crashed
       teacher:(()=>{try{return KESIF.humanTeacher([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.161
+      goxelLoss:(()=>{try{return KESIF.goxelLossBook([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.178
       closers:(()=>{try{return KESIF.closerBook([...(top3State.lessons||[]),...(z5State().lessons||[])]);}catch{return null;}})(), // R2544.166
       sight:(()=>{const g=k=>{const l=s.closed.filter(r=>r.sight===k&&Number.isFinite(r.R));return {n:l.length,avgR:l.length?Number((l.reduce((a,r)=>a+r.R,0)/l.length).toFixed(3)):null,hitPct:l.length?Math.round(l.filter(r=>r.R>0).length/l.length*100):null};};return {KOR:g('KOR'),GOREN:g('GOREN')};})(),
       readiness:kesifReadiness(now)};}
