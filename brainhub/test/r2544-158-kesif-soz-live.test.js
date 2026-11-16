@@ -114,7 +114,7 @@ test('R2544.159 the lane uses the margin and leverage the user wrote for İlk 3 
 
 // R2544.162: nobody holds the word -> the best candidate trades, WEAK: Goxel PRO's look first, leverage 10x
 function seedCandidate(s,model,now){for(let i=0;i<22;i++){const w=i<11;s.closed.push({id:'c'+i+':'+model,model,symbol:'XUSDT',side:'LONG',at:now-(40-i)*H,closedAt:now-(39-i)*H,done:true,outcome:w?'TARGET':'STOP',R:w?1.43:-1.07,stopPct:2,targetPct:3,horizonH:6});}s.karne=K.karne(s.closed,{now});}
-test('R2544.162 no word holder: the best candidate trades weak (Goxel looks first, 10x); a lower candidate does not',async()=>{
+test('R2544.179 no word holder: the best candidate is weak and stays in the SHADOW (no real trade); a lower candidate is not even noted',async()=>{
   const f=fixture({});fs.writeFileSync(path.join(f.root,'config','top3-hunter.json'),JSON.stringify({enabled:false,committeeMode:true,marginQuote:30,leverage:15}));
   await f.controller.testSupervisorTick();
   f.controller.kesifStatus();const s=f.controller._testKesifState();seedCandidate(s,'m/best',f.state.now);
@@ -126,9 +126,8 @@ test('R2544.162 no word holder: the best candidate trades weak (Goxel looks firs
   s.open.push(fc('m/best'),fc('m/low'));
   const out=await f.controller._testKesifTick();
   assert.equal(out.soz.length,1,JSON.stringify(s.sozRecent));assert.equal(out.soz[0].weak,true);
-  assert.equal(out.soz[0].opened,true,JSON.stringify(out.soz[0]));assert.equal(out.soz[0].leverage,10,'weak = 10x even when İlk 3 is set to 15x');
-  const lot=Object.values(f.controller._testTop3State().active).find(x=>x.lane==='KESIF');
-  assert.equal(lot.entryFeatures.kesif.weak,true);assert.equal(lot.entryFeatures.goxelEntry.checked,true,'Goxel looked at the screens: '+JSON.stringify(lot.entryFeatures.goxelEntry));
+  assert.equal(out.soz[0].opened,false,JSON.stringify(out.soz[0]));assert.equal(out.soz[0].reason,'KESIF_ZAYIF_GOLGE');
+  assert.equal(Object.values(f.controller._testTop3State().active).filter(x=>x.lane==='KESIF').length,0,'no real lot for a weak holder');
   assert.equal(f.controller.kesifStatus().soz.weakHolder,'m/best');
 });
 

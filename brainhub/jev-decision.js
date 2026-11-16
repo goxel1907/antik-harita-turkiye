@@ -1986,24 +1986,28 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   // R2544.84 POZİSYON MASASI (kullanıcı 26.10: trader ofisi gibi açık pozisyonu grafik ve veriyle yönetmek): İlk 3 / ZİRVE-5 açık lotu
   // için JEV'in trader kararı. Ücretsiz modelle AYNI sözleşme (position-desk.js): eylem, yalnız SIKILAŞTIRAN stop seçenekleri, neden.
   // Bu sürümde GÖLGE: kararı kod yürütmez, kaydeder ve ölçer.
-  async function sovereignPositionDesk({packet,choices}={}){
+  async function sovereignPositionDesk({packet,choices,system=null}={}){
     if(!configured)return {ok:false,configured:false,called:false,action:'HOLD',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     if(!packet||!/^[A-Z0-9]{1,28}USDT$/.test(String(packet.symbol||''))||!['LONG','SHORT'].includes(packet.side))return {ok:false,called:false,action:'HOLD',reason:'DESK_PACKET_INVALID'};
     const C=choices||{},stops=Object.keys(packet.stopChoices||{KEEP:null});
-    const state={description:'JEV is the trader at the desk for ONE open '+packet.side+' position that a fixed rule opened ('+packet.lane+' lane, rule '+packet.rule+'). '+
-      'The record is the screen of the trader: plan (entry, stop, half at +2R then break-even, target, time limit), 5m/15m/1h candles with taker-buy share, levels, BTC and open interest, entry information and the measured facts of the lane. '+
-      'Decide what a disciplined professional does RIGHT NOW. HOLD is the measured default; act only on concrete evidence visible now. TIGHTEN_STOP may only use the offered stopChoices (all are tighter than the current stop). '+
-      'SHADOW MODE: this decision is recorded and measured against the rule, it is not executed.',record:packet};
+    // R2544.179 (16.11: JEV said HOLD + STRUCTURE_BROKEN_AGAINST in 56 of 56 desk looks; its old instruction called HOLD the default and the desk a shadow (not executed) -
+    // the R2544.98 neutral instruction reached only the committee). Now: the same pro-trader instruction, the decision
+    // is EXECUTED, and JEV is the boss of the desk (user 16.11: "JEV + kurul açıkken kurulun ve Goxel'in patronu JEV, ne derse o").
+    const sys=String(system||'You are a senior discretionary crypto-futures trader managing ONE open position. Neither holding nor acting is a default: both need evidence from this screen.').split('Answer ONLY with JSON')[0].trim();
+    const state={description:'JEV is the trader at the desk for ONE open '+packet.side+' position ('+packet.lane+' lane, rule '+packet.rule+'). '+sys+' '+
+      'YOUR DECISION IS EXECUTED AT ONCE on the real position: TAKE_PARTIAL, TIGHTEN_STOP and EXIT reduce risk; HOLD lets the plan work. TIGHTEN_STOP may only use the offered stopChoices (all are tighter than the current stop). '+
+      'You are the final authority of this desk: record.advisors carries what Goxel PRO read on its 9 screens (5m to 1d) and what was said at the entry; weigh them, the decision is yours.',record:packet};
     const body={model:cfg.model,state,questions:{
       desk_action:{type:'choice',instructions:'What does the desk do with this open position now?',criteria:{HOLD:'Let the plan work.',TAKE_PARTIAL:'Close half of what is left at market.',TIGHTEN_STOP:'Move the stop to the chosen offered level.',EXIT:'Close the whole position at market.'}},
       desk_stop:{type:'choice',instructions:'Stop level if TIGHTEN_STOP, else KEEP.',criteria:Object.fromEntries(stops.map(k=>[k,k==='KEEP'?'Keep the current stop.':'Move the stop to '+packet.stopChoices[k]+' ('+k+').']))},
-      desk_reason:{type:'choice',instructions:'Primary reason.',criteria:Object.fromEntries((C.reasons||['STRUCTURE_INTACT','MOMENTUM_FADING','STRUCTURE_BROKEN_AGAINST','TARGET_ZONE_NEAR','OPPOSITE_FLOW_STRONG','VOLUME_CLIMAX','TIME_DECAY','NO_EDGE']).map(k=>[k,k.toLowerCase().replace(/_/g,' ')]))}
+      desk_reason:{type:'choice',instructions:'Primary reason; it must agree with the action (a broken structure against the position is not a reason to HOLD).',criteria:Object.fromEntries((C.reasons||['STRUCTURE_INTACT','MOMENTUM_FADING','STRUCTURE_BROKEN_AGAINST','TARGET_ZONE_NEAR','OPPOSITE_FLOW_STRONG','VOLUME_CLIMAX','TIME_DECAY','NO_EDGE']).map(k=>[k,k.toLowerCase().replace(/_/g,' ')]))},
+      desk_confidence:{type:'choice',instructions:'How sure are you of this decision on this screen?',criteria:{LOW:'Mixed screen.',MEDIUM:'The main timeframes agree.',HIGH:'Trigger and structure timeframes clearly agree.'}}
     }};
     const out=await decisions(body,{reserve:true});
     if(!out.ok)return {...out,called:out.called!==false,action:'HOLD',mode:'POSITION_DESK'};
-    const a=out.data?.answers||{},action=choiceValue(a.desk_action),stop=choiceValue(a.desk_stop),reason=choiceValue(a.desk_reason);
+    const a=out.data?.answers||{},action=choiceValue(a.desk_action),stop=choiceValue(a.desk_stop),reason=choiceValue(a.desk_reason),conf=choiceValue(a.desk_confidence);
     if(!['HOLD','TAKE_PARTIAL','TIGHTEN_STOP','EXIT'].includes(action))return {ok:false,configured:true,called:true,action:'HOLD',reason:'JEV_DESK_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,mode:'POSITION_DESK',action,stopChoice:stops.includes(stop)?stop:'KEEP',reason:reason||'NO_EDGE',model:cfg.model,budget:out.budget,costUsd:out.costUsd};
+    return {ok:true,configured:true,called:true,mode:'POSITION_DESK',action,stopChoice:stops.includes(stop)?stop:'KEEP',reason:reason||'NO_EDGE',confidence:{LOW:40,MEDIUM:65,HIGH:85}[conf]??null,model:cfg.model,budget:out.budget,costUsd:out.costUsd};
   }
 
   async function sovereignBurstExit({active,stream,progress,chartContext,learning=null}={}){

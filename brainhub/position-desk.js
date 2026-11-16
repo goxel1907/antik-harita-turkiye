@@ -227,14 +227,14 @@ function summary(lessons) {
   return Object.fromEntries(Object.entries(by).map(([k, a]) => [k, agg(a)]));
 }
 // which trader looks: TEST -> testJudges (free), LIVE -> liveJudges (JEV, then free). Nothing available -> the rule keeps managing.
-async function judge({ packet, mode, cfg, judges, stats }) {
+async function judge({ packet, mode, cfg, judges, stats, advisors = null }) {
   const order = mode === 'LIVE' ? cfg.liveJudges : cfg.testJudges, st = stats || {}, tried = [];
   for (const j of order) {
     if (j === 'JEV') {
       if (typeof judges?.jev !== 'function') { tried.push('JEV_NOT_WIRED'); continue; }
-      let r; try { r = await judges.jev({ packet, choices:{ reasons:REASONS } }); } catch { r = { ok:false, reason:'JEV_DESK_EXCEPTION' }; }
+      let r; try { r = await judges.jev({ packet:advisors ? { ...packet, advisors } : packet, choices:{ reasons:REASONS }, system:SYSTEM }); } catch { r = { ok:false, reason:'JEV_DESK_EXCEPTION' }; } // R2544.179: same instruction as the committee + advisors (JEV only)
       if (r?.called) st.jev = (st.jev || 0) + 1;
-      if (r?.ok && ACTIONS.includes(r.action)) return { ok:true, judge:'JEV', model:r.model || 'jev', d:{ ok:true, action:r.action, stopChoice:STOP_CHOICES.includes(r.stopChoice) ? r.stopChoice : 'KEEP', reason:REASONS.includes(r.reason) ? r.reason : 'NO_EDGE', confidence:null, reasonTr:'', watchTr:'' }, costUsd:finite(r.costUsd), tried };
+      if (r?.ok && ACTIONS.includes(r.action)) return { ok:true, judge:'JEV', model:r.model || 'jev', d:{ ok:true, action:r.action, stopChoice:STOP_CHOICES.includes(r.stopChoice) ? r.stopChoice : 'KEEP', reason:REASONS.includes(r.reason) ? r.reason : 'NO_EDGE', confidence:finite(r.confidence), reasonTr:'JEV: ' + (REASON_TR[r.reason] || r.reason || ''), watchTr:'' }, costUsd:finite(r.costUsd), tried };
       tried.push('JEV:' + (r?.reason || 'FAILED')); continue;
     }
     if (j === 'COMMITTEE') { // R2544.86: free models decide together (round 1 independent, round 2 debate, majority; no majority -> HOLD)

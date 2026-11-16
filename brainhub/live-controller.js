@@ -6953,7 +6953,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     return r.due===true;
   }
   async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});const r=DESK.rows(k).filter(x=>x.t<=clock());r.raw=Array.isArray(k)?k:[];return r;}catch{const r=[];r.raw=[];return r;}}
-  const deskJudge=(packet,mode,cfg)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats()});
+  const deskJudge=(packet,mode,cfg,advisors=null)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats(),advisors});
   // R2544.134 KURUL KARNESİ: measured from the replayed lessons, handed to the desk committee (seat order, bench)
   const RP_VERSION='R2544.134-REPLAY';let deskKarne=null;
   function deskKarneApply(){try{const K=top3Lib.committeeKarne([...(top3State.lessons||[]),...((z5State()||{}).lessons||[])]);deskKarne=K;if(typeof deskJudges?.committee?.setRank==='function')deskJudges.committee.setRank(K);return K;}catch{return null;}}
@@ -6996,10 +6996,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         markVsStreamBps:finite(sn?.markPrice)&&pickMark?Number(((pickMark/sn.markPrice-1)*10000).toFixed(2)):null,
         frames:{m5:!!chart.m5,m15:!!chart.m15,h1:!!chart.h1,h4:!!chart.h4,d1:!!chart.d1},funding:!!funding,orderBook:micro.available===true,...(micro.available===true?{}:{orderBookReason:String(micro.reason||'').slice(0,60)})}; // R2544.139: why the stream was not ready
       const packet=DESK.packet({lot:a,mark:pickMark,k5:closed(k5),k15:closed(k15).slice(-30),k1h:closed(k1h).slice(-30),btc5:btc,oi,why:top3Why(a),now,lane,chart,micro,funding,dataCheck});
+      // R2544.179: what JEV (the boss) also reads - Goxel PRO's last look on 9 screens and what was said at the entry
+      const g0=a.goxel||null,advisors={goxel:g0?{at:finite(g0.at),curR:finite(g0.curR),peakR:finite(g0.peakR),netR:finite(g0.netR),against:finite(g0.against),big:finite(g0.big),
+        saysExit:g0.close===true||g0.lossExit===true,lossSide:g0.lossShadow===true,screens:Array.isArray(g0.screens)?g0.screens.map(x=>({screen:x.k,against:x.a})):null}:null,
+        entry:{openedBy:a.lane==='KESIF'?'MODEL_FORECAST':'RULE',model:a.entryFeatures?.kesif?.model||null,jev:a.jev?{decision:a.jev.decision||null,reason:a.jev.reason||null}:null,
+          screenLean:a.entryFeatures?.screenFacts?{for:finite(a.entryFeatures.screenFacts.leanFor),against:finite(a.entryFeatures.screenFacts.leanAgainst)}:null}};
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
       // R2544.127 JEV + KURUL: JEV decides first; when JEV cannot answer (credit, error) the committee decides - the same order in TEST and LIVE
       const both=auth&&jevKurul(laneCfgOf(a)),order=both?['JEV','COMMITTEE']:['COMMITTEE'];
-      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:deskJudges,stats:deskStats()}):deskJudge(packet,mode,cfg)),st=deskStats();st.lastAt=new Date(now).toISOString();
+      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:deskJudges,stats:deskStats(),advisors}):deskJudge(packet,mode,cfg,advisors)),st=deskStats();st.lastAt=new Date(now).toISOString();
       const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
       desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);deskLooksToday(now);deskLooks.n++;desk.lastWhy=a.deskDueWhy||null; // R2544.164
       desk.lastGx=DESK.gxSnap(a.goxel&&{against:a.goxel.against,big:a.goxel.big,need:a.goxel.need??3,needBig:a.goxel.needBig??1},desk.lastR);
@@ -7115,6 +7120,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function sozNote(s,n){s.sozRecent=[{...n,at:finite(n.at)||clock()},...(s.sozRecent||[])].slice(0,20);return n;}
   async function sozEnter(sig,s){
     const scfg=readSozConfig(),g=sozGate(scfg),res={symbol:sig.symbol,side:sig.side,model:sig.model,stopPct:sig.stopPct,targetPct:sig.targetPct,horizonH:sig.horizonH,at:clock()};
+    // R2544.179 (kullanıcı 16.11: "Zayıf söz gölgeye dönsün"): a weak holder (best candidate, lower bound <= 0) no longer opens a REAL trade.
+    // Real money 12.11-16.11: weak 16 trades -0,34R -53,36 $ vs word holders 13 trades -0,13R -16,10 $. The forecast stays in the shadow karne.
+    if(sig.weak){try{store.journal('KESIF_ZAYIF_GOLGE',sig.symbol,{...res,record:sig.record||null});}catch{}return sozNote(s,{...res,weak:true,opened:false,reason:'KESIF_ZAYIF_GOLGE'});}
     if(!g.ok)return sozNote(s,{...res,opened:false,reason:g.reason});
     if(Object.values(top3State.active||{}).filter(a=>a?.lane==='KESIF').length>=scfg.maxActive)return sozNote(s,{...res,opened:false,reason:'KESIF_SLOTS_FULL'});
     if(burstCurrentPosition(sig.symbol)||activeBurstFor(sig.symbol)||activeTop3For(sig.symbol)||(pendingOrders||[]).some(p=>String(p?.symbol||'').toUpperCase()===sig.symbol))return sozNote(s,{...res,opened:false,reason:'KESIF_SYMBOL_BUSY'});
