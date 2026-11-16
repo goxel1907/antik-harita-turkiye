@@ -1,8 +1,9 @@
-# R2544.101 JEV-Brain otomatik baslatma (kullanici 02.11: "bilgisayar yeniden kapanip acilirsa sistem yine durur ... yap; canliya
-# sadece bariz onay istesin"). Windows oturumu acilinca Baslangic klasorundeki kisayol bunu gizli pencerede calistirir.
+﻿# R2544.101 JEV-Brain otomatik baslatma + R2544.181 (kullanici 16.11: "pc yi kapatip acinca sistem otomatik kendiliginden kaldigi
+# yerden baslamali"). Windows oturumu acilinca Baslangic klasorundeki kisayol bunu gizli pencerede calistirir.
 #   Sira: 9Router (yalniz 127.0.0.1) -> cekirdek 8787 (manage.ps1 Start) -> Office 8790. Calisan bir parcaya dokunmaz.
-#   Yalniz mod TEST ise baslatir. Mod CANLI ise HICBIR SEY baslatmaz; ekrana acik bir uyari cikar, baslatmak kullanicinin
-#   JEV-BASLAT.cmd onayidir. CANLI'ya asla kendiliginden gecmez; arm / OTO / mod dosyasina dokunmaz.
+#   HER MODDA baslatir. CANLI'ya donus bu betigin isi degil: cekirdek, kullanicinin acik biraktigi otomatik yenileme kaydi
+#   (liveAutoRun=true) varsa ayni Binance kontrolunden gecerek KENDILIGINDEN devam eder (R2544.78 liveRenewTick, "PC restarted:
+#   arm again"). Otomatik yenileme kapaliysa CANLI kendiliginden ACILMAZ (fail-closed, uyari cikar). Arm / OTO / mod dosyasina dokunmaz.
 #   -DryRun: yalniz ne yapacagini yazar (deneme).
 param([switch]$DryRun, [string]$Root = 'C:\JEV-Brain', [int]$WaitNetworkSec = 120)
 $ErrorActionPreference = 'Continue'
@@ -16,21 +17,14 @@ function WaitPort([int]$port, [int]$sec) { for ($i = 0; $i -lt $sec; $i += 2) { 
 
 Say ("JEV otomatik baslatma" + ($(if ($DryRun) { ' (DENEME, hicbir sey baslatilmaz)' } else { '' })))
 
-# 1) mod: yalniz TEST
+# 1) mod: yalniz bilgi (R2544.181: her modda baslatilir; CANLI devami cekirdegin kendi otomatik yenilemesidir)
 $modeFile = Join-Path $runtime 'config\trading-mode.json'
-$mode = $null
-try { $mode = (Get-Content -Raw -Path $modeFile -Encoding utf8 | ConvertFrom-Json).mode } catch { $mode = $null }
-Say "mod: $mode"
-if ($mode -ne 'TEST') {
-    Say 'Mod TEST degil (CANLI ya da okunamadi): hicbir sey baslatilmadi. Baslatmak icin JEV-BASLAT.cmd (senin onayin).'
-    if (-not $DryRun) {
-        try {
-            Add-Type -AssemblyName PresentationFramework
-            [System.Windows.MessageBox]::Show("JEV-Brain CANLI modda kapanmisti (ya da mod okunamadi).`n`nGuvenlik icin kendiliginden BASLATILMADI.`nBaslatmak istiyorsan: C:\JEV-Brain\JEV-BASLAT.cmd (GERCEK PARA).", 'JEV-Brain - CANLI onayi gerekli', 'OK', 'Warning') | Out-Null
-        } catch {}
-    }
-    exit 0
-}
+$mode = $null; $liveAuto = $false
+try { $tm = Get-Content -Raw -Path $modeFile -Encoding utf8 | ConvertFrom-Json; $mode = $tm.mode; $liveAuto = ($tm.liveAutoRun -eq $true) } catch {}
+Say "mod: $mode - otomatik yenileme: $liveAuto"
+$warnLiveOff = ($mode -eq 'LIVE' -and -not $liveAuto)
+if ($mode -eq 'LIVE' -and $liveAuto) { Say 'CANLI + otomatik yenileme ACIK: parcalar baslatilir, cekirdek Binance kontrolunden gecip CANLI yi KENDILIGINDEN surdurur (kullanicinin acik biraktigi karar).' }
+if ($warnLiveOff) { Say 'CANLI ama otomatik yenileme KAPALI: parcalar baslatilir, CANLI kendiliginden ACILMAZ; acmak kullanicinin onayidir (Office / JEV-BASLAT.cmd).' }
 
 # 2) ag: Binance'e ulasilana kadar bekle (en cok WaitNetworkSec)
 $net = $false
@@ -65,5 +59,11 @@ elseif ($DryRun) { Say 'Office baslatilacakti (START-OFFICE.ps1)' }
 else {
     Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $runtime 'office-dashboard\START-OFFICE.ps1'), '-BrainRoot', $runtime, '-BackupRoot', (Join-Path $Root 'BrainHubBackups')) -WindowStyle Hidden
     Say ("Office baslatildi: " + $(if (WaitPort 8790 90) { 'dinliyor' } else { 'DINLEMIYOR (90 sn)' }))
+}
+if ($warnLiveOff -and -not $DryRun) {
+    try {
+        Add-Type -AssemblyName PresentationFramework
+        [System.Windows.MessageBox]::Show("JEV-Brain parcalari baslatildi; CANLI otomatik yenileme KAPALI oldugu icin CANLI kendiliginden ACILMADI.`nAcmak istiyorsan: Office 8790 ya da C:\JEV-Brain\JEV-BASLAT.cmd (GERCEK PARA).", 'JEV-Brain - CANLI onayi gerekli', 'OK', 'Warning') | Out-Null
+    } catch {}
 }
 Say 'bitti'

@@ -191,6 +191,14 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 /* R2544.102 KARAR REAKTÖRÜ */
 /* R2544.104 KOMUTA MERKEZİ */
+/* R2544.181 basit anlatım kartı (kullanıcı 16.11: "oraya bakınca en aptal kişi bile botun ne yaptığını anlasın") */
+.cc-simple{border:1px solid rgba(255,213,79,.45);border-radius:12px;padding:10px 12px;margin:0 0 10px;background:linear-gradient(180deg,#0d0f1e,#070910);font:600 12.5px/1.55 system-ui,sans-serif;color:#dbe1f7}
+.cc-simple .sh{font:800 12px system-ui,sans-serif;letter-spacing:.08em;color:#ffd54f;margin-bottom:4px}
+.cc-simple .sr{display:flex;gap:8px;align-items:flex-start;padding:3px 0;border-top:1px dashed #1d2340}
+.cc-simple .sr:first-of-type{border-top:0}
+.cc-simple .sk{flex:0 0 92px;color:#8f97b8;font-weight:800;font-size:10.5px;letter-spacing:.05em;padding-top:2px}
+.cc-simple b{color:#fff}
+.cc-simple .ok{color:#7ff0b0}.cc-simple .bad{color:#ff9aac}.cc-simple .dim{color:#8f97b8;font-weight:600}
 /* R2544.124 KÂR / ZARAR — hesap defteri */
 .pl-card{margin-top:12px}
 .pl-tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:6px 0 10px}
@@ -620,7 +628,7 @@ body.cc-compact .cc-extra{display:none !important}
   <section class="cc" id="ccCard" aria-label="Komuta merkezi">
     <div class="cc-top" id="ccTop"><span class="cc-brand">⚡ KOMUTA MERKEZİ</span><span class="cc-mode test" id="ccMode">—</span><span class="cc-clock" id="ccClock">--:--:--</span></div>
     <div class="cc-grid">
-      <div class="cc-panel" id="ccPnl"><div class="cc-h">💰 SONUÇ <span class="x" id="ccPnlSub">son 30 gün</span></div>
+      <div class="cc-panel" id="ccPnl"><div class="cc-simple" id="ccSimple" aria-label="En basit anlatım: bot ne yapıyor">—</div><div class="cc-h">💰 SONUÇ <span class="x" id="ccPnlSub">son 30 gün</span></div>
         <div class="cc-big" id="ccTotR">—</div><div class="cc-note" id="ccBal">—</div>
         <div class="cc-kpis" id="ccKpis"></div>
         <canvas class="cc-eq" id="ccEq" role="img" aria-label="Birikimli R eğrisi"></canvas>
@@ -1503,8 +1511,43 @@ function plRender(p){
     +` • ${p.cash&&p.cash.n?`<b>${p.mode==='LIVE'?'Hesaba yatan / çekilen':'TEST’e eklenen sanal ek bakiye'}: ${plUsd(p.cash.total)} (${p.cash.n} kez) — kâr/zarara KATILMAZ</b>`:'hesaba ek para hareketi yok'}`
     +(gross>0?` • komisyon brüt kârın %${Math.round(100*fee/gross)}’i`:'')+` • çubuğun üstüne gelince ayrıntı`;
 }
+// R2544.181 BASİT ANLATIM (kullanıcı 16.11: ekranda işaretlediği sol alana "istatistik + her şey; en aptal kişi bile botun ne
+// yaptığını, ne yapacağını, ne istediğini anlasın" kartı). Yalnız gösterim: sayılar zaten çekirdeğin verdiği anlık veriden gelir.
+function ccSimple(s,m){
+  const el=document.getElementById('ccSimple');if(!el)return;
+  const t=ccG(s?.top3)||{},z=ccG(s?.zirve5)||{},ks=ccG(s?.kesif)||{},p=ccG(s?.pnl)||{};
+  const row=(k,v)=>`<div class="sr"><span class="sk">${k}</span><span>${v}</span></div>`;
+  const lanesOn=m.lanes.filter(l=>l.sw?.enabled).map(l=>l.name);
+  const money=m.bal.equity!==null&&m.bal.equity!==undefined?Number(m.bal.equity).toFixed(2)+' $':'—';
+  const act=[...(t.active||[]),...(z.active||[])];
+  const actTx=act.length?act.map(a=>`<b>${esc(String(a.symbol||'').replace(/USDT$/,''))} ${esc(a.side||'')}</b>${Number.isFinite(+a.nowR)?` <span style="color:${ccCol(+a.nowR)}">${ccR(+a.nowR)}</span>`:''}`).join(' • ')+' — patron JEV + kurul + Goxel izliyor; risk azaltan emir anında uygulanır.'
+    :`Yok. Bot her 5 dakikada coinleri tarıyor${t.lastScan5?.at?' (son tarama '+esc(rxT(t.lastScan5.at))+')':''}; kurala uyan coin çıkınca girecek.`;
+  const mg=Number.isFinite(+t.marginQuote)?+t.marginQuote:30,lv=Number.isFinite(+t.leverage)?+t.leverage:10;
+  const seek=[];
+  if(lanesOn.includes('İlk 3'))seek.push('<b>İlk 3:</b> çok yükselen coin önemli bir tepeyi kırıp geri test edince LONG, tepe yapıp kırılınca SHORT');
+  if(lanesOn.includes('ZİRVE-5'))seek.push('<b>ZİRVE-5:</b> en oynak 5 coinde fiyat kırılım bölgesine dönüp hacimli mum kapatınca girer');
+  if(lanesOn.includes('KEŞİF-SÖZ'))seek.push('<b>KEŞİF-SÖZ:</b> karnesi kanıtlı modelin yeni tahmini anında gerçek işlem olur (kanıtsızlar yalnız gölgede)');
+  const SIM_TR={TOP3_ACCOUNT_UNAVAILABLE:'Binance hesabı o an okunamadı',TOP3_SYMBOL_COOLDOWN:'aynı coinde bekleme süresi',KESIF_ZAYIF_GOLGE:'zayıf söz yalnız gölge'};
+  const simTr=k=>{const t1=funTr(k);return t1===k?(SIM_TR[k]||k):t1;};
+  const f=t.funnel||null,topReason=f&&f.reasons?Object.entries(f.reasons).sort((a,b)=>b[1]-a[1])[0]:null;
+  const today=p.totals?.today||null;
+  const learn=[];
+  if(m.sg)learn.push(esc(('ekran kapısı: '+String(m.sg).split('•')[0]).replace(/ekran kapısı:\s*ekran kapısı:/,'ekran kapısı:').trim()));
+  if(ks.goxelLoss?.text)learn.push(esc(String(ks.goxelLoss.text).split('•')[0].trim()));
+  learn.push('kanıt eşiği: her iki tarafta 8 gerçek işlem');
+  el.innerHTML=`<div class="sh">🧭 BOT ŞU AN — EN BASİT ANLATIM</div>`
+    +row('ŞU AN',`${m.mode==='LIVE'?'<b class="bad">CANLI — gerçek para</b>':'<b>TEST — sanal para</b>'} • ${m.armed?'<b class="ok">çalışıyor</b>':'<b class="bad">durdurulmuş</b>'} • cüzdan <b>${money}</b> • açık hatlar: <b>${lanesOn.length?lanesOn.map(esc).join(', '):'yok'}</b>`)
+    +row('AÇIK İŞLEM',actTx)
+    +row('NE ARIYOR',seek.length?seek.join('<br>'):'<span class="dim">açık hat yok</span>')
+    +row('BULUNCA',`Beklemez, hemen girer: <b>${mg} $ × ${lv}x</b> (sizin ayarınız), aynı anda en çok <b>2 işlem</b>. Stop ve hedef anında Binance'e konur; <b>2R</b> kârda yarısı alınır, stop girişe çekilir.`)
+    +row('KİM KARAR VERİR',`Girişi kural/model açar (kurul oy verir, engellemez). Açık işlemin patronu <b>JEV</b>; cevap veremezse <b>kurul</b> (${m.healthy}/${m.total} model); <b>Goxel</b> 9 ekranı okur. Hiçbiri riski BÜYÜTEMEZ.`)
+    +row('BUGÜN',`${today?`<b>${today.trades||0} işlem</b> • net <b style="color:${plCol(today.net)}">${plUsd(today.net)}</b>`:'<span class="dim">defter bekleniyor</span>'}${m.bud?` • JEV ${m.bud.calls||0} çağrı (${Number.isFinite(+m.bud.spentUsd)?(+m.bud.spentUsd).toFixed(3):'—'} $)`:''}`)
+    +(m.open?'':row('NEDEN YOK',`${esc(m.why||'—')}${topReason?` • son 24 sa en sık engel: <b>${esc(simTr(topReason[0]))}</b> ×${topReason[1]}`:''}`))
+    +row('ÖĞRENİYOR',`<span class="dim">(gölge: para riske etmez)</span> ${learn.join(' • ')}`);
+}
 function renderCC(s){
   let m;try{m=ccModel(s);}catch(e){console.warn('cc',e);return;}CC.m=m;
+  try{ccSimple(s,m);}catch(e){console.warn('simple',e);}
   const $=id=>document.getElementById(id);
   const md=$('ccMode');if(md){md.className='cc-mode '+(m.mode==='LIVE'?'live':'test');md.textContent=m.mode==='LIVE'?'● CANLI • GERÇEK PARA':'● TEST • sanal hesap';}
   const top=$('ccTop');if(top){top.querySelectorAll('.cc-pill').forEach(x=>x.remove());const clk=$('ccClock');const add=h=>{const sp=document.createElement('span');sp.innerHTML=h;top.insertBefore(sp.firstChild,clk);};
