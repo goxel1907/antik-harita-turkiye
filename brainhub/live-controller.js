@@ -6011,7 +6011,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const TOP3_HOUR=top3Lib.HOUR;
   const TOP3_WHY={LONG_6OF6:'LONG 6/6 (hacim patlaması + ilk 7)',SHORT_TOP_FADE:'SHORT tepe sonrası (ilk 3 + tepeden ≥%15 aşağı)',
     LONG_EARLY_RETEST:'erken LONG (5 dk kırılım + geri test, hedef üst likidasyon bölgesi)',SHORT_TOP_BREAK:'tepe SHORT (5 dk yeni tepe + yapı kırılımı)'};
-  function top3Why(a){if(a?.lane==='KESIF')return `KEŞİF-SÖZ ${a.side}: ${String(a.kesif?.model||'').replace(/:free$/,'').split('/').pop()} söz sahibi (gölge karne ${a.kesif?.record?.n??'—'} sonuç, ort ${a.kesif?.record?.avgR??'—'}R) • stop %${(finite(a.stopPct)*100).toFixed(2)} • Goxel çıkışı izler`;
+  function top3Why(a){if(a?.lane==='KESIF'){const wk=(a.entryFeatures?.kesif?.weak??a.kesif?.weak)===true; // R2544.183 (16.11: ekranda zayıf aday da 'söz sahibi' yazıyordu — ekran=gerçek)
+    return `KEŞİF-SÖZ ${a.side}: ${String(a.kesif?.model||'').replace(/:free$/,'').split('/').pop()} ${wk?'ZAYIF aday (söz sahibi DEĞİL; R2544.179 sonrası gerçek işlem açmaz)':'söz sahibi'} (gölge karne ${a.kesif?.record?.n??'—'} sonuç, ort ${a.kesif?.record?.avgR??'—'}R) • stop %${(finite(a.stopPct)*100).toFixed(2)} • Goxel çıkışı izler`;}
     if(a?.lane==='ZIRVE5')return a?.z5zone?.confirmAt?`ZİRVE-5 ${a.side}: ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk ${a.side==='LONG'?'tepe':'dip'} kırılımı alanında hacimli ${a.side==='LONG'?'boğa':'ayı'} mumu (hacim ${finite(a?.z5zone?.confirm?.volMult)??'—'}x), stop alan ${a.side==='LONG'?'altı':'üstü'}, hedef likidite ${finite(a?.targetR)??'—'}R, ${finite(a?.leverage)??'—'}x`:`ZİRVE-5 SHORT (eski kural R2544.64): ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk dip kırılımı bölgesinin dengesinde SHORT, stop bölge üstü, hedef ${finite(a?.targetR)??2}R, ${finite(a?.leverage)??'—'}x`;
     return `İlk 3 avcısı ${TOP3_WHY[a?.rule]||a?.rule||'—'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
   function top3Gate(cfg){
@@ -6411,7 +6412,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       ...(sig.v2?{rulesVersion:2,tickSize:f.tickSize,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{}),
       ...(sig.z5?{lane:'ZIRVE5',strategy:z5Lib.setupFor(side),tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(z5Target?.targetR),level:finite(sig.zone.equilibrium),top:finite(sig.zone.top),
         z5zone:{side,top:sig.zone.top,bottom:sig.zone.bottom,equilibrium:sig.zone.equilibrium,liquidity:finite(sig.zone.liquidity),zoneAt:sig.zone.zoneAt,confirmAt:sig.zone.confirmAt??null,confirm:sig.zone.confirm||null}}:{}),
-      ...(sig.soz?{lane:'KESIF',strategy:KESIF.SOZ.name,kesif:{model:sig.soz.model,forecastId:sig.soz.forecastId||null,round:sig.soz.round||null,record:sig.soz.record||null},tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(KESIF.sozPlan(entryPrice,sig.soz).targetR)}:{})};
+      ...(sig.soz?{lane:'KESIF',strategy:KESIF.SOZ.name,kesif:{model:sig.soz.model,weak:sig.soz.weak===true,forecastId:sig.soz.forecastId||null,round:sig.soz.round||null,record:sig.soz.record||null},tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(KESIF.sozPlan(entryPrice,sig.soz).targetR)}:{})};
     a.requestedMarginQuote=margin;a.plannedMarginQuote=quantity*price/leverage;a.filledMarginQuote=actualFillPrice===null?null:executed*actualFillPrice/leverage;
     top3State.active[id]=a;saveTop3State();
     try{candidateStream.ensureSymbol?.(symbol);}catch{}
