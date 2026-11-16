@@ -1551,6 +1551,22 @@ const decisionPipeline={
       decisionJudge:jev.judge,
       decisionPass1:jev.sovereignPass1,
       decisionFinal:jev.sovereignFinal,
+      // R2544.184: JEV sağlayıcısı düştüğünde (kredi/anahtar/kota/ağ) Normal hattın SON KARARINI kurul verir — İlk 3'teki JEV→KURUL sırasının aynısı.
+      decisionFallback:async({candidate,unified,planOptions,stage,jevReason})=>{
+        try{
+          const opts=Array.isArray(planOptions)?planOptions.filter(p=>p&&p.id):[];
+          if(!opts.length)return {ok:true,final:pipeline.committeeFinalFromVote({planOptions:[],result:{final:'WAIT',consensus:'PLAN_YOK'},stage,jevReason})};
+          const ids=new Set(opts.map(p=>p.id));
+          const rows=opts.map(p=>p.id+': '+p.side+' '+p.lane+' giris '+p.entryPrice+' stop '+p.stopPrice+(p.invalidationSource?' ('+p.invalidationSource+')':'')).join(String.fromCharCode(10));
+          const nar=(()=>{try{const n=marketPacket(unified)?.chartNarrative?.frames||{};return ['5m','15m','1h'].map(tf=>tf+': '+String(n[tf]?.line||'').slice(0,320)).join(String.fromCharCode(10));}catch{return '';}})();
+          const system='You are the free-model trading committee. JEV (the paid final decision maker) is unavailable ('+String(jevReason||'?')+'). The fixed code prepared executable plans; choose AT MOST one to enter NOW at market, else WAIT. The stop is the plan own stop; profit protection is automatic. Be selective: WAIT costs nothing, a bad entry costs R. Answer ONLY JSON: {"choice":"<plan id or WAIT>","reason":"<short>"}';
+          const prompt=JSON.stringify({symbol:candidate?.symbol,livePrice:unified?.livePrice,plans:rows,charts:nar});
+          const parse=t=>{for(const o of deskLib.jsonObjects(String(t||''))){const c=String(o.choice||'').trim();if(c)return {ok:true,choice:ids.has(c)?c:'WAIT',reason:String(o.reason||'').slice(0,80)};}return {ok:false,reason:'NO_JSON'};};
+          const r=await deskCommittee.decide({system,prompt,validate:d=>d&&d.ok===true&&typeof d.choice==='string',parse,field:'choice',fallback:'WAIT',early:true,round2Ms:60000});
+          if(!r?.ok)return {ok:false,reason:r?.reason||'KURUL_YEDEK_FAILED'};
+          return {ok:true,final:pipeline.committeeFinalFromVote({planOptions:opts,result:r,stage,jevReason})};
+        }catch(e){return {ok:false,reason:String(e?.message||e).slice(0,80)};}
+      },
       knowledgeResearch:async({unified,evidence,familyHint})=>{
         let cortexText='';
         try{cortexText=fs.readFileSync(path.join(ROOT,'docs','JEV-PRO-TRADER-CORTEX-R2534.md'),'utf8');}catch{}
@@ -2657,7 +2673,7 @@ if(typeof claudeRunnerTimer.unref==='function')claudeRunnerTimer.unref();
 // blok olduysa risk sayıları). Salt log; karar akışına dokunmaz.
 // CLAUDE_R2544_RUNTIME_IDENTITY: çalışan PC core sürümü (featureVersion journal strategyVersion olarak
 // kullanıldığı için DEĞİŞTİRİLMEZ; Android/Office "PC sürümü" bu alandan okur).
-const RUNTIME_RELEASE='R2544.183';
+const RUNTIME_RELEASE='R2544.184';
 // R2544.67.4: last JEV provider error and last success from the persisted request logs (tail only; no request content)
 function jevLogTail(name){
   try{const f=path.join(ROOT,'logs',name),fd=fs.openSync(f,'r');try{const size=fs.fstatSync(fd).size,n=Math.min(8192,size),b=Buffer.alloc(n);fs.readSync(fd,b,0,n,size-n);
