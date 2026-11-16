@@ -42,6 +42,11 @@ function Open-Positions([string]$Root) {
     # Donus: $null = core'a ulasilamadi; aksi halde acik pozisyon sembolleri dizisi.
     try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/positions?limit=1' -Headers (Core-Headers $Root) -TimeoutSec 8 }
     catch { return $null }
+    # An error/missing/malformed list is UNKNOWN, never a verified flat account.
+    if (-not $r -or $r.ok -ne $true -or -not $r.PSObject.Properties['open'] -or $null -eq $r.open -or $r.open -isnot [System.Array]) { return $null }
+    foreach ($p in $r.open) {
+        if (-not $p -or -not [string]$p.symbol -or [string]$p.side -notin @('LONG','SHORT')) { return $null }
+    }
     $open = @()
     if ($r -and $r.PSObject.Properties['open'] -and $r.open) { $open = @($r.open) }
     return ,@($open | ForEach-Object { "$($_.symbol) $($_.side)" })   # virgul: bos dizi $null'a donusmesin
