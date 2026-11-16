@@ -68,10 +68,13 @@ try {
     if ($testFiles.Count -lt 1) { throw 'NO_TEST_FILES' }
     $temp=Join-Path $OutDir 'temporary-tests'; New-Item -ItemType Directory -Force -Path $temp | Out-Null
     $psi=New-Object Diagnostics.ProcessStartInfo
-    $psi.FileName=$node; $psi.WorkingDirectory=$Repository; $psi.UseShellExecute=$false
+    # R2544.185 (found on real Windows): passing 260 full test paths made a ~36,000 char command line, above the
+    # Windows CreateProcess limit (32,767) -> "filename or extension too long". Node 24 expands the glob itself;
+    # tests run from brainhub with 'test/*.test.js' exactly like the normal suite. File count goes to the evidence.
+    $report.testFiles=$testFiles.Count
+    $psi.FileName=$node; $psi.WorkingDirectory=(Join-Path $Repository 'brainhub'); $psi.UseShellExecute=$false
     $psi.CreateNoWindow=$true; $psi.RedirectStandardOutput=$true; $psi.RedirectStandardError=$true
-    $arguments=@('--test','--test-reporter=tap','--test-concurrency=4')+@($testFiles | ForEach-Object {$_.FullName})
-    $psi.Arguments=($arguments | ForEach-Object {'"'+$_+'"'}) -join ' '
+    $psi.Arguments='--test --test-reporter=tap --test-concurrency=4 "test/*.test.js"'
     # Do not let a user's live credentials/config variables enter test workers.
     $psi.EnvironmentVariables.Clear()
     foreach ($name in @('PATH','SystemRoot','WINDIR','ComSpec','PATHEXT','PROCESSOR_ARCHITECTURE','USERPROFILE','APPDATA','LOCALAPPDATA','HOMEDRIVE','HOMEPATH','USERNAME','USERDOMAIN','OS','NUMBER_OF_PROCESSORS','PSModulePath')) {
