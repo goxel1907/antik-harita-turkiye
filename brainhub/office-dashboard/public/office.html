@@ -2722,7 +2722,9 @@ function renderV109(s){
   const c111=h.claudeV111||null;
   const cfg111=c111?.config||s.health?.data?.claudeV111Config||st.claudeV111Config||{};
   const cfg=cv?.config||s.health?.data?.claudeV109Config||st.claudeV109Config||{};
-  chip('#chipClaude', st.jevSovereign?.enabled?'good':'warn', st.jevSovereign?.enabled?(st.jev?.decisionFailover?.wired?'JEV • KURUL YEDEĞİ':'JEV SON KARAR'):'KARAR YETKİSİ BEKLENİYOR');
+  { // R2544.185 (Claude incelemesi): 'yedek BAĞLI' ile 'kurul KARAR VERİYOR' ayrı; bağlı olmak karar vermek değildir
+    const fo=st.jev?.decisionFailover, lastC=fo?.last?.owner==='COMMITTEE'&&fo.last.at&&(Date.now()-Date.parse(fo.last.at))<15*60000;
+    chip('#chipClaude', st.jevSovereign?.enabled?(lastC?'warn':'good'):'warn', st.jevSovereign?.enabled?(lastC?'KURUL YEDEĞİ KARAR VERDİ (JEV kredisiz)':fo?.wired?'JEV SON KARAR (yedek bağlı)':'JEV SON KARAR'):'KARAR YETKİSİ BEKLENİYOR'); }
   const sovereign=st.jevSovereign?.enabled===true || s.health?.data?.jevSovereign?.enabled===true;
   const jevPolicyEl=$('#jevPolicy'); if(jevPolicyEl) jevPolicyEl.textContent = sovereign ? 'JEV SON KARAR • tarayıcı yalnız aday bulur' : (cfg.jevVetoPolicy==='CLAUDE_V109_ROLE_WEIGHTED' ? 'Claude rol-ağırlıklı' : 'legacy v108');
   const pct=v=>{const n=num(v); return n==null?'—':(n>0?'+':'')+n.toFixed(2)+'%';};
@@ -3042,7 +3044,7 @@ function renderMode(s){
       +`<br><b>Kâr/zarar: TOPLAM ${usdtS(p.total??(num(p.equity)-num(p.startBalance)))}</b> = kapanan işlem/parçalar ${usdtS(p.realized)} + ücret ${usdtS(p.fees)} + açık pozisyon (anlık) ${usdtS(p.unrealized)}`
       +`<br>Başlangıç ${usdt(p.startBalance)}${num(p.deposited)>0?` (içinde marj için eklenen sanal ${usdt(p.deposited)}, ${num(p.deposits)} kez — sonuca katılmaz)`:''} • özkaynak ${usdt(p.equity)} • nakit bakiye ${usdt(p.wallet)} • kullanılabilir ${usdt(p.available)} • açık ${num(p.openPositions)??0} • dolum ${num(p.fills)??0} • vur-kaç TEST’te açık`;
   } else {
-    info='<b>Gerçek para:</b> emirler Binance hesabınızdaki bakiye ve marjla gider. Vur-kaç canlıda kapalı (yalnız TEST’te).';
+    info='<b>Gerçek para:</b> emirler Binance hesabınızdaki bakiye ve marjla gider. Vur-kaç CANLI’da yalnız Normal sistem (JEV) de seçiliyken çalışır; JEV ön-yetkisi olmadan açılmaz.'; // R2544.185: eski 'yalnız TEST' metni gerçeği söylemiyordu (burstAllowedNow: burstLiveEnabled = normal && burst)
     // R2544.78: the LIVE start renews itself until the user ends it (Durdur / TEST’e dön / LIVE-KAPAT)
     const hm=v=>v?new Date(v).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
     if(run?.liveAutoRun) info+=`<br><b>Otomatik yenileme AÇIK:</b> sen “Durdur” ya da “TEST’e dön” diyene kadar canlı kalır. `+(armed&&run.armExpiresAt?`Başlatma ${esc(hm(run.armExpiresAt))}’e kadar geçerli, ${esc(hm(run.nextRenewAt))}’den itibaren Binance kontrolüyle kendiliğinden yenilenir.`:'Başlatma şu an kapalı; PC Binance kontrolü geçince kendiliğinden yeniden başlatır.')
