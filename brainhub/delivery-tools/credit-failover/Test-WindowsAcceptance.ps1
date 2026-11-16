@@ -39,14 +39,18 @@ try {
         . $Common
         function Core-Headers([string]$Root) { return @{} }
         function Invoke-RestMethod { return $script:acceptanceReply }
-        foreach ($reply in @([pscustomobject]@{},[pscustomobject]@{ok=$false;open=@()},[pscustomobject]@{ok=$true;open=$null},[pscustomobject]@{ok=$true;open='bad'})) {
+        $now=[DateTimeOffset]::UtcNow.ToString('o')
+        foreach ($reply in @([pscustomobject]@{},[pscustomobject]@{ok=$false;open=@()},[pscustomobject]@{ok=$true;open=$null},[pscustomobject]@{ok=$true;open='bad'},
+            [pscustomobject]@{ok=$true;open=@();ledgerOk=$false;asOf=$now},
+            [pscustomobject]@{ok=$true;open=@();ledgerOk=$true;asOf=[DateTimeOffset]::UtcNow.AddMinutes(-5).ToString('o')},
+            [pscustomobject]@{ok=$true;open=@();ledgerOk=$true;asOf=[DateTimeOffset]::UtcNow.AddMinutes(5).ToString('o')})) {
             $script:acceptanceReply=$reply
             if ($null -ne (Open-Positions 'unused')) { throw 'UNREADABLE_POSITIONS_TREATED_AS_ZERO' }
         }
-        $script:acceptanceReply=[pscustomobject]@{ok=$true;open=@()}
+        $script:acceptanceReply=[pscustomobject]@{ok=$true;open=@();ledgerOk=$true;asOf=$now}
         $empty=Open-Positions 'unused'
         if ($null -eq $empty -or $empty.Count -ne 0) { throw 'VERIFIED_ZERO_POSITIONS_REJECTED' }
-        $script:acceptanceReply=[pscustomobject]@{ok=$true;open=@([pscustomobject]@{symbol='TESTUSDT';side='LONG'})}
+        $script:acceptanceReply=[pscustomobject]@{ok=$true;open=@([pscustomobject]@{symbol='TESTUSDT';side='LONG'});ledgerOk=$true;asOf=$now}
         $open=Open-Positions 'unused'
         if ($open.Count -ne 1 -or $open[0] -ne 'TESTUSDT LONG') { throw 'OPEN_POSITION_LOST' }
     } (Join-Path $Repository 'brainhub\jev-brain\common.ps1')

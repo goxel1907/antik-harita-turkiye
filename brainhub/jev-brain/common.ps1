@@ -43,7 +43,11 @@ function Open-Positions([string]$Root) {
     try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/live/positions?limit=1' -Headers (Core-Headers $Root) -TimeoutSec 8 }
     catch { return $null }
     # An error/missing/malformed list is UNKNOWN, never a verified flat account.
-    if (-not $r -or $r.ok -ne $true -or -not $r.PSObject.Properties['open'] -or $null -eq $r.open -or $r.open -isnot [System.Array]) { return $null }
+    if (-not $r -or $r.ok -ne $true -or $r.ledgerOk -ne $true -or -not $r.PSObject.Properties['open'] -or $null -eq $r.open -or $r.open -isnot [System.Array]) { return $null }
+    $observed=[DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse([string]$r.asOf,[ref]$observed)) { return $null }
+    $age=([DateTimeOffset]::UtcNow-$observed.ToUniversalTime()).TotalSeconds
+    if ($age -lt 0 -or $age -gt 90) { return $null }
     foreach ($p in $r.open) {
         if (-not $p -or -not [string]$p.symbol -or [string]$p.side -notin @('LONG','SHORT')) { return $null }
     }

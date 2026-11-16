@@ -8,7 +8,7 @@ Windows disinda veya eksik/basarisiz test varsa `WINDOWS_COMPONENT_ACCEPTANCE_FA
 
 GitHub workflow'u `jev-windows-acceptance.yml`, bu teslim dalina push ile Windows runner istemektedir. Runner/billing engeli, workflow baslatma veya job olusmasi testlerin gectigi anlamina gelmez. Yalniz gercek adim sonucu ve kabul raporu kanit sayilir. Kaynaklara uretilmis sahte bir Windows BASARILI raporu eklenmez.
 
-Ek guvenlik duzeltmesi: `common.ps1 / Open-Positions`, ok=false, eksik/null/metin turunde liste veya hatali pozisyon satirini sifir pozisyon gibi yorumlamaz. Yalniz ok=true ve dogrulanmis bos dizi sifir kabul edilir. Yerel ust-kok common.ps1 de bu teslimden alinmadikca eski deploy okuyucusu degismis sayilmaz.
+Ek guvenlik duzeltmesi: `common.ps1 / Open-Positions`, ok=false, ledgerOk=false, eksik/null/metin turunde liste, hatali pozisyon satiri veya 90 saniyeden eski/gelecek tarihli defteri sifir pozisyon gibi yorumlamaz. Yalniz ok=true, ledgerOk=true, guncel tarih ve dogrulanmis bos dizi sifir kabul edilir. Yerel ust-kok common.ps1 de bu teslimden alinmadikca eski deploy okuyucusu degismis sayilmaz.
 
 Bu ortamda Windows PC baglantisi yoktur. Linux uzerinde PowerShell 7 ile tum kaynak betikleri parse edildi ve gercek pozisyon on kontrolu mock yanitlarla calistirildi; bunlar Windows PowerShell 5.1/DPAPI kabulunun yerine gecmez. Windows kabul betiginin Linux'ta BASARISIZ raporu urettigi de dogrulandi.
 
