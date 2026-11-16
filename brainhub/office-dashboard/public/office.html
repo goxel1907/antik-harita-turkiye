@@ -190,6 +190,10 @@ td.wait{max-width:340px;color:var(--text-secondary)}
 button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 /* R2544.102 KARAR REAKTÖRÜ */
+/* R2544.182 bölüm aç/kapa (hatlar gibi) */
+.sec-tgl{float:right;margin-left:8px;font:700 11px system-ui,sans-serif;color:#9fe3ff;background:#0d1124;border:1px solid #2a3356;border-radius:8px;padding:3px 9px;cursor:pointer}
+.sec-tgl:hover{border-color:#4a5a8a}
+.sec-off>*:not(.sec-keep){display:none!important}
 /* R2544.104 KOMUTA MERKEZİ */
 /* R2544.181 basit anlatım kartı (kullanıcı 16.11: "oraya bakınca en aptal kişi bile botun ne yaptığını anlasın") */
 .cc-simple{border:1px solid rgba(255,213,79,.45);border-radius:12px;padding:10px 12px;margin:0 0 10px;background:linear-gradient(180deg,#0d0f1e,#070910);font:600 12.5px/1.55 system-ui,sans-serif;color:#dbe1f7}
@@ -692,7 +696,7 @@ body.cc-compact .cc-extra{display:none !important}
     <div id="moverHost" aria-live="polite">Denetim verisi bekleniyor.</div>
   </section>
   <!-- R2544.67.2 (user 20.10: "office katını da kaldırmışsın"): R2544.59 folded these sections closed; they are OPEN by default again -->
-  <details class="legacy-jev" id="legacyJevA" open><summary>JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
+  <details class="legacy-jev" id="legacyJevA"><summary>JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
   <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
   <section class="lane-strip" id="laneStrip"></section>
 
@@ -710,7 +714,7 @@ body.cc-compact .cc-extra{display:none !important}
   </section>
   </details>
 
-  <section class="mirror-wide">
+  <section class="mirror-wide" id="secMirror">
     <div class="card mirror-card">
       <h2>📡 JEV Canlı Görüş Aynası — Tam Görünüm <span class="hint">salt-okunur • JEV sayısal paketi + Vision grafiği • 5 sn</span></h2>
       <div class="mirror-controls">
@@ -754,7 +758,7 @@ body.cc-compact .cc-extra{display:none !important}
     </div>
   </section>
 
-  <details class="legacy-jev" id="legacyJevB" open><summary>JEV hattı — JEV kanıt/karar kartları, takip edilen setuplar, vaka hafızası, kaynaklar, giriş öncesi mikroyapı <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
+  <details class="legacy-jev" id="legacyJevB"><summary>JEV hattı — JEV kanıt/karar kartları, takip edilen setuplar, vaka hafızası, kaynaklar, giriş öncesi mikroyapı <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
   <section class="row4">
     <div class="card">
       <h2>Grafik Kanıtı / GPU Audit (opsiyonel) <span class="hint" id="visHint"></span></h2>
@@ -783,10 +787,7 @@ body.cc-compact .cc-extra{display:none !important}
   </section>
 
   <section class="row2">
-    <div class="card">
-      <h2>Takip edilen setuplar <span class="hint">⚠ = somut bekleme koşulu yok • tetik = kapanış seviyesi</span></h2>
-      <div style="overflow:auto"><table id="setups"></table></div>
-    </div>
+    <!-- R2544.182: "Takip edilen setuplar" kaldırıldı (hepsi ESKİ/LEGACY bayat kayıttı; veri çekirdekte duruyor) -->
     <div class="card tl">
       <h2>Son 60 dk plan kararları <span class="hint">5 dk'lık dilimler</span></h2>
       <div id="timeline"></div>
@@ -821,8 +822,8 @@ body.cc-compact .cc-extra{display:none !important}
 
   </details>
   <!-- CLAUDE_R2544_15_GAINER_LADDER: canlı merdiven (ilk 3 / 4-10 / 11-24), erken teşhis ve erken ilgi -->
-  <section><div class="card"><h2>Yükselenler merdiveni (Binance 24s, canlı)</h2><div id="ladderMeta" class="muted"></div><div style="overflow:auto"><table id="ladderTable"></table></div><div id="ladderSide" class="muted" style="margin-top:6px"></div></div></section>
-  <section><div class="card"><h2>Analiz yolu ve işlem engelleri</h2><div id="cpuPolicy"></div><div id="priorityQueue"></div><div style="overflow:auto"><table id="decisionChains"></table></div></div></section>
+  <section id="secLadder"><div class="card"><h2>Yükselenler merdiveni (Binance 24s, canlı)</h2><div id="ladderMeta" class="muted"></div><div style="overflow:auto"><table id="ladderTable"></table></div><div id="ladderSide" class="muted" style="margin-top:6px"></div></div></section>
+  <section id="secAnalysis"><div class="card"><h2>Analiz yolu ve işlem engelleri</h2><div id="cpuPolicy"></div><div id="priorityQueue"></div><div style="overflow:auto"><table id="decisionChains"></table></div></div></section>
   <!-- CLAUDE_V113_POSITION_LEDGER: Binance açık pozisyonlar + kapanan işlem sonuçları (Brain Hub defteri, 30 sn) -->
   <section>
     <div class="card">
@@ -1637,7 +1638,8 @@ function rxModel(s){
   const closes=[...(t.recentCloses||[]),...(z.recentCloses||[])].map(c=>({s:String(c.symbol||'').replace(/USDT$/,''),R:rxNum(c.rMultiple),at:Date.parse(c.closedAt)||0,lane:String(c.setup||'').startsWith('ZIRVE5')?'ZİRVE-5':'İlk 3'}))
     .filter(c=>c.R!==null).sort((a,b)=>b.at-a.at).slice(0,40);
   const ticker=[];
-  for(const x of (pd.cmRecent||[]).slice(0,6))ticker.push(`${rxT(x.at)}🤝 ${String(x.symbol||'').replace(/USDT$/,'')} ${x.side||''}: kurul ${RX_TR[x.d]||x.d} — ${RX_CONS[x.c]||x.c||''}${x.blocked?' → İŞLEM AÇILMADI':''}`);
+  // R2544.182: 48 saatten eski kurul kaydı şeride girmez (bayat ARIA/HOT/SIREN dönüyordu)
+  for(const x of (pd.cmRecent||[]).filter(x=>x&&Number.isFinite(+x.at)&&Date.now()-+x.at<172800000).slice(0,6))ticker.push(`${rxT(x.at)}🤝 ${String(x.symbol||'').replace(/USDT$/,'')} ${x.side||''}: kurul ${RX_TR[x.d]||x.d} — ${RX_CONS[x.c]||x.c||''}${x.blocked?' → İŞLEM AÇILMADI':''}`);
   for(const a of lots){const d=a.deskInfo?.last;if(d)ticker.push(`🧑‍💼 ${String(a.symbol||'').replace(/USDT$/,'')} masa: ${RX_TR[d.action]||d.action}${d.committee?.consensus?' — '+(RX_CONS[d.committee.consensus]||d.committee.consensus):''}${d.authority===true?' (YETKİLİ)':' (gölge)'}${(f=>f&&f.short?' • '+f.short:'')(deskFate(d,a.deskInfo))}`);}
   for(const c of closes.slice(0,6))ticker.push(`${rxT(c.at)}${c.R>0?'✅':'⛔'} ${c.s} ${c.R>0?'+':''}${c.R.toFixed(2)}R kapandı (${c.lane})`);
   // R2544.103: every committee model with a plain state (çalışıyor / yoğun / kota bitti / hasta) and the short reason
@@ -2318,6 +2320,7 @@ function isFakeWait(w){ const z=String(w||'').trim().toUpperCase(); return !z ||
 function renderSetups(s){
   const rows = s.status?.data?.leaderAuto?.analysisLifecycle?.rows||[];
   const head = `<tr><th>Sembol</th><th>Yön</th><th>Hat</th><th>Momentum</th><th>Durum</th><th>Plan</th><th>TF</th><th>Tetik</th><th>Kanıt ajanı</th><th>Beklenen</th><th>Son</th></tr>`;
+  if(!document.getElementById('setups'))return; // R2544.182: kart kaldırıldı
   $('#setups').innerHTML = head + (rows.length ? rows.slice(0,24).map(r=>{
     const plan=String(r.planStatus||''); const fake = (plan==='WATCH'||String(r.state||'')==='WATCH') && String(r.waitFor||'').trim()!=='' && isFakeWait(r.waitFor);
     const lane=r.tradeLaneName==='SCALP_MOMENTUM'?'SCALP':r.tradeLaneName==='MAIN_15M'?'15m ANA':(r.tradeLaneName||'—');
@@ -2423,9 +2426,7 @@ function renderLedger(s){
         <div style="overflow:auto"><table><tr><th>Analiz/P1/P2</th><th>Al/Sat/Bekle</th><th>Şimdi giriş</th><th>Onay/Güv./Emir</th><th>Kapanış</th><th>Açık PnL</th></tr>
           <tr><td>${r.analyses}/${r.pass1}/${r.pass2}</td><td>${r.long}/${r.short}/${r.wait}</td><td>${r.marketNow}</td><td>${r.approved}/${r.safetyPassed}/${r.orders}</td><td>${r.closed} (${r.wins}/${r.losses}/${r.flats})</td><td>${n(r.openPnl)} USDT</td></tr></table></div>
         <p class="hint">benzersiz coin ${r.uniqueCoverage} • tekrar %${n(r.reanalysisRatePct)}</p>
-        <div class="hint" style="font-weight:700;margin:10px 0 4px">KAPANMIŞ İŞLEMLER — TÜM GEÇMİŞ / İŞLEM SÖZLEŞMESİ</div>
-        <div style="overflow:auto"><table><tr><th>İşlem sözleşmesi</th><th>Kapanış K/Z</th><th>Net USDT</th><th>Ort R</th></tr>${rows.map(x=>`<tr><td>${esc(x.version==='LEGACY'?'Eski / etiketsiz':x.version.split('_')[0])}</td><td>${x.closed} (${x.wins}/${x.losses})</td><td>${n(x.netPnl)}</td><td>${n(x.avgR)}</td></tr>`).join('')}</table></div>
-        <p class="hint">Bu alt tablo yalnız kapanmış işlemlerde değişir; açık işlemin PnL'si sürüm toplamına eklenmez. R2542 etiketi runtime sürümü değil işlem telemetrisi sözleşmesidir.</p></div>`;
+        <p class="hint">eski sürüm tarihçesi kaldırıldı (R2544.182; kayıtlar defterde duruyor)</p></div>`;
     }).join('');
     const dist=o=>Object.entries(o||{}).map(([k,v])=>`${trUi(k)}: ${v}`).join(' • ')||'—';
     $('#deskPerfHint').textContent=`Tüm defter • son 60 dk benzersiz coin ${f.uniqueCoverage} • tekrar analiz %${n(f.reanalysisRatePct)} • aynı kanıtla atlanan ${f.dedupeSkipped}. ${perf.historyNote}`;
@@ -2988,7 +2989,7 @@ async function renderMirror(s){
       ['Son JEV paketinin grafik seviyeleri', recorded?.chartOverlayLevels?.[tf]?`Kayıtlı ${tf}: aralık ${mirrorFmt(recorded.chartOverlayLevels[tf].rangeLow)} / ${mirrorFmt(recorded.chartOverlayLevels[tf].rangeHigh)} • Fib .618 ${mirrorFmt(recorded.chartOverlayLevels[tf].fib618)} • FVG ${fmtRange(recorded.chartOverlayLevels[tf].nearestFvg)} • OB ${fmtRange(recorded.chartOverlayLevels[tf].nearestOb)} • bu son kararın zamanına aittir`:'Bu karar kaydında yeni seviye izi yok; eski PC/karar kaydı olabilir'],
       ['Son JEV paketinin kırılım / trend izi',recorded?.chartOverlayLevels?.[tf]?.breakoutEvidence?fmtBreaks(recorded.chartOverlayLevels[tf].breakoutEvidence)+' • '+fmtTrends(recorded.chartOverlayLevels[tf].trendLines):'Bu karar kaydı R32 kırılım/trend izini içermiyor'],
       ['PASS-2', d.ts?`${trUi(p2.action||pl.side||'WAIT')} • ${trUi(p2.setupFamily||pl.setupFamily||'—')} • giriş ${trUi(p2.entryTiming||pl.entryTiming||'—')} • avantaj ${trUi(p2.edgeBasis||pl.edgeBasis||'—')}`:'henüz son karar kaydı yok'],
-      ['Son karar görüntüsü', d.ts?`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski kayıt / kesin snapshot yok':mirrorFmt(recordedPx,4)}${ageSec!=null&&ageSec>120?' • ⚠ ESKİ KARAR — ŞİMDİKİ PİYASA İLE KARIŞTIRMA':''}`:'—']
+      ['Son karar görüntüsü', d.ts?(ageSec!=null&&ageSec>86400?'24 saatten eski — gizlendi (yeni JEV kararı gelince görünür)':`${ageSec===null?'—':ageSec+' sn önce'} • kayıt fiyatı ${recordedPx==null?'eski kayıt / kesin snapshot yok':mirrorFmt(recordedPx,4)}${ageSec!=null&&ageSec>120?' • ⚠ ESKİ KARAR — ŞİMDİKİ PİYASA İLE KARIŞTIRMA':''}`):'—']
     ];
     $('#mirrorKv').innerHTML=rows.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
     const visionText=String(d?.vision?.textExcerpt||'').trim();
@@ -3475,7 +3476,7 @@ function renderZ5(s){
   html+=`<p><b>Sonuçlar (30 gün)</b> — <b>SHORT</b> ${line('TEST',R.short?.test)} • ${line('CANLI',R.short?.live)}</p>`;
   {const Lz=z.learning||{};for(const [rule,lines] of Object.entries(Lz.causes||{}))if(lines&&lines.length)html+=`<p><b>🔎 ${esc(/^ZIRVE5_FIBO_/.test(rule)?'ZİRVE-5 '+rule.slice(12):t3tr(rule))} — neden / nasıl</b><br>`+lines.map(esc).join('<br>')+'</p>';
    for(const x of (Lz.recent||[]))if(x.autopsy)html+=`<p class="t3rule">${esc(x.symbol)} ${esc(x.side)} ${(x.R>=0?'+':'')+Number(x.R).toFixed(2).replace('.',',')}R — ${esc(x.autopsy)}</p>`;}
-  if(R.oldRule?.closed)html+=`<p class="muted">Eski kural (R2544.64, yalnız SHORT, ortaya dokununca kör giriş): ${line('toplam',R.oldRule)} • 📚 hafıza ${Number(z.learning?.lessons)||0} ders${sw.jevMode?' (JEV her kararda okur)':''}</p>`;
+  // R2544.182: R2544.64 eski-kural tarihçe satırı kaldırıldı
   const rc=(z.recentCloses||[]).slice(0,5);
   if(rc.length)html+='<p>Son kapananlar: '+rc.map(x=>`${esc(x.symbol)} ${sideTxt(x.side)} ${esc(z5tr(x.exitType))} ${pnl(x.netPnl)} ${rr(x.rMultiple)}`).join(' • ')+'</p>';
   el.innerHTML=html;
@@ -3670,6 +3671,25 @@ $('#mirrorZoomReset').addEventListener('click',()=>{mirrorView.z=1;mirrorView.x=
 })();
 try{ccCompactInit();}catch(e){console.warn("ccCompact",e);} // R2544.104
 buildOffice(); tick(); setInterval(tick, 5000);
+
+// R2544.182 BÖLÜM AÇ/KAPA (kullanıcı 16.11: "kullanılan yerlere hatlar gibi aç kapa butonu; önemliler açık kalabilir; Office anlık odaklı").
+// Yalnız görünüm: kapalı bölümün verisi toplanmaya ve çekirdeğe gitmeye devam eder. Seçim bu tarayıcıda saklanır.
+(function(){
+  const SEC=[['walletCard','Cüzdan / pozisyonlar',1],['ccCard','Komuta Merkezi',1],['secMirror','JEV canlı görüş aynası (grafikler)',1],
+    ['burstCard','Vur-kaç',0],['top3Card','İlk 3 ayrıntı + ayarlar',0],['z5Card','ZİRVE-5 ayrıntı + ayarlar',0],
+    ['researchCard','Kaynak laboratuvarı (yalnız bilgi)',0],['moverCard','Kaçan hareket denetimi (ölçüm)',0],
+    ['secLadder','Yükselenler merdiveni',0],['secAnalysis','Analiz yolu',0]];
+  let st={};try{st=JSON.parse(localStorage.getItem('officeSec182')||'{}')}catch{}
+  for(const[id,name,def]of SEC){const el=document.getElementById(id);if(!el)continue;
+    const box=el.children.length===1?el.firstElementChild:el;
+    const head=box.querySelector(':scope>h2,:scope>.wc-head,:scope>.cc-top')||box.querySelector('h2,.wc-head,.cc-top')||box.firstElementChild;if(!head)continue;
+    let keep=head;while(keep.parentElement&&keep.parentElement!==box)keep=keep.parentElement;keep.classList.add('sec-keep');
+    const b=document.createElement('button');b.className='sec-tgl';b.type='button';
+    const apply=v=>{box.classList.toggle('sec-off',!v);b.textContent=v?'▲ kapat':'▼ aç';b.title=name+(v?' — kapat (yalnız görünüm; veri toplanmaya devam eder)':' — aç');};
+    apply(st[id]===undefined?def===1:st[id]===true);
+    b.onclick=()=>{const v=box.classList.contains('sec-off');apply(v);st[id]=v;try{localStorage.setItem('officeSec182',JSON.stringify(st))}catch{}};
+    (keep.querySelector('h2')||keep).appendChild(b);}
+})();
 </script>
 </body>
 </html>

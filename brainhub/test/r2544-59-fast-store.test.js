@@ -61,11 +61,11 @@ test('R2544.59 consumers never mutate the shared rows (frozen rows pass through 
 
 test('R2544.59 release marker', () => {
   const src=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.181';/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.182';/);
   assert.match(src('store.js'),/R2544.59_OFFICE_RECORDS_CACHE/);
   assert.match(src('store.js'),/R2544.59_CLOSE_LIST_CACHE/);
   assert.match(src('store.js'),/CREATE INDEX IF NOT EXISTS learning_events_kind_ts ON learning_events\(kind,ts DESC\)/);
-  assert.match(src('jev-brain/JEV-DEPLOY.ps1'),/\$EXPECTED_RELEASE = 'R2544.181'/);
+  assert.match(src('jev-brain/JEV-DEPLOY.ps1'),/\$EXPECTED_RELEASE = 'R2544.182'/);
 });
 
 test('R2544.59 close lists: cached learningContext/tradeLessons/caseMemory equal a fresh store, and new rows show at once', () => {
@@ -102,7 +102,7 @@ test('R2544.59 Office review fixes: mirror does not await the scanner, İlk 3 v2
   const a=html.indexOf('id="legacyJevA"'),b=html.indexOf('id="legacyJevB"');
   for(const id of ['deskCards','officeHost','blockers'])assert.ok(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a),id+' in the JEV section');
   // R2544.67.2 (user 20.10: "office katını da kaldırmışsın"): the JEV sections (desks, office floor, sources) are OPEN by default
-  assert.match(html,/<details class="legacy-jev" id="legacyJevA" open>/);assert.match(html,/<details class="legacy-jev" id="legacyJevB" open>/);
+  assert.match(html,/<details class="legacy-jev" id="legacyJevA">/);assert.match(html,/<details class="legacy-jev" id="legacyJevB">/); // R2544.182: varsayılan KAPALI
   for(const id of ['top3Card','mirrorClean','ladderTable','openPos','closedPos'])assert.ok(html.indexOf(`id="${id}"`)>0&&!(html.indexOf(`id="${id}"`)>a&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',a))&&!(html.indexOf(`id="${id}"`)>b&&html.indexOf(`id="${id}"`)<html.indexOf('</details>',b)),id+' stays visible');
 });
 

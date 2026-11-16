@@ -61,8 +61,8 @@ test('R2544.17 rejim bağlamı trend ile yön ilişkisini ve chase/stretch bilgi
 test('R2544.17 Office kartı canlı 60dk ile lifetime kapanışları ayırır',()=>{
   const html=src('office-dashboard/public/office.html');
   assert.match(html,/CANLI — SON 60 DK/);
-  assert.match(html,/KAPANMIŞ İŞLEMLER — TÜM GEÇMİŞ \/ İŞLEM SÖZLEŞMESİ/);
-  assert.match(html,/R2542 etiketi runtime sürümü değil işlem telemetrisi sözleşmesidir/);
+  assert.ok(!html.includes('KAPANMIŞ İŞLEMLER — TÜM GEÇMİŞ')); // R2544.182: eski sürüm tarihçesi kaldırıldı (kullanıcı 16.11)
+  assert.match(html,/eski sürüm tarihçesi kaldırıldı \(R2544\.182/); // R2542 tabloları kullanıcı 16.11 kararıyla kaldırıldı
 });
 
 test('R2544.17 9Router cooldown sonrası denenmiş başarısız modeli untested diye gizlemez',()=>{
@@ -78,7 +78,7 @@ test('R2544.17 curated OSS registry karar kalitesi araştırma kaynaklarını i�
 });
 
 test('R2544.27 sürüm kimliği',()=>{
-  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.181'/);
-  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2.5.157-R2544.181-JEV-Brain'/);
+  assert.match(src('server.js'),/const RUNTIME_RELEASE='R2544.182'/);
+  assert.match(src('office-dashboard/office-server.js'),/OFFICE_VERSION = '2.5.158-R2544.182-JEV-Brain'/);
   assert.match(src('server.js'),/R2544_27_BINANCE_RATE_LIMIT_GUARD/);
 });
