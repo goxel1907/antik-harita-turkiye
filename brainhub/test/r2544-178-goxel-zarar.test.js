@@ -22,5 +22,5 @@ test('R2544.178 wiring: shadow only (no deskOrder on the loss side), kept in the
   assert.match(lc, /store\.journal\('GOXEL_LOSS_SHADOW'/);
   assert.match(lc, /if\(c\?\.goxelLoss\)lesson\.goxelLoss=\{n:c\.goxelLoss\.n\|\|0,firstAt:/);
   assert.match(lc, /goxelLoss:\(\(\)=>\{try\{return KESIF\.goxelLossBook\(/);
-  assert.match(html, /el\.innerHTML=svg\+glc\+glh\+glz\+hth\+cbh\+/);
+  assert.match(html, /el\.innerHTML=gxWhat\+svg\+glc\+glh\+glz\+hth\+cbh\+/); // R2544.185: gerçek/gölge şeridi önde
 });
