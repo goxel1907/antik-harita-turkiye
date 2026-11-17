@@ -6957,6 +6957,33 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   async function deskKlines(symbol,interval,limit){try{const k=await transport._fetchJson('GET','/fapi/v1/klines',{params:{symbol,interval,limit:String(limit)}});const r=DESK.rows(k).filter(x=>x.t<=clock());r.raw=Array.isArray(k)?k:[];return r;}catch{const r=[];r.raw=[];return r;}}
   const deskJudge=(packet,mode,cfg,advisors=null)=>DESK.judge({packet,mode,cfg,judges:deskJudges,stats:deskStats(),advisors});
+  // R2544.187 (kullanıcı 17.11 "kurulun ne dediği de JEV'e gitsin" -> "Paralel, beklemesin"): JEV + Kurul modunda kurul aynı masa paketini
+  // ARKA PLANDA değerlendirir; JEV hiç beklemez (eklenen gecikme 0). JEV bir SONRAKİ bakışta kurulun son görüşünü + kurulun ölçülmüş masa
+  // karnesini (kurala göre fark) görür. Kurulun bu paralel kararı EMİR ÜRETMEZ; yalnız JEV'e görüş ve ölçüm için kaydedilir.
+  const deskCmViews=new Map();let deskCmRunning=0,deskSumCache={at:0,v:null};
+  const DESK_CM_MAX_AGE_MS=15*60000;
+  function deskCmKarne(lane){
+    if(clock()-deskSumCache.at>10*60000){try{const z=z5State()||{};deskSumCache={at:clock(),v:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))])};}catch{deskSumCache={at:clock(),v:null};}}
+    const row=deskSumCache.v&&(deskSumCache.v[lane]||deskSumCache.v.ILK3)||null;
+    return row?{n:row.n,acted:row.acted??null,planR:row.ruleR,deskR:row.deskR,deltaVsPlanR:row.deltaR,note:'masa (JEV+kurul) kararları uygulansaydı ile kural kendi haline bırakılsaydı farkı; eksi = masa planın altında'}:null;
+  }
+  function deskCmView(a,now){
+    const v=deskCmViews.get(a.id);
+    if(!v||now-v.at>DESK_CM_MAX_AGE_MS)return {available:false,reason:v?'KURUL_GORUSU_ESKI':'KURUL_GORUSU_HENUZ_YOK',karne:deskCmKarne(a.lane==='ZIRVE5'?'ZIRVE5':'ILK3')};
+    return {available:true,authority:'EVIDENCE_ONLY',ageSec:Math.round((now-v.at)/1000),final:v.final,consensus:v.consensus,voters:v.voters,counts:v.counts,
+      karne:deskCmKarne(a.lane==='ZIRVE5'?'ZIRVE5':'ILK3'),instruction:'Free-model committee LAST opinion on this same position (may be minutes old). Weigh it with its measured karne; you decide.'};
+  }
+  function deskCmKick(a,packet,mode,cfg){
+    if(deskCmRunning>=1||deskCmViews.get(a.id)?.busy)return false;
+    deskCmRunning++;const prev=deskCmViews.get(a.id)||{};deskCmViews.set(a.id,{...prev,busy:true});
+    DESK.judge({packet,mode,cfg:{...cfg,testJudges:['COMMITTEE'],liveJudges:['COMMITTEE']},judges:deskJudges,stats:{}})
+      .then(r=>{if(r?.ok&&r.d){const votes=r.committee?.votes||[],counts={};for(const x of votes){const k=x.a||'?';counts[k]=(counts[k]||0)+1;}
+        deskCmViews.set(a.id,{at:clock(),final:r.d.action,consensus:r.committee?.consensus||null,voters:r.committee?.voters??votes.length,counts,busy:false});}
+        else deskCmViews.set(a.id,{...prev,busy:false});})
+      .catch(()=>deskCmViews.set(a.id,{...prev,busy:false}))
+      .finally(()=>{deskCmRunning=Math.max(0,deskCmRunning-1);const live=new Set([...Object.values(top3State.active||{}),...Object.values(z5State()?.active||{})].map(x=>x&&x.id).filter(Boolean));for(const k of [...deskCmViews.keys()])if(!live.has(k))deskCmViews.delete(k);}); // kapanan lotların görüşü silinir (lot KİMLİĞİYLE; Z5 tablosu kimlikle anahtarlı değil)
+    return true;
+  }
   // R2544.134 KURUL KARNESİ: measured from the replayed lessons, handed to the desk committee (seat order, bench)
   const RP_VERSION='R2544.134-REPLAY';let deskKarne=null;
   function deskKarneApply(){try{const K=top3Lib.committeeKarne([...(top3State.lessons||[]),...((z5State()||{}).lessons||[])]);deskKarne=K;if(typeof deskJudges?.committee?.setRank==='function')deskJudges.committee.setRank(K);return K;}catch{return null;}}
@@ -7007,6 +7034,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
       // R2544.127 JEV + KURUL: JEV decides first; when JEV cannot answer (credit, error) the committee decides - the same order in TEST and LIVE
       const both=auth&&jevKurul(laneCfgOf(a)),order=both?['JEV','COMMITTEE']:['COMMITTEE'];
+      if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg);} // R2544.187: paralel, beklenmez
       const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:deskJudges,stats:deskStats(),advisors}):deskJudge(packet,mode,cfg,advisors)),st=deskStats();st.lastAt=new Date(now).toISOString();
       const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
       desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);deskLooksToday(now);deskLooks.n++;desk.lastWhy=a.deskDueWhy||null; // R2544.164
@@ -7015,7 +7043,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{store.journal('POSITION_DESK_UNAVAILABLE',a.symbol,{lane,mode,tried:res.tried});}catch{}return {ok:false,tried:res.tried};}
       const d=DESK.validate(res.d,packet.stopChoices);
       const rec={at:now,mark:pickMark,R:Number((desk.lastR??0).toFixed(3)),action:d.action,stopChoice:d.stopChoice||'KEEP',stopPrice:finite(d.stopPrice),reason:d.reason,confidence:finite(d.confidence),
-        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true,data:dataCheck,...(d.incoherent?{incoherent:d.incoherent}:{})}; // R2544.186 ölçüm // R2544.138: what the screen carried
+        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true,data:dataCheck,...(d.incoherent?{incoherent:d.incoherent}:{}),...(advisors.committee?.available?{committeeView:{final:advisors.committee.final,ageSec:advisors.committee.ageSec,consensus:advisors.committee.consensus}}:{})}; // R2544.186-187 ölçüm // R2544.138: what the screen carried
       // R2544.117 (kullanıcı 03.11 "boğazını sıkıyorsun"; 02-03.11 ölçüm: masa 5 işlemin 5'ini gürültüde kesti, HAEDAL 7. dk -0,18R -> plan +2,25R hedef;
       // gerçek -0,75R / plana bırakılsa +0,36R): the desk's reducing order runs only when the trade has left its noise - open >= 30 min AND
       // (now <= -0.6R: the idea is failing before the stop, or best >= +1R: there is profit to protect). Otherwise it is recorded, not executed.

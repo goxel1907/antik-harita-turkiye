@@ -425,3 +425,28 @@ test('R2544.147 the user Kapat works while the run is stopped (no arm): the redu
   assert.equal(f.lot(),null,'closed without an arm');assert.equal(await pos(f.paper),0);
   assert.equal(f.kinds('TOP3_CLOSED').at(-1).p.exitReason,'TOP3_USER_CLOSE');
 });
+
+test('R2544.187 JEV + Kurul: kurul PARALEL — JEV beklemez; ikinci bakışta JEV kurulun son görüşünü görür; paralel kurul emir üretmez',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const vote=(m,action)=>({member:m,ok:true,seat:null,vote:{ok:true,action,stopChoice:'KEEP',reason:'MOMENTUM_FADING',confidence:60,reasonTr:m,watchTr:''}});
+  const deskExit={ok:true,final:'EXIT',consensus:'UNANIMOUS',rounds:1,voters:2,votes:[vote('a','EXIT'),vote('b','EXIT')]};
+  let cmDone=0;const slow=o=>o.field==='action'?new Promise(r=>setTimeout(()=>{cmDone++;r(deskExit);},250)):TAKE; // kurul yavaş (250 ms gerçek süre)
+  const c=cm(slow);const jevSeen=[];
+  const jev=async({packet})=>{jevSeen.push(packet.advisors&&packet.advisors.committee);return {ok:true,action:'HOLD',stopChoice:'KEEP',reason:'STRUCTURE_INTACT',model:'jev'};};
+  const f=fixture({z5:{enabled:true,committeeMode:true,jevMode:true},deskJudges:{committee:c,jev},extra:{zirve5Judge:async()=>({ok:true,called:true,decision:'APPROVE_ENTRY'})}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=f.lot(),R=a.stopPrice-a.entryPrice;
+  f.controller._testDeskGuard({protectR:-99});await f.beat(a.entryPrice-0.4*R);f.state.now+=31*60000;
+  const t0=Date.now();let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}
+  assert.ok(r&&r.ok&&r.judge==='JEV',JSON.stringify(r));
+  assert.equal(cmDone,0,'JEV kararı kurul bitmeden verildi (beklemedi)');
+  assert.equal(jevSeen.at(-1)&&jevSeen.at(-1).available,false,'ilk bakışta kurul görüşü henüz yok');
+  await new Promise(z=>setTimeout(z,400));assert.equal(cmDone,1,'kurul arka planda bitti');
+  assert.ok(!f.lot().deskOrder,'paralel kurulun EXIT kararı emir ÜRETMEDİ');
+  f.state.now+=6*60000;await f.beat(a.entryPrice-0.8*R);assert.ok(f.lot(),'lot hâlâ açık'); // masa olaya göre bakar: fiyat başka R aralığına geçince (canlıdaki gibi)
+  for(let i=0;i<100&&jevSeen.length<2;i++){await f.controller._testDeskTick();if(jevSeen.length<2)await new Promise(z=>setTimeout(z,10));}
+  assert.ok(jevSeen.length>=2,'JEV ikinci kez çağrıldı ('+jevSeen.length+')');
+  const v=jevSeen.at(-1);assert.ok(v&&v.available===true,JSON.stringify(v));assert.equal(v.final,'EXIT');assert.deepEqual(v.counts,{EXIT:2});
+  assert.ok(Number.isFinite(v.ageSec));
+  const last=f.lot().desk.decisions.at(-1);assert.equal(last.judge,'JEV');assert.equal(last.action,'HOLD','karar JEV\'in');
+  assert.deepEqual(last.committeeView&&last.committeeView.final,'EXIT','ölçüm: kurulun görüşü kayıtta');
+});

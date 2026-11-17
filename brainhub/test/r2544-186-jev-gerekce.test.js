@@ -22,5 +22,5 @@ test('R2544.186 çelişkili JEV kararı AYNEN uygulanır, yalnız işaretlenir',
   assert.equal(r.d.action, 'HOLD', 'JEV patron: eylem değişmedi');
   assert.equal(r.d.incoherent, 'TUT_AMA_GEREKCE_AZALT');
   assert.match(r.d.reasonTr, /⚠ gerekçe-eylem çelişkisi/);
-  assert.match(lc, /\.\.\.\(d\.incoherent\?\{incoherent:d\.incoherent\}:\{\}\)\}; \/\/ R2544\.186 ölçüm/);
+  assert.match(lc, /\.\.\.\(d\.incoherent\?\{incoherent:d\.incoherent\}:\{\}\),/); // R2544.187: ardından kurul görüşü de kayda eklenir
 });
