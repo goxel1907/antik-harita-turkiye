@@ -1,0 +1,44 @@
+{
+  "productionCandidateUnchanged": "97bc7b619f82f719b8042e68bd545bdd58832904",
+  "productionCodeChanged": false,
+  "hashNormalizerChanged": false,
+  "testSkippedOrRemoved": false,
+  "cause": "CRLF fixture was converted a second time, producing CRCRLF; canonical LF is now used to construct LF/CRLF with and without UTF-8 BOM.",
+  "reproducedOldTest": {
+    "tests": 16,
+    "pass": 15,
+    "fail": 1,
+    "platform": "Unix",
+    "powershell": "7.7.0",
+    "liveAccessed": false,
+    "networkUsed": false
+  },
+  "fixedLf": {
+    "tests": 16,
+    "pass": 16,
+    "fail": 0,
+    "platform": "Unix",
+    "powershell": "7.7.0",
+    "liveAccessed": false,
+    "networkUsed": false
+  },
+  "fixedCrlfGitEnvironment": {
+    "tests": 16,
+    "pass": 16,
+    "fail": 0,
+    "platform": "Unix",
+    "powershell": "7.7.0",
+    "liveAccessed": false,
+    "networkUsed": false
+  },
+  "fixedNativeWindowsSelftest": "PENDING_USER_RUN",
+  "existingNativeApplicationAcceptance": {
+    "candidate": "97bc7b619f82f719b8042e68bd545bdd58832904",
+    "powershell": "5.1.26100.9818",
+    "node": "v24.16.0",
+    "tests": 1540,
+    "pass": 1540,
+    "fail": 0,
+    "skipped": 0
+  }
+}

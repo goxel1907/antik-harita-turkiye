@@ -17,3 +17,9 @@ Akış:
 Sınamalar: Linux PowerShell 7.7 üzerinde 16/16; gerçek geçici Git depoları ve sahte runtime/ayar/öğrenim dosyalarıyla çalıştırıldı. Kopyalama ve fast-forward hata senaryolarında kök dosya geri dönüşü sınandı. Gerçek CANLI erişimi, borsa emri, model çağrısı veya ağ kullanılmadı. Bu sonuç native Windows kabulü ya da gerçekleşmiş deploy değildir. Paket kendi Windows öz sınamasını da geçmeden ilerlemez.
 
 R194 uygulama paketi önceki 1540 testlik aynı adaydır; bu araçlar giriş/ret politikasını veya APK'yı değiştirmez. APK dalı yalnız mevcut deploy'un beklediği HEAD ve temizlik koşulları açısından okunur; güncellenmez. JEV retlerinin hunide sonuç yok görünmesi ayrı takip kusurudur ve R194'te düzeltilmiş sayılmaz.
+
+## 18 Kasım teslim sınaması düzeltmesi
+
+Kullanıcının Windows PowerShell 5.1 raporunda teslim öz sınamaları 15/16 kaldı; sourceStaged=false ve deploymentInvoked=false. Son sınama, zaten CRLF olan kaynak metninde LF→CRLF işlemi yapıp CRCRLF üretiyordu. Bu hata `core.autocrlf=true` komut ortamıyla Linux PowerShell'de de 15/16 olarak yeniden üretildi. Düzeltilen sınama önce kanonik LF metni oluşturur; sonra LF ve CRLF biçimlerinin her birini UTF-8 BOM var/yok olarak ayrı kurar. Dosya karması doğrulaması gevşetilmedi, sınama atlanmadı, uygulama adayı 97bc7b6 değişmedi.
+
+Yüklenen gerçek Windows uygulama kabulü: aynı 97bc7b6, PowerShell 5.1.26100.9818, Node v24.16.0, 1540/1540, hata/atlama yok. PC devir kaydı source HEAD'in R193 tabanında kaldığını ve program anlık görüntüsünün değişmediğini bildiriyor. Bu, R194'ün kurulduğu anlamına gelmez. Yenilenen teslim sınamasının native Windows sonucu yeni koşuda doğrulanacak.

@@ -83,7 +83,21 @@ try {
   Assert-Check ((Get-DeliveryHash (Join-Path $f.brain 'JEV-DEPLOY.ps1')) -eq $before) 'root not restored after FF failure'
   Assert-Check ((Get-Content (Join-Path $f.brain 'BEKLENEN-SURUM.txt') -Raw).Trim() -eq $f.m.baseCommit) 'expected not restored after FF failure'
  }
- Check 'crlf_and_bom_do_not_create_false_code_mismatch' {$f=Fixture;$p=Join-Path $f.brain 'JEV-DEPLOY.ps1';$old=Get-DeliveryHash $p;[IO.File]::WriteAllText($p,([IO.File]::ReadAllText($p).Replace("`n","`r`n")),(New-Object Text.UTF8Encoding($true)));Assert-Check ((Get-DeliveryHash $p) -eq $old) 'line endings changed normalized code hash'}
+ Check 'crlf_and_bom_do_not_create_false_code_mismatch' {
+  $f=Fixture;$p=Join-Path $f.brain 'JEV-DEPLOY.ps1';$old=Get-DeliveryHash $p
+  # Source clones may already contain CRLF (Windows core.autocrlf). Canonicalize once
+  # before constructing each fixture; blindly replacing LF would create CRCRLF.
+  $canonical=[IO.File]::ReadAllText($p).Replace("`r`n","`n")
+  foreach($bom in @($false,$true)){foreach($eol in @("`n","`r`n")){
+   $formatted=$canonical.Replace("`n",$eol)
+   Assert-Check (-not $formatted.Contains("`r`r`n")) 'test fixture contains doubled CR'
+   [IO.File]::WriteAllText($p,$formatted,(New-Object Text.UTF8Encoding -ArgumentList $bom))
+   $bytes=[IO.File]::ReadAllBytes($p);$hasBom=($bytes.Length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191)
+   Assert-Check ($hasBom -eq $bom) 'UTF8 BOM fixture was not constructed as requested'
+   Assert-Check ((Get-DeliveryHash $p) -eq $old) 'line endings changed normalized code hash'
+  }}
+ }
+
 } finally {
  $passed=@($results | Where-Object {$_.passed}).Count;$failed=@($results | Where-Object {-not $_.passed}).Count
  $report=[ordered]@{tests=$results.Count;pass=$passed;fail=$failed;platform=[Environment]::OSVersion.Platform.ToString();powershell=$PSVersionTable.PSVersion.ToString();liveAccessed=$false;networkUsed=$false;results=$results}
