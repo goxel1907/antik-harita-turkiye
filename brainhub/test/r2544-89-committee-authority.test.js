@@ -251,7 +251,9 @@ test('R2544.127 JEV + KURUL + bot: both switches in one press; the bot opens eve
   let f=fixture({z5:{enabled:true},deskJudges:{committee:cm(TAKE)},extra:{zirve5Judge:NO}});await f.controller.testSupervisorTick();
   assert.equal(f.controller.configureZ5({committeeMode:true,jevMode:true}).ok,true);
   let sw=f.controller.z5Status().switches;assert.equal(sw.committeeMode,true);assert.equal(sw.jevMode,true,'both on together = JEV + KURUL');assert.equal(f.controller.z5Status().decisions,'RULE_PLUS_JEV_COMMITTEE');
-  assert.equal((await f.controller.z5Tick()).entries,1,'the bot opens; JEV only votes');assert.equal(f.lot().entryFeatures.jevVote.decision,'REJECT_ENTRY');
+  // R2544.189 (kullanıcı 17.11): JEV + KURUL'da da JEV'in cevaplı "girme"si işlemi açtırmaz (eskiden yalnız oydu)
+  assert.equal((await f.controller.z5Tick()).entries,0,'JEV says no -> no trade, also in JEV + KURUL');
+  assert.equal(f.controller.z5Status().recentEntries[0].reason,'ZIRVE5_JEV_NOT_APPROVED');
   assert.equal(f.controller.runStatus().lanes?.zirve5?.decisions??'RULE_PLUS_JEV_COMMITTEE','RULE_PLUS_JEV_COMMITTEE');
   require('../binance-rate-limit').resetForTests();
   f=fixture({z5:{enabled:true},deskJudges:{committee:cm(TAKE)},extra:{zirve5Judge:NO}});await f.controller.testSupervisorTick();

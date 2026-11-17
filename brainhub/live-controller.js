@@ -6245,7 +6245,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
         // R2544.127 JEV + KURUL + bot (kullanıcı 04.11 seçimi: "bot açar, JEV+kurul yönetir"): the rule opens every signal; JEV's entry review is a vote
-        res.jev=ev;ef.jevVote=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')&&!jevKurul(cfg)){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
+        // R2544.189 (kullanıcı 17.11, 1000LUNC: JEV + kurul + beyin "girme" dedi, kural seviyenin %5,5 üstünden açtı, -0,99R): JEV açıkken son söz
+        // JEV'in - JEV + KURUL'da da. JEV cevap verip "girme" derse işlem yok; JEV cevap veremezse (kredi/zaman aşımı) kural açar (sabit kural 3).
+        res.jev=ev;ef.jevVote=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')&&(!jevKurul(cfg)||jevSaysNo(jev))){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
       }
       // R2544.89 KURUL KAPISI (kullanıcı 27.10: "istediğim zaman tek tık ile canlıya geçebilmeliyim bu modeller ile"): kural sinyal verdi;
       // kurul GİR demezse işlem yok (yalnız veto, kendisi işlem açmaz). Kurul yok / zaman aşımı -> kural devam eder (kayıtlı).
@@ -7571,6 +7573,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const DESK_GUARD={enabled:false,minOpenMin:30,failR:-0.6,protectR:1};
   // R2544.127: a lane is JEV + KURUL when both switches are on; the lane's own config
   function jevKurul(c){return c?.jevMode===true&&c?.committeeMode===true;}
+  function jevSaysNo(j){return j?.ok===true&&j?.called===true&&j?.decision==='REJECT_ENTRY';} // R2544.189: yalnız JEV'in gerçek cevabı; hata/kredisizlik "hayır" sayılmaz
   function laneCfgOf(a){try{return a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root);}catch{return null;}}
   function deskAuthority(a){try{return (a?.lane==='ZIRVE5'?z5Lib.readConfig(root):top3Lib.readTop3Config(root)).committeeMode===true;}catch{return false;}}
   // R2544.89 masanın yetkili emri: yalnız AZALTAN (yarısını kapat = kâr korumayı şimdi al + kalan başabaşa, stopu yaklaştır, çık).
@@ -7700,7 +7703,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
           const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null};
           try{store.journal('ZIRVE5_JEV_REVIEW',sym,{...ev,side});}catch{}
-          ef.jevVote=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')&&!jevKurul(cfg)){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;} // R2544.127: in JEV+KURUL a vote
+          ef.jevVote=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')&&(!jevKurul(cfg)||jevSaysNo(jev))){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;} // R2544.189: JEV+KURUL'da da JEV'in "girme"si geçerli; cevapsız JEV oy sayılır
         }
         const z5Adv=true;ef.trig={side,top:sg.top,bottom:sg.bottom,equilibrium:sg.equilibrium,confirm:sg.confirm||null,sweep:sg.sweep||null};
         {const pz0=z5Lib.plan(sg.refPrice,sg,cfg,{advisory:true});const fl=[...z5Flags,...(pz0?.ok&&Array.isArray(pz0.flags)?pz0.flags:[])];if(fl.length)ef.ruleFlags=fl;}
