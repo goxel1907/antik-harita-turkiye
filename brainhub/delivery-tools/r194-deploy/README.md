@@ -23,3 +23,11 @@ R194 uygulama paketi önceki 1540 testlik aynı adaydır; bu araçlar giriş/ret
 Kullanıcının Windows PowerShell 5.1 raporunda teslim öz sınamaları 15/16 kaldı; sourceStaged=false ve deploymentInvoked=false. Son sınama, zaten CRLF olan kaynak metninde LF→CRLF işlemi yapıp CRCRLF üretiyordu. Bu hata `core.autocrlf=true` komut ortamıyla Linux PowerShell'de de 15/16 olarak yeniden üretildi. Düzeltilen sınama önce kanonik LF metni oluşturur; sonra LF ve CRLF biçimlerinin her birini UTF-8 BOM var/yok olarak ayrı kurar. Dosya karması doğrulaması gevşetilmedi, sınama atlanmadı, uygulama adayı 97bc7b6 değişmedi.
 
 Yüklenen gerçek Windows uygulama kabulü: aynı 97bc7b6, PowerShell 5.1.26100.9818, Node v24.16.0, 1540/1540, hata/atlama yok. PC devir kaydı source HEAD'in R193 tabanında kaldığını ve program anlık görüntüsünün değişmediğini bildiriyor. Bu, R194'ün kurulduğu anlamına gelmez. Yenilenen teslim sınamasının native Windows sonucu yeni koşuda doğrulanacak.
+
+## 18 Kasım kurulum sonrası ayar denetimi
+
+Gerçek Windows teslim çıktısı, kaynak 97bc7b6'ya aktarımı, R194 kurulu dosyalarını, çalışan Office/çekirdek sürümünü ve CANLI'nın aynı hatlarla yeniden başlamasını doğruladı. Son kapı `settingsUnchanged=false` verdi. Teslim aracı ayar dosyalarını ham byte hash'iyle karşılaştırıyordu; mevcut GO_LIVE yolu top3-hunter.json ve zirve5.json dosyalarının `updatedAt` değerlerini her başlatmada yeniliyor. Bu bilinen metaveri değişikliği ayar değişikliği sanılmış.
+
+Denetim artık mantıksal JSON değerlerini sıralı biçimde karşılaştırır; yalnız top3-hunter.json, zirve5.json ve lane-selection.json içindeki en üst `updatedAt` alanı metaveri olarak ayrılır. Ham dosya hash'leri ayrıca saklanır. enabled/liveEnabled, yan hatlar, marj, kaldıraç, boyutlandırma revizyonları ve diğer alanlar korunur; gerçek değer değişikliği hâlâ hata sayılır. Gelecek raporlar karşılaştırılan önce/sonra hash'lerini de içerir.
+
+Yeni teslim öz sınamaları 20/20 (Linux PowerShell 7.7): metaveri değişimi, gerçek marj/canlı yetki değişimi, JSON sırası/biçimi, boş dizi-null ayrımı ve bozuk JSON dahil. Bu yeni denetim aracının native sonucu henüz koşulmadı; mevcut uygulama adayı 97bc7b6 ve kurulu R194 değişmedi. Bu araç düzeltmesi için botun yeniden deploy edilmesi gerekmiyor.

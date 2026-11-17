@@ -93,11 +93,34 @@ function Invoke-DeliveryStage([string]$BrainRoot,[string]$Candidate,$Manifest,[s
     }
     return [pscustomobject]@{alreadyStaged=$false;source=[string]$Manifest.candidateCommit;backup=$backup}
 }
-function Get-DeliveryPreferences([string]$BrainRoot) {
+function Convert-DeliveryPreferenceValue($Value) {
+    if($null -eq $Value){return $null}
+    if($Value -is [System.Collections.IDictionary]){
+        $o=[ordered]@{};foreach($k in @($Value.Keys | Sort-Object)){$o[$k]=Convert-DeliveryPreferenceValue $Value[$k]};return $o
+    }
+    if($Value -is [pscustomobject]){
+        $o=[ordered]@{};foreach($p in @($Value.PSObject.Properties | Sort-Object Name)){$o[$p.Name]=Convert-DeliveryPreferenceValue $p.Value};return $o
+    }
+    if($Value -is [System.Array]){
+        $a=@();foreach($v in $Value){$a+=,(Convert-DeliveryPreferenceValue $v)};return ,$a
+    }
+    return $Value
+}
+function Get-DeliveryPreferences([string]$BrainRoot,[switch]$RawFiles) {
     $v=[ordered]@{}
     foreach($name in @('user-sizing.json','top3-hunter.json','zirve5.json','kesif-soz.json','leader-auto.json','lane-selection.json','jev.json','position-desk.json')) {
         $file=Join-Path $BrainRoot ('runtime/config/'+$name)
-        $v[$name]=if(Test-Path -LiteralPath $file){(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash}else{'ABSENT'}
+        if(-not (Test-Path -LiteralPath $file)){$v[$name]='ABSENT';continue}
+        if($RawFiles){$v[$name]=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash;continue}
+        $config=[IO.File]::ReadAllText($file,[Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop
+        if($config -isnot [pscustomobject]){throw ('PREFERENCE_JSON_NOT_OBJECT: '+$name)}
+        # GO_LIVE always rewrites these top-level timestamps. Retain every preference,
+        # including enabled/liveEnabled, side switches, margin, leverage and sizing revision.
+        if($name -in @('top3-hunter.json','zirve5.json','lane-selection.json')){$config.PSObject.Properties.Remove('updatedAt')}
+        $text=(Convert-DeliveryPreferenceValue $config) | ConvertTo-Json -Depth 30 -Compress
+        $sha=[Security.Cryptography.SHA256]::Create()
+        try{$v[$name]=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text)))).Replace('-','')}
+        finally{$sha.Dispose()}
     }
     return $v
 }

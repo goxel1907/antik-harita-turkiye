@@ -1,0 +1,91 @@
+{
+  "tests": 20,
+  "pass": 20,
+  "fail": 0,
+  "platform": "Unix",
+  "powershell": "7.7.0",
+  "liveAccessed": false,
+  "networkUsed": false,
+  "results": [
+    {
+      "name": "matching_native_acceptance_is_required",
+      "passed": true
+    },
+    {
+      "name": "wrong_commit_is_rejected",
+      "passed": true
+    },
+    {
+      "name": "skipped_windows_test_is_rejected",
+      "passed": true
+    },
+    {
+      "name": "changed_node_is_rejected",
+      "passed": true
+    },
+    {
+      "name": "latest_failed_run_does_not_reuse_older_pass",
+      "passed": true
+    },
+    {
+      "name": "cached_candidate_worktree_must_be_clean",
+      "passed": true
+    },
+    {
+      "name": "clean_source_stages_exact_candidate",
+      "passed": true
+    },
+    {
+      "name": "stage_preserves_runtime_preferences_and_learning",
+      "passed": true
+    },
+    {
+      "name": "second_stage_is_idempotent",
+      "passed": true
+    },
+    {
+      "name": "dirty_source_is_not_overwritten",
+      "passed": true
+    },
+    {
+      "name": "custom_root_script_is_not_overwritten",
+      "passed": true
+    },
+    {
+      "name": "wrong_expected_source_is_rejected",
+      "passed": true
+    },
+    {
+      "name": "unknown_runtime_is_not_a_verified_install",
+      "passed": true
+    },
+    {
+      "name": "copy_failure_restores_previous_root_and_source",
+      "passed": true
+    },
+    {
+      "name": "failed_fast_forward_restores_previous_root",
+      "passed": true
+    },
+    {
+      "name": "restart_timestamp_change_is_not_a_preference_change",
+      "passed": true
+    },
+    {
+      "name": "margin_and_live_permission_changes_remain_detected",
+      "passed": true
+    },
+    {
+      "name": "format_and_property_order_do_not_change_preference_values",
+      "passed": true
+    },
+    {
+      "name": "malformed_preferences_are_not_silently_accepted",
+      "passed": true
+    },
+    {
+      "name": "crlf_and_bom_do_not_create_false_code_mismatch",
+      "passed": true
+    }
+  ]
+}

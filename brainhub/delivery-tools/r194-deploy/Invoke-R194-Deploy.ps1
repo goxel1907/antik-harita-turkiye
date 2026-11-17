@@ -60,6 +60,8 @@ try {
     $modeBefore=[string]$before.status.data.tradingMode.mode
     $lanesBefore=$before.status.data.tradingMode.run.lanes
     $preferenceBefore=Get-DeliveryPreferences $BrainRoot
+    $report.preferenceValuesBefore=$preferenceBefore
+    $report.preferenceFileHashesBefore=Get-DeliveryPreferences $BrainRoot -RawFiles
     $report.wasArmed=$armedBefore;$report.modeBefore=$modeBefore
     if($runtimeState -eq 'CANDIDATE' -and $before.health.data.runtimeRelease -eq [string]$m.release){
         Write-Host 'R194 zaten kurulu; gereksiz yeniden baslatma yapilmiyor.'
@@ -79,6 +81,9 @@ try {
     $report.runtimeAfter=Get-DeliveryRuntimeState $BrainRoot $m
     $report.runtimeVerified=($report.runtimeAfter -eq 'CANDIDATE' -and $after.health.ok -eq $true -and $after.health.data.runtimeRelease -eq [string]$m.release -and $after.officeVersion -eq [string]$m.officeVersion)
     $preferenceAfter=Get-DeliveryPreferences $BrainRoot
+    $report.preferenceValuesAfter=$preferenceAfter
+    $report.preferenceFileHashesAfter=Get-DeliveryPreferences $BrainRoot -RawFiles
+    $report.preferenceRawFilesUnchanged=(($report.preferenceFileHashesBefore | ConvertTo-Json -Compress) -ceq ($report.preferenceFileHashesAfter | ConvertTo-Json -Compress))
     $report.settingsUnchanged=(($preferenceBefore | ConvertTo-Json -Compress) -ceq ($preferenceAfter | ConvertTo-Json -Compress))
     $report.armedAfter=($after.status.data.armed -eq $true);$report.modeAfter=[string]$after.status.data.tradingMode.mode
     $report.runStateRestored=($report.armedAfter -eq $armedBefore -and $report.modeAfter -eq $modeBefore)

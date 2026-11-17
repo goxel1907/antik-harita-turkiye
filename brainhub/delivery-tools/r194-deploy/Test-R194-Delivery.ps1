@@ -83,6 +83,36 @@ try {
   Assert-Check ((Get-DeliveryHash (Join-Path $f.brain 'JEV-DEPLOY.ps1')) -eq $before) 'root not restored after FF failure'
   Assert-Check ((Get-Content (Join-Path $f.brain 'BEKLENEN-SURUM.txt') -Raw).Trim() -eq $f.m.baseCommit) 'expected not restored after FF failure'
  }
+ Check 'restart_timestamp_change_is_not_a_preference_change' {
+  $f=Fixture;$p=Join-Path $f.brain 'runtime/config/top3-hunter.json'
+  [IO.File]::WriteAllText($p,'{"enabled":true,"marginQuote":40,"leverage":10,"updatedAt":"before"}')
+  $before=Get-DeliveryPreferences $f.brain;$rawBefore=Get-DeliveryPreferences $f.brain -RawFiles
+  [IO.File]::WriteAllText($p,'{"enabled":true,"marginQuote":40,"leverage":10,"updatedAt":"after"}')
+  $after=Get-DeliveryPreferences $f.brain;$rawAfter=Get-DeliveryPreferences $f.brain -RawFiles
+  Assert-Check ($before['top3-hunter.json'] -eq $after['top3-hunter.json']) 'metadata caused false preference alarm'
+  Assert-Check ($rawBefore['top3-hunter.json'] -ne $rawAfter['top3-hunter.json']) 'raw file evidence was lost'
+ }
+ Check 'margin_and_live_permission_changes_remain_detected' {
+  $f=Fixture;$p=Join-Path $f.brain 'runtime/config/top3-hunter.json'
+  [IO.File]::WriteAllText($p,'{"enabled":true,"liveEnabled":true,"marginQuote":40,"updatedAt":"before"}')
+  $before=(Get-DeliveryPreferences $f.brain)['top3-hunter.json']
+  foreach($text in @('{"enabled":true,"liveEnabled":true,"marginQuote":50,"updatedAt":"after"}','{"enabled":true,"liveEnabled":false,"marginQuote":40,"updatedAt":"after"}')){
+   [IO.File]::WriteAllText($p,$text);Assert-Check ((Get-DeliveryPreferences $f.brain)['top3-hunter.json'] -ne $before) 'real preference change was hidden'
+  }
+ }
+ Check 'format_and_property_order_do_not_change_preference_values' {
+  $f=Fixture;$p=Join-Path $f.brain 'runtime/config/user-sizing.json'
+  [IO.File]::WriteAllText($p,'{"version":1,"lanes":{"top3":{"leverage":10,"marginQuote":40}},"empty":[],"optional":null,"enabled":false}')
+  $before=(Get-DeliveryPreferences $f.brain)['user-sizing.json']
+  [IO.File]::WriteAllText($p,'{ "enabled":false, "optional":null, "empty":[], "lanes":{"top3":{"marginQuote":40,"leverage":10}}, "version":1 }')
+  Assert-Check ((Get-DeliveryPreferences $f.brain)['user-sizing.json'] -eq $before) 'JSON formatting caused false change'
+  [IO.File]::WriteAllText($p,'{"version":1,"lanes":{"top3":{"leverage":10,"marginQuote":40}},"empty":null,"optional":null,"enabled":false}')
+  Assert-Check ((Get-DeliveryPreferences $f.brain)['user-sizing.json'] -ne $before) 'empty array was confused with null'
+ }
+ Check 'malformed_preferences_are_not_silently_accepted' {
+  $f=Fixture;[IO.File]::WriteAllText((Join-Path $f.brain 'runtime/config/user-sizing.json'),'NOT_JSON')
+  Expect-Failure {Get-DeliveryPreferences $f.brain} '.'
+ }
  Check 'crlf_and_bom_do_not_create_false_code_mismatch' {
   $f=Fixture;$p=Join-Path $f.brain 'JEV-DEPLOY.ps1';$old=Get-DeliveryHash $p
   # Source clones may already contain CRLF (Windows core.autocrlf). Canonicalize once
@@ -106,4 +136,4 @@ try {
  # Keep failed fixtures for review; remove only this test's own tree after success.
  if($failed -eq 0){Remove-Item -LiteralPath $testRoot -Recurse -Force}else{Write-Host ('SELFTEST_EVIDENCE: '+$testRoot)}
 }
-if($failed -gt 0 -or $results.Count -ne 16){exit 1}
+if($failed -gt 0 -or $results.Count -ne 20){exit 1}
