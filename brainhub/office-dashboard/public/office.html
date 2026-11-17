@@ -570,6 +570,7 @@ body.cc-compact .cc-extra{display:none !important}
 @keyframes gxSteam{0%{opacity:0;transform:translateY(4px)}40%{opacity:.7}100%{opacity:0;transform:translateY(-8px)}}
 .gx .gx-h{font-weight:800;color:#e6e9f7;margin:8px 0 3px}
 .gx .gx-row{padding:2px 0;line-height:1.45}
+.gx .gx-what{font:700 11.5px system-ui,sans-serif;padding:5px 8px;border-radius:8px;margin:0 0 6px}.gx .gx-what.real{background:#0f2a1c;border:1px solid #2bd67b;color:#bff5d8}.gx .gx-what.shadow{background:#1a1530;border:1px dashed #8b7bd8;color:#d6ccff}
 .gx .gx-m2{color:#8b93b8}
 .gx .gx-d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:3px;vertical-align:middle}
 .gx table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:3px}.gx th,.gx td{padding:2px 4px;text-align:left;border-bottom:1px solid #1a2038}.gx th{color:#8b93b8;font-weight:600}
@@ -1516,7 +1517,7 @@ function plRender(p){
 // yaptığını, ne yapacağını, ne istediğini anlasın" kartı). Yalnız gösterim: sayılar zaten çekirdeğin verdiği anlık veriden gelir.
 function ccSimple(s,m){
   const el=document.getElementById('ccSimple');if(!el)return;
-  const t=ccG(s?.top3)||{},z=ccG(s?.zirve5)||{},ks=ccG(s?.kesif)||{},p=ccG(s?.pnl)||{};
+  const t=ccG(s?.top3)||{},z=ccG(s?.zirve5)||{},ks=ccG(s?.kesif)||{},p=t.pnl||ccG(s?.pnl)||{}; // R2544.185: defter top3.pnl'de (plRender ile aynı kaynak); eski okuma hep 'defter bekleniyor' diyordu
   const row=(k,v)=>`<div class="sr"><span class="sk">${k}</span><span>${v}</span></div>`;
   const lanesOn=m.lanes.filter(l=>l.sw?.enabled).map(l=>l.name);
   const money=m.bal.equity!==null&&m.bal.equity!==undefined?Number(m.bal.equity).toFixed(2)+' $':'—';
@@ -1542,7 +1543,7 @@ function ccSimple(s,m){
     +row('NE ARIYOR',seek.length?seek.join('<br>'):'<span class="dim">açık hat yok</span>')
     +row('BULUNCA',`Beklemez, hemen girer: <b>${mg} $ × ${lv}x</b> (sizin ayarınız), aynı anda en çok <b>2 işlem</b>. Stop ve hedef anında Binance'e konur; <b>2R</b> kârda yarısı alınır, stop girişe çekilir.`)
     +row('KİM KARAR VERİR',`Girişi kural/model açar (kurul oy verir, engellemez). Açık işlemin patronu <b>JEV</b>; cevap veremezse <b>kurul</b> (${m.healthy}/${m.total} model); <b>Goxel</b> 9 ekranı okur. Hiçbiri riski BÜYÜTEMEZ.`)
-    +row('BUGÜN',`${today?`<b>${today.trades||0} işlem</b> • net <b style="color:${plCol(today.net)}">${plUsd(today.net)}</b>`:'<span class="dim">defter bekleniyor</span>'}${m.bud?` • JEV ${m.bud.calls||0} çağrı (${Number.isFinite(+m.bud.spentUsd)?(+m.bud.spentUsd).toFixed(3):'—'} $)`:''}`)
+    +row('BUGÜN',`${today?`<b>${today.trades||0} işlem</b> (${today.wins||0} kazanç) • net <b style="color:${plCol(today.net)}">${plUsd(today.net)}</b>${Number.isFinite(+today.R)?` • <b style="color:${ccCol(+today.R)}">${ccR(+today.R)}</b>`:''}${Number(today.realized)>0&&Number(today.fees)<0?` • komisyon brüt kârın <b>%${Math.round(100*Math.abs(today.fees)/today.realized)}</b>’i`:''}${Number.isFinite(+today.R)&&Number.isFinite(+today.net)&&Math.sign(+today.R)!==Math.sign(+today.net)&&Math.abs(+today.net)>0.5?'<br><span class="dim">R ile $ ters yönde: stop genişliği işleme göre değiştiği için 1R bazı işlemde ~6 $, bazısında ~24 $ eder.</span>':''}`:'<span class="dim">defter bekleniyor (Binance defteri 5 dk’da bir okunur)</span>'}${m.bud?` • JEV ${m.bud.calls||0} çağrı (${Number.isFinite(+m.bud.spentUsd)?(+m.bud.spentUsd).toFixed(3):'—'} $)`:''}`)
     +(m.open?'':row('NEDEN YOK',`${esc(m.why||'—')}${topReason?` • son 24 sa en sık engel: <b>${esc(simTr(topReason[0]))}</b> ×${topReason[1]}`:''}`))
     +row('ÖĞRENİYOR',`<span class="dim">(gölge: para riske etmez)</span> ${learn.join(' • ')}`);
 }
@@ -1892,7 +1893,11 @@ function renderGoxel(k){const el=document.getElementById('gxCard');if(!el)return
   const cb=k.closers,CBN={SIZ:'siz (elle)',MASA:'masa (kurul)',GOXEL:'Goxel',PLAN:'stop / hedef / süre',TASFIYE:'Binance tasfiye'};
   const cbh=cb&&cb.n?`<div class="gx-h">🏁 Gerçek işlemleri kim kapattı, plana göre</div><table><tr><th>kapatan</th><th>işlem</th><th>ort.</th><th>plana bırakılsaydı</th><th>fark</th><th>Goxel o an "çık"</th></tr>${cb.rows.map(r=>`<tr><td>${esc(CBN[r.by]||r.by)}</td><td>${r.n}</td><td>${ksR(r.avgR)}</td><td>${r.avgPlanR===null?(r.by==='PLAN'||r.by==='TASFIYE'?'—':'(süre dolunca)'):ksR(r.avgPlanR)+' <span class="gx-m2">('+r.cfN+')</span>'}</td><td>${r.deltaR===null?'—':ksR(r.deltaR)}</td><td>${r.goxelSeen?r.goxelSaidExit+'/'+r.goxelSeen:'—'}</td></tr>`).join('')}</table><div class="gx-row gx-m2">Her kapanışta Goxel'in son bakışı ve (erken çıkışlarda) planın aynı mumlardaki sonucu yazılır; ${cb.minN} işlemden önce ders çıkmaz.</div>`:'';
   const glz=k.goxelLoss&&k.goxelLoss.text?`<div class="gx-row gx-m2" title="R2544.178: zarardaki işlemde (net ≤ −0,3R) en az 1 büyük + toplam 3 ekran aleyhteyse Goxel 'çıkardım' der; GÖLGE, emir yok">🛡 ${esc(k.goxelLoss.text)}</div>`:''; // R2544.178
-  el.innerHTML=svg+glc+glh+glz+hth+cbh+watchH+tbl+rec+`<div class="gx-note">Goxel bir kod: her 5 dk mum kapanışında beş ekranı okur (grafik, kâr, alıcı/satıcı, emir defteri, türev). Komisyondan sonra en az +${String(g.rules?.minNetR??0.2).replace('.',',')}R kârdayken iki ekran aleyhine dönerse kârı alır. <b>Goxel PRO</b> ayrıca 15 dk / 1 sa / 4 sa / 1 gün ekranlarını okur (trend kırılımı, fibo / likidite / gün-hafta seviyeleri / trend çizgisi / FVG / hacim profili, karşı formasyon, testere-range kenarı): 5 dk ekranları tek başına onu çıkarmaz; en az bir büyük ekran sebebi (1 sa + 4 sa trend lehteyse ve seviye yoksa iki) ve toplam 3 aleyhte ekran ister. Gölge: işlem açmaz; plan da sürer, üçü aynı tahminde yarışır.</div>`;
+  // R2544.185 (motto: ekran = gerçek): gerçek lot yokken karolar Goxel'in izlediği GÖLGE tahmini gösteriyordu ("KÂR +0,13R" gerçek pozisyon sanılıyordu)
+  const gxWhat=f?(f.real?`<div class="gx-what real">🟢 GERÇEK LOT: <b>${esc(String(f.symbol).replace(/USDT$/,''))} ${esc(f.side)}</b> — karolar bu pozisyonun ekranları</div>`
+    :`<div class="gx-what shadow">👻 GÖLGE TAHMİN: <b>${esc(String(f.symbol).replace(/USDT$/,''))} ${esc(f.side)}</b>${f.model?' ('+esc(rxShort(f.model))+')':''} — gerçek pozisyon DEĞİL, para riske girmiyor; karolar bu tahminin ekranları</div>`)
+    :`<div class="gx-what shadow">Açık gerçek lot ve izlenen tahmin yok</div>`;
+  el.innerHTML=gxWhat+svg+glc+glh+glz+hth+cbh+watchH+tbl+rec+`<div class="gx-note">Goxel bir kod: her 5 dk mum kapanışında beş ekranı okur (grafik, kâr, alıcı/satıcı, emir defteri, türev). Komisyondan sonra en az +${String(g.rules?.minNetR??0.2).replace('.',',')}R kârdayken iki ekran aleyhine dönerse kârı alır. <b>Goxel PRO</b> ayrıca 15 dk / 1 sa / 4 sa / 1 gün ekranlarını okur (trend kırılımı, fibo / likidite / gün-hafta seviyeleri / trend çizgisi / FVG / hacim profili, karşı formasyon, testere-range kenarı): 5 dk ekranları tek başına onu çıkarmaz; en az bir büyük ekran sebebi (1 sa + 4 sa trend lehteyse ve seviye yoksa iki) ve toplam 3 aleyhte ekran ister. Gölge: işlem açmaz; plan da sürer, üçü aynı tahminde yarışır.</div>`;
 }
 async function ksSoz(key,val){if(key==='enabled'&&val===true&&!confirm("KEŞİF-SÖZ açılsın mı? CANLI'dayken söz sahibinin tahmini GERÇEK PARAYLA işlem açar (marj ve kaldıraç karttaki gibi)."))return;
   try{const x=await wcPost('/api/control/kesif',{soz:{[key]:val}});if(!x.ok)alert('KEŞİF-SÖZ: yapılmadı — '+wcWhy(x));else{if(last?.kesif?.soz)last.kesif.soz[key]=val;renderKesif(last);}}

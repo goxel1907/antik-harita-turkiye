@@ -12,3 +12,14 @@ test('R2544.185 vur-kaç CANLI metni gerçek koşul', () => {
   assert.ok(!html.includes('Vur-kaç canlıda kapalı (yalnız TEST'));
   assert.match(html, /Vur-kaç CANLI’da yalnız Normal sistem \(JEV\) de seçiliyken çalışır/);
 });
+test('R2544.185 BOT ŞU AN kartı defteri Office kâr/zarar paneliyle AYNI kaynaktan okur (top3.pnl)', () => {
+  assert.match(html, /p=t\.pnl\|\|ccG\(s\?\.pnl\)\|\|\{\};/);
+  assert.match(html, /plRender\(\(ccG\(s\?\.top3\)\|\|\{\}\)\.pnl\|\|null\)/, 'panel de top3.pnl okuyor');
+  assert.match(html, /komisyon brüt kârın <b>%/);
+  assert.match(html, /R ile \$ ters yönde/);
+});
+test('R2544.185 Goxel karoları gerçek lot mu gölge tahmin mi açıkça söyler', () => {
+  assert.match(html, /🟢 GERÇEK LOT:/); assert.match(html, /👻 GÖLGE TAHMİN:/);
+  assert.match(html, /gerçek pozisyon DEĞİL, para riske girmiyor/);
+  assert.match(html, /el\.innerHTML=gxWhat\+svg\+/);
+});
