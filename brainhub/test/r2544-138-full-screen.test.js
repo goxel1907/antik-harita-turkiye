@@ -26,7 +26,7 @@ test('R2544.138 the desk packet carries 5m/15m/1h AND 4h/1d readings, funding, t
   assert.match(lc,/chart\.h4=TB\.chartReading\(k4h\.raw,'4h'/);assert.match(lc,/chart\.d1=TB\.chartReading\(k1d\.raw,'1d'/);
   assert.match(lc,/\/fapi\/v1\/premiumIndex',\{params:\{symbol:a\.symbol\}\}/);assert.match(lc,/const micro=DESK\.microOf\(sn,Rf\)/);assert.match(lc,/ms\.ensureSymbol\(x\.symbol\)/);
   assert.match(lc,/frames:\{m5:!!chart\.m5,m15:!!chart\.m15,h1:!!chart\.h1,h4:!!chart\.h4,d1:!!chart\.d1\},funding:!!funding,orderBook:micro\.available===true/);
-  assert.match(lc,/shadow:true,data:dataCheck\}/);
+  assert.match(lc,/shadow:true,data:dataCheck[,}]/); // R2544.186: kayda isteğe bağlı 'incoherent' ölçüm alanı eklenebilir
   assert.match(tb,/trendLines:\(\(\) =>/);assert.match(tb,/wickHunts:wickHunts\(c, finite\(s\.atr14\), lvl\)/);assert.match(tb,/volumeProfile:volumeProfile\(c, lvl\)/);
   assert.match(pd,/funding, microstructure:micro,/);assert.match(pd,/\^OVH:\|\^KILO:/,'keyless seats are recorded under the karne key');
   const p=DESK.packet({lot:{symbol:'X',side:'LONG',entryPrice:1,stopPrice:0.98,tpPrice:1.06,openedAt:0,initialStopPrice:0.98},mark:1.01,k5:[],k15:[],k1h:[],btc5:[],oi:[],now:600000,lane:'ILK3',

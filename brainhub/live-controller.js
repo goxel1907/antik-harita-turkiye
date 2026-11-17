@@ -7015,7 +7015,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{store.journal('POSITION_DESK_UNAVAILABLE',a.symbol,{lane,mode,tried:res.tried});}catch{}return {ok:false,tried:res.tried};}
       const d=DESK.validate(res.d,packet.stopChoices);
       const rec={at:now,mark:pickMark,R:Number((desk.lastR??0).toFixed(3)),action:d.action,stopChoice:d.stopChoice||'KEEP',stopPrice:finite(d.stopPrice),reason:d.reason,confidence:finite(d.confidence),
-        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true,data:dataCheck}; // R2544.138: what the screen carried
+        reasonTr:d.reasonTr||'',watchTr:d.watchTr||'',judge:res.judge,model:res.model,downgraded:d.downgraded||null,committee:res.committee||null,shadow:true,data:dataCheck,...(d.incoherent?{incoherent:d.incoherent}:{})}; // R2544.186 ölçüm // R2544.138: what the screen carried
       // R2544.117 (kullanıcı 03.11 "boğazını sıkıyorsun"; 02-03.11 ölçüm: masa 5 işlemin 5'ini gürültüde kesti, HAEDAL 7. dk -0,18R -> plan +2,25R hedef;
       // gerçek -0,75R / plana bırakılsa +0,36R): the desk's reducing order runs only when the trade has left its noise - open >= 30 min AND
       // (now <= -0.6R: the idea is failing before the stop, or best >= +1R: there is profit to protect). Otherwise it is recorded, not executed.

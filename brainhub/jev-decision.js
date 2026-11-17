@@ -2043,6 +2043,16 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   // R2544.84 POZİSYON MASASI (kullanıcı 26.10: trader ofisi gibi açık pozisyonu grafik ve veriyle yönetmek): İlk 3 / ZİRVE-5 açık lotu
   // için JEV'in trader kararı. Ücretsiz modelle AYNI sözleşme (position-desk.js): eylem, yalnız SIKILAŞTIRAN stop seçenekleri, neden.
   // Bu sürümde GÖLGE: kararı kod yürütmez, kaydeder ve ölçer.
+  // R2544.186: position-relative meaning of every desk reason (fits HOLD, or fits reducing / exiting)
+  const DESK_REASON_TEXT={
+    STRUCTURE_INTACT:'The trade\'s own trigger and structure timeframes still agree with this position: supports HOLD.',
+    STRUCTURE_BROKEN_AGAINST:'This position\'s OWN structure broke against it (close back through the broken level / entry zone, last trigger-timeframe swing broken against it, or a CHoCH against it): supports EXIT or TIGHTEN_STOP, never HOLD.',
+    MOMENTUM_FADING:'Still in the position\'s direction but momentum is fading and profit is being given back: supports TIGHTEN_STOP or TAKE_PARTIAL.',
+    TARGET_ZONE_NEAR:'Price is at or near the target / a strong opposite level and is being rejected there: supports TAKE_PARTIAL or TIGHTEN_STOP.',
+    OPPOSITE_FLOW_STRONG:'Taker flow, order book or open interest now push strongly against this position: supports TIGHTEN_STOP or EXIT.',
+    VOLUME_CLIMAX:'A volume climax with long wicks against this position: supports TAKE_PARTIAL or EXIT.',
+    TIME_DECAY:'The idea is not working within its time and the deadline is near: supports EXIT or TIGHTEN_STOP.',
+    NO_EDGE:'Nothing on this screen changes the plan: supports HOLD.'};
   async function sovereignPositionDesk({packet,choices,system=null}={}){
     if(!configured)return {ok:false,configured:false,called:false,action:'HOLD',reason:cfg.enabled?'JEV_KEY_UNAVAILABLE':'OPENROUTER_NOT_CONFIGURED'};
     if(!packet||!/^[A-Z0-9]{1,28}USDT$/.test(String(packet.symbol||''))||!['LONG','SHORT'].includes(packet.side))return {ok:false,called:false,action:'HOLD',reason:'DESK_PACKET_INVALID'};
@@ -2057,7 +2067,9 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const body={model:cfg.model,state,questions:{
       desk_action:{type:'choice',instructions:'What does the desk do with this open position now?',criteria:{HOLD:'Let the plan work.',TAKE_PARTIAL:'Close half of what is left at market.',TIGHTEN_STOP:'Move the stop to the chosen offered level.',EXIT:'Close the whole position at market.'}},
       desk_stop:{type:'choice',instructions:'Stop level if TIGHTEN_STOP, else KEEP.',criteria:Object.fromEntries(stops.map(k=>[k,k==='KEEP'?'Keep the current stop.':'Move the stop to '+packet.stopChoices[k]+' ('+k+').']))},
-      desk_reason:{type:'choice',instructions:'Primary reason; it must agree with the action (a broken structure against the position is not a reason to HOLD).',criteria:Object.fromEntries((C.reasons||['STRUCTURE_INTACT','MOMENTUM_FADING','STRUCTURE_BROKEN_AGAINST','TARGET_ZONE_NEAR','OPPOSITE_FLOW_STRONG','VOLUME_CLIMAX','TIME_DECAY','NO_EDGE']).map(k=>[k,k.toLowerCase().replace(/_/g,' ')]))},
+      // R2544.186 (17.11 ölçüm: R179 sonrası 32 TUT kararının hepsinde gerekçe 'yapı aleyhe kırıldı'; JEV bunu ÇIK'ta da TUT'ta da yazıyordu ->
+      // gerekçe bilgi taşımıyordu. Kök neden: seçenek açıklaması yalnız adın küçük harfiydi, KİMİN aleyhine olduğu yazmıyordu.)
+      desk_reason:{type:'choice',instructions:'The ONE fact on this screen that decided your action, judged from THIS position\'s side ('+packet.side+'). It must agree with the action you chose.',criteria:Object.fromEntries((C.reasons||['STRUCTURE_INTACT','MOMENTUM_FADING','STRUCTURE_BROKEN_AGAINST','TARGET_ZONE_NEAR','OPPOSITE_FLOW_STRONG','VOLUME_CLIMAX','TIME_DECAY','NO_EDGE']).map(k=>[k,DESK_REASON_TEXT[k]||k.toLowerCase().replace(/_/g,' ')]))},
       desk_confidence:{type:'choice',instructions:'How sure are you of this decision on this screen?',criteria:{LOW:'Mixed screen.',MEDIUM:'The main timeframes agree.',HIGH:'Trigger and structure timeframes clearly agree.'}}
     }};
     const out=await decisions(body,{reserve:true});

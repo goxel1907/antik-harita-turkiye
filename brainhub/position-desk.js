@@ -181,6 +181,13 @@ function parseFree(text) {
 }
 const validFree = text => parseFree(text).ok;
 // a decision is accepted only inside the safe contract: TIGHTEN_STOP must name an offered (tighter) stop, otherwise it is HOLD
+// R2544.186: action/reason coherence, MEASUREMENT ONLY (JEV is the boss: the action is never changed, no new veto)
+const HOLD_REASONS = ['STRUCTURE_INTACT', 'NO_EDGE'], REDUCE_REASONS = ['STRUCTURE_BROKEN_AGAINST', 'OPPOSITE_FLOW_STRONG', 'VOLUME_CLIMAX', 'TIME_DECAY'];
+function coherence(action, reason) {
+  if (action === 'HOLD' && REDUCE_REASONS.includes(reason)) return 'TUT_AMA_GEREKCE_AZALT';
+  if (action !== 'HOLD' && HOLD_REASONS.includes(reason)) return 'AZALT_AMA_GEREKCE_TUT';
+  return null;
+}
 function validate(d, cands) {
   if (!d?.ok) return d;
   if (d.action === 'TIGHTEN_STOP') { const p = finite(cands?.[d.stopChoice]); if (d.stopChoice === 'KEEP' || !(p > 0)) return { ...d, action:'HOLD', downgraded:'STOP_CHOICE_NOT_TIGHTER' }; return { ...d, stopPrice:p }; }
@@ -268,7 +275,7 @@ async function judge({ packet, mode, cfg, judges, stats, advisors = null }) {
       if (typeof judges?.jev !== 'function') { tried.push('JEV_NOT_WIRED'); continue; }
       let r; try { r = await judges.jev({ packet, choices:{ reasons:REASONS }, system:SYSTEM }); } catch { r = { ok:false, reason:'JEV_DESK_EXCEPTION' }; }
       if (r?.called) st.jev = (st.jev || 0) + 1;
-      if (r?.ok && ACTIONS.includes(r.action)) return { ok:true, judge:'JEV', model:r.model || 'jev', d:{ ok:true, action:r.action, stopChoice:STOP_CHOICES.includes(r.stopChoice) ? r.stopChoice : 'KEEP', reason:REASONS.includes(r.reason) ? r.reason : 'NO_EDGE', confidence:finite(r.confidence), reasonTr:'JEV: ' + (REASON_TR[r.reason] || r.reason || ''), watchTr:'' }, costUsd:finite(r.costUsd), tried };
+      if (r?.ok && ACTIONS.includes(r.action)) return { ok:true, judge:'JEV', model:r.model || 'jev', d:{ ok:true, action:r.action, stopChoice:STOP_CHOICES.includes(r.stopChoice) ? r.stopChoice : 'KEEP', reason:REASONS.includes(r.reason) ? r.reason : 'NO_EDGE', confidence:finite(r.confidence), reasonTr:'JEV: ' + (coherence(r.action, r.reason) ? '⚠ gerekçe-eylem çelişkisi • ' : '') + (REASON_TR[r.reason] || r.reason || ''), watchTr:'', incoherent:coherence(r.action, r.reason) }, costUsd:finite(r.costUsd), tried };
       tried.push('JEV:' + (r?.reason || 'FAILED')); continue;
     }
     if (j === 'COMMITTEE') { // R2544.86: free models decide together (round 1 independent, round 2 debate, majority; no majority -> HOLD)
@@ -331,5 +338,5 @@ function microOf(sn, R = () => null) {
       zones:(liq.zones || []).slice(0, 4).map(z => ({ side:z.side, price:z.price ?? null, R:zR(z.price), quote:z.quote ?? null })), cascade:liq.cascade || null,
       note:'observed Binance force-order prints only; not a full liquidation heatmap' } };
 }
-module.exports = { microOf, jsonObjects, wordOf, chartSpecs, screenStory, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
+module.exports = { coherence, HOLD_REASONS, REDUCE_REASONS, microOf, jsonObjects, wordOf, chartSpecs, screenStory, DESK_VERSION, TRADE_TF, atrR, ACTIONS, STOP_CHOICES, REASONS, ACTION_TR, REASON_TR, DEFAULT_CONFIG, configFile, readConfig, rows, riskOf, favR, lastSwing, stopCandidates, packet,
   SYSTEM, DESK_ROLES, freePrompt, parseFree, validFree, judge, validate, decisionText, simulate, counterfactual, planOf, summary, SMART, smartDue, gxSnap };
