@@ -43,6 +43,7 @@ try {
     if ($null -eq $posL) { throw 'Acik pozisyon durumu okunamadi; guvenlik icin kurulum yapilmadi.' }
     if ($posL.Count -gt 0) { throw "CANLI'da ACIK GERCEK POZISYON VAR: $($posL -join ', '). Pozisyon kapaninca bu betigi yeniden calistirin (stop / hedef emirleri Binance'te duruyor)." }
     $wasArmed = ($st.armed -eq $true)
+    $restartHint = "Office'ten onceki duzenle yeniden baslatin: JEV + Kurul acikti ise 'JEV + Kurul ile CANLI'ya gec' (yalniz kurul icin 'Kurulla CANLI'ya gec' JEV'i kapatir)."
     if ($wasArmed) {
       # kullanici 11.11: "canlida kalacagiz ... ben deploy ederim". CANLI'yi durdurup yeniden baslatmak yalniz kullanicinin BURADA yazdigi onayla.
       Write-Host ''
@@ -56,12 +57,16 @@ try {
       Start-Sleep -Seconds 3
       $st = Core-Get '/live/status'
       if ($st.armed -eq $true) { throw 'CANLI baslatmasi kapanmadi; kurulum yapilmadi.' }
-      $posL = Open-Positions $RT
-      if ($null -eq $posL -or $posL.Count -gt 0) { throw "Durdurma sirasinda acik pozisyon olustu ($($posL -join ', ')); kurulum yapilmadi. CANLI DURDURULDU: Office'ten 'Kurulla CANLI'ya gec'e basin." }
+      # R2544.192 (17.11 17:14): durdurmadan 3 sn sonra defter bir kez okunamadi (gecici) ve 'pozisyon olustu ()' denildi; pozisyon yoktu.
+      # Okunamazsa 60 sn boyunca 5 sn arayla tekrar okunur; yine okunamazsa KURULMAZ (guvenli taraf). Okunamadi ile acik pozisyon ayri mesaj.
+      $posL = $null
+      for ($i = 1; $i -le 12 -and $null -eq $posL; $i++) { $posL = Open-Positions $RT; if ($null -eq $posL) { Start-Sleep -Seconds 5 } }
+      if ($null -eq $posL) { throw "Durdurmadan sonra acik pozisyon durumu 60 sn okunamadi; guvenlik icin kurulum yapilmadi. CANLI DURDURULDU: $restartHint" }
+      if ($posL.Count -gt 0) { throw "Durdurma sirasinda acik pozisyon olustu ($($posL -join ', ')); kurulum yapilmadi. CANLI DURDURULDU: $restartHint" }
     }
     Write-Host '== CANLI mod, baslatma kapali, acik pozisyon 0: JEV-DEPLOY calistiriliyor'
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'JEV-DEPLOY.ps1')
-    if ($LASTEXITCODE -ne 0) { throw "JEV-DEPLOY basarisiz (exit $LASTEXITCODE). CANLI DURDURULMUS durumda: Office'ten 'Kurulla CANLI'ya gec'e basin." }
+    if ($LASTEXITCODE -ne 0) { throw "JEV-DEPLOY basarisiz (exit $LASTEXITCODE). CANLI DURDURULMUS durumda: $restartHint" }
     if ($wasArmed) {
       Write-Host '== CANLI yeniden baslatiliyor (onayinizla; ayni hatlar)'
       $r = $null; $why = ''
@@ -75,7 +80,7 @@ try {
       $st = Core-Get '/live/status'
       if (-not $r -or $r.ok -ne $true -or $st.armed -ne $true) {
         Write-Host "JEV_TEST_DEPLOY_OK surum=$($st.runtimeRelease) mod=$($st.tradingMode.mode) baslatma=$($st.armed)"
-        Write-Host "UYARI: yeni surum KURULDU ama CANLI YENIDEN BASLATILAMADI ($why). Office ya da telefondan 'Kurulla CANLI'ya gec'e basin."
+        Write-Host "UYARI: yeni surum KURULDU ama CANLI YENIDEN BASLATILAMADI ($why). $restartHint"
         return
       }
       Write-Host "JEV_TEST_DEPLOY_OK surum=$($st.runtimeRelease) mod=$($st.tradingMode.mode) baslatma=$($st.armed) CANLI_YENIDEN_BASLADI"
