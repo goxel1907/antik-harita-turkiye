@@ -14,6 +14,25 @@ const CRITICAL = { trade_plan:['trade_plan', 'entry_timing'], lane_focus:['lane_
 // Ölçülen koltuk süreleri (Office model karnesi 16.11: ort 10-64 sn/çağrı). 8 sn sınırında koltukların neredeyse tamamı düşüyordu.
 // Vur-kaç saniyelerle yaşar: orada kısa süre kalır (kurul yetişemezse fail-closed = işlem yok, doğru davranış).
 const TIMING = { burst_decision:{ call:8000, round2:5000 }, burst_exit:{ call:8000, round2:5000 }, default:{ call:45000, round2:20000 } };
+// R2544.186 (kullanıcı 17.11: "botun verileri, Goxel vs hepsi JEV'e her coin için ulaştığına emin ol"): İlk 3 / ZİRVE-5 GİRİŞ kapısına da
+// Goxel'in kısa bakışı (yalnız danışman; bu kapılar için kurul YEDEĞİ açılmaz, Codex kapsamı değişmez).
+const ADVISOR_ONLY = ['top3_decision', 'zirve5_decision'];
+function advisorOnly(body) { return ADVISOR_ONLY.some(k => Object.hasOwn(body?.questions || {}, k)); }
+function advisorEligible(body) { return supported(body) || advisorOnly(body); }
+// giriş kapısı için kısa biçim (~0,5 kB): yön başına aleyhte/büyük ekran sayısı + gerekçe; ekran metinleri yok
+function compactAdvisor(a) {
+  if (!a || a.available !== true || a.kind !== 'ENTRY_CONTEXT') return a;
+  const side = x => x ? { goxelWouldEnter:x.ok === true, checked:x.checked === true, against:x.against ?? null, big:x.big ?? null, needBig:x.needBig ?? null,
+    trendSupports:x.support ?? null, atLevel:x.atLevel ?? null, why:x.why ? String(x.why).slice(0, 160) : null } : null;
+  return { authority:a.authority, source:a.source, symbol:a.symbol, at:a.at, kind:'ENTRY_CONTEXT_COMPACT', instruction:a.instruction, long:side(a.long), short:side(a.short) };
+}
+// danışman notu JEV çağrısını ASLA engelleyemez: not eklenince istek sınırı aşıyorsa not düşürülür, çağrı aynen yapılır
+function withAdvisors(body, advisors, prepare) {
+  const next = { ...body, state:{ ...body.state, advisors } };
+  let ok = false; try { ok = prepare(next)?.ok === true; } catch { ok = false; }
+  if (ok) return next;
+  return { ...body, state:{ ...body.state, advisors:{ authority:'EVIDENCE_ONLY', available:false, reason:'GOXEL_ADVISOR_DROPPED_SIZE' } } };
+}
 function phaseOf(body) { return SUPPORTED.find(k => Object.hasOwn(body?.questions || {}, k)) || null; }
 // Aynı temel model farklı sağlayıcılardan (nvidia / openrouter / KILO) gelebiliyor: bağımsız oy sayılmaz.
 function familyOf(id) {
@@ -128,4 +147,4 @@ function createCommitteeFallback({committee, clock = () => Date.now(), size = 3}
     finally { active--; }
   };
 }
-module.exports = {FAILOVER_VERSION, SUPPORTED, CRITICAL, TIMING, supported, creditFailure, parseResponse, validateAnswers, signature, fullSignature, familyOf, phaseOf, createCommitteeFallback};
+module.exports = {FAILOVER_VERSION, SUPPORTED, CRITICAL, TIMING, ADVISOR_ONLY, advisorOnly, advisorEligible, compactAdvisor, withAdvisors, supported, creditFailure, parseResponse, validateAnswers, signature, fullSignature, familyOf, phaseOf, createCommitteeFallback};

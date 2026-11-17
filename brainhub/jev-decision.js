@@ -1400,14 +1400,16 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
   async function decisions(body,options={}){
     // Add advisory evidence only. Neither Goxel nor a backup can mutate the
     // original market packet, sizing, offered plans, or exchange permissions.
-    if(configured&&failoverPolicy.supported(body)&&typeof decisionAdvisors==='function'){
+    if(configured&&failoverPolicy.advisorEligible(body)&&typeof decisionAdvisors==='function'){ // R2544.186: giriş kapıları da
       let advisors,timer;
       try{advisors=await Promise.race([Promise.resolve().then(()=>decisionAdvisors({body})),new Promise(resolve=>{
         timer=setTimeout(()=>resolve({authority:'EVIDENCE_ONLY',available:false,reason:'GOXEL_ADVISOR_PENDING'}),Math.max(1,Math.min(5000,Number(advisoryTimeoutMs)||2500)));
       })]);}
       catch{advisors={authority:'EVIDENCE_ONLY',available:false,reason:'GOXEL_ADVISOR_UNAVAILABLE'};}
       finally{clearTimeout(timer);}
-      body={...body,state:{...body.state,advisors:advisors||{authority:'EVIDENCE_ONLY',available:false}}};
+      const adv=advisors||{authority:'EVIDENCE_ONLY',available:false};
+      // R2544.186: giriş kapısında kısa biçim; not isteği 48 kB sınırının üstüne çıkarırsa düşürülür, JEV çağrısı yine yapılır
+      body=failoverPolicy.withAdvisors(body,failoverPolicy.advisorOnly(body)?failoverPolicy.compactAdvisor(adv):adv,prepareDecisionRequest);
     }
     const result=await primaryDecisions(body,options);
     if(result.ok){
