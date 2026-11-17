@@ -6966,21 +6966,24 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   const DESK_CM_MAX_AGE_MS=15*60000;
   function deskCmKarne(lane){
     if(clock()-deskSumCache.at>10*60000){try{const z=z5State()||{};deskSumCache={at:clock(),v:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))])};}catch{deskSumCache={at:clock(),v:null};}}
-    const row=deskSumCache.v&&(deskSumCache.v[lane]||deskSumCache.v.ILK3)||null;
-    return row?{n:row.n,acted:row.acted??null,planR:row.ruleR,deskR:row.deskR,deltaVsPlanR:row.deltaR,note:'masa (JEV+kurul) kararları uygulansaydı ile kural kendi haline bırakılsaydı farkı; eksi = masa planın altında'}:null;
+    const row=deskSumCache.v&&deskSumCache.v[lane]||null; // R2544.191 (Codex 17.11): ZİRVE-5 satırı yoksa İlk 3 karnesi GÖSTERİLMEZ
+    return row?{kind:'DESK_JEV_PLUS_COMMITTEE_NOT_COMMITTEE_ONLY',lane,n:row.n,acted:row.acted??null,planR:row.ruleR,deskR:row.deskR,deltaVsPlanR:row.deltaR,note:'this is the WHOLE desk (JEV + committee mixed) vs the plan, not the committee alone; minus = desk below plan'}:{kind:'NONE',lane,note:'no measured desk karne for this lane yet'};
   }
   function deskCmView(a,now){
     const v=deskCmViews.get(a.id);
     if(!v||now-v.at>DESK_CM_MAX_AGE_MS)return {available:false,reason:v?'KURUL_GORUSU_ESKI':'KURUL_GORUSU_HENUZ_YOK',karne:deskCmKarne(a.lane==='ZIRVE5'?'ZIRVE5':'ILK3')};
-    return {available:true,authority:'EVIDENCE_ONLY',ageSec:Math.round((now-v.at)/1000),final:v.final,consensus:v.consensus,voters:v.voters,counts:v.counts,
-      karne:deskCmKarne(a.lane==='ZIRVE5'?'ZIRVE5':'ILK3'),instruction:'Free-model committee LAST opinion on this same position (may be minutes old). Weigh it with its measured karne; you decide.'};
+    const mech=v.consensus==='SINGLE_VOTER_DEFAULT'||v.consensus==='NO_MAJORITY_DEFAULT'; // R2544.191 (Codex 17.11): tek oy / çoğunluk yok -> mekanik HOLD, görüş değildir
+    return {available:true,authority:'EVIDENCE_ONLY',ageSec:Math.round((now-(v.packetAt??v.at))/1000),answeredSecAgo:Math.round((now-v.at)/1000),final:mech?null:v.final,noOpinion:mech?v.consensus:undefined,consensus:v.consensus,voters:v.voters,counts:v.counts,
+      karne:deskCmKarne(a.lane==='ZIRVE5'?'ZIRVE5':'ILK3'),instruction:'Free-model committee LAST opinion on this same position; ageSec = age of the market data it saw. final=null means no real majority (only counts are evidence). The karne is the whole desk, not the committee alone. You decide.'};
   }
-  function deskCmKick(a,packet,mode,cfg){
+  let deskJevDownUntil=0; // R2544.191: JEV masada cevap veremedi (kredi/hata) -> kurul zaten yetkili yedek olarak karar verir; ikinci (paralel) kurul çağrısı yapılmaz
+  function deskCmKick(a,packet,mode,cfg,adv){
+    if(clock()<deskJevDownUntil)return false;
     if(deskCmRunning>=1||deskCmViews.get(a.id)?.busy)return false;
-    deskCmRunning++;const prev=deskCmViews.get(a.id)||{};deskCmViews.set(a.id,{...prev,busy:true});
-    DESK.judge({packet,mode,cfg:{...cfg,testJudges:['COMMITTEE'],liveJudges:['COMMITTEE']},judges:deskJudges,stats:{}})
+    deskCmRunning++;const prev=deskCmViews.get(a.id)||{},packetAt=clock();deskCmViews.set(a.id,{...prev,busy:true});
+    DESK.judge({packet,mode,cfg:{...cfg,testJudges:['COMMITTEE'],liveJudges:['COMMITTEE']},judges:deskJudges,stats:{},advisors:adv||null})
       .then(r=>{if(r?.ok&&r.d){const votes=r.committee?.votes||[],counts={};for(const x of votes){const k=x.a||'?';counts[k]=(counts[k]||0)+1;}
-        deskCmViews.set(a.id,{at:clock(),final:r.d.action,consensus:r.committee?.consensus||null,voters:r.committee?.voters??votes.length,counts,busy:false});}
+        deskCmViews.set(a.id,{at:clock(),packetAt,final:r.d.action,consensus:r.committee?.consensus||null,voters:r.committee?.voters??votes.length,counts,busy:false});}
         else deskCmViews.set(a.id,{...prev,busy:false});})
       .catch(()=>deskCmViews.set(a.id,{...prev,busy:false}))
       .finally(()=>{deskCmRunning=Math.max(0,deskCmRunning-1);const live=new Set([...Object.values(top3State.active||{}),...Object.values(z5State()?.active||{})].map(x=>x&&x.id).filter(Boolean));for(const k of [...deskCmViews.keys()])if(!live.has(k))deskCmViews.delete(k);}); // kapanan lotların görüşü silinir (lot KİMLİĞİYLE; Z5 tablosu kimlikle anahtarlı değil)
@@ -7036,8 +7039,9 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
       // R2544.127 JEV + KURUL: JEV decides first; when JEV cannot answer (credit, error) the committee decides - the same order in TEST and LIVE
       const both=auth&&jevKurul(laneCfgOf(a)),order=both?['JEV','COMMITTEE']:['COMMITTEE'];
-      if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg);} // R2544.187: paralel, beklenmez
-      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:deskJudges,stats:deskStats(),advisors}):deskJudge(packet,mode,cfg,advisors)),st=deskStats();st.lastAt=new Date(now).toISOString();
+      if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg,{goxel:advisors.goxel,entry:advisors.entry});} // R2544.187: paralel, beklenmez; R2544.191: kurul da Goxel + giriş notunu görür
+      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:deskJudges,stats:deskStats(),advisors}):deskJudge(packet,mode,cfg,advisors)),st=deskStats();
+      if(both)deskJevDownUntil=res?.judge==='JEV'?0:(Array.isArray(res?.tried)&&res.tried.some(t=>String(t).startsWith('JEV:'))?clock()+5*60000:deskJevDownUntil); // R2544.191st.lastAt=new Date(now).toISOString();
       const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
       desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);deskLooksToday(now);deskLooks.n++;desk.lastWhy=a.deskDueWhy||null; // R2544.164
       desk.lastGx=DESK.gxSnap(a.goxel&&{against:a.goxel.against,big:a.goxel.big,need:a.goxel.need??3,needBig:a.goxel.needBig??1},desk.lastR);

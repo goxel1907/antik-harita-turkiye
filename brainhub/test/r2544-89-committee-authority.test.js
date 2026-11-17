@@ -452,3 +452,43 @@ test('R2544.187 JEV + Kurul: kurul PARALEL — JEV beklemez; ikinci bakışta JE
   const last=f.lot().desk.decisions.at(-1);assert.equal(last.judge,'JEV');assert.equal(last.action,'HOLD','karar JEV\'in');
   assert.deepEqual(last.committeeView&&last.committeeView.final,'EXIT','ölçüm: kurulun görüşü kayıtta');
 });
+
+test('R2544.191 (Codex 17.11) paralel kurul: Goxel/giriş notunu görür; tek oyun mekanik HOLD\'u görüş sayılmaz; yaş paketin zamanından',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const vote=(m,action)=>({member:m,ok:true,seat:null,vote:{ok:true,action,stopChoice:'KEEP',reason:'MOMENTUM_FADING',confidence:60,reasonTr:m,watchTr:''}});
+  const one={ok:true,final:'HOLD',consensus:'SINGLE_VOTER_DEFAULT',rounds:1,voters:1,votes:[vote('a','EXIT')]};
+  const prompts=[];const c=cm(o=>{if(o.field==='action'){prompts.push(o.prompt);return new Promise(r=>setTimeout(()=>r(one),30));}return TAKE;});const jevSeen=[];
+  const jev=async({packet})=>{jevSeen.push(packet.advisors&&packet.advisors.committee);return {ok:true,action:'HOLD',stopChoice:'KEEP',reason:'STRUCTURE_INTACT',model:'jev'};};
+  const f=fixture({z5:{enabled:true,committeeMode:true,jevMode:true},deskJudges:{committee:c,jev},extra:{zirve5Judge:async()=>({ok:true,called:true,decision:'APPROVE_ENTRY'})}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=f.lot(),R=a.stopPrice-a.entryPrice;
+  f.controller._testDeskGuard({protectR:-99});await f.beat(a.entryPrice-0.4*R);f.state.now+=31*60000;
+  let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}
+  await new Promise(z=>setTimeout(z,150));assert.ok(prompts.length>=1,'paralel kurul çağrıldı');
+  const pk=JSON.parse(prompts[0]);assert.ok(pk.advisors&&pk.advisors.entry&&pk.advisors.entry.openedBy==='RULE','paralel kurul giriş notunu görür');assert.ok('goxel' in pk.advisors,'Goxel alanı da gider');
+  assert.ok(!pk.advisors.committee,'kurul kendi görüşünü kendine danışman diye almaz');
+  f.state.now+=6*60000;await f.beat(a.entryPrice-0.8*R);
+  for(let i=0;i<100&&jevSeen.length<2;i++){await f.controller._testDeskTick();if(jevSeen.length<2)await new Promise(z=>setTimeout(z,10));}
+  const v=jevSeen.at(-1);assert.ok(v&&v.available===true,JSON.stringify(v));
+  assert.equal(v.final,null,'tek oy: kurul görüşü YOK (mekanik HOLD gösterilmez)');assert.equal(v.noOpinion,'SINGLE_VOTER_DEFAULT');assert.deepEqual(v.counts,{EXIT:1},'tek gerçek oy kanıt olarak durur');
+  assert.ok(v.ageSec>=v.answeredSecAgo,'yaş, kurulun gördüğü piyasa paketinden (cevap anından değil)');assert.ok(v.ageSec>=360,'paket 6 dk önce: '+v.ageSec);
+  assert.equal(v.karne&&v.karne.kind!==undefined,true);assert.notEqual(v.karne.lane,'ILK3','ZİRVE-5 lotuna İlk 3 karnesi verilmez');
+});
+
+test('R2544.191 (Codex 17.11) JEV masada cevap veremezse (402) paralel kurul ikinci kez çağrılmaz; yetkili yedek kurul karar verir',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const vote=(m,action)=>({member:m,ok:true,seat:null,vote:{ok:true,action,stopChoice:'KEEP',reason:'MOMENTUM_FADING',confidence:60,reasonTr:m,watchTr:''}});
+  const hold={ok:true,final:'HOLD',consensus:'UNANIMOUS',rounds:1,voters:2,votes:[vote('a','HOLD'),vote('b','HOLD')]};
+  let calls=0;const c=cm(o=>{if(o.field==='action'){calls++;return hold;}return TAKE;});
+  const jev=async()=>({ok:false,called:true,reason:'OPENROUTER_402'});
+  const f=fixture({z5:{enabled:true,committeeMode:true,jevMode:true},deskJudges:{committee:c,jev},extra:{zirve5Judge:async()=>({ok:true,called:true,decision:'APPROVE_ENTRY'})}});await f.controller.testSupervisorTick();
+  assert.equal((await f.controller.z5Tick()).entries,1);const a=f.lot(),R=a.stopPrice-a.entryPrice;
+  f.controller._testDeskGuard({protectR:-99});await f.beat(a.entryPrice-0.4*R);f.state.now+=31*60000;
+  let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}
+  assert.ok(r&&r.ok&&r.judge==='COMMITTEE',JSON.stringify(r));await new Promise(z=>setTimeout(z,50));
+  const after1=calls;assert.ok(after1<=2,'ilk bakış: en çok paralel + yedek ('+after1+')');
+  f.state.now+=150000;await f.beat(a.entryPrice-0.95*R); // masa olaya göre bakar: 0,5R adım + 2 dk aralık; 5 dk JEV-düşük penceresi içinde
+  for(let i=0;i<100&&(f.lot().desk.decisions.length<2);i++){await f.controller._testDeskTick();if(f.lot().desk.decisions.length<2)await new Promise(z=>setTimeout(z,10));}
+  await new Promise(z=>setTimeout(z,50));
+  const d=f.lot().desk.decisions;assert.equal(d.length,2,'ikinci masa bakışı yapıldı');assert.equal(d.at(-1).judge,'COMMITTEE');
+  assert.equal(calls-after1,1,'JEV düşükken ikinci bakışta yalnız yetkili kurul (paralel yok)');
+});

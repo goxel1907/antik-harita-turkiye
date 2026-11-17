@@ -3,8 +3,8 @@
 const test = require('node:test'), assert = require('node:assert'), fs = require('fs'), path = require('path');
 const lc = fs.readFileSync(path.join(__dirname, '..', 'live-controller.js'), 'utf8'), jd = fs.readFileSync(path.join(__dirname, '..', 'jev-decision.js'), 'utf8');
 test('R2544.187 masa bakışı kurulu BEKLEMEZ: kick await edilmez, JEV çağrısı aynı satır sırasıyla sürer', () => {
-  const i = lc.indexOf("if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg);}"), j = lc.indexOf('const res=await (auth?DESK.judge(', i);
-  assert.ok(i > 0 && j > i && j - i < 200, 'kick, JEV çağrısından hemen önce ve beklenmeden');
+  const i = lc.indexOf("if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg,{goxel:advisors.goxel,entry:advisors.entry});}"), j = lc.indexOf('const res=await (auth?DESK.judge(', i);
+  assert.ok(i > 0 && j > i && j - i < 300, 'kick, JEV çağrısından hemen önce ve beklenmeden');
   assert.ok(!/await deskCmKick/.test(lc));
   const k = lc.indexOf('function deskCmKick('), seg = lc.slice(k, lc.indexOf('\n  }', k));
   assert.match(seg, /DESK\.judge\(\{packet,mode,cfg:\{\.\.\.cfg,testJudges:\['COMMITTEE'\],liveJudges:\['COMMITTEE'\]\}/);
