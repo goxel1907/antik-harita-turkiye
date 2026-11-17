@@ -88,7 +88,7 @@ try {
     }
     $st = Core-Get '/live/status'
     Write-Host "JEV_TEST_DEPLOY_OK surum=$($st.runtimeRelease) mod=$($st.tradingMode.mode) baslatma=$($st.armed) OTO=$($st.leaderAuto.enabled)"
-    Write-Host 'CANLI BASLATILMADI (kurulumdan once de kapaliydi): Office ya da telefondan "Kurulla CANLI''ya gec"e basin.'
+    Write-Host "CANLI BASLATILMADI (kurulumdan once de kapaliydi): $restartHint"
     return
   }
   if (-not $st.tradingMode -or $st.tradingMode.mode -ne 'TEST') { throw 'Calisma modu okunamadi (TEST / CANLI degil); kurulum yapilmadi.' }

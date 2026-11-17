@@ -63,7 +63,11 @@ test('R2544.80 similar cases: many features, at most 2 per coin, outcomes WITH c
   assert.match(lc,/experienceFor\(top3State\.lessons,x\.rule,\{features:ef\}\)/);assert.match(lc,/similar:top3Lib\.similarForJev\(top3Lib\.similarCases\(z\.lessons,rule,ef\)\)/);
   for(const f2 of ['manage.ps1','jev-brain/JEV-DEPLOY.ps1'])assert.ok(fs.readFileSync(path.join(__dirname,'..',f2),'utf8').includes("'trade-autopsy.js'"),f2);
   const oh=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');assert.match(oh,/neden \/ nasıl/);
-  assert.equal((fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').match(/laneExperience\.similar = the most similar/g)||[]).length,3);
+  const j=fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8');
+  assert.equal((j.match(/state\.inferenceNote=ENTRY_INFERENCE_NOTE/g)||[]).length,3);
+  assert.match(j,/entryFeatures carries the computed entry observations actually available for THIS signal/);
+  assert.match(j,/similar = matched past entries/);
+  assert.match(j,/These are advisory evidence, not additional rules/);
 });
 test('R2544.80 live: a closed lesson gets a provisional autopsy after 30 min and the complete one after 24 h (5m candles of the coin and BTC)',async()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'r80-'));fs.mkdirSync(path.join(root,'config'));fs.mkdirSync(path.join(root,'data'));

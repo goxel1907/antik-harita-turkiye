@@ -98,6 +98,9 @@ test('R2544.67 JEV per sub-strategy: ERKEN LONG with JEV sends its name and its 
   const st=f.controller.top3Status();assert.equal(st.subs.find(x=>x.key==='early').jev,true);assert.equal(st.subs.find(x=>x.key==='top').jev,false,'TEPE SHORT keeps the lane setting (JEV off)');
   const r=await f.controller.top3Tick();assert.equal(r.v2.signals,1);assert.equal(r.v2.entries,0);
   assert.equal(seen.length,1);assert.equal(seen[0].signal.strategy,'İLK 3 ERKEN LONG');assert.equal(seen[0].experience.rule,'LONG_EARLY_RETEST');
+  assert.ok(seen[0].signal.proposedPlan.stopPrice<seen[0].signal.proposedPlan.entryPrice,'JEV receives the real calculated structural stop');
+  assert.ok(seen[0].signal.proposedPlan.tpPrice>seen[0].signal.proposedPlan.entryPrice,'JEV receives the real calculated target');
+  assert.equal(seen[0].signal.maxHoldMs,24*H);assert.ok(Array.isArray(seen[0].features.ruleFlags));
   assert.equal(f.controller.top3Status().lastScan5.entries[0].reason,'TOP3_JEV_NOT_APPROVED');
   require('../binance-rate-limit').resetForTests();
   const g=fixture({top3:{early:{jev:true}},judge:null});await g.controller.testSupervisorTick();
@@ -119,6 +122,6 @@ test('R2544.67 Office and API wiring: sub rows, buttons, routes forward only the
   const html=fs.readFileSync(path.join(__dirname,'..','office-dashboard','public','office.html'),'utf8');
   for(const id of ['t3Subs','btnT3Early','btnT3EarlyJev','btnT3Top','btnT3TopJev','t3EarlyRes','t3TopRes'])assert.ok(html.includes(`id="${id}"`),id);
   assert.ok(html.includes("top3Control({[key]:true,confirm:'LIVE'}"));
-  const srv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.ok(srv.includes('earlyEnabled:body?.earlyEnabled,topEnabled:body?.topEnabled'));assert.ok(srv.includes("const RUNTIME_RELEASE='R2544.193'"));
+  const srv=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');assert.ok(srv.includes('earlyEnabled:body?.earlyEnabled,topEnabled:body?.topEnabled'));assert.ok(srv.includes("const RUNTIME_RELEASE='R2544.194'"));
   assert.ok(fs.readFileSync(path.join(__dirname,'..','jev-decision.js'),'utf8').includes('strategy:signal.strategy||null'));
 });

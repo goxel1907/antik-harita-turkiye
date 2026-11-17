@@ -70,6 +70,16 @@ const cm=(answer)=>{const calls=[];return {calls,decide:async o=>{calls.push(o);
 const TAKE={ok:true,final:'TAKE',consensus:'UNANIMOUS',rounds:1,voters:5,votes:[{member:'ROUTER:gc/gemini-3.1-pro-preview',seat:'1g/4sa',ok:true,vote:{decision:'TAKE',pTarget:60,reasonTr:'4 sa aşağı'}}],round2:null};
 const SKIP={...TAKE,final:'SKIP',votes:[{member:'ROUTER:kr/claude-sonnet-4.5',seat:'price action',ok:true,vote:{decision:'SKIP',pTarget:20,reasonTr:'karşı OB 0,9R'}}]};
 
+test('R194 actual ZIRVE5 controller passes the numerical signal plan before the JEV review; rejection still places no order',async()=>{
+  require('../binance-rate-limit').resetForTests();let seen;
+  const f=fixture({z5:{enabled:true,jevMode:true,committeeMode:true},extra:{zirve5Judge:async x=>{seen=x;return {ok:true,called:true,decision:'REJECT_ENTRY'};}}});
+  await f.controller.testSupervisorTick();const r=await f.controller.z5Tick();
+  assert.equal(r.entries,0);assert.equal(f.state.orders.length,0);
+  assert.ok(seen.signal.proposedPlan.entryPrice>0);assert.ok(seen.signal.proposedPlan.stopPrice>seen.signal.proposedPlan.entryPrice);
+  assert.ok(seen.signal.proposedPlan.tpPrice<seen.signal.proposedPlan.entryPrice);assert.equal(seen.signal.maxHoldMs,24*3600000);
+  assert.ok(Array.isArray(seen.features.ruleFlags));
+});
+
 test('R2544.89 entry gate: KURUL mode -> the committee must say TAKE (veto only); SKIP = no trade; no answer = the rule goes on',async()=>{
   // R2544.116 (kullanıcı 03.11: "gördüğü her fırsata girecek o kadar ve öğrenecek"): by default the entry never waits for the committee
   require('../binance-rate-limit').resetForTests();

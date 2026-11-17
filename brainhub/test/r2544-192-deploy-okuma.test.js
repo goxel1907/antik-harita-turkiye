@@ -12,5 +12,5 @@ test('R2544.192 durdurmadan sonra defter 60 sn tekrar okunur; okunamadı ile aç
 test('R2544.192 yeniden başlatma önerisi önceki düzeni söyler (JEV + Kurul), "Kurulla CANLI" tek başına önerilmez', () => {
   assert.match(ps, /\$restartHint = "Office'ten onceki duzenle yeniden baslatin: JEV \+ Kurul acikti ise 'JEV \+ Kurul ile CANLI'ya gec'/);
   assert.ok(!/'Kurulla CANLI'ya gec'e basin/.test(ps), 'eski yanlış öneri kalmadı');
-  assert.equal((ps.match(/\$restartHint/g) || []).length, 5, 'tanım + 4 kullanım');
+  assert.equal((ps.match(/\$restartHint/g) || []).length, 6, 'tanım + 5 kullanım (önceden durmuş CANLI dahil)');
 });

@@ -82,13 +82,13 @@ function isolatedClient({success=false}={}){
   const filename=path.join(__dirname,'..','jev-decision.js'),root=path.resolve('unused-memory-root');
   const config=path.join(root,'config','jev.json'),logs=[],sent=[];
   const files=new Map([[config,JSON.stringify({enabled:true,dailyCapUsd:1})]]);
-  let writes=0,calls=0;
+  let writes=0,calls=0;const writtenPaths=[];
   const memoryFs={existsSync:p=>files.has(p),
     readFileSync:p=>{if(files.has(p))return files.get(p);throw Error('MEMORY_FILE_ABSENT');},
     mkdirSync:()=>{},
     appendFileSync:(p,line)=>{files.set(p,(files.get(p)||'')+line);logs.push(JSON.parse(line));},
-    writeFileSync:(p,value)=>{writes++;files.set(p,value);},
-    renameSync:(from,to)=>{writes++;files.set(to,files.get(from));files.delete(from);}};
+    writeFileSync:(p,value)=>{writes++;writtenPaths.push(p);files.set(p,value);},
+    renameSync:(from,to)=>{writes++;writtenPaths.push(to);files.set(to,files.get(from));files.delete(from);}};
   const realRequire=createRequire(filename),mod={exports:{}};
   const load=vm.runInNewContext('(function(require,module,exports){'+fs.readFileSync(filename,'utf8')+'\n})',
     {Buffer,AbortController,setTimeout,clearTimeout});
@@ -101,7 +101,7 @@ function isolatedClient({success=false}={}){
         top3_decision:{choice:'REJECT_ENTRY'},top3_leverage:{choice:'LEV_10'},top3_reason:{choice:'NO_EDGE'},
         zirve5_decision:{choice:'REJECT_ENTRY'},zirve5_leverage:{choice:'LEV_10'},zirve5_reason:{choice:'NO_EDGE'}}})};
     }});
-  return {client,logs,sent,files,counts:()=>({writes,calls})};
+  return {client,logs,sent,files,writtenPaths,config,counts:()=>({writes,calls})};
 }
 for(const lane of ['TOP3','ZIRVE5'])for(const kind of ['CORE','REQUEST'])test(lane+' '+kind+' size block preserves called:false and attempted:false',async()=>{
   const x=isolatedClient(),packet={symbol:'TESTUSDT',livePrice:1,microstructure:kind==='CORE'?{irreducible:'X'.repeat(60000)}:{}};
@@ -111,7 +111,10 @@ for(const lane of ['TOP3','ZIRVE5'])for(const kind of ['CORE','REQUEST'])test(la
   const out=await (lane==='TOP3'?x.client.sovereignTop3Gate(args):x.client.sovereignZirve5Gate(args));
   assert.equal(out.reason,kind==='CORE'?'JEV_CORE_CONTEXT_TOO_LARGE':'JEV_REQUEST_CONTEXT_TOO_LARGE');
   assert.equal(out.called,false);assert.equal(out.attempted,false);assert.equal(out.ok,false);
-  assert.deepEqual(x.counts(),{writes:0,calls:0});
+  assert.equal(x.counts().calls,0);
+  assert.ok(x.writtenPaths.length>0,'local preflight trace is recorded');
+  assert.ok(x.writtenPaths.every(p=>p.startsWith(path.join(path.resolve('unused-memory-root'),'logs','entry-decisions')+path.sep)), 'no budget or configuration write on a preflight block');
+  assert.equal(x.files.get(x.config),JSON.stringify({enabled:true,dailyCapUsd:1}));
   assert.equal(x.logs.at(-1).blocked,true);
 });
 
@@ -176,7 +179,10 @@ for(const lane of ['TOP3_V1','TOP3_V2','ZIRVE5'])test(lane+' sends the fitting s
   assert.deepEqual(sent.state.record,plain.state.record);
   assert.equal(sent.state.record.symbol,args.symbol);assert.equal(sent.state.record.side,'SHORT');
   assert.deepEqual(sent.questions,plain.questions);
-  assert.deepEqual(J.protectedCoreTruth(sent),J.protectedCoreTruth({state:{coreMarketPacket:p}}));
+  const protectedSent=J.protectedCoreTruth(sent);
+  assert.deepEqual(protectedSent.entryGate,sent.state.record);
+  const {entryGate,...protectedMarket}=protectedSent;
+  assert.deepEqual(protectedMarket,J.protectedCoreTruth({state:{coreMarketPacket:p}}));
   const expected=expectedHistory(input.state.laneExperience);
   assert.equal(sent.state.laneExperience.wire.version,'R2544.34_LOSSLESS_ROWS');
   assert.match(sent.state.laneExperience.wire.interpretation,/local to state.laneExperience/);

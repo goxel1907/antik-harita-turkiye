@@ -551,6 +551,39 @@ const PASS1_TARGET_BYTES=42000;
 const PASS2_TARGET_BYTES=46000;
 const OTHER_TARGET_BYTES=44000;
 const BURST_TARGET_BYTES=36000;
+const ENTRY_GATE_CONTRACTS=new Set(['R2544.56_TOP3_GATE','R2544.58_TOP3_V2_GATE','R2544.68_ZIRVE5_GATE']);
+// Entry geometry and computed entry observations are current evidence, not optional archived prose.
+function entryGateEvidence(features={},signal={}){
+  const p=signal.proposedPlan||{};
+  const entry=finiteNumber(p.entryPrice),stop=finiteNumber(p.stopPrice),target=finiteNumber(p.tpPrice);
+  return {proposedPlan:{available:entry>0&&stop>0&&target>0,
+    basis:p.basis||'SIGNAL_CANDLE_CLOSE',execution:'REFERENCE_ONLY_NOT_A_FILL_OR_ORDER',
+    entryPrice:entry,stopPrice:stop,tpPrice:target,stopPct:finiteNumber(p.stopPct),targetR:finiteNumber(p.targetR),
+    maxHoldMs:finiteNumber(p.maxHoldMs??signal.maxHoldMs),flags:Array.isArray(p.flags)?p.flags:[]},
+    entryFeatures:{authority:'EVIDENCE_ONLY',ind:features.ind??null,entryContext:features.entryCtx??null,
+      experience:features.experience??null,similar:features.similar??null,brain:features.brain??null,
+      ruleFlags:Array.isArray(features.ruleFlags)?features.ruleFlags:[]}};
+}
+const ENTRY_INFERENCE_NOTE='record.entryFeatures carries the computed entry observations actually available for THIS signal: ind = volume/liquidity indicators, entryContext = entry-time candle/BTC context, experience = measured lane inference, similar = matched past entries, brain = nearest measured cases, ruleFlags = warnings from the configured rule. Null or ok=false means unavailable, never confirmation. These are advisory evidence, not additional rules. record.proposedPlan gives the numerical plan at the stated reference price, not a promised fill; execution later recalculates at the current quote and enforces exchange safety. laneExperience is measured history, not the current market. Judge the current signal and chart; neither historical losses nor a 24h rise alone proves this particular entry is late.';
+// Local audit only: the exact prepared entry body, never HTTP headers or credentials.
+// Each distinct prepared entry body has its own identity. Prepared/blocked/attempted states stay separate. No model calls or orders are made here.
+function saveEntryTrace(root,prepared,{trace=null,at,reply=null,parentId,status,attempts=0}={}){
+  const record=prepared?.body?.state?.record;
+  if(!ENTRY_GATE_CONTRACTS.has(record?.contract))return null;
+  const requestId=trace?.requestId||crypto.randomUUID(),relativeFile=path.join('logs','entry-decisions',requestId+'.json');
+  const meta={requestId,requestHash:crypto.createHash('sha256').update(prepared.serialized).digest('hex'),
+    symbol:record.symbol,contract:record.contract,bytes:prepared.diagnostics.bytes,relativeFile,recorded:false,
+    at:trace?.at||at,parentId:parentId??trace?.parentId??null,status:status||trace?.status||(!prepared.ok?'PREFLIGHT_BLOCKED':'PREPARED')};
+  try{
+    const file=path.join(root,relativeFile);fs.mkdirSync(path.dirname(file),{recursive:true});
+    const doc={version:'R2544.194_ENTRY_WIRE',...meta,recorded:true,attempts,
+      blocked:!prepared.ok,requestSize:prepared.diagnostics,
+      body:prepared.diagnostics.bytes<=256000?JSON.parse(prepared.serialized):null,
+      bodyOmitted:prepared.diagnostics.bytes>256000?'OVERSIZE_NOT_SENT':null,reply};
+    const tmp=file+'.tmp';fs.writeFileSync(tmp,JSON.stringify(doc),'utf8');fs.renameSync(tmp,file);
+    return {...meta,at:doc.at,recorded:true};
+  }catch{return {...meta,at:trace?.at||at,reason:'ENTRY_TRACE_WRITE_FAILED'};}
+}
 // R42: compact management instruction used only when the management request is over its target.
 // Same contract as the full sovereignExit description; only explanatory prose is shortened.
 const MANAGEMENT_DESCRIPTION_COMPACT='JEV is the sole strategic position manager. Choose HOLD, PROTECT_PROFIT, REDUCE_RISK, PARTIAL_TAKE_PROFIT or EXIT_NOW from the supplied evidence; no fixed 1m/3m/5m/15m alignment and no score threshold. Weight conflicting evidence by actual importance. record.managementContract is the execution contract for PARTIAL_TAKE_PROFIT; a partial outside it is recorded as HOLD, so choose HOLD, PROTECT_PROFIT or EXIT_NOW instead. EXIT_NOW is never restricted. REDUCE_RISK is for a losing/adverse position whose thesis is not fully invalidated; it is never profit taking. chartOverlayLevels trendLines/breakoutEvidence and frame volatility.trail/spike are soft context, never automatic exits. The professional trader Cortex and experienceMemory (caseMemory winners and counterexamples, caseMemoryByLane, tradeLessons = your own measured P&L) are always-on soft context, never a veto or rule; do not mechanically flip direction or rotate coins unless current structure, location and execution evidence is materially different. Code after this decision enforces execution integrity and exchange safety only. If a material concept is not understood, do not invent it.';
@@ -576,9 +609,10 @@ function frameTruth(f,{detail=false,timing=false}={}){
 }
 function protectedCoreTruth(body){
   const record=expandMarketPacket(body?.state?.record);
+  const entryGate=ENTRY_GATE_CONTRACTS.has(record?.contract)?record:null;
   const management=record?.contract==='R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT';
   const p=expandMarketPacket(body?.state?.coreMarketPacket)||(management?{...record,coreFrames:record.frames,microstructure:{orderFlow:record.orderFlow,depth:record.depth,preEntryAdverseSelection:record.currentAdverseSelection}}:null);
-  if(!p||typeof p!=='object')return null;
+  if(!p||typeof p!=='object')return entryGate?{entryGate}:null;
   return {
     contract:p.contract??null,symbol:p.symbol??null,livePrice:p.livePrice??null,levelMap:p.levelMap??null,liquidationHistory:p.liquidationHistory??null,
     priceActionSetups:p.priceActionSetups??null, // R2544.69: ZİRVE-5 zone state + İlk 3 levels survive every trim step
@@ -588,7 +622,8 @@ function protectedCoreTruth(body){
     higherContext:Object.fromEntries(['30m','45m','1h','4h','1d'].map(tf=>[tf,frameTruth(p?.higherContext?.[tf])])),
     microstructure:p.microstructure??null,derivatives:p.derivatives??null,observedLiquidations:p.observedLiquidations??null,
     dataQuality:p.dataQuality??null,global:p.global??null,
-    ...(management?{position:record.position,lifecycle:record.lifecycle,riskState:record.riskState,positionProgress:record.positionProgress,performanceState:record.performanceState,entryThesis:record.entryThesis,managementContract:record.managementContract}: {})
+    ...(management?{position:record.position,lifecycle:record.lifecycle,riskState:record.riskState,positionProgress:record.positionProgress,performanceState:record.performanceState,entryThesis:record.entryThesis,managementContract:record.managementContract}: {}),
+    ...(entryGate?{entryGate}: {})
   };
 }
 function compactChartNarrative(n){
@@ -957,7 +992,7 @@ function prepareDecisionRequest(input,opts={}){
   // Position geometry and the immutable entry thesis are not current-market
   // compaction targets. Current market facts use the same wire packet as entry.
   const management=recordObj?.contract==='R2.5.3.2_JEV_SOVEREIGN_POSITION_MANAGEMENT';
-  const targets=[management?null:recordObj,packetObj].filter(Boolean);
+  const targets=[management||ENTRY_GATE_CONTRACTS.has(recordObj?.contract)?null:recordObj,packetObj].filter(Boolean);
   const refresh=()=>JSON.stringify(body);let serialized=refresh();
   // Pure duplication is removed even below target; no decision information is lost.
   if(recordObj&&body?.state?.experienceMemory&&recordObj.experienceMemory){delete recordObj.experienceMemory;trimStepsApplied.push('DUP_RECORD_EXPERIENCE_MEMORY');}
@@ -1331,15 +1366,19 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     const originalBody=body;
     let prepared=prepareDecisionRequest(body);
     let requestSize=prepared.diagnostics;
+    let entryTrace=saveEntryTrace(root,prepared,{at:new Date(clock()).toISOString()});
     // Metadata only: no market payload, account details, keys or response text.
     try{fs.mkdirSync(path.join(root,'logs'),{recursive:true});
       fs.appendFileSync(path.join(root,'logs','jev-request-size.log'),JSON.stringify({at:new Date(clock()).toISOString(),...requestSize,blocked:!prepared.ok})+'\n','utf8');
     }catch{}
     if(!prepared.ok)return {ok:false,configured:true,required:true,called:false,attempted:false,
-      reason:prepared.diagnostics?.blockReason||'JEV_REQUEST_CONTEXT_TOO_LARGE',requestSize,budget:budgetStatus()};
+      reason:prepared.diagnostics?.blockReason||'JEV_REQUEST_CONTEXT_TOO_LARGE',requestSize,budget:budgetStatus(),...(entryTrace?{entryTrace}: {})};
     body=prepared.body;
     const reservation=reserve?reserveBudget():{ok:true,reservedUsd:0};
-    if(!reservation.ok)return {ok:false,configured:true,required:true,called:false,attempted:false,reason:'JEV_DAILY_BUDGET_EXHAUSTED',budget:budgetStatus()};
+    if(!reservation.ok){
+      if(entryTrace)entryTrace=saveEntryTrace(root,prepared,{trace:entryTrace,status:'BUDGET_BLOCKED'});
+      return {ok:false,configured:true,required:true,called:false,attempted:false,reason:'JEV_DAILY_BUDGET_EXHAUSTED',budget:budgetStatus(),requestSize,...(entryTrace?{entryTrace}: {})};
+    }
     const started=clock();
     const transientHttp=new Set([408,425,429,500,502,503,504]);
     let attempts=0;
@@ -1347,6 +1386,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
       let r=null;
       let lastError=null;
       for(attempts=1;attempts<=2;attempts++){
+        if(entryTrace)entryTrace=saveEntryTrace(root,prepared,{trace:entryTrace,status:'ATTEMPTED',attempts});
         try{
           r=await fetchJson(fetchImpl,cfg.decisionsUrl,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:prepared.serialized},cfg.timeoutMs);
           if(r.ok||!transientHttp.has(Number(r.status))||attempts>=2)break;
@@ -1367,11 +1407,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         const smaller=prepareDecisionRequest(originalBody,{maxBytes:44000,targetBytes:42000});
         if(smaller.ok&&smaller.diagnostics.bytes<requestSize.bytes){
           try{fs.appendFileSync(path.join(root,'logs','jev-request-size.log'),JSON.stringify({at:new Date(clock()).toISOString(),...smaller.diagnostics,retryAfter:'MAX_TOKENS_EXCEEDED',blocked:false})+'\n','utf8');}catch{}
+          if(entryTrace)saveEntryTrace(root,prepared,{trace:entryTrace,status:'REPLIED',attempts,reply:{ok:false,httpStatus:r.status}});
           prepared=smaller;requestSize={...smaller.diagnostics,contextRetry:true};body=prepared.body;attempts+=1;
+          entryTrace=saveEntryTrace(root,prepared,{at:new Date(clock()).toISOString(),parentId:entryTrace?.requestId||null,status:'ATTEMPTED',attempts:1});
           try{r=await fetchJson(fetchImpl,cfg.decisionsUrl,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:prepared.serialized},cfg.timeoutMs);}catch(e){lastError=e;}
           if(!r)throw lastError||new Error('JEV_DECISION_NO_RESPONSE');
         }
       }
+      if(entryTrace)entryTrace=saveEntryTrace(root,prepared,{trace:entryTrace,status:'REPLIED',attempts,reply:{ok:r.ok,httpStatus:r.status,answers:r.ok?(r.data?.answers||null):null}});
       if(!r.ok){
         if(reserve)settleBudget(reservation,Number(r.status)===402?0:cfg.reservePerCallUsd);
         const pe=noteProviderError(r.status,r.data);
@@ -1380,7 +1423,7 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
           at:new Date(clock()).toISOString(),reason:'JEV_HTTP_ERROR',httpStatus:r.status,providerCategory:pe.category,
           providerCode:pe.code,providerMessage:pe.message,consecutiveAuthFailures:providerState.consecutiveAuthFailures,
           requestSize,contextExceeded:JSON.stringify(r.data).includes('max_tokens_exceeded')})+'\n','utf8');}catch{}
-        return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,provider:providerStatus(),requestSize,attempts,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus()};
+        return {ok:false,configured:true,required:true,reason:'JEV_HTTP_ERROR',httpStatus:r.status,provider:providerStatus(),requestSize,attempts,durationMs:clock()-started,detail:JSON.stringify(r.data).slice(0,500),budget:budgetStatus(),...(entryTrace?{entryTrace}: {})};
       }
       noteProviderOk();
       creditBlockedUntil=0;
@@ -1390,10 +1433,11 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         httpStatus:r.status,inputTokens:r.data?.usage?.input_tokens??r.data?.usage?.prompt_tokens??null})+'\n','utf8');}catch{}
       if(reserve)settleBudget(reservation,cost);
       const sentPacket=JSON.parse(prepared.serialized)?.state?.coreMarketPacket;
-      return {ok:true,configured:true,required:true,data:r.data,jevSeen:sentPacket?mirrorDigest(sentPacket):null,requestSize,attempts,durationMs:clock()-started,costUsd:cost,budget:budgetStatus()};
+      return {ok:true,configured:true,required:true,data:r.data,jevSeen:sentPacket?mirrorDigest(sentPacket):null,requestSize,attempts,durationMs:clock()-started,costUsd:cost,budget:budgetStatus(),...(entryTrace?{entryTrace}: {})};
     }catch(e){
+      if(entryTrace)entryTrace=saveEntryTrace(root,prepared,{trace:entryTrace,status:'NO_RESPONSE',attempts});
       if(reserve)settleBudget(reservation,cfg.reservePerCallUsd);
-      return {ok:false,configured:true,required:true,reason:'JEV_REQUEST_ERROR',attempts,durationMs:clock()-started,detail:String(e?.message||e).slice(0,300),budget:budgetStatus()};
+      return {ok:false,configured:true,required:true,requestSize,reason:'JEV_REQUEST_ERROR',attempts,durationMs:clock()-started,detail:String(e?.message||e).slice(0,300),budget:budgetStatus(),...(entryTrace?{entryTrace}: {})};
     }
   }
 
@@ -1940,7 +1984,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     // hit (as researched); REPEAT = it already fired on this coin within 24 h.
     if(experience&&typeof experience==='object')state.laneExperience=experience;
     // R2544.79: indikatör bilgisi ve lane'in kendi gölge çıkarımı (ikisi de kural değil)
-    state.inferenceNote='features.ind = 4 volume/liquidity indicators at entry (information only, NOT a rule; 6-month lab: an opposite volume-pivot level before 2R was worse on ZİRVE-5 and İlk 3 LONG but the opposite in the latest month). features.experience = the lane own shadow inference from its closed lots (AVOID/FAVOR only with >=15 lots and both halves agreeing). Weigh them with laneExperience; never treat them as certainty. laneExperience.learning = how past losses and wins of this rule happened (post-trade autopsy: direction right or wrong, fast reversal, stop hunt, BTC, follow-through volume) and which measured factors SEPARATE losses from wins (a factor seen as often in wins as in losses is not a cause); laneExperience.similar = the most similar past entries by many entry-time features with their outcomes and causes; mixed results mean the conditions alone do not decide - judge this market as it is now.';
+    Object.assign(record,entryGateEvidence(features,signal));
+    state.inferenceNote=ENTRY_INFERENCE_NOTE;
     const body={model:cfg.model,state,questions:{
       top3_decision:{type:'choice',instructions:'Approve or reject this single rule-fired entry.',criteria:{APPROVE_ENTRY:'Enter now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
       top3_leverage:{type:'choice',instructions:'R2544.131/189: choose the leverage that will be used IF the entry happens (your REJECT_ENTRY stops it), by your confidence that price reaches the target before the stop (floor 10x, ceiling 20x; liquidation stays beyond the stop).',criteria:{LEV_10:'Doubtful or mixed.',LEV_12:'Decent.',LEV_15:'Good, clean structure with room.',LEV_20:'Exceptional, everything aligned.'}},
@@ -1950,8 +1995,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!out.ok)return {...out,called:out.called!==false,decision:'REJECT_ENTRY',mode:'TOP3_GATE'};
     const a=out.data?.answers||{};
     const decision=choiceValue(a.top3_decision),reason=choiceValue(a.top3_reason);
-    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_GATE',leverage:jevLev(a.top3_leverage),decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd,requestSize:out.requestSize,entryTrace:out.entryTrace||null};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_GATE',leverage:jevLev(a.top3_leverage),decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize,entryTrace:out.entryTrace||null};
   }
 
   async function sovereignTop3V2Gate({symbol,signal,features,rank,candle,chartContext,experience,r4}){
@@ -1969,13 +2014,14 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
         ?'TOP SHORT with the SFP sweep requirement, live signals 14.10-22.10 replayed with the live plan: n 16, +1.1R per trade, 75 % winners, max drawdown -1.1R; half at +2R kept +1.12R vs +0.71R at +1R. Signals whose stop above the top is wider than 6 % are skipped by the rule (23.10 replay of 7 such: -0.08R). Small sample.'
         :'EARLY LONG, live signals 14.10-22.10 replayed with the live plan: n 22, +0.19R per trade with half at +2R, unstable (first half +0.45R, second -0.11R); several live lots were stopped within 10 minutes. The weakest İlk 3 sub-strategy so far: reject when the retest is not clean.'};
     const state={description:'JEV 5m gate for the İlk 3 Avcısı v2 lane. A fixed rule has ALREADY fired on the last CLOSED 5m candle. '+
-      'EARLY LONG: a coin ranked 4..24 and climbing broke a previous day/week/month high (where short stops and liquidations sit) on a 5m candle with >= 3x volume and has just retested that level without chasing; stop under the retest, target just under the next higher zone. '+
-      'TOP SHORT: a coin that was in the top 10 within 24 h made a fresh 24 h high and the next 5m candles broke the pre-top structure low, after a liquidity sweep (SFP: a wick beyond a swing high and a close back below) within the last 24 candles; stop above the top, target 2.5R; skipped when an untaken day/week/month high is within 5 % above. state.record.researchPrior is what was measured for this sub-strategy. '+
+      'EARLY LONG is the configured level-break/retest candidate. Read the actual trigger, numerical proposedPlan and entryFeatures.ruleFlags; a candidate is not proof that every textbook or optional soft condition passed. '+
+      'TOP SHORT is the configured fresh-top/structure-break candidate. Observed sweep, levels and warning flags are evidence; do not assume an optional guard was enforced. researchPrior describes an older measured sample, not guaranteed current settings. '+
       'The code enters at market only if you APPROVE. Judge this single entry: market makers push gainers into short-liquidation zones and then sell there; is this entry riding that move (LONG) or selling after it (SHORT), is an untaken liquidation zone still in the way, is BTC/market adverse? state.laneExperience is this lane\'s own measured history; fewer than 10 lots is anecdote. Reject when unsure.',record};
     if(chartContext?.available===true&&chartContext.packet&&chartContext.symbol===symbol){state.coreMarketPacket=chartContext.packet;state.chartCache={asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source};}
     if(experience&&typeof experience==='object')state.laneExperience=experience;
     // R2544.79: indikatör bilgisi ve lane'in kendi gölge çıkarımı (ikisi de kural değil)
-    state.inferenceNote='features.ind = 4 volume/liquidity indicators at entry (information only, NOT a rule; 6-month lab: an opposite volume-pivot level before 2R was worse on ZİRVE-5 and İlk 3 LONG but the opposite in the latest month). features.experience = the lane own shadow inference from its closed lots (AVOID/FAVOR only with >=15 lots and both halves agreeing). Weigh them with laneExperience; never treat them as certainty. laneExperience.learning = how past losses and wins of this rule happened (post-trade autopsy: direction right or wrong, fast reversal, stop hunt, BTC, follow-through volume) and which measured factors SEPARATE losses from wins (a factor seen as often in wins as in losses is not a cause); laneExperience.similar = the most similar past entries by many entry-time features with their outcomes and causes; mixed results mean the conditions alone do not decide - judge this market as it is now.';
+    Object.assign(record,entryGateEvidence(features,signal));
+    state.inferenceNote=ENTRY_INFERENCE_NOTE;
     const body={model:cfg.model,state,questions:{
       top3_decision:{type:'choice',instructions:'Approve or reject this single rule-fired entry.',criteria:{APPROVE_ENTRY:'Enter now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
       top3_leverage:{type:'choice',instructions:'R2544.131/189: choose the leverage that will be used IF the entry happens (your REJECT_ENTRY stops it), by your confidence that price reaches the target before the stop (floor 10x, ceiling 20x; liquidation stays beyond the stop).',criteria:{LEV_10:'Doubtful or mixed.',LEV_12:'Decent.',LEV_15:'Good, clean structure with room.',LEV_20:'Exceptional, everything aligned.'}},
@@ -1985,8 +2031,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!out.ok)return {...out,called:out.called!==false,decision:'REJECT_ENTRY',mode:'TOP3_V2_GATE'};
     const a=out.data?.answers||{};
     const decision=choiceValue(a.top3_decision),reason=choiceValue(a.top3_reason);
-    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_V2_GATE',leverage:jevLev(a.top3_leverage),decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_TOP3_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd,requestSize:out.requestSize,entryTrace:out.entryTrace||null};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'TOP3_V2_GATE',leverage:jevLev(a.top3_leverage),decision,reason:['EARLY_CONTINUATION','EXHAUSTION_CONFIRMED','LATE_OR_CROWDED','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize,entryTrace:out.entryTrace||null};
   }
 
   // R2544.68 ZİRVE-5 gate, both sides (user 20.10: "istenirse JEV aktif edildiğinde bu stratejiler JEV ile çalışmalı, istenildiğinde
@@ -2028,7 +2074,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(chartContext?.available===true&&chartContext.packet&&chartContext.symbol===symbol){state.coreMarketPacket=chartContext.packet;state.chartCache={asOf:chartContext.asOf,ageMs:chartContext.ageMs,source:chartContext.source};}
     if(experience&&typeof experience==='object')state.laneExperience=experience;
     // R2544.79: indikatör bilgisi ve lane'in kendi gölge çıkarımı (ikisi de kural değil)
-    state.inferenceNote='features.ind = 4 volume/liquidity indicators at entry (information only, NOT a rule; 6-month lab: an opposite volume-pivot level before 2R was worse on ZİRVE-5 and İlk 3 LONG but the opposite in the latest month). features.experience = the lane own shadow inference from its closed lots (AVOID/FAVOR only with >=15 lots and both halves agreeing). Weigh them with laneExperience; never treat them as certainty. laneExperience.learning = how past losses and wins of this rule happened (post-trade autopsy: direction right or wrong, fast reversal, stop hunt, BTC, follow-through volume) and which measured factors SEPARATE losses from wins (a factor seen as often in wins as in losses is not a cause); laneExperience.similar = the most similar past entries by many entry-time features with their outcomes and causes; mixed results mean the conditions alone do not decide - judge this market as it is now.';
+    Object.assign(record,entryGateEvidence(features,signal));
+    state.inferenceNote=ENTRY_INFERENCE_NOTE;
     const body={model:cfg.model,state,questions:{
       zirve5_leverage:{type:'choice',instructions:'R2544.131/189: choose the leverage that will be used IF the entry happens (your REJECT_ENTRY stops it), by your confidence that price reaches the target before the stop (floor 10x, ceiling 20x; liquidation stays beyond the stop).',criteria:{LEV_10:'Doubtful or mixed.',LEV_12:'Decent.',LEV_15:'Good, clean structure with room.',LEV_20:'Exceptional, everything aligned.'}},
       zirve5_decision:{type:'choice',instructions:'Approve or reject this single rule-fired '+signal.side+'.',criteria:{APPROVE_ENTRY:(long?'Buy':'Short')+' now with the stated stop, target and time limit.',REJECT_ENTRY:'Do not enter this signal.'}},
@@ -2038,8 +2085,8 @@ function createJevClient({root,apiKey='',managementKey='',fetchImpl=globalThis.f
     if(!out.ok)return {...out,called:out.called!==false,decision:'REJECT_ENTRY',mode:'ZIRVE5_GATE'};
     const a=out.data?.answers||{};
     const decision=choiceValue(a.zirve5_decision),reason=choiceValue(a.zirve5_reason);
-    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_ZIRVE5_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd};
-    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'ZIRVE5_GATE',leverage:jevLev(a.zirve5_leverage),decision,reason:['WEAK_RETEST','SQUEEZE_RISK','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget};
+    if(!['APPROVE_ENTRY','REJECT_ENTRY'].includes(decision))return {ok:false,configured:true,called:true,decision:'REJECT_ENTRY',reason:'JEV_ZIRVE5_SCHEMA_MISMATCH',budget:out.budget,costUsd:out.costUsd,requestSize:out.requestSize,entryTrace:out.entryTrace||null};
+    return {ok:true,configured:true,called:true,finalAuthority:'JEV',mode:'ZIRVE5_GATE',leverage:jevLev(a.zirve5_leverage),decision,reason:['WEAK_RETEST','SQUEEZE_RISK','STRUCTURE_ADVERSE','MARKET_ADVERSE','DATA_NOT_READY','NO_EDGE'].includes(reason)?reason:'JEV_REASON_NOT_PROVIDED',model:cfg.model,durationMs:out.durationMs,costUsd:out.costUsd,budget:out.budget,requestSize:out.requestSize,entryTrace:out.entryTrace||null};
   }
 
   // R2544.84 POZİSYON MASASI (kullanıcı 26.10: trader ofisi gibi açık pozisyonu grafik ve veriyle yönetmek): İlk 3 / ZİRVE-5 açık lotu

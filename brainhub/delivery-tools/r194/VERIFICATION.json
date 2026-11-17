@@ -1,0 +1,80 @@
+{
+  "release": "R2544.194",
+  "baseCommit": "27f09a041d5d5d3b8a85d53c6cf4e8037864bd6d",
+  "node": "v24.22.1",
+  "userProvidedR193Hashes": {
+    "position-desk.js": {
+      "sha256": "2e234ee6cc77c57aeb12bfeb4d1b8a7f73874ab2496470cca4bc6f6e940805d1",
+      "matchesUser": true
+    },
+    "trader-brain.js": {
+      "sha256": "5c37932fdadea155540e479da2253560a4d9dada697816b391017e2e4f9053f7",
+      "matchesUser": true
+    },
+    "kesif.js": {
+      "sha256": "dcd66d2d1ad976ecad83aa86a651a7eecf35d1369604d747b7fd67635dd250a8",
+      "matchesUser": true
+    },
+    "iz.js": {
+      "sha256": "27cfd25d5230ca4c23b971e27d51e6e59927655245f9c992aac6564e6bc845dc",
+      "matchesUser": true
+    },
+    "model-committee.js": {
+      "sha256": "1660c12b1e587dff1b722bd97db42691e174904f0b57edb8f9b56f7746089fe1",
+      "matchesUser": true
+    },
+    "trader-exam.js": {
+      "sha256": "a31af351289e5faf65f05fe2812e6f2093468428cf1165a4b001c2b07e32357d",
+      "matchesUser": true
+    }
+  },
+  "evidence": {
+    "r193-baseline-tests.tap": {
+      "sha256": "80b701b03d89420737523b3a37e413e5c530314287cb4137ad221dab0d0656e9",
+      "counts": {
+        "tests": 1533,
+        "pass": 1532,
+        "fail": 0,
+        "skipped": 1
+      }
+    },
+    "r194-real-baseline.tap": {
+      "sha256": "7acbb9ec3be3050e4201f63c94c0b4ea7f5f066cdbe8c87458193826960cffbf",
+      "counts": {
+        "tests": 3,
+        "pass": 0,
+        "fail": 3,
+        "skipped": 0
+      }
+    },
+    "r194-budget-retest.tap": {
+      "sha256": "91d482d92efa6002638dfe5d4ca4f45161315ea965e56143ed4e26464c8a6bdb",
+      "counts": {
+        "tests": 29,
+        "pass": 29,
+        "fail": 0,
+        "skipped": 0
+      }
+    },
+    "r194-powershell-parser.json": {
+      "sha256": "479b3d7215311528ca08af68f1b296acf4b0b0f134e21cc51f7bf00949690c75"
+    },
+    "r194-full-final-guarded.tap": {
+      "sha256": "7871873024d067fdcc2856c38fec8bf7a8ebc69b3ff1085d195e7acd3412b68e",
+      "counts": {
+        "tests": 1540,
+        "pass": 1539,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 1
+      },
+      "networkAndInstalledAccessGuard": true
+    }
+  },
+  "nativeWindowsAcceptance": "NOT_RUN",
+  "productionDeploy": "NOT_RUN",
+  "liveSettingsChanged": false,
+  "modelCalls": 0,
+  "exchangeOrders": 0,
+  "apkChanged": false
+}

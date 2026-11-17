@@ -6126,7 +6126,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
         if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
         try{jev=await top3Judge({symbol:x.symbol,signal:x.sig,features:x.f,rank:x.rank,btc24,candle:out.candle,chartContext,signalKind:x.kind,experience:top3Lib.experienceFor(top3State.lessons,x.rule)});}catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
-        const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
+        const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule,requestSize:jev?.requestSize||null,entryTrace:jev?.entryTrace||null};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
         res.jev=ev;
         if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')){res.reason='TOP3_JEV_NOT_APPROVED';continue;}
@@ -6235,14 +6235,15 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       try{ef.brain=top3Lib.brainCase(top3State.lessons,x.rule,ef);}catch{} // R2544.125 beyin: en benzer 5 geçmiş işlem + eğilim; işlem kapanınca puanlanır, karar vermez
       const levOn=cfg.committeeMode===true||top3Lib.subJev(cfg,x.side); // R2544.131: the committee (and JEV) choose the leverage; runs alongside JEV
       const levP=levOn&&pl0?.ok?quickLeverage({symbol:x.symbol,side:x.side,rule:x.rule,entry:x.close,stop:pl0.stopPrice,target:pl0.tpPrice,trigger:x.trig,context:{rank:ef.rank,rankName:'24h gainer rank',fund:ef.fund,premium:ef.premium},experience:ef.brain||ef.similar,flags:pl0.flags||[]}).catch(()=>null):Promise.resolve(null);
+      ef.ruleFlags=[...(cd?[{code:cd}]:[]),...((pl0?.ok&&Array.isArray(pl0.flags))?pl0.flags:[])];
       let jev=null;const sub=top3Lib.subOf(x.side);res.strategy=sub.name;
       if(top3Lib.subJev(cfg,x.side)){
         if(typeof top3Judge!=='function'){res.reason='TOP3_JEV_UNAVAILABLE';continue;}
         let chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;
         if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(x.symbol),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(x.symbol,clock())||null;}
-        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels,partial:top3PartialCfg({v2:true},cfg),pa:x.pa||null},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule,{features:ef})});}
+        try{jev=await top3Judge({symbol:x.symbol,signal:{ok:true,side:x.side,rule:x.rule,strategy:sub.name,v2:x.trig,levels:x.levels,partial:top3PartialCfg({v2:true},cfg),pa:x.pa||null,maxHoldMs:(x.side==='LONG'?cfg.early:cfg.top).maxHoldH*TOP3_HOUR,proposedPlan:pl0?.ok?{...pl0,entryPrice:x.close,basis:'SIGNAL_CANDLE_CLOSE',maxHoldMs:(x.side==='LONG'?cfg.early:cfg.top).maxHoldH*TOP3_HOUR}:null},features:{ok:true,...ef},rank:ef.rank,candle:out.bar,chartContext,signalKind:'FRESH',experience:top3Lib.experienceFor(top3State.lessons,x.rule,{features:ef})});}
         catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
-        const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule};
+        const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule,requestSize:jev?.requestSize||null,entryTrace:jev?.entryTrace||null};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
         // R2544.127 JEV + KURUL + bot (kullanıcı 04.11 seçimi: "bot açar, JEV+kurul yönetir"): the rule opens every signal; JEV's entry review is a vote
         // R2544.189 (kullanıcı 17.11, 1000LUNC: JEV + kurul + beyin "girme" dedi, kural seviyenin %5,5 üstünden açtı, -0,99R): JEV açıkken son söz
@@ -7707,13 +7708,14 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         try{ef.brain=top3Lib.brainCase(z.lessons,rule,ef);}catch{} // R2544.125
         const pzL=z5Lib.plan(sg.refPrice,sg,cfg,{advisory:true}),levOn=cfg.committeeMode===true||cfg.jevMode===true; // R2544.131
         const levP=levOn&&pzL?.ok?quickLeverage({symbol:sym,side,rule,entry:sg.refPrice,stop:pzL.stopPrice,target:pzL.tpPrice,trigger:sg,context:{rank:sg.rank,rankName:'volatility rank (top 5)'},experience:ef.brain||ef.similar,flags:pzL.flags||[]}).catch(()=>null):Promise.resolve(null);
+        ef.ruleFlags=[...z5Flags,...(pzL?.ok&&Array.isArray(pzL.flags)?pzL.flags:[])];
         let jev=null;
         if(cfg.jevMode===true){
           let chartContext=market?.cachedChartContext?.(sym,clock())||null;
           if(chartContext?.available!==true){try{await Promise.race([market?.warmChartContext?.(sym),new Promise(r=>setTimeout(r,8000))]);}catch{}chartContext=market?.cachedChartContext?.(sym,clock())||null;}
-          try{jev=await zirve5Judge({symbol:sym,signal:{ok:true,side,rule,zone:sg,target:'LIQUIDITY_MIN_1R',maxHoldMs:cfg.maxHoldH*TOP3_HOUR,partial:top3PartialCfg({z5:true,z5cfg:cfg})},features:{ok:true,...ef},candle:z.lastBar,chartContext,experience:{...top3Lib.experienceSummary(z.lessons),labPriors:top3Lib.LAB_PRIORS[rule]||null,learning:top3Lib.learningForJev(top3Lib.causeStats(z.lessons,rule)),similar:top3Lib.similarForJev(top3Lib.similarCases(z.lessons,rule,ef))}});}
+          try{jev=await zirve5Judge({symbol:sym,signal:{ok:true,side,rule,zone:sg,target:'LIQUIDITY_MIN_1R',maxHoldMs:cfg.maxHoldH*TOP3_HOUR,partial:top3PartialCfg({z5:true,z5cfg:cfg}),proposedPlan:pzL?.ok?{...pzL,entryPrice:sg.refPrice,basis:'SIGNAL_CANDLE_CLOSE',maxHoldMs:cfg.maxHoldH*TOP3_HOUR}:null},features:{ok:true,...ef},candle:z.lastBar,chartContext,experience:{...top3Lib.experienceSummary(z.lessons),labPriors:top3Lib.LAB_PRIORS[rule]||null,learning:top3Lib.learningForJev(top3Lib.causeStats(z.lessons,rule)),similar:top3Lib.similarForJev(top3Lib.similarCases(z.lessons,rule,ef))}});}
           catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
-          const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null};
+          const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,requestSize:jev?.requestSize||null,entryTrace:jev?.entryTrace||null};
           try{store.journal('ZIRVE5_JEV_REVIEW',sym,{...ev,side});}catch{}
           ef.jevVote=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')&&(!jevKurul(cfg)||jevSaysNo(jev))){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;} // R2544.189: JEV+KURUL'da da JEV'in "girme"si geçerli; cevapsız JEV oy sayılır
         }

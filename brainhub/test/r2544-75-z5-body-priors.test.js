@@ -15,12 +15,13 @@ test('R2544.75 ZİRVE-5 confirmation: body >= 30 % (volume 1.5x and the sweep re
   c[100]={...c[100],close:100.12};                                          // body 0.08 / 0.4 = 20 %
   assert.equal(Z.confirmation(c,100,zone).ok,false);
 });
-test('R2544.75 JEV research priors: ZİRVE-5 states the measured +0.31R rule; İlk 3 v2 has one per sub-strategy and names the sweep requirement',()=>{
+test('R2544.75 JEV research priors: ZİRVE-5 states the measured +0.31R rule; İlk 3 v2 has one per sub-strategy and separates historical sweep requirements from the current configured signal',()=>{
   const j=src('jev-decision.js');
   assert.match(j,/n 44, \+0\.31R per trade, both halves of the month positive/);assert.ok(!j.includes('n 62, about -0.02R per trade'),'the outdated prior is gone');
   assert.match(j,/TOP SHORT with the SFP sweep requirement, live signals 14\.10-22\.10 replayed with the live plan: n 16/);
   assert.match(j,/EARLY LONG, live signals 14\.10-22\.10 replayed with the live plan: n 22/);
-  assert.match(j,/after a liquidity sweep \(SFP: a wick beyond a swing high and a close back below\)/);
+  assert.match(j,/Observed sweep, levels and warning flags are evidence/);
+  assert.match(j,/researchPrior describes an older measured sample, not guaranteed current settings/);
 });
 test('R2544.75 Office: one stop with a fixed margin is shown in USDT and % of the account before LIVE; the ZİRVE-5 text shows the new measurement',()=>{
   const h=src('office-dashboard/public/office.html');
