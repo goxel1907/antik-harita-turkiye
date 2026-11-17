@@ -510,3 +510,13 @@ test('R2544.192 bakiye/hesap reddi: gerçek 0 bakiye ile okuma hatası ayrılır
   assert.equal((await f.controller.z5Tick()).entries,0,'bakiye 0 iken giriş yok (kural aynı)');
   b=f.kinds('ZIRVE5_BLOCKED').at(-1);assert.equal(b.p.result.reasonDetail,'BALANCE_ZERO');assert.equal(b.p.result.accountRead.availableBalance,0);
 });
+
+test('R2544.192c hesap okuma hatası kaydı: imzalı sorgu maskelenir, Binance gövdesi 300 karakterle sınırlı',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  const f=fixture({z5:{enabled:true}});await f.controller.testSupervisorTick();
+  const ph=f.paper.handle;f.paper.handle=async(m,p,o)=>{if(m==='GET'&&p==='/fapi/v3/account'){const e=new Error('fetch failed https://fapi.binance.com/fapi/v3/account?timestamp=1&signature=abcdef0123');e.status=502;e.body='<html>'+'x'.repeat(5000)+'</html>';throw e;}return ph(m,p,o);};
+  assert.equal((await f.controller.z5Tick()).entries,0);
+  const r=f.kinds('ZIRVE5_BLOCKED').at(-1).p.result.accountRead;const all=JSON.stringify(r);
+  assert.ok(!/signature=|timestamp=/.test(all),'imzalı sorgu kayıtta yok: '+all.slice(0,200));
+  assert.ok(r.exchangeError===null||r.exchangeError.length<=300,'gövde sınırlı');
+});

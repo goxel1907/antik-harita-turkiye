@@ -6301,7 +6301,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     if(cfg.marginQuote!==null&&cfg.marginQuote!==undefined)await testTopUp(cfg.marginQuote,sig.z5?'ZIRVE5':'TOP3');
     const acct=await accountSummary({maxAgeMs:3000});const avail=finite(acct?.availableBalance);
     if(!acct?.ok||!(avail>0))return {ok:false,reason:'TOP3_ACCOUNT_UNAVAILABLE',...userSizing.balanceRequirement(cfg.marginQuote,avail),ok:false,reason:'TOP3_ACCOUNT_UNAVAILABLE',reasonDetail:acct?.ok?'BALANCE_ZERO':'ACCOUNT_READ_FAILED', // R2544.192 (BTW 17.11 12:45): gerçek 0 bakiye ile okuma hatası ayrılır; karar aynı
-      accountRead:acct?.ok?{availableBalance:avail,walletBalance:finite(acct.walletBalance),asOf:acct.asOf||null,cached:acct.cached===true}:{reasons:(Array.isArray(acct?.reasons)?acct.reasons:[]).slice(0,3).map(x=>String(x).slice(0,160)),exchangeError:acct?.exchangeError??null}};
+      accountRead:acct?.ok?{availableBalance:avail,walletBalance:finite(acct.walletBalance),asOf:acct.asOf||null,cached:acct.cached===true}:{reasons:(Array.isArray(acct?.reasons)?acct.reasons:[]).slice(0,3).map(x=>String(x).replace(/\?[^\s"']*/g,'?…').slice(0,160)), // imzalı sorgu kayda yazılmaz
+        exchangeError:acct?.exchangeError==null?null:String(typeof acct.exchangeError==='string'?acct.exchangeError:JSON.stringify(acct.exchangeError)).replace(/\?[^\s"']*/g,'?…').slice(0,300)}};
     // Margin: the file's marginQuote when set; otherwise the panel margin capped at 25% of free balance (a -8% stop at
     // 10x costs ~80% of this margin). R2544.57: a margin the user set (Office) may use up to 95% of free balance; the
     // automatic one stays at 25%. Below 5 USDT no trade.

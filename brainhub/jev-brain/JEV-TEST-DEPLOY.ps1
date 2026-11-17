@@ -58,10 +58,10 @@ try {
       $st = Core-Get '/live/status'
       if ($st.armed -eq $true) { throw 'CANLI baslatmasi kapanmadi; kurulum yapilmadi.' }
       # R2544.192 (17.11 17:14): durdurmadan 3 sn sonra defter bir kez okunamadi (gecici) ve 'pozisyon olustu ()' denildi; pozisyon yoktu.
-      # Okunamazsa 60 sn boyunca 5 sn arayla tekrar okunur; yine okunamazsa KURULMAZ (guvenli taraf). Okunamadi ile acik pozisyon ayri mesaj.
+      # Okunamazsa 12 kez (5 sn ara, her okuma en cok 8 sn; toplam 1-2,5 dk) tekrar okunur; yine okunamazsa KURULMAZ (guvenli taraf). Okunamadi ile acik pozisyon ayri mesaj.
       $posL = $null
       for ($i = 1; $i -le 12 -and $null -eq $posL; $i++) { $posL = Open-Positions $RT; if ($null -eq $posL) { Start-Sleep -Seconds 5 } }
-      if ($null -eq $posL) { throw "Durdurmadan sonra acik pozisyon durumu 60 sn okunamadi; guvenlik icin kurulum yapilmadi. CANLI DURDURULDU: $restartHint" }
+      if ($null -eq $posL) { throw "Durdurmadan sonra acik pozisyon durumu 12 denemede (1-2,5 dk) okunamadi; guvenlik icin kurulum yapilmadi. CANLI DURDURULDU: $restartHint" }
       if ($posL.Count -gt 0) { throw "Durdurma sirasinda acik pozisyon olustu ($($posL -join ', ')); kurulum yapilmadi. CANLI DURDURULDU: $restartHint" }
     }
     Write-Host '== CANLI mod, baslatma kapali, acik pozisyon 0: JEV-DEPLOY calistiriliyor'

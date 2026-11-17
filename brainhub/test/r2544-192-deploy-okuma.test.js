@@ -5,7 +5,7 @@ const test = require('node:test'), assert = require('node:assert'), fs = require
 const ps = fs.readFileSync(path.join(__dirname, '..', 'jev-brain', 'JEV-TEST-DEPLOY.ps1'), 'utf8');
 test('R2544.192 durdurmadan sonra defter 60 sn tekrar okunur; okunamadı ile açık pozisyon ayrı mesaj; okunamazsa yine KURULMAZ', () => {
   assert.match(ps, /for \(\$i = 1; \$i -le 12 -and \$null -eq \$posL; \$i\+\+\) \{ \$posL = Open-Positions \$RT; if \(\$null -eq \$posL\) \{ Start-Sleep -Seconds 5 \} \}/);
-  assert.match(ps, /if \(\$null -eq \$posL\) \{ throw "Durdurmadan sonra acik pozisyon durumu 60 sn okunamadi; guvenlik icin kurulum yapilmadi/);
+  assert.match(ps, /if \(\$null -eq \$posL\) \{ throw "Durdurmadan sonra acik pozisyon durumu 12 denemede \(1-2,5 dk\) okunamadi; guvenlik icin kurulum yapilmadi/);
   assert.match(ps, /if \(\$posL\.Count -gt 0\) \{ throw "Durdurma sirasinda acik pozisyon olustu/);
   assert.ok(!/\$null -eq \$posL -or \$posL\.Count -gt 0\) \{ throw "Durdurma sirasinda acik pozisyon olustu/.test(ps), 'eski birleşik mesaj kalmadı');
 });
