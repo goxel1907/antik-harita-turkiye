@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.168-R2544.192-JEV-Brain';
+const OFFICE_VERSION = '2.5.169-R2544.193-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -334,6 +334,34 @@ function waitIsFake(wait) {
 }
 
 // Journal kayıtlarını kısa olaylara dönüştür (ağır payload tarayıcıya gitmez).
+// R2544.193 (kullanıcı 17.11: olay akışı "Gölge tahmin sonuçlandı" satırlarıyla dolu, ne olduğu yazmıyor; RUN_CONTROL ham kod):
+// tanımsız olay türlerinin ayrıntısı kayıttaki gerçek alanlardan Türkçe yazılır; KEŞİF sonucu ekranda toplanabilsin diye yapılandırılmış da gelir.
+const fmtR193 = v => { const n = Number(v); return Number.isFinite(n) ? (n >= 0 ? '+' : '') + n.toFixed(2) + 'R' : ''; };
+const model193 = m => clip(String(m || '').replace(/^(ROUTER|FREE|OR|OVH|KILO|CF):/i, '').split('/').pop(), 40);
+const sym193 = v => String(v || '').replace(/USDT$/, '');
+const OUT193 = { TARGET:'hedef', STOP:'stop', TIME:'süre doldu', EXPIRED:'süre doldu', NONE:'yön yok', FLAT:'yatay' };
+function eventDetail(kind, p) {
+  try {
+    switch (kind) {
+      case 'KESIF_OUTCOME': return `${model193(p.model)} ${p.side || ''} → ${OUT193[p.outcome] || p.outcome || '?'} ${fmtR193(p.R)}`.trim();
+      case 'RUN_CONTROL': return ({ GO_LIVE:'CANLI’ya geç komutu', STOP:'Durdur komutu', GO_TEST:'TEST’e dön komutu', START_TEST:'TEST başlat komutu', RESET_TEST:'TEST sıfırla komutu' }[p.action] || clip(p.action, 40))
+        + (finite(p.available) !== null ? ` • kullanılabilir ${finite(p.available).toFixed(2)} $` : '');
+      case 'LIVE_LANES': return 'Seçim: ' + [['normal','Normal'],['top3','İlk 3'],['zirve5','ZİRVE-5'],['kesif','KEŞİF']].filter(([k]) => typeof p[k] === 'boolean').map(([k, n]) => n + (p[k] ? ' açık' : ' kapalı')).join(', ') + ('kesif' in p ? '' : ' (KEŞİF ayrı anahtarla)');
+      case 'IZ_FIRE': return (Array.isArray(p.fired) ? p.fired : []).slice(0, 4).map(f => `${f.d} ${sym193(f.s)} ${f.side}`).join(' • ');
+      case 'GOXEL_EXIT': case 'GOXEL_PRO_EXIT': return `${model193(p.model)} ${p.side || ''} şimdi ${fmtR193(p.curR)} (tepe ${fmtR193(p.peakR)}) • ${clip(p.why, 110)}`;
+      case 'KESIF_MATRIX': return `etiket ${({ UP:'yukarı', DOWN:'aşağı', FLAT:'yatay' }[p.label] || p.label || '?')} • ${p.formations ?? '?'} oluşum`;
+      case 'ZIRVE5_SCAN': { const t = Array.isArray(p.top) ? p.top : []; return `${t.length} coin, ${t.reduce((a, x) => a + (Number(x.zones) || 0), 0)} bölge, ${t.reduce((a, x) => a + ((x.signals || []).length), 0)} sinyal`; }
+      case 'KESIF_ZAYIF_GOLGE': return `${model193(p.model)} ${p.side || ''} • kayıt n${p.record?.n ?? '?'} ort ${fmtR193(p.record?.avgR)}`;
+      case 'KESIF_FORECAST': return `${p.answered ?? '?'}/${p.asked ?? '?'} model cevap verdi • ${clip(p.why, 50)}`;
+      case 'MOVER_AUDIT': return `${(p.rows || []).length} büyük hareket denetlendi`;
+      case 'TOP3_JEV_REVIEW': case 'ZIRVE5_JEV_REVIEW': return p.ok === true ? `JEV ${({ APPROVE_ENTRY:'GİR', REJECT_ENTRY:'GİRME' }[p.decision] || p.decision)}${p.reason ? ' • ' + p.reason : ''}` : `JEV cevapsız (${clip(p.reason, 60)})`;
+      case 'TOP3_SIGNAL': return `${p.side || ''} ${p.rule || ''}`.trim();
+      case 'TOP3_BLOCKED': case 'ZIRVE5_BLOCKED': return `${p.side || ''} açılmadı: ${p.reason || p.result?.reason || '?'}${p.result?.reasonDetail ? ' (' + p.result.reasonDetail + ')' : ''}`.trim();
+      case 'TOP3_LESSONS_REPAIRED': return `${p.repaired ?? '?'} ders onarıldı (${clip(p.reason, 40)})`;
+      default: return '';
+    }
+  } catch { return ''; }
+}
 function summarizeJournal(items) {
   const events = [];
   const plans = [];
@@ -437,7 +465,8 @@ function summarizeJournal(items) {
     } else if (it.kind === 'JEV_LESSON') {
       events.push({ ...base, desk: 'learning', title: `JEV gölge dersi ${it.symbol || ''}: ${p.lessonFocus || ''}`, detail: clip(`${p.setupFamily || ''} • ${finite(p.rMultiple) === null ? '' : Number(p.rMultiple).toFixed(2) + 'R'} • ${p.lessonAction || ''}`, 160) });
     } else {
-      events.push({ ...base, desk: 'brain', title: `${it.kind} ${it.symbol || ''}`, detail: '' });
+      events.push({ ...base, desk: 'brain', title: `${it.kind} ${it.symbol || ''}`, detail: eventDetail(it.kind, p),
+        ...(it.kind === 'KESIF_OUTCOME' ? { outcome: p.outcome || null, R: finite(p.R) } : {}) }); // R2544.193
     }
   }
   return { events, plans, lastJev, lastRisk };
@@ -794,4 +823,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { derive, summarizeJournal, parseLog, waitIsFake, scrub, server, CONTROL_ROUTES, CONTROL_BODY, canonicalPositions };
+module.exports = { derive, summarizeJournal, parseLog, waitIsFake, scrub, server, CONTROL_ROUTES, CONTROL_BODY, canonicalPositions, eventDetail };

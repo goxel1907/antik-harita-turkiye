@@ -2504,14 +2504,26 @@ const EV188={KESIF_OUTCOME:['s','Gölge tahmin sonuçlandı (para yok)'],KESIF_F
   LIVE_STARTED:['g','CANLI başlatıldı'],LIVE_AUTORENEW_ON:['g','CANLI otomatik yenileme açıldı'],LIVE_AUTORENEW_OFF:['g','CANLI otomatik yenileme kapandı'],LIVE_LANES:['g','CANLI hat seçimi kaydedildi'],
   LIVE_ARM_RENEWED:['y','CANLI yetkisi yenilendi'],LIVE_REARMED:['g','CANLI yeniden açıldı (açılış/yenileme)'],TOP3_CLOSED:['g','Gerçek işlem kapandı'],TOP3_OPENED:['g','Gerçek işlem açıldı'],TOP3_ENTRY:['g','Gerçek işlem açıldı'],
   POSITION_DESK_EXIT:['g','Masa çıkış emri uygulandı'],POSITION_DESK_STOP:['g','Masa stopu yaklaştırdı'],ENTRY_SCREEN_GATE:['g','Ekran kapısı girişi açmadı'],KESIF_ZAYIF_GOLGE:['s','Zayıf söz gölgede kaldı'],
-  JEV_KURUL_YEDEK:['g','JEV cevapsız: kurul yedeği karar verdi'],GOXEL_LOSS_SHADOW:['s','Goxel zarar gölgesi "çıkardım" dedi'],POSITION_DESK_UNAVAILABLE:['y','Masa karar veremedi (model yok)']};
+  JEV_KURUL_YEDEK:['g','JEV cevapsız: kurul yedeği karar verdi'],GOXEL_LOSS_SHADOW:['s','Goxel zarar gölgesi "çıkardım" dedi'],POSITION_DESK_UNAVAILABLE:['y','Masa karar veremedi (model yok)'],
+  // R2544.193: ham kod kalmasın
+  RUN_CONTROL:['g','CANLI/TEST komutu'],TOP3_SIGNAL:['g','İlk 3 sinyal buldu'],TOP3_JEV_REVIEW:['g','JEV giriş kararı (İlk 3)'],ZIRVE5_JEV_REVIEW:['g','JEV giriş kararı (ZİRVE-5)'],
+  TOP3_BLOCKED:['g','İlk 3 girişi açılmadı'],ZIRVE5_BLOCKED:['g','ZİRVE-5 girişi açılmadı'],KESIF_SOZ_ENTRY:['g','KEŞİF-SÖZ gerçek işlem açtı'],TOP3_LESSONS_REPAIRED:['y','Ders hafızası onarıldı'],
+  LESSON_AUTOPSY:['y','İşlem otopsisi yazıldı'],EXIT_COUNTERFACTUAL:['y','Çıkış "plana bırakılsaydı" ile ölçüldü'],POSITION_DESK_COUNTERFACTUAL:['y','Masa kararı plana göre ölçüldü'],ENTRY_SCREEN_GATE_RESULT:['s','Ekran kapısı tahmini sonuçlandı']};
 function renderFeed(s){
   const ev=(s.events||[]).slice(0,120),el=document.getElementById('feed');if(!el)return;
   if(!ev.length){el.innerHTML='<div class="muted">Henüz olay yok.</div>';return;}
   const rows=[];for(const e of ev){const t=String(e.title||'').trim(),kind=t.split(/\s+/)[0],sym=t.slice(kind.length).trim().replace(/USDT$/,''),m=EV188[kind];
     const tag=m?m[0]:(/^Brain Hub/.test(t)?'y':'y'),txt=m?m[1]:t;const last=rows[rows.length-1];
+    // R2544.193: art arda gelen gölge sonuçları TEK satır: kaç hedef / kaç stop, toplam R, hangi coinler (5 dk içinde)
+    if(kind==='KESIF_OUTCOME'){const R=Number(e.R),o=String(e.outcome||'');
+      if(last&&last.kind==='KESIF_OUTCOME'&&Math.abs(last.ts-e.ts)<300000){last.n++;last.agg.o[o]=(last.agg.o[o]||0)+1;if(Number.isFinite(R))last.agg.R+=R;if(sym)last.agg.s.add(sym);if(e.detail&&last.agg.d.length<3)last.agg.d.push(e.detail);continue;}
+      rows.push({ts:e.ts,kind,sym:'',tag,txt,detail:'',n:1,agg:{o:{[o]:1},R:Number.isFinite(R)?R:0,s:new Set(sym?[sym]:[]),d:e.detail?[e.detail]:[]}});continue;}
     if(last&&last.kind===kind&&last.sym===sym&&Math.abs(last.ts-e.ts)<120000){last.n++;continue;}
     rows.push({ts:e.ts,kind,sym,tag,txt,detail:e.detail||'',n:1});}
+  const OUTTR={TARGET:'hedef',STOP:'stop',TIME:'süre doldu',EXPIRED:'süre doldu',NONE:'yön yok'};
+  for(const r of rows)if(r.agg){const parts=Object.entries(r.agg.o).filter(([k])=>k).map(([k,v])=>v+' '+(OUTTR[k]||k));
+    r.txt=r.n===1?`Gölge tahmin sonuçlandı (para yok): ${parts.length?parts[0].replace(/^1 /,''):'?'} ${(r.agg.R>=0?'+':'')+r.agg.R.toFixed(2)}R`:`Gölge tahminler sonuçlandı (para yok): ${r.n} — ${parts.join(' / ')}, toplam ${(r.agg.R>=0?'+':'')+r.agg.R.toFixed(2)}R`;
+    r.detail=(r.agg.s.size?[...r.agg.s].slice(0,8).join(', '):'')+(r.n===1&&r.agg.d[0]?' • '+r.agg.d[0]:'');r.n=1;}
   const TG={g:'GERÇEK',s:'GÖLGE',y:'SİSTEM'};
   el.innerHTML=rows.slice(0,60).map(r=>`<div class="ev188"><time>${fmtTime(r.ts)}</time><span class="tag ${r.tag}">${TG[r.tag]}</span><div>${esc(r.txt)}${r.sym?` — <b>${esc(r.sym)}</b>`:''}${r.n>1?` <span class="x">×${r.n}</span>`:''}${r.detail?`<div class="x">${esc(trUi(r.detail))}</div>`:''}</div></div>`).join('')
     +'<div class="x" style="margin-top:6px">GERÇEK = gerçek para / CANLI olayı • GÖLGE = para riske girmeyen ölçüm • SİSTEM = bakım ve denetim</div>';
