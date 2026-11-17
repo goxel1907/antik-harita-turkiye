@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const OFFICE_VERSION = '2.5.165-R2544.189-JEV-Brain';
+const OFFICE_VERSION = '2.5.166-R2544.190-JEV-Brain';
 const HERE = __dirname;
 const BRAIN_ROOT = process.env.BRAINHUB_ROOT || 'C:\\JEV-Brain\\runtime'; // CLAUDE_R2544_12_JEV_BRAIN
 const BACKUP_ROOT = process.env.BRAINHUB_BACKUP_ROOT || 'C:\\JEV-Brain\\BrainHubBackups';
@@ -41,16 +41,38 @@ const ALLOWED_BRAIN_PATHS = new Set([
 ]);
 
 const cache = new Map();
+// R2544.190 (17.11 kopmalar): bu iş her snapshot isteğinde 150 bin günlük satırını baştan okuyordu (~1,1 sn eşzamanlı) ->
+// Office sekme başına yarım çekirdek yiyor, çekirdek istekleri UND_ERR_SOCKET/ECONNRESET ile düşüyordu. Artık satırlar bir kez
+// okunur, sonra yalnız yeni zamanlı satırlar eklenir (10 dk örtüşme, kimlikle tekrar ayıklanır); sonuç aynı pozisyon verisi için saklanır.
+const CANON_SQL="SELECT id,ts,kind,symbol,payload FROM journal WHERE ts>=? AND kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY ts ASC";
+const CANON_OVERLAP_MS=10*60000, CANON_TTL_MS=15000;
+const canonRec={ids:new Set(),records:[],maxTs:0};
+const canonOut={src:null,at:0,val:null};
+function canonRecords(db){
+  const rows=db.prepare(CANON_SQL).all(canonRec.maxTs?canonRec.maxTs-CANON_OVERLAP_MS:0);
+  let unsorted=false;
+  for(const x of rows){
+    if(canonRec.ids.has(x.id))continue;
+    const rec={...x,payload:JSON.parse(x.payload)};
+    const last=canonRec.records[canonRec.records.length-1];if(last&&rec.ts<last.ts)unsorted=true;
+    canonRec.ids.add(x.id);canonRec.records.push(rec);if(x.ts>canonRec.maxTs)canonRec.maxTs=x.ts;
+  }
+  if(unsorted)canonRec.records.sort((a,b)=>a.ts-b.ts);
+  return canonRec.records;
+}
 function canonicalPositions(data){
  if(!data)return data;
+ if(canonOut.src===data&&Date.now()-canonOut.at<CANON_TTL_MS)return canonOut.val;
  let db;
  try{
    const {DatabaseSync}=require('node:sqlite');
    const perfPath=fs.existsSync(path.join(BRAIN_ROOT,'server','office-performance.js'))?path.join(BRAIN_ROOT,'server','office-performance.js'):path.join(HERE,'..','office-performance.js');
    const {enrichCloses,performanceReport}=require(perfPath);
    db=new DatabaseSync(path.join(BRAIN_ROOT,'data','brainhub.sqlite'),{readOnly:true});
-   const records=db.prepare("SELECT id,ts,kind,symbol,payload FROM journal WHERE kind IN ('POSITION_CLOSED','R2542_OFFICE_EVENT','LIVE_EXECUTION','JEV_POSITION_EXECUTION','CLOSE_EXIT_EVIDENCE') ORDER BY ts ASC").all().map(x=>({...x,payload:JSON.parse(x.payload)}));
-   return {...data,closed:enrichCloses(data.closed||[],records),performance:performanceReport(records,data.open||[]),reportingOverlay:'READ_ONLY_SQLITE_CANONICAL'};
+   const records=canonRecords(db);
+   const val={...data,closed:enrichCloses(data.closed||[],records),performance:performanceReport(records,data.open||[]),reportingOverlay:'READ_ONLY_SQLITE_CANONICAL'};
+   Object.assign(canonOut,{src:data,at:Date.now(),val});
+   return val;
  }catch(e){return {...data,reportingOverlayError:String(e.message).slice(0,160)};}
  finally{if(db)db.close();}
 }
@@ -772,4 +794,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { derive, summarizeJournal, parseLog, waitIsFake, scrub, server, CONTROL_ROUTES, CONTROL_BODY };
+module.exports = { derive, summarizeJournal, parseLog, waitIsFake, scrub, server, CONTROL_ROUTES, CONTROL_BODY, canonicalPositions };

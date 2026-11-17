@@ -236,6 +236,12 @@ details.fold188>summary{cursor:pointer;list-style:none;padding:6px 0}details.fol
 /* R2544.106 POZİSYON MASASI */
 .cc-pos{margin-top:12px}
 .ps-grid{display:grid;grid-template-columns:minmax(300px,1.15fr) minmax(320px,1.6fr);gap:12px}
+/* R2544.190 (kullanıcı 17.11: sağ sütun boş) kâr/zarar + pozisyon masası sağ sütunda; dar sütuna göre */
+#ccRight .pl-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+#ccRight .pl-tile .v{font-size:17px}
+#ccRight .pl-charts{grid-template-columns:minmax(0,1fr)}
+#ccRight .ps-grid{grid-template-columns:minmax(0,1fr)}
+#ccRight .ps-grid>*,#ccRight .pl-ch{min-width:0}
 @media (max-width:1100px){.ps-grid{grid-template-columns:1fr}}
 .ps-open{border-radius:14px;padding:12px;background:radial-gradient(120% 120% at 0% 0%,rgba(46,197,255,.14),rgba(10,12,24,1) 55%);border:1px solid rgba(46,197,255,.45);box-shadow:0 0 24px rgba(46,197,255,.15);margin-bottom:10px;position:relative;overflow:hidden}
 .ps-open.loss{background:radial-gradient(120% 120% at 0% 0%,rgba(255,77,109,.16),rgba(10,12,24,1) 55%);border-color:rgba(255,77,109,.5);box-shadow:0 0 24px rgba(255,77,109,.18)}
@@ -661,13 +667,13 @@ body.cc-compact .cc-extra{display:none !important}
       <div class="cc-panel" id="ccRight"><div class="cc-h">🎯 STRATEJİLER <span class="x" id="ccStratSub">son 30 gün</span></div><div id="ccStrats"></div>
         <div class="cc-h" style="margin-top:10px">💰 SON KAPANAN İŞLEMLER <span class="x">gerçek para • Binance defteri</span></div><div id="ccClosed188" class="cc188">—</div>
         <div class="cc-h" style="margin-top:10px">🏅 MODEL KARNESİ <span class="x">ilk oy (tartışmadan önce)</span></div><div id="ccModels"></div><div class="cc-note" id="ccJudge"></div>
+        <div class="cc-panel pl-card" id="plCard" aria-label="Kâr zarar"><div class="cc-h">💵 KÂR / ZARAR <span class="x" id="plSub">hesabın kendi defteri (gerçekleşen kâr + komisyon + fonlama) • TEST ve CANLI aynı hesap</span></div>
+        <div class="pl-tiles" id="plTiles"></div><div class="pl-charts" id="plCharts"></div><div class="pl-note" id="plNote"></div></div>
+        <div class="cc-panel cc-pos" id="ccPos"><div class="cc-h">🎯 POZİSYON MASASI <span class="x">açık pozisyon canlı • son 5 pozisyon • geçmişin dağılımı (o anki mod, son 30 gün)</span></div>
+        <div class="ps-grid"><div id="psOpen"></div><div><div id="psLast5"></div><div class="ps-hist" id="psHist"></div></div></div></div>
       </div>
     </div>
     <div class="cc-now" id="ccNow"></div>
-    <div class="cc-panel pl-card" id="plCard" aria-label="Kâr zarar"><div class="cc-h">💵 KÂR / ZARAR <span class="x" id="plSub">hesabın kendi defteri (gerçekleşen kâr + komisyon + fonlama) • TEST ve CANLI aynı hesap</span></div>
-      <div class="pl-tiles" id="plTiles"></div><div class="pl-charts" id="plCharts"></div><div class="pl-note" id="plNote"></div></div>
-    <div class="cc-panel cc-pos" id="ccPos"><div class="cc-h">🎯 POZİSYON MASASI <span class="x">açık pozisyon canlı • son 5 pozisyon • geçmişin dağılımı (o anki mod, son 30 gün)</span></div>
-      <div class="ps-grid"><div id="psOpen"></div><div><div id="psLast5"></div><div class="ps-hist" id="psHist"></div></div></div></div>
     <div class="cc-panel cc-brain" id="ccBrain"><div class="cc-h">🧠 BEYİN — NE ÖĞRENDİ <span class="x" id="ccBrainSub">her kapanan işlem hafızada • yeni sinyalde en benzer 5 işlemi hatırlar, eğilim söyler, işlem kapanınca puanlanır</span></div><canvas id="brCanvas" role="img" aria-label="Beyin: son sinyal ortada, hatırladığı en benzer 5 geçmiş işlem çevresinde, altta beynin kararı, sağda karnesi"></canvas><div id="ccBrainBody">—</div></div>
   </section>
   <section class="kpis" id="kpis"></section>
@@ -2182,7 +2188,7 @@ function renderKpis(s){
   chip('#chipVision', vStage==='ERROR'?'warn':'good', 'GRAFİK DETERMINİSTİK • GPU '+(vOllama?'AUDIT HAZIR':'AUDIT KAPALI'));
   const cap=la.capacity||{};
   const block=la.activeBlocker;
-  chip('#chipAuto', block?'bad':la.enabled?'good':'bad', (la.enabled?'OTO AKTİF':'OTO KAPALI')+(block?' • OTO YÜRÜTME ENGELLENDİ: '+(Array.isArray(block.reasons)?block.reasons:[block.reason||block.reasons]).filter(Boolean).map(trUi).join(', '):'')+` • açık ${cap.known?cap.open:'?'} / bekleyen ${cap.pending??'?'} / sınır ${cap.max??'?'}`);
+  chip('#chipAuto', block?'bad':la.enabled?'good':'bad', (la.enabled?'Normal OTO AKTİF':'Normal OTO KAPALI')+(block?' • OTO YÜRÜTME ENGELLENDİ: '+(Array.isArray(block.reasons)?block.reasons:[block.reason||block.reasons]).filter(Boolean).map(trUi).join(', '):'')+` • açık ${cap.known?cap.open:'?'} / bekleyen ${cap.pending??'?'} / sınır ${cap.max??'?'}`);
   const age = s.generatedAt ? Math.round((Date.now()-Date.parse(s.generatedAt))/1000) : null;
   chip('#chipFresh', s.status?.ok?'good':'bad', s.status?.ok?`veri ${age!=null?age+' sn':''} önce`:'Brain Hub yok');
 }
