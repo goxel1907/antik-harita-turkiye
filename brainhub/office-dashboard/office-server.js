@@ -264,9 +264,12 @@ function listBackups() {
         const full = path.join(BACKUP_ROOT, d.name);
         let mtime = null;
         try { mtime = fs.statSync(full).mtime.toISOString(); } catch {}
-        return { name: d.name, mtime };
+        // R2544.188: kurulum yedeği (yyyymmdd-hhmmss) hangi sürümü içeriyor; ada göre sıralama eski klasörleri en üste çıkarıyordu
+        let release = null;
+        if (/^\d{8}-\d{6}$/.test(d.name)) { try { const m = fs.readFileSync(path.join(full, 'server', 'server.js'), 'utf8').match(/RUNTIME_RELEASE='([^']+)'/); release = m ? m[1] : null; } catch {} }
+        return { name: d.name, mtime, release, deploy: /^\d{8}-\d{6}$/.test(d.name) };
       })
-      .sort((a, b) => String(b.name).localeCompare(String(a.name)));
+      .sort((a, b) => (Number(b.deploy) - Number(a.deploy)) || String(b.mtime || '').localeCompare(String(a.mtime || '')));
     return { ok: true, root: BACKUP_ROOT, count: rows.length, latest: rows.slice(0, 8) };
   } catch (e) {
     return { ok: false, root: BACKUP_ROOT, error: clip(e?.code || e?.message, 80), count: 0, latest: [] };

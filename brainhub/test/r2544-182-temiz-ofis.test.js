@@ -11,7 +11,7 @@ test('R2544.182 dead blocks are gone: R2542 history tables, legacy setups card, 
 test('R2544.182 stale is hidden, not shown as fresh: old JEV decision view, old committee ticker rows, legacy JEV details closed', () => {
   assert.match(html, /24 saatten eski — gizlendi/);
   assert.match(html, /Date\.now\(\)-\+x\.at<172800000/);
-  assert.ok(!html.includes('id="legacyJevA" open') && !html.includes('id="legacyJevB" open'));
+  assert.ok(html.includes('id="legacyJevA" open'), 'R2544.188: ofis katı yeniden AÇIK (kullanıcı 20.10 ve 17.11)'); assert.ok(!html.includes('id="legacyJevB" open'));
 });
 test('R2544.182 section toggles: defaults keep the moment-focused set open, details/archives closed; view-only note present', () => {
   const i = html.indexOf('R2544.182 BÖLÜM AÇ/KAPA'); assert.ok(i > 0);

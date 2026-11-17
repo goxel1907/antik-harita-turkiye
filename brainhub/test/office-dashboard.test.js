@@ -99,8 +99,7 @@ test('R2542 Trader Office per-desk performance is visible and read-only', () => 
   const html = fs.readFileSync(path.join(dir, 'public', 'office.html'), 'utf8');
   const serverSrc = fs.readFileSync(path.join(dir, 'office-server.js'), 'utf8');
   assert.match(serverSrc,/2.5.163-R2544.187/);
-  assert.match(html,/Masa performansı • 5M \/ 15M \/ Vur-kaç \/ İlk 3/);
-  assert.match(html,/id="deskPerf"/);
+  assert.ok(!html.includes('id="deskPerf"')); // R2544.188: kaldırıldı
   assert.match(html,/sovereignDeskStats/);
   assert.match(html,/deskSummary/);
   assert.match(html,/MARKET_NOW/);

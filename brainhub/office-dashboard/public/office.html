@@ -194,6 +194,16 @@ button.tbtn{background:var(--surface-2);color:var(--text-secondary);border:1px s
 .sec-tgl{float:right;margin-left:8px;font:700 11px system-ui,sans-serif;color:#9fe3ff;background:#0d1124;border:1px solid #2a3356;border-radius:8px;padding:3px 9px;cursor:pointer}
 .sec-tgl:hover{border-color:#4a5a8a}
 .sec-off>*:not(.sec-keep){display:none!important}
+/* R2544.188 düzen: taşma yok, sağ sütun kartı, aç/kapa blokları */
+.cc-panel{min-width:0}
+.ks table,.rx table{display:block;max-width:100%;overflow-x:auto;white-space:nowrap}
+details.fold188>summary{cursor:pointer;list-style:none;padding:6px 0}details.fold188>summary::before{content:'▶ ';color:#9fe3ff}details.fold188[open]>summary::before{content:'▼ '}
+.cc188 .r{display:grid;grid-template-columns:44px 1fr auto;gap:6px;align-items:center;font:600 12px system-ui,sans-serif;padding:4px 6px;border-radius:7px;margin:3px 0;background:#0b1020;border:1px solid #1d2442}
+.cc188 .r .t{color:#8f97b8;font-size:11px}.cc188 .r .s b{color:#eef1fb}.cc188 .r .s small{color:#8f97b8;display:block;font-weight:600}.cc188 .r .v{text-align:right;font-weight:800}
+.cc188 .sum{font:700 11.5px system-ui,sans-serif;color:#c9cfe6;margin:2px 0 6px}
+.ev188{display:grid;grid-template-columns:52px 64px 1fr;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:12.5px}
+.ev188 .tag{font:800 10px system-ui,sans-serif;padding:2px 6px;border-radius:6px;text-align:center;align-self:start}.ev188 .tag.g{background:#0f2a1c;color:#7ff0b0}.ev188 .tag.s{background:#1a1530;color:#d6ccff}.ev188 .tag.y{background:#232a3a;color:#c3c6cf}
+.ev188 .x{color:var(--text-muted);font-size:11.5px}
 /* R2544.104 KOMUTA MERKEZİ */
 /* R2544.181 basit anlatım kartı (kullanıcı 16.11: "oraya bakınca en aptal kişi bile botun ne yaptığını anlasın") */
 .cc-simple{border:1px solid rgba(255,213,79,.45);border-radius:12px;padding:10px 12px;margin:0 0 10px;background:linear-gradient(180deg,#0d0f1e,#070910);font:600 12.5px/1.55 system-ui,sans-serif;color:#dbe1f7}
@@ -608,7 +618,7 @@ body.cc-compact .cc-extra{display:none !important}
       <button id="btnLaneTop3" disabled title="İlk 3 Avcısı: kural (JEV modu açıksa kural + JEV)">İlk 3 Avcısı: —</button>
       <button id="btnLaneZirve5" disabled title="ZİRVE-5: piyasa geneli ilk 5 volatil coin, 15 dk FiboBuLL alanlarında hacimli mum onayıyla LONG ve SHORT (JEV modu açıksa kural + JEV)">ZİRVE-5: —</button>
       <button id="btnLaneKesif" disabled title="KEŞİF-SÖZ: yalnız yeni işlem giriş izni; gölge öğrenimi ve açık pozisyon yönetimini değiştirmez">KEŞİF-SÖZ: PC durumu bekleniyor</button>
-      <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button><button class="live" id="btnCmLive" disabled title="R2544.89: İlk 3 ve ZİRVE-5 kararını kurula verir, sonra CANLI’ya geç onayını açar">Kurulla CANLI’ya geç</button><button class="live" id="btnJkLive" disabled title="R2544.127: İlk 3 ve ZİRVE-5 JEV + Kurul + bot olur (bot açar, önce JEV sonra kurul yönetir), sonra CANLI’ya geç onayını açar">JEV + Kurul ile CANLI’ya geç</button>
+      <button class="live" id="btnGoLive" disabled title="Seçili hatlar Binance’teki gerçek bakiye ve marjla canlıya geçer">CANLI’ya geç (seçili hatlar)</button><button class="live" id="btnCmLive" disabled title="R2544.89: İlk 3 ve ZİRVE-5 kararını kurula verir, sonra CANLI’ya geç onayını açar">Kurulla CANLI’ya geç</button><button class="live" id="btnJkLive" disabled title="R2544.189: İlk 3 ve ZİRVE-5 JEV + Kurul + bot olur (bot sinyali bulur, JEV girme derse açılmaz; JEV cevapsızsa kural açar; önce JEV sonra kurul yönetir), sonra CANLI’ya geç onayını açar">JEV + Kurul ile CANLI’ya geç</button>
       <button id="btnGoTest" disabled style="display:none">CANLI’yı kapat — TEST’e dön</button>
       <button class="go" id="btnStartTest" disabled style="display:none">TEST’i başlat</button>
       <button id="btnResetTest" disabled>TEST’i sıfırla</button>
@@ -649,6 +659,7 @@ body.cc-compact .cc-extra{display:none !important}
         <canvas id="rxCanvas" role="img" aria-label="Kurul karar akışı ve açık pozisyon radarı"></canvas>
       </div>
       <div class="cc-panel" id="ccRight"><div class="cc-h">🎯 STRATEJİLER <span class="x" id="ccStratSub">son 30 gün</span></div><div id="ccStrats"></div>
+        <div class="cc-h" style="margin-top:10px">💰 SON KAPANAN İŞLEMLER <span class="x">gerçek para • Binance defteri</span></div><div id="ccClosed188" class="cc188">—</div>
         <div class="cc-h" style="margin-top:10px">🏅 MODEL KARNESİ <span class="x">ilk oy (tartışmadan önce)</span></div><div id="ccModels"></div><div class="cc-note" id="ccJudge"></div>
       </div>
     </div>
@@ -697,8 +708,8 @@ body.cc-compact .cc-extra{display:none !important}
     <div id="moverHost" aria-live="polite">Denetim verisi bekleniyor.</div>
   </section>
   <!-- R2544.67.2 (user 20.10: "office katını da kaldırmışsın"): R2544.59 folded these sections closed; they are OPEN by default again -->
-  <details class="legacy-jev" id="legacyJevA"><summary>JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
-  <section class="row2" id="deskCards" aria-label="Masa performansı"></section>
+  <details class="legacy-jev" id="legacyJevA" open><summary>JEV hattı — 5M / 15M masaları, Ofis katı, Neden işlem yok <span class="hint">OTO ve JEV kapalıyken burada karar/işlem olmaz; İlk 3 Avcısı bu hattan bağımsız çalışır. Kapatmak için tıklayın.</span></summary>
+  <!-- R2544.188: 5M/15M masa kartları kaldırıldı (Normal hat sayaçları hep 0, tutulmuyor) -->
   <section class="lane-strip" id="laneStrip"></section>
 
   <section class="grid-main">
@@ -830,18 +841,15 @@ body.cc-compact .cc-extra{display:none !important}
     <div class="card">
       <h2>Açık pozisyonlar <span class="hint" id="posHint">Binance • 30 sn defter</span></h2>
       <div style="overflow:auto"><table id="openPos"></table></div>
-      <h2 style="margin-top:14px">Kapanan işlemler & sonuçlar <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + fonlama)</span></h2>
-      <div style="overflow:auto"><table id="closedPos"></table></div>
-      <h2 style="margin-top:16px">Masa performansı • 5M / 15M / Vur-kaç / İlk 3
-        <span class="hint" id="deskPerfHint">karar → zamanlama → emir → sonuç</span>
-      </h2>
-      <div style="overflow:auto"><table id="deskPerf"></table></div>
+      <details class="fold188" id="closedFold"><summary><b>Kapanan işlemler & sonuçlar — tam tablo</b> <span class="hint" id="closedHint">beyne yazılan gerçek sonuçlar (PnL = gerçekleşen + komisyon + fonlama)</span> <span class="hint">• kısa hali sağ sütunda</span></summary>
+      <div style="overflow:auto"><table id="closedPos"></table></div></details>
+      <!-- R2544.188: 'Masa performansı 5M/15M/Vur-kaç' kaldırıldı (eski Normal hat verisi, hep 0) -->
     </div>
   </section>
 
   <section class="row2">
     <div class="card">
-      <h2>Olay akışı <span class="hint">işlem günlüğü + brainpub.log</span></h2>
+      <h2>Olay akışı <span class="hint">son olaylar, Türkçe • GERÇEK / GÖLGE / SİSTEM</span></h2>
       <div class="feed" id="feed"></div>
     </div>
     <div class="card">
@@ -1586,6 +1594,7 @@ function renderCC(s){
   // JEV panels (vur-kaç, 5M / 15M masaları, JEV kanıt kartları) stay visible only while JEV / OTO actually runs: their numbers are live then
   {const jevLive=m.jevOn||((ccG(s?.status)||{}).leaderAuto?.enabled===true);for(const id of ['burstCard','legacyJevA','legacyJevB']){const e=$(id);if(e)e.classList.toggle('cc-extra',!jevLive);}}
   try{plRender((ccG(s?.top3)||{}).pnl||null);}catch(e){console.warn('pl',e);} // R2544.124
+  try{renderClosed188(s);}catch(e){console.warn('closed188',e);} // R2544.188
   const nw=$('ccNow');if(nw){const btn=`<button class="cc-toggle" id="ccToggle">${document.body.classList.contains('cc-compact')?'⚙️ Ayrıntılı panelleri göster':'⚙️ Ayrıntılı panelleri gizle'}</button>`;
     nw.innerHTML=`<span class="why">⏱ ŞİMDİ: ${m.open?`<b>${m.open} açık pozisyon</b> masada izleniyor`:esc(m.why||'—')}</span>${m.nm.map(x=>`<span class="why" style="color:#aeb6d6">son bekleyen: ${esc(x)}</span>`).join('')}${m.sg?`<span class="why" style="color:#fbbf24" title="R2544.176: zaman dilimleri girişin aleyhindeyken (lehte − aleyhte ≤ −2) hiçbir hat işlem açmaz; açılmayan plan gölgede ölçülür">🛡 ${esc(m.sg)}</span>`:''}${btn}`;
     $('ccToggle').onclick=()=>{const on=!document.body.classList.contains('cc-compact');document.body.classList.toggle('cc-compact',on);try{localStorage.setItem('ccCompact',on?'1':'0');}catch{}renderCC(s);};}
@@ -2425,7 +2434,7 @@ function renderLedger(s){
   if(perf){
     const f=perf.funnel;
     const n=v=>v==null?'—':Number(v).toFixed(2);
-    $('#deskCards').innerHTML=perf.desks.filter(x=>['5M_SCALP','15M_TRADE'].includes(x.desk)).map(desk=>{
+    if($('#deskCards'))$('#deskCards').innerHTML=perf.desks.filter(x=>['5M_SCALP','15M_TRADE'].includes(x.desk)).map(desk=>{ // R2544.188: eleman kaldırıldı -> korumalı
       const r=desk.recent;
       const rows=[...desk.cohorts].sort((a,b)=>(a.version==='R2542_JEV_TRADER_OFFICE'?-2:a.version==='R2541_ATOMIC_TURKISH_SAFE'?-1:0)-(b.version==='R2542_JEV_TRADER_OFFICE'?-2:b.version==='R2541_ATOMIC_TURKISH_SAFE'?-1:0));
       return `<div class="card"><h2>${desk.desk==='5M_SCALP'?'5M SCALPER MASASI':'15M TRADER MASASI'}</h2>
@@ -2436,9 +2445,9 @@ function renderLedger(s){
         <p class="hint">eski sürüm tarihçesi kaldırıldı (R2544.182; kayıtlar defterde duruyor)</p></div>`;
     }).join('');
     const dist=o=>Object.entries(o||{}).map(([k,v])=>`${trUi(k)}: ${v}`).join(' • ')||'—';
-    $('#deskPerfHint').textContent=`Tüm defter • son 60 dk benzersiz coin ${f.uniqueCoverage} • tekrar analiz %${n(f.reanalysisRatePct)} • aynı kanıtla atlanan ${f.dedupeSkipped}. ${perf.historyNote}`;
+    if($('#deskPerfHint'))$('#deskPerfHint').textContent=`Tüm defter • son 60 dk benzersiz coin ${f.uniqueCoverage} • tekrar analiz %${n(f.reanalysisRatePct)} • aynı kanıtla atlanan ${f.dedupeSkipped}. ${perf.historyNote}`;
     $('#closedHint').textContent=`Tüm ölçülen defter: ${perf.total.closed} kapanış • net ${n(perf.total.netPnl)} USDT. ${perf.reconciliation?.excluded?.length||0} yinelenen kayıt hesap dışı (ham kayıtlar korunur). Aşağıdaki liste son ${cl.length} kayıt; masa sonuçları tüm kayıtlardır.${perf.testMode?.total?.closed?` TEST (sanal, ayrı): ${perf.testMode.total.closed} kapanış • net ${n(perf.testMode.total.netPnl)} USDT.`:''}`;
-    $('#deskPerf').innerHTML=perf.desks.filter(x=>x.desk!=='UNSPECIFIED'||x.recent.analyses||x.cohorts.some(c=>c.closed)).map(desk=>{
+    if($('#deskPerf'))$('#deskPerf').innerHTML=perf.desks.filter(x=>x.desk!=='UNSPECIFIED'||x.recent.analyses||x.cohorts.some(c=>c.closed)).map(desk=>{
       const title=({'5M_SCALP':'5M SCALPER MASASI','15M_TRADE':'15M TRADER MASASI',BURST_SCALP:'VUR-KAÇ MASASI',TOP3_HUNTER:'İLK 3 AVCISI MASASI',ZIRVE5:'ZİRVE-5 MASASI'})[desk.desk]||'MASASI BELİRSİZ KAYITLAR'; // R2544.59: İlk 3 / vur-kaç had no title and read as the 15M desk
       return `<tbody><tr><th colspan="12">${title}</th></tr><tr><th>Dönem / sürüm</th><th>Analiz / P1 / P2</th><th>Al / Sat / Bekle</th><th>Şimdi giriş</th><th>Onay / güvenlik / emir</th><th>Kapanış K/Z/N</th><th>Kazanma %</th><th>Net USDT</th><th>Ort / medyan R</th><th>R örneği</th><th>Açık PnL</th><th>Dönüşüm %</th></tr>`+
       [desk.recent,...desk.cohorts].map(x=>`<tr><td>${esc(x.name==='LEGACY'?'ESKİ / ETİKETSİZ':x.name)}</td><td>${x.telemetryAvailable?`${x.analyses} / ${x.pass1} / ${x.pass2}`:'Kayıt yok'}</td><td>${x.telemetryAvailable?`${x.long} / ${x.short} / ${x.wait}`:'—'}</td><td>${x.telemetryAvailable?x.marketNow:'—'}</td><td>${x.telemetryAvailable?`${x.approved} / ${x.safetyPassed} / ${x.orders}`:'—'}</td><td>${x.closed} (${x.wins}/${x.losses}/${x.flats})</td><td>${n(x.winRatePct)}</td><td>${n(x.netPnl)}</td><td>${n(x.avgR)} / ${n(x.medianR)}</td><td>${x.rSamples}</td><td>${n(x.openPnl)}</td><td title="Karar → güvenlik / güvenlik → emir / karar → emir">${n(x.decisionToSafetyPct)} / ${n(x.safetyToOrderPct)} / ${n(x.decisionToOrderPct)}</td></tr><tr><td colspan="12"><details><summary>Zamanlama, bekleme ve yürütme nedenleri</summary><p>Giriş zamanlaması: ${esc(dist(x.timing))}</p><p>Bekleme nedeni: ${esc(dist(x.waitReasons))}</p><p>Yürütme engelleri: ${esc(dist(x.blockedReasons))}</p><p>Kanıt değişimi: ${esc(dist(x.materialChanges))} • benzersiz coin ${x.uniqueCoverage} • tekrar %${n(x.reanalysisRatePct)}</p></details></td></tr>`).join('')+'</tbody>';
@@ -2471,7 +2480,37 @@ function renderPositions(s){
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
 }
 
+// R2544.188 SAĞ SÜTUN: son kapanan gerçek işlemler (kısa)
+function renderClosed188(s){
+  const el=document.getElementById('ccClosed188');if(!el)return;
+  const d=s.positions&&s.positions.data||null,cl=(d&&d.closed||[]).filter(c=>c&&c.tradingMode!=='TEST').slice(0,10);
+  if(!cl.length){el.innerHTML='<div class="cc-note">Henüz kapanan gerçek işlem yok.</div>';return;}
+  const EX={TOP3_STOP:'stop',TOP3_TAKE_PROFIT:'hedef',TOP3_DESK_EXIT:'masa',TOP3_USER_CLOSE:'siz',TOP3_EXTERNAL_CLOSE:'dışarıdan',GOXEL_EXIT:'Goxel',TOP3_DEADLINE:'süre',ZIRVE5_BE_STOP:'başabaş'};
+  const lane=c=>{const x=String(c.setup||'');return /KESIF/.test(x)?'KEŞİF':/ZIRVE5/.test(x)?'Z5':'İlk 3';};
+  const net=cl.reduce((a,c)=>a+(Number(c.netPnl)||0),0),w=cl.filter(c=>Number(c.netPnl)>0).length;
+  el.innerHTML=`<div class="sum">son ${cl.length}: ${w} kazanç • net <b style="color:${plCol(net)}">${plUsd(net)}</b></div>`+cl.map(c=>{const r=Number(c.rMultiple),p=Number(c.netPnl);
+    return `<div class="r"><span class="t">${esc(fmtTime(Date.parse(c.closedAt||c.ts)))}</span><span class="s"><b>${esc(String(c.symbol||'').replace(/USDT$/,''))}</b> ${esc(c.side||'')}<small>${esc(lane(c))} • ${esc(EX[c.exitType]||String(c.exitType||'').toLowerCase().replace(/^top3_/,'').replace(/_/g,' '))}</small></span><span class="v" style="color:${plCol(p)}">${plUsd(p)}<br><small style="color:${ccCol(r)}">${Number.isFinite(r)?ccR(r):''}</small></span></div>`;}).join('');
+}
+// R2544.188 OLAY AKIŞI: ham kod adları yerine Türkçe tek cümle + GERÇEK / GÖLGE / SİSTEM etiketi + art arda tekrarlar birleşir
+const EV188={KESIF_OUTCOME:['s','Gölge tahmin sonuçlandı (para yok)'],KESIF_FORECAST:['s','Model yeni gölge tahmin yazdı'],KESIF_MATRIX:['s','Beyin matrisi güncellendi'],
+  GOXEL_EXIT:['s','Goxel bir gölge tahminde "çık" dedi'],GOXEL_PRO_EXIT:['s','Goxel PRO bir gölge tahminde "çık" dedi'],IZ_FIRE:['s','İz askeri ateşledi (gölge tahmin)'],
+  MOVER_AUDIT:['y','Kaçan hareket denetimi yapıldı'],ZIRVE5_SCAN:['y','ZİRVE-5 taraması'],HUMAN_CLOSE_COUNTERFACTUAL:['s','Elle kapanışınız plana göre ölçüldü'],
+  LIVE_STARTED:['g','CANLI başlatıldı'],LIVE_AUTORENEW_ON:['g','CANLI otomatik yenileme açıldı'],LIVE_AUTORENEW_OFF:['g','CANLI otomatik yenileme kapandı'],LIVE_LANES:['g','CANLI hat seçimi kaydedildi'],
+  LIVE_ARM_RENEWED:['y','CANLI yetkisi yenilendi'],LIVE_REARMED:['g','CANLI yeniden açıldı (açılış/yenileme)'],TOP3_CLOSED:['g','Gerçek işlem kapandı'],TOP3_OPENED:['g','Gerçek işlem açıldı'],TOP3_ENTRY:['g','Gerçek işlem açıldı'],
+  POSITION_DESK_EXIT:['g','Masa çıkış emri uygulandı'],POSITION_DESK_STOP:['g','Masa stopu yaklaştırdı'],ENTRY_SCREEN_GATE:['g','Ekran kapısı girişi açmadı'],KESIF_ZAYIF_GOLGE:['s','Zayıf söz gölgede kaldı'],
+  JEV_KURUL_YEDEK:['g','JEV cevapsız: kurul yedeği karar verdi'],GOXEL_LOSS_SHADOW:['s','Goxel zarar gölgesi "çıkardım" dedi'],POSITION_DESK_UNAVAILABLE:['y','Masa karar veremedi (model yok)']};
 function renderFeed(s){
+  const ev=(s.events||[]).slice(0,120),el=document.getElementById('feed');if(!el)return;
+  if(!ev.length){el.innerHTML='<div class="muted">Henüz olay yok.</div>';return;}
+  const rows=[];for(const e of ev){const t=String(e.title||'').trim(),kind=t.split(/\s+/)[0],sym=t.slice(kind.length).trim().replace(/USDT$/,''),m=EV188[kind];
+    const tag=m?m[0]:(/^Brain Hub/.test(t)?'y':'y'),txt=m?m[1]:t;const last=rows[rows.length-1];
+    if(last&&last.kind===kind&&last.sym===sym&&Math.abs(last.ts-e.ts)<120000){last.n++;continue;}
+    rows.push({ts:e.ts,kind,sym,tag,txt,detail:e.detail||'',n:1});}
+  const TG={g:'GERÇEK',s:'GÖLGE',y:'SİSTEM'};
+  el.innerHTML=rows.slice(0,60).map(r=>`<div class="ev188"><time>${fmtTime(r.ts)}</time><span class="tag ${r.tag}">${TG[r.tag]}</span><div>${esc(r.txt)}${r.sym?` — <b>${esc(r.sym)}</b>`:''}${r.n>1?` <span class="x">×${r.n}</span>`:''}${r.detail?`<div class="x">${esc(trUi(r.detail))}</div>`:''}</div></div>`).join('')
+    +'<div class="x" style="margin-top:6px">GERÇEK = gerçek para / CANLI olayı • GÖLGE = para riske girmeyen ölçüm • SİSTEM = bakım ve denetim</div>';
+}
+function renderFeedOld(s){
   const ev = s.events||[];
   $('#feed').innerHTML = ev.length ? ev.slice(0,80).map(e=>`<div class="ev"><time>${fmtTime(e.ts)}</time><span class="d" style="background:${DESK_COLOR[e.desk]||'var(--text-muted)'}"></span><div><div>${esc(trUi(e.title))}</div>${e.detail?`<div class="x">${esc(trUi(e.detail))}</div>`:''}</div></div>`).join('')
     : '<div class="muted">Henüz olay yok.</div>';
@@ -2564,7 +2603,8 @@ function renderSources(s){
   $('#bkKv').innerHTML = [
     ['Yedek klasörü', bk.root||'C:\\JEV-Brain\\BrainHubBackups'],
     ['Yedek sayısı', bk.ok?String(bk.count):'okunamadı'],
-    ['Son yedekler', (bk.latest||[]).slice(0,4).map(x=>x.name).join(', ')||'—'],
+    ['Son kurulum yedekleri', (bk.latest||[]).filter(x=>x.deploy).slice(0,4).map(x=>x.name+(x.release?' → '+x.release:'')).join(' • ')||'—'], // R2544.188: tarihe göre + içerdiği sürüm
+    ['Geri dönüş', 'yalnız kod: Claud-Work\\araclar\\JEV-SURUM-GERI-DON.ps1 (öğrenim ve ayarlar korunur)'],
     ['Brain Hub kökü', s.config?.brainRoot||'C:\\JEV-Brain\\runtime'],
     ['Log', s.log?.ok?`brainpub.log • ${fmtTime(Date.parse(s.log.mtime))}`:'okunamadı']
   ].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
@@ -2877,7 +2917,10 @@ function loadMirrorImage(img,url,seq){
     pending.src=url;
   });
 }
-async function renderMirror(s){
+let mirrorInflightAt=0;
+async function renderMirror(s,auto){
+  // R2544.188: grafik PNG 10-33 sn sürebiliyor; 5 sn'lik otomatik yenileme her seferinde yeni yükleme başlatıp öncekini iptal edince ayna hiç dolmuyordu
+  if(auto&&mirrorInflightAt&&Date.now()-mirrorInflightAt<60000)return;
   const symbol=syncMirrorSymbol(s);
   if(!symbol)return;
   if(s?.demo){
@@ -2886,6 +2929,8 @@ async function renderMirror(s){
     return;
   }
   const seq=++mirrorSeq, stamp=Date.now(), tf=mirrorTf;
+  mirrorInflightAt=stamp;
+  try{
   const mirrorBars=tf==='15m'?180:72;
   const clean=$('#mirrorClean'), annotated=$('#mirrorAnnotated');
   const parityLoading=$('#mirrorParity');
@@ -2940,10 +2985,12 @@ async function renderMirror(s){
         const lane=fr.detail==='FULL'?' lane':'';
         return `<div class="nrow${lane}"><span class="ntf">${esc(tf)}${fr.detail==='FULL'?' ●':''}</span><span class="ntx">${esc(String(fr.line||'').replace(new RegExp('^'+tf+':\\s*'),''))}</span></div>`;
       }).join('');
-      narrEl.innerHTML=`<h4>GRAFİK OKUMA — GÜNCEL SAYISAL BAĞLAM</h4><p>TF ${order.filter(tf=>narr.frames[tf]?.available===true).length}/9${order.some(tf=>narr.frames[tf]?.available!==true)?' • okunamayan: '+esc(order.filter(tf=>narr.frames[tf]?.available!==true).join(', ')):''} • 45m: 15m mumlarından sentetik bağlam • Paket izi ${esc((narr.hash||'yok').slice(0,16))} • CVD ${p.microstructure?.cvdTrades120s??0} işlem / ${p.microstructure?.orderFlowAgeMs??'—'} ms</p>`
+      const narrOpen=(()=>{try{return localStorage.getItem('office-narr188')==='1';}catch{return false;}})();
+      narrEl.innerHTML=`<details class="fold188"${narrOpen?' open':''} ontoggle="try{localStorage.setItem('office-narr188',this.open?'1':'0')}catch(e){}"><summary><b>GRAFİK OKUMA — GÜNCEL SAYISAL BAĞLAM</b> <span class="hint">aç / kapa • JEV'e giden sayısal grafik okuması</span></summary><p>TF ${order.filter(tf=>narr.frames[tf]?.available===true).length}/9${order.some(tf=>narr.frames[tf]?.available!==true)?' • okunamayan: '+esc(order.filter(tf=>narr.frames[tf]?.available!==true).join(', ')):''} • 45m: 15m mumlarından sentetik bağlam • Paket izi ${esc((narr.hash||'yok').slice(0,16))} • CVD ${p.microstructure?.cvdTrades120s??0} işlem / ${p.microstructure?.orderFlowAgeMs??'—'} ms</p>`
         +`<p class="nh">Deterministik: grafiği çizen kapalı mum sayılarından üretilir, model/görüntü kullanılmaz, aynı mumlar her zaman aynı cümleyi verir. ● = tam okunan işlem hattı (5m, 15m). Bu metin güncel grafik önizlemesidir. Gönderim sınırında anlatım kısalabilir; sayısal seviyeler korunur. Son JEV kararının gönderilmiş paketi ve zamanı aşağıda ayrıdır.</p>`
         +rowsHtml
-        +(narr.alignment?.line?`<div class="nalign">${esc(narr.alignment.line)}</div>`:'');
+        +(narr.alignment?.line?`<div class="nalign">${esc(narr.alignment.line)}</div>`:'')
+        +'</details>';
     }else{
       narrEl.innerHTML=`<h4>GRAFİK OKUMA BEYNİ</h4><p class="nh">Bu pakette grafik okuması yok — motor henüz R2543 chart-narrator sürümünü yüklemedi.</p>`;
     }
@@ -3011,6 +3058,7 @@ async function renderMirror(s){
     parityEl.className='mirror-parity bad';
     parityEl.textContent='JEV canlı aynası okunamadı; önceki grafik korunuyor: '+String(e?.message||e).slice(0,140);
   }
+  }finally{if(seq===mirrorSeq)mirrorInflightAt=0;}
 }
 
 // R2544.51/52 TEST/LIVE mod paneli. Office'in tek yazma noktası; çekirdek her adımı ayrıca doğrular.
@@ -3601,8 +3649,9 @@ async function tick(){
     $('#demoBanner').style.display = s.demo?'block':'none';
     if(s.demo) $('#demoBanner').textContent = s.demoLabel || "DEMO VERİSİ — gerçek Brain Hub'a bağlı değil.";
     try{renderMode(s);}catch(e){console.warn('mode',e);} try{renderWallet(s);}catch(e){console.warn('wallet',e);} renderKpis(s); renderBurst(s); try{renderTop3(s);}catch(e){console.warn('top3',e);} try{renderZ5(s);}catch(e){console.warn('zirve5',e);} try{renderMovers(s);}catch(e){console.warn('movers',e);} try{renderResearch(s);}catch(e){console.warn('research',e);} try{renderGuardStrip(s);}catch(e){console.warn('guardStrip',e);} renderLanes(s); renderBlockers(s); const vinfo=renderVision(s); renderJev(s); renderWorkers(s);
-    renderSetups(s); renderTimeline(s); renderPositions(s); renderFeed(s); try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
-    renderMirror(s);
+    // R2544.188: bir bölümdeki hata Office'in geri kalanını durdurmasın (17.11 kum: kaldırılan masa kartı olay akışını ve sağ kartı kör etti)
+    for(const [n,f] of [['setups',renderSetups],['timeline',renderTimeline],['positions',renderPositions],['feed',renderFeed]]){try{f(s);}catch(e){console.warn(n,e);}} try{renderLadder(s);}catch(e){console.warn('ladder',e);} try{renderCaseMemory(s);renderDataQualityAndBudget(s);renderOssProvenance(s);}catch(e){console.warn('r254419',e);} renderSources(s); renderOffice(s, vinfo); renderV109(s); renderCpuPolicy(s);
+    renderMirror(s,true);
     $('#foot').textContent = `Son güncelleme ${new Date().toLocaleTimeString('tr-TR')} • Office ${s.officeVersion||''} • Brain Hub ${s.config?.brainUrl||''} • token ${s.config?.tokenConfigured?'var (tarayıcıya gönderilmez)':'yok'} • yazma yalnız TEST/CANLI/Durdur`;
   }catch(e){
     chip('#chipFresh','bad','bağlantı yok');
