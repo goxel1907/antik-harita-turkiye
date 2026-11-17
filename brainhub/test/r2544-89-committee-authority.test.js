@@ -494,3 +494,19 @@ test('R2544.191 (Codex 17.11) JEV masada 402: İLK turda da sonraki turda da par
   assert.equal(calls-after1,1,'ikinci 402 turu: yine tek kurul işi');
   const t2=f.controller.z5Status().positionDesk.today.lastAt;assert.equal(t2,new Date(f.state.now).toISOString());assert.ok(Date.parse(t2)-Date.parse(t1)>=150000,'lastAt zaman ilerleyince güncellendi');
 });
+
+test('R2544.192 bakiye/hesap reddi: gerçek 0 bakiye ile okuma hatası ayrılır ve Binance cevabı kayda yazılır (BTW 17.11 12:45)',async()=>{
+  require('../binance-rate-limit').resetForTests();
+  // 1) okuma hatası: hesap ucu hata döner
+  let f=fixture({z5:{enabled:true}});await f.controller.testSupervisorTick();
+  let ph=f.paper.handle;f.paper.handle=async(m,p,o)=>{if(m==='GET'&&p==='/fapi/v3/account'){const e=new Error('simüle Binance hata');e.status=503;e.body={code:-1001,msg:'Internal error; unable to process your request.'};throw e;}return ph(m,p,o);};
+  assert.equal((await f.controller.z5Tick()).entries,0,'hesap okunamazsa giriş yok (kural aynı)');
+  let b=f.kinds('ZIRVE5_BLOCKED').at(-1);assert.ok(b,'engel kaydı var');assert.equal(b.p.result.reason,'TOP3_ACCOUNT_UNAVAILABLE');
+  assert.equal(b.p.result.reasonDetail,'ACCOUNT_READ_FAILED');assert.ok(Array.isArray(b.p.result.accountRead.reasons)&&b.p.result.accountRead.reasons.length>0,JSON.stringify(b.p.result));
+  // 2) gerçek sıfır bakiye: okuma başarılı, kullanılabilir 0
+  require('../binance-rate-limit').resetForTests();
+  f=fixture({z5:{enabled:true}});await f.controller.testSupervisorTick();
+  ph=f.paper.handle;f.paper.handle=async(m,p,o)=>{if(m==='GET'&&p==='/fapi/v3/account'){const r=await ph(m,p,o);return {...r,availableBalance:'0'};}return ph(m,p,o);};
+  assert.equal((await f.controller.z5Tick()).entries,0,'bakiye 0 iken giriş yok (kural aynı)');
+  b=f.kinds('ZIRVE5_BLOCKED').at(-1);assert.equal(b.p.result.reasonDetail,'BALANCE_ZERO');assert.equal(b.p.result.accountRead.availableBalance,0);
+});
