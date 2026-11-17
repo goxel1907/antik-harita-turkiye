@@ -6971,22 +6971,29 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   }
   function deskCmView(a,now){
     const v=deskCmViews.get(a.id);
-    if(!v||now-v.at>DESK_CM_MAX_AGE_MS)return {available:false,reason:v?'KURUL_GORUSU_ESKI':'KURUL_GORUSU_HENUZ_YOK',karne:deskCmKarne(a.lane==='ZIRVE5'?'ZIRVE5':'ILK3')};
+    if(!v||!Number.isFinite(v.at)||now-(v.packetAt??v.at)>DESK_CM_MAX_AGE_MS)return {available:false,reason:v?'KURUL_GORUSU_ESKI':'KURUL_GORUSU_HENUZ_YOK',karne:deskCmKarne(a.lane==='ZIRVE5'?'ZIRVE5':'ILK3')};
     const mech=v.consensus==='SINGLE_VOTER_DEFAULT'||v.consensus==='NO_MAJORITY_DEFAULT'; // R2544.191 (Codex 17.11): tek oy / çoğunluk yok -> mekanik HOLD, görüş değildir
     return {available:true,authority:'EVIDENCE_ONLY',ageSec:Math.round((now-(v.packetAt??v.at))/1000),answeredSecAgo:Math.round((now-v.at)/1000),final:mech?null:v.final,noOpinion:mech?v.consensus:undefined,consensus:v.consensus,voters:v.voters,counts:v.counts,
       karne:deskCmKarne(a.lane==='ZIRVE5'?'ZIRVE5':'ILK3'),instruction:'Free-model committee LAST opinion on this same position; ageSec = age of the market data it saw. final=null means no real majority (only counts are evidence). The karne is the whole desk, not the committee alone. You decide.'};
   }
-  let deskJevDownUntil=0; // R2544.191: JEV masada cevap veremedi (kredi/hata) -> kurul zaten yetkili yedek olarak karar verir; ikinci (paralel) kurul çağrısı yapılmaz
-  function deskCmKick(a,packet,mode,cfg,adv){
-    if(clock()<deskJevDownUntil)return false;
+  // R2544.191 (Codex 17.11 F5): aynı pozisyon + AYNI piyasa paketi için TEK kurul işi - paralel görüş ve JEV cevap veremeyince yetkili yedek
+  // (ilk 402 turu dahil) aynı committee.decide sözünü paylaşır. Başka/eski paket paylaşılmaz (nesne kimliği).
+  const deskCmJobs=new Map();
+  function deskCmShared(lotId,packet){
+    const base=deskJudges?.committee;if(!base||typeof base.decide!=='function')return base;
+    return {...base,decide:args=>{const j=deskCmJobs.get(lotId);if(j&&j.packet===packet)return j.promise;
+      const promise=Promise.resolve().then(()=>base.decide(args));deskCmJobs.set(lotId,{packet,promise});return promise;}};
+  }
+  const deskPacketAt=(packet,fb)=>{const t=finite(packet?.dataCheck?.asOf)??(Number.isFinite(Date.parse(packet?.at))?Date.parse(packet.at):null);return t!==null&&t<=fb?t:fb;}; // R2544.191 F4: piyasa paketinin zamanı
+  function deskCmKick(a,packet,mode,cfg,adv,shared){
     if(deskCmRunning>=1||deskCmViews.get(a.id)?.busy)return false;
-    deskCmRunning++;const prev=deskCmViews.get(a.id)||{},packetAt=clock();deskCmViews.set(a.id,{...prev,busy:true});
-    DESK.judge({packet,mode,cfg:{...cfg,testJudges:['COMMITTEE'],liveJudges:['COMMITTEE']},judges:deskJudges,stats:{},advisors:adv||null})
+    deskCmRunning++;const prev=deskCmViews.get(a.id)||{},packetAt=deskPacketAt(packet,clock());deskCmViews.set(a.id,{...prev,busy:true});
+    DESK.judge({packet,mode,cfg:{...cfg,testJudges:['COMMITTEE'],liveJudges:['COMMITTEE']},judges:shared?{...deskJudges,committee:shared}:deskJudges,stats:{},advisors:adv||null})
       .then(r=>{if(r?.ok&&r.d){const votes=r.committee?.votes||[],counts={};for(const x of votes){const k=x.a||'?';counts[k]=(counts[k]||0)+1;}
         deskCmViews.set(a.id,{at:clock(),packetAt,final:r.d.action,consensus:r.committee?.consensus||null,voters:r.committee?.voters??votes.length,counts,busy:false});}
         else deskCmViews.set(a.id,{...prev,busy:false});})
       .catch(()=>deskCmViews.set(a.id,{...prev,busy:false}))
-      .finally(()=>{deskCmRunning=Math.max(0,deskCmRunning-1);const live=new Set([...Object.values(top3State.active||{}),...Object.values(z5State()?.active||{})].map(x=>x&&x.id).filter(Boolean));for(const k of [...deskCmViews.keys()])if(!live.has(k))deskCmViews.delete(k);}); // kapanan lotların görüşü silinir (lot KİMLİĞİYLE; Z5 tablosu kimlikle anahtarlı değil)
+      .finally(()=>{deskCmRunning=Math.max(0,deskCmRunning-1);const live=new Set([...Object.values(top3State.active||{}),...Object.values(z5State()?.active||{})].map(x=>x&&x.id).filter(Boolean));for(const k of [...deskCmViews.keys()])if(!live.has(k))deskCmViews.delete(k);for(const k of [...deskCmJobs.keys()])if(!live.has(k))deskCmJobs.delete(k);}); // kapanan lotların görüşü silinir (lot KİMLİĞİYLE; Z5 tablosu kimlikle anahtarlı değil)
     return true;
   }
   // R2544.134 KURUL KARNESİ: measured from the replayed lessons, handed to the desk committee (seat order, bench)
@@ -7039,9 +7046,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
       // R2544.127 JEV + KURUL: JEV decides first; when JEV cannot answer (credit, error) the committee decides - the same order in TEST and LIVE
       const both=auth&&jevKurul(laneCfgOf(a)),order=both?['JEV','COMMITTEE']:['COMMITTEE'];
-      if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg,{goxel:advisors.goxel,entry:advisors.entry});} // R2544.187: paralel, beklenmez; R2544.191: kurul da Goxel + giriş notunu görür
-      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:deskJudges,stats:deskStats(),advisors}):deskJudge(packet,mode,cfg,advisors)),st=deskStats();
-      if(both)deskJevDownUntil=res?.judge==='JEV'?0:(Array.isArray(res?.tried)&&res.tried.some(t=>String(t).startsWith('JEV:'))?clock()+5*60000:deskJevDownUntil); // R2544.191st.lastAt=new Date(now).toISOString();
+      const cmShared=both?deskCmShared(a.id,packet):null;if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg,{goxel:advisors.goxel,entry:advisors.entry},cmShared);} // R2544.187: paralel, beklenmez; R2544.191: kurul da Goxel + giriş notunu görür
+      const res=await (auth?DESK.judge({packet,mode,cfg:{...cfg,testJudges:order,liveJudges:order},judges:cmShared?{...deskJudges,committee:cmShared}:deskJudges,stats:deskStats(),advisors}):deskJudge(packet,mode,cfg,advisors)),st=deskStats();st.lastAt=new Date(now).toISOString();
       const desk=a.desk||(a.desk={version:DESK.DESK_VERSION,decisions:[],plan:DESK.planOf(a)});if(!desk.plan)desk.plan=DESK.planOf(a);
       desk.lastAt=now;desk.lastR=DESK.favR(a,pickMark);deskLooksToday(now);deskLooks.n++;desk.lastWhy=a.deskDueWhy||null; // R2544.164
       desk.lastGx=DESK.gxSnap(a.goxel&&{against:a.goxel.against,big:a.goxel.big,need:a.goxel.need??3,needBig:a.goxel.needBig??1},desk.lastR);
@@ -7070,7 +7076,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function deskStatus(){const cfg=DESK.readConfig(root),st=deskStats(),z=z5State();
     let authTop3=false,authZ5=false;try{authTop3=top3Lib.readTop3Config(root).committeeMode===true;}catch{}try{authZ5=z5Lib.readConfig(root).committeeMode===true;}catch{}
     return {version:DESK.DESK_VERSION,enabled:cfg.enabled,shadow:!(authTop3||authZ5),authority:authTop3||authZ5,authorityByLane:{TOP3:authTop3,ZIRVE5:authZ5},guard:{...DESK_GUARD},cadenceMin:cfg.cadenceMin,cmRecent:(top3State.cmRecent||[]).slice(0,10),judges:{TEST:cfg.testJudges,LIVE:cfg.liveJudges},
-      committee:typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null,karne:deskKarne, // R2544.134exam:typeof deskJudges?.examStatus==='function'?deskJudges.examStatus():null,freeWired:!!deskJudges?.free,routerWired:!!deskJudges?.router,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
+      committee:typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null,karne:deskKarne, /* R2544.134 */ exam:typeof deskJudges?.examStatus==='function'?deskJudges.examStatus():null,freeWired:!!deskJudges?.free,routerWired:!!deskJudges?.router,jevWired:typeof deskJudges?.jev==='function',today:{...st},freeDailyCap:cfg.freeDailyCap,
       comparison:DESK.summary([...(top3State.lessons||[]),...(z.lessons||[]).map(l=>({...l,lane:'ZIRVE5'}))]),
       cmBoard:(()=>{try{const cs=typeof deskJudges?.committee?.status==='function'?deskJudges.committee.status():null;if(!cs)return null; // R2544.94 model karnesi + kalan limit
         const ex=typeof deskJudges?.examScoreInput==='function'?deskJudges.examScoreInput():{};

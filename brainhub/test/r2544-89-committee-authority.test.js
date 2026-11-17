@@ -474,7 +474,7 @@ test('R2544.191 (Codex 17.11) paralel kurul: Goxel/giriş notunu görür; tek oy
   assert.equal(v.karne&&v.karne.kind!==undefined,true);assert.notEqual(v.karne.lane,'ILK3','ZİRVE-5 lotuna İlk 3 karnesi verilmez');
 });
 
-test('R2544.191 (Codex 17.11) JEV masada cevap veremezse (402) paralel kurul ikinci kez çağrılmaz; yetkili yedek kurul karar verir',async()=>{
+test('R2544.191 (Codex 17.11) JEV masada 402: İLK turda da sonraki turda da paralel görüş + yetkili yedek TEK kurul işi; lastAt zamanla ilerler',async()=>{
   require('../binance-rate-limit').resetForTests();
   const vote=(m,action)=>({member:m,ok:true,seat:null,vote:{ok:true,action,stopChoice:'KEEP',reason:'MOMENTUM_FADING',confidence:60,reasonTr:m,watchTr:''}});
   const hold={ok:true,final:'HOLD',consensus:'UNANIMOUS',rounds:1,voters:2,votes:[vote('a','HOLD'),vote('b','HOLD')]};
@@ -485,10 +485,12 @@ test('R2544.191 (Codex 17.11) JEV masada cevap veremezse (402) paralel kurul iki
   f.controller._testDeskGuard({protectR:-99});await f.beat(a.entryPrice-0.4*R);f.state.now+=31*60000;
   let r=null;for(let i=0;i<100&&!r;i++){r=await f.controller._testDeskTick();if(!r)await new Promise(z=>setTimeout(z,10));}
   assert.ok(r&&r.ok&&r.judge==='COMMITTEE',JSON.stringify(r));await new Promise(z=>setTimeout(z,50));
-  const after1=calls;assert.ok(after1<=2,'ilk bakış: en çok paralel + yedek ('+after1+')');
+  const after1=calls;assert.equal(after1,1,'ilk 402 turu: paralel görüş ve yetkili yedek aynı iş (tek çağrı)');
+  const t1=f.controller.z5Status().positionDesk.today.lastAt;assert.equal(t1,new Date(f.state.now).toISOString(),'lastAt bu bakışın zamanı');
   f.state.now+=150000;await f.beat(a.entryPrice-0.95*R); // masa olaya göre bakar: 0,5R adım + 2 dk aralık; 5 dk JEV-düşük penceresi içinde
   for(let i=0;i<100&&(f.lot().desk.decisions.length<2);i++){await f.controller._testDeskTick();if(f.lot().desk.decisions.length<2)await new Promise(z=>setTimeout(z,10));}
   await new Promise(z=>setTimeout(z,50));
   const d=f.lot().desk.decisions;assert.equal(d.length,2,'ikinci masa bakışı yapıldı');assert.equal(d.at(-1).judge,'COMMITTEE');
-  assert.equal(calls-after1,1,'JEV düşükken ikinci bakışta yalnız yetkili kurul (paralel yok)');
+  assert.equal(calls-after1,1,'ikinci 402 turu: yine tek kurul işi');
+  const t2=f.controller.z5Status().positionDesk.today.lastAt;assert.equal(t2,new Date(f.state.now).toISOString());assert.ok(Date.parse(t2)-Date.parse(t1)>=150000,'lastAt zaman ilerleyince güncellendi');
 });

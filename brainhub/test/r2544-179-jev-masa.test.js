@@ -18,7 +18,7 @@ test('R2544.179 the desk passes the committee instruction and the advisors to JE
 });
 test('R2544.179 live-controller builds the advisors (Goxel 9 screens + entry) and hands them to the desk', () => {
   assert.match(lc, /advisors=\{goxel:g0\?\{at:finite\(g0\.at\)/);
-  assert.match(lc, /judges:deskJudges,stats:deskStats\(\),advisors\}\):deskJudge\(packet,mode,cfg,advisors\)\)/);
+  assert.match(lc, /judges:cmShared\?\{\.\.\.deskJudges,committee:cmShared\}:deskJudges,stats:deskStats\(\),advisors\}\):deskJudge\(packet,mode,cfg,advisors\)\)/); // R2544.191: JEV+KURUL'da tek paylaşılan kurul işi
 });
 test('R2544.179 JEV desk client: an answer with confidence is read (fake key, fake fetch)', async () => {
   const { createJevClient } = require('../jev-decision');

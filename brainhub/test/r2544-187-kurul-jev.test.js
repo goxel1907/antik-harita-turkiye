@@ -3,7 +3,7 @@
 const test = require('node:test'), assert = require('node:assert'), fs = require('fs'), path = require('path');
 const lc = fs.readFileSync(path.join(__dirname, '..', 'live-controller.js'), 'utf8'), jd = fs.readFileSync(path.join(__dirname, '..', 'jev-decision.js'), 'utf8');
 test('R2544.187 masa bakışı kurulu BEKLEMEZ: kick await edilmez, JEV çağrısı aynı satır sırasıyla sürer', () => {
-  const i = lc.indexOf("if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg,{goxel:advisors.goxel,entry:advisors.entry});}"), j = lc.indexOf('const res=await (auth?DESK.judge(', i);
+  const i = lc.indexOf("if(both){advisors.committee=deskCmView(a,now);deskCmKick(a,packet,mode,cfg,{goxel:advisors.goxel,entry:advisors.entry},cmShared);}"), j = lc.indexOf('const res=await (auth?DESK.judge(', i);
   assert.ok(i > 0 && j > i && j - i < 300, 'kick, JEV çağrısından hemen önce ve beklenmeden');
   assert.ok(!/await deskCmKick/.test(lc));
   const k = lc.indexOf('function deskCmKick('), seg = lc.slice(k, lc.indexOf('\n  }', k));
@@ -21,5 +21,5 @@ test('R2544.187 ölçüm: JEV kararının yanında kurulun o anki görüşü kay
   assert.match(lc, /committeeView:\{final:advisors\.committee\.final,ageSec:advisors\.committee\.ageSec,consensus:advisors\.committee\.consensus\}/);
 });
 test('R2544.187 yalnız JEV + Kurul modunda (kurul tek başına yetkiliyken zaten kurul karar verir)', () => {
-  assert.match(lc, /const both=auth&&jevKurul\(laneCfgOf\(a\)\),order=both\?\['JEV','COMMITTEE'\]:\['COMMITTEE'\];\n      if\(both\)\{advisors\.committee=/);
+  assert.match(lc, /const both=auth&&jevKurul\(laneCfgOf\(a\)\),order=both\?\['JEV','COMMITTEE'\]:\['COMMITTEE'\];\n      const cmShared=both\?deskCmShared\(a\.id,packet\):null;if\(both\)\{advisors\.committee=/);
 });
