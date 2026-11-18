@@ -990,6 +990,30 @@ function compactLaneHistoryProse(experience){
   return packed.encoded?packed.packet:digest;
 }
 
+// R195 revision 2: archived entry features can contain the entire previous
+// request's size diagnostics and trace. They are local transport evidence,
+// not historical market observations; feeding them back makes the next
+// entry larger after each close. Keep the prior decision/availability and
+// delivery status, with the complete diagnostics still in local journals.
+function compactLaneHistoryTransport(experience){
+  const expanded=expandMarketPacket(experience);
+  if(!Array.isArray(expanded?.recent))return null;
+  let changed=false;
+  const recent=expanded.recent.map(lot=>{
+    const j=lot?.features?.jevVote;
+    if(!j||typeof j!=='object'||(!Object.hasOwn(j,'requestSize')&&!Object.hasOwn(j,'entryTrace')))return lot;
+    const {requestSize,entryTrace,...verdict}=j;changed=true;
+    return {...lot,features:{...lot.features,jevVote:{...verdict,
+      ...(entryTrace?.status?{requestStatus:entryTrace.status}:{}),transportDiagnosticsKeptLocally:true}}};
+  });
+  if(!changed)return null;
+  const digest={...expanded,recent,requestProjection:{...expanded.requestProjection,
+    archivedTransportDiagnosticsProjected:true,measuredLearningUnchanged:true}};
+  const packed=encodeMarketPacket(digest);
+  if(packed.encoded)packed.packet.wire.interpretation+=' Dictionary local to state.laneExperience; separate from coreMarketPacket.wire.';
+  return packed.encoded?packed.packet:digest;
+}
+
 function prepareDecisionRequest(input,opts={}){
   const pass=decisionPass(input);
   const hardCap=Number.isFinite(Number(opts?.maxBytes))&&Number(opts.maxBytes)>0?Math.min(Number(opts.maxBytes),MAX_DECISION_REQUEST_BYTES):MAX_DECISION_REQUEST_BYTES;
@@ -1023,6 +1047,10 @@ function prepareDecisionRequest(input,opts={}){
   if(byteSize(body)>targetCap&&state.laneExperience&&typeof state.laneExperience==='object'){
     state.laneExperience=compactLaneExperience(state.laneExperience);
     trimStepsApplied.push('LANE_EXPERIENCE_HISTORY_DIGEST');serialized=refresh();
+    if(byteSize(body)>targetCap){
+      const transport=compactLaneHistoryTransport(state.laneExperience);
+      if(transport){state.laneExperience=transport;trimStepsApplied.push('LANE_HISTORY_TRANSPORT_DIAGNOSTICS');serialized=refresh();}
+    }
     if(byteSize(body)>targetCap){
       const prose=compactLaneHistoryProse(state.laneExperience);
       if(prose){state.laneExperience=prose;trimStepsApplied.push('LANE_HISTORY_DUPLICATE_PROSE');serialized=refresh();}

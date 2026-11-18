@@ -12,6 +12,10 @@ This candidate:
   table exists. Current numerical market evidence, the proposed entry plan,
   measured aggregates and winner/loser counterexamples stay intact. No learning
   database or preferences are rewritten. The request ceiling is unchanged.
+- Projects prior request-size diagnostics and local trace details out of
+  archived entry features. Prior decision/availability and delivery status
+  remain; the complete transport diagnostics stay in local journals. This
+  prevents each newly closed entry from inflating the next decision request.
 - Treats local context size/truth failures as entry integrity failures in İlk 3
   v2 and ZİRVE-5. Those failures cannot open an entry through the provider-outage
   policy. Genuine JEV approval/rejection and the existing credit/timeout policy

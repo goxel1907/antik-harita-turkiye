@@ -34,6 +34,18 @@ test('R195 V1 wire history is decoded with its own dictionary; aggregates surviv
   assert.deepEqual(after.learning.factors,ex.learning.factors);assert.equal(after.requestProjection.recentAvailable,6);
   assert.deepEqual(after.groups,ex.groups);
 });
+test('R195 repeated entries do not feed prior request diagnostics back into market history',()=>{
+  const ex=history();ex.recent[0].features.jevVote={ok:false,called:false,decision:'REJECT_ENTRY',reason:'JEV_REQUEST_CONTEXT_TOO_LARGE',
+    requestSize:{bytes:52475,diagnostics:'historical transport diagnostic '.repeat(1100)},entryTrace:{requestId:'synthetic',status:'PREFLIGHT_BLOCKED',attempts:0}};
+  const body=input(ex),before=structuredClone(body),out=J.prepareDecisionRequest(body);
+  assert.equal(out.ok,true,JSON.stringify(out.diagnostics));assert.ok(out.diagnostics.bytes<=48000);
+  assert.deepEqual(J.protectedCoreTruth(out.body),J.protectedCoreTruth(body));assert.deepEqual(out.body.state.record,body.state.record);
+  const after=W.expandMarketPacket(out.body.state.laneExperience),j=after.recent[0].features.jevVote;
+  assert.deepEqual({ok:j.ok,called:j.called,decision:j.decision,reason:j.reason},{ok:false,called:false,decision:'REJECT_ENTRY',reason:'JEV_REQUEST_CONTEXT_TOO_LARGE'});
+  assert.equal(j.requestStatus,'PREFLIGHT_BLOCKED');assert.equal(j.requestSize,undefined);assert.equal(j.entryTrace,undefined);
+  for(const k of ['groups','buckets','labPriors','similar'])assert.deepEqual(after[k],ex[k]);
+  assert.deepEqual(after.recent.map(x=>x.rMultiple),ex.recent.map(x=>x.rMultiple));assert.deepEqual(body,before,'no local learning or trace is rewritten');
+});
 test('R195 history without a measured factor table is not stripped; mandatory current evidence still cannot be dropped',()=>{
   const ex=history();delete ex.learning.factors;
   assert.equal(J.prepareDecisionRequest(input(ex)).ok,false,'sole historical evidence is not claimed to be duplicate');
