@@ -1489,7 +1489,7 @@ function ccModel(s){
   const models=rows.filter(r=>(r.live?.n||0)+(r.exam?.n||0)>0||r.inTeam).map(r=>({m:rxShort(r.key||r.id),ok:r.healthy===true,team:r.inTeam===true,
     liveN:r.live?.n||0,examN:r.exam?.n||0,take:r.live?.take||null,skip:r.live?.skip||null,exTake:r.exam?.take||null,exSkip:r.exam?.skip||null,hit:r.exam?.hitPct??r.live?.hitPct??null}))
     .sort((a,b)=>(b.liveN+b.examN)-(a.liveN+a.examN)).slice(0,8);
-  const strat=(cc?.strategies||[]).map(x=>({...x,sw:x.lane==='ZIRVE5'?z.switches:t.switches,sub:x.key==='ERKEN_LONG'?t.switches?.earlyEnabled:x.key==='TEPE_SHORT'?t.switches?.topEnabled:null}));
+  const strat=(cc?.strategies||[]).map(x=>({...x,sw:x.lane==='ZIRVE5'?z.switches:t.switches,sub:x.key==='ERKEN_LONG'?(t.subs||[]).find(v=>v.key==='early')?.enabled??t.switches?.earlyEnabled:x.key==='TEPE_SHORT'?(t.subs||[]).find(v=>v.key==='top')?.enabled??t.switches?.topEnabled:null}));
   // why no trade (first blocking reason, in plain words)
   let why=null;
   if(!armed)why='Sistem durdu (başlatılmadı)';else if(open)why=null;else{const g=[t.gate,z.gate].filter(x=>x&&x!=='OPEN');why=g.length?('Kapı kapalı: '+g.join(', ')):'Kurala uyan sinyal bekleniyor';}
@@ -1529,6 +1529,13 @@ function plRender(p){
 }
 // R2544.181 BASİT ANLATIM (kullanıcı 16.11: ekranda işaretlediği sol alana "istatistik + her şey; en aptal kişi bile botun ne
 // yaptığını, ne yapacağını, ne istediğini anlasın" kartı). Yalnız gösterim: sayılar zaten çekirdeğin verdiği anlık veriden gelir.
+function entryJevText(j){
+  if(!j)return '';
+  if(j.label)return String(j.label);
+  if(j.ok===true&&j.called===true&&['APPROVE_ENTRY','REJECT_ENTRY'].includes(j.decision))return j.decision==='APPROVE_ENTRY'?'JEV GİR':'JEV GİRME';
+  if(j.ok===false||j.called===false)return /CONTEXT_TOO_LARGE/.test(String(j.reason||''))?'JEV cevapsız: paket boyutu nedeniyle gönderilmedi':'JEV cevapsız: geçerli karar alınamadı';
+  return 'JEV eski kayıt: cevap doğrulanamıyor';
+}
 function ccSimple(s,m){
   const el=document.getElementById('ccSimple');if(!el)return;
   const t=ccG(s?.top3)||{},z=ccG(s?.zirve5)||{},ks=ccG(s?.kesif)||{},p=t.pnl||ccG(s?.pnl)||{}; // R2544.185: defter top3.pnl'de (plRender ile aynı kaynak); eski okuma hep 'defter bekleniyor' diyordu
@@ -1536,9 +1543,9 @@ function ccSimple(s,m){
   const lanesOn=m.lanes.filter(l=>l.sw?.enabled).map(l=>l.name);
   const money=m.bal.equity!==null&&m.bal.equity!==undefined?Number(m.bal.equity).toFixed(2)+' $':'—';
   const act=[...(t.active||[]),...(z.active||[])];
-  const actTx=act.length?act.map(a=>`<b>${esc(String(a.symbol||'').replace(/USDT$/,''))} ${esc(a.side||'')}</b>${Number.isFinite(+a.nowR)?` <span style="color:${ccCol(+a.nowR)}">${ccR(+a.nowR)}</span>`:''}`).join(' • ')+' — patron JEV + kurul + Goxel izliyor; risk azaltan emir anında uygulanır.'
+  const actTx=act.length?act.map(a=>`<b>${esc(String(a.symbol||'').replace(/USDT$/,''))} ${esc(a.side||'')}</b>${Number.isFinite(+a.nowR)?` <span style="color:${ccCol(+a.nowR)}">${ccR(+a.nowR)}</span>`:''}`).join(' • ')+' — JEV + kurul + Goxel izliyor; uygulanan karar ve emir sonucu masa kaydında gösterilir.'
     :`Yok. Bot her 5 dakikada coinleri tarıyor${t.lastScan5?.at?' (son tarama '+esc(rxT(t.lastScan5.at))+')':''}; kurala uyan coin çıkınca girecek.`;
-  const mg=Number.isFinite(+t.marginQuote)?+t.marginQuote:30,lv=Number.isFinite(+t.leverage)?+t.leverage:10;
+  const mg=t.settings?.marginAuto===true?null:Number.isFinite(+t.settings?.marginQuote)?+t.settings.marginQuote:null,lv=Number.isFinite(+t.settings?.leverage)?+t.settings.leverage:null;
   const seek=[];
   if(lanesOn.includes('İlk 3'))seek.push('<b>İlk 3:</b> çok yükselen coin önemli bir tepeyi kırıp geri test edince LONG, tepe yapıp kırılınca SHORT');
   if(lanesOn.includes('ZİRVE-5'))seek.push('<b>ZİRVE-5:</b> en oynak 5 coinde fiyat kırılım bölgesine dönüp hacimli mum kapatınca girer');
@@ -1555,8 +1562,8 @@ function ccSimple(s,m){
     +row('ŞU AN',`${m.mode==='LIVE'?'<b class="bad">CANLI — gerçek para</b>':'<b>TEST — sanal para</b>'} • ${m.armed?'<b class="ok">çalışıyor</b>':'<b class="bad">durdurulmuş</b>'} • cüzdan <b>${money}</b> • açık hatlar: <b>${lanesOn.length?lanesOn.map(esc).join(', '):'yok'}</b>`)
     +row('AÇIK İŞLEM',actTx)
     +row('NE ARIYOR',seek.length?seek.join('<br>'):'<span class="dim">açık hat yok</span>')
-    +row('BULUNCA',`Beklemez, hemen girer: <b>${mg} $ × ${lv}x</b> (sizin ayarınız), aynı anda en çok <b>2 işlem</b>. Stop ve hedef anında Binance'e konur; <b>2R</b> kârda yarısı alınır, stop girişe çekilir.`)
-    +row('KİM KARAR VERİR',`Girişi kural/model açar (kurul oy verir, engellemez). Açık işlemin patronu <b>JEV</b>; cevap veremezse <b>kurul</b> (${m.healthy}/${m.total} model); <b>Goxel</b> 9 ekranı okur. Hiçbiri riski BÜYÜTEMEZ.`)
+    +row('BULUNCA',`Giriş değerlendirmesi ve güvenlik kontrolleri geçerse işlem açılır. İlk 3 ayarı: <b>${mg===null?'riske göre / bilinmiyor':mg+' $'} × ${lv===null?'—':lv}x</b>; diğer hatların boyutu kendi panelindedir. Aynı anda en çok <b>2 işlem</b>. Stop ve hedef anında Binance'e konur; <b>2R</b> kârda yarısı alınır, stop girişe çekilir.`)
+    +row('KİM KARAR VERİR',`Sinyali kural/model üretir. JEV açıksa geçerli <b>GİRME</b> cevabı girişi durdurur; cevapsızlık gerçek ret değildir ve mevcut devam politikasına tabidir. Kurulun giriş oyu, seçili veto yetkisine göre uygulanır. Açık işlemin patronu <b>JEV</b>; cevap veremezse <b>kurul</b> (${m.healthy}/${m.total} model); <b>Goxel</b> 9 ekranı okur. Hiçbiri riski BÜYÜTEMEZ.`)
     +row('BUGÜN',`${today?`<b>${today.trades||0} işlem</b> (${today.wins||0} kazanç) • net <b style="color:${plCol(today.net)}">${plUsd(today.net)}</b>${Number.isFinite(+today.R)?` • <b style="color:${ccCol(+today.R)}">${ccR(+today.R)}</b>`:''}${Number(today.realized)>0&&Number(today.fees)<0?` • komisyon brüt kârın <b>%${Math.round(100*Math.abs(today.fees)/today.realized)}</b>’i`:''}${Number.isFinite(+today.R)&&Number.isFinite(+today.net)&&Math.sign(+today.R)!==Math.sign(+today.net)&&Math.abs(+today.net)>0.5?'<br><span class="dim">R ile $ ters yönde: stop genişliği işleme göre değiştiği için 1R bazı işlemde ~6 $, bazısında ~24 $ eder.</span>':''}`:'<span class="dim">defter bekleniyor (Binance defteri 5 dk’da bir okunur)</span>'}${m.bud?` • JEV ${m.bud.calls||0} çağrı (${Number.isFinite(+m.bud.spentUsd)?(+m.bud.spentUsd).toFixed(3):'—'} $)`:''}`)
     +(m.open?'':row('NEDEN YOK',`${esc(m.why||'—')}${topReason?` • son 24 sa en sık engel: <b>${esc(simTr(topReason[0]))}</b> ×${topReason[1]}`:''}`))
     +row('ÖĞRENİYOR',`<span class="dim">(gölge: para riske etmez)</span> ${learn.join(' • ')}`);
@@ -3321,18 +3328,18 @@ function renderTop3(s){
   // R2544.84 pozisyon masası (gölge trader): son karar + masa/kural karşılaştırması
   if(t.positionDesk)html+=deskSummaryLine(t.positionDesk,'ILK3');
   for(const a of t.active||[]){
-    html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.signalKind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x${a.leverageBy?` (${esc(a.leverageBy==='JEV'?'JEV seçti':a.leverageBy==='KURUL'?'kurul seçti':'ayar')})`:''} • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.part&&!a.part.skipped?(a.part.done?' • <b>%'+Math.round((Number(a.part.share)||0.5)*100)+' '+String(a.part.atR??1).replace('.',',')+'R’de alındı</b>'+(a.part.beDone?', kalan başabaşta':''):' • %'+Math.round((Number(a.part.share)||0.5)*100)+' '+fm(a.part.price)+' ('+String(a.part.atR??1).replace('.',',')+'R) hedef emrinde'):a.part?.skipped?' • kâr koruma yok ('+esc(a.part.skipped)+')':''}${a.jev?.decision?' • JEV '+esc(a.jev.decision):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}${indLine(a.indInfo,a.experienceInfo)}${entryCmLine(a.entryCommittee)}${deskLine(a.deskInfo)}</div></div>`;
+    html+=`<div class="lane-card good"><div class="t">${esc(a.symbol)} • ${esc(a.side)} • ${esc(t3tr(a.rule))}${a.signalKind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}${a.mode==='TEST'?' <span class="tbadge">TEST</span>':''}</div><div class="s">giriş ${fm(a.entryPrice)} • stop ${fm(a.stopPrice)} • hedef ${fm(a.tpPrice)}${a.tpOnExchange?'':' (borsada değil, izleniyor)'} • şimdi ${fm(a.markPrice)} • ${pnl(a.unrealizedPnl)} • ${esc(a.marginQuote)} USDT × ${esc(a.leverage)}x${a.leverageBy?` (${esc(a.leverageBy==='JEV'?'JEV seçti':a.leverageBy==='KURUL'?'kurul seçti':'ayar')})`:''} • kalan ${Math.floor((a.remainingMin||0)/60)} sa ${(a.remainingMin||0)%60} dk${a.part&&!a.part.skipped?(a.part.done?' • <b>%'+Math.round((Number(a.part.share)||0.5)*100)+' '+String(a.part.atR??1).replace('.',',')+'R’de alındı</b>'+(a.part.beDone?', kalan başabaşta':''):' • %'+Math.round((Number(a.part.share)||0.5)*100)+' '+fm(a.part.price)+' ('+String(a.part.atR??1).replace('.',',')+'R) hedef emrinde'):a.part?.skipped?' • kâr koruma yok ('+esc(a.part.skipped)+')':''}${a.jev?' • '+esc(entryJevText(a.jev)):''}${a.exitWaiting?' • '+esc(t3tr(a.exitWaiting)):''}${indLine(a.indInfo,a.experienceInfo)}${entryCmLine(a.entryCommittee)}${deskLine(a.deskInfo)}</div></div>`;
   }
   const l5=t.lastScan5;
   if(v2&&l5){
     html+=`<p>Son 5 dk tarama: ${esc(new Date(l5.at).toLocaleTimeString('tr-TR'))} • mum ${esc(new Date(l5.bar).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • aday LONG ${Number(l5.candidates?.long)||0} / SHORT ${Number(l5.candidates?.short)||0} • ${Number(l5.checked)||0} incelendi • <b>${(l5.signals||[]).length} sinyal</b>${l5.errors?.length?' • hata: '+esc(l5.errors.slice(0,3).join(', ')):''} • sonraki ${t.nextScan5At?esc(new Date(t.nextScan5At).toLocaleTimeString('tr-TR')):'—'}</p>`;
-    for(const x of l5.entries||[])html+=`<p>• ${esc(x.symbol)} ${esc(x.side)} ${esc(t3tr(x.rule))}: ${x.opened?'<b>işleme girildi</b>':esc(t3tr(x.reason))}${x.jev?' (JEV '+esc(x.jev.decision)+')':''}</p>`;
+    for(const x of l5.entries||[])html+=`<p>• ${esc(x.symbol)} ${esc(x.side)} ${esc(t3tr(x.rule))}: ${x.opened?'<b>işleme girildi</b>':esc(t3tr(x.reason))}${x.jev?' ('+esc(entryJevText(x.jev))+')':''}</p>`;
     if((l5.nearMisses||[]).length)html+='<p>Bekleyen / kaçan: '+l5.nearMisses.slice(0,8).map(x=>`${esc(x.symbol)} ${esc(x.side)} (${esc(t3tr(x.reason))}${x.reasons?.length?': '+x.reasons.map(t3tr).map(esc).join(', '):''})`).join(' • ')+'</p>';
   } else if(v2)html+=`<p>5 dk tarama henüz yapılmadı; ilki ${t.nextScan5At?esc(new Date(t.nextScan5At).toLocaleTimeString('tr-TR')):'—'}.</p>`;
   const ls=v2?null:t.lastScan;
   if(ls){
     html+=`<p>Son tarama: ${esc(new Date(ls.at).toLocaleString('tr-TR'))} • mum ${esc(new Date(ls.candle).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}))} • ${Number(ls.ranked)||0} coin sıralandı • ${Number(ls.checked)||0} aday incelendi • <b>${(ls.signals||[]).length} sinyal</b>${ls.errors?.length?' • hata: '+esc(ls.errors.slice(0,3).join(', ')):''}</p>`;
-    for(const x of ls.entries||[])html+=`<p>• ${esc(x.symbol)} ${esc(x.side)}${x.kind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}: ${x.opened?'<b>işleme girildi</b>':esc(t3tr(x.reason))}${x.jev?' (JEV '+esc(x.jev.decision)+(x.jev.reason?' — '+esc(trUi(x.jev.reason)):'')+')':''}</p>`;
+    for(const x of ls.entries||[])html+=`<p>• ${esc(x.symbol)} ${esc(x.side)}${x.kind==='REPEAT'?' <span class="tbadge">TEKRAR</span>':''}: ${x.opened?'<b>işleme girildi</b>':esc(t3tr(x.reason))}${x.jev?' ('+esc(entryJevText(x.jev))+(x.jev.reason?' — '+esc(trUi(x.jev.reason)):'')+')':''}</p>`;
     if((ls.stale||[]).length)html+='<p>Yeni sayılmayan (kural bu coinde son 24 saatte zaten tetiklenmişti): '+ls.stale.slice(0,6).map(x=>`${esc(x.symbol)} ${esc(x.side)}${x.lastCounted?' (ilk '+esc(new Date(x.lastCounted).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}))+')':''}`).join(' • ')+'</p>';
     if((ls.nearMisses||[]).length)html+='<p>Kıl payı kaçanlar: '+ls.nearMisses.slice(0,6).map(x=>`${esc(x.symbol)} ${esc(x.side)} (${(x.reasons||[]).map(t3tr).map(esc).join(', ')})`).join(' • ')+'</p>';
   } else if(!v2)html+=`<p>Henüz tarama yok. İlk tarama bir sonraki saat başından ~1 dk sonra (${t.nextScanAt?esc(new Date(t.nextScanAt).toLocaleTimeString('tr-TR')):'—'}).</p>`;

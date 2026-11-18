@@ -48,7 +48,8 @@ async function collect({brainRoot,out,offline=false}){
     try{
       const kinds=['TOP3_SIGNAL','TOP3_JEV_REVIEW','TOP3_BLOCKED','TOP3_ENTRY','TOP3_JEV_REJECT','TOP3_COMMITTEE_SKIP','TOP3_SIGNAL_EXPIRED','TOP3_HELD_ENTRY',
         'ZIRVE5_SCAN','ZIRVE5_JEV_REVIEW','ZIRVE5_BLOCKED','ZIRVE5_ENTRY','ZIRVE5_COMMITTEE_SKIP','KESIF_SOZ_ENTRY','KESIF_SOZ_BLOCKED','KESIF_SOZ_GOXEL_RED','KESIF_SOZ_SETTINGS',
-        'ENTRY_SCREEN_GATE','RUN_CONTROL','RUN_CONTROL_FAILED','RUN_CONTROL_REFUSED','LIVE_EXECUTION','TRADING_MODE_CHANGED','TOP3_CONFIG_CHANGED','ZIRVE5_CONFIG_CHANGED'];
+        'ENTRY_SCREEN_GATE','RUN_CONTROL','RUN_CONTROL_FAILED','RUN_CONTROL_REFUSED','LIVE_EXECUTION','TRADING_MODE_CHANGED','TOP3_CONFIG_CHANGED','ZIRVE5_CONFIG_CHANGED',
+        'TOP3_CLOSED','POSITION_CLOSED','CLOSE_EXIT_EVIDENCE','POSITION_DESK_REVIEW','POSITION_DESK_UNAVAILABLE','POSITION_DESK_EXIT','POSITION_DESK_EXIT_FAILED','POSITION_DESK_ORDER_EXPIRED'];
       const since=Date.now()-24*3600000;
       report.journal=db.prepare('SELECT id,ts,kind,symbol,payload FROM journal WHERE ts>=? AND kind IN ('+kinds.map(()=>'?').join(',')+') ORDER BY ts DESC LIMIT 3000').all(since,...kinds)
         .map(r=>({...r,payload:read('row '+r.id,()=>scrub(JSON.parse(r.payload)))}));
@@ -63,7 +64,15 @@ async function collect({brainRoot,out,offline=false}){
   const traces=path.join(rt,'logs','entry-decisions');
   if(fs.existsSync(traces)){
     const list=fs.readdirSync(traces).filter(x=>/^[a-f0-9-]+\.json$/i.test(x)).map(x=>({name:x,at:fs.statSync(path.join(traces,x)).mtimeMs})).sort((a,b)=>b.at-a.at).slice(0,30);
-    report.entryTraces=list.map(x=>read(x.name,()=>scrub(jsonFile(path.join(traces,x.name))))).filter(Boolean);
+    // Keep the trace referenced by an actual entry even if later scans have
+    // already displaced it from the newest 30 files. Accept UUID filenames only.
+    const byName=new Map(list.map(x=>[x.name,x]));
+    for(const row of (report.journal||[]).filter(x=>/^(TOP3|ZIRVE5)_ENTRY$/.test(x.kind)).slice(0,30)){
+      const ref=row.payload?.entryFeatures?.jevVote?.entryTrace;
+      const name=String(ref?.requestId||'')+'.json';
+      if(/^[a-f0-9-]+\.json$/i.test(name)&&fs.existsSync(path.join(traces,name)))byName.set(name,{name});
+    }
+    report.entryTraces=[...byName.values()].map(x=>read(x.name,()=>scrub(jsonFile(path.join(traces,x.name))))).filter(Boolean);
   }
   fs.writeFileSync(path.join(target,'JEV-TESHIS.json'),JSON.stringify(scrub(report),null,2),'utf8');
   fs.writeFileSync(path.join(target,'README.txt'),'Salt okunur teşhis: mevcut ayarlar/durum, son 24 saatten en çok 3000 seçili olay, sınırlı günlük kuyrukları. Anahtarlar çıktıda maskelenir; DPAPI ve auth.json dosyaları okunmaz. Hiçbir ayar/emir/deploy değişikliği yapılmaz. JSON dosyasını paylaşmadan önce inceleyebilirsiniz.\r\n','utf8');

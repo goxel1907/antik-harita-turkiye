@@ -44,7 +44,7 @@ test('R2542 tags new live trades and separates desk decision/result telemetry',(
   assert.match(live,/deskSummary:deskSummary/);
   assert.match(server,/releaseVersion:'R2542-JEV-TRADER-OFFICE'/);
   assert.match(server,/R2542_DESK_PERFORMANCE_TELEMETRY/);
-  assert.match(officeServer,/2.5.170-R2544.194/);
+  assert.match(officeServer,/2.5.171-R2544.195/);
   assert.ok(!office.includes('id="deskPerf"')); // R2544.188: 5M/15M masa performansı kaldırıldı (hep 0, tutulmuyor)
   // R2544.188: 'karar → zamanlama → emir → sonuç' tablosu (5M/15M masa) kaldırıldı
 });

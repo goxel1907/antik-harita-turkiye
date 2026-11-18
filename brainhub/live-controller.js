@@ -6016,7 +6016,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
   function top3Why(a){if(a?.lane==='KESIF'){const weakValue=a.entryFeatures?.kesif?.weak??a.kesif?.weak;const wk=(a.entryFeatures?.kesif?.weak??a.kesif?.weak)===true; // R2544.183 (16.11: ekranda zayıf aday da 'söz sahibi' yazıyordu — ekran=gerçek)
     return `KEŞİF-SÖZ ${a.side}: ${String(a.kesif?.model||'').replace(/:free$/,'').split('/').pop()} ${wk?'ZAYIF aday (söz sahibi DEĞİL; R2544.179 sonrası gerçek işlem açmaz)':weakValue===false?'söz sahibi':'uygunluğu bilinmiyor'} (gölge karne ${a.kesif?.record?.n??'—'} sonuç, ort ${a.kesif?.record?.avgR??'—'}R) • stop %${(finite(a.stopPct)*100).toFixed(2)} • Goxel çıkışı izler`;}
     if(a?.lane==='ZIRVE5')return a?.z5zone?.confirmAt?`ZİRVE-5 ${a.side}: ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk ${a.side==='LONG'?'tepe':'dip'} kırılımı alanında hacimli ${a.side==='LONG'?'boğa':'ayı'} mumu (hacim ${finite(a?.z5zone?.confirm?.volMult)??'—'}x), stop alan ${a.side==='LONG'?'altı':'üstü'}, hedef likidite ${finite(a?.targetR)??'—'}R, ${finite(a?.leverage)??'—'}x`:`ZİRVE-5 SHORT (eski kural R2544.64): ilk 5 volatil (#${finite(a?.entryFeatures?.rank)??'—'}), 15 dk dip kırılımı bölgesinin dengesinde SHORT, stop bölge üstü, hedef ${finite(a?.targetR)??2}R, ${finite(a?.leverage)??'—'}x`;
-    return `İlk 3 avcısı ${TOP3_WHY[a?.rule]||a?.rule||'—'}, ${finite(a?.leverage)??'—'}x${a?.jev?.decision?', JEV '+a.jev.decision:''}`;}
+    const jr=top3Lib.entryJevReview(a?.jev,a?.entryFeatures?.jevVote);
+    return `İlk 3 avcısı ${TOP3_WHY[a?.rule]||a?.rule||'—'}, ${finite(a?.leverage)??'—'}x${jr?', '+jr.label:''}`;}
   function top3Gate(cfg){
     if(cfg.enabled!==true)return {ok:false,reason:'TOP3_DISABLED'};
     const test=testModeNow();
@@ -6245,6 +6246,10 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
         catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
         const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,side:x.side,rule:x.rule,requestSize:jev?.requestSize||null,entryTrace:jev?.entryTrace||null};
         try{store.journal('TOP3_JEV_REVIEW',x.symbol,ev);}catch{}
+        // An invalid local evidence packet cannot authorize an entry through
+        // the provider-outage policy. Valid JEV decisions are not re-voted.
+        if(top3Lib.entryJevContextInvalid(jev)){res.jev=ev;ef.jevVote=ev;res.reason='TOP3_JEV_CONTEXT_INVALID';
+          try{store.journal('TOP3_BLOCKED',x.symbol,{side:x.side,rule:x.rule,reason:res.reason,jev:ev});}catch{}continue;}
         // R2544.127 JEV + KURUL + bot (kullanıcı 04.11 seçimi: "bot açar, JEV+kurul yönetir"): the rule opens every signal; JEV's entry review is a vote
         // R2544.189 (kullanıcı 17.11, 1000LUNC: JEV + kurul + beyin "girme" dedi, kural seviyenin %5,5 üstünden açtı, -0,99R): JEV açıkken son söz
         // JEV'in - JEV + KURUL'da da. JEV cevap verip "girme" derse işlem yok; JEV cevap veremezse (kredi/zaman aşımı) kural açar (sabit kural 3).
@@ -6414,7 +6419,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     const part=await top3PlacePartial({sig,side,symbol,hedge,executed,entryPrice,stopPrice,tpPrice,f,id,creds,cfg});
     const a={id,symbol,side,rule:sig.rule,initialQuantity:executed,part,lotStep:f.lotStep,mode:testModeNow()?'TEST':'LIVE',hedge,quantity:executed,entryPrice,stopPrice,tpPrice,stopPct:Number((Math.abs(entryPrice-stopPrice)/entryPrice).toFixed(5)),
       stopAlgoId:stop.algoId,tpAlgoId:tp.ok?tp.algoId:null,tpOnExchange:tp.ok===true,leverage,leverageBy:ctx.leverageBy||"AYAR",marginQuote:Number(margin.toFixed(4)),startedAt,openedAt:clock(),deadline:clock()+sig.maxHoldMs,
-      jev:jev?{decision:jev.decision||null,reason:jev.reason||null,called:jev.called===true}:null,jevMode:cfg.jevMode===true,exitAttempts:0,
+      jev:top3Lib.entryJevReview(jev,ctx.entryFeatures?.jevVote),jevMode:cfg.jevMode===true,exitAttempts:0,
       signalKind:ctx.signalKind||'FRESH',lastCounted:ctx.lastCounted||null,entryFeatures:ctx.entryFeatures||null,sampleMfePct:0,sampleMaePct:0,
       ...(sig.v2?{rulesVersion:2,tickSize:f.tickSize,riskPct:cfg.riskPct,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),level:finite(sig.v2.level),zone:finite(pre.zone),top:finite(sig.v2.top),targetR:finite(pre.targetR)}:{}),
       ...(sig.z5?{lane:'ZIRVE5',strategy:z5Lib.setupFor(side),tickSize:f.tickSize,riskQuote,notional:Number((executed*entryPrice).toFixed(4)),targetR:finite(z5Target?.targetR),level:finite(sig.zone.equilibrium),top:finite(sig.zone.top),
@@ -6507,7 +6512,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
     try{store.recordLearning(z5?'ZIRVE5_OPENED':'TOP3_OPENED',a.symbol,{v:1,id:a.id,symbol:a.symbol,side:a.side,setup:z5?(a.strategy||a.rule):'TOP3_'+(a.rule||''),rule:a.rule,
       strategy:z5?'ZİRVE-5 '+a.side:top3Lib.subOf(a.side).name,mode:a.mode,reason,entryPrice:a.entryPrice,stopPrice:finite(a.initialStopPrice)??a.stopPrice,tpPrice:a.tpPrice,
       targetR:finite(a.targetR),stopPct:finite(a.stopPct),leverage:a.leverage,marginQuote:a.marginQuote,quantity:a.quantity,notional:finite(a.notional),partial:a.part||null,
-      jev:a.jev||null,jevMode:a.jevMode===true,openedAt:finite(a.openedAt)?new Date(a.openedAt).toISOString():null,why:top3Why(a),entryFeatures:a.entryFeatures||null,zone:a.z5zone||null,
+      jev:top3Lib.entryJevReview(a.jev,a.entryFeatures?.jevVote),jevMode:a.jevMode===true,openedAt:finite(a.openedAt)?new Date(a.openedAt).toISOString():null,why:top3Why(a),entryFeatures:a.entryFeatures||null,zone:a.z5zone||null,
       decision:'OPENED',outcomePct:null,authority:z5?'ZIRVE5_LANE_MEMORY':'TOP3_LANE_MEMORY'});}catch{return false;}
     a.brainOpenedAt=clock();return true;
   }
@@ -7044,7 +7049,7 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
       // R2544.179: what JEV (the boss) also reads - Goxel PRO's last look on 9 screens and what was said at the entry
       const g0=a.goxel||null,advisors={goxel:g0?{at:finite(g0.at),curR:finite(g0.curR),peakR:finite(g0.peakR),netR:finite(g0.netR),against:finite(g0.against),big:finite(g0.big),
         saysExit:g0.close===true||g0.lossExit===true,lossSide:g0.lossShadow===true,screens:Array.isArray(g0.screens)?g0.screens.map(x=>({screen:x.k,against:x.a})):null}:null,
-        entry:{openedBy:a.lane==='KESIF'?'MODEL_FORECAST':'RULE',model:a.entryFeatures?.kesif?.model||null,jev:a.jev?{decision:a.jev.decision||null,reason:a.jev.reason||null}:null,
+        entry:{openedBy:a.lane==='KESIF'?'MODEL_FORECAST':'RULE',model:a.entryFeatures?.kesif?.model||null,jev:top3Lib.entryJevReview(a.jev,a.entryFeatures?.jevVote),
           screenLean:a.entryFeatures?.screenFacts?{for:finite(a.entryFeatures.screenFacts.leanFor),against:finite(a.entryFeatures.screenFacts.leanAgainst)}:null}};
       const auth=deskAuthority(a); // R2544.89: kurul yetkiliyse yalnız kurul karar verir ve kararı yürütülür (azaltan emir)
       // R2544.127 JEV + KURUL: JEV decides first; when JEV cannot answer (credit, error) the committee decides - the same order in TEST and LIVE
@@ -7717,6 +7722,8 @@ function createLiveController({ root, store, scanner, pipeline, committee, marke
           catch(e){jev={ok:false,called:false,decision:'REJECT_ENTRY',reason:String(e?.message||e).slice(0,120)};}
           const ev={decision:jev?.decision||'REJECT_ENTRY',called:jev?.called===true,ok:jev?.ok===true,reason:jev?.reason||null,requestSize:jev?.requestSize||null,entryTrace:jev?.entryTrace||null};
           try{store.journal('ZIRVE5_JEV_REVIEW',sym,{...ev,side});}catch{}
+          if(top3Lib.entryJevContextInvalid(jev)){ef.jevVote=ev;z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_CONTEXT_INVALID',jev:ev,rank:sg.rank});
+            try{store.journal('ZIRVE5_BLOCKED',sym,{side,reason:'ZIRVE5_JEV_CONTEXT_INVALID',jev:ev,rank:sg.rank});}catch{}continue;}
           ef.jevVote=ev;if(!(jev?.ok===true&&jev.decision==='APPROVE_ENTRY')&&(!jevKurul(cfg)||jevSaysNo(jev))){z5Note(z,{symbol:sym,side,opened:false,reason:'ZIRVE5_JEV_NOT_APPROVED',jev:ev,rank:sg.rank});continue;} // R2544.189: JEV+KURUL'da da JEV'in "girme"si geçerli; cevapsız JEV oy sayılır
         }
         const z5Adv=true;ef.trig={side,top:sg.top,bottom:sg.bottom,equilibrium:sg.equilibrium,confirm:sg.confirm||null,sweep:sg.sweep||null};

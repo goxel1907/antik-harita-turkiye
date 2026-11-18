@@ -981,5 +981,27 @@ function screenGateBook(list) {
     text:!xs.length ? 'ekran kapısı: henüz engellenen giriş yok' : `ekran kapısı: ${xs.length} giriş açılmadı • gölge sonuç ${done.length} çözüldü` + (R.length ? `, ${R.filter(v => v > 0).length} kazanırdı, ort ${(sum / R.length).toFixed(2).replace('.', ',')}R (toplam ${sum.toFixed(2).replace('.', ',')}R; eksi = kapı korudu)` : ''),
     last:xs.slice(-8).reverse().map(x => ({ symbol:x.symbol, side:x.side, lane:x.lane, at:x.at, balance:x.balance, result:x.result || null })) };
 }
-module.exports = { SCREEN_GATE, screenGate, screenGateOutcome, screenGateBook, kesifScreenVector, kesifScreenCases, kesifModelBook, committeeKarne, playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
+// Operational failure is not a strategic answer. Legacy lots can recover the
+// original status from entryFeatures.jevVote; a bare old decision stays unknown.
+function entryJevReview(saved, evidence=null) {
+  if(!saved&&!evidence)return null;
+  const primary=saved&&typeof saved==='object'?saved:{};
+  const fallback=evidence&&typeof evidence==='object'?evidence:{};
+  const rawDecision=primary.rawDecision??primary.decision??fallback.rawDecision??fallback.decision??null;
+  const matching=fallback.decision===rawDecision||fallback.rawDecision===rawDecision;
+  const ok=typeof primary.ok==='boolean'?primary.ok:matching&&typeof fallback.ok==='boolean'?fallback.ok:null;
+  const called=typeof primary.called==='boolean'?primary.called:matching&&typeof fallback.called==='boolean'?fallback.called:null;
+  const valid=ok===true&&called===true&&['APPROVE_ENTRY','REJECT_ENTRY'].includes(rawDecision);
+  const status=valid?'REPLIED':ok===false||called===false?'NO_RESPONSE':'UNVERIFIED';
+  const reason=primary.reason??fallback.reason??null;
+  const label=valid?(rawDecision==='APPROVE_ENTRY'?'JEV GİR':'JEV GİRME'):
+    status==='UNVERIFIED'?'JEV eski kayıt: cevap doğrulanamıyor':
+    reason==='JEV_REQUEST_CONTEXT_TOO_LARGE'||reason==='JEV_CORE_CONTEXT_TOO_LARGE'?'JEV cevapsız: paket boyutu nedeniyle gönderilmedi':
+    called===false?'JEV cevapsız: istek gönderilmedi':'JEV cevapsız: geçerli karar alınamadı';
+  return {ok,called,decision:valid?rawDecision:null,rawDecision,status,reason,label};
+}
+function entryJevContextInvalid(j){
+  return j?.ok===false&&j?.called===false&&['JEV_REQUEST_CONTEXT_TOO_LARGE','JEV_CORE_CONTEXT_TOO_LARGE','JEV_CONTEXT_TRUTH_CHANGED'].includes(j.reason);
+}
+module.exports = { entryJevContextInvalid, entryJevReview, SCREEN_GATE, screenGate, screenGateOutcome, screenGateBook, kesifScreenVector, kesifScreenCases, kesifModelBook, committeeKarne, playbook, PB_TR, BRAIN, brainCase, brainScore, brainHit, pnlLedger, PNL_TRADE_TYPES, CC_STRATS, commandSummary, TOP3_SUBS, subOf, subJev, dailyLevels, earlyLongContext, earlyLongTrigger, earlyLongPlan, topShortTrigger, topShortPlan, riskSizedNotional, M5,
   writeTop3Settings, safeLeverage, excursions, buildLesson, repairLessons, experienceSummary, experienceFor, experienceVerdict, CAT_BUCKETS, EXPERIENCE_MIN_N, LAB_PRIORS, causeStats, similarCases, entryVector, learningForJev, similarForJev, LAB_FACTORS, TOP3_VERSION, DEFAULT_CONFIG, HOUR, readTop3Config, writeTop3Switches, hourlyFeatures, longSignal, shortSignal, entryLevels, countedSignalAt, RankBook, ranksFromTickers, median };

@@ -975,6 +975,21 @@ function compactLaneExperience(experience){
   return packed.packet;
 }
 
+// R195: actual lane history uses an array of prose summaries, unlike the old
+// string-only budget fixture. Remove only that duplicate when its measured
+// factors are present; retain every aggregate, counterexample and current fact.
+function compactLaneHistoryProse(experience){
+  const expanded=expandMarketPacket(experience),learning=expanded?.learning;
+  if(!learning||!Array.isArray(learning.factors)||!learning.factors.length||!Array.isArray(learning.text))return null;
+  const {text,...measured}=learning;
+  const digest={...expanded,learning:{...measured,textInMeasuredFields:true},
+    requestProjection:{...expanded.requestProjection,duplicateLearningProseOmitted:true,
+      learningTextLocation:'learning.factors and measured outcome counts',measuredLearningUnchanged:true}};
+  const packed=encodeMarketPacket(digest);
+  if(packed.encoded)packed.packet.wire.interpretation+=' Dictionary local to state.laneExperience; separate from coreMarketPacket.wire.';
+  return packed.encoded?packed.packet:digest;
+}
+
 function prepareDecisionRequest(input,opts={}){
   const pass=decisionPass(input);
   const hardCap=Number.isFinite(Number(opts?.maxBytes))&&Number(opts.maxBytes)>0?Math.min(Number(opts.maxBytes),MAX_DECISION_REQUEST_BYTES):MAX_DECISION_REQUEST_BYTES;
@@ -1008,6 +1023,10 @@ function prepareDecisionRequest(input,opts={}){
   if(byteSize(body)>targetCap&&state.laneExperience&&typeof state.laneExperience==='object'){
     state.laneExperience=compactLaneExperience(state.laneExperience);
     trimStepsApplied.push('LANE_EXPERIENCE_HISTORY_DIGEST');serialized=refresh();
+    if(byteSize(body)>targetCap){
+      const prose=compactLaneHistoryProse(state.laneExperience);
+      if(prose){state.laneExperience=prose;trimStepsApplied.push('LANE_HISTORY_DUPLICATE_PROSE');serialized=refresh();}
+    }
   }
   // Semantic optional-context projection. No blind string prefix slicing.
   if(byteSize(body)>targetCap){
